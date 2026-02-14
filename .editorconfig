@@ -1,0 +1,36 @@
+# default
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 4
+indent_style = space
+insert_final_newline = true
+max_line_length = 120
+tab_width = 4
+trim_trailing_whitespace = true
+
+# Indentation style for yaml/json
+[*.{yml,yaml,json,toml}]
+indent_style = space
+indent_size = 2
+quote_type = double
+
+# Indentation style for justfile
+[.justfile,justfile]
+indent_style = space
+indent_size = 2
+quote_type = double
+
+# Indentation style for python
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.sh,.envrc]
+indent_style = space
+indent_size= 2
+
+[*.md]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false

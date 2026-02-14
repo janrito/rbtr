@@ -1,0 +1,159 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+# -- Project metadata --
+
+[project]
+name = "rbtr"
+version = "2026.2.0-dev0"
+description = "rbtr — Interactive LLM-powered PR review workbench"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "click",
+  "kuzu",
+  "lancedb",
+  "pydantic-ai",
+  "PyGithub",
+  "pygit2",
+  "rich",
+  "textual",
+  "tree-sitter",
+  "tree-sitter-python",
+]
+
+[project.optional-dependencies]
+languages = [
+  "tree-sitter-bash",
+  "tree-sitter-c",
+  "tree-sitter-c-sharp",
+  "tree-sitter-cpp",
+  "tree-sitter-css",
+  "tree-sitter-go",
+  "tree-sitter-hcl",
+  "tree-sitter-html",
+  "tree-sitter-java",
+  "tree-sitter-javascript",
+  "tree-sitter-json",
+  "tree-sitter-kotlin",
+  "tree-sitter-ruby",
+  "tree-sitter-rust",
+  "tree-sitter-scala",
+  "tree-sitter-swift",
+  "tree-sitter-toml",
+  "tree-sitter-typescript",
+  "tree-sitter-yaml",
+]
+
+[project.scripts]
+rbtr = "rbtr.cli:main"
+
+[dependency-groups]
+dev = ["mypy", "pytest", "pytest-cov", "ruff"]
+
+# -- Ruff --
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "B",
+  "C4",
+  "DTZ",
+  "E",
+  "F",
+  "G",
+  "I",
+  "LOG",
+  "PT",
+  "RUF",
+  "SIM",
+  "UP",
+  "W",
+]
+ignore = ["E501", "W191"]
+unfixable = ["B"]
+
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.isort]
+known-first-party = ["rbtr"]
+combine-as-imports = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+# -- Mypy --
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "src"
+packages = ["rbtr"]
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+follow_imports = "normal"
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+# -- Pytest & Coverage --
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+minversion = "6.0"
+addopts = [
+  "--cov",
+  "--cov-report=term",
+  "--cov-report=markdown-append:cov-append.md",
+  "--strict-markers",
+  "--import-mode=importlib",
+]
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+# -- Versioning --
+
+[tool.bumpversion]
+current_version = "2026.2.0-dev0"
+parse = """(?x)                     # Verbose mode
+    (?P<release>                    # The release part
+        (?:[1-9][0-9]{3})\\.        # YYYY.
+        (?:1[0-2]|[1-9])            # MM.
+    )
+    \\.(?P<num>0|[1-9]\\d*)    # num version number
+    (?:
+         -(?P<pre_label>dev|stable)     # pre_release label
+        (?P<pre_release>0|[1-9]\\d*)    # pre_release version number
+    )?
+"""
+serialize = ["{release}.{num}-{pre_label}{pre_release}", "{release}.{num}"]
+search = "{current_version}"
+replace = "{new_version}"
+
+[tool.bumpversion.parts.release]
+calver_format = "{YYYY}.{MM}"
+
+[tool.bumpversion.parts.num]
+independent = false
+
+[tool.bumpversion.parts.pre_label]
+optional_value = "stable"
+values = ["dev", "stable"]
+
+[[tool.bumpversion.files]]
+glob = "**/pyproject.toml"

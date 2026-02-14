@@ -1,0 +1,51 @@
+# rbtr configuration
+# Copy this file to the root of any repository you want to review with rbtr.
+# All settings are optional — defaults are shown below.
+
+[llm]
+# Provider and model for the review assistant.
+# Supported providers: openai, anthropic, google, groq, mistral
+# provider = "anthropic"
+# model = "claude-sonnet-4-20250514"
+
+[embedding]
+# Provider and model for generating embeddings for the vector index.
+# provider = "openai"
+# model = "text-embedding-3-small"
+
+[github]
+# GitHub personal access token. Falls back to GITHUB_TOKEN env var.
+# token = ""
+
+[indexing]
+# Glob patterns for files/directories to exclude from indexing.
+# These are in addition to .gitignore rules, which are always respected.
+exclude = [
+  "*.lock",
+  "*.min.js",
+  "*.min.css",
+  "*.generated.*",
+  "vendor/",
+  "node_modules/",
+  "dist/",
+  "build/",
+  "__pycache__/",
+]
+
+# Maximum file size in bytes to index. Files larger than this are skipped.
+max_file_size = 1_048_576 # 1MB
+
+# Chunk size in lines for splitting files before embedding.
+chunk_size = 100
+
+# Overlap in lines between consecutive chunks.
+chunk_overlap = 20
+
+[graph]
+# Maximum depth for call chain traversal queries.
+max_call_depth = 5
+
+[storage]
+# Directory for cached data (relative to repo root).
+# This directory should be added to .gitignore.
+dir = ".rbtr"
