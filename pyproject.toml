@@ -12,16 +12,13 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-  "click",
-  "kuzu",
-  "lancedb",
+  "httpx",
+  "pydantic",
   "pydantic-ai",
   "PyGithub",
   "pygit2",
   "rich",
-  "textual",
-  "tree-sitter",
-  "tree-sitter-python",
+  "prompt-toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +48,7 @@ languages = [
 rbtr = "rbtr.cli:main"
 
 [dependency-groups]
-dev = ["mypy", "pytest", "pytest-cov", "ruff"]
+dev = ["mypy", "pytest", "pytest-cov", "pytest-mock", "ruff"]
 
 # -- Ruff --
 
@@ -75,6 +72,7 @@ select = [
   "LOG",
   "PT",
   "RUF",
+  "S",
   "SIM",
   "UP",
   "W",
@@ -82,6 +80,11 @@ select = [
 ignore = ["E501", "W191"]
 unfixable = ["B"]
 
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = [
+  "S101", # asserts allowed in tests...
+]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"

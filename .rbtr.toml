@@ -14,8 +14,8 @@
 # model = "text-embedding-3-small"
 
 [github]
-# GitHub personal access token. Falls back to GITHUB_TOKEN env var.
-# token = ""
+# Authentication is handled via GitHub device flow.
+# Run `rbtr login` to authenticate.
 
 [indexing]
 # Glob patterns for files/directories to exclude from indexing.
