@@ -343,8 +343,8 @@ def test_history_down_restores_original():
 def test_history_down_filters_forward():
     reader, state = _make_reader(["!git status", "/review", "!git log"])
     state.set_text("!git")
-    reader._history_up()   # → !git log
-    reader._history_up()   # → !git status
+    reader._history_up()  # → !git log
+    reader._history_up()  # → !git status
     reader._history_down()  # → !git log
     assert state.text == "!git log"
 

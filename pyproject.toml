@@ -13,12 +13,15 @@ license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
   "httpx",
-  "pydantic",
+  "pydantic>=2.12.5",
   "pydantic-ai",
+  "pydantic-settings[toml]>=2.12.0",
+  "tomli-w",
   "PyGithub",
   "pygit2",
   "rich",
   "prompt-toolkit>=3.0",
+  "minijinja>=2.15.1",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +51,12 @@ languages = [
 rbtr = "rbtr.cli:main"
 
 [dependency-groups]
+debug = [
+    "ipython>=9.10.0",
+]
 dev = ["mypy", "pytest", "pytest-cov", "pytest-mock", "ruff"]
 
-# -- Ruff --
+# -- ruff --
 
 [tool.ruff]
 target-version = "py313"
@@ -83,7 +89,10 @@ unfixable = ["B"]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "tests/**/*.py" = [
-  "S101", # asserts allowed in tests...
+  "S101", # asserts allowed in tests
+  "S105", # hardcoded password in test assertions
+  "S106", # hardcoded password in test arguments
+  "S107", # hardcoded password in test defaults
 ]
 
 [tool.ruff.lint.flake8-quotes]
@@ -96,7 +105,19 @@ combine-as-imports = true
 [tool.ruff.lint.mccabe]
 max-complexity = 12
 
-# -- Mypy --
+# -- rumdl --
+
+[tool.rumdl]
+exclude = ["cov-append.md"]
+
+[tool.rumdl.MD013]
+line_length = 88
+headings = false
+code_blocks = false
+tables = false
+
+
+# -- mypy --
 
 [tool.mypy]
 python_version = "3.13"

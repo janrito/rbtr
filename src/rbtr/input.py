@@ -35,7 +35,10 @@ from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
-from rbtr.constants import DOUBLE_CTRL_C_WINDOW, HISTORY_PATH, SHELL_COMPLETION_TIMEOUT
+from rbtr.config import config
+from rbtr.constants import RBTR_DIR
+
+HISTORY_PATH = RBTR_DIR / "history"
 
 # (value, description) — a single completion candidate.
 type Completions = list[tuple[str, str]]
@@ -68,30 +71,39 @@ def replace_shell_word(text: str, replacement: str) -> str:
 def complete_path(word: str) -> Completions:
     """Complete a filesystem path.  Returns ``(full_path, "")`` pairs.
 
-    Values include the full relative path so callers can use them as
-    direct replacements for the word being completed — no heuristic
-    prefix reconstruction needed.
+    Values include the full path so callers can use them as direct
+    replacements for the word being completed.
 
+    Handles ``~`` (home directory), absolute paths, and relative paths.
     Hidden entries (starting with ``.``) are only shown when *word*
     itself starts with a dot (or contains ``/.``).
     """
-    if not word:
+    # Expand ~ to the real home directory for filesystem operations,
+    # but keep the original prefix for display values.
+    expanded = os.path.expanduser(word) if word.startswith("~") else word
+
+    if not expanded:
         dir_path, partial = ".", ""
-    elif word.endswith("/"):
-        dir_path, partial = word.rstrip("/"), ""
-    elif "/" in word:
-        dir_path, partial = word.rsplit("/", 1)
+        display_dir = ""
+    elif expanded.endswith("/"):
+        dir_path = expanded.rstrip("/") or "/"
+        partial = ""
+        display_dir = word.rstrip("/") + "/"  # preserve ~/... in display
+    elif "/" in expanded:
+        dir_path, partial = expanded.rsplit("/", 1)
+        dir_path = dir_path or "/"
+        display_prefix, _ = word.rsplit("/", 1)
+        display_dir = display_prefix + "/"
     else:
-        dir_path, partial = ".", word
+        dir_path, partial = ".", expanded
+        display_dir = ""
 
     try:
-        entries = os.listdir(dir_path or ".")
+        entries = os.listdir(dir_path)
     except OSError:
         return []
 
     show_hidden = partial.startswith(".")
-    # Prefix to prepend so the value is a complete relative path.
-    prefix = (dir_path + "/") if dir_path != "." else ""
 
     matches: Completions = []
     for entry in sorted(entries):
@@ -99,7 +111,7 @@ def complete_path(word: str) -> Completions:
             continue
         if entry.startswith(".") and not show_hidden:
             continue
-        full = prefix + entry
+        full = display_dir + entry
         if os.path.isdir(os.path.join(dir_path, entry)):
             full += "/"
         matches.append((full, ""))
@@ -123,6 +135,7 @@ def complete_bash(cmd_line: str) -> Completions:
     has no registered completion function, or bash is not available.
     Timeout prevents runaway completions from blocking the UI.
     """
+    # Deferred: input.py is a pure utility module — keep top-level imports minimal.
     import subprocess
 
     parts = cmd_line.split()
@@ -148,7 +161,7 @@ def complete_bash(cmd_line: str) -> Completions:
             ],
             capture_output=True,
             text=True,
-            timeout=SHELL_COMPLETION_TIMEOUT,
+            timeout=config.tui.shell_completion_timeout,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
@@ -182,7 +195,7 @@ def complete_executables(prefix: str) -> Completions:
 
 def query_shell_completions(
     cmd_line: str,
-    max_results: int = 15,
+    max_results: int = config.tui.max_completions,
 ) -> Completions:
     """Return completions for a shell command line.
 
@@ -333,11 +346,16 @@ class InputState:
         - Single match → auto-accept (replace word + append suffix).
         - Multiple matches → extend common prefix, show menu.
         - No matches → clear menu.
+
+        Truncates to ``config.tui.max_completions`` before displaying.
         """
         if len(matches) == 1:
             self.accept_completion(matches[0][0], with_suffix=True)
             self.clear_completions()
         elif matches:
+            # Compute common prefix from ALL matches before truncating
+            # so we don't mislead (e.g. extending to "c" when only
+            # claude/chatgpt are in the first page but deepinfra exists).
             values = [m[0] for m in matches]
             prefix = os.path.commonprefix(values)
             text = self.buffer.text
@@ -353,7 +371,7 @@ class InputState:
                 )
                 if len(prefix) > len(completing):
                     self.set_text("!" + replace_shell_word(cmd_line, prefix))
-            self.completions = matches
+            self.completions = matches[: config.tui.max_completions]
             self.completion_index = -1
         else:
             self.clear_completions()
@@ -404,7 +422,7 @@ class InputReader:
         return self
 
     def __exit__(self, *args: object) -> None:
-        signal.signal(signal.SIGINT, self._old_sigint)  # type: ignore[arg-type]
+        signal.signal(signal.SIGINT, self._old_sigint)  # type: ignore[arg-type]  # restoring saved handler
         if self._old_settings is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_settings)
 
@@ -473,18 +491,19 @@ class InputReader:
         # ── Ctrl keys / custom actions ───────────────────────────────
 
         if key == Keys.ControlC:
+            now = time.monotonic()
+            # Double Ctrl+C always exits, whether a task is active or not.
+            if now - state.last_ctrl_c < config.tui.double_ctrl_c_window:
+                state.submitted.put(None)
+                state.quit = True
+                return
+            state.last_ctrl_c = now
             # Call cancel directly from the reader thread — no
             # round-trip through the main loop polling cycle.
             if state.on_cancel is not None:
                 state.on_cancel()
             state.cancel_requested = True
-            now = time.monotonic()
             if not state.active_task:
-                if now - state.last_ctrl_c < DOUBLE_CTRL_C_WINDOW:
-                    state.submitted.put(None)
-                    state.quit = True
-                    return
-                state.last_ctrl_c = now
                 state.reset()
                 state.clear_completions()
             return

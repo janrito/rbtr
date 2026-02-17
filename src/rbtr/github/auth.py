@@ -1,40 +1,56 @@
 """GitHub device flow authentication for rbtr."""
 
-import stat
+from __future__ import annotations
+
+import threading
 import time
+from typing import TypedDict
 
 import httpx
 
 from rbtr import RbtrError
-from rbtr.constants import (
-    GITHUB_CLIENT_ID,
-    GITHUB_DEVICE_CODE_URL,
-    GITHUB_OAUTH_URL,
-    TOKEN_PATH,
-)
+from rbtr.config import config
 
 
-def request_device_code() -> dict[str, str]:
-    """Start the device flow. Returns device_code, user_code, verification_uri, interval."""
-    with httpx.Client() as client:
-        resp = client.post(
-            GITHUB_DEVICE_CODE_URL,
-            data={"client_id": GITHUB_CLIENT_ID, "scope": "repo read:org"},
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[no-any-return]
+class DeviceCodeResponse(TypedDict):
+    """Shape of GitHub's device code endpoint response."""
+
+    device_code: str
+    user_code: str
+    verification_uri: str
+    interval: str  # GitHub returns this as a string
 
 
-def poll_for_token(device_code: str, interval: int) -> str:
-    """Poll GitHub until the user authorizes or the code expires. Returns access token."""
+def request_device_code() -> DeviceCodeResponse:
+    """Start the device flow."""
+    resp = httpx.post(
+        config.providers.github.device_code_url,
+        data={"client_id": config.providers.github.client_id, "scope": "repo read:org"},
+        headers={"Accept": "application/json"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()  # type: ignore[return-value]  # httpx returns Any, we know shape matches TypedDict
+
+
+def poll_for_token(device_code: str, interval: int, cancel: threading.Event | None = None) -> str:
+    """Poll GitHub until the user authorizes or the code expires.
+
+    If *cancel* is set, raises ``RbtrError`` promptly.
+    """
     with httpx.Client() as client:
         while True:
-            time.sleep(interval)
+            # Interruptible sleep — wake early on cancel
+            if cancel is not None:
+                if cancel.wait(timeout=interval):
+                    raise RbtrError("Cancelled.")
+            else:
+                time.sleep(interval)
+
             resp = client.post(
-                GITHUB_OAUTH_URL,
+                config.providers.github.oauth_url,
                 data={
-                    "client_id": GITHUB_CLIENT_ID,
+                    "client_id": config.providers.github.client_id,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },
@@ -43,39 +59,16 @@ def poll_for_token(device_code: str, interval: int) -> str:
             resp.raise_for_status()
             body: dict[str, str] = resp.json()
 
-            error = body.get("error")
-            if not error:
-                return body["access_token"]
-
-            if error == "authorization_pending":
-                continue
-            if error == "slow_down":
-                interval += 5
-                continue
-            if error == "expired_token":
-                raise RbtrError("Device code expired. Please try logging in again.")
-            if error == "access_denied":
-                raise RbtrError("Login cancelled by user.")
-            raise RbtrError(f"Unexpected error during login: {error}")
-
-
-def save_token(token: str) -> None:
-    """Write token to disk with restricted permissions (0600)."""
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.write_text(token)
-    TOKEN_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
-
-
-def load_token() -> str | None:
-    """Load a stored token from disk. Returns None if not found or empty."""
-    if TOKEN_PATH.exists():
-        token = TOKEN_PATH.read_text().strip()
-        if token:
-            return token
-    return None
-
-
-def clear_token() -> None:
-    """Remove the stored token file."""
-    if TOKEN_PATH.exists():
-        TOKEN_PATH.unlink()
+            match body.get("error"):
+                case None:
+                    return body["access_token"]
+                case "authorization_pending":
+                    continue
+                case "slow_down":
+                    interval += 5
+                case "expired_token":
+                    raise RbtrError("Device code expired. Please try logging in again.")
+                case "access_denied":
+                    raise RbtrError("Login cancelled by user.")
+                case error:
+                    raise RbtrError(f"Unexpected error during login: {error}")

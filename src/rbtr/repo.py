@@ -47,16 +47,17 @@ def parse_github_remote(repo: pygit2.Repository) -> tuple[str, str]:
 
     # Try origin first
     for remote in remotes:
-        if remote.name == "origin":
+        if remote.name == "origin" and remote.url is not None:
             result = _parse_github_url(remote.url)
             if result is not None:
                 return result
 
     # Fall back to any GitHub remote
     for remote in remotes:
-        result = _parse_github_url(remote.url)
-        if result is not None:
-            return result
+        if remote.url is not None:
+            result = _parse_github_url(remote.url)
+            if result is not None:
+                return result
 
     raise RbtrError("No GitHub remote found. rbtr requires a repository with a GitHub remote.")
 

@@ -45,6 +45,15 @@ class MarkdownOutput(BaseModel):
     text: str
 
 
+class TextDelta(BaseModel):
+    """A streaming text chunk from an LLM response.
+
+    The UI accumulates deltas and renders the growing markdown.
+    """
+
+    delta: str
+
+
 class LinkOutput(BaseModel):
     """A message containing a Rich markup link."""
 
@@ -71,5 +80,12 @@ class TaskFinished(BaseModel):
 
 # Union of all event types the UI needs to handle.
 Event = (
-    TaskStarted | Output | TableOutput | MarkdownOutput | LinkOutput | FlushPanel | TaskFinished
+    TaskStarted
+    | Output
+    | TableOutput
+    | MarkdownOutput
+    | TextDelta
+    | LinkOutput
+    | FlushPanel
+    | TaskFinished
 )

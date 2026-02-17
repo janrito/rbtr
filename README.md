@@ -1,153 +1,270 @@
 # rbtr
 
-Interactive LLM-powered PR review workbench for the terminal.
+An interactive, terminal-based PR review workbench powered by LLMs.
+rbtr sits alongside you while you review a PR — it helps you reason
+through changes, explore the code, and write clear feedback for the
+author.
 
-rbtr runs inside a git repository, connects to GitHub, and gives you an interactive TUI for reviewing pull requests and branches. An LLM helps you understand changes, trace impact, and build a narrative — but you make all the decisions about what to comment on the PR.
-
-## Install
-
-Requires Python ≥ 3.13.
-
-```bash
-uv pip install -e .
-```
-
-## Usage
+## Quick start
 
 ```bash
-# Launch in the current repo
+# Install (requires Python 3.13+)
+uv tool install -e .
+
+# Launch in any git repo
 rbtr
 
-# Jump straight to a PR
+# Or jump straight to a PR
 rbtr 42
 ```
 
-The TUI opens immediately. On startup it validates the repo, authenticates with GitHub (if a token is stored), and lists open PRs and branches.
+rbtr opens an interactive session in your terminal. Type plain text
+to talk to the LLM, prefix with `/` for commands, or prefix with `!`
+to run shell commands without leaving the session:
 
-### Input modes
+```text
+you: explain the retry logic in src/client.py
+claude/claude-sonnet-4-20250514: The retry logic uses exponential backoff…
 
-| Prefix   | What it does              | Example                 |
-| -------- | ------------------------- | ----------------------- |
-| _(none)_ | Send a message to the LLM | `explain this change`   |
-| `/`      | Run an internal command   | `/review 42`            |
-| `!`      | Run a shell command       | `!git log --oneline -5` |
+you: !git diff HEAD~3 --stat
+ src/client.py | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
 
-### Commands
+you: /review 42
+Fetching PR #42…
+```
 
-| Command        | Description                             |
-| -------------- | --------------------------------------- |
-| `/help`        | Show available commands                 |
-| `/review`      | List open PRs and branches              |
-| `/review <id>` | Select a PR by number or branch by name |
-| `/login`       | Authenticate with GitHub (device flow)  |
-| `/quit`        | Exit (also `/q`)                        |
+## Providers
 
-### Authentication
+rbtr connects to LLMs through multiple providers. Use `/connect`
+to authenticate:
 
-rbtr uses GitHub's OAuth device flow. Run `/login` and follow the instructions — open the URL in your browser and enter the code. The token is stored at `~/.config/rbtr/token`.
+| Provider | Auth               | Command                                |
+| -------- | ------------------ | -------------------------------------- |
+| Claude   | OAuth (Pro/Max)    | `/connect claude`                      |
+| ChatGPT  | OAuth (Plus/Pro)   | `/connect chatgpt`                     |
+| OpenAI   | API key            | `/connect openai sk-...`               |
+| Endpoint | URL + optional key | `/connect endpoint <name> <url> [key]` |
 
-If a token is already stored from a previous session, rbtr uses it automatically on startup.
+Multiple providers can be connected at the same time. Tab on
+`/connect` autocompletes provider names.
 
-## Architecture
+### Endpoints
 
-### Engine / UI separation
+Any OpenAI-compatible API can be used as a provider:
 
-Execution (`Engine`) and display (`UI`) are fully separated. They communicate through a `queue.Queue[Event]` of typed Pydantic models defined in `events.py`. The Engine emits events (`TaskStarted`, `Output`, `TableOutput`, `TaskFinished`, etc.) — it never touches the display. The UI consumes events and renders them — it never runs commands or does I/O. A slow command doesn't block the UI. UI rendering doesn't delay execution.
+```text
+you: /connect endpoint deepinfra https://api.deepinfra.com/v1/openai di-...
+you: /connect endpoint ollama http://localhost:11434/v1
+you: /model deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct
+```
 
-### Rich Live TUI
+### GitHub
 
-All rendering goes through Rich (`Console`, `Live`, `Text`, `Table`, `Markdown`, `Rule`). One `Live` context runs for the entire session. The main thread owns the Live loop — it polls for input, drains engine events, and triggers completion. Refresh rate and poll interval are defined by `REFRESH_PER_SECOND` and `POLL_INTERVAL` in `constants.py`, targeting worst-case keystroke-to-display latency under 100ms.
+rbtr uses GitHub to fetch PRs and branches for review. Authenticate
+with `/connect github` (device flow). This is separate from LLM
+providers — it gives rbtr read access to your repositories.
 
-### Input handling (prompt_toolkit headless)
+## Models
 
-Input is handled by prompt_toolkit running headlessly — it never writes to the terminal. `Vt100Parser` parses raw keystrokes from a daemon reader thread. `Buffer(multiline=True)` manages the editing state (cursor, undo, word boundaries). The main thread reads `InputState.text` and `.cursor` for Rich rendering.
+Models use `<provider>/<model-id>` format:
 
-Key bindings: Enter submits, Alt+Enter inserts a newline, Up/Down navigate within multiline text (history cycling at document boundaries), standard readline shortcuts (Ctrl+A/E/W/U/K). History persists to `~/.config/rbtr/history` on every submit.
+```text
+/model claude/claude-sonnet-4-20250514
+/model chatgpt/gpt-5.2-codex
+/model openai/gpt-4o
+/model deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct
+```
 
-### Threading model
+### Listing models
 
-Tasks (commands, shell, LLM, setup) run in daemon threads via `_start_task()`. The task thread emits events to the queue. The main loop drains events, updates the active panel, and when the task finishes, prints the finalized panel to native scrollback.
+`/model` with no argument shows all models from connected providers,
+marking the active one:
 
-### Native terminal scrollback
+```text
+you: /model
+  claude:
+    claude/claude-sonnet-4-20250514 ◂
+    claude/claude-opus-4-20250514
+  chatgpt:
+    chatgpt/o3-pro
+    chatgpt/gpt-5.2-codex
+  deepinfra:
+    deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct
+```
 
-Finalized content (completed panels, input echoes) is printed to the terminal's native scrollback via `console.print()`. The Live region stays small — only the active task panel + input chrome. The user scrolls back through the entire session using their terminal's normal scrolling (Shift+PgUp, mouse wheel, tmux, etc.).
+Providers that don't expose a model listing show a hint instead:
 
-### History blocks
+```text
+  ollama:
+    /model ollama/<model-id>
+```
 
-Every history block is built by `_history_panel(variant, content)`. Variants (`input`, `active`, `succeeded`, `failed`) are defined in `_HISTORY_STYLES`. Blocks use background-colour bands via `Padding` instead of `Panel` borders — this keeps copy-paste clean (no box-drawing characters).
+The model list is cached at startup and refreshed on every `/connect`.
 
-### Visual conventions
+### Switching models mid-conversation
 
-- **User input**: bold cyan `> text`
-- **System output**: dim style
-- **LLM output**: rendered as Markdown
-- **Errors**: bold red. **Warnings**: yellow.
-- **Links**: Rich markup with OSC 8 terminal hyperlinks
+Conversation history is preserved when you switch models. PydanticAI's
+message format is provider-agnostic, so previous messages are converted
+automatically when sent to the new provider:
 
-### Shell completion
+```text
+you: explain the retry logic in src/client.py
+claude/claude-sonnet-4-20250514: The retry logic uses exponential backoff…
 
-Tab completion for `!commands` uses a three-tier pipeline (defined in `input.py`, run in a background thread):
+you: /model chatgpt/o3-pro
+Model set to chatgpt/o3-pro
 
-1. **Bash programmable completion** — sources bash-completion scripts via `bash -c` (non-interactive, no terminal parsing). Handles subcommands (`git status`), flags (`--verbose`), dynamic values (branch names, remotes). Searches well-known directories across Homebrew, apt, Nix, MacPorts, Snap.
-2. **Filesystem path** — deterministic `os.listdir` for file/directory arguments.
-3. **PATH executable search** — for command names (first word).
+you: what do you think about adding jitter?
+chatgpt/o3-pro: Based on the retry logic we discussed…
+```
 
-Each tier falls through on empty results. Single match auto-accepts; multiple matches extend the common prefix and show a cycling menu.
+Only `/new` clears history (explicit user action). The active model is
+persisted to `config.toml` across sessions.
 
-### Shell output truncation
+## Commands
 
-Shell output is truncated after `SHELL_MAX_LINES`. When truncated, the panel shows `… N more lines (ctrl+o to expand)`. Ctrl+O prints the full output. Only the most recent shell output is retained for expansion.
+| Command                | Description                             |
+| ---------------------- | --------------------------------------- |
+| `/help`                | Show available commands                 |
+| `/review`              | List open PRs and branches              |
+| `/review <id>`         | Select a PR or branch for review        |
+| `/connect <service>`   | Authenticate with a service             |
+| `/model`               | List available models from all providers|
+| `/model <provider/id>` | Set the active model                    |
+| `/new`                 | Start a new conversation                |
+| `/quit`                | Exit (also `/q`)                        |
 
-### GitHub integration
+## Shell commands
 
-Authentication (device flow) and API operations live in `src/rbtr/github/`. Auth functions are public primitives. Client functions receive a `Github` instance as a parameter. httpx is used for direct HTTP (e.g., device flow); PyGithub handles its own HTTP internally.
+Prefix any command with `!` to run it in a shell without leaving rbtr:
+
+```text
+you: !git log --oneline -5
+you: !rg "TODO" src/
+you: !cat src/client.py
+```
+
+Long output is truncated — press **Ctrl+O** to expand it.
+
+## Tab completion
+
+Tab works across all input modes:
+
+| Context            | Example             | Completes                                |
+| ------------------ | ------------------- | ---------------------------------------- |
+| Slash commands     | `/rev` → `/review`  | Command names                            |
+| Command arguments  | `/connect c`        | Provider names, model IDs                |
+| Shell commands     | `!git ch`           | Bash programmable completion (branches, flags) |
+| File paths         | `!cat ~/Doc`        | Directories and files (expands `~`)      |
+| Executables        | `!my`               | Commands found in `PATH`                 |
+
+A single match auto-accepts; multiple matches extend the common prefix
+and show a menu (capped at 20 suggestions).
+
+## Key bindings
+
+| Key       | Action                                   |
+| --------- | ---------------------------------------- |
+| Enter     | Submit input                             |
+| Alt+Enter | Insert newline (multiline input)         |
+| Tab       | Autocomplete                             |
+| Up/Down   | Browse history or navigate multiline     |
+| Ctrl+C    | Cancel running task (double-tap to quit) |
+| Ctrl+O    | Expand truncated shell output            |
+
+## Usage display
+
+After the first LLM response, the footer shows token usage and context
+information:
+
+```text
+ owner/repo                                    claude/claude-sonnet-4-20250514
+ PR #42 · feature-branch   |7|  12% of 200k  ↑ 24.3k  ↓ 1.2k  ↯ 18.0k  $0.0450
+```
+
+| Field        | Example    | Description                                            |
+| ------------ | ---------- | ------------------------------------------------------ |
+| `\|7\|`      |            | Messages in this conversation                          |
+| `12%`        |            | Last request size as % of context window               |
+| `of 200k`    |            | Model's context window size                            |
+| `↑ 24.3k`    |            | Cumulative input tokens                                |
+| `↓ 1.2k`     |            | Cumulative output tokens                               |
+| `↯ 18.0k`    |            | Cumulative cache-read tokens (hidden when zero)        |
+| `$0.0450`    |            | Cumulative cost                                        |
+
+**Colour signals help you manage context:**
+
+- **Message count** — gray (≤ 25, fresh), yellow (26–50, consider `/new`),
+  red (51+, very long).
+- **Context %** — green (< 70%), yellow (70–89%), red (90%+).
+- **Dimmed values** indicate the model didn't report pricing metadata
+  (common with custom endpoints). Context window falls back to 128k
+  and cost shows `$0.0000`.
+
+`/new` resets all counters.
+
+## Configuration
+
+Two TOML files under `~/.config/rbtr/`:
+
+### `config.toml` — preferences and endpoint URLs
+
+```toml
+model = "claude/claude-sonnet-4-20250514"
+
+[endpoints.deepinfra]
+base_url = "https://api.deepinfra.com/v1/openai"
+
+[endpoints.ollama]
+base_url = "http://localhost:11434/v1"
+```
+
+Config values can also be set via environment variables with
+`RBTR_` prefix (e.g. `RBTR_MODEL`).
+
+### `creds.toml` — tokens and API keys (0600 permissions)
+
+```toml
+github_token = "ghp_..."
+openai_api_key = "sk-..."
+
+[claude]
+access_token = "..."
+refresh_token = "..."
+expires_at = 1739836725.0
+
+[chatgpt]
+access_token = "..."
+refresh_token = "..."
+expires_at = 1739836725.0
+account_id = "..."
+
+[endpoint_keys]
+deepinfra = "..."
+```
+
+OAuth tokens (Claude, ChatGPT) are refreshed automatically when
+they expire. You never need to edit `creds.toml` by hand — use
+`/connect` instead.
+
+## Known issues
+
+- **Cross-provider reasoning history:** PydanticAI stores
+  provider-specific reasoning IDs (e.g. `rs_*`) in conversation
+  history. Switching models can cause 400 errors when the new provider
+  rejects those IDs. rbtr works around this by demoting thinking parts
+  to plain text wrapped in `<thinking>` tags and retrying — revisit
+  once PydanticAI fixes upstream.
 
 ## Development
 
-Requires [just](https://github.com/casey/just) as a command runner.
-
 ```bash
-# Install dev dependencies
-uv sync
-
-# Run all checks (lint + typecheck + test)
-just check
-
-# Individual steps
-just lint          # ruff check + format check
-just typecheck     # mypy
-just test          # pytest
-
-# Auto-fix lint issues and reformat
-just fmt
-
-# Build the package
-just build
+uv sync        # Install dependencies
+just check     # Lint + typecheck + test
+just fmt       # Auto-fix and format
 ```
 
-### Release workflow
+## License
 
-```bash
-just pre-release   # bump to next pre-release (e.g. 2026.2.1-dev0 → dev1, or 2026.2.0 → 2026.2.1-dev0)
-just release       # bump to stable (e.g. 2026.2.1-dev0 → 2026.2.1)
-```
-
-Both release commands also run `just build` automatically. Pass extra flags with `just release --dry-run`.
-
-## Project structure
-
-```sh
-src/rbtr/
-├── __init__.py          # RbtrError
-├── cli.py               # Entry point: parse args, launch TUI
-├── tui.py               # Rich Live app: Engine (daemon threads) + UI (main thread)
-├── input.py             # Input handling (prompt_toolkit headless) + completion pipeline
-├── events.py            # Typed Pydantic events for Engine→UI communication
-├── constants.py         # All constants
-├── styles.py            # Rich theme + style constants
-├── models.py            # PRSummary, BranchSummary
-├── repo.py              # pygit2 operations
-└── github/
-    ├── auth.py          # OAuth device flow
-    └── client.py        # GitHub API operations
-```
+MIT

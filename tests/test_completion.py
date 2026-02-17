@@ -271,9 +271,7 @@ def _wait_for_completion(ui, timeout=2.0):
 
 def test_complete_shell_applies_results(mocker):
     ui = _make_ui("!git sta")
-    mocker.patch(
-        "rbtr.tui.query_shell_completions", return_value=[("status", ""), ("stash", "")]
-    )
+    mocker.patch("rbtr.tui.query_shell_completions", return_value=[("status", ""), ("stash", "")])
     ui._complete_shell()
     _wait_for_completion(ui)
     assert ui.inp.completions == [("status", ""), ("stash", "")]
@@ -404,6 +402,30 @@ def test_path_values_are_full_paths(tmp_path):
     (sub / "main.py").write_text("x")
     results = complete_path(str(sub) + "/")
     assert results[0][0] == str(sub / "main.py")
+
+
+def test_path_tilde_expands_home():
+    """~ expands to the home directory but display values keep ~."""
+    results = complete_path("~/")
+    assert len(results) > 0
+    assert all(r[0].startswith("~/") for r in results)
+    # At least one common home directory entry should be present
+    names = [r[0] for r in results]
+    assert any(n.startswith("~/D") for n in names)  # Desktop, Documents, Downloads
+
+
+def test_path_tilde_partial():
+    """~/D completes to home directory entries starting with D."""
+    results = complete_path("~/D")
+    assert len(results) > 0
+    assert all(r[0].startswith("~/D") for r in results)
+
+
+def test_path_absolute_root():
+    """Absolute paths like /Use complete against the root filesystem."""
+    results = complete_path("/Use")
+    assert len(results) == 1
+    assert results[0][0] == "/Users/"
 
 
 # ── complete_executables — PATH search ───────────────────────────────

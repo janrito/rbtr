@@ -65,7 +65,7 @@ THEME = Theme(
         "rbtr.success": "#D5FF80",
         # ── Chrome ───────────────────────────────────────────────────
         "rbtr.rule": "#282E3B",
-        "rbtr.footer": "#707A8C",
+        "rbtr.footer": "#565E6B",
         # ── Completion menu ──────────────────────────────────────────
         "rbtr.completion.selected": "bold #5CCFE6",
         "rbtr.completion.name": "bold #73D0FF",
@@ -75,6 +75,12 @@ THEME = Theme(
         # ── Inline markup ────────────────────────────────────────────
         "rbtr.link": "bold #5CCFE6",
         "rbtr.code": "bold #FFCD66",
+        # ── Usage / context ───────────────────────────────────────────
+        "rbtr.usage.ok": "dim #D5FF80",
+        "rbtr.usage.warning": "dim #FFCD66",
+        "rbtr.usage.critical": "dim #F28779",
+        "rbtr.usage.uncertain": "#282E3B",
+        "rbtr.usage.messages": "dim #707A8C",
         # ── Output styles (travel through events) ────────────────────
         "rbtr.out.dim": "#707A8C",
         "rbtr.out.dim_italic": "italic #707A8C",
@@ -113,6 +119,12 @@ BG_ACTIVE = "rbtr.bg.active"
 BG_SUCCEEDED = "rbtr.bg.succeeded"
 BG_FAILED = "rbtr.bg.failed"
 BG_QUEUED = "rbtr.bg.queued"
+
+USAGE_OK = "rbtr.usage.ok"
+USAGE_WARNING = "rbtr.usage.warning"
+USAGE_CRITICAL = "rbtr.usage.critical"
+USAGE_UNCERTAIN = "rbtr.usage.uncertain"
+USAGE_MESSAGES = "rbtr.usage.messages"
 
 STYLE_DIM = "rbtr.out.dim"
 STYLE_DIM_ITALIC = "rbtr.out.dim_italic"

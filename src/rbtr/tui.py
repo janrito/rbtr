@@ -21,7 +21,7 @@ import threading
 import time
 from typing import ClassVar, Literal
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.padding import Padding
@@ -30,12 +30,9 @@ from rich.spinner import SPINNERS
 from rich.table import Table
 from rich.text import Text
 
-from rbtr.constants import (
-    POLL_INTERVAL,
-    REFRESH_PER_SECOND,
-    SHELL_MAX_COMPLETIONS,
-)
-from rbtr.engine import _COMMANDS, Engine, Session
+from rbtr.config import config
+from rbtr.engine import Command, Engine, Service, Session, TaskType
+from rbtr.engine.model import get_models
 from rbtr.events import (
     Event,
     FlushPanel,
@@ -45,12 +42,14 @@ from rbtr.events import (
     TableOutput,
     TaskFinished,
     TaskStarted,
+    TextDelta,
 )
 from rbtr.input import (
     InputReader,
     InputState,
     query_shell_completions,
 )
+from rbtr.models import PRTarget
 from rbtr.styles import (
     BG_ACTIVE,
     BG_FAILED,
@@ -73,11 +72,22 @@ from rbtr.styles import (
     STYLE_SHELL_STDERR,
     STYLE_WARNING,
     THEME,
+    USAGE_CRITICAL,
+    USAGE_MESSAGES,
+    USAGE_OK,
+    USAGE_UNCERTAIN,
+    USAGE_WARNING,
+)
+from rbtr.usage import (
+    MessageCountStatus,
+    ThresholdStatus,
+    format_cost,
+    format_tokens,
 )
 
 _SPINNER = SPINNERS["dots8"]
-_SPINNER_FRAMES: str = _SPINNER["frames"]
-_SPINNER_INTERVAL: float = _SPINNER["interval"] / 1000  # ms → seconds
+_SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # rich Spinner dict has untyped values
+_SPINNER_INTERVAL: float = _SPINNER["interval"] / 1000  # type: ignore[operator]  # rich Spinner dict has untyped values
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -112,22 +122,81 @@ class UI:
         self._pr_number = pr_number
         self._live: Live | None = None
         # Current active panel state — built from events, never from engine state
-        self._active_lines: list[object] = []
+        self._active_lines: list[RenderableType] = []
+        self._streaming_text: str = ""  # accumulates TextDelta chunks
+        self._streaming_md: RenderableType | None = None  # identity sentinel for replacement
         self._active_had_error = False
         self._active_task = False
         self._expandable = False  # True while Ctrl+O can expand last shell output
         self._expand_hidden: int = 0  # number of hidden lines
         # Last finished panel — stays in Live until finalized by next input.
-        self._pending_lines: list[object] | None = None
+        self._pending_lines: list[RenderableType] | None = None
         self._pending_variant: Literal["succeeded", "failed"] = "succeeded"
         self._pending_commands: list[str] = []
 
     # ── Completion helpers ────────────────────────────────────────────
 
     def _complete_slash(self) -> None:
-        """Generate completions for slash commands."""
-        matches = [(c, _COMMANDS[c]) for c in _COMMANDS if c.startswith(self.inp.text)]
+        """Generate completions for slash commands and their arguments."""
+        text = self.inp.text
+        parts = text.split(None, 1)
+        raw_cmd = parts[0] if parts else text
+
+        # Complete arguments for a known command
+        try:
+            cmd = Command(raw_cmd)
+        except ValueError:
+            cmd = None
+
+        if cmd and (len(parts) == 2 or (len(parts) == 1 and text.endswith(" "))):
+            arg = parts[1] if len(parts) == 2 else ""
+            match cmd:
+                case Command.CONNECT:
+                    matches = [
+                        (f"/connect {s.key}", s.description)
+                        for s in Service
+                        if s.key.startswith(arg)
+                    ]
+                    self.inp.apply_completions(matches)
+                case Command.MODEL:
+                    self._complete_model(arg)
+            return
+
+        # Complete the command name
+        matches = [(c.slash, c.description) for c in Command if c.slash.startswith(text)]
         self.inp.apply_completions(matches)
+
+    def _complete_model(self, partial: str) -> None:
+        """Complete a model ID argument for /model.
+
+        Uses the cached model list from ``session.cached_models``.
+        If the cache is empty, fetches in a background thread.
+        """
+        cached = self._engine.session.cached_models
+        if cached:
+            flat = [m for _, models in cached for m in models]
+            matches = [(f"/model {m}", "") for m in flat if m.startswith(partial)]
+            self.inp.apply_completions(matches)
+            return
+
+        # No cache — fetch in background thread
+        snapshot = self.inp.text
+
+        def _run() -> None:
+            if self.inp.text != snapshot:
+                return
+            try:
+                all_models = get_models(self._engine)
+            except Exception:
+                return
+            if self.inp.text != snapshot:
+                return
+            flat = [m for _, models in all_models for m in models]
+            matches = [(f"/model {m}", "") for m in flat if m.startswith(partial)]
+            self.inp.apply_completions(matches)
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
 
     def _complete_shell(self) -> None:
         """Complete a shell command in a background thread.
@@ -145,7 +214,7 @@ class UI:
         def _run() -> None:
             if self.inp.text != snapshot:
                 return
-            matches = query_shell_completions(cmd_line, SHELL_MAX_COMPLETIONS)
+            matches = query_shell_completions(cmd_line)
             if self.inp.text != snapshot:
                 return
             self.inp.apply_completions(matches)
@@ -172,6 +241,8 @@ class UI:
                 self._active_lines.clear()
                 self._active_had_error = False
                 self._active_task = True
+                self._streaming_text = ""
+                self._streaming_md = None
             case Output(text=text, style=style):
                 if "error" in style:
                     self._active_had_error = True
@@ -184,17 +255,25 @@ class UI:
             case TableOutput() as te:
                 table = Table(title=te.title, show_lines=False, style=te.style)
                 for col in te.columns:
-                    kwargs: dict[str, object] = {}
-                    if col.width is not None:
-                        kwargs["width"] = col.width
-                    if col.style:
-                        kwargs["style"] = col.style
-                    table.add_column(col.header, **kwargs)
+                    table.add_column(
+                        col.header,
+                        width=col.width if col.width is not None else None,
+                        style=col.style or "",
+                    )
                 for row in te.rows:
                     table.add_row(*row)
                 self._active_lines.append(table)
             case MarkdownOutput(text=text):
                 self._active_lines.append(Markdown(text))
+            case TextDelta(delta=delta):
+                self._streaming_text += delta
+                # Replace the last active line (the growing markdown)
+                # with the updated accumulated text.
+                if self._active_lines and self._active_lines[-1] is self._streaming_md:
+                    self._active_lines[-1] = Markdown(self._streaming_text)
+                else:
+                    self._active_lines.append(Markdown(self._streaming_text))
+                self._streaming_md = self._active_lines[-1]
             case LinkOutput(markup=markup):
                 self._active_lines.append(Text.from_markup(markup))
             case FlushPanel(discard=discard):
@@ -202,7 +281,7 @@ class UI:
                     variant: Literal["succeeded", "failed"] = (
                         "failed" if self._active_had_error else "succeeded"
                     )
-                    content = Group(*self._active_lines)
+                    content: RenderableType = Group(*self._active_lines)
                     panel = self._history_panel(variant, content)
                     if self._live:
                         self._live.update(self._render_view(), refresh=True)
@@ -224,9 +303,7 @@ class UI:
                     self._active_lines.append(Text("Cancelled.", style=STYLE_WARNING))
                     self._pending_commands.clear()
                 self._active_task = False
-                variant = (
-                    "failed" if self._active_had_error else "succeeded"
-                )
+                variant = "failed" if self._active_had_error else "succeeded"
                 info = self._engine._last_shell_full_output
                 self._expandable = info is not None
                 if info:
@@ -251,16 +328,19 @@ class UI:
     # ── Rendering ────────────────────────────────────────────────────
 
     def _render_completions(self) -> Text:
-        """Render slash command completion suggestions."""
+        """Render completion suggestions for commands and arguments."""
         t = Text()
+        max_len = max((len(cmd) for cmd, _ in self.inp.completions), default=0)
+        col_width = max(max_len + 2, 12)
         for i, (cmd, desc) in enumerate(self.inp.completions):
             if i > 0:
                 t.append("\n")
             selected = i == self.inp.completion_index
             prefix = "▸ " if selected else "  "
             t.append(prefix, style=COMPLETION_SELECTED if selected else "")
-            t.append(f"{cmd:<12}", style=COMPLETION_NAME)
-            t.append(desc, style=COMPLETION_DESC)
+            t.append(f"{cmd:<{col_width}}", style=COMPLETION_NAME)
+            if desc:
+                t.append(desc, style=COMPLETION_DESC)
         return t
 
     def _render_input_line(self) -> Text:
@@ -278,7 +358,7 @@ class UI:
 
     def _render_view(self) -> Group:
         """Build the Live renderable — active panel + input chrome."""
-        parts: list[object] = []
+        parts: list[RenderableType] = []
         if self._active_task:
             # Margin above active panel — matches the margin that
             # _print_to_scrollback adds for finalized panels.
@@ -320,26 +400,111 @@ class UI:
     def _spinner_frame(self) -> str:
         return _SPINNER_FRAMES[int(time.time() / _SPINNER_INTERVAL) % len(_SPINNER_FRAMES)]
 
-    def _footer_text(self) -> str:
-        parts: list[str] = []
-        if self.session.owner:
-            parts.append(f"{self.session.owner}/{self.session.repo_name}")
-        if self.session.pr is not None:
-            if self.session.pr.number is not None:
-                parts.append(f"PR #{self.session.pr.number} · {self.session.pr.head_branch}")
-            else:
-                parts.append(self.session.pr.head_branch)
-        if self.session.gh is None:
-            parts.append("✗ not authenticated")
-        return " │ ".join(parts) if parts else "rbtr"
+    def _render_footer(self) -> Group:
+        width = self.console.width
 
-    def _render_footer(self) -> Text:
-        return Text(f" {self._footer_text()}", style=FOOTER)
+        # ── Left side ────────────────────────────────────────────────
+        repo = f" {self.session.owner}/{self.session.repo_name}" if self.session.owner else " rbtr"
+
+        target = self.session.review_target
+        match target:
+            case PRTarget(number=n, head_branch=branch):
+                review = f" PR #{n} · {branch}"
+            case _ if target is not None:
+                review = f" {target.head_branch}"
+            case _:
+                review = ""
+        if not self.session.gh and not review:
+            review = " ✗ not authenticated"
+
+        # ── Right side ───────────────────────────────────────────────
+        model = self.session.model_name or ""
+        usage = self.session.usage
+        has_usage = usage.input_tokens > 0 or usage.output_tokens > 0
+
+        # Line 1: repo left, model right
+        line1 = self._footer_line(repo, f"{model} " if model else "", width)
+
+        # Single-line footer when there's nothing for line 2
+        if not review and not has_usage:
+            return Group(line1)
+
+        # Line 2: review target left, usage stats right
+        ctx = ""
+        msgs = ""
+        token_parts: list[str] = []
+        if has_usage:
+            msgs = f"|{usage.message_count}|"
+            ctx_pct = f"{usage.context_used_pct:.0f}%"
+            ctx_size = format_tokens(usage.context_window)
+            ctx = f"{ctx_pct} of {ctx_size}"
+            token_parts.append(f"↑ {format_tokens(usage.input_tokens)}")
+            token_parts.append(f"↓ {format_tokens(usage.output_tokens)}")
+            if usage.cache_read_tokens:
+                token_parts.append(f"↯ {format_tokens(usage.cache_read_tokens)}")
+            token_parts.append(format_cost(usage.total_cost))
+
+        # Measure total width of the right side (unstyled).
+        right2 = ("  ".join([msgs, ctx, *token_parts]) + " ") if has_usage else ""
+        left2 = review or " "
+
+        # Build line 2 with styled context percentage
+        line2 = Text(style=FOOTER)
+        line2.append(left2)
+        pad = width - len(left2) - len(right2)
+        line2.append(" " * max(pad, 2))
+
+        if has_usage:
+            # Message count — gray normally, yellow >25, red >50.
+            match usage.message_count_status:
+                case MessageCountStatus.OK:
+                    msgs_style = USAGE_MESSAGES
+                case MessageCountStatus.WARNING:
+                    msgs_style = USAGE_WARNING
+                case MessageCountStatus.CRITICAL:
+                    msgs_style = USAGE_CRITICAL
+            line2.append(msgs, style=msgs_style)
+            line2.append("  ")
+
+            match usage.threshold_status:
+                case ThresholdStatus.OK:
+                    pct_style = USAGE_OK
+                case ThresholdStatus.WARNING:
+                    pct_style = USAGE_WARNING
+                case ThresholdStatus.CRITICAL:
+                    pct_style = USAGE_CRITICAL
+            # Percentage colored by threshold; total in footer color
+            # (or dimmed when context window is assumed, not reported).
+            line2.append(ctx_pct, style=pct_style)
+            line2.append(" of ")
+            total_style = USAGE_UNCERTAIN if not usage.context_window_known else None
+            line2.append(format_tokens(usage.context_window), style=total_style)
+            if token_parts:
+                # Cost is always the last part — dimmed when unavailable.
+                rest, cost = token_parts[:-1], token_parts[-1]
+                if rest:
+                    line2.append("  " + "  ".join(rest))
+                line2.append("  ")
+                cost_style = USAGE_UNCERTAIN if not usage.cost_available else None
+                line2.append(cost, style=cost_style)
+            line2.append(" ")
+        return Group(line1, line2)
+
+    @staticmethod
+    def _footer_line(left: str, right: str, width: int) -> Text:
+        """Build a single footer line with left/right alignment."""
+        t = Text(style=FOOTER)
+        t.append(left)
+        pad = width - len(left) - len(right)
+        t.append(" " * max(pad, 2))
+        if right:
+            t.append(right)
+        return t
 
     def _history_panel(
         self,
         variant: Literal["input", "active", "succeeded", "failed", "queued"],
-        content: object,
+        content: RenderableType,
         *,
         bottom_pad: int = 1,
     ) -> Padding:
@@ -351,7 +516,7 @@ class UI:
         bg = self._HISTORY_STYLES[variant]
         return Padding(content, (1, 2, bottom_pad, 2), style=bg)
 
-    def _print_to_scrollback(self, renderable: object, *, margin_top: bool = True) -> None:
+    def _print_to_scrollback(self, renderable: RenderableType, *, margin_top: bool = True) -> None:
         """Print to the terminal's native scrollback.
 
         margin_top: print an empty line before the renderable so adjacent
@@ -402,26 +567,26 @@ class UI:
         # Rebuild content: keep the "$ command" echo (first line),
         # replace truncated output with full output.
         echo = self._pending_lines[0] if self._pending_lines else None
-        lines: list[object] = []
+        expanded: list[RenderableType] = []
         if echo is not None:
-            lines.append(echo)
+            expanded.append(echo)
         if stdout_full:
-            lines.append(Text(stdout_full, style=STYLE_DIM))
+            expanded.append(Text(stdout_full, style=STYLE_DIM))
         if stderr_full:
-            lines.append(Text(stderr_full, style=STYLE_SHELL_STDERR))
+            expanded.append(Text(stderr_full, style=STYLE_SHELL_STDERR))
         if returncode != 0:
             t = Text()
             t.append("Error: ", style=ERROR)
             t.append(f"(exit code {returncode})")
-            lines.append(t)
-        self._pending_lines = lines
+            expanded.append(t)
+        self._pending_lines = expanded
         # Expanded panel is finalized — move to scrollback so the full
         # output is scrollable and Live shrinks back to input chrome.
         self._finalize_pending()
 
     # ── Task dispatch ────────────────────────────────────────────────
 
-    def _start_task(self, task_type: str, arg: str) -> None:
+    def _start_task(self, task_type: TaskType, arg: str) -> None:
         """Start a task in a daemon thread."""
         # Clear cancel from any previous task, then mark active
         # immediately so the input reader sees it before the thread
@@ -436,15 +601,18 @@ class UI:
     def _dispatch(self, raw: str) -> None:
         if raw.startswith("/"):
             parts = raw.split(maxsplit=1)
-            cmd = parts[0].lower()
-            if cmd in ("/quit", "/q"):
+            try:
+                cmd = Command(parts[0].lower())
+            except ValueError:
+                cmd = None
+            if cmd is Command.QUIT:
                 self.inp.quit = True
                 return
-            self._start_task("command", raw)
+            self._start_task(TaskType.COMMAND, raw)
         elif raw.startswith("!"):
-            self._start_task("shell", raw[1:].strip())
+            self._start_task(TaskType.SHELL, raw[1:].strip())
         else:
-            self._start_task("llm", raw)
+            self._start_task(TaskType.LLM, raw)
 
     # ── Main loop ────────────────────────────────────────────────────
 
@@ -454,13 +622,13 @@ class UI:
             Live(
                 self._render_view(),
                 console=self.console,
-                refresh_per_second=REFRESH_PER_SECOND,
+                refresh_per_second=config.tui.refresh_per_second,
                 transient=True,
             ) as live,
         ):
             self._live = live
             self.inp.on_cancel = self._engine.cancel
-            self._start_task("setup", "")
+            self._start_task(TaskType.SETUP, "")
             if self._pr_number is not None:
                 self._pending_commands.append(f"/review {self._pr_number}")
             else:
@@ -507,7 +675,7 @@ class UI:
 
                 # Process submitted input
                 try:
-                    raw = self.inp.submitted.get(timeout=POLL_INTERVAL)
+                    raw = self.inp.submitted.get(timeout=config.tui.poll_interval)
                 except queue.Empty:
                     live.update(self._render_view())
                     continue
@@ -536,6 +704,6 @@ def run(pr_number: int | None) -> None:
     console = Console(markup=True, highlight=False, theme=THEME)
     session = Session()
     events: queue.Queue[Event] = queue.Queue()
-    engine = Engine(session, events, pr_number=pr_number)
+    engine = Engine(session, events)
     ui = UI(console, session, events, engine, pr_number)
     ui.run()

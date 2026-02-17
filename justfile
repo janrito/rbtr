@@ -3,10 +3,12 @@ check: lint typecheck test
 fmt:
     uv run ruff check --fix .
     uv run ruff format .
+    rumdl check --fix .
 
 lint:
     uv run ruff check .
     uv run ruff format --check .
+    rumdl check .
 
 typecheck:
     uv run mypy

@@ -2,10 +2,10 @@
 
 from datetime import UTC, datetime
 
-from github import Github
+from github import Github, GithubException
 
 from rbtr import RbtrError
-from rbtr.constants import MAX_BRANCHES
+from rbtr.config import config
 from rbtr.models import BranchSummary, PRSummary
 
 
@@ -33,14 +33,14 @@ def list_unmerged_branches(
 ) -> list[BranchSummary]:
     """List remote branches that have no open PR, excluding the default branch.
 
-    Returns at most MAX_BRANCHES results, sorted by most recently updated first.
+    Returns at most config.github.max_branches results, sorted by most recently updated first.
     """
     repo = gh.get_repo(f"{owner}/{repo_name}")
     default_branch = repo.default_branch
 
     results: list[BranchSummary] = []
     for branch in repo.get_branches():
-        if len(results) >= MAX_BRANCHES:
+        if len(results) >= config.github.max_branches:
             break
         if branch.name == default_branch:
             continue
@@ -69,7 +69,7 @@ def validate_pr_number(gh: Github, owner: str, repo_name: str, pr_number: int) -
     repo = gh.get_repo(f"{owner}/{repo_name}")
     try:
         pr = repo.get_pull(pr_number)
-    except Exception as err:
+    except GithubException as err:
         raise RbtrError(f"PR #{pr_number} not found in {owner}/{repo_name}.") from err
     return PRSummary(
         number=pr.number,
