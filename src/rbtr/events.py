@@ -78,6 +78,62 @@ class TaskFinished(BaseModel):
     cancelled: bool = False
 
 
+# ── Tool call events ──────────────────────────────────────────────────
+
+
+class ToolCallStarted(BaseModel):
+    """The LLM is calling a tool."""
+
+    tool_name: str
+    args: str
+
+
+class ToolCallFinished(BaseModel):
+    """A tool call has completed.
+
+    ``result`` contains the full tool output (up to a generous char
+    limit).  The UI is responsible for line-based truncation when
+    rendering.
+    """
+
+    tool_name: str
+    result: str
+
+
+# ── Index events ─────────────────────────────────────────────────────
+
+
+class IndexStarted(BaseModel):
+    """Background indexing has begun for a review target."""
+
+    total_files: int
+
+
+class IndexProgress(BaseModel):
+    """Incremental progress update from the indexer.
+
+    ``phase`` describes what the indexer is doing (e.g. "parsing",
+    "embedding").  ``indexed`` / ``total`` track the current phase.
+    """
+
+    phase: str
+    indexed: int
+    total: int
+
+
+class IndexReady(BaseModel):
+    """Indexing is complete and the store is queryable.
+
+    ``chunk_count`` is the total number of chunks in the store.
+    """
+
+    chunk_count: int
+
+
+class IndexCleared(BaseModel):
+    """The index has been cleared — no data available."""
+
+
 # Union of all event types the UI needs to handle.
 Event = (
     TaskStarted
@@ -88,4 +144,10 @@ Event = (
     | LinkOutput
     | FlushPanel
     | TaskFinished
+    | ToolCallStarted
+    | ToolCallFinished
+    | IndexStarted
+    | IndexProgress
+    | IndexReady
+    | IndexCleared
 )

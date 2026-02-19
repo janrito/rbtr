@@ -19,6 +19,7 @@ import is safe — identity never changes::
 from __future__ import annotations
 
 import base64
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -36,7 +37,25 @@ from rbtr.constants import RBTR_DIR
 # ── Paths for the config layers ──────────────────────────────────────
 
 CONFIG_PATH = RBTR_DIR / "config.toml"
-WORKSPACE_PATH = Path(".rbtr") / "config.toml"
+WORKSPACE_DIR = Path(".rbtr")
+WORKSPACE_PATH = WORKSPACE_DIR / "config.toml"
+
+# ── Enums ────────────────────────────────────────────────────────────
+
+
+class ThinkingEffort(StrEnum):
+    """Thinking effort levels for LLM requests.
+
+    Maps to provider-specific settings (``anthropic_effort``,
+    ``openai_reasoning_effort``, etc.) in ``providers.__init__``.
+    ``NONE`` disables thinking/reasoning entirely.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+    NONE = "none"
 
 
 # ── Obfuscated type ─────────────────────────────────────────────────
@@ -70,8 +89,34 @@ class GithubConfig(BaseModel):
     max_branches: int = 30
 
 
+class IndexConfig(BaseModel):
+    enabled: bool = True
+    db_dir: str = str(WORKSPACE_DIR / "index")
+    model_cache_dir: str = str(RBTR_DIR / "models")
+    max_file_size: int = 512 * 1024  # 512 KiB
+    include: list[str] = []
+    extend_exclude: list[str] = [".rbtr"]
+    chunk_lines: int = 50
+    chunk_overlap: int = 5
+    embedding_model: str = "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"
+    embedding_batch_size: int = 32
+
+
+class ToolsConfig(BaseModel):
+    max_diff_chars: int = 12_000
+    max_log_commits: int = 50
+
+
+class LogConfig(BaseModel):
+    level: str = "INFO"
+    max_bytes: int = 5 * 1024 * 1024  # 5 MB
+    backup_count: int = 3
+
+
 class TuiConfig(BaseModel):
     shell_max_lines: int = 25
+    tool_max_lines: int = 15
+    tool_max_chars: int = 8_000
     max_completions: int = 20
     shell_completion_timeout: float = 2.0
     double_ctrl_c_window: float = 0.5
@@ -139,10 +184,14 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict()
 
     model: str | None = None
+    thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
+    index: IndexConfig = IndexConfig()
+    log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()
     providers: ProvidersConfig = ProvidersConfig()
+    tools: ToolsConfig = ToolsConfig()
     tui: TuiConfig = TuiConfig()
 
 

@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 from github import Auth, Github
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.events import LinkOutput
+from rbtr.exceptions import RbtrError
 from rbtr.github import auth
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import (

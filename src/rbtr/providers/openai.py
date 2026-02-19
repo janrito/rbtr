@@ -5,9 +5,9 @@ from __future__ import annotations
 import httpx
 from pydantic_ai.models import Model
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import creds
+from rbtr.exceptions import RbtrError
 
 # ── Credential persistence ───────────────────────────────────────────
 

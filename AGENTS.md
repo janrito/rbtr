@@ -6,6 +6,25 @@ Agent rules. Short, imperative.
 
 - The project is **rbtr** — always lowercase.
 
+## Language agnosticism
+
+- rbtr is a **language-agnostic** code review tool.
+  Never hard-code behaviour for a single language when a
+  general mechanism exists.
+- Language support is provided by **plugins** via pluggy.
+  Each plugin registers ``LanguageRegistration`` instances
+  declaring detection, grammar, queries, import extraction,
+  and scope types.
+- `treesitter.py` and `edges.py` are language-agnostic.
+  All language-specific logic lives in `plugins/`.
+  Adding a language = adding a plugin file.
+- Use tree-sitter for structural analysis when a grammar
+  provides the data. When it doesn't (unsupported language,
+  prose docs, config files), fall back to text search —
+  never silently skip.
+- Tests must cover multiple languages, not just Python.
+  Use `pytest.mark.skipif` for optional grammar packages.
+
 ## Architecture
 
 - Engine (`engine.py`) and UI (`tui.py`) communicate
@@ -62,6 +81,13 @@ Agent rules. Short, imperative.
   ``OAuthCreds`` has ``.expired`` and ``.is_set`` properties.
 - Endpoint URLs live in config, API keys in creds.
 - Constants (`CONFIG_PATH`, `CREDS_PATH`, `HISTORY_PATH`) in `constants.py`.
+- **Module-level constants vs config fields.** Before adding a
+  magic number as a module constant (`_MAX_SOMETHING = 1000`),
+  ask: would a user or a different repo ever want a different
+  value? If yes → `config.py` field. If it's truly internal
+  (protocol limits, retry counts for a specific API) → constant.
+  Tunables that affect output (line limits, char limits,
+  timeouts, thresholds) almost always belong in config.
 
 ## Providers
 
@@ -115,10 +141,18 @@ Agent rules. Short, imperative.
 - pytest-mock only (`mocker` fixture). Never `unittest.mock`.
 - Flat `def test_*()` functions. No `class Test*`.
 - `@pytest.fixture` without parentheses.
-- Shared fixtures in `conftest.py` (`creds_path`, `config_path`).
+- Tests live in `src/tests/`, mirroring package structure
+  (`src/tests/engine/`, `src/tests/plugins/`, etc.).
+- Shared fixtures in `src/tests/conftest.py` (`creds_path`, `config_path`).
 - **Never skip based on the return value of the function under test.**
   That hides regressions. Detect environment capabilities separately
   (e.g. a module-level probe or fixture) and use `pytest.mark.skipif`.
+- **Parametrise over repetition.** When multiple tests share the same
+  assertion logic with different inputs, use `@pytest.mark.parametrize`.
+  Each test function should test one *behaviour*, not one *input value*.
+- **Multiline strings for test source code.** Use `"""\..."""` (triple-
+  quoted) for any inline code snippet longer than one line — never
+  concatenate one-line strings or use escaped `\n` in test sources.
 
 ## Types
 

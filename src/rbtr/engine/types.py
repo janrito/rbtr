@@ -19,6 +19,7 @@ class Command(_CommandMixin, Enum):
     REVIEW = "/review", "List open PRs, or select a target"
     CONNECT = "/connect", "Connect a service"
     MODEL = "/model", "List or set active model"
+    INDEX = "/index", "Index status, clear, rebuild, prune, model"
     NEW = "/new", "Start a new conversation"
     QUIT = "/quit", "Exit rbtr (also /q)"
 

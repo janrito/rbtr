@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rbtr import RbtrError
+from rbtr.exceptions import RbtrError
 from rbtr.providers.endpoint import (
     list_endpoints,
     load_endpoint,

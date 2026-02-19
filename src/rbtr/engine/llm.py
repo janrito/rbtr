@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from typing import TYPE_CHECKING, cast
 
-from pydantic_ai._agent_graph import ModelRequestNode
+from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelMessage,
+    ModelResponse,
+    ToolReturnPart,
+)
 from pydantic_ai.models import Model
-from pydantic_ai.usage import RunUsage
+from pydantic_ai.usage import RunUsage, UsageLimits
 
-from rbtr import RbtrError
-from rbtr.events import TextDelta
-from rbtr.providers import build_model
+from rbtr.config import ThinkingEffort, config
+from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
+from rbtr.exceptions import RbtrError
+from rbtr.providers import build_model, build_model_settings
 
 from .agent import AgentDeps, agent
 from .history import demote_thinking, is_history_format_error
@@ -57,18 +65,31 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     history = cast(list[ModelMessage], engine.session.message_history)
     deps = AgentDeps(session=engine.session)
 
+    effort = config.thinking_effort
+    if effort is not ThinkingEffort.NONE:
+        settings = build_model_settings(model, effort)
+        engine.session.effort_supported = settings is not None
+    else:
+        settings = None
+
     async def _do_stream() -> tuple[list[ModelMessage], RunUsage]:
         async with agent.iter(
             message,
             model=model,
             deps=deps,
             message_history=history or None,
+            model_settings=settings,
+            usage_limits=UsageLimits(request_limit=25),
         ) as run:
             async for node in run:
                 if isinstance(node, ModelRequestNode):
                     async with node.stream(run.ctx) as stream:
                         async for delta in stream.stream_text(delta=True):
                             engine._emit(TextDelta(delta=delta))
+                elif isinstance(node, CallToolsNode):
+                    async with node.stream(run.ctx) as stream:
+                        async for event in stream:
+                            _emit_tool_event(engine, event)
         return list(run.all_messages()), run.usage()
 
     async def _watch_cancel() -> None:
@@ -94,6 +115,33 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     messages, run_usage = stream_task.result()
     engine.session.message_history = list(messages)
     _record_usage(engine, history, messages, run_usage)
+
+
+def _emit_tool_event(
+    engine: Engine,
+    event: FunctionToolCallEvent | FunctionToolResultEvent | object,
+) -> None:
+    """Emit a ToolCallStarted or ToolCallFinished event."""
+    match event:
+        case FunctionToolCallEvent(part=part):
+            args = part.args
+            if isinstance(args, dict):
+                args_str = json.dumps(args, ensure_ascii=False)
+            elif args is not None:
+                args_str = str(args)
+            else:
+                args_str = ""
+            engine._emit(ToolCallStarted(tool_name=part.tool_name, args=args_str))
+        case FunctionToolResultEvent(result=result):
+            if isinstance(result, ToolReturnPart):
+                text = str(result.content)
+                max_chars = config.tui.tool_max_chars
+                if len(text) > max_chars:
+                    text = text[:max_chars] + "…"
+            else:
+                text = "(retry)"
+            tool_name = getattr(result, "tool_name", None) or "?"
+            engine._emit(ToolCallFinished(tool_name=tool_name, result=text))
 
 
 def _record_usage(

@@ -6,7 +6,7 @@ import tempfile
 import pygit2
 import pytest
 
-from rbtr import RbtrError
+from rbtr.exceptions import RbtrError
 from rbtr.repo import open_repo, parse_github_remote, require_clean
 
 # ── Fixtures ─────────────────────────────────────────────────────────

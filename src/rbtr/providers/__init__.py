@@ -1,13 +1,21 @@
-"""Provider registry — dispatches ``build_model`` by provider prefix."""
+"""Provider registry — dispatches ``build_model`` by provider prefix.
+
+All provider-specific knowledge (model types, settings classes,
+auth checks) is centralised here.  The rest of the engine uses
+``build_model`` and ``build_model_settings`` without importing
+any provider module directly.
+"""
 
 from __future__ import annotations
 
 from enum import StrEnum
 
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
-from rbtr import RbtrError
+from rbtr.config import ThinkingEffort
 from rbtr.creds import creds
+from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import claude, endpoint, openai, openai_codex
 
@@ -18,6 +26,9 @@ class BuiltinProvider(StrEnum):
     CLAUDE = "claude"
     CHATGPT = "chatgpt"
     OPENAI = "openai"
+
+
+# ── Model construction ───────────────────────────────────────────────
 
 
 def build_model(model_name: str | None = None) -> Model:
@@ -77,3 +88,64 @@ def _build_model_by_name(model_name: str) -> Model:
             if not creds.openai_api_key:
                 raise RbtrError("Not connected to OpenAI. Use /connect openai <api_key>.")
             return openai.build_model(model_id)
+
+
+# ── Model settings ───────────────────────────────────────────────────
+
+
+def build_model_settings(
+    model: Model,
+    effort: ThinkingEffort,
+) -> ModelSettings | None:
+    """Build provider-specific model settings for *effort*.
+
+    Returns ``None`` when the model doesn't support an effort setting.
+    The caller is responsible for recording whether the setting was
+    applied (e.g. updating ``session.effort_supported``).
+    """
+    # Deferred: only import when we need to check the model type.
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    if isinstance(model, AnthropicModel):
+        from pydantic_ai.models.anthropic import AnthropicModelSettings
+
+        # Anthropic accepts the same low/medium/high/max literals.
+        match effort:
+            case ThinkingEffort.LOW:
+                return AnthropicModelSettings(anthropic_effort="low")
+            case ThinkingEffort.MEDIUM:
+                return AnthropicModelSettings(anthropic_effort="medium")
+            case ThinkingEffort.HIGH:
+                return AnthropicModelSettings(anthropic_effort="high")
+            case ThinkingEffort.MAX:
+                return AnthropicModelSettings(anthropic_effort="max")
+
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+
+    if isinstance(model, OpenAIResponsesModel):
+        from pydantic_ai.models.openai import OpenAIResponsesModelSettings
+
+        match effort:
+            case ThinkingEffort.LOW:
+                return OpenAIResponsesModelSettings(openai_reasoning_effort="low")
+            case ThinkingEffort.MEDIUM:
+                return OpenAIResponsesModelSettings(openai_reasoning_effort="medium")
+            case ThinkingEffort.HIGH:
+                return OpenAIResponsesModelSettings(openai_reasoning_effort="high")
+            case ThinkingEffort.MAX:
+                return OpenAIResponsesModelSettings(openai_reasoning_effort="xhigh")
+
+    if isinstance(model, OpenAIChatModel):
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+
+        match effort:
+            case ThinkingEffort.LOW:
+                return OpenAIChatModelSettings(openai_reasoning_effort="low")
+            case ThinkingEffort.MEDIUM:
+                return OpenAIChatModelSettings(openai_reasoning_effort="medium")
+            case ThinkingEffort.HIGH:
+                return OpenAIChatModelSettings(openai_reasoning_effort="high")
+            case ThinkingEffort.MAX:
+                return OpenAIChatModelSettings(openai_reasoning_effort="xhigh")
+
+    return None

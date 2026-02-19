@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
+from rbtr.exceptions import RbtrError
 from rbtr.oauth import make_challenge, make_verifier, oauth_is_set
 from rbtr.providers.claude import (
     begin_login,

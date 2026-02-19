@@ -6,8 +6,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from rbtr import RbtrError
 from rbtr.config import config
+from rbtr.exceptions import RbtrError
 from rbtr.providers import (
     BuiltinProvider,
     claude as claude_provider,
@@ -94,6 +94,7 @@ def _set_model(engine: Engine, model_id: str) -> None:
 def _apply_model(engine: Engine, model_id: str) -> None:
     """Persist and activate *model_id*."""
     engine.session.model_name = model_id
+    engine.session.effort_supported = None  # re-evaluate on next LLM call
     config.update(model=model_id)
     engine._out(f"Model set to {model_id}")
 

@@ -277,6 +277,7 @@ class InputState:
     cancel_requested: bool = False
     expand_requested: bool = False
     tab_pressed: bool = False
+    shift_tab_pressed: bool = False
     last_ctrl_c: float = 0.0
     # Completion state — written by UI, cycled by reader.
     completions: Completions = field(default_factory=list)
@@ -554,6 +555,10 @@ class InputReader:
                 state.clear_completions()
             else:
                 state.tab_pressed = True
+            return
+
+        if key == Keys.BackTab:
+            state.shift_tab_pressed = True
             return
 
         # ── Bracketed paste ──────────────────────────────────────────

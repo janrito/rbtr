@@ -12,6 +12,7 @@ from pydantic import BaseModel
 class ReviewTarget(BaseModel):
     """Common fields for anything rbtr can review."""
 
+    base_branch: str
     head_branch: str
     updated_at: datetime
 
@@ -22,6 +23,7 @@ class PRTarget(ReviewTarget):
     number: int
     title: str
     author: str
+    body: str = ""
 
 
 class BranchTarget(ReviewTarget):
@@ -41,6 +43,8 @@ class PRSummary(BaseModel):
     number: int
     title: str
     author: str
+    body: str = ""
+    base_branch: str
     head_branch: str
     updated_at: datetime
 

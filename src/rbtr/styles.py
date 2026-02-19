@@ -57,6 +57,7 @@ THEME = Theme(
         "rbtr.bg.succeeded": "on #1A2620",
         "rbtr.bg.failed": "on #2A1D20",
         "rbtr.bg.queued": "on #1A1F29",
+        "rbtr.bg.toolcall": "on #231D2F",
         # ── General text styles ──────────────────────────────────────
         "rbtr.dim": "#707A8C",
         "rbtr.muted": "#565E6B",
@@ -119,6 +120,7 @@ BG_ACTIVE = "rbtr.bg.active"
 BG_SUCCEEDED = "rbtr.bg.succeeded"
 BG_FAILED = "rbtr.bg.failed"
 BG_QUEUED = "rbtr.bg.queued"
+BG_TOOLCALL = "rbtr.bg.toolcall"
 
 USAGE_OK = "rbtr.usage.ok"
 USAGE_WARNING = "rbtr.usage.warning"

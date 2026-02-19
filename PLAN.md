@@ -90,10 +90,10 @@ module dependencies, change impact.
 **Verify**: Build graph for a real repo, query call chains
 and impact analysis.
 
-## Step 6: Per-Repo Configuration
+## Step 6: Per-Repo Configuration & UX Polish
 
 **Goal**: `.rbtr.toml` for per-repo settings,
-`.rbtr/` for cached data.
+`.rbtr/` for cached data.  Tool call output and thinking budget.
 
 **What to build**:
 
@@ -101,9 +101,23 @@ and impact analysis.
   via pydantic-settings.
 - `.rbtr/` directory creation and gitignore management.
 - Move index and graph storage into `.rbtr/`.
+- **Tool call panels** — Tool call results rendered in truncated
+  history sub-panels with a purple background (Ayu Mirage palette),
+  similar to how shell commands show truncated output.  Configurable
+  via `tui.tool_max_lines`.
+- **Thinking effort** — Configurable `thinking_effort`
+  (`low`/`medium`/`high`/`max`, default `medium`) maps to
+  `anthropic_effort` for Claude and `openai_reasoning_effort`
+  for OpenAI o-series models.  Displayed in the footer next
+  to the model name (`∴medium`).  Shift+Tab cycles through
+  levels at any time (even mid-task).  Set to `null` in
+  config to disable.
 
 **Verify**: Create `.rbtr.toml` with model settings,
-verify they're picked up on launch.
+verify they're picked up on launch.  Ask the LLM a question
+that triggers tool calls — verify tool results appear in
+purple truncated panels.  Set `thinking_budget` in config,
+verify it's sent to the API.
 
 ## Open Questions
 

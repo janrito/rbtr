@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rbtr import RbtrError
 from rbtr.creds import creds
+from rbtr.exceptions import RbtrError
 from rbtr.github import auth
 
 # ── GitHub token via creds ───────────────────────────────────────────

@@ -23,6 +23,11 @@ clearly, then move on.
 - **Reviewing:** PR #{{ pr_number }} — {{ pr_title }}
 - **Author:** {{ pr_author }}
 - **Branch:** `{{ branch }}`
+  {% if pr_body %}
+- **Description:**
+
+{{ pr_body }}
+  {% endif %}
   {% elif target_kind == "branch" %}
 - **Reviewing:** branch `{{ branch }}`
   {% else %}

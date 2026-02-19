@@ -8,8 +8,8 @@ from typing import TypedDict
 
 import httpx
 
-from rbtr import RbtrError
 from rbtr.config import config
+from rbtr.exceptions import RbtrError
 
 
 class DeviceCodeResponse(TypedDict):

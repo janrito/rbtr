@@ -11,9 +11,9 @@ from dataclasses import dataclass
 import httpx
 from pydantic_ai.models import Model
 
-from rbtr import RbtrError
 from rbtr.config import EndpointConfig, config
 from rbtr.creds import creds
+from rbtr.exceptions import RbtrError
 
 # Endpoint names must be simple identifiers (lowercase, digits, hyphens).
 _NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")

@@ -22,7 +22,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 from rbtr.engine import Engine, Session, TaskCancelled, TaskType
@@ -31,6 +30,9 @@ from rbtr.engine.shell import _truncate_output
 from rbtr.events import (
     Event,
     FlushPanel,
+    IndexProgress,
+    IndexReady,
+    IndexStarted,
     LinkOutput,
     Output,
     TableOutput,
@@ -38,6 +40,7 @@ from rbtr.events import (
     TaskStarted,
     TextDelta,
 )
+from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -115,6 +118,7 @@ def test_list_with_github_prs(mocker) -> None:
             number=1,
             title="Fix bug",
             author="alice",
+            base_branch="main",
             head_branch="fix-bug",
             updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         ),
@@ -176,10 +180,113 @@ def test_list_no_prs_no_branches(mocker) -> None:
     assert any("No open PRs" in t for t in texts)
 
 
+# ── /review completion cache ──────────────────────────────────────────
+
+
+def test_list_caches_review_targets_github(mocker) -> None:
+    """After listing, session.cached_review_targets has PRs and branches."""
+    mock_gh = mocker.MagicMock()
+    engine, events, session = _make_engine(gh=mock_gh)
+
+    prs = [
+        PRSummary(
+            number=1,
+            title="Fix bug",
+            author="alice",
+            base_branch="main",
+            head_branch="fix-bug",
+            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
+    ]
+    branches = [
+        BranchSummary(
+            name="feature-x",
+            last_commit_sha="abc123",
+            last_commit_message="wip",
+            updated_at=datetime(2025, 1, 2, tzinfo=UTC),
+        ),
+    ]
+
+    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs)
+    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=branches)
+    engine.run_task(TaskType.COMMAND, "/review")
+    _drain(events)
+
+    cached = session.cached_review_targets
+    assert len(cached) == 2
+    labels = [label for label, _ in cached]
+    texts = [text for _, text in cached]
+    assert any("#1" in lbl for lbl in labels)
+    assert "1" in texts
+    assert "feature-x" in texts
+
+
+def test_list_always_refetches(mocker) -> None:
+    """Calling /review a second time refetches — never serves stale cache."""
+    mock_gh = mocker.MagicMock()
+    engine, events, session = _make_engine(gh=mock_gh)
+
+    prs_v1 = [
+        PRSummary(
+            number=1,
+            title="Old PR",
+            author="alice",
+            base_branch="main",
+            head_branch="old",
+            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+        ),
+    ]
+    prs_v2 = [
+        PRSummary(
+            number=2,
+            title="New PR",
+            author="bob",
+            base_branch="main",
+            head_branch="new",
+            updated_at=datetime(2025, 2, 1, tzinfo=UTC),
+        ),
+    ]
+
+    mock_list = mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs_v1)
+    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
+    engine.run_task(TaskType.COMMAND, "/review")
+    _drain(events)
+    assert session.cached_review_targets[0][1] == "1"
+
+    # Second call with updated data — must refetch.
+    mock_list.return_value = prs_v2
+    engine.run_task(TaskType.COMMAND, "/review")
+    _drain(events)
+    assert session.cached_review_targets[0][1] == "2"
+    assert mock_list.call_count == 2
+
+
+def test_list_caches_review_targets_local() -> None:
+    """After listing local branches, cached_review_targets is populated."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("Test", "test@test.com")
+        tree = repo.TreeBuilder().write()
+        repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+        repo.set_head("refs/heads/main")
+        repo.branches.local.create("feature-1", repo.head.peel(pygit2.Commit))
+
+        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        events: queue.Queue[Event] = queue.Queue()
+        engine = Engine(session, events)
+        engine.run_task(TaskType.COMMAND, "/review")
+        _drain(events)
+
+        cached = session.cached_review_targets
+        assert len(cached) == 1
+        assert cached[0] == ("feature-1", "feature-1")
+
+
 # ── /review <target> ────────────────────────────────────────────────
 
 
 def test_review_pr_by_number(mocker) -> None:
+    mocker.patch("rbtr.engine.review.run_index")
     mock_gh = mocker.MagicMock()
     engine, events, session = _make_engine(gh=mock_gh)
 
@@ -187,6 +294,7 @@ def test_review_pr_by_number(mocker) -> None:
         number=42,
         title="Add feature",
         author="bob",
+        base_branch="main",
         head_branch="add-feature",
         updated_at=datetime(2025, 6, 1, tzinfo=UTC),
     )
@@ -226,7 +334,8 @@ def test_review_pr_without_auth_warns() -> None:
     assert any("Not authenticated" in t for t in texts)
 
 
-def test_review_branch_by_name() -> None:
+def test_review_branch_by_name(mocker) -> None:
+    mocker.patch("rbtr.engine.review.run_index")
     with tempfile.TemporaryDirectory() as tmp:
         repo = pygit2.init_repository(tmp)
         sig = pygit2.Signature("Test", "test@test.com")
@@ -243,6 +352,7 @@ def test_review_branch_by_name() -> None:
         evts = _drain(events)
         assert evts[-1].success is True
         assert isinstance(session.review_target, BranchTarget)
+        assert session.review_target.base_branch == "main"
         assert session.review_target.head_branch == "my-branch"
 
 
@@ -262,6 +372,85 @@ def test_review_nonexistent_branch_warns() -> None:
         evts = _drain(events)
         texts = _output_texts(evts)
         assert any("not found" in t for t in texts)
+
+
+def test_review_branch_two_args(mocker) -> None:
+    """/review base target sets both branches explicitly."""
+    mocker.patch("rbtr.engine.review.run_index")
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("Test", "test@test.com")
+        tree = repo.TreeBuilder().write()
+        repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+        repo.set_head("refs/heads/main")
+        repo.branches.local.create("develop", repo.head.peel(pygit2.Commit))
+        repo.branches.local.create("feature-x", repo.head.peel(pygit2.Commit))
+
+        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        events: queue.Queue[Event] = queue.Queue()
+        engine = Engine(session, events)
+        engine.run_task(TaskType.COMMAND, "/review develop feature-x")
+
+        evts = _drain(events)
+        assert evts[-1].success is True
+        assert isinstance(session.review_target, BranchTarget)
+        assert session.review_target.base_branch == "develop"
+        assert session.review_target.head_branch == "feature-x"
+        texts = _output_texts(evts)
+        assert any("develop" in t and "feature-x" in t for t in texts)
+
+
+def test_review_branch_bad_base_warns() -> None:
+    """/review nonexistent target warns about missing base."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("Test", "test@test.com")
+        tree = repo.TreeBuilder().write()
+        repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+        repo.set_head("refs/heads/main")
+        repo.branches.local.create("feature-x", repo.head.peel(pygit2.Commit))
+
+        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        events: queue.Queue[Event] = queue.Queue()
+        engine = Engine(session, events)
+        engine.run_task(TaskType.COMMAND, "/review nonexistent feature-x")
+
+        evts = _drain(events)
+        texts = _output_texts(evts)
+        assert any("nonexistent" in t and "not found" in t for t in texts)
+
+
+def test_review_branch_too_many_args_warns() -> None:
+    """/review a b c shows usage."""
+    engine, events, _ = _make_engine()
+    engine.run_task(TaskType.COMMAND, "/review a b c")
+    evts = _drain(events)
+    texts = _output_texts(evts)
+    assert any("Usage" in t for t in texts)
+
+
+def test_review_pr_has_base_branch(mocker) -> None:
+    """PR review populates base_branch from the PR data."""
+    mock_gh = mocker.MagicMock()
+    engine, events, session = _make_engine(gh=mock_gh)
+
+    pr = PRSummary(
+        number=10,
+        title="Refactor",
+        author="alice",
+        base_branch="develop",
+        head_branch="refactor-x",
+        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
+    )
+
+    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=pr)
+    engine.run_task(TaskType.COMMAND, "/review 10")
+
+    evts = _drain(events)
+    assert evts[-1].success is True
+    assert isinstance(session.review_target, PRTarget)
+    assert session.review_target.base_branch == "develop"
+    assert session.review_target.head_branch == "refactor-x"
 
 
 # ── !shell ───────────────────────────────────────────────────────────
@@ -747,6 +936,7 @@ def test_list_clears_fetching_message(mocker) -> None:
             number=1,
             title="Fix",
             author="a",
+            base_branch="main",
             head_branch="fix",
             updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         ),
@@ -771,6 +961,7 @@ def test_list_flushes_between_tables(mocker) -> None:
             number=1,
             title="Fix",
             author="a",
+            base_branch="main",
             head_branch="fix",
             updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         ),
@@ -809,6 +1000,7 @@ def test_review_pr_clears_fetching_message(mocker) -> None:
         number=42,
         title="Add feature",
         author="bob",
+        base_branch="main",
         head_branch="add-feature",
         updated_at=datetime(2025, 6, 1, tzinfo=UTC),
     )
@@ -997,3 +1189,110 @@ def test_is_history_format_error_rejects_unrelated() -> None:
         body={"message": "maximum context length exceeded"},
     )
     assert not is_history_format_error(exc)
+
+
+# ── Session.index & index events ─────────────────────────────────────
+
+
+def test_session_index_defaults_to_none() -> None:
+    session = Session()
+    assert session.index is None
+
+
+def test_new_preserves_index(mocker) -> None:
+    """``/new`` clears conversation but leaves the index intact."""
+    engine, events, session = _make_engine()
+    mock_store = mocker.MagicMock()
+    session.index = mock_store
+
+    engine.run_task(TaskType.COMMAND, "/new")
+    _drain(events)
+
+    mock_store.close.assert_not_called()
+    assert session.index is mock_store
+
+
+def test_index_events_are_valid() -> None:
+    """Index event types are part of the Event union and serialize cleanly."""
+    started = IndexStarted(total_files=100)
+    progress = IndexProgress(phase="parsing", indexed=42, total=100)
+    ready = IndexReady(chunk_count=350)
+
+    assert started.total_files == 100
+    assert progress.indexed == 42
+    assert progress.total == 100
+    assert ready.chunk_count == 350
+
+    # Verify they're valid Event union members by putting them in a queue.
+    eq: queue.Queue[Event] = queue.Queue()
+    eq.put(started)
+    eq.put(progress)
+    eq.put(ready)
+    assert eq.qsize() == 3
+
+
+# ── Tool call events ─────────────────────────────────────────────────
+
+
+def test_tool_call_events_serialize() -> None:
+    """ToolCallStarted and ToolCallFinished are valid Event union members."""
+    from rbtr.events import ToolCallFinished, ToolCallStarted
+
+    started = ToolCallStarted(tool_name="search_symbols", args='{"name": "greet"}')
+    finished = ToolCallFinished(tool_name="search_symbols", result="function greet (src/app.py:1)")
+
+    assert started.tool_name == "search_symbols"
+    assert finished.result.startswith("function greet")
+
+    eq: queue.Queue[Event] = queue.Queue()
+    eq.put(started)
+    eq.put(finished)
+    assert eq.qsize() == 2
+
+
+def test_emit_tool_event_call(mocker) -> None:
+    """_emit_tool_event emits ToolCallStarted for FunctionToolCallEvent."""
+    from unittest.mock import MagicMock
+
+    from pydantic_ai.messages import FunctionToolCallEvent, ToolCallPart
+
+    from rbtr.engine.llm import _emit_tool_event
+    from rbtr.events import ToolCallStarted
+
+    engine = MagicMock()
+    part = ToolCallPart(tool_name="diff", args={"ref": "main..feature"})
+    event = FunctionToolCallEvent(part=part)
+    _emit_tool_event(engine, event)
+
+    engine._emit.assert_called_once()
+    emitted = engine._emit.call_args[0][0]
+    assert isinstance(emitted, ToolCallStarted)
+    assert emitted.tool_name == "diff"
+
+
+def test_emit_tool_event_result_truncated(mocker) -> None:
+    """_emit_tool_event truncates long tool results at the configured char limit."""
+    from unittest.mock import MagicMock
+
+    from pydantic_ai.messages import FunctionToolResultEvent, ToolReturnPart
+
+    from rbtr.config import config
+    from rbtr.engine.llm import _emit_tool_event
+    from rbtr.events import ToolCallFinished
+
+    max_chars = config.tui.tool_max_chars
+    engine = MagicMock()
+    long_result = "x" * (max_chars + 500)
+    result_part = ToolReturnPart(
+        tool_name="search_codebase",
+        content=long_result,
+        tool_call_id="tc_1",
+    )
+    event = FunctionToolResultEvent(result=result_part)
+    _emit_tool_event(engine, event)
+
+    engine._emit.assert_called_once()
+    emitted = engine._emit.call_args[0][0]
+    assert isinstance(emitted, ToolCallFinished)
+    assert len(emitted.result) == max_chars + 1  # truncated + "…"
+    assert emitted.result.endswith("…")

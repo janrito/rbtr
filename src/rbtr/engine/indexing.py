@@ -1,0 +1,142 @@
+"""Background indexing — triggered by /review, emits progress events."""
+
+from __future__ import annotations
+
+import logging
+import threading
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from rbtr.config import config
+from rbtr.events import IndexProgress, IndexReady, IndexStarted, Output
+from rbtr.index.git import FileEntry, list_files
+from rbtr.index.orchestrator import build_index, update_index
+from rbtr.index.store import IndexStore
+from rbtr.models import BranchTarget, PRTarget
+from rbtr.plugins.manager import get_manager
+from rbtr.styles import STYLE_DIM, STYLE_WARNING
+
+if TYPE_CHECKING:
+    from .core import Engine
+
+log = logging.getLogger(__name__)
+
+
+def run_index(engine: Engine) -> None:
+    """Start background indexing for the current review target.
+
+    Spawns a daemon thread so the calling command (``/review``)
+    returns immediately.  The user can keep chatting while the
+    index builds; tools that need the index are hidden until
+    ``IndexReady`` is emitted.
+    """
+    t = threading.Thread(target=_build_index, args=(engine,), daemon=True)
+    t.start()
+
+
+def _build_index(engine: Engine) -> None:
+    """Build or update the code index (runs in a background thread)."""
+    target = engine.session.review_target
+    repo = engine.session.repo
+    if target is None or repo is None:
+        return
+
+    if not config.index.enabled:
+        return
+
+    # Resolve base and head SHAs.
+    match target:
+        case PRTarget(base_branch=base, head_branch=head):
+            base_ref = base
+            head_ref = head
+        case BranchTarget(base_branch=base, head_branch=head):
+            base_ref = base
+            head_ref = head
+
+    # Open (or reuse) the DuckDB store.
+    db_path = Path(config.index.db_dir) / "index.duckdb"
+    store = IndexStore(db_path)
+    engine.session.index = store
+    engine.session.index_ready = False
+
+    # Count files for the progress total.
+    head_files = list(list_files(repo, head_ref))
+    total = len(head_files)
+    engine._emit(IndexStarted(total_files=total))
+
+    # Warn about missing grammars (6.2).
+    _warn_missing_grammars(engine, head_files)
+
+    # Progress callbacks wired to events — one per phase.
+    def on_parse_progress(done: int, total: int) -> None:
+        engine._emit(IndexProgress(phase="parsing", indexed=done, total=total))
+
+    def on_embed_progress(done: int, total: int) -> None:
+        engine._emit(IndexProgress(phase="embedding", indexed=done, total=total))
+
+    # Build base index first, then incremental update for head.
+    try:
+        build_index(
+            repo,
+            base_ref,
+            store,
+            on_progress=on_parse_progress,
+            on_embed_progress=on_embed_progress,
+        )
+
+        result = update_index(
+            repo,
+            base_ref,
+            head_ref,
+            store,
+            on_progress=on_parse_progress,
+            on_embed_progress=on_embed_progress,
+        )
+
+        engine.session.index_ready = True
+        engine._emit(IndexReady(chunk_count=result.stats.total_chunks))
+        engine._emit(
+            Output(
+                text=(
+                    f"Index ready: {result.stats.total_chunks} symbols, "
+                    f"{result.stats.total_edges} edges, "
+                    f"{result.stats.elapsed_seconds:.1f}s"
+                ),
+                style=STYLE_DIM,
+            )
+        )
+
+        if result.errors:
+            for err in result.errors:
+                engine._emit(Output(text=err, style=STYLE_WARNING))
+
+    except Exception as exc:
+        log.exception("Indexing failed")
+        engine._emit(
+            Output(
+                text=f"Indexing failed: {exc!r}\nReview continues without index.",
+                style=STYLE_WARNING,
+            )
+        )
+        engine.session.index = None
+        store.close()
+
+
+def _warn_missing_grammars(engine: Engine, files: list[FileEntry]) -> None:
+    """Emit a warning listing languages detected but without a grammar."""
+    mgr = get_manager()
+    missing: set[str] = set()
+
+    for f in files:
+        lang_id = mgr.detect_language(f.path)
+        if lang_id is not None and mgr.missing_grammar(lang_id):
+            missing.add(lang_id)
+
+    if missing:
+        names = ", ".join(sorted(missing))
+        engine._emit(
+            Output(
+                text=f"Missing grammars (falling back to plaintext): {names}",
+                style=STYLE_WARNING,
+            )
+        )

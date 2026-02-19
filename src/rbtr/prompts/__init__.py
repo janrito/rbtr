@@ -24,6 +24,7 @@ def _build_env() -> minijinja.Environment:
     env = minijinja.Environment()
     env.add_template("system", _load_template("system.md"))
     env.add_template("review", _load_template("review.md"))
+    env.add_template("index_status", _load_template("index_status.md"))
     return env
 
 
@@ -34,30 +35,37 @@ def _context(session: Session) -> dict[str, Any]:
         "owner": session.owner or "unknown",
         "repo": session.repo_name or "unknown",
         "target_kind": "none",
+        "base_branch": "",
         "branch": "",
         "pr_number": 0,
         "pr_title": "",
         "pr_author": "",
+        "pr_body": "",
     }
 
     match session.review_target:
         case PRTarget(
             number=n,
             title=t,
-            head_branch=b,
+            base_branch=base,
+            head_branch=head,
             author=a,
+            body=b,
         ):
             ctx |= {
                 "target_kind": "pr",
-                "branch": b,
+                "base_branch": base,
+                "branch": head,
                 "pr_number": n,
                 "pr_title": t,
                 "pr_author": a,
+                "pr_body": b,
             }
-        case BranchTarget(head_branch=b):
+        case BranchTarget(base_branch=base, head_branch=head):
             ctx |= {
                 "target_kind": "branch",
-                "branch": b,
+                "base_branch": base,
+                "branch": head,
             }
 
     return ctx
@@ -73,3 +81,17 @@ def render_review() -> str:
     """Render the review guidelines (static, no placeholders)."""
     env = _build_env()
     return env.render_template("review")
+
+
+def render_index_status(*, status: str, tool_names: list[str]) -> str:
+    """Render the index status instruction.
+
+    Args:
+        status: ``"ready"``, ``"building"``, or ``""`` (no review target).
+        tool_names: Names of tools that require the index.
+    """
+    if not status:
+        return ""
+    env = _build_env()
+    tool_list = ", ".join(f"`{n}`" for n in tool_names)
+    return env.render_template("index_status", status=status, tool_list=tool_list)

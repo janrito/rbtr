@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 
 from github import Github, GithubException
 
-from rbtr import RbtrError
 from rbtr.config import config
+from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary, PRSummary
 
 
@@ -21,6 +21,8 @@ def list_open_prs(gh: Github, owner: str, repo_name: str) -> list[PRSummary]:
                 number=pr.number,
                 title=pr.title,
                 author=pr.user.login if pr.user else "unknown",
+                body=pr.body or "",
+                base_branch=pr.base.ref,
                 head_branch=pr.head.ref,
                 updated_at=pr.updated_at or datetime.now(tz=UTC),
             )
@@ -75,6 +77,8 @@ def validate_pr_number(gh: Github, owner: str, repo_name: str, pr_number: int) -
         number=pr.number,
         title=pr.title,
         author=pr.user.login if pr.user else "unknown",
+        body=pr.body or "",
+        base_branch=pr.base.ref,
         head_branch=pr.head.ref,
         updated_at=pr.updated_at or datetime.now(tz=UTC),
     )

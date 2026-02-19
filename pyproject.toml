@@ -22,11 +22,21 @@ dependencies = [
   "rich",
   "prompt-toolkit>=3.0",
   "minijinja>=2.15.1",
+  "tree-sitter>=0.24",
+  "tree-sitter-python",
+  "tree-sitter-json",
+  "tree-sitter-yaml",
+  "tree-sitter-toml",
+  "tree-sitter-bash",
+  "duckdb>=1.0",
+  "pyarrow>=17.0",
+  "llama-cpp-python",
+  "huggingface-hub",
+  "pluggy>=1.6.0",
 ]
 
 [project.optional-dependencies]
 languages = [
-  "tree-sitter-bash",
   "tree-sitter-c",
   "tree-sitter-c-sharp",
   "tree-sitter-cpp",
@@ -36,25 +46,20 @@ languages = [
   "tree-sitter-html",
   "tree-sitter-java",
   "tree-sitter-javascript",
-  "tree-sitter-json",
   "tree-sitter-kotlin",
   "tree-sitter-ruby",
   "tree-sitter-rust",
   "tree-sitter-scala",
   "tree-sitter-swift",
-  "tree-sitter-toml",
   "tree-sitter-typescript",
-  "tree-sitter-yaml",
 ]
 
 [project.scripts]
 rbtr = "rbtr.cli:main"
 
 [dependency-groups]
-debug = [
-    "ipython>=9.10.0",
-]
-dev = ["mypy", "pytest", "pytest-cov", "pytest-mock", "ruff"]
+debug = ["ipython>=9.10.0", "scalene>=2.1"]
+dev = ["mypy", "pytest", "pytest-cov", "pytest-mock", "ruff", "sqlfluff>=4.0.4"]
 
 # -- ruff --
 
@@ -88,7 +93,7 @@ unfixable = ["B"]
 
 
 [tool.ruff.lint.extend-per-file-ignores]
-"tests/**/*.py" = [
+"src/tests/**/*.py" = [
   "S101", # asserts allowed in tests
   "S105", # hardcoded password in test assertions
   "S106", # hardcoded password in test arguments
@@ -117,6 +122,21 @@ code_blocks = false
 tables = false
 
 
+# -- sqlfluff --
+
+[tool.sqlfluff.core]
+dialect = "duckdb"
+templater = "placeholder"
+sql_file_exts = ".sql"
+
+[tool.sqlfluff.indentation]
+indent_unit = "space"
+tab_space_size = 2
+
+[tool.sqlfluff.templater.placeholder]
+param_style = "question_mark"
+
+
 # -- mypy --
 
 [tool.mypy]
@@ -131,10 +151,14 @@ show_error_codes = true
 warn_redundant_casts = true
 warn_unused_configs = true
 
+exclude = ["^src/tests/"]
+
+
+
 # -- Pytest & Coverage --
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/tests"]
 minversion = "6.0"
 addopts = [
   "--cov",

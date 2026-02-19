@@ -8,29 +8,46 @@ from typing import TYPE_CHECKING
 import pygit2
 from github.GithubException import GithubException
 
-from rbtr import RbtrError
 from rbtr.events import ColumnDef, TableOutput
+from rbtr.exceptions import RbtrError
 from rbtr.github import client
 from rbtr.models import BranchTarget, PRTarget
-from rbtr.repo import list_local_branches
+from rbtr.repo import default_branch, list_local_branches
 from rbtr.styles import COLUMN_BRANCH
+
+from .indexing import run_index
 
 if TYPE_CHECKING:
     from .core import Engine
 
 
 def cmd_review(engine: Engine, identifier: str) -> None:
-    """List open PRs/branches, or select a review target."""
+    """List open PRs/branches, or select a review target.
+
+    Syntax::
+
+        /review                     — list open PRs and branches
+        /review <number>            — select a GitHub PR
+        /review <branch>            — review branch vs default base
+        /review <base> <target>     — review target vs explicit base
+    """
     if not identifier:
         _list(engine)
         return
-    try:
-        pr_number = int(identifier)
-        _review_pr(engine, pr_number)
-        return
-    except ValueError:
-        pass
-    _review_branch(engine, identifier)
+
+    parts = identifier.split()
+    if len(parts) == 1:
+        try:
+            pr_number = int(parts[0])
+            _review_pr(engine, pr_number)
+            return
+        except ValueError:
+            pass
+        _review_branch(engine, base=None, target=parts[0])
+    elif len(parts) == 2:
+        _review_branch(engine, base=parts[0], target=parts[1])
+    else:
+        engine._warn("Usage: /review [base] <target> or /review <pr_number>")
 
 
 def _list(engine: Engine) -> None:
@@ -94,6 +111,14 @@ def _list(engine: Engine) -> None:
                     )
                 )
 
+            # Cache for Tab completion.
+            targets: list[tuple[str, str]] = []
+            for pr in prs:
+                targets.append((f"#{pr.number} {pr.title}", str(pr.number)))
+            for b in branches:
+                targets.append((b.name, b.name))
+            engine.session.cached_review_targets = targets
+
             engine._out("Use /review <pr_number> or /review <branch_name> to select.")
             return
         except GithubException as e:
@@ -129,6 +154,9 @@ def _list(engine: Engine) -> None:
             ],
         )
     )
+    # Cache for Tab completion.
+    engine.session.cached_review_targets = [(b.name, b.name) for b in branches_local]
+
     engine._out("Use /review <branch_name> to select.")
 
 
@@ -147,10 +175,13 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
             number=pr.number,
             title=pr.title,
             author=pr.author,
+            body=pr.body,
+            base_branch=pr.base_branch,
             head_branch=pr.head_branch,
             updated_at=pr.updated_at,
         )
         _print_review_target(engine)
+        run_index(engine)
     except GithubException as e:
         engine._clear()
         engine._warn(f"Could not fetch PR #{pr_number}: {e.data}")
@@ -159,20 +190,32 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
         engine._warn(str(e))
 
 
-def _review_branch(engine: Engine, name: str) -> None:
+def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
     if engine.session.repo is None:
         return
-    for branch_name in engine.session.repo.branches.local:
-        if branch_name == name:
-            branch = engine.session.repo.branches.local[branch_name]
-            commit = branch.peel(pygit2.Commit)
-            engine.session.review_target = BranchTarget(
-                head_branch=name,
-                updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
-            )
-            _print_review_target(engine)
-            return
-    engine._warn(f"'{name}' not found as a PR number or local branch.")
+
+    repo = engine.session.repo
+
+    # Validate target branch exists locally.
+    if target not in repo.branches.local:
+        engine._warn(f"Branch '{target}' not found locally.")
+        return
+
+    # Resolve base: explicit arg, or fall back to repo default.
+    resolved_base = base if base is not None else default_branch(repo)
+    if resolved_base not in repo.branches.local:
+        engine._warn(f"Base branch '{resolved_base}' not found locally.")
+        return
+
+    branch = repo.branches.local[target]
+    commit = branch.peel(pygit2.Commit)
+    engine.session.review_target = BranchTarget(
+        base_branch=resolved_base,
+        head_branch=target,
+        updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
+    )
+    _print_review_target(engine)
+    run_index(engine)
 
 
 def _print_review_target(engine: Engine) -> None:
@@ -181,10 +224,10 @@ def _print_review_target(engine: Engine) -> None:
         engine._out("No review target selected. Use /review to select one.")
         return
     match target:
-        case PRTarget(number=number, title=title, head_branch=branch):
-            engine._out(f"Reviewing PR #{number}: {title} ({branch})")
-        case BranchTarget(head_branch=branch):
-            engine._out(f"Reviewing branch: {branch}")
+        case PRTarget(number=number, title=title, base_branch=base, head_branch=head):
+            engine._out(f"Reviewing PR #{number}: {title} ({base} → {head})")
+        case BranchTarget(base_branch=base, head_branch=head):
+            engine._out(f"Reviewing branch: {base} → {head}")
 
 
 def _warn_access(engine: Engine, exc: GithubException) -> None:

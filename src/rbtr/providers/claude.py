@@ -16,9 +16,9 @@ from urllib.parse import urlencode
 import httpx
 from pydantic_ai.models import Model
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
+from rbtr.exceptions import RbtrError
 from rbtr.oauth import make_challenge, make_verifier, oauth_expired, oauth_is_set
 
 # ── Data ─────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ def test_render_system_pr_target() -> None:
         number=42,
         title="Fix bug",
         author="alice",
+        base_branch="main",
         head_branch="fix-bug",
         updated_at=datetime(2025, 1, 1, tzinfo=UTC),
     )
@@ -42,10 +43,47 @@ def test_render_system_pr_target() -> None:
     assert "`fix-bug`" in text
 
 
+def test_render_system_pr_body() -> None:
+    from datetime import UTC, datetime
+
+    target = PRTarget(
+        number=99,
+        title="Add feature",
+        author="bob",
+        body="This PR adds the frobnicator.\n\n## Changes\n- New module",
+        base_branch="main",
+        head_branch="add-feature",
+        updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    session = _make_session(review_target=target)
+    text = render_system(session)
+    assert "frobnicator" in text
+    assert "## Changes" in text
+
+
+def test_render_system_pr_empty_body() -> None:
+    from datetime import UTC, datetime
+
+    target = PRTarget(
+        number=99,
+        title="Quick fix",
+        author="bob",
+        body="",
+        base_branch="main",
+        head_branch="quick-fix",
+        updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    session = _make_session(review_target=target)
+    text = render_system(session)
+    assert "Quick fix" in text
+    assert "Description" not in text
+
+
 def test_render_system_branch_target() -> None:
     from datetime import UTC, datetime
 
     target = BranchTarget(
+        base_branch="main",
         head_branch="feature-x",
         updated_at=datetime(2025, 1, 1, tzinfo=UTC),
     )
@@ -74,5 +112,5 @@ def test_render_system_unknown_repo() -> None:
 
 def test_render_review_contains_sections() -> None:
     text = render_review()
-    for section in ("Design", "Correctness", "Clarity", "Maintenance"):
+    for section in ("Design", "Correctness", "Readability", "Testing", "Security"):
         assert f"## {section}" in text

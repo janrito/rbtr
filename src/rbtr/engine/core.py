@@ -13,15 +13,16 @@ import threading
 
 from github import Auth, Github
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.events import Event, FlushPanel, Output, TaskFinished, TaskStarted
+from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import endpoint as endpoint_provider
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
 from .connect import cmd_connect
+from .index_cmd import cmd_index
 from .llm import handle_llm
 from .model import cmd_model, get_models
 from .review import cmd_review
@@ -189,6 +190,8 @@ class Engine:
                 cmd_connect(self, args)
             case Command.MODEL:
                 cmd_model(self, args)
+            case Command.INDEX:
+                cmd_index(self, args)
             case Command.NEW:
                 self._cmd_new()
             case Command.QUIT:

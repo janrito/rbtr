@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pygit2
 
-from rbtr import RbtrError
+from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary
 
 
@@ -76,6 +76,31 @@ def _parse_github_url(url: str) -> tuple[str, str] | None:
         if m:
             return m.group("owner"), m.group("repo")
     return None
+
+
+def default_branch(repo: pygit2.Repository) -> str:
+    """Return the name of the repository's default branch.
+
+    Tries ``refs/remotes/origin/HEAD`` first (set by ``git clone``),
+    then falls back to ``main`` or ``master`` if either exists locally.
+    Returns ``"main"`` as a last resort.
+    """
+    # Try the symbolic ref that git clone sets.
+    try:
+        ref = repo.references.get("refs/remotes/origin/HEAD")
+        if ref is not None:
+            target = ref.resolve().shorthand
+            # target looks like "origin/main" — strip the remote prefix.
+            return target.split("/", 1)[-1]
+    except (pygit2.GitError, AttributeError):
+        pass
+
+    # Fall back to well-known names.
+    for name in ("main", "master"):
+        if name in repo.branches.local:
+            return name
+
+    return "main"
 
 
 def list_local_branches(repo: pygit2.Repository) -> list[BranchSummary]:

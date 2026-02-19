@@ -2,9 +2,9 @@
 
 import pytest
 
-from rbtr import RbtrError
 from rbtr.config import config
 from rbtr.creds import OAuthCreds
+from rbtr.exceptions import RbtrError
 
 # ── Anthropic ────────────────────────────────────────────────────────
 

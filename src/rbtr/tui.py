@@ -19,6 +19,7 @@ is kept small — only the current panel + input chrome.
 import queue
 import threading
 import time
+from enum import StrEnum
 from typing import ClassVar, Literal
 
 from rich.console import Console, Group, RenderableType
@@ -30,12 +31,16 @@ from rich.spinner import SPINNERS
 from rich.table import Table
 from rich.text import Text
 
-from rbtr.config import config
+from rbtr.config import ThinkingEffort, config
 from rbtr.engine import Command, Engine, Service, Session, TaskType
 from rbtr.engine.model import get_models
 from rbtr.events import (
     Event,
     FlushPanel,
+    IndexCleared,
+    IndexProgress,
+    IndexReady,
+    IndexStarted,
     LinkOutput,
     MarkdownOutput,
     Output,
@@ -43,6 +48,8 @@ from rbtr.events import (
     TaskFinished,
     TaskStarted,
     TextDelta,
+    ToolCallFinished,
+    ToolCallStarted,
 )
 from rbtr.input import (
     InputReader,
@@ -56,6 +63,7 @@ from rbtr.styles import (
     BG_INPUT,
     BG_QUEUED,
     BG_SUCCEEDED,
+    BG_TOOLCALL,
     COMPLETION_DESC,
     COMPLETION_NAME,
     COMPLETION_SELECTED,
@@ -90,6 +98,22 @@ _SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # r
 _SPINNER_INTERVAL: float = _SPINNER["interval"] / 1000  # type: ignore[operator]  # rich Spinner dict has untyped values
 
 
+def _format_count(n: int) -> str:
+    """Format a count with k/M suffix for the footer."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
+class _ExpandKind(StrEnum):
+    """What type of content the Ctrl+O expand applies to."""
+
+    SHELL = "shell"
+    TOOL = "tool"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # UI — owns the terminal, consumes Events, renders
 # ═══════════════════════════════════════════════════════════════════════
@@ -104,6 +128,7 @@ class UI:
         "succeeded": BG_SUCCEEDED,
         "failed": BG_FAILED,
         "queued": BG_QUEUED,
+        "toolcall": BG_TOOLCALL,
     }
 
     def __init__(
@@ -127,12 +152,24 @@ class UI:
         self._streaming_md: RenderableType | None = None  # identity sentinel for replacement
         self._active_had_error = False
         self._active_task = False
-        self._expandable = False  # True while Ctrl+O can expand last shell output
+        self._expandable = False  # True while Ctrl+O can expand content
         self._expand_hidden: int = 0  # number of hidden lines
+        self._expand_kind: _ExpandKind | None = None  # what to expand
+        self._tool_full_result: str = ""  # full result for tool expand
+        self._tool_header: str = ""  # "⚙ name(args)" for tool expand
+        self._tool_preamble: list[RenderableType] = []  # LLM text before tool call
+        self._pending_tool_name: str = ""  # tool name from last ToolCallStarted
+        self._pending_tool_args: str = ""  # tool args from last ToolCallStarted
         # Last finished panel — stays in Live until finalized by next input.
         self._pending_lines: list[RenderableType] | None = None
-        self._pending_variant: Literal["succeeded", "failed"] = "succeeded"
+        self._pending_variant: Literal["succeeded", "failed", "toolcall"] = "succeeded"
         self._pending_commands: list[str] = []
+        # Index progress state — driven by IndexStarted/Progress/Ready events.
+        self._index_phase: str = ""
+        self._index_indexed: int = 0
+        self._index_total: int = 0
+        self._index_ready: bool = False
+        self._index_chunks: int = 0
 
     # ── Completion helpers ────────────────────────────────────────────
 
@@ -160,6 +197,18 @@ class UI:
                     self.inp.apply_completions(matches)
                 case Command.MODEL:
                     self._complete_model(arg)
+                case Command.REVIEW:
+                    self._complete_review(arg)
+                case Command.INDEX:
+                    subs = [
+                        ("status", "Show index stats"),
+                        ("clear", "Delete index"),
+                        ("rebuild", "Clear and rebuild index"),
+                    ]
+                    matches = [
+                        (f"/index {name}", desc) for name, desc in subs if name.startswith(arg)
+                    ]
+                    self.inp.apply_completions(matches)
             return
 
         # Complete the command name
@@ -197,6 +246,29 @@ class UI:
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+
+    def _complete_review(self, partial: str) -> None:
+        """Complete a review target argument for /review.
+
+        Uses cached PR/branch data from the last ``/review`` list.
+        Falls back to local branches from the repo.
+        """
+        cached = self._engine.session.cached_review_targets
+        if not cached and self._engine.session.repo is not None:
+            # No cache yet — use local branches.
+            try:
+                from rbtr.repo import list_local_branches
+
+                branches = list_local_branches(self._engine.session.repo)
+                cached = [(b.name, b.name) for b in branches]
+            except Exception:
+                cached = []
+        matches = [
+            (f"/review {text}", label)
+            for label, text in cached
+            if text.startswith(partial) or label.lower().startswith(partial.lower())
+        ]
+        self.inp.apply_completions(matches)
 
     def _complete_shell(self) -> None:
         """Complete a shell command in a background thread.
@@ -278,16 +350,76 @@ class UI:
                 self._active_lines.append(Text.from_markup(markup))
             case FlushPanel(discard=discard):
                 if not discard and self._active_lines:
-                    variant: Literal["succeeded", "failed"] = (
+                    flush_variant: Literal["succeeded", "failed"] = (
                         "failed" if self._active_had_error else "succeeded"
                     )
                     content: RenderableType = Group(*self._active_lines)
-                    panel = self._history_panel(variant, content)
+                    panel = self._history_panel(flush_variant, content)
                     if self._live:
                         self._live.update(self._render_view(), refresh=True)
                     self._print_to_scrollback(panel)
                 self._active_lines = []
                 self._active_had_error = False
+            case ToolCallStarted(tool_name=name, args=args):
+                # Don't flush — any preceding LLM explanation will be
+                # merged into the same panel as the tool result.
+                if self._streaming_text:
+                    self._streaming_md = None
+                self._pending_tool_name = name
+                self._pending_tool_args = args
+            case ToolCallFinished(tool_name=_name, result=result):
+                # Finalize any previous pending panel (e.g. prior tool call).
+                self._finalize_pending()
+                # Build panel: preamble (LLM explanation) + header + result.
+                preamble = list(self._active_lines)
+                self._active_lines = []
+                self._streaming_text = ""
+                self._streaming_md = None
+                args = self._pending_tool_args
+                args_short = args[:80] + "…" if len(args) > 80 else args
+                header_text = f"⚙ {self._pending_tool_name}({args_short})"
+                header = Text(header_text, style=MUTED)
+                tool_lines: list[RenderableType] = [*preamble, header]
+                hidden = 0
+                if result:
+                    result_split = result.splitlines()
+                    max_lines = config.tui.tool_max_lines
+                    if len(result_split) > max_lines:
+                        shown = "\n".join(result_split[:max_lines])
+                        hidden = len(result_split) - max_lines
+                        tool_lines.append(Text(shown, style=STYLE_DIM))
+                    else:
+                        tool_lines.append(Text(result, style=STYLE_DIM))
+                # Keep as pending so Ctrl+O can expand if truncated.
+                self._pending_lines = tool_lines
+                self._pending_variant = "toolcall"
+                if hidden:
+                    self._expandable = True
+                    self._expand_hidden = hidden
+                    self._expand_kind = _ExpandKind.TOOL
+                    self._tool_full_result = result
+                    self._tool_header = header_text
+                    self._tool_preamble = preamble
+                else:
+                    self._expandable = False
+            case IndexStarted(total_files=total):
+                self._index_phase = "parsing"
+                self._index_indexed = 0
+                self._index_total = total
+                self._index_ready = False
+            case IndexProgress(phase=phase, indexed=done, total=total):
+                self._index_phase = phase
+                self._index_indexed = done
+                self._index_total = total
+            case IndexReady(chunk_count=count):
+                self._index_ready = True
+                self._index_chunks = count
+            case IndexCleared():
+                self._index_ready = False
+                self._index_chunks = 0
+                self._index_phase = ""
+                self._index_indexed = 0
+                self._index_total = 0
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True
@@ -303,26 +435,30 @@ class UI:
                     self._active_lines.append(Text("Cancelled.", style=STYLE_WARNING))
                     self._pending_commands.clear()
                 self._active_task = False
-                variant = "failed" if self._active_had_error else "succeeded"
-                info = self._engine._last_shell_full_output
-                self._expandable = info is not None
-                if info:
-                    self._expand_hidden = info[3]
-                # Finalize any previous pending panel first.
-                self._finalize_pending()
-                if self._expandable:
-                    # Output was truncated — keep in Live so Ctrl+O
-                    # can expand it before it goes to scrollback.
-                    self._pending_lines = self._active_lines
-                    self._pending_variant = variant
-                else:
-                    # All output fits — send straight to scrollback
-                    # so it's immediately selectable/copyable.
-                    content = Group(*self._active_lines) if self._active_lines else Text("")
-                    panel = self._history_panel(variant, content)
-                    if self._live:
-                        self._live.update(self._render_view(), refresh=True)
-                    self._print_to_scrollback(panel)
+                variant: Literal["succeeded", "failed"] = (
+                    "failed" if self._active_had_error else "succeeded"
+                )
+                has_active = bool(self._active_lines)
+                if has_active:
+                    # There's content after the last tool call (or no
+                    # tool calls at all).  Finalize any pending tool
+                    # panel first, then handle the active content.
+                    self._finalize_pending()
+                    info = self._engine._last_shell_full_output
+                    if info:
+                        self._expandable = True
+                        self._expand_hidden = info[3]
+                        self._expand_kind = _ExpandKind.SHELL
+                        self._pending_lines = self._active_lines
+                        self._pending_variant = variant
+                    else:
+                        content = Group(*self._active_lines) if self._active_lines else Text("")
+                        panel = self._history_panel(variant, content)
+                        if self._live:
+                            self._live.update(self._render_view(), refresh=True)
+                        self._print_to_scrollback(panel)
+                # else: no active content — keep pending tool panel
+                # as-is so the user can Ctrl+O to expand it.
                 self._active_lines = []
 
     # ── Rendering ────────────────────────────────────────────────────
@@ -408,22 +544,57 @@ class UI:
 
         target = self.session.review_target
         match target:
-            case PRTarget(number=n, head_branch=branch):
-                review = f" PR #{n} · {branch}"
+            case PRTarget(number=n, base_branch=base, head_branch=head):
+                review = f" PR #{n} · {base} → {head}"
             case _ if target is not None:
-                review = f" {target.head_branch}"
+                review = f" {target.base_branch} → {target.head_branch}"
             case _:
                 review = ""
         if not self.session.gh and not review:
             review = " ✗ not authenticated"
+
+        # Index status — appended to the review target on line 2.
+        if self._index_ready:
+            index_status = f" · ● {_format_count(self._index_chunks)}"
+        elif self._index_total > 0:
+            label = self._index_phase or "indexing"
+            index_status = (
+                f" · {self._spinner_frame()} {label} {self._index_indexed}/{self._index_total}"
+            )
+        else:
+            index_status = ""
+        if review and index_status:
+            review += index_status
 
         # ── Right side ───────────────────────────────────────────────
         model = self.session.model_name or ""
         usage = self.session.usage
         has_usage = usage.input_tokens > 0 or usage.output_tokens > 0
 
-        # Line 1: repo left, model right
-        line1 = self._footer_line(repo, f"{model} " if model else "", width)
+        # Line 1: repo left, model + thinking effort right.
+        # effort_supported is None until the first LLM call determines it.
+        effort = config.thinking_effort
+        supported = self.session.effort_supported
+        if model and effort is not ThinkingEffort.NONE:
+            # Show effort level; red "off" when model doesn't support it.
+            if supported is False:
+                effort_label = "off"
+                effort_style: str | None = ERROR
+            else:
+                effort_label = effort
+                effort_style = None
+            model_right = f"{model} ∴ {effort_label} "
+            line1 = Text(style=FOOTER)
+            line1.append(repo)
+            pad = width - len(repo) - len(model_right)
+            line1.append(" " * max(pad, 2))
+            line1.append(f"{model} ∴ ")
+            line1.append(effort_label, style=effort_style)
+            line1.append(" ")
+        elif model:
+            line1 = self._footer_line(repo, f"{model} ", width)
+        else:
+            line1 = self._footer_line(repo, "", width)
 
         # Single-line footer when there's nothing for line 2
         if not review and not has_usage:
@@ -503,7 +674,7 @@ class UI:
 
     def _history_panel(
         self,
-        variant: Literal["input", "active", "succeeded", "failed", "queued"],
+        variant: Literal["input", "active", "succeeded", "failed", "queued", "toolcall"],
         content: RenderableType,
         *,
         bottom_pad: int = 1,
@@ -544,6 +715,7 @@ class UI:
         # first — otherwise the large panel in Live pushes input off-screen.
         self._pending_lines = None
         self._expandable = False
+        self._expand_kind = None
         self._engine._last_shell_full_output = None
         if self._live:
             self._live.update(self._render_view(), refresh=True)
@@ -559,11 +731,22 @@ class UI:
 
     def _expand_last_output(self) -> None:
         """Replace the pending panel's truncated content with full output."""
-        if not self._expandable or self._engine._last_shell_full_output is None:
+        if not self._expandable:
+            return
+        match self._expand_kind:
+            case _ExpandKind.SHELL:
+                self._expand_shell()
+            case _ExpandKind.TOOL:
+                self._expand_tool()
+
+    def _expand_shell(self) -> None:
+        """Expand a truncated shell output panel."""
+        if self._engine._last_shell_full_output is None:
             return
         stdout_full, stderr_full, returncode, _ = self._engine._last_shell_full_output
         self._engine._last_shell_full_output = None
         self._expandable = False
+        self._expand_kind = None
         # Rebuild content: keep the "$ command" echo (first line),
         # replace truncated output with full output.
         echo = self._pending_lines[0] if self._pending_lines else None
@@ -583,6 +766,32 @@ class UI:
         # Expanded panel is finalized — move to scrollback so the full
         # output is scrollable and Live shrinks back to input chrome.
         self._finalize_pending()
+
+    def _expand_tool(self) -> None:
+        """Expand a truncated tool call output panel."""
+        if not self._tool_full_result:
+            return
+        self._expandable = False
+        self._expand_kind = None
+        self._pending_lines = [
+            *self._tool_preamble,
+            Text(self._tool_header, style=MUTED),
+            Text(self._tool_full_result, style=STYLE_DIM),
+        ]
+        self._tool_full_result = ""
+        self._tool_header = ""
+        self._tool_preamble = []
+        self._finalize_pending()
+
+    # ── Effort rotation ─────────────────────────────────────────────
+
+    @staticmethod
+    def _rotate_effort() -> None:
+        """Cycle thinking effort: low → medium → high → max → none → low."""
+        members = list(ThinkingEffort)
+        current = config.thinking_effort
+        idx = members.index(current)
+        config.update(thinking_effort=members[(idx + 1) % len(members)])
 
     # ── Task dispatch ────────────────────────────────────────────────
 
@@ -658,6 +867,12 @@ class UI:
                         self._complete_slash()
                     elif self.inp.text.startswith("!") and len(self.inp.text) > 1:
                         self._complete_shell()
+
+                # Handle Shift+Tab → rotate thinking effort level
+                if self.inp.shift_tab_pressed:
+                    self.inp.shift_tab_pressed = False
+                    self._rotate_effort()
+                    live.update(self._render_view())
 
                 # Process queued commands when task finishes
                 if not self._active_task and self._pending_commands:

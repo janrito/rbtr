@@ -4,11 +4,13 @@ fmt:
     uv run ruff check --fix .
     uv run ruff format .
     rumdl check --fix .
+    uv run sqlfluff fix .
 
 lint:
     uv run ruff check .
     uv run ruff format --check .
     rumdl check .
+    uv run sqlfluff lint .
 
 typecheck:
     uv run mypy
@@ -18,6 +20,23 @@ test:
 
 build:
     uv build
+
+# ── profiling (requires `uv sync --group debug`) ──
+
+# Benchmark indexing + query latency (no embedding).
+# Usage: just bench [repo-path] [base-ref] [head-ref]
+bench *ARGS:
+    uv run scripts/bench_index.py {{ ARGS }}
+
+# Run bench_index.py under scalene (line-level CPU + memory).
+# Usage: just bench-scalene [repo-path] [base-ref] [head-ref]
+bench-scalene *ARGS:
+    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json scripts/bench_index.py {{ ARGS }}
+
+# View a scalene profile in browser (defaults to bench profile).
+# Usage: just scalene-view [path-to-json]
+scalene-view *ARGS:
+    uv run --group debug python -m scalene view {{ ARGS }}
 
 # Get the current version from pyproject.toml
 current_version := `uvx bump-my-version show current_version`
