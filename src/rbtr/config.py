@@ -103,8 +103,14 @@ class IndexConfig(BaseModel):
 
 
 class ToolsConfig(BaseModel):
-    max_diff_chars: int = 12_000
-    max_log_commits: int = 50
+    max_lines: int = 2000
+    """Hard line cap for read_file, read_symbol, diff output."""
+    max_results: int = 50
+    """Hard entry cap for list/search/reference tools."""
+    max_grep_hits: int = 50
+    """Max match groups returned by grep."""
+    grep_context_lines: int = 50
+    """Lines of context above and below each grep match."""
     max_requests_per_turn: int = 25
 
 

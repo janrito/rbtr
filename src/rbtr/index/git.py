@@ -27,7 +27,7 @@ class FileEntry:
     content: bytes
 
 
-def _resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
+def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
     """Resolve a ref (SHA, branch name, tag) to a Commit object.
 
     Tries the bare ref first, then ``origin/<ref>`` for remote
@@ -49,7 +49,7 @@ def _matches_globs(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pat) for pat in patterns)
 
 
-def _is_binary(data: bytes, sample_size: int = 8192) -> bool:
+def is_binary(data: bytes, sample_size: int = 8192) -> bool:
     """Heuristic: a file is binary if the first *sample_size* bytes
     contain a null byte.
     """
@@ -78,10 +78,10 @@ def list_files(
         max_file_size = config.index.max_file_size
     include = config.index.include
     extend = config.index.extend_exclude
-    commit = _resolve_commit(repo, ref)
+    commit = resolve_commit(repo, ref)
     tree = commit.tree
 
-    for entry in _walk_tree(repo, tree, ""):
+    for entry in walk_tree(repo, tree, ""):
         path, blob = entry
         forced = include and _matches_globs(path, include)
         if not forced and repo.path_is_ignored(path):
@@ -91,7 +91,7 @@ def list_files(
         if blob.size > max_file_size:
             continue
         data = blob.data
-        if _is_binary(data):
+        if is_binary(data):
             continue
         yield FileEntry(
             path=path,
@@ -100,7 +100,7 @@ def list_files(
         )
 
 
-def _walk_tree(
+def walk_tree(
     repo: pygit2.Repository,
     tree: pygit2.Tree,
     prefix: str,
@@ -116,7 +116,7 @@ def _walk_tree(
             case "tree":
                 obj = repo.get(entry.id)
                 if isinstance(obj, pygit2.Tree):
-                    yield from _walk_tree(repo, obj, path)
+                    yield from walk_tree(repo, obj, path)
             case "blob":
                 obj = repo.get(entry.id)
                 if isinstance(obj, pygit2.Blob):
@@ -132,8 +132,8 @@ def changed_files(
 
     Includes added, modified, and deleted files.
     """
-    base_commit = _resolve_commit(repo, base_ref)
-    head_commit = _resolve_commit(repo, head_ref)
+    base_commit = resolve_commit(repo, base_ref)
+    head_commit = resolve_commit(repo, head_ref)
     diff = repo.diff(base_commit, head_commit)
 
     paths: set[str] = set()

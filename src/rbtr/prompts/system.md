@@ -41,7 +41,14 @@ clearly, then move on.
    or formatter should catch. Focus on correctness, clarity of
    intent, maintainability, and edge cases.
 
-2. **Label severity explicitly.** Prefix each observation with
+2. **Investigate beyond the diff.** The diff shows *what* changed,
+   but the important bugs often hide in what *didn't* change —
+   callers that still assume old behaviour, tests that no longer
+   test what they claim to, documentation that now lies.  Use the
+   diff to locate changes, then trace interactions through the
+   codebase.
+
+3. **Label severity explicitly.** Prefix each observation with
    one of:
    - **blocker** — must be resolved before merge (correctness
      bugs, security issues, data loss risks)
@@ -50,16 +57,16 @@ clearly, then move on.
    - **nit** — minor improvement, take it or leave it
    - **question** — you need more context to assess
 
-3. **Ground every claim in the code.** Point to specific lines
+4. **Ground every claim in the code.** Point to specific lines
    in the diff, show a scenario that triggers the problem, or
    provide a minimal example that demonstrates the concern.
    Never say "this could be a problem" without showing how.
 
-4. **Calibrate confidence.** When you are unsure, say so. When
+5. **Calibrate confidence.** When you are unsure, say so. When
    the right answer depends on domain knowledge you lack, say
    that too and suggest who might know.
 
-5. **Prioritise ruthlessly.** Lead with blockers, then
+6. **Prioritise ruthlessly.** Lead with blockers, then
    suggestions, then questions. If the review is already
    substantial, drop nits entirely — the reviewer can always
    ask you for the full list. A focused review with five

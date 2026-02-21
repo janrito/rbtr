@@ -144,6 +144,9 @@ def build_index(
 
     # Batch insert all chunks and snapshots in one call each.
     store.insert_chunks(all_chunks)
+    # Replace the snapshot set for this ref so deleted files from
+    # older reviews don't leak into current queries.
+    store.delete_snapshots(commit_sha)
     store.insert_snapshots(snapshot_rows)
 
     # We also need chunks from skipped (already stored) files for edge inference.
@@ -236,7 +239,9 @@ def update_index(
         else:
             result.stats.skipped_files += 1
 
-    # Insert snapshots for the entire head tree.
+    # Replace snapshots for the entire head tree so deleted files
+    # from previous runs at this ref do not linger.
+    store.delete_snapshots(head_sha)
     store.insert_snapshots(snapshot_rows)
 
     # Extract only changed files.

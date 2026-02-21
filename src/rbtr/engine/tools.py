@@ -5,10 +5,12 @@ Each tool is registered on the shared ``agent`` instance via
 read ``session.index`` / ``session.review_target`` / ``session.repo``.
 
 Index tools are hidden when no index is loaded.  Git tools are
-hidden when no repo is available.
+hidden when no repo is available.  File tools need only a repo.
 """
 
 from __future__ import annotations
+
+from pathlib import Path, PurePosixPath
 
 import pygit2
 from pydantic_ai import RunContext
@@ -16,6 +18,7 @@ from pydantic_ai.tools import ToolDefinition
 from pygit2.enums import SortMode
 
 from rbtr.config import config
+from rbtr.index.git import is_binary, resolve_commit, walk_tree
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
 
@@ -74,79 +77,217 @@ def _repo(ctx: RunContext[AgentDeps]) -> pygit2.Repository:
     return repo
 
 
-# ── Tools ────────────────────────────────────────────────────────────
+def _resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
+    """Map ``"head"`` / ``"base"`` to the review target's branch names.
+
+    Any other value is returned as-is (raw git ref).
+    """
+    target = ctx.deps.session.review_target
+    match ref:
+        case "head":
+            if target is None:  # pragma: no cover — guarded by prepare
+                msg = "no review target"
+                raise RuntimeError(msg)
+            return target.head_branch
+        case "base":
+            if target is None:  # pragma: no cover — guarded by prepare
+                msg = "no review target"
+                raise RuntimeError(msg)
+            return target.base_branch
+        case _:
+            return ref
+
+
+# ── Output limiting ──────────────────────────────────────────────────
+
+
+def _limited(shown: int, total: int, *, hint: str) -> str:
+    """Standard truncation trailer appended when output is capped.
+
+    Every tool that caps output uses this, so the LLM sees a
+    consistent format and knows how to request more.
+    """
+    return f"\n\n... limited ({shown}/{total}). {hint}"
+
+
+# ── Search tools (require index) ────────────────────────────────────
 
 
 @agent.tool(prepare=_require_index)
 def search_symbols(
     ctx: RunContext[AgentDeps],
     name: str,
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
     """Search for functions, classes, and methods by name substring.
 
+    Looks up the code index for symbols whose name contains the
+    given substring (case-insensitive).  Returns up to
+    ``max_results`` matches with their kind, scope, file path,
+    and line number.
+
     Use short, simple names — NOT fully-qualified module paths.
     For example, use ``MQ`` not ``lib.mq.MQ``, or ``crawl`` not
-    ``crawler.module.crawl``.  The search is case-insensitive and
-    matches anywhere in the symbol name.
+    ``crawler.module.crawl``.
+
+    Use this when you know (part of) a symbol's name and want to
+    locate it.  For keyword search across full source content, use
+    ``search_codebase`` instead.  To read the source once found,
+    use ``read_symbol``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
 
     Args:
-        name: Short substring to match (e.g. ``parse``, ``Client``, ``MQ``).
+        name: Short substring to match against symbol names
+            (e.g. ``parse``, ``Client``, ``MQ``).  Case-insensitive.
+        offset: Number of results to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum results to return per call
+            (defaults to ``tools.max_results`` config value).
     """
     store = _store(ctx)
     chunks = store.search_by_name(_head_ref(ctx), name)
     if not chunks:
         return f"No symbols matching '{name}'. Try a shorter or different substring."
+    total = len(chunks)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = chunks[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} results."
     lines: list[str] = []
-    for c in chunks[:20]:
+    for c in page:
         scope = f"{c.scope}." if c.scope else ""
         lines.append(f"{c.kind} {scope}{c.name}  ({c.file_path}:{c.line_start})")
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
 
 
 @agent.tool(prepare=_require_index)
 def search_codebase(
     ctx: RunContext[AgentDeps],
     query: str,
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
-    """Full-text keyword search across the indexed codebase (BM25).
+    """Full-text keyword search across the indexed codebase using BM25 ranking.
+
+    Searches both symbol names and their full source content.
+    Results are ranked by relevance — symbols that mention the
+    keywords more frequently and prominently score higher.
+    Returns up to ``max_results`` results with relevance scores,
+    kind, scope, file path, and line number.
+
+    Use this when you want to find code that *mentions* certain
+    terms but you don't know the symbol name.  For example,
+    searching ``"pool_size"`` finds all symbols that reference
+    that config key.  For name-only lookup, use
+    ``search_symbols``.  For conceptual/semantic matching (no
+    shared keywords), use ``search_similar``.
+
+    Only searches indexed code files — config, lockfiles, and
+    other non-indexed files are not covered.  Use ``grep``
+    for raw text search in specific files.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
 
     Args:
-        query: Keywords to search for in symbol names and content.
+        query: Keywords to search for (e.g. ``retry timeout``,
+            ``database connection``).  Multiple words are treated
+            as a combined query.
+        offset: Number of results to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum results to return per call
+            (defaults to ``tools.max_results`` config value).
     """
     store = _store(ctx)
-    results = store.search_fulltext(_head_ref(ctx), query, top_k=10)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    # Fetch extra to detect if more exist beyond the page.
+    results = store.search_fulltext(_head_ref(ctx), query, top_k=offset + limit + 1)
     if not results:
         return f"No results for '{query}'."
+    total = len(results)
+    page = results[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} results."
     lines: list[str] = []
-    for chunk, score in results:
+    for chunk, score in page:
         scope = f"{chunk.scope}." if chunk.scope else ""
         lines.append(
             f"[{score:.2f}] {chunk.kind} {scope}{chunk.name}"
             f"  ({chunk.file_path}:{chunk.line_start})"
         )
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
 
 
 @agent.tool(prepare=_require_index)
 def search_similar(
     ctx: RunContext[AgentDeps],
     query: str,
-    top_k: int = 10,
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
-    """Semantic similarity search — find code conceptually related to a natural-language query.
+    """Semantic similarity search — find code conceptually related to a query.
 
-    Uses embedding vectors to find symbols whose meaning is close to the
-    query, even if they don't share keywords.  Complements ``search_codebase``
-    (keyword/BM25) for when you know *what* you're looking for but not the
-    exact names.
+    Embeds the query into a vector and finds symbols whose
+    embedding is closest by cosine similarity.  This finds
+    conceptually related code even when it shares no keywords
+    with the query.
+
+    Returns up to ``max_results`` results with similarity scores
+    (0.0 to 1.0), kind, scope, file path, and line number.
+
+    Use this when you know *what* you're looking for in plain
+    language but not the exact names or terms used in the code.
+    For keyword matching, use ``search_codebase``.  For name
+    lookup, use ``search_symbols``.
+
+    May be unavailable if the embedding model is not loaded —
+    falls back to a message suggesting keyword alternatives.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
 
     Args:
-        query: Natural-language description of what you're looking for.
-        top_k: Maximum number of results (default 10).
+        query: Natural-language description of what you're
+            looking for (e.g. ``"rate limiting logic"``,
+            ``"database connection pooling"``).
+        offset: Number of results to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum results to return per call
+            (defaults to ``tools.max_results`` config value).
     """
     store = _store(ctx)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
     try:
-        results = store.search_by_text(_head_ref(ctx), query, top_k=top_k)
+        results = store.search_by_text(_head_ref(ctx), query, top_k=offset + limit + 1)
     except Exception:
         return (
             "Semantic search unavailable (embedding model not loaded). "
@@ -154,225 +295,324 @@ def search_similar(
         )
     if not results:
         return f"No similar symbols for '{query}'."
+    total = len(results)
+    page = results[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} results."
     lines: list[str] = []
-    for chunk, score in results:
+    for chunk, score in page:
         scope = f"{chunk.scope}." if chunk.scope else ""
         lines.append(
             f"[{score:.3f}] {chunk.kind} {scope}{chunk.name}"
             f"  ({chunk.file_path}:{chunk.line_start})"
         )
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
 
 
-@agent.tool(prepare=_require_index)
-def get_dependents(
-    ctx: RunContext[AgentDeps],
-    symbol_name: str,
-) -> str:
-    """Find what imports or depends on a given symbol.
-
-    Use a short name, not a module path.
-
-    Args:
-        symbol_name: Short symbol name (e.g. ``MQ``, ``Config``).
-    """
-    store = _store(ctx)
-    ref = _head_ref(ctx)
-
-    targets = store.search_by_name(ref, symbol_name)
-    if not targets:
-        return f"Symbol '{symbol_name}' not found."
-
-    target_ids = {c.id for c in targets}
-    edges = store.get_edges(ref)
-    import_edges = [e for e in edges if e.kind == EdgeKind.IMPORTS and e.target_id in target_ids]
-
-    if not import_edges:
-        return f"No dependents found for '{symbol_name}'."
-
-    all_chunks = {c.id: c for c in store.get_chunks(ref)}
-    lines: list[str] = []
-    for edge in import_edges:
-        src = all_chunks.get(edge.source_id)
-        if src:
-            lines.append(f"{src.kind} {src.name}  ({src.file_path}:{src.line_start})")
-    return "\n".join(lines) or f"No dependents found for '{symbol_name}'."
-
-
-@agent.tool(prepare=_require_index)
-def get_callers(
-    ctx: RunContext[AgentDeps],
-    symbol_name: str,
-) -> str:
-    """Find test files and doc sections that reference a symbol.
-
-    Use a short name, not a module path.
-
-    Args:
-        symbol_name: Short symbol name (e.g. ``MQ``, ``Config``).
-    """
-    store = _store(ctx)
-    ref = _head_ref(ctx)
-
-    targets = store.search_by_name(ref, symbol_name)
-    if not targets:
-        return f"Symbol '{symbol_name}' not found."
-
-    target_ids = {c.id for c in targets}
-    edges = store.get_edges(ref)
-    ref_edges = [
-        e
-        for e in edges
-        if e.kind in (EdgeKind.TESTS, EdgeKind.DOCUMENTS) and e.target_id in target_ids
-    ]
-
-    if not ref_edges:
-        return f"No tests or docs reference '{symbol_name}'."
-
-    all_chunks = {c.id: c for c in store.get_chunks(ref)}
-    lines: list[str] = []
-    for edge in ref_edges:
-        src = all_chunks.get(edge.source_id)
-        if src:
-            label = "tests" if edge.kind == EdgeKind.TESTS else "documents"
-            lines.append(f"[{label}] {src.name}  ({src.file_path}:{src.line_start})")
-    return "\n".join(lines) or f"No tests or docs reference '{symbol_name}'."
-
-
-@agent.tool(prepare=_require_index)
-def get_blast_radius(
-    ctx: RunContext[AgentDeps],
-    file_path: str,
-) -> str:
-    """Show what depends on symbols in a file — imports, tests, and docs.
-
-    Args:
-        file_path: Path of the file to check (e.g. 'src/rbtr/index/store.py').
-    """
-    store = _store(ctx)
-    ref = _head_ref(ctx)
-
-    file_chunks = store.get_chunks(ref, file_path=file_path)
-    if not file_chunks:
-        return f"No indexed symbols in '{file_path}'."
-
-    file_chunk_ids = {c.id for c in file_chunks}
-    edges = store.get_edges(ref)
-    inbound = [e for e in edges if e.target_id in file_chunk_ids]
-
-    if not inbound:
-        return f"Nothing depends on symbols in '{file_path}'."
-
-    all_chunks = {c.id: c for c in store.get_chunks(ref)}
-    lines: list[str] = []
-    for edge in inbound:
-        src = all_chunks.get(edge.source_id)
-        tgt = all_chunks.get(edge.target_id)
-        if src and tgt:
-            lines.append(f"[{edge.kind}] {src.name} ({src.file_path}) → {tgt.name}")
-    return "\n".join(lines) or f"Nothing depends on symbols in '{file_path}'."
+# ── Index read tools (require index) ─────────────────────────────────
 
 
 @agent.tool(prepare=_require_index)
 def read_symbol(
     ctx: RunContext[AgentDeps],
-    symbol_name: str,
+    name: str,
+    ref: str = "head",
 ) -> str:
-    """Read the full source code of a symbol (function, class, or method).
+    """Read the full source code of a symbol from the index.
+
+    Looks up the symbol by name in the code index and returns
+    its source code, preceded by a header showing the symbol
+    kind, scope, file path, and line range.  Output is capped
+    at ``max_lines``.  Prefers code symbols (functions, classes,
+    methods) over other chunk types like tests or doc sections.
+
+    Use this when you've identified a symbol (via
+    ``search_symbols``, ``find_references``, etc.) and want to
+    read its implementation.  For reading arbitrary file content
+    (including non-indexed files), use ``read_file``.
 
     Use a short name — NOT a fully-qualified path.  For example,
-    ``MQ`` not ``lib.mq.MQ``, or ``handle_request`` not
-    ``server.handlers.handle_request``.  If unsure of the exact
-    name, use ``search_symbols`` first.
+    ``MQ`` not ``lib.mq.MQ``.  If unsure of the exact name, use
+    ``search_symbols`` first.
 
     Args:
-        symbol_name: Short name to match (e.g. ``MQ``, ``parse_config``).
+        name: Short name to match (e.g. ``MQ``,
+            ``parse_config``).  Case-insensitive substring match.
+            Returns the first matching code symbol.
+        ref: Which version of the codebase to read — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.  Returns
+            the state at that snapshot, not changes introduced
+            by it.
     """
     store = _store(ctx)
-    matches = store.search_by_name(_head_ref(ctx), symbol_name)
+    resolved = _resolve_tool_ref(ctx, ref)
+    matches = store.search_by_name(resolved, name)
 
     code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
     symbols = [c for c in matches if c.kind in code_kinds]
 
     if not symbols:
-        return (
-            f"No symbol matching '{symbol_name}'. "
-            f"Use search_symbols with a shorter substring, or "
-            f"list_indexed_files to see what files are indexed."
-        )
+        return f"No symbol matching '{name}'. Use search_symbols with a shorter substring."
 
     sym = symbols[0]
     header = f"# {sym.kind} {sym.scope + '.' if sym.scope else ''}{sym.name}"
     location = f"# {sym.file_path}:{sym.line_start}-{sym.line_end}"
+    content_lines = sym.content.splitlines()
+    max_lines = config.tools.max_lines
+    if len(content_lines) > max_lines:
+        body = "\n".join(content_lines[:max_lines])
+        total = len(content_lines)
+        return f"{header}\n{location}\n\n{body}" + _limited(
+            max_lines,
+            total,
+            hint=f"use read_file('{sym.file_path}', offset={max_lines}) to continue",
+        )
     return f"{header}\n{location}\n\n{sym.content}"
 
 
 @agent.tool(prepare=_require_index)
-def list_indexed_files(
+def list_symbols(
     ctx: RunContext[AgentDeps],
-    path_filter: str = "",
+    path: str,
+    ref: str = "head",
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
-    """List files in the index, optionally filtered by path substring.
+    """List the symbols (functions, classes, methods) in a file.
 
-    Use this to discover what files are available before searching
-    for symbols.  Shows each file with its symbol count.
+    Returns a structural table of contents for the file: each
+    symbol's line number, kind, scope, and name.  Only includes
+    code symbols from the index — functions, classes, and methods.
+
+    Parallel to ``list_files``: ``list_files`` lists files in a
+    directory, ``list_symbols`` lists symbols in a file.
+
+    Use this for orientation before deciding which symbols to
+    read in full with ``read_symbol``.  For reading raw file
+    content (including non-indexed files), use ``read_file``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
 
     Args:
-        path_filter: Optional substring to filter paths (e.g. ``mq``, ``lib/``).
+        path: File path relative to repo root
+            (e.g. ``src/api/handler.py``).  Must not contain
+            ``..``.
+        ref: Which version of the codebase to read — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.  Returns
+            the state at that snapshot, not changes introduced
+            by it.
+        offset: Number of symbols to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum symbols to return per call
+            (defaults to ``tools.max_results`` config value).
+    """
+    if err := _validate_path(path):
+        return err
+
+    store = _store(ctx)
+    resolved = _resolve_tool_ref(ctx, ref)
+    chunks = store.get_chunks(resolved, file_path=path)
+    code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
+    symbols = sorted(
+        (c for c in chunks if c.kind in code_kinds),
+        key=lambda c: c.line_start,
+    )
+
+    if not symbols:
+        return f"No symbols found in '{path}' at ref '{ref}'."
+
+    total = len(symbols)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = symbols[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} symbols."
+
+    lines = [f"# {path}  ({total} symbols)"]
+    for s in page:
+        scope = f"{s.scope}." if s.scope else ""
+        lines.append(f"  {s.line_start:>4d}  {s.kind} {scope}{s.name}")
+    result = "\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+# ── Dependency graph tools (require index) ───────────────────────────
+
+
+@agent.tool(prepare=_require_index)
+def find_references(
+    ctx: RunContext[AgentDeps],
+    name: str,
+    kind: str = "",
+    ref: str = "head",
+    offset: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """Find symbols that reference a given symbol via the dependency graph.
+
+    Walks all inbound edges pointing at the target symbol and
+    returns each referencing symbol's kind, name, file path, and
+    line number, labelled by edge type.
+
+    By default returns all edge types.  Use ``kind`` to filter
+    to a specific relationship:
+
+    - **imports** — the symbol is imported by the source.
+      "Who uses this symbol?"  Example: modules that import
+      a class or call a function from another module.
+    - **calls** — the symbol is called by the source.
+      "Who calls this function?"  Example: functions that
+      directly invoke the target function.
+    - **inherits** — the symbol is a base class of the source.
+      "Who extends this class?"  Example: subclasses that
+      inherit from the target class.
+    - **tests** — the source is a test for the symbol.
+      "What tests cover this?"  Example: test functions that
+      exercise the target function.
+    - **documents** — the source is documentation for the symbol.
+      "What docs describe this?"  Example: doc sections or
+      README entries that reference the target.
+    - **configures** — the source is configuration for the symbol.
+      "What config keys affect this?"  Example: config entries
+      that parameterise the target's behaviour.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        name: Short symbol name to look up
+            (e.g. ``Config``, ``parse_request``).
+            Case-insensitive substring match, same as
+            ``search_symbols``.  Use a short name, not a
+            fully-qualified module path.
+        kind: Edge type to filter by (e.g. ``"imports"``,
+            ``"tests"``).  Empty string (default) returns all
+            edge types.  Must be one of: ``imports``, ``calls``,
+            ``inherits``, ``tests``, ``documents``,
+            ``configures``.
+        ref: Which version of the codebase to query — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.  Returns
+            the state at that snapshot, not changes introduced
+            by it.
+        offset: Number of results to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum results to return per call
+            (defaults to ``tools.max_results`` config value).
     """
     store = _store(ctx)
-    chunks = store.get_chunks(_head_ref(ctx))
-    if not chunks:
-        return "No files indexed yet."
+    resolved = _resolve_tool_ref(ctx, ref)
 
-    # Group by file path.
-    files: dict[str, int] = {}
-    for c in chunks:
-        files[c.file_path] = files.get(c.file_path, 0) + 1
+    targets = store.search_by_name(resolved, name)
+    if not targets:
+        return f"Symbol '{name}' not found."
 
-    if path_filter:
-        files = {p: n for p, n in files.items() if path_filter.lower() in p.lower()}
-        if not files:
-            return f"No indexed files matching '{path_filter}'."
+    target_ids = {c.id for c in targets}
 
-    lines = [f"  {path}  ({count} symbols)" for path, count in sorted(files.items())]
-    total = len(lines)
-    if total > 50:
-        lines = lines[:50]
-        lines.append(f"  ... and {total - 50} more files")
-    return f"Indexed files ({total}):\n" + "\n".join(lines)
+    # Resolve the kind filter.
+    edge_kind: EdgeKind | None = None
+    if kind:
+        try:
+            edge_kind = EdgeKind(kind)
+        except ValueError:
+            valid = ", ".join(e.value for e in EdgeKind)
+            return f"Unknown edge kind '{kind}'. Valid kinds: {valid}."
+
+    edges = store.get_edges(resolved)
+    matching = [
+        e for e in edges if e.target_id in target_ids and (edge_kind is None or e.kind == edge_kind)
+    ]
+
+    if not matching:
+        if kind:
+            return f"No '{kind}' references found for '{name}'."
+        return f"No references found for '{name}'."
+
+    all_chunks = {c.id: c for c in store.get_chunks(resolved)}
+    all_lines: list[str] = []
+    for edge in matching:
+        src = all_chunks.get(edge.source_id)
+        if src:
+            all_lines.append(
+                f"[{edge.kind.value}] {src.kind} {src.name}  ({src.file_path}:{src.line_start})"
+            )
+
+    if not all_lines:
+        return f"No references found for '{name}'."
+
+    total = len(all_lines)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = all_lines[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} references."
+    result = "\n".join(page)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+# ── Structural diff (require index) ──────────────────────────────────
 
 
 @agent.tool(prepare=_require_index)
-def detect_language(
+def changed_symbols(
     ctx: RunContext[AgentDeps],
-    file_path: str,
+    offset: int = 0,
+    max_lines: int | None = None,
 ) -> str:
-    """Detect the programming language of a file.
+    """List symbols changed between base and head.
+
+    Compares the indexed symbols at the review target's base
+    branch against the head branch to identify structural
+    changes at the symbol level — not line-by-line text diffs.
+    Parallel to ``changed_files`` (file paths) vs
+    ``changed_symbols`` (symbols).
+
+    Returns categorised sections (only non-empty sections shown):
+
+    - **Added**: symbols present in head but not in base.
+    - **Removed**: symbols in base but not in head.
+    - **Modified**: same symbol name/scope but different content.
+    - **Stale docs**: doc sections that reference modified symbols
+      but were not themselves updated.
+    - **Missing tests**: new functions/methods with no TESTS edge.
+    - **Broken edges**: import edges in head that point at symbols
+      removed in head.
+
+    Use this as a high-level overview to guide the review.  For
+    the raw line-by-line diff, use ``diff``.  For the list of
+    changed file paths, use ``changed_files``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_lines`` (up to the
+    configured cap) to get more per page.
 
     Args:
-        file_path: Path to check (e.g. 'src/main.rs').
-    """
-    from rbtr.plugins.manager import get_manager  # deferred: avoids circular at import time
-
-    mgr = get_manager()
-    lang_id = mgr.detect_language(file_path)
-    if lang_id is None:
-        return f"Unknown language for '{file_path}'."
-    return lang_id
-
-
-@agent.tool(prepare=_require_index)
-def semantic_diff(
-    ctx: RunContext[AgentDeps],
-) -> str:
-    """Structural diff between the review target's base and head branches.
-
-    Returns:
-    - Added / removed / modified symbols (functions, classes, methods).
-    - Stale docs: documentation that references modified code but wasn't updated.
-    - Missing tests: new functions/methods with no test coverage.
-    - Broken edges: imports in head that point at removed symbols.
+        offset: Number of output lines to skip (default 0).
+            Use to fetch the next page when a previous call was
+            limited.
+        max_lines: Maximum lines to return per call
+            (defaults to ``tools.max_lines`` config value).
     """
     from rbtr.index.orchestrator import compute_diff  # deferred: avoid circular
 
@@ -414,30 +654,140 @@ def semantic_diff(
     if not sections:
         return "No structural differences between base and head."
 
-    return "\n\n".join(sections)
+    all_lines = "\n\n".join(sections).splitlines()
+    total = len(all_lines)
+    limit = (
+        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
+    )
+    page = all_lines[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} lines."
+    result = "\n".join(page)
+    if offset + len(page) < total:
+        result += _limited(
+            offset + len(page), total, hint=f"offset={offset + len(page)} to continue"
+        )
+    return result
 
 
 # ── Git tools ────────────────────────────────────────────────────────
 
 
 @agent.tool(prepare=_require_repo)
-def diff(
+def changed_files(
     ctx: RunContext[AgentDeps],
-    ref: str = "",
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
-    """Show a unified diff.
+    """List file paths changed between the review target's base and head.
 
-    With no argument, diffs base branch against head branch (the
-    review target).  With a single ref, shows that commit's diff
-    against its parent.  With ``base..head`` syntax, diffs between
-    the two refs.
+    Returns a sorted list of every file that was added, modified,
+    or deleted.
+
+    Use this as the starting point for systematic file-by-file
+    review: get the list of changed paths, then examine each
+    with ``diff(path=...)``, ``read_file``, or ``list_symbols``.
+    For a structural summary of *symbol-level* changes, use
+    ``changed_symbols``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
 
     Args:
+        offset: Number of entries to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum entries to return per call
+            (defaults to ``tools.max_results`` config value).
+    """
+    from rbtr.index.git import changed_files as _changed_files  # deferred: avoid circular
+
+    repo = _repo(ctx)
+    target = ctx.deps.session.review_target
+    if target is None:
+        return "No review target selected."
+
+    try:
+        paths = _changed_files(repo, target.base_branch, target.head_branch)
+    except KeyError as exc:
+        return f"Could not resolve refs: {exc}"
+
+    if not paths:
+        return "No files changed between base and head."
+
+    sorted_paths = sorted(paths)
+    total = len(sorted_paths)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = sorted_paths[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} changed files."
+
+    header = f"Changed files ({total}):"
+    listing = "\n".join(f"  {p}" for p in page)
+    result = f"{header}\n{listing}"
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+@agent.tool(prepare=_require_repo)
+def diff(
+    ctx: RunContext[AgentDeps],
+    path: str = "",
+    ref: str = "",
+    offset: int = 0,
+    max_lines: int | None = None,
+) -> str:
+    """Show a unified text diff from the git repository.
+
+    Produces standard unified diff output (``---``/``+++`` with
+    ``@@`` hunks) showing exact line-level changes.  Output is
+    capped at ``max_lines``.
+
+    Three modes depending on ``ref``:
+
+    - **Empty string** (default): diffs the review target's base
+      branch against its head branch — the main review diff.
+    - **Single ref** (e.g. ``"abc123"``): diffs that commit
+      against its parent.
+    - **Range** (e.g. ``"main..feature"``): diffs between two
+      arbitrary refs.
+
+    When ``path`` is set, only patches for that file are shown.
+    Use this for file-by-file review of large PRs instead of
+    reading the entire diff at once.
+
+    Use this for the raw line-by-line view of what changed.
+    For a structural/symbol-level summary, use ``changed_symbols``.
+    For the list of changed paths, use ``changed_files``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_lines`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        path: File path to restrict the diff to
+            (e.g. ``src/api/handler.py``).  Empty string
+            (default) shows the full diff.
         ref: A commit SHA, branch name, or ``base..head`` range.
-             Empty string diffs the review target's base vs head.
+            Empty string (default) diffs the review target.
+        offset: Number of output lines to skip (0-indexed,
+            default 0).  Use to paginate large diffs.
+        max_lines: Maximum lines of diff output to return
+            (defaults to ``tools.max_lines`` config value).
     """
     repo = _repo(ctx)
     target = ctx.deps.session.review_target
+    capped = (
+        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
+    )
 
     if not ref:
         # Default: base → head of review target.
@@ -461,7 +811,7 @@ def diff(
         if parent_obj is None:
             return f"Parent of {ref} not found."
         parent = parent_obj.peel(pygit2.Commit)
-        return _format_diff(repo.diff(parent, commit))
+        return _format_diff(repo.diff(parent, commit), path, offset, capped)
 
     try:
         base_commit = repo.revparse_single(base_ref).peel(pygit2.Commit)
@@ -469,28 +819,61 @@ def diff(
     except (KeyError, ValueError, pygit2.GitError) as exc:
         return f"Could not resolve refs: {exc}"
 
-    return _format_diff(repo.diff(base_commit, head_commit))
+    return _format_diff(repo.diff(base_commit, head_commit), path, offset, capped)
 
 
-def _format_diff(d: pygit2.Diff) -> str:
-    """Format a pygit2 Diff as a truncated unified diff string."""
-    stats = d.stats
-    header = f"{stats.files_changed} files changed, +{stats.insertions} -{stats.deletions}"
-    patch = d.patch or "(empty diff)"
-    max_chars = config.tools.max_diff_chars
-    if len(patch) > max_chars:
-        patch = patch[:max_chars] + f"\n\n... truncated ({len(patch)} chars total)"
-    return f"{header}\n\n{patch}"
+def _format_diff(d: pygit2.Diff, path: str, offset: int, max_lines: int) -> str:
+    """Format a pygit2 Diff as a line-limited unified diff string."""
+    if path:
+        patches = [p for p in d if p.delta.old_file.path == path or p.delta.new_file.path == path]
+        if not patches:
+            return f"No changes to '{path}' in this diff."
+        patch_text = "\n".join(p.text for p in patches)
+        n_files = len(patches)
+        insertions = sum(p.line_stats[1] for p in patches)
+        deletions = sum(p.line_stats[2] for p in patches)
+        header = f"{n_files} files changed, +{insertions} -{deletions}"
+    else:
+        stats = d.stats
+        header = f"{stats.files_changed} files changed, +{stats.insertions} -{stats.deletions}"
+        patch_text = d.patch or "(empty diff)"
+
+    all_lines = patch_text.splitlines()
+    total = len(all_lines)
+    page = all_lines[offset : offset + max_lines]
+
+    result = header + "\n\n" + "\n".join(page)
+    shown_end = offset + len(page)
+    if shown_end < total:
+        result += _limited(shown_end, total, hint=f"offset={shown_end} to continue")
+    return result
 
 
 @agent.tool(prepare=_require_repo)
 def commit_log(
     ctx: RunContext[AgentDeps],
+    offset: int = 0,
+    max_results: int | None = None,
 ) -> str:
-    """Show the commit log between the review target's base and head branches.
+    """Show the commit log between the review target's base and head.
 
-    Returns a reverse-chronological list of commits on the head
-    branch that are not on the base branch.
+    Lists commits on the head branch that are not on the base
+    branch, in reverse chronological order.  Each line shows the
+    short SHA, author name, and first line of the commit message.
+
+    Use this to understand the sequence and intent of changes
+    before diving into the diff.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        offset: Number of commits to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum commits to return per call
+            (defaults to ``tools.max_results`` config value).
     """
     repo = _repo(ctx)
     target = ctx.deps.session.review_target
@@ -507,19 +890,661 @@ def commit_log(
     merge_base = repo.merge_base(head_commit.id, base_commit.id)
     stop_at = merge_base if merge_base else None
 
-    lines: list[str] = []
+    all_entries: list[str] = []
     for commit in repo.walk(head_commit.id, SortMode.TOPOLOGICAL):
         if stop_at and commit.id == stop_at:
             break
         msg = commit.message.strip().split("\n", 1)[0]
         sha = str(commit.id)[:8]
         author = commit.author.name
-        lines.append(f"{sha} {author}: {msg}")
-        max_commits = config.tools.max_log_commits
-        if len(lines) >= max_commits:
-            lines.append(f"... truncated at {max_commits} commits")
-            break
+        all_entries.append(f"{sha} {author}: {msg}")
 
-    if not lines:
+    if not all_entries:
         return "No commits between base and head (branches are identical)."
-    return "\n".join(lines)
+
+    total = len(all_entries)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = all_entries[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} commits."
+    result = "\n".join(page)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+# ── File tools (require repo) ───────────────────────────────────────
+
+
+def _validate_path(path: str) -> str | None:
+    """Return an error message if *path* is invalid, else ``None``."""
+    if ".." in PurePosixPath(path).parts:
+        return f"Path '{path}' contains '..' — must be relative to repo root."
+    return None
+
+
+def _read_fs_file(path: str) -> tuple[list[str], str | None]:
+    """Read a file from the local filesystem.
+
+    Returns ``(lines, None)`` on success, or ``([], error_msg)``
+    on failure.
+    """
+    p = Path(path)
+    if not p.exists():
+        return [], f"File '{path}' not found."
+    try:
+        data = p.read_bytes()
+    except OSError as exc:
+        return [], f"Cannot read '{path}': {exc}"
+    if is_binary(data):
+        return [], f"File '{path}' is binary — cannot display."
+    return data.decode(errors="replace").splitlines(), None
+
+
+def _list_fs_files(prefix: str) -> list[str]:
+    """List files on the local filesystem matching *prefix*.
+
+    *prefix* is treated as a directory path.  Returns sorted
+    relative paths for all regular files under that directory.
+    """
+    base = Path(prefix) if prefix else Path(".")
+    if not base.is_dir():
+        return []
+    entries: list[str] = []
+    for p in sorted(base.rglob("*")):
+        if not p.is_file():
+            continue
+        entries.append(str(PurePosixPath(p)))
+    return entries
+
+
+def _read_blob(repo: pygit2.Repository, ref: str, path: str) -> pygit2.Blob | str:
+    """Walk the tree at *ref* and return the blob for *path*.
+
+    Returns the blob on success, or an error string on failure.
+    """
+    try:
+        commit = resolve_commit(repo, ref)
+    except KeyError:
+        return f"Ref '{ref}' not found."
+    for entry_path, blob in walk_tree(repo, commit.tree, ""):
+        if entry_path == path:
+            return blob
+    return f"File '{path}' not found at ref '{ref}'."
+
+
+def _number_lines(lines: list[str], start: int) -> str:
+    """Format *lines* with right-aligned line numbers starting at *start*."""
+    end = start + len(lines)
+    width = len(str(end))
+    return "\n".join(f"{start + i:{width}d}│ {line}" for i, line in enumerate(lines))
+
+
+def _format_file_page(path: str, all_lines: list[str], offset: int, max_lines: int) -> str:
+    """Shared formatter for read_file — produces numbered output with pagination hint."""
+    total = len(all_lines)
+    selected = all_lines[offset : offset + max_lines]
+    line_start = offset + 1  # 1-indexed display
+
+    header = f"# {path}  (lines {line_start}-{line_start + len(selected) - 1} of {total})"
+    body = _number_lines(selected, line_start)
+    output = f"{header}\n{body}"
+    shown_end = offset + len(selected)
+    if shown_end < total:
+        output += _limited(shown_end, total, hint=f"offset={shown_end} to continue")
+    return output
+
+
+@agent.tool(prepare=_require_repo)
+def read_file(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    ref: str = "head",
+    offset: int = 0,
+    max_lines: int | None = None,
+) -> str:
+    """Read file content by path.
+
+    Looks up the file in the git object store first.  If the
+    path is not found in git, falls back to the local filesystem
+    — this covers workspace files (e.g. ``.rbtr/REVIEW-*`` notes
+    created with ``edit``) and any other untracked files.
+
+    Works on any file: source code, config files, docs, lockfiles,
+    and review notes.  Returns content with line numbers.  Output
+    is capped at ``max_lines``.
+
+    Use this to read any file by path.  For reading a specific
+    symbol's source code by name, ``read_symbol`` is faster.
+    To find where something is in a file first, use ``grep``
+    or ``list_symbols``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_lines`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        path: File path relative to repo root
+            (e.g. ``src/main.py``, ``.rbtr/REVIEW-plan.md``).
+            Must not contain ``..``.
+        ref: Which version of the codebase to read — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.
+        offset: Number of lines to skip (0-indexed, default 0).
+            Use to paginate through large files.
+        max_lines: Maximum number of lines to return
+            (defaults to ``tools.max_lines`` config value).
+    """
+    if err := _validate_path(path):
+        return err
+
+    capped = (
+        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
+    )
+
+    # Try git object store first.
+    repo = _repo(ctx)
+    resolved = _resolve_tool_ref(ctx, ref)
+    blob_result = _read_blob(repo, resolved, path)
+    if not isinstance(blob_result, str):
+        data: bytes = blob_result.data
+        if is_binary(data):
+            return f"File '{path}' is binary — cannot display."
+        return _format_file_page(path, data.decode(errors="replace").splitlines(), offset, capped)
+
+    # Fall back to local filesystem.
+    fs_lines, fs_err = _read_fs_file(path)
+    if fs_err:
+        # Return the original git error — it's more informative.
+        return blob_result
+    return _format_file_page(path, fs_lines, offset, capped)
+
+
+@agent.tool(prepare=_require_repo)
+def grep(
+    ctx: RunContext[AgentDeps],
+    search: str,
+    path: str = "",
+    ref: str = "head",
+    offset: int = 0,
+    max_hits: int | None = None,
+    context_lines: int | None = None,
+) -> str:
+    """Search for a substring in one file or across the repository.
+
+    Performs a case-insensitive substring search.  Each match is
+    shown with surrounding context lines (configurable).  When
+    matches are close together, their context regions are merged
+    to avoid duplicate lines.  Output includes line numbers.
+
+    Results are capped at ``max_hits`` match groups.  Use
+    ``offset`` to paginate through more.
+
+    Three modes depending on ``path``:
+
+    - **Exact file** (e.g. ``"src/api/handler.py"``): search
+      within that single file.
+    - **Directory prefix** (e.g. ``"src/"``): search all text
+      files under that subtree.
+    - **Empty string** (default): search all text files in the
+      repository.
+
+    Binary files are silently skipped.
+
+    Files not found in the git tree are looked up on the local
+    filesystem as a fallback — this covers workspace files (e.g.
+    ``.rbtr/REVIEW-*`` notes) and other untracked files.
+
+    For searching across the indexed codebase by keyword (with
+    BM25 ranking), use ``search_codebase``.  For name-based
+    symbol lookup, use ``search_symbols``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_hits`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        search: Substring to find.  Case-insensitive — ``"config"``
+            matches ``Config``, ``CONFIG``, ``config``.
+        path: File path or directory prefix relative to repo root
+            (e.g. ``src/api/handler.py``, ``.rbtr/``, ``""``).
+            Empty string (default) searches all repo files.
+            Must not contain ``..``.
+        ref: Which version of the codebase to read — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.
+        offset: Number of match groups to skip (default 0).
+            Use to fetch the next page when a previous call was
+            limited.
+        max_hits: Maximum match groups to return per call
+            (defaults to ``tools.max_grep_hits`` config value).
+        context_lines: Number of lines to show above and below
+            each match.  Defaults to the configured value.
+    """
+    if path and (err := _validate_path(path)):
+        return err
+
+    ctx_n = context_lines if context_lines is not None else config.tools.grep_context_lines
+    needle = search.lower()
+    capped_hits = (
+        min(max_hits, config.tools.max_grep_hits)
+        if max_hits is not None
+        else config.tools.max_grep_hits
+    )
+
+    repo = _repo(ctx)
+    resolved = _resolve_tool_ref(ctx, ref)
+
+    if path:
+        # Try as an exact file in git first.
+        blob_result = _read_blob(repo, resolved, path)
+        if not isinstance(blob_result, str):
+            return _grep_blob(blob_result, path, needle, ctx_n, offset, capped_hits)
+
+        # Not an exact git file — check whether any git files match the prefix.
+        try:
+            commit = resolve_commit(repo, resolved)
+        except KeyError:
+            return f"Ref '{ref}' not found."
+        norm_prefix = path.rstrip("/")
+        has_git_files = any(
+            ep.startswith(norm_prefix + "/") or ep == norm_prefix
+            for ep, _ in walk_tree(repo, commit.tree, "")
+        )
+        if has_git_files:
+            return _grep_tree(repo, commit, path, needle, ctx_n, offset, capped_hits)
+
+        # No git files under prefix — fall back to local filesystem.
+        return _grep_filesystem(path, needle, ctx_n, offset, capped_hits)
+    else:
+        # Repo-wide search — git only.
+        try:
+            commit = resolve_commit(repo, resolved)
+        except KeyError:
+            return f"Ref '{ref}' not found."
+        return _grep_tree(repo, commit, "", needle, ctx_n, offset, capped_hits)
+
+
+def _grep_lines(
+    all_lines: list[str], path: str, needle: str, ctx_n: int, offset: int, max_hits: int
+) -> str:
+    """Search *all_lines* for *needle*, returning formatted matches with context."""
+    total = len(all_lines)
+    match_indices = [i for i, line in enumerate(all_lines) if needle in line.lower()]
+    if not match_indices:
+        return f"No matches for '{needle}' in '{path}'."
+
+    # Build merged context regions.
+    regions: list[tuple[int, int]] = []
+    for idx in match_indices:
+        region_start = max(idx - ctx_n, 0)
+        region_end = min(idx + ctx_n + 1, total)
+        if regions and region_start <= regions[-1][1]:
+            regions[-1] = (regions[-1][0], region_end)
+        else:
+            regions.append((region_start, region_end))
+
+    # Paginate by match group (region).
+    total_groups = len(regions)
+    page = regions[offset : offset + max_hits]
+    if not page:
+        return f"Offset {offset} exceeds {total_groups} match groups."
+
+    n_matches = len(match_indices)
+    header = f"# {path}  ({n_matches} match{'es' if n_matches != 1 else ''})"
+    sections: list[str] = [header]
+    for region_start, region_end in page:
+        sections.append(_number_lines(all_lines[region_start:region_end], region_start + 1))
+
+    result = "\n\n".join(sections)
+    shown = offset + len(page)
+    if shown < total_groups:
+        result += _limited(shown, total_groups, hint=f"offset={shown} to see more match groups")
+    return result
+
+
+def _grep_blob(
+    blob: pygit2.Blob, path: str, needle: str, ctx_n: int, offset: int, max_hits: int
+) -> str:
+    """Search a single blob for *needle*, returning formatted matches."""
+    data: bytes = blob.data
+    if is_binary(data):
+        return f"File '{path}' is binary — cannot search."
+    return _grep_lines(
+        data.decode(errors="replace").splitlines(), path, needle, ctx_n, offset, max_hits
+    )
+
+
+def _grep_filesystem(path: str, needle: str, ctx_n: int, offset: int, max_hits: int) -> str:
+    """Search local filesystem files under *path* for *needle*."""
+    # Check if path is an exact file first.
+    p = Path(path)
+    if p.is_file():
+        file_lines, err = _read_fs_file(path)
+        if err:
+            return err
+        return _grep_lines(file_lines, path, needle, ctx_n, offset, max_hits)
+
+    # Otherwise treat as a directory prefix.
+    files = _list_fs_files(path)
+    if not files:
+        return f"No matches for '{needle}' under '{path}'."
+
+    # Directory — search all files under prefix.
+    all_groups: list[tuple[str, list[str], list[tuple[int, int]], list[int]]] = []
+    total_matches = 0
+    for fpath in files:
+        file_lines, err = _read_fs_file(fpath)
+        if err:
+            continue
+        match_indices = [i for i, line in enumerate(file_lines) if needle in line.lower()]
+        if not match_indices:
+            continue
+        total_matches += len(match_indices)
+        total_file = len(file_lines)
+        regions: list[tuple[int, int]] = []
+        for idx in match_indices:
+            rs = max(idx - ctx_n, 0)
+            re_ = min(idx + ctx_n + 1, total_file)
+            if regions and rs <= regions[-1][1]:
+                regions[-1] = (regions[-1][0], re_)
+            else:
+                regions.append((rs, re_))
+        all_groups.append((fpath, file_lines, regions, match_indices))
+
+    if not all_groups:
+        return f"No matches for '{needle}' under '{path}'."
+
+    # Flatten and paginate — same as _grep_tree.
+    flat: list[tuple[str, list[str], tuple[int, int]]] = []
+    for fpath, file_lines, regions, _indices in all_groups:
+        for region in regions:
+            flat.append((fpath, file_lines, region))
+
+    total_groups = len(flat)
+    page = flat[offset : offset + max_hits]
+    if not page:
+        return f"Offset {offset} exceeds {total_groups} match groups."
+
+    result_header = (
+        f"Found {total_matches} match{'es' if total_matches != 1 else ''}"
+        f" in {len(all_groups)} file{'s' if len(all_groups) != 1 else ''}"
+    )
+    file_sections: list[str] = []
+    current_file: str | None = None
+    current_parts: list[str] = []
+    for fpath, file_lines, (rstart, rend) in page:
+        if fpath != current_file:
+            if current_parts:
+                file_sections.append("\n\n".join(current_parts))
+            current_parts = [f"# {fpath}"]
+            current_file = fpath
+        current_parts.append(_number_lines(file_lines[rstart:rend], rstart + 1))
+    if current_parts:
+        file_sections.append("\n\n".join(current_parts))
+
+    body = "\n\n".join(file_sections)
+    result = f"{result_header}\n\n{body}"
+    shown = offset + len(page)
+    if shown < total_groups:
+        result += _limited(shown, total_groups, hint=f"offset={shown} to see more match groups")
+    return result
+
+
+def _grep_tree(
+    repo: pygit2.Repository,
+    commit: pygit2.Commit,
+    prefix: str,
+    needle: str,
+    ctx_n: int,
+    offset: int,
+    max_hits: int,
+) -> str:
+    """Search all text files under *prefix* in the tree for *needle*."""
+    max_file_size = config.index.max_file_size
+    norm_prefix = prefix.rstrip("/")
+
+    # Collect all match groups across all files.
+    all_groups: list[tuple[str, list[str], list[tuple[int, int]], list[int]]] = []
+    total_matches = 0
+
+    for entry_path, blob in walk_tree(repo, commit.tree, ""):
+        # Scope to prefix.
+        if (
+            norm_prefix
+            and not entry_path.startswith(norm_prefix + "/")
+            and entry_path != norm_prefix
+        ):
+            continue
+
+        # Skip binary and oversized files.
+        data: bytes = blob.data
+        if len(data) > max_file_size or is_binary(data):
+            continue
+
+        file_lines = data.decode(errors="replace").splitlines()
+        total_file = len(file_lines)
+        match_indices = [i for i, line in enumerate(file_lines) if needle in line.lower()]
+        if not match_indices:
+            continue
+
+        total_matches += len(match_indices)
+
+        # Build merged context regions.
+        regions: list[tuple[int, int]] = []
+        for idx in match_indices:
+            region_start = max(idx - ctx_n, 0)
+            region_end = min(idx + ctx_n + 1, total_file)
+            if regions and region_start <= regions[-1][1]:
+                regions[-1] = (regions[-1][0], region_end)
+            else:
+                regions.append((region_start, region_end))
+
+        all_groups.append((entry_path, file_lines, regions, match_indices))
+
+    if not all_groups:
+        scope = f" under '{prefix}'" if prefix else ""
+        return f"No matches for '{needle}'{scope}."
+
+    # Flatten to (file, region) pairs for pagination.
+    flat: list[tuple[str, list[str], tuple[int, int]]] = []
+    for entry_path, file_lines, regions, _indices in all_groups:
+        for region in regions:
+            flat.append((entry_path, file_lines, region))
+
+    total_groups = len(flat)
+    page = flat[offset : offset + max_hits]
+    if not page:
+        return f"Offset {offset} exceeds {total_groups} match groups."
+
+    result_header = (
+        f"Found {total_matches} match{'es' if total_matches != 1 else ''}"
+        f" in {len(all_groups)} file{'s' if len(all_groups) != 1 else ''}"
+    )
+
+    # Group page entries by file for readable output.
+    file_sections: list[str] = []
+    current_file: str | None = None
+    current_parts: list[str] = []
+    for entry_path, file_lines, (rstart, rend) in page:
+        if entry_path != current_file:
+            if current_parts:
+                file_sections.append("\n\n".join(current_parts))
+            current_parts = [f"# {entry_path}"]
+            current_file = entry_path
+        current_parts.append(_number_lines(file_lines[rstart:rend], rstart + 1))
+    if current_parts:
+        file_sections.append("\n\n".join(current_parts))
+
+    body = "\n\n".join(file_sections)
+    result = f"{result_header}\n\n{body}"
+    shown = offset + len(page)
+    if shown < total_groups:
+        result += _limited(shown, total_groups, hint=f"offset={shown} to see more match groups")
+    return result
+
+
+@agent.tool(prepare=_require_repo)
+def list_files(
+    ctx: RunContext[AgentDeps],
+    path: str = "",
+    ref: str = "head",
+    offset: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """List files in the repository or a subdirectory.
+
+    Walks the git tree at the given ref and returns file paths,
+    sorted alphabetically.  When ``path`` is set and no matching
+    files are found in the git tree, falls back to the local
+    filesystem — this covers workspace files (e.g.
+    ``.rbtr/REVIEW-*`` notes) and other untracked files.
+
+    Use this to explore project structure before reading specific
+    files.  For a list of symbols in a specific file, use
+    ``list_symbols``.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.  Increase ``max_results`` (up to the
+    configured cap) to get more per page.
+
+    Args:
+        path: Directory prefix to scope the listing
+            (e.g. ``src/api``, ``.rbtr/``).  Only files under
+            this prefix are returned.  Empty string (default)
+            lists from the repo root.
+        ref: Which version of the codebase to read — ``"head"``
+            (default), ``"base"``, or a raw commit SHA.
+        offset: Number of entries to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum entries to return per call
+            (defaults to ``tools.max_results`` config value).
+    """
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+
+    # Try git tree first.
+    repo = _repo(ctx)
+    resolved = _resolve_tool_ref(ctx, ref)
+    try:
+        commit = resolve_commit(repo, resolved)
+    except KeyError:
+        return f"Ref '{ref}' not found."
+
+    prefix = path.rstrip("/")
+    git_entries: list[str] = []
+    for entry_path, _blob in walk_tree(repo, commit.tree, ""):
+        if prefix and not entry_path.startswith(prefix + "/") and entry_path != prefix:
+            continue
+        git_entries.append(entry_path)
+
+    if git_entries:
+        git_entries.sort()
+        return _format_file_list(git_entries, offset, limit)
+
+    # Fall back to local filesystem when path is set.
+    if path:
+        fs_entries = _list_fs_files(path)
+        if fs_entries:
+            return _format_file_list(fs_entries, offset, limit)
+
+    return f"No files found under '{path}'." if path else "No files in repository."
+
+
+def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
+    """Format a paginated file listing."""
+    total = len(entries)
+    page = entries[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} files."
+    header = f"Files ({total}):"
+    listing = "\n".join(f"  {e}" for e in page)
+    result = f"{header}\n{listing}"
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+# ── Review notes (always available) ──────────────────────────────────
+
+_REVIEW_DIR = Path(".rbtr")
+_REVIEW_PREFIX = "REVIEW-"
+
+
+@agent.tool
+def edit(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    new_text: str,
+    old_text: str = "",
+) -> str:
+    """Edit or create a review notes file in the .rbtr workspace.
+
+    Use this to maintain living review documents — plans,
+    findings, checklists, draft comments — that persist across
+    turns.  Files are plain text (Markdown recommended).
+
+    Only files inside ``.rbtr/`` whose name starts with
+    ``REVIEW-`` are writable (e.g. ``.rbtr/REVIEW-plan.md``,
+    ``.rbtr/REVIEW-findings.md``).
+
+    Two modes:
+
+    - **Create / append:** when ``old_text`` is empty, the file
+      is created (or appended to if it already exists) with
+      ``new_text``.
+    - **Replace:** when ``old_text`` is non-empty, it must match
+      exactly once in the file.  That occurrence is replaced with
+      ``new_text``.
+
+    Args:
+        path: File path relative to the workspace root
+            (e.g. ``.rbtr/REVIEW-plan.md``).  Must be inside
+            ``.rbtr/`` and start with ``REVIEW-``.
+        new_text: Content to write or insert.
+        old_text: Exact text to find and replace.  Empty string
+            (default) creates the file or appends to it.
+    """
+    # Validate path.
+    p = PurePosixPath(path)
+    parts = p.parts
+    if len(parts) < 2 or parts[0] != ".rbtr":
+        return f"Path must be inside .rbtr/ — got '{path}'."
+    if not p.name.startswith(_REVIEW_PREFIX):
+        return f"Filename must start with '{_REVIEW_PREFIX}' — got '{p.name}'."
+    if ".." in parts:
+        return f"Path '{path}' contains '..' — not allowed."
+
+    resolved = _REVIEW_DIR / PurePosixPath(*parts[1:])
+
+    if not old_text:
+        # Create or append.
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        if resolved.exists():
+            existing = resolved.read_text()
+            resolved.write_text(existing + new_text)
+            return f"Appended to {path}."
+        resolved.write_text(new_text)
+        return f"Created {path}."
+
+    # Replace exact match.
+    if not resolved.exists():
+        return f"File '{path}' does not exist — cannot replace."
+    content = resolved.read_text()
+    count = content.count(old_text)
+    if count == 0:
+        return f"old_text not found in '{path}'."
+    if count > 1:
+        return f"old_text matches {count} times in '{path}' — must be unique."
+    resolved.write_text(content.replace(old_text, new_text, 1))
+    return f"Replaced in {path}."

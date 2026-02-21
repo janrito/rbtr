@@ -160,6 +160,36 @@ def test_build_index_idempotent_edges(git_repo, store, commit_sha):
     assert len(e1) == len(e2)
 
 
+def test_build_index_replaces_snapshots_for_same_ref(git_repo, store, tmp_path):
+    """Re-indexing the same ref removes files deleted since older reviews."""
+    head = git_repo.head.peel(pygit2.Commit)
+    git_repo.branches.local.create("review-head", head)
+    git_repo.set_head("refs/heads/review-head")
+    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)
+
+    # First index pass includes src/main.py.
+    build_index(git_repo, "review-head", store)
+    before_paths = {c.file_path for c in store.get_chunks("review-head")}
+    assert "src/main.py" in before_paths
+
+    # Delete src/main.py and commit on the same ref name.
+    main_path = tmp_path / "src" / "main.py"
+    main_path.unlink()
+    index = git_repo.index
+    index.remove("src/main.py")
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    parent = git_repo.get(git_repo.head.target)
+    git_repo.create_commit("HEAD", sig, sig, "Remove main", tree_oid, [parent.id])
+
+    # Second pass at the same ref should not leak deleted-file chunks.
+    build_index(git_repo, "review-head", store)
+    after_paths = {c.file_path for c in store.get_chunks("review-head")}
+    assert "src/main.py" not in after_paths
+    assert "src/utils.py" in after_paths
+
+
 def test_build_index_metadata_round_trip(git_repo, store, commit_sha):
     """Import metadata should survive store round-trip."""
     build_index(git_repo, commit_sha, store)
@@ -239,6 +269,59 @@ def test_update_index_preserves_unchanged(git_repo, store, two_commits):
     names = {c.name for c in chunks}
     assert "User" in names
     assert "Order" in names
+
+
+def test_update_index_replaces_head_snapshots_for_reused_ref(git_repo, store, tmp_path):
+    """Head ref re-index does not leak deleted files from older reviews."""
+    base = git_repo.head.peel(pygit2.Commit)
+    try:
+        git_repo.branches.local["main"]
+    except KeyError:
+        git_repo.branches.local.create("main", base)
+    try:
+        git_repo.branches.local["feature"]
+    except KeyError:
+        git_repo.branches.local.create("feature", base)
+
+    # Build base under a stable branch ref, as /review does.
+    build_index(git_repo, "main", store)
+
+    # Feature commit 1: add a temporary file/symbol.
+    git_repo.set_head("refs/heads/feature")
+    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)
+    legacy_path = tmp_path / "src" / "legacy.py"
+    legacy_path.write_text(
+        """\
+def legacy_only():
+    return "legacy"
+""",
+        encoding="utf-8",
+    )
+
+    index = git_repo.index
+    index.add("src/legacy.py")
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    parent = git_repo.get(git_repo.head.target)
+    git_repo.create_commit("HEAD", sig, sig, "Add legacy file", tree_oid, [parent.id])
+
+    update_index(git_repo, "main", "feature", store)
+    names_v1 = {c.name for c in store.get_chunks("feature")}
+    assert "legacy_only" in names_v1
+
+    # Feature commit 2: remove that file so head tree matches base again.
+    legacy_path.unlink()
+    index = git_repo.index
+    index.remove("src/legacy.py")
+    index.write()
+    tree_oid = index.write_tree()
+    parent = git_repo.get(git_repo.head.target)
+    git_repo.create_commit("HEAD", sig, sig, "Remove legacy file", tree_oid, [parent.id])
+
+    update_index(git_repo, "main", "feature", store)
+    names_v2 = {c.name for c in store.get_chunks("feature")}
+    assert "legacy_only" not in names_v2
 
 
 # ── compute_diff tests ───────────────────────────────────────────────

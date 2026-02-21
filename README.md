@@ -279,21 +279,143 @@ it.
 
 ### Tools available to the LLM
 
-Once the index is ready, the LLM can use these tools:
+rbtr gives the LLM 14 tools, conditionally hidden based on
+what's available (repo only, or repo + index). Every tool that
+reads state accepts a `ref` parameter — `"head"` (default),
+`"base"`, or a raw commit SHA — so the LLM can inspect the
+codebase at any point in time.
 
-| Tool                | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `search_symbols`    | Find symbols by name (fuzzy)                    |
-| `search_codebase`   | BM25 keyword search across all chunks           |
-| `search_similar`    | Semantic embedding search                       |
-| `get_callers`       | Find tests and docs that reference a symbol     |
-| `get_dependents`    | Find what imports a symbol                      |
-| `get_blast_radius`  | All inbound edges for a file                    |
-| `read_symbol`       | Read the full source of a symbol                |
-| `semantic_diff`     | Structural diff: added/removed/modified symbols |
-| `diff`              | Unified text diff                               |
-| `commit_log`        | Commit log between base and head                |
-| `detect_language`   | Identify a file's language                      |
+All paginated tools accept `offset` and a per-call limit
+(`max_results`, `max_lines`, or `max_hits`) that defaults
+to the configured cap.  When output is truncated, a
+`... limited (shown/total)` trailer tells the LLM how to
+request the next page.
+
+#### File tools (require repo)
+
+Available as soon as a repository is connected. Read from the
+git object store first; if a path is not found in git, fall
+back to the local filesystem (covers `.rbtr/REVIEW-*` notes
+and other untracked files).
+
+**`read_file(path, ref?, offset?, max_lines?)`** — Read
+file contents with line numbers. Paginate with `offset`.
+Binary files rejected.
+
+**`grep(search, path?, ref?, offset?, max_hits?,
+context_lines?)`** — Case-insensitive substring search. Three
+modes: exact file (`path="src/app.py"`), directory prefix
+(`path="src/"`), or repo-wide (no `path`). Matches shown
+with surrounding context; nearby matches merged.
+
+**`list_files(path?, ref?, offset?, max_results?)`** — List
+files in the repo or a subdirectory. Sorted alphabetically.
+
+**`changed_files(offset?, max_results?)`** — List files
+changed between base and head (added, modified, deleted).
+Starting point for review.
+
+#### Search tools (require index)
+
+Available once the code index finishes building. Always
+search the head snapshot.
+
+**`search_symbols(name, offset?, max_results?)`** — Find
+functions, classes, and methods by name substring
+(case-insensitive). Returns kind, scope, file path, and line
+number. Use short names — `MQ` not `lib.mq.MQ`.
+
+**`search_codebase(query, offset?, max_results?)`** —
+Full-text keyword search (BM25) across symbol names and
+source content. Results ranked by relevance.
+
+**`search_similar(query, offset?, max_results?)`** —
+Semantic similarity search using embeddings. Finds
+conceptually related code even without shared keywords.
+
+#### Index read tools (require index)
+
+**`read_symbol(name, ref?)`** — Read the full source of a
+symbol. Looks up by name (case-insensitive substring),
+prefers code symbols (functions, classes, methods) over
+tests or docs. Returns kind, scope, file path, line range,
+and content.
+
+**`list_symbols(path, ref?, offset?, max_results?)`** — List
+the symbols in a file — structural table of contents with
+line number, kind, scope, and name.
+
+#### Dependency graph (require index)
+
+**`find_references(name, kind?, ref?, offset?,
+max_results?)`** — Find all symbols that reference a given
+symbol via the dependency graph. Returns each referencing
+symbol labelled by edge type. Filter by `kind`: `imports`,
+`calls`, `inherits`, `tests`, `documents`, `configures`.
+
+#### Git tools (require repo)
+
+**`diff(path?, ref?, offset?, max_lines?)`** — Unified text
+diff. Three modes: base→head (default), single-ref (one
+commit), or range (`ref1..ref2`). Optional `path` filters
+to a single file. Paginate with `offset`.
+
+**`commit_log(offset?, max_results?)`** — Commit log between
+base and head — SHA, author, and first line of commit
+message.
+
+**`changed_symbols(offset?, max_lines?)`** — List symbols
+changed between base and head using the code index. Shows
+added, removed, modified symbols plus stale docs, missing
+tests, and broken edges.
+
+#### Review notes (always available)
+
+**`edit(path, new_text, old_text?)`** — Edit or create
+review notes files in the `.rbtr/` workspace. Files must
+be under `.rbtr/` with names starting with `REVIEW-`
+(e.g. `.rbtr/REVIEW-plan.md`). When `old_text` is empty,
+creates the file or appends; when set, replaces the exact
+match. Review notes are readable by `read_file`, `grep`,
+and `list_files` via the filesystem fallback.
+
+#### The `ref` parameter
+
+Tools that accept `ref` return the **state of the codebase at
+that snapshot**, not the changes introduced by it:
+
+- `"head"` (default) — the PR head / feature branch tip.
+- `"base"` — the base branch (e.g. `main`).
+- Any raw commit SHA or git ref (e.g. `"abc1234"`, `"v2.1.0"`).
+
+Change tools (`diff`, `changed_symbols`, `changed_files`) show
+changes *between* base and head — they don't accept `ref` in
+the same sense.
+
+#### Git-first with filesystem fallback
+
+File tools (`read_file`, `grep`, `list_files`) look up paths
+in the git object store first. If a path or prefix is not found
+in git, they fall back to the local filesystem. This means:
+
+- Repository files are always read from the git snapshot (at
+  `ref`), ensuring reproducible reads.
+- Workspace files (`.rbtr/REVIEW-*` notes, untracked files)
+  are accessible without committing them to git.
+- When a prefix has files in both git and the filesystem, git
+  wins — the filesystem is only tried when git has nothing.
+
+#### Tool availability
+
+Tools are conditionally hidden from the LLM based on session
+state — the LLM only sees tools it can actually use:
+
+- **Repo tools** appear when a repository is connected
+  (`/review`).
+- **Index tools** appear when the code index is ready (built
+  automatically in the background after `/review`).
+- The LLM never sees a tool it can't call — no confusing
+  error messages from missing prerequisites.
 
 ### Progress indicator
 

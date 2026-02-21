@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from rbtr.models import BranchTarget, PRTarget
-from rbtr.prompts import render_review, render_system
+from rbtr.prompts import render_review, render_system, review_tag
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -116,6 +116,37 @@ def test_render_system_unknown_repo() -> None:
 
 
 def test_render_review_contains_sections() -> None:
-    text = render_review()
+    session = _make_session()
+    text = render_review(session)
     for section in ("Design", "Correctness", "Readability", "Testing", "Security"):
-        assert f"## {section}" in text
+        assert f"### {section}" in text
+
+
+# ── Review tag ───────────────────────────────────────────────────────
+
+
+def test_review_tag_pr() -> None:
+    session = _make_session(review_target=_PR_FIX_BUG)
+    assert review_tag(session) == "PR-42"
+
+
+def test_review_tag_branch() -> None:
+    session = _make_session(review_target=_BRANCH_TARGET)
+    assert review_tag(session) == "feature-x"
+
+
+def test_review_tag_no_target() -> None:
+    session = _make_session()
+    assert review_tag(session) == ""
+
+
+def test_render_review_includes_tag_for_pr() -> None:
+    session = _make_session(review_target=_PR_FIX_BUG)
+    text = render_review(session)
+    assert "PR-42" in text
+
+
+def test_render_review_includes_tag_for_branch() -> None:
+    session = _make_session(review_target=_BRANCH_TARGET)
+    text = render_review(session)
+    assert "feature-x" in text

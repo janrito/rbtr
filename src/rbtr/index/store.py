@@ -52,6 +52,7 @@ _PRUNE_CHUNKS_SQL = _load_sql("prune_chunks.sql")
 _PRUNE_EDGES_SQL = _load_sql("prune_edges.sql")
 _COUNT_ORPHAN_CHUNKS_SQL = _load_sql("count_orphan_chunks.sql")
 _INSERT_SNAPSHOT_SQL = _load_sql("insert_snapshot.sql")
+_DELETE_SNAPSHOTS_SQL = _load_sql("delete_snapshots.sql")
 _DELETE_EDGES_SQL = _load_sql("delete_edges.sql")
 _UPDATE_EMBEDDING_SQL = _load_sql("update_embedding.sql")
 _UPDATE_EMBEDDINGS_SQL = _load_sql("update_embeddings.sql")
@@ -164,6 +165,10 @@ class IndexStore:
     def insert_snapshot(self, commit_sha: str, file_path: str, blob_sha: str) -> None:
         """Record that *commit_sha* contains *file_path* at *blob_sha*."""
         self._cur().execute(_INSERT_SNAPSHOT_SQL, [commit_sha, file_path, blob_sha])
+
+    def delete_snapshots(self, commit_sha: str) -> None:
+        """Remove all file snapshots scoped to *commit_sha*."""
+        self._cur().execute(_DELETE_SNAPSHOTS_SQL, [commit_sha])
 
     def _bulk_insert(self, sql: str, table: pa.Table) -> None:
         """Register *table* as ``_stg``, execute *sql*, then unregister.

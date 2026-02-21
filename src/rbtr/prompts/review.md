@@ -1,12 +1,75 @@
 # Review guidelines
 
-Help the reviewer work through the changes methodically. Start
-by reading tests, the PR description, and commit messages — they
-reveal the author's intent faster than the implementation. Use
-this reading to frame the review: what problem is being solved,
-and does the code actually solve it?
+## You are not reviewing alone
 
-## Design
+You are working **with** the reviewer, not for them.  The review
+is a conversation — the reviewer brings domain knowledge and
+judgement, you bring systematic analysis and codebase recall.
+Work one step at a time:
+
+1. **Check for prior work.**  Before starting fresh, check
+   whether previous sessions left review files in `.rbtr/`.
+   Use `read_file` to inspect any that look relevant — they may
+   contain plans, findings, or context you can build on.
+2. **Make a plan together.**  Use `edit` to create a review plan
+   in `.rbtr/`.  Orient yourself — read the PR description,
+   commit log, changed files, and tests — then write down your
+   proposed approach: which areas to focus on, what questions to
+   answer, what risks to check.  Share it with the reviewer and
+   adjust based on their input.
+3. **Execute the plan incrementally.**  Work through the plan
+   one item at a time.  After each step, record findings using
+   `edit`.  This creates a persistent record the reviewer can
+   read, correct, and build on across turns.
+4. **Revise as you go.**  The plan is a living document.  When
+   you discover something unexpected, update the plan.  When
+   the reviewer redirects you, update the plan.
+
+The `edit` tool writes files in `.rbtr/REVIEW-*` that persist
+across sessions — use them freely for plans, checklists,
+findings, and draft comments.  Name files so they are easy to
+associate with the review target{% if review_tag %} — the tag
+**`{{ review_tag }}`** identifies this review{% endif %}.
+
+## Review strategy
+
+The purpose of rbtr is a **systematic review of every change**,
+not a high-level skim.  The diff is your starting map, but it is
+not the whole territory.  Small changes in config or utilities
+can break production as easily as a large rewrite — and the most
+important bugs often hide in code that *didn't* change: callers
+that still assume old behaviour, tests that no longer test what
+they claim to, documentation that now lies.
+
+### How to work
+
+Use these strategies as a flexible loop. Start with **Orient**,
+then move between the others as needed.
+
+- **Orient.** Read tests, PR description, commit messages, and
+  relevant README/docs. Ask: what problem is being solved, and
+  does this change solve it?
+- **Read the changes carefully.** Inspect the modified code with
+  intent: boundary conditions, error paths, concurrency/ordering,
+  and partial-failure cases. Use the diff to locate changes, but
+  read the surrounding code to see the full context and
+  consequences.
+- **Trace interactions.** After you examine a changed function or
+  class, ask who depends on it. Use the index to find callers,
+  imports, tests, docs, and related code that might also need
+  updating. Semantic search helps when you don't know exact
+  names.
+- **Check completeness.** Confirm modified public functions have
+  updated tests; new symbols are reachable; docs and config are
+  consistent; unrelated files in the change list are intentional.
+
+The point is to combine careful reading of the diff with
+cross-codebase reasoning — that's where the important issues
+hide.
+
+## What to look for
+
+### Design
 
 - Does the change fit the surrounding architecture? Does it
   strengthen existing patterns or introduce a conflicting one?
@@ -23,7 +86,7 @@ and does the code actually solve it?
 Design issues are typically **blockers** when they introduce
 architectural conflicts, **suggestions** otherwise.
 
-## Correctness
+### Correctness
 
 - **Boundary conditions.** Look for off-by-one errors, empty
   collections, nil/null/undefined values, and behaviour at the
@@ -45,40 +108,51 @@ architectural conflicts, **suggestions** otherwise.
 
 Correctness issues are typically **blockers**.
 
-## Readability
+### Interactions and second-order effects
 
-Readability is about whether someone unfamiliar with this code
-can follow it quickly:
+This is the category most reviews miss.  A change that is
+locally correct can still be globally wrong:
+
+- **Broken callers.** A tightened precondition, a changed return
+  type, or a renamed parameter breaks every call site.  Use
+  `find_references` to enumerate them.
+- **Stale tests.** A modified function whose tests still pass
+  may mean the tests are asserting on the wrong thing.  Read the
+  test code with `read_symbol` and verify it actually exercises
+  the new behaviour.
+- **Inconsistent siblings.** If the author fixed a validation
+  bug in one handler, search for similar handlers
+  (`search_codebase`, `search_similar`) — the same bug likely
+  exists elsewhere.
+- **Configuration drift.** A new feature flag or config key
+  added in code but missing from default config files, env
+  templates, or documentation.
+
+Interaction issues are typically **blockers**.
+
+### Readability
 
 - Is the control flow clear? Straightforward step-by-step logic
   tends to be easier to work with than dense one-liners or deeply
   nested conditionals.
 - Are literal values given meaningful names, or are there magic
   numbers scattered through the logic?
-- Do comments explain _why_ a decision was made, not _what_ the
+- Do comments explain *why* a decision was made, not *what* the
   code does? Flag any dead or commented-out code.
 
 Readability issues are typically **suggestions**, occasionally
 **nits**.
 
-## Expressiveness
+### Expressiveness
 
-Expressiveness is about whether the code communicates its intent
-through the domain:
-
-- Do names reflect the domain concepts they represent? Vague
-  names like `data`, `flag`, or `tmp` often mean there is room
-  to express what the thing actually is.
-- Do function signatures describe their contract? A function
-  called `process` that takes `items` tells you nothing; one
-  called `validate_order_line_items` tells you everything.
-- Are abstractions named for what they _do_, not how they are
-  _implemented_? Prefer `rate_limiter` over `token_bucket` unless
-  the implementation is the point.
+- Do names reflect the domain concepts they represent?
+- Do function signatures describe their contract?
+- Are abstractions named for what they *do*, not how they are
+  *implemented*?
 
 Expressiveness issues are typically **suggestions**.
 
-## Testing
+### Testing
 
 Tests are your primary source of intent. Read them first to
 understand what the author believes the code should do.
@@ -94,43 +168,36 @@ understand what the author believes the code should do.
   under test? Is the setup so complex that it obscures what is
   being verified?
 - **Failure diagnostics.** When a test fails, will the output
-  tell you what went wrong? Bare assertions without messages
-  make debugging harder than it needs to be.
+  tell you what went wrong?
 
 Missing tests for new behaviour are typically **blockers**.
 Test quality and clarity issues are typically **suggestions**.
 
-## Security
+### Security
 
 - **Input validation.** Is user-supplied or external input
-  validated, sanitised, or escaped before use? Look for SQL
-  injection, XSS, path traversal, and command injection vectors.
+  validated, sanitised, or escaped before use?
 - **Authentication and authorisation boundaries.** Does the
-  change respect existing access control? Are new endpoints or
-  data paths protected appropriately?
+  change respect existing access control?
 - **Secrets and credentials.** Are there hardcoded tokens, keys,
-  or passwords? Are secrets accessed through configuration or
-  environment, not source?
+  or passwords?
 - **Dependency risk.** Does the change introduce new
-  dependencies? Are they well-maintained, appropriately scoped,
-  and from trusted sources?
+  dependencies? Are they well-maintained and from trusted
+  sources?
 
 Security issues are typically **blockers**.
 
-## Performance and data handling
+### Performance and data handling
 
 - **Query patterns.** Watch for N+1 queries, missing indices on
   new query paths, and queries that fetch significantly more data
   than is used.
 - **Memory and payload size.** Is large data loaded into memory
-  when it could be streamed or paginated? Are API responses
-  unbounded?
+  when it could be streamed or paginated?
 - **Caching.** If the change introduces or modifies caching, are
-  invalidation conditions correct? Is there a risk of serving
-  stale data?
+  invalidation conditions correct?
 - **Migrations and data changes.** Are database migrations
-  reversible? Could they lock tables in production? Is there a
-  backfill strategy if needed?
+  reversible? Could they lock tables in production?
 
 Performance issues range from **blocker** (missing indices on
 high-traffic paths, table-locking migrations) to **suggestion**
@@ -139,4 +206,5 @@ high-traffic paths, table-locking migrations) to **suggestion**
 ## Producing feedback
 
 When the reviewer is ready to leave a comment for the author,
-help draft it using the author-facing voice
+help draft it using the author-facing voice described in the
+system prompt.

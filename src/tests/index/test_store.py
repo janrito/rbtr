@@ -537,6 +537,26 @@ def test_insert_snapshots_batch(store: IndexStore) -> None:
     assert len(store.get_chunks("sha1")) == 2
 
 
+def test_delete_snapshots_removes_ref_visibility(store: IndexStore) -> None:
+    """Deleting snapshots hides chunks at that ref without touching chunks table."""
+    store.insert_chunks([_MATH_FUNC, _HTTP_FUNC])
+    store.insert_snapshots(
+        [
+            ("head", "src/math_utils.py", "blob_math"),
+            ("head", "src/api/client.py", "blob_http"),
+        ]
+    )
+    assert len(store.get_chunks("head")) == 2
+
+    store.delete_snapshots("head")
+
+    # Ref view is empty.
+    assert store.get_chunks("head") == []
+    # Underlying chunks are still present (not pruned yet).
+    assert store.has_blob("blob_math") is True
+    assert store.has_blob("blob_http") is True
+
+
 # ── Thread safety ────────────────────────────────────────────────────
 
 

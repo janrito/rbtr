@@ -51,4 +51,5 @@ def config_path(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("rbtr.config.CONFIG_PATH", path)
     monkeypatch.setattr("rbtr.config.WORKSPACE_PATH", tmp_path / "ws" / "config.toml")
     config.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
-    return path
+    yield path
+    config.__init__()  # type: ignore[misc]  # restore defaults after monkeypatch unwinds

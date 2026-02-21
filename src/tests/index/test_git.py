@@ -10,9 +10,9 @@ import pytest
 from rbtr.config import config
 from rbtr.index.git import (
     FileEntry,
-    _is_binary,
     _matches_globs,
     changed_files,
+    is_binary,
     list_files,
 )
 
@@ -85,24 +85,24 @@ def test_matches_globs_empty_patterns() -> None:
     assert not _matches_globs("anything.py", [])
 
 
-# ── _is_binary ───────────────────────────────────────────────────────
+# ── is_binary ───────────────────────────────────────────────────────
 
 
-def test_is_binary_with_null_byte() -> None:
-    assert _is_binary(b"hello\x00world")
+def testis_binary_with_null_byte() -> None:
+    assert is_binary(b"hello\x00world")
 
 
-def test_is_binary_text() -> None:
-    assert not _is_binary(b"hello world\n")
+def testis_binary_text() -> None:
+    assert not is_binary(b"hello world\n")
 
 
-def test_is_binary_empty() -> None:
-    assert not _is_binary(b"")
+def testis_binary_empty() -> None:
+    assert not is_binary(b"")
 
 
-def test_is_binary_null_beyond_sample() -> None:
+def testis_binary_null_beyond_sample() -> None:
     data = b"a" * 100 + b"\x00"
-    assert not _is_binary(data, sample_size=50)
+    assert not is_binary(data, sample_size=50)
 
 
 # ── list_files basic ─────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from importlib import resources
 from typing import TYPE_CHECKING, Any
@@ -71,16 +72,37 @@ def _context(session: Session) -> dict[str, Any]:
     return ctx
 
 
+def review_tag(session: Session) -> str:
+    """Derive a short tag from the review target for file naming.
+
+    Examples: ``PR-42`` for a pull request, ``fix-auth`` for a branch.
+    Returns ``""`` when no target is selected.
+    """
+    match session.review_target:
+        case PRTarget(number=n):
+            return f"PR-{n}"
+        case BranchTarget(head_branch=head):
+            # Sanitise: keep only alphanumeric, hyphens, dots.
+            tag = re.sub(r"[^a-zA-Z0-9._-]", "-", head)
+            # Collapse runs of hyphens and strip leading/trailing.
+            tag = re.sub(r"-{2,}", "-", tag).strip("-")
+            return tag or "branch"
+    return ""
+
+
 def render_system(session: Session) -> str:
     """Render the system prompt with live session data."""
     env = _build_env()
     return env.render_template("system", **_context(session))
 
 
-def render_review() -> str:
-    """Render the review guidelines (static, no placeholders)."""
+def render_review(session: Session) -> str:
+    """Render the review guidelines with session context."""
     env = _build_env()
-    return env.render_template("review")
+    return env.render_template(
+        "review",
+        review_tag=review_tag(session),
+    )
 
 
 def render_index_status(*, status: str, tool_names: list[str]) -> str:

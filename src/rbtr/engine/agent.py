@@ -37,8 +37,8 @@ def system_prompt(ctx: RunContext[AgentDeps]) -> str:
 
 @agent.instructions
 def review_guidelines(ctx: RunContext[AgentDeps]) -> str:
-    """Render the static review guidelines."""
-    return render_review()
+    """Render the review guidelines with session-aware file naming."""
+    return render_review(ctx.deps.session)
 
 
 def _index_tool_names() -> list[str]:

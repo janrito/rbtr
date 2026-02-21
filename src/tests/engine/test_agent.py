@@ -52,7 +52,7 @@ def test_index_not_ready_warns() -> None:
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "still building" in result.lower()
     assert "search_symbols" in result
-    assert "semantic_diff" in result
+    assert "changed_symbols" in result
 
 
 def test_index_tool_names_matches_registered_tools() -> None:
@@ -61,7 +61,7 @@ def test_index_tool_names_matches_registered_tools() -> None:
     assert len(names) >= 5, f"expected ≥5 index tools, got {names}"
     assert "search_symbols" in names
     assert "read_symbol" in names
-    assert "semantic_diff" in names
+    assert "changed_symbols" in names
     # Git-only tools should NOT appear.
     assert "diff" not in names
     assert "commit_log" not in names
