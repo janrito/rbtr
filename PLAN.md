@@ -1,127 +1,214 @@
 # Plan
 
-What to build next, in order.
+Project status and roadmap.
 
-## Step 1: PR Data Fetching & Context
+---
 
-**Goal**: When a PR is selected via `/review`, fetch full PR data
-and give the LLM the context it needs.
+## Completed
 
-**What to build**:
+### Step 1: PR Data Fetching & Context ✅
 
-- `models.py` — Full models: `PRDetail` (extends PRSummary with body,
-  base_branch, commits, changed_files, comments).
-- `github/client.py` — `fetch_pr_detail()` — fetch PR metadata,
-  commits list, file diffs, review comments.
-- `repo.py` — `read_file_at_ref(repo, path, ref)` — read a file blob
-  at any ref via pygit2 (no checkout).
-  `list_files_at_ref(repo, ref)` — file tree at a ref.
-  `get_diff(repo, base_ref, head_ref)` — unified diff between two refs.
-- Engine: `/review` fetches and displays PR overview
-  (title, author, description, stats, file list).
-- Engine: register repo operations as available context for the LLM.
+**Goal**: Fetch full PR/branch data and give the LLM context.
 
-**Verify**: `/review 42` → see PR overview with file list and stats.
-Read a file at the PR's head ref.
+**What was built**:
 
-## Step 2: LLM Agent
+- `models.py` — `ReviewTarget`, `PRTarget`, `BranchTarget`,
+  `PRSummary`, `BranchSummary`. Union type `Target`.
+- `github/client.py` — `list_open_prs()`, `list_unmerged_branches()`,
+  `validate_pr_number()`.
+- `repo.py` — `open_repo()`, `parse_github_remote()`,
+  `default_branch()`, `list_local_branches()`,
+  `require_clean()`.
+- Engine: `/review` lists open PRs and branches as tables,
+  or selects a review target by PR number or branch name.
+- GitHub auth via device flow (`github/auth.py`), token stored
+  in `creds.toml`.
 
-**Goal**: PydanticAI agent with access to repo and GitHub operations
-as tools.
+### Step 2: LLM Agent ✅
 
-**What to build**:
+**Goal**: PydanticAI agent with streaming output and multi-provider
+support.
 
-- `reviewer.py` — PydanticAI agent. System prompt includes PR context.
-  Tools: read file at ref, get diff, list files, search symbols (grep).
-  Streaming output to the event queue.
-- Engine: plain text input → agent call → `MarkdownOutput` events
-  streamed to UI.
-- Configuration: model provider selection
-  (env var or `.rbtr.toml` when that exists).
+**What was built**:
 
-**Verify**: Select a PR, ask "what does this PR change?",
-get a grounded answer that references actual files.
+- `engine/agent.py` — PydanticAI `Agent[AgentDeps, str]` with
+  decorator-based instructions. Model provided at call time,
+  not baked in.
+- `engine/llm.py` — Streaming handler: iterates agent graph nodes,
+  emits `TextDelta` and `ToolCallStarted`/`ToolCallFinished` events.
+  Handles history format errors and thinking demotion.
+- Providers: Claude (`providers/claude.py`), ChatGPT/Codex
+  (`providers/openai_codex.py`), OpenAI API key
+  (`providers/openai.py`), generic endpoint
+  (`providers/endpoint.py`).
+- `providers/__init__.py` — `build_model()` dispatches by
+  `BuiltinProvider` enum prefix. `build_model_settings()` maps
+  `ThinkingEffort` to provider-specific settings.
+- OAuth/PKCE login flows for Claude and ChatGPT.
+  `/connect` command handles all auth flows.
+  `/model` lists and switches models.
+- Conversation history preserved across model/provider switches.
+  Only `/new` clears.
+- Prompt templates in `prompts/` (Jinja via minijinja):
+  `system.md`, `review.md`, `index_status.md`.
 
-## Step 3: Repo Operations & Context Retrieval
+### Step 3: Repo Operations & Context Retrieval ✅
 
-**Goal**: Richer repo operations for the agent to use as tools.
+**Goal**: Rich tools for the agent to explore the codebase.
 
-**What to build**:
+**What was built**:
 
-- `repo.py` — Import tracing (Python, regex-based),
-  surrounding context (enclosing function/class for a diff hunk),
-  symbol search (grep/regex for definitions).
-- Register as agent tools.
+- `engine/tools.py` — 13 tools registered on the agent.
+  Index tools (hidden when no index): `search_symbols`,
+  `search_codebase`, `search_similar`, `get_dependents`,
+  `get_callers`, `get_blast_radius`, `read_symbol`,
+  `list_indexed_files`, `detect_language`, `semantic_diff`.
+  Git tools (hidden when no repo): `diff`, `commit_log`.
+- Prepare functions (`_require_index`, `_require_repo`) dynamically
+  hide tools based on session state.
 
-**Verify**: Ask "what calls this function?" and get a grep-based answer.
-Ask "show me the context around this change" and get the
-enclosing function.
+### Step 4: Code Index ✅
 
-## Step 4: Vector Index (LanceDB)
+**Goal**: Semantic and structural search across the repo.
 
-**Goal**: Semantic search across the repo — when grep isn't enough,
-find code by meaning.
+**Deviation from original plan**: DuckDB + pyarrow replaced LanceDB.
+Local embeddings via llama-cpp-python replaced API-based embeddings.
 
-**What to build**:
+**What was built**:
 
-- `index.py` — Chunk files into meaningful units, embed with
-  configurable provider, store in LanceDB table on disk.
-  Keyed by commit sha, incremental updates.
-  `semantic_search(query, top_k)` and `find_related(path, top_k)`.
-- Add `lancedb` to dependencies.
-- Register as agent tool.
+- `index/` package — `store.py` (DuckDB with three tables:
+  `file_snapshots`, `chunks`, `edges`; full-text search, vector
+  similarity, name search, diff queries), `orchestrator.py`
+  (coordinates git reader, plugins, tree-sitter, chunking, edges,
+  embeddings; incremental updates keyed by commit SHA),
+  `chunks.py` (plaintext chunking), `treesitter.py` (language-agnostic
+  extraction), `edges.py` (import/test/doc edge inference),
+  `embeddings.py` (local GGUF via llama-cpp-python),
+  `languages.py` (plugin bridge), `git.py` (file listing from
+  tree objects), `arrow.py` (PyArrow bulk inserts),
+  `models.py` (Chunk, Edge, ChunkKind, EdgeKind, ImportMeta,
+  IndexStats), `sql/` (20 SQL files).
+- `/index` command with subcommands: `status`, `clear`,
+  `rebuild`, `prune`, `model`.
+- Background indexing on `/review` with progress events
+  (`IndexStarted`, `IndexProgress`, `IndexReady`).
 
-**Verify**: Index a real repo, run semantic search, get relevant results.
+### Step 5: Structural Analysis ✅ (revised approach)
 
-## Step 5: Knowledge Graph (Kùzu)
+**Deviation from original plan**: Kùzu graph database was dropped.
+Structural queries (call chains, import graphs, impact analysis)
+are implemented as SQL queries in DuckDB over the `edges` table,
+exposed as agent tools (`get_callers`, `get_dependents`,
+`get_blast_radius`).
 
-**Goal**: Structural queries — call chains, inheritance,
-module dependencies, change impact.
+**What was built**:
 
-**What to build**:
+- Edge types: `IMPORTS`, `DEFINES`, `CALLS`, `TESTS`, `DOCUMENTS`.
+- Tree-sitter import extraction per language plugin.
+- Text search fallback for languages without tree-sitter extractors.
+- `semantic_diff` tool for comparing changes at the chunk level.
 
-- `graph.py` — Build graph with tree-sitter (Python first).
-  Nodes: Module, Symbol.
-  Edges: IMPORTS, DEFINES, CALLS, INHERITS.
-  Queries: `get_call_chain`, `get_module_graph`, `get_change_impact`.
-- Add `kuzu`, `tree-sitter`, `tree-sitter-python` to dependencies.
-- Register as agent tools.
+### Step 6: Configuration & UX ✅
 
-**Verify**: Build graph for a real repo, query call chains
-and impact analysis.
+**What was built**:
 
-## Step 6: Per-Repo Configuration & UX Polish
+- `config.py` — Layered TOML config (class defaults → user →
+  workspace `.rbtr/config.toml`) via pydantic-settings.
+  Nested config models: `EndpointConfig`, `GithubConfig`,
+  `IndexConfig`, `ToolsConfig`, `LogConfig`, `TuiConfig`,
+  `OAuthConfig`, `ProvidersConfig` (Claude, ChatGPT, OpenAI,
+  GitHub, Endpoint).
+- `ThinkingEffort` enum (`low`/`medium`/`high`/`max`) mapped
+  to provider-specific settings.
+- Tool call events (`ToolCallStarted`, `ToolCallFinished`)
+  rendered in the TUI.
+- Token usage tracking (`usage.py`) with context window
+  awareness and threshold warnings.
 
-**Goal**: `.rbtr.toml` for per-repo settings,
-`.rbtr/` for cached data.  Tool call output and thinking budget.
+### Language Plugin System ✅
 
-**What to build**:
+**What was built**:
 
-- `config.py` — Configuration loading from `.rbtr.toml` + env vars
-  via pydantic-settings.
-- `.rbtr/` directory creation and gitignore management.
-- Move index and graph storage into `.rbtr/`.
-- **Tool call panels** — Tool call results rendered in truncated
-  history sub-panels with a purple background (Ayu Mirage palette),
-  similar to how shell commands show truncated output.  Configurable
-  via `tui.tool_max_lines`.
-- **Thinking effort** — Configurable `thinking_effort`
-  (`low`/`medium`/`high`/`max`, default `medium`) maps to
-  `anthropic_effort` for Claude and `openai_reasoning_effort`
-  for OpenAI o-series models.  Displayed in the footer next
-  to the model name (`∴medium`).  Shift+Tab cycles through
-  levels at any time (even mid-task).  Set to `null` in
-  config to disable.
+- `plugins/` — pluggy-based plugin system.
+  `hookspec.py` defines the interface, `manager.py` manages
+  registration, `defaults.py` provides built-in defaults.
+- 10 language plugins: Python, JavaScript, Go, Rust, C, C++,
+  Java, Ruby, Bash, plus grammars for JSON/YAML/TOML.
+- Each plugin declares: file detection, tree-sitter grammar,
+  scope queries, import extraction, chunk kinds.
+- Optional grammar packages in `[project.optional-dependencies]`.
 
-**Verify**: Create `.rbtr.toml` with model settings,
-verify they're picked up on launch.  Ask the LLM a question
-that triggers tool calls — verify tool results appear in
-purple truncated panels.  Set `thinking_budget` in config,
-verify it's sent to the API.
+---
 
-## Open Questions
+## What's next
 
-1. **LLM provider**: Which model? Need to configure pydantic-ai.
-   Likely env var for now (`RBTR_MODEL`), `.rbtr.toml` later.
-2. **Embedding provider**: API-based or local (sentence-transformers)?
-   Deferred until Step 4.
+### GitHub Integration: Write Path
+
+The read path is complete (list PRs, fetch metadata, read branches).
+The write path is missing — rbtr cannot yet post review comments
+back to GitHub.
+
+- `github/client.py` — `create_review()`, `post_review_comment()`,
+  `post_pr_comment()`.
+- A `/submit` or `/post` command (or inline workflow) to let the
+  reviewer push drafted comments to the PR.
+- Inline comment drafting: the LLM drafts a comment for a specific
+  file/line range, the reviewer edits or approves, then it's posted.
+
+### Multi-File Review Workflow
+
+Currently `/review` selects a target and indexes it.
+A guided review workflow could:
+
+- Walk through changed files one by one.
+- Summarise each file's changes before diving in.
+- Track which files have been reviewed and which are pending.
+- Aggregate findings into a structured review summary.
+
+### Diff-Aware Context
+
+The agent has `diff` and `semantic_diff` tools but lacks
+tight integration between PR diffs and the index:
+
+- Automatically feed the diff to the agent on `/review`.
+- Map diff hunks to indexed chunks for precise context.
+- Highlight which indexed symbols are affected by the change.
+
+### Embedding Model Configuration
+
+Embeddings currently use a hardcoded local GGUF model.
+
+- Configurable embedding model (local or API-based).
+- `/index model` subcommand exists but could support more models.
+- Re-embedding on model change (currently requires `/index rebuild`).
+
+### Quality of Life
+
+- **Clipboard integration** — `_copy_to_clipboard` exists but
+  isn't wired to a command or keybinding.
+- **Session persistence** — conversations are lost on exit.
+  Save/restore sessions to `.rbtr/sessions/`.
+- **Multiple review targets** — compare across branches or PRs.
+- **File watching** — re-index on file changes during review.
+
+---
+
+## Resolved Decisions
+
+These were open questions in the original plan:
+
+1. **LLM provider**: Multi-provider via `/connect`.
+   Claude (OAuth), ChatGPT (OAuth), OpenAI (API key),
+   generic endpoints. Model selection via `/model`.
+   Config default via `config.model`.
+
+2. **Embedding provider**: Local via llama-cpp-python with
+   GGUF models from Hugging Face Hub. No API dependency.
+
+3. **Storage backend**: DuckDB (not LanceDB). Handles chunks,
+   edges, file snapshots, full-text search, and vector similarity
+   in one embedded database.
+
+4. **Graph database**: Not needed. Structural queries work well
+   as SQL over the edges table in DuckDB. Avoids an extra
+   dependency (Kùzu) without losing capability.
