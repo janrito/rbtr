@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ThinkingPart
 
 
 def is_history_format_error(exc: Exception) -> bool:
@@ -22,14 +22,14 @@ def is_history_format_error(exc: Exception) -> bool:
     return "provided without" in msg and "reasoning" in msg
 
 
-def demote_thinking(history: list[object]) -> list[object]:
+def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
     """Return history with ThinkingParts converted to plain TextParts.
 
     Wraps thinking content in ``<thinking>`` tags so the model can
     still see prior reasoning, without the provider-specific IDs
     that cause cross-provider errors.
     """
-    cleaned: list[object] = []
+    cleaned: list[ModelMessage] = []
     for msg in history:
         if isinstance(msg, ModelResponse):
             parts = [

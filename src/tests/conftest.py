@@ -1,11 +1,37 @@
 """Shared test fixtures."""
 
+import socket
 from pathlib import Path
 
 import pytest
 
 from rbtr.config import config
 from rbtr.creds import Creds, creds
+
+# ── Network safety net ───────────────────────────────────────────────
+
+_real_socket = socket.socket
+
+
+@pytest.fixture(autouse=True)
+def _block_network(monkeypatch):
+    """Fail any test that opens a real network connection.
+
+    Applied globally so accidental HTTP calls from unmocked code paths
+    surface as loud failures instead of silently hitting real services.
+    Unix-domain and other non-inet sockets are allowed (e.g. DuckDB).
+    """
+
+    def _guarded(*args, **kwargs):
+        family = args[0] if args else kwargs.get("family", socket.AF_INET)
+        if family in (socket.AF_INET, socket.AF_INET6):
+            raise RuntimeError(
+                "Test tried to open a real network connection — "
+                "mock the HTTP call or add creds_path/config_path fixtures"
+            )
+        return _real_socket(*args, **kwargs)
+
+    monkeypatch.setattr(socket, "socket", _guarded)
 
 
 @pytest.fixture

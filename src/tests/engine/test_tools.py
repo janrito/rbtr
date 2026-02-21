@@ -825,3 +825,457 @@ def test_semantic_diff_no_changes() -> None:
     result = semantic_diff(ctx)  # type: ignore[arg-type]
     assert "No structural differences" in result
     store.close()
+
+
+# ── Prepare functions (tool hiding) ──────────────────────────────────
+
+
+def test_require_index_hides_when_no_index() -> None:
+    """_require_index returns None when no index is loaded."""
+    import asyncio
+
+    session = Session()
+    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    assert session.index is None
+    ctx = _FakeCtx(session)
+
+    from rbtr.engine.tools import _require_index
+
+    tool_def = object()  # stand-in
+    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_require_index_hides_when_no_target() -> None:
+    """_require_index returns None when no review target is set."""
+    import asyncio
+
+    session = Session()
+    session.index = IndexStore()
+    assert session.review_target is None
+    ctx = _FakeCtx(session)
+
+    from rbtr.engine.tools import _require_index
+
+    tool_def = object()
+    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    assert result is None
+    session.index.close()
+
+
+def test_require_index_returns_tool_when_ready() -> None:
+    """_require_index returns the tool definition when both index and target exist."""
+    import asyncio
+
+    session, store = _make_session()
+    ctx = _FakeCtx(session)
+
+    from rbtr.engine.tools import _require_index
+
+    tool_def = object()
+    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    assert result is tool_def
+    store.close()
+
+
+def test_require_repo_hides_when_no_repo() -> None:
+    """_require_repo returns None when no repo is loaded."""
+    import asyncio
+
+    session = Session()
+    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    ctx = _FakeCtx(session)
+
+    from rbtr.engine.tools import _require_repo
+
+    tool_def = object()
+    result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]
+    assert result is None
+
+
+def test_require_repo_hides_when_no_target() -> None:
+    """_require_repo returns None when no review target is set."""
+    import asyncio
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_repo_two_commits(tmp)
+        session = Session(repo=repo)
+        ctx = _FakeCtx(session)
+
+        from rbtr.engine.tools import _require_repo
+
+        tool_def = object()
+        result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]
+        assert result is None
+
+
+# ── search_similar edge cases ────────────────────────────────────────
+
+
+def test_search_similar_embedding_error(mocker) -> None:
+    """Embedding model failure returns a helpful fallback message."""
+    session, store = _make_session()
+    mocker.patch(
+        "rbtr.index.store.IndexStore.search_by_text",
+        side_effect=RuntimeError("model not loaded"),
+    )
+    ctx = _FakeCtx(session)
+    result = search_similar(ctx, "anything")  # type: ignore[arg-type]
+    assert "Semantic search unavailable" in result
+    store.close()
+
+
+# ── get_dependents edge cases ────────────────────────────────────────
+
+
+def test_get_dependents_symbol_not_found() -> None:
+    """get_dependents with unknown symbol returns 'not found'."""
+    session, store = _make_session()
+    ctx = _FakeCtx(session)
+    result = get_dependents(ctx, "zzz_nonexistent")  # type: ignore[arg-type]
+    assert "not found" in result
+    store.close()
+
+
+# ── list_indexed_files edge cases ────────────────────────────────────
+
+
+def test_list_indexed_files_empty_index() -> None:
+    """Empty index reports no files."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    ctx = _FakeCtx(session)
+    result = list_indexed_files(ctx, "")  # type: ignore[arg-type]
+    assert "No files indexed" in result
+    store.close()
+
+
+def test_list_indexed_files_truncation() -> None:
+    """More than 50 files triggers truncation."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+
+    # Insert 55 distinct files
+    chunks = []
+    for i in range(55):
+        chunks.append(
+            Chunk(
+                id=f"c_{i}",
+                blob_sha=f"b_{i}",
+                file_path=f"src/file_{i:03d}.py",
+                kind=ChunkKind.FUNCTION,
+                name=f"func_{i}",
+                content=f"def func_{i}(): pass",
+                line_start=1,
+                line_end=1,
+            )
+        )
+    store.insert_chunks(chunks)
+    for c in chunks:
+        store.insert_snapshot("f", c.file_path, c.blob_sha)
+
+    ctx = _FakeCtx(session)
+    result = list_indexed_files(ctx, "")  # type: ignore[arg-type]
+    assert "55" in result  # total count
+    assert "... and 5 more files" in result
+    store.close()
+
+
+# ── semantic_diff edge cases ─────────────────────────────────────────
+
+
+def test_semantic_diff_no_review_target() -> None:
+    """semantic_diff without a target returns message."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    ctx = _FakeCtx(session)
+    result = semantic_diff(ctx)  # type: ignore[arg-type]
+    assert "No review target" in result
+    store.close()
+
+
+def test_semantic_diff_detects_removed_symbol() -> None:
+    """A symbol present in base but not head is reported as removed."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+
+    # Base has two functions; head has only one.
+    base_a = Chunk(
+        id="a_base",
+        blob_sha="b1",
+        file_path="src/a.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_a",
+        content="def func_a(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    base_b = Chunk(
+        id="b_base",
+        blob_sha="b1",
+        file_path="src/a.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_b",
+        content="def func_b(): pass",
+        line_start=5,
+        line_end=5,
+    )
+    store.insert_chunks([base_a, base_b])
+    store.insert_snapshot("main", "src/a.py", "b1")
+
+    head_a = Chunk(
+        id="a_head",
+        blob_sha="b2",
+        file_path="src/a.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_a",
+        content="def func_a(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([head_a])
+    store.insert_snapshot("feature", "src/a.py", "b2")
+
+    ctx = _FakeCtx(session)
+    result = semantic_diff(ctx)  # type: ignore[arg-type]
+    assert "Removed" in result
+    assert "func_b" in result
+    store.close()
+
+
+def test_semantic_diff_detects_stale_docs() -> None:
+    """Doc that references a modified symbol is flagged as stale."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+
+    # Base: handler v1 + doc
+    base_handler = Chunk(
+        id="h_b",
+        blob_sha="blob_b",
+        file_path="src/h.py",
+        kind=ChunkKind.FUNCTION,
+        name="handler",
+        content="def handler(): v1",
+        line_start=1,
+        line_end=1,
+    )
+    doc = Chunk(
+        id="doc_b",
+        blob_sha="blob_doc",
+        file_path="docs/api.md",
+        kind=ChunkKind.DOC_SECTION,
+        name="API",
+        content="## handler docs",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([base_handler, doc])
+    store.insert_snapshot("main", "src/h.py", "blob_b")
+    store.insert_snapshot("main", "docs/api.md", "blob_doc")
+
+    # Head: handler v2 (modified), doc unchanged
+    head_handler = Chunk(
+        id="h_h",
+        blob_sha="blob_h",
+        file_path="src/h.py",
+        kind=ChunkKind.FUNCTION,
+        name="handler",
+        content="def handler(): v2",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([head_handler])
+    store.insert_snapshot("feature", "src/h.py", "blob_h")
+    store.insert_snapshot("feature", "docs/api.md", "blob_doc")
+
+    # Doc → handler edge
+    store.insert_edges(
+        [Edge(source_id="doc_b", target_id="h_h", kind=EdgeKind.DOCUMENTS)],
+        "feature",
+    )
+
+    ctx = _FakeCtx(session)
+    result = semantic_diff(ctx)  # type: ignore[arg-type]
+    assert "Stale docs" in result
+    assert "API" in result
+    store.close()
+
+
+def test_semantic_diff_detects_broken_edges() -> None:
+    """Import edge pointing at a removed symbol is flagged as broken."""
+    store = IndexStore()
+    session = Session()
+    session.index = store
+    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+
+    # Base: two modules that import each other
+    base_a = Chunk(
+        id="a_b",
+        blob_sha="b1",
+        file_path="src/a.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_a",
+        content="def func_a(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    base_b = Chunk(
+        id="b_b",
+        blob_sha="b2",
+        file_path="src/b.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_b",
+        content="def func_b(): func_a()",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([base_a, base_b])
+    store.insert_snapshot("main", "src/a.py", "b1")
+    store.insert_snapshot("main", "src/b.py", "b2")
+
+    # Head: func_a removed, func_b unchanged, edge still points at a_b
+    head_b = Chunk(
+        id="b_h",
+        blob_sha="b2",
+        file_path="src/b.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_b",
+        content="def func_b(): func_a()",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([head_b])
+    store.insert_snapshot("feature", "src/b.py", "b2")
+    # No src/a.py in feature snapshot — it's deleted
+
+    # Edge from b→a (a is removed in head)
+    store.insert_edges(
+        [Edge(source_id="b_h", target_id="a_b", kind=EdgeKind.IMPORTS)],
+        "feature",
+    )
+
+    ctx = _FakeCtx(session)
+    result = semantic_diff(ctx)  # type: ignore[arg-type]
+    assert "Broken edges" in result
+    store.close()
+
+
+# ── diff edge cases ─────────────────────────────────────────────────
+
+
+def test_diff_initial_commit() -> None:
+    """Diffing the initial commit (no parent) returns a message."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("T", "t@t.com")
+        blob = repo.create_blob(b"x = 1\n")
+        tb = repo.TreeBuilder()
+        tb.insert("a.py", blob, pygit2.GIT_FILEMODE_BLOB)
+        c = repo.create_commit("refs/heads/main", sig, sig, "init", tb.write(), [])
+        repo.set_head("refs/heads/main")
+
+        session = _git_session(repo)
+        ctx = _FakeCtx(session)
+        result = diff(ctx, str(c)[:8])  # type: ignore[arg-type]
+        assert "no parent" in result or "initial commit" in result
+
+
+def test_diff_bad_range_refs() -> None:
+    """Unresolvable refs in range syntax returns error."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_repo_two_commits(tmp)
+        ctx = _FakeCtx(_git_session(repo))
+        result = diff(ctx, "badref1..badref2")  # type: ignore[arg-type]
+        assert "Could not resolve" in result
+
+
+def test_diff_truncation(config_path) -> None:
+    """Large diffs are truncated at max_diff_chars."""
+    from rbtr.config import config as cfg
+
+    cfg.tools.max_diff_chars = 100  # tiny limit for test
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("T", "t@t.com")
+
+        b1 = repo.create_blob(b"")
+        tb1 = repo.TreeBuilder()
+        tb1.insert("a.py", b1, pygit2.GIT_FILEMODE_BLOB)
+        c1 = repo.create_commit("refs/heads/main", sig, sig, "init", tb1.write(), [])
+        repo.set_head("refs/heads/main")
+
+        # Make a big change
+        big = ("x = 1\n" * 200).encode()
+        b2 = repo.create_blob(big)
+        tb2 = repo.TreeBuilder()
+        tb2.insert("a.py", b2, pygit2.GIT_FILEMODE_BLOB)
+        repo.create_commit("refs/heads/feature", sig, sig, "big", tb2.write(), [c1])
+
+        session = _git_session(repo)
+        ctx = _FakeCtx(session)
+        result = diff(ctx, "")  # type: ignore[arg-type]
+        assert "truncated" in result
+
+
+# ── commit_log edge cases ────────────────────────────────────────────
+
+
+def test_commit_log_bad_refs() -> None:
+    """Unresolvable branch refs returns error."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("T", "t@t.com")
+        tree = repo.TreeBuilder().write()
+        repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+        repo.set_head("refs/heads/main")
+
+        session = Session(repo=repo, owner="o", repo_name="r")
+        session.review_target = BranchTarget(
+            base_branch="main",
+            head_branch="nonexistent",
+            updated_at=0,
+        )
+        ctx = _FakeCtx(session)
+        result = commit_log(ctx)  # type: ignore[arg-type]
+        assert "Could not resolve" in result
+
+
+def test_commit_log_truncation(config_path) -> None:
+    """Long commit log is truncated at max_log_commits."""
+    from rbtr.config import config as cfg
+
+    cfg.tools.max_log_commits = 2  # tiny limit
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = pygit2.init_repository(tmp)
+        sig = pygit2.Signature("T", "t@t.com")
+        tree = repo.TreeBuilder().write()
+        c = repo.create_commit("refs/heads/main", sig, sig, "base", tree, [])
+        repo.set_head("refs/heads/main")
+
+        # Add 5 commits on feature
+        parent_id = c
+        for i in range(5):
+            parent_id = repo.create_commit(
+                "refs/heads/feature",
+                sig,
+                sig,
+                f"commit {i}",
+                tree,
+                [parent_id],
+            )
+
+        session = _git_session(repo)
+        ctx = _FakeCtx(session)
+        result = commit_log(ctx)  # type: ignore[arg-type]
+        assert "truncated" in result

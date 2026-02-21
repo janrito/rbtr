@@ -1,4 +1,8 @@
-"""Tests for rbtr.providers — pydantic-ai model construction from stored credentials."""
+"""Tests for rbtr.providers — pydantic-ai model construction from stored credentials.
+
+Uses shared credential data so every test verifies behaviour against
+named, inspectable token sets rather than anonymous inline strings.
+"""
 
 import pytest
 
@@ -6,23 +10,29 @@ from rbtr.config import config
 from rbtr.creds import OAuthCreds
 from rbtr.exceptions import RbtrError
 
+# ── Shared test data ─────────────────────────────────────────────────
+
+_CLAUDE_OAUTH = OAuthCreds(
+    access_token="test-bearer-token",
+    refresh_token="ref",
+    expires_at=9999999999,
+)
+
+_CHATGPT_OAUTH = OAuthCreds(
+    access_token="jwt-token",
+    refresh_token="ref",
+    expires_at=9999999999,
+    account_id="acct_123",
+)
+
+_OPENAI_KEY = "sk-test-key-123"
+
+
 # ── Anthropic ────────────────────────────────────────────────────────
 
 
-def _claude_oauth(**overrides: object) -> OAuthCreds:
-    defaults: dict = {
-        "access_token": "test-bearer-token",
-        "refresh_token": "ref",
-        "expires_at": 9999999999,
-    }
-    return OAuthCreds(**{**defaults, **overrides})
-
-
 def test_build_claude_model(mocker) -> None:
-    mocker.patch(
-        "rbtr.providers.claude.ensure_credentials",
-        return_value=_claude_oauth(),
-    )
+    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
     from rbtr.providers.claude import build_model
 
     model = build_model()
@@ -31,15 +41,12 @@ def test_build_claude_model(mocker) -> None:
 
     assert isinstance(model, AnthropicModel)
     assert model.model_name == config.providers.claude.default_model
-    assert model.client.auth_token == "test-bearer-token"
+    assert model.client.auth_token == _CLAUDE_OAUTH.access_token
 
 
 def test_build_claude_model_sets_oauth_headers(mocker) -> None:
     """OAuth bearer auth requires Claude Code identity headers."""
-    mocker.patch(
-        "rbtr.providers.claude.ensure_credentials",
-        return_value=_claude_oauth(),
-    )
+    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
     from rbtr.providers.claude import build_model
 
     model = build_model()
@@ -51,10 +58,7 @@ def test_build_claude_model_sets_oauth_headers(mocker) -> None:
 
 
 def test_build_claude_model_custom_name(mocker) -> None:
-    mocker.patch(
-        "rbtr.providers.claude.ensure_credentials",
-        return_value=_claude_oauth(),
-    )
+    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
     from rbtr.providers.claude import build_model
 
     model = build_model("claude-opus-4-20250514")
@@ -78,7 +82,7 @@ def test_build_claude_model_no_credentials(mocker) -> None:
 def test_build_openai_model(creds_path) -> None:
     from rbtr.creds import creds
 
-    creds.update(openai_api_key="sk-test-key-123")
+    creds.update(openai_api_key=_OPENAI_KEY)
     from rbtr.providers.openai import build_model
 
     model = build_model()
@@ -87,13 +91,13 @@ def test_build_openai_model(creds_path) -> None:
 
     assert isinstance(model, OpenAIResponsesModel)
     assert model.model_name == config.providers.openai.default_model
-    assert model.client.api_key == "sk-test-key-123"
+    assert model.client.api_key == _OPENAI_KEY
 
 
 def test_build_openai_model_custom_name(creds_path) -> None:
     from rbtr.creds import creds
 
-    creds.update(openai_api_key="sk-test")
+    creds.update(openai_api_key=_OPENAI_KEY)
     from rbtr.providers.openai import build_model
 
     model = build_model("gpt-4o-mini")
@@ -113,12 +117,7 @@ def test_build_openai_model_no_key(creds_path) -> None:
 def test_build_chatgpt_model(mocker) -> None:
     mocker.patch(
         "rbtr.providers.openai_codex.ensure_credentials",
-        return_value=OAuthCreds(
-            access_token="jwt-token",
-            refresh_token="ref",
-            expires_at=9999999999,
-            account_id="acct_123",
-        ),
+        return_value=_CHATGPT_OAUTH,
     )
     from rbtr.providers.openai_codex import build_model
 
@@ -128,9 +127,9 @@ def test_build_chatgpt_model(mocker) -> None:
 
     assert isinstance(model, OpenAIResponsesModel)
     assert model.model_name == config.providers.chatgpt.default_model
-    assert model.client.api_key == "jwt-token"
+    assert model.client.api_key == _CHATGPT_OAUTH.access_token
     assert str(model.client.base_url).rstrip("/") == config.providers.chatgpt.codex_base_url
-    assert model.client.default_headers["chatgpt-account-id"] == "acct_123"
+    assert model.client.default_headers["chatgpt-account-id"] == _CHATGPT_OAUTH.account_id
     assert model.client.default_headers["originator"] == "rbtr"
 
 
@@ -141,7 +140,7 @@ def test_build_model_prefers_claude(creds_path, mocker) -> None:
     """When multiple providers are configured, Anthropic wins."""
     from rbtr.creds import creds
 
-    creds.update(claude=_claude_oauth(), openai_api_key="sk-key")
+    creds.update(claude=_CLAUDE_OAUTH, openai_api_key=_OPENAI_KEY)
     mock_build = mocker.patch("rbtr.providers.claude.build_model")
     from rbtr.providers import build_model
 
@@ -153,7 +152,7 @@ def test_build_model_prefers_claude(creds_path, mocker) -> None:
 def test_build_model_falls_back_to_chatgpt(creds_path, mocker) -> None:
     from rbtr.creds import creds
 
-    creds.update(chatgpt=OAuthCreds(access_token="t", refresh_token="r", expires_at=9e9))
+    creds.update(chatgpt=_CHATGPT_OAUTH)
     mock_build = mocker.patch("rbtr.providers.openai_codex.build_model")
     from rbtr.providers import build_model
 
@@ -165,7 +164,7 @@ def test_build_model_falls_back_to_chatgpt(creds_path, mocker) -> None:
 def test_build_model_falls_back_to_openai(creds_path, mocker) -> None:
     from rbtr.creds import creds
 
-    creds.update(openai_api_key="sk-key")
+    creds.update(openai_api_key=_OPENAI_KEY)
     mock_build = mocker.patch("rbtr.providers.openai.build_model")
     from rbtr.providers import build_model
 
@@ -187,7 +186,7 @@ def test_build_model_no_provider(creds_path) -> None:
 def test_build_model_by_name_claude(creds_path, mocker) -> None:
     from rbtr.creds import creds
 
-    creds.update(claude=_claude_oauth())
+    creds.update(claude=_CLAUDE_OAUTH)
     mock_build = mocker.patch("rbtr.providers.claude.build_model")
     from rbtr.providers import build_model
 
@@ -201,6 +200,62 @@ def test_build_model_by_name_unknown_raises(mocker) -> None:
 
     with pytest.raises(RbtrError, match="Unknown provider"):
         build_model("fakeprovider/some-model")
+
+
+def test_build_model_by_name_chatgpt(creds_path, mocker) -> None:
+    from rbtr.creds import creds
+
+    creds.update(chatgpt=_CHATGPT_OAUTH)
+    mock_build = mocker.patch("rbtr.providers.openai_codex.build_model")
+    from rbtr.providers import build_model
+
+    build_model("chatgpt/gpt-4o")
+    mock_build.assert_called_once_with("gpt-4o")
+
+
+def test_build_model_by_name_openai(creds_path, mocker) -> None:
+    from rbtr.creds import creds
+
+    creds.update(openai_api_key=_OPENAI_KEY)
+    mock_build = mocker.patch("rbtr.providers.openai.build_model")
+    from rbtr.providers import build_model
+
+    build_model("openai/gpt-4o-mini")
+    mock_build.assert_called_once_with("gpt-4o-mini")
+
+
+def test_build_model_by_name_chatgpt_not_connected(creds_path) -> None:
+    from rbtr.providers import build_model
+
+    with pytest.raises(RbtrError, match="Not connected to ChatGPT"):
+        build_model("chatgpt/gpt-4o")
+
+
+def test_build_model_by_name_openai_not_connected(creds_path) -> None:
+    from rbtr.providers import build_model
+
+    with pytest.raises(RbtrError, match="Not connected to OpenAI"):
+        build_model("openai/gpt-4o")
+
+
+def test_build_model_by_name_claude_not_connected(creds_path) -> None:
+    from rbtr.providers import build_model
+
+    with pytest.raises(RbtrError, match="Not connected to Claude"):
+        build_model("claude/claude-sonnet-4-20250514")
+
+
+def test_build_model_by_name_endpoint(creds_path, config_path, mocker) -> None:
+    from rbtr.providers import build_model
+    from rbtr.providers.endpoint import Endpoint
+
+    mocker.patch(
+        "rbtr.providers.endpoint.load_endpoint",
+        return_value=Endpoint(name="myep", base_url="http://localhost:11434/v1", api_key=""),
+    )
+    mock_build = mocker.patch("rbtr.providers.endpoint.build_model")
+    build_model("myep/llama3")
+    mock_build.assert_called_once_with("myep", "llama3")
 
 
 def test_build_model_by_name_no_slash_raises() -> None:

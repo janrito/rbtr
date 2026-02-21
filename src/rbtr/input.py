@@ -668,7 +668,7 @@ class InputReader:
 
     # ── Alt+key handler ──────────────────────────────────────────────
 
-    def _handle_alt(self, key: object, buf: Buffer, state: InputState) -> bool:
+    def _handle_alt(self, key: str | Keys, buf: Buffer, state: InputState) -> bool:
         """Handle the key following an Escape prefix (Alt+key).
 
         Returns True if the combo was recognized and handled.

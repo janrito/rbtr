@@ -161,6 +161,70 @@ def test_resolve_two_part_no_gguf_raises(mocker: pytest.MockerFixture, config_pa
         embeddings._resolve_model_path()
 
 
+# ── _load_model orchestration ────────────────────────────────────────
+
+
+def test_load_model_orchestrates_download_and_init(
+    mocker: pytest.MockerFixture, config_path: Path, tmp_path: Path
+) -> None:
+    """_load_model resolves path, installs log callback, and constructs Llama."""
+    from rbtr.config import config
+
+    fake_path = tmp_path / "model.gguf"
+    fake_path.touch()
+    config.index.embedding_model = "org/repo/model.gguf"
+
+    mocker.patch.object(embeddings, "_resolve_model_path", return_value=fake_path)
+    install_cb = mocker.patch.object(embeddings, "_install_llama_log_callback")
+
+    mock_llama_cls = mocker.MagicMock()
+    mock_llama_instance = _make_mock_model()
+    mock_llama_cls.return_value = mock_llama_instance
+    mocker.patch("rbtr.index.embeddings.Llama", mock_llama_cls, create=True)
+    # Patch the deferred import inside _load_model
+    mocker.patch.dict("sys.modules", {"llama_cpp": mocker.MagicMock(Llama=mock_llama_cls)})
+
+    result = embeddings._load_model()
+
+    install_cb.assert_called_once()
+    mock_llama_cls.assert_called_once_with(
+        model_path=str(fake_path),
+        embedding=True,
+        n_ctx=0,
+        n_gpu_layers=-1,
+        verbose=False,
+    )
+    assert result is mock_llama_instance
+
+
+# ── Thin wrappers ────────────────────────────────────────────────────
+
+
+def test_download_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
+    """_download passes through to hf_hub_download."""
+    mock_dl = mocker.MagicMock(return_value="/cached/model.gguf")
+    mocker.patch.dict(
+        "sys.modules",
+        {"huggingface_hub": mocker.MagicMock(hf_hub_download=mock_dl)},
+    )
+    # Force reimport to pick up the mock
+    result = embeddings._download("org/repo", "model.gguf", "/cache")
+    assert result == "/cached/model.gguf"
+    mock_dl.assert_called_once_with(repo_id="org/repo", filename="model.gguf", cache_dir="/cache")
+
+
+def test_list_repo_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
+    """_list_repo passes through to list_repo_files."""
+    mock_list = mocker.MagicMock(return_value=["a.gguf", "b.txt"])
+    mocker.patch.dict(
+        "sys.modules",
+        {"huggingface_hub": mocker.MagicMock(list_repo_files=mock_list)},
+    )
+    result = embeddings._list_repo("org/repo")
+    assert result == ["a.gguf", "b.txt"]
+    mock_list.assert_called_once_with("org/repo")
+
+
 # ── store.search_by_text integration ────────────────────────────────
 
 

@@ -15,10 +15,11 @@ from rbtr.events import (
     Event,
     IndexCleared,
     IndexReady,
-    Output,
     TableOutput,
 )
 from rbtr.models import BranchTarget
+
+from .conftest import drain, make_repo_with_file, output_texts, wait_for_index
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -38,54 +39,6 @@ def _make_engine(
     return engine, events, session
 
 
-def _drain(events: queue.Queue[Event]) -> list[Event]:
-    result: list[Event] = []
-    while True:
-        try:
-            result.append(events.get_nowait())
-        except queue.Empty:
-            break
-    return result
-
-
-def _output_texts(events: list[Event]) -> list[str]:
-    return [e.text for e in events if isinstance(e, Output)]
-
-
-def _wait_for_index(events: queue.Queue[Event], timeout: float = 30.0) -> list[Event]:
-    """Collect events until IndexReady or Output (index done/failed)."""
-    import time
-
-    collected: list[Event] = []
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            evt = events.get(timeout=0.1)
-        except queue.Empty:
-            continue
-        collected.append(evt)
-        if isinstance(evt, (IndexReady, Output)):
-            collected.extend(_drain(events))
-            break
-    return collected
-
-
-def _make_repo_with_file(
-    tmp: str,
-    filename: str = "hello.py",
-    content: str = "def greet():\n    pass\n",
-) -> pygit2.Repository:
-    repo = pygit2.init_repository(tmp)
-    sig = pygit2.Signature("Test", "test@test.com")
-    blob_id = repo.create_blob(content.encode())
-    tb = repo.TreeBuilder()
-    tb.insert(filename, blob_id, pygit2.GIT_FILEMODE_BLOB)
-    tree_id = tb.write()
-    repo.create_commit("refs/heads/main", sig, sig, "init", tree_id, [])
-    repo.set_head("refs/heads/main")
-    return repo
-
-
 def _index_repo(engine: Engine, session: Session, repo: pygit2.Repository) -> None:
     """Set a review target and run indexing."""
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
@@ -102,24 +55,24 @@ def _index_repo(engine: Engine, session: Session, repo: pygit2.Repository) -> No
 
 def test_index_status_no_index() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("No index loaded" in t for t in texts)
 
 
 def test_index_status_with_index() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         engine.run_task(TaskType.COMMAND, "/index status")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         tables = [e for e in evts if isinstance(e, TableOutput)]
         assert any("main" in t and "feature" in t for t in texts)
         assert any(t.title == "Chunks" for t in tables)
@@ -137,7 +90,7 @@ def test_index_status_falls_back_to_base_ref() -> None:
     failed.  Status should show the base data with a note.
     """
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
 
         # Manually build base index only (no update_index for head).
@@ -154,11 +107,11 @@ def test_index_status_falls_back_to_base_ref() -> None:
             head_branch="nonexistent-head",
             updated_at=datetime.now(tz=UTC),
         )
-        _drain(events)
+        drain(events)
 
         engine.run_task(TaskType.COMMAND, "/index status")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         tables = [e for e in evts if isinstance(e, TableOutput)]
 
         # Should show base data, not empty tables.
@@ -176,13 +129,13 @@ def test_index_status_falls_back_to_base_ref() -> None:
 def test_index_status_default_subcommand() -> None:
     """/index with no args is the same as /index status."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         engine.run_task(TaskType.COMMAND, "/index")
-        evts = _drain(events)
+        evts = drain(events)
         tables = [e for e in evts if isinstance(e, TableOutput)]
         assert any(t.title == "Chunks" for t in tables)
 
@@ -195,17 +148,17 @@ def test_index_status_default_subcommand() -> None:
 
 def test_index_clear() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         assert session.index is not None
         assert session.index_ready is True
 
         engine.run_task(TaskType.COMMAND, "/index clear")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("cleared" in t.lower() for t in texts)
         assert session.index is None
         assert session.index_ready is False
@@ -214,11 +167,11 @@ def test_index_clear() -> None:
 
 def test_index_clear_no_index() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index clear")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("No index file" in t for t in texts)
 
 
@@ -227,16 +180,16 @@ def test_index_clear_no_index() -> None:
 
 def test_index_rebuild() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         engine.run_task(TaskType.COMMAND, "/index rebuild")
         # Rebuild spawns a background thread — wait for completion.
-        evts = _drain(events)
-        evts.extend(_wait_for_index(events))
-        texts = _output_texts(evts)
+        evts = drain(events)
+        evts.extend(wait_for_index(events))
+        texts = output_texts(evts)
         assert any("Rebuilding" in t for t in texts)
         assert any(isinstance(e, IndexReady) for e in evts)
         assert session.index is not None
@@ -247,11 +200,11 @@ def test_index_rebuild() -> None:
 
 def test_index_rebuild_no_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index rebuild")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("No review target" in t for t in texts)
 
 
@@ -261,10 +214,10 @@ def test_index_rebuild_no_target() -> None:
 def test_index_prune_removes_orphans() -> None:
     """Manually inserting unreferenced chunks, then /index prune removes them."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         assert session.index is not None
         store = session.index
@@ -286,8 +239,8 @@ def test_index_prune_removes_orphans() -> None:
         assert store.count_orphan_chunks() == 1
 
         engine.run_task(TaskType.COMMAND, "/index prune")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("1 orphan chunks" in t for t in texts)
         assert store.count_orphan_chunks() == 0
 
@@ -296,14 +249,14 @@ def test_index_prune_removes_orphans() -> None:
 
 def test_index_prune_no_orphans() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         engine.run_task(TaskType.COMMAND, "/index prune")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("No orphans" in t for t in texts)
 
         if session.index is not None:
@@ -312,11 +265,11 @@ def test_index_prune_no_orphans() -> None:
 
 def test_index_prune_no_index() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index prune")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("No index loaded" in t for t in texts)
 
 
@@ -326,21 +279,21 @@ def test_index_prune_no_index() -> None:
 def test_index_model_show_current() -> None:
     """/index model with no arg shows the current embedding model."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index model")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("Embedding model:" in t for t in texts)
 
 
 def test_index_model_change(config_path) -> None:
     """/index model <id> persists the new model and clears embeddings."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, session = _make_engine(repo)
         _index_repo(engine, session, repo)
-        _drain(events)
+        drain(events)
 
         store = session.index
         assert store is not None
@@ -353,10 +306,10 @@ def test_index_model_change(config_path) -> None:
 
         new_model = "test-org/test-repo/test-model.gguf"
         engine.run_task(TaskType.COMMAND, f"/index model {new_model}")
-        evts = _drain(events)
+        evts = drain(events)
         # Background re-embed task may also emit events — wait briefly.
-        evts.extend(_wait_for_index(events, timeout=5.0))
-        texts = _output_texts(evts)
+        evts.extend(wait_for_index(events, timeout=5.0))
+        texts = output_texts(evts)
 
         assert any("→" in t and new_model in t for t in texts)
         assert any("Cleared" in t for t in texts)
@@ -381,28 +334,28 @@ def test_index_model_change(config_path) -> None:
 def test_index_model_same_noop() -> None:
     """/index model with the current model is a no-op."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
 
         from rbtr.config import config as cfg
 
         current = cfg.index.embedding_model
         engine.run_task(TaskType.COMMAND, f"/index model {current}")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("Already using" in t for t in texts)
 
 
 def test_index_model_no_index(config_path) -> None:
     """/index model without an active index still persists the config change."""
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
 
         new_model = "org/repo/new-model.gguf"
         engine.run_task(TaskType.COMMAND, f"/index model {new_model}")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
 
         assert any("→" in t and new_model in t for t in texts)
         assert any("No index loaded" in t for t in texts)
@@ -417,11 +370,11 @@ def test_index_model_no_index(config_path) -> None:
 
 def test_index_unknown_subcommand() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/index foobar")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("Unknown subcommand" in t for t in texts)
 
 
@@ -430,11 +383,11 @@ def test_index_unknown_subcommand() -> None:
 
 def test_help_lists_index_command() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        repo = _make_repo_with_file(tmp)
+        repo = make_repo_with_file(tmp)
         engine, events, _ = _make_engine(repo)
         engine.run_task(TaskType.COMMAND, "/help")
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("/index" in t for t in texts)
 
 

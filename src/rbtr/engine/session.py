@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pygit2
 from github import Github
+from pydantic_ai.messages import ModelMessage
 
 from rbtr.models import Target
 from rbtr.providers import claude as claude_provider, openai_codex as codex_provider
@@ -50,7 +51,7 @@ class Session:
     cached_review_targets: list[tuple[str, str]] = field(default_factory=list)
     # Conversation history — independent of the model so switching
     # models preserves context. Passed to Agent.iter(message_history=…).
-    message_history: list[object] = field(default_factory=list)
+    message_history: list[ModelMessage] = field(default_factory=list)
     # Cumulative token usage and cost for the current conversation.
     usage: SessionUsage = field(default_factory=SessionUsage)
 

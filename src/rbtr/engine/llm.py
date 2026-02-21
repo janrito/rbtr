@@ -5,18 +5,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
+from pydantic_ai import Agent
 from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    HandleResponseEvent,
     ModelMessage,
     ModelResponse,
     ToolReturnPart,
 )
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rbtr.config import ThinkingEffort, config
@@ -30,6 +33,12 @@ from .types import TaskCancelled
 
 if TYPE_CHECKING:
     from .core import Engine
+
+_LIMIT_SUMMARY_PROMPT = (
+    "You have reached the tool-call limit for this turn. "
+    "Summarize what you accomplished so far and what remains to be done, "
+    "so the user can decide whether to ask you to continue."
+)
 
 
 def handle_llm(engine: Engine, message: str) -> None:
@@ -62,7 +71,7 @@ def _run_agent(engine: Engine, model: Model, message: str) -> None:
 
 async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     """Run the agent with cancellation support, update session state."""
-    history = cast(list[ModelMessage], engine.session.message_history)
+    history = engine.session.message_history
     deps = AgentDeps(session=engine.session)
 
     effort = config.thinking_effort
@@ -72,25 +81,29 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     else:
         settings = None
 
-    async def _do_stream() -> tuple[list[ModelMessage], RunUsage]:
+    async def _do_stream() -> tuple[list[ModelMessage], RunUsage, bool]:
+        limit_hit = False
         async with agent.iter(
             message,
             model=model,
             deps=deps,
             message_history=history or None,
             model_settings=settings,
-            usage_limits=UsageLimits(request_limit=25),
+            usage_limits=UsageLimits(request_limit=config.tools.max_requests_per_turn),
         ) as run:
-            async for node in run:
-                if isinstance(node, ModelRequestNode):
-                    async with node.stream(run.ctx) as stream:
-                        async for delta in stream.stream_text(delta=True):
-                            engine._emit(TextDelta(delta=delta))
-                elif isinstance(node, CallToolsNode):
-                    async with node.stream(run.ctx) as stream:
-                        async for event in stream:
-                            _emit_tool_event(engine, event)
-        return list(run.all_messages()), run.usage()
+            try:
+                async for node in run:
+                    if isinstance(node, ModelRequestNode):
+                        async with node.stream(run.ctx) as stream:
+                            async for delta in stream.stream_text(delta=True):
+                                engine._emit(TextDelta(delta=delta))
+                    elif isinstance(node, CallToolsNode):
+                        async with node.stream(run.ctx) as stream:
+                            async for event in stream:
+                                _emit_tool_event(engine, event)
+            except UsageLimitExceeded:
+                limit_hit = True
+        return list(run.all_messages()), run.usage(), limit_hit
 
     async def _watch_cancel() -> None:
         while not engine._cancel.is_set():
@@ -112,14 +125,47 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
         if task is cancel_task:
             task.result()  # raises TaskCancelled
 
-    messages, run_usage = stream_task.result()
+    messages, run_usage, limit_hit = stream_task.result()
     engine.session.message_history = list(messages)
     _record_usage(engine, history, messages, run_usage)
+
+    if limit_hit:
+        await _stream_summary(engine, model, settings)
+
+
+async def _stream_summary(
+    engine: Engine,
+    model: Model,
+    settings: ModelSettings | None,
+) -> None:
+    """Ask the model to summarize progress after hitting the tool-call limit.
+
+    Uses a plain agent (no tools) with a single request so the model
+    can only produce text — no further tool calls.
+    """
+    history = engine.session.message_history
+
+    summary_agent: Agent[None, str] = Agent(model)
+    async with summary_agent.iter(
+        _LIMIT_SUMMARY_PROMPT,
+        model=model,
+        message_history=history or None,
+        model_settings=settings,
+        usage_limits=UsageLimits(request_limit=1),
+    ) as run:
+        async for node in run:
+            if isinstance(node, ModelRequestNode):
+                async with node.stream(run.ctx) as stream:
+                    async for delta in stream.stream_text(delta=True):
+                        engine._emit(TextDelta(delta=delta))
+
+    summary_messages = list(run.all_messages())
+    engine.session.message_history = list(history) + summary_messages[len(history) :]
 
 
 def _emit_tool_event(
     engine: Engine,
-    event: FunctionToolCallEvent | FunctionToolResultEvent | object,
+    event: HandleResponseEvent,
 ) -> None:
     """Emit a ToolCallStarted or ToolCallFinished event."""
     match event:

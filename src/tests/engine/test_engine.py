@@ -41,67 +41,42 @@ from rbtr.events import (
     TextDelta,
 )
 from rbtr.exceptions import RbtrError
-from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
+from rbtr.models import BranchTarget, PRSummary, PRTarget
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def _make_engine(
-    *,
-    owner: str = "testowner",
-    repo_name: str = "testrepo",
-    gh: object | None = None,
-) -> tuple[Engine, queue.Queue[Event], Session]:
-    """Create an Engine with a pre-populated Session."""
-    session = Session(owner=owner, repo_name=repo_name, gh=gh)
-    events: queue.Queue[Event] = queue.Queue()
-    engine = Engine(session, events)
-    return engine, events, session
-
-
-def _drain(events: queue.Queue[Event]) -> list[Event]:
-    """Drain all events from the queue into a list."""
-    result: list[Event] = []
-    while True:
-        try:
-            result.append(events.get_nowait())
-        except queue.Empty:
-            break
-    return result
-
-
-def _output_texts(events: list[Event]) -> list[str]:
-    """Extract text from Output events."""
-    return [e.text for e in events if isinstance(e, Output)]
-
-
-def _has_event_type(events: list[Event], event_type: type) -> bool:
-    return any(isinstance(e, event_type) for e in events)
-
+from .conftest import (
+    BRANCH_FEATURE_X,
+    PR_ADD_FEATURE,
+    PR_FIX_BUG,
+    PR_REFACTOR,
+    drain,
+    has_event_type,
+    make_engine,
+    output_texts,
+)
 
 # ── /help ────────────────────────────────────────────────────────────
 
 
 def test_help_lists_all_commands() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/help")
-    evts = _drain(events)
+    evts = drain(events)
 
     assert isinstance(evts[0], TaskStarted)
     assert isinstance(evts[-1], TaskFinished)
     assert evts[-1].success is True
 
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     commands_mentioned = [t for t in texts if "/help" in t or "/review" in t or "/quit" in t]
     assert len(commands_mentioned) >= 3
 
 
 def test_unknown_command_warns() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/nonexistent")
-    evts = _drain(events)
+    evts = drain(events)
 
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("Unknown command" in t for t in texts)
     assert evts[-1].success is True
 
@@ -111,34 +86,17 @@ def test_unknown_command_warns() -> None:
 
 def test_list_with_github_prs(mocker) -> None:
     mock_gh = mocker.MagicMock()
-    engine, events, _ = _make_engine(gh=mock_gh)
+    engine, events, _ = make_engine(gh=mock_gh)
 
-    prs = [
-        PRSummary(
-            number=1,
-            title="Fix bug",
-            author="alice",
-            base_branch="main",
-            head_branch="fix-bug",
-            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        ),
-    ]
-    branches = [
-        BranchSummary(
-            name="feature-x",
-            last_commit_sha="abc123",
-            last_commit_message="wip",
-            updated_at=datetime(2025, 1, 2, tzinfo=UTC),
-        ),
-    ]
-
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs)
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=branches)
+    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch(
+        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+    )
     engine.run_task(TaskType.COMMAND, "/review")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
-    assert _has_event_type(evts, TableOutput)
+    assert has_event_type(evts, TableOutput)
 
     tables = [e for e in evts if isinstance(e, TableOutput)]
     assert len(tables) == 2
@@ -160,7 +118,7 @@ def test_list_without_auth_falls_back_to_local() -> None:
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review")
 
-        evts = _drain(events)
+        evts = drain(events)
         assert evts[-1].success is True
         tables = [e for e in evts if isinstance(e, TableOutput)]
         assert len(tables) == 1
@@ -169,14 +127,14 @@ def test_list_without_auth_falls_back_to_local() -> None:
 
 def test_list_no_prs_no_branches(mocker) -> None:
     mock_gh = mocker.MagicMock()
-    engine, events, _ = _make_engine(gh=mock_gh)
+    engine, events, _ = make_engine(gh=mock_gh)
 
     mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[])
     mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
 
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("No open PRs" in t for t in texts)
 
 
@@ -186,31 +144,14 @@ def test_list_no_prs_no_branches(mocker) -> None:
 def test_list_caches_review_targets_github(mocker) -> None:
     """After listing, session.cached_review_targets has PRs and branches."""
     mock_gh = mocker.MagicMock()
-    engine, events, session = _make_engine(gh=mock_gh)
+    engine, events, session = make_engine(gh=mock_gh)
 
-    prs = [
-        PRSummary(
-            number=1,
-            title="Fix bug",
-            author="alice",
-            base_branch="main",
-            head_branch="fix-bug",
-            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        ),
-    ]
-    branches = [
-        BranchSummary(
-            name="feature-x",
-            last_commit_sha="abc123",
-            last_commit_message="wip",
-            updated_at=datetime(2025, 1, 2, tzinfo=UTC),
-        ),
-    ]
-
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs)
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=branches)
+    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch(
+        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+    )
     engine.run_task(TaskType.COMMAND, "/review")
-    _drain(events)
+    drain(events)
 
     cached = session.cached_review_targets
     assert len(cached) == 2
@@ -224,7 +165,7 @@ def test_list_caches_review_targets_github(mocker) -> None:
 def test_list_always_refetches(mocker) -> None:
     """Calling /review a second time refetches — never serves stale cache."""
     mock_gh = mocker.MagicMock()
-    engine, events, session = _make_engine(gh=mock_gh)
+    engine, events, session = make_engine(gh=mock_gh)
 
     prs_v1 = [
         PRSummary(
@@ -250,13 +191,13 @@ def test_list_always_refetches(mocker) -> None:
     mock_list = mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs_v1)
     mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
-    _drain(events)
+    drain(events)
     assert session.cached_review_targets[0][1] == "1"
 
     # Second call with updated data — must refetch.
     mock_list.return_value = prs_v2
     engine.run_task(TaskType.COMMAND, "/review")
-    _drain(events)
+    drain(events)
     assert session.cached_review_targets[0][1] == "2"
     assert mock_list.call_count == 2
 
@@ -275,7 +216,7 @@ def test_list_caches_review_targets_local() -> None:
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review")
-        _drain(events)
+        drain(events)
 
         cached = session.cached_review_targets
         assert len(cached) == 1
@@ -288,21 +229,12 @@ def test_list_caches_review_targets_local() -> None:
 def test_review_pr_by_number(mocker) -> None:
     mocker.patch("rbtr.engine.review.run_index")
     mock_gh = mocker.MagicMock()
-    engine, events, session = _make_engine(gh=mock_gh)
+    engine, events, session = make_engine(gh=mock_gh)
 
-    pr = PRSummary(
-        number=42,
-        title="Add feature",
-        author="bob",
-        base_branch="main",
-        head_branch="add-feature",
-        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-    )
-
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=pr)
+    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_ADD_FEATURE)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert isinstance(session.review_target, PRTarget)
     assert session.review_target.number == 42
@@ -318,19 +250,19 @@ def test_review_without_arg_lists() -> None:
         repo.set_head("refs/heads/main")
         repo.create_branch("feature-x", repo.get(oid))
 
-        engine, events, session = _make_engine(gh=None)
+        engine, events, session = make_engine(gh=None)
         session.repo = repo
         engine.run_task(TaskType.COMMAND, "/review")
-        evts = _drain(events)
+        evts = drain(events)
         assert evts[-1].success is True
-        assert _has_event_type(evts, TableOutput)
+        assert has_event_type(evts, TableOutput)
 
 
 def test_review_pr_without_auth_warns() -> None:
-    engine, events, _ = _make_engine(gh=None)
+    engine, events, _ = make_engine(gh=None)
     engine.run_task(TaskType.COMMAND, "/review 42")
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("Not authenticated" in t for t in texts)
 
 
@@ -349,7 +281,7 @@ def test_review_branch_by_name(mocker) -> None:
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review my-branch")
 
-        evts = _drain(events)
+        evts = drain(events)
         assert evts[-1].success is True
         assert isinstance(session.review_target, BranchTarget)
         assert session.review_target.base_branch == "main"
@@ -369,8 +301,8 @@ def test_review_nonexistent_branch_warns() -> None:
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review ghost-branch")
 
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("not found" in t for t in texts)
 
 
@@ -391,12 +323,12 @@ def test_review_branch_two_args(mocker) -> None:
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review develop feature-x")
 
-        evts = _drain(events)
+        evts = drain(events)
         assert evts[-1].success is True
         assert isinstance(session.review_target, BranchTarget)
         assert session.review_target.base_branch == "develop"
         assert session.review_target.head_branch == "feature-x"
-        texts = _output_texts(evts)
+        texts = output_texts(evts)
         assert any("develop" in t and "feature-x" in t for t in texts)
 
 
@@ -415,38 +347,29 @@ def test_review_branch_bad_base_warns() -> None:
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review nonexistent feature-x")
 
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("nonexistent" in t and "not found" in t for t in texts)
 
 
 def test_review_branch_too_many_args_warns() -> None:
     """/review a b c shows usage."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/review a b c")
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("Usage" in t for t in texts)
 
 
 def test_review_pr_has_base_branch(mocker) -> None:
     """PR review populates base_branch from the PR data."""
     mock_gh = mocker.MagicMock()
-    engine, events, session = _make_engine(gh=mock_gh)
+    engine, events, session = make_engine(gh=mock_gh)
 
-    pr = PRSummary(
-        number=10,
-        title="Refactor",
-        author="alice",
-        base_branch="develop",
-        head_branch="refactor-x",
-        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-    )
-
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=pr)
+    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_REFACTOR)
     engine.run_task(TaskType.COMMAND, "/review 10")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert isinstance(session.review_target, PRTarget)
     assert session.review_target.base_branch == "develop"
@@ -457,36 +380,36 @@ def test_review_pr_has_base_branch(mocker) -> None:
 
 
 def test_shell_captures_stdout() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "echo hello")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("hello" in t for t in texts)
 
 
 def test_shell_captures_nonzero_exit() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "false")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True  # task itself succeeds; error is in output
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("exit code" in t for t in texts)
 
 
 def test_shell_empty_shows_usage() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "")
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("Usage" in t for t in texts)
 
 
 def test_shell_truncates_long_output() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "seq 1 100")
-    evts = _drain(events)
-    _output_texts(evts)
+    evts = drain(events)
+    output_texts(evts)
     assert engine._last_shell_full_output is not None
     stdout_full, _, _, hidden_count = engine._last_shell_full_output
     assert len(stdout_full.split("\n")) > config.tui.shell_max_lines
@@ -495,17 +418,17 @@ def test_shell_truncates_long_output() -> None:
 
 def test_shell_never_emits_flush_panel() -> None:
     """Shell commands always produce a single panel — no FlushPanel."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "echo hello && echo world")
-    evts = _drain(events)
+    evts = drain(events)
     assert not any(isinstance(e, FlushPanel) for e in evts)
 
 
 def test_shell_with_stderr_never_emits_flush_panel() -> None:
     """Even with mixed stdout/stderr, shell stays in one panel."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.SHELL, "echo out; echo err >&2")
-    evts = _drain(events)
+    evts = drain(events)
     assert not any(isinstance(e, FlushPanel) for e in evts)
 
 
@@ -517,7 +440,7 @@ def test_llm_streams_response(creds_path, mocker) -> None:
 
     creds.update(claude=OAuthCreds(access_token="t", refresh_token="r", expires_at=9e9))
 
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.claude_connected = True
 
     async def fake_stream(eng, model, message):
@@ -528,7 +451,7 @@ def test_llm_streams_response(creds_path, mocker) -> None:
 
     mocker.patch("rbtr.engine.llm._stream_agent", fake_stream)
     engine.run_task(TaskType.LLM, "explain this code")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     deltas = [e for e in evts if isinstance(e, TextDelta)]
     assert len(deltas) == 2
@@ -541,33 +464,35 @@ def test_llm_preserves_history(creds_path, mocker) -> None:
 
     creds.update(openai_api_key="sk-test")
 
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.openai_connected = True
 
     async def fake_stream(eng, model, message):
-        eng.session.message_history = [{"role": "user", "content": message}]
+        eng.session.message_history = [
+            ModelRequest(parts=[UserPromptPart(content=message)]),
+        ]
 
     mocker.patch("rbtr.engine.llm._stream_agent", fake_stream)
     engine.run_task(TaskType.LLM, "hello")
-    _drain(events)
+    drain(events)
     assert len(session.message_history) == 1
 
 
 def test_new_clears_history() -> None:
-    engine, events, session = _make_engine()
-    session.message_history = [{"role": "user", "content": "old"}]
+    engine, events, session = make_engine()
+    session.message_history = [ModelRequest(parts=[UserPromptPart(content="old")])]
     engine.run_task(TaskType.COMMAND, "/new")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.message_history == []
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("cleared" in t.lower() for t in texts)
 
 
 def test_llm_warns_when_not_connected() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.LLM, "explain this code")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     warnings = [e for e in evts if isinstance(e, Output) and "No LLM connected" in e.text]
     assert len(warnings) == 1
@@ -578,43 +503,43 @@ def test_llm_warns_when_not_connected() -> None:
 
 def test_connect_openai_saves_key(creds_path) -> None:
 
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     engine.run_task(TaskType.COMMAND, "/connect openai sk-test-key-123")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.openai_connected is True
     assert creds.openai_api_key == "sk-test-key-123"
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("Connected to OpenAI" in t for t in texts)
 
 
 def test_connect_openai_already_connected(creds_path) -> None:
 
     creds.update(openai_api_key="sk-existing")
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     engine.run_task(TaskType.COMMAND, "/connect openai")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.openai_connected is True
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("Already connected" in t for t in texts)
 
 
 def test_connect_openai_rejects_bad_key(creds_path) -> None:
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     engine.run_task(TaskType.COMMAND, "/connect openai bad-key-format")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.openai_connected is False
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("Invalid" in t for t in texts)
 
 
 def test_connect_openai_no_key_shows_usage(creds_path) -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/connect openai")
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("Usage" in t for t in texts)
     assert any("platform.openai.com" in t for t in texts)
 
@@ -623,9 +548,9 @@ def test_connect_openai_replaces_existing_key(creds_path) -> None:
     """Providing a key when one exists replaces it."""
 
     creds.update(openai_api_key="sk-old")
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     engine.run_task(TaskType.COMMAND, "/connect openai sk-new-key")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.openai_connected is True
     assert creds.openai_api_key == "sk-new-key"
@@ -650,11 +575,11 @@ def test_setup_in_valid_repo(monkeypatch, creds_path) -> None:
 
         engine.run_task(TaskType.SETUP, "")
 
-        evts = _drain(events)
+        evts = drain(events)
         assert evts[-1].success is True
         assert session.owner == "testowner"
         assert session.repo_name == "testrepo"
-        texts = _output_texts(evts)
+        texts = output_texts(evts)
         assert any("testowner/testrepo" in t for t in texts)
         assert any("Not authenticated" in t for t in texts)
 
@@ -668,8 +593,8 @@ def test_setup_outside_repo_errors(monkeypatch) -> None:
 
         engine.run_task(TaskType.SETUP, "")
 
-        evts = _drain(events)
-        texts = _output_texts(evts)
+        evts = drain(events)
+        texts = output_texts(evts)
         assert any("git repository" in t for t in texts)
 
 
@@ -677,26 +602,26 @@ def test_setup_outside_repo_errors(monkeypatch) -> None:
 
 
 def test_every_task_starts_and_finishes() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/help")
-    evts = _drain(events)
+    evts = drain(events)
 
     assert isinstance(evts[0], TaskStarted)
     assert isinstance(evts[-1], TaskFinished)
 
 
 def test_task_finished_reports_success() -> None:
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/help")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
 
 
 def test_no_events_outside_task_boundary() -> None:
     """All Output events must be between TaskStarted and TaskFinished."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
     engine.run_task(TaskType.COMMAND, "/review")
-    evts = _drain(events)
+    evts = drain(events)
 
     started = False
     for e in evts:
@@ -713,7 +638,7 @@ def test_no_events_outside_task_boundary() -> None:
 
 def test_connect_github_success(creds_path, mocker) -> None:
 
-    engine, events, session = _make_engine(gh=None)
+    engine, events, session = make_engine(gh=None)
 
     device_resp = {
         "user_code": "ABCD-1234",
@@ -727,7 +652,7 @@ def test_connect_github_success(creds_path, mocker) -> None:
     mocker.patch.object(Engine, "_copy_to_clipboard")
     engine.run_task(TaskType.COMMAND, "/connect github")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.gh is not None
     assert creds.github_token == "ghp_newtoken"
@@ -737,12 +662,12 @@ def test_connect_github_success(creds_path, mocker) -> None:
     assert "ABCD-1234" in links[0].markup
     assert "github.com/login/device" in links[0].markup
 
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("Authenticated" in t for t in texts)
 
 
 def test_connect_github_failure(creds_path, mocker) -> None:
-    engine, events, session = _make_engine(gh=None)
+    engine, events, session = make_engine(gh=None)
 
     mocker.patch(
         "rbtr.engine.connect.auth.request_device_code",
@@ -750,10 +675,10 @@ def test_connect_github_failure(creds_path, mocker) -> None:
     )
     engine.run_task(TaskType.COMMAND, "/connect github")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert session.gh is None
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("failed" in t.lower() for t in texts)
 
 
@@ -783,9 +708,9 @@ def test_403_falls_back_to_local_branches(mocker) -> None:
         mocker.patch("rbtr.engine.review.client.list_open_prs", side_effect=exc)
         engine.run_task(TaskType.COMMAND, "/review")
 
-        evts = _drain(events_q)
+        evts = drain(events_q)
         assert evts[-1].success is True
-        texts = _output_texts(evts)
+        texts = output_texts(evts)
         assert any("Cannot access" in t for t in texts)
         tables = [e for e in evts if isinstance(e, TableOutput)]
         assert len(tables) == 1
@@ -804,9 +729,9 @@ def test_500_falls_back_to_local_branches(mocker) -> None:
         mocker.patch("rbtr.engine.review.client.list_open_prs", side_effect=exc)
         engine.run_task(TaskType.COMMAND, "/review")
 
-        evts = _drain(events_q)
+        evts = drain(events_q)
         assert evts[-1].success is True
-        texts = _output_texts(evts)
+        texts = output_texts(evts)
         assert any("Falling back" in t for t in texts)
         tables = [e for e in evts if isinstance(e, TableOutput)]
         assert len(tables) == 1
@@ -852,7 +777,7 @@ def test_truncate_empty_input() -> None:
 
 def test_cancel_shell_command() -> None:
     """Cancelling a long-running shell command emits TaskFinished(cancelled=True)."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
 
     def run_and_cancel() -> None:
         import time
@@ -863,14 +788,14 @@ def test_cancel_shell_command() -> None:
     canceller = threading.Thread(target=run_and_cancel, daemon=True)
     canceller.start()
     engine.run_task(TaskType.SHELL, "sleep 30")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is False
     assert evts[-1].cancelled is True
 
 
 def test_cancel_is_cleared_on_next_task() -> None:
     """After cancellation, the next task runs normally."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
 
     def cancel_soon() -> None:
         import time
@@ -881,25 +806,25 @@ def test_cancel_is_cleared_on_next_task() -> None:
     canceller = threading.Thread(target=cancel_soon, daemon=True)
     canceller.start()
     engine.run_task(TaskType.SHELL, "sleep 30")
-    _drain(events)
+    drain(events)
 
     engine._cancel.clear()
     engine.run_task(TaskType.SHELL, "echo ok")
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
     assert evts[-1].cancelled is False
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("ok" in t for t in texts)
 
 
 def test_cancel_noop_when_idle() -> None:
-    engine, _events, _ = _make_engine()
+    engine, _events, _ = make_engine()
     engine.cancel()  # should not raise
 
 
 def test_cancel_check_raises() -> None:
 
-    engine, _, _ = _make_engine()
+    engine, _, _ = make_engine()
     engine._cancel.set()
     with pytest.raises(TaskCancelled):
         engine._check_cancel()
@@ -907,7 +832,7 @@ def test_cancel_check_raises() -> None:
 
 def test_cancel_does_not_lose_partial_output() -> None:
     """Output emitted before cancellation is preserved in events."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
 
     def cancel_after_start() -> None:
         import time
@@ -918,8 +843,8 @@ def test_cancel_does_not_lose_partial_output() -> None:
     canceller = threading.Thread(target=cancel_after_start, daemon=True)
     canceller.start()
     engine.run_task(TaskType.SHELL, "sleep 30")
-    evts = _drain(events)
-    texts = _output_texts(evts)
+    evts = drain(events)
+    texts = output_texts(evts)
     assert any("sleep 30" in t for t in texts)
 
 
@@ -929,24 +854,13 @@ def test_cancel_does_not_lose_partial_output() -> None:
 def test_list_clears_fetching_message(mocker) -> None:
     """The 'Fetching…' message is discarded before results appear."""
     mock_gh = mocker.MagicMock()
-    engine, events, _ = _make_engine(gh=mock_gh)
+    engine, events, _ = make_engine(gh=mock_gh)
 
-    prs = [
-        PRSummary(
-            number=1,
-            title="Fix",
-            author="a",
-            base_branch="main",
-            head_branch="fix",
-            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        ),
-    ]
-
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs)
+    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
     mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
 
-    evts = _drain(events)
+    evts = drain(events)
     flush_events = [e for e in evts if isinstance(e, FlushPanel)]
     assert any(f.discard is True for f in flush_events)
 
@@ -954,32 +868,15 @@ def test_list_clears_fetching_message(mocker) -> None:
 def test_list_flushes_between_tables(mocker) -> None:
     """PR table and branch table are separated by a FlushPanel."""
     mock_gh = mocker.MagicMock()
-    engine, events, _ = _make_engine(gh=mock_gh)
+    engine, events, _ = make_engine(gh=mock_gh)
 
-    prs = [
-        PRSummary(
-            number=1,
-            title="Fix",
-            author="a",
-            base_branch="main",
-            head_branch="fix",
-            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-        ),
-    ]
-    branches = [
-        BranchSummary(
-            name="feat",
-            last_commit_sha="abc",
-            last_commit_message="wip",
-            updated_at=datetime(2025, 1, 2, tzinfo=UTC),
-        ),
-    ]
-
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs)
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=branches)
+    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch(
+        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+    )
     engine.run_task(TaskType.COMMAND, "/review")
 
-    evts = _drain(events)
+    evts = drain(events)
     tables_and_flushes = [
         e
         for e in evts
@@ -994,30 +891,21 @@ def test_list_flushes_between_tables(mocker) -> None:
 def test_review_pr_clears_fetching_message(mocker) -> None:
     """The 'Fetching PR #N…' message is discarded before result."""
     mock_gh = mocker.MagicMock()
-    engine, events, _session = _make_engine(gh=mock_gh)
+    engine, events, _session = make_engine(gh=mock_gh)
 
-    pr = PRSummary(
-        number=42,
-        title="Add feature",
-        author="bob",
-        base_branch="main",
-        head_branch="add-feature",
-        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-    )
-
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=pr)
+    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_ADD_FEATURE)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
-    evts = _drain(events)
+    evts = drain(events)
     flush_events = [e for e in evts if isinstance(e, FlushPanel)]
     assert any(f.discard is True for f in flush_events)
-    texts = _output_texts(evts)
+    texts = output_texts(evts)
     assert any("PR #42" in t for t in texts)
 
 
 def test_connect_github_flushes_link_panel(creds_path, mocker) -> None:
     """/connect github emits link+code as one panel, then auth result as another."""
-    engine, events, _ = _make_engine()
+    engine, events, _ = make_engine()
 
     device_resp = {
         "user_code": "ABCD-1234",
@@ -1031,7 +919,7 @@ def test_connect_github_flushes_link_panel(creds_path, mocker) -> None:
     mocker.patch.object(engine, "_copy_to_clipboard")
     engine.run_task(TaskType.COMMAND, "/connect github")
 
-    evts = _drain(events)
+    evts = drain(events)
     assert evts[-1].success is True
 
     flush_events = [e for e in evts if isinstance(e, FlushPanel)]
@@ -1039,8 +927,8 @@ def test_connect_github_flushes_link_panel(creds_path, mocker) -> None:
     assert flush_events[0].discard is False  # link+code panel
     assert flush_events[1].discard is True  # "Waiting…" discarded
 
-    assert _has_event_type(evts, LinkOutput)
-    texts = _output_texts(evts)
+    assert has_event_type(evts, LinkOutput)
+    texts = output_texts(evts)
     assert any("Authenticated" in t for t in texts)
 
 
@@ -1049,7 +937,7 @@ def test_connect_github_flushes_link_panel(creds_path, mocker) -> None:
 
 def test_new_resets_usage() -> None:
     """/new resets the session usage alongside message history."""
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.usage.record_run(
         input_tokens=5000,
         output_tokens=2000,
@@ -1057,7 +945,7 @@ def test_new_resets_usage() -> None:
     assert session.usage.input_tokens == 5000
 
     engine.run_task(TaskType.COMMAND, "/new")
-    _drain(events)
+    drain(events)
     assert session.usage.input_tokens == 0
     assert session.usage.output_tokens == 0
     assert session.usage.total_cost == 0.0
@@ -1065,25 +953,25 @@ def test_new_resets_usage() -> None:
 
 def test_model_change_updates_session_model(config_path) -> None:
     """/model updates session.model_name."""
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.cached_models = [("openai", ["openai/gpt-4o"])]
 
     engine.run_task(TaskType.COMMAND, "/model openai/gpt-4o")
-    _drain(events)
+    drain(events)
 
     assert session.model_name == "openai/gpt-4o"
 
 
 def test_model_change_cross_provider_preserves_history(config_path) -> None:
     """Switching providers preserves message history."""
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.model_name = "claude/claude-sonnet-4-20250514"
-    session.message_history = [{"role": "user", "content": "keep me"}]
+    session.message_history = [ModelRequest(parts=[UserPromptPart(content="keep me")])]
     session.usage.record_run(input_tokens=1000, output_tokens=500)
     session.cached_models = [("chatgpt", ["chatgpt/gpt-4o"])]
 
     engine.run_task(TaskType.COMMAND, "/model chatgpt/gpt-4o")
-    _drain(events)
+    drain(events)
 
     assert session.model_name == "chatgpt/gpt-4o"
     assert len(session.message_history) == 1
@@ -1092,15 +980,15 @@ def test_model_change_cross_provider_preserves_history(config_path) -> None:
 
 def test_model_change_same_provider_preserves_history(config_path) -> None:
     """Switching models within the same provider preserves history."""
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     session.model_name = "claude/claude-sonnet-4-20250514"
-    session.message_history = [{"role": "user", "content": "keep me"}]
+    session.message_history = [ModelRequest(parts=[UserPromptPart(content="keep me")])]
     session.cached_models = [
         ("claude", ["claude/claude-sonnet-4-20250514", "claude/claude-opus-4-20250514"])
     ]
 
     engine.run_task(TaskType.COMMAND, "/model claude/claude-opus-4-20250514")
-    _drain(events)
+    drain(events)
 
     assert session.model_name == "claude/claude-opus-4-20250514"
     assert len(session.message_history) == 1
@@ -1110,8 +998,9 @@ def test_model_change_same_provider_preserves_history(config_path) -> None:
 
 
 def test_demote_thinking_converts_to_text() -> None:
+    from pydantic_ai.messages import ModelMessage
 
-    history: list[object] = [
+    history: list[ModelMessage] = [
         ModelResponse(
             parts=[
                 ThinkingPart(content="reasoning…", id="reasoning_content"),
@@ -1133,8 +1022,9 @@ def test_demote_thinking_converts_to_text() -> None:
 
 
 def test_demote_thinking_drops_empty_thinking() -> None:
+    from pydantic_ai.messages import ModelMessage
 
-    history: list[object] = [
+    history: list[ModelMessage] = [
         ModelResponse(
             parts=[ThinkingPart(content="", id="rs_123")],
             model_name="test",
@@ -1146,8 +1036,9 @@ def test_demote_thinking_drops_empty_thinking() -> None:
 
 
 def test_demote_thinking_preserves_non_responses() -> None:
+    from pydantic_ai.messages import ModelMessage
 
-    history: list[object] = [
+    history: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="hello")]),
     ]
 
@@ -1201,12 +1092,12 @@ def test_session_index_defaults_to_none() -> None:
 
 def test_new_preserves_index(mocker) -> None:
     """``/new`` clears conversation but leaves the index intact."""
-    engine, events, session = _make_engine()
+    engine, events, session = make_engine()
     mock_store = mocker.MagicMock()
     session.index = mock_store
 
     engine.run_task(TaskType.COMMAND, "/new")
-    _drain(events)
+    drain(events)
 
     mock_store.close.assert_not_called()
     assert session.index is mock_store

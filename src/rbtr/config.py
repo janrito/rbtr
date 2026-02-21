@@ -105,6 +105,7 @@ class IndexConfig(BaseModel):
 class ToolsConfig(BaseModel):
     max_diff_chars: int = 12_000
     max_log_commits: int = 50
+    max_requests_per_turn: int = 25
 
 
 class LogConfig(BaseModel):

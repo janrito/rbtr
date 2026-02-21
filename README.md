@@ -349,6 +349,32 @@ repo skip unchanged files (keyed by git blob SHA).
 - **Slow indexing** → review starts immediately, index catches
   up in a background thread.
 
+## Tool-call limits
+
+Each turn has a limit on how many tool calls the LLM can make
+(default 25). This prevents runaway loops where the model keeps
+searching without producing useful output.
+
+When the limit is reached, rbtr does **not** error out. Instead
+it asks the model to summarize what it accomplished and what
+remains, so you can decide whether to continue:
+
+```text
+claude/claude-sonnet-4-20250514: I've reviewed 8 of the 12 changed files
+so far. I found two issues in the retry logic and one missing null check.
+The remaining files to review are: config.py, utils.py, client.py, and
+the test file. Would you like me to continue?
+
+you: yes, continue with the remaining files
+```
+
+The limit is configurable in `config.toml`:
+
+```toml
+[tools]
+max_requests_per_turn = 25    # default
+```
+
 ## Known issues
 
 - **Cross-provider reasoning history:** PydanticAI stores
@@ -444,6 +470,13 @@ hidden via `prepare` functions when their prerequisites aren't met
 Tool call results appear in independent purple panels in the TUI.
 Output is truncated to `tui.tool_max_lines` (default 15) with
 Ctrl+O to expand.
+
+Each turn is limited to `tools.max_requests_per_turn` model
+requests (default 25). When the limit is hit, `_stream_agent`
+catches `UsageLimitExceeded`, preserves accumulated messages,
+and fires `_stream_summary` — a tool-free single-request
+followup that asks the model to summarize progress so the user
+can decide whether to continue.
 
 ### Language support
 

@@ -147,6 +147,14 @@ Agent rules. Short, imperative.
 - **Enums for finite sets.** When a variable accepts a known set
   of values, define a `StrEnum` or `IntEnum`. Use `Literal` only
   when an enum would be impractical (e.g. values from a 3rd-party API).
+- **No `Any` or `object` as lazy type escapes.** Use the real type.
+  When a library returns a concrete type, import and use it
+  (e.g. `ModelMessage`, `ModelSettings`, `FrameType`).
+  `Any` is acceptable only for genuinely untyped boundaries
+  (JSON dicts from a DB driver, TOML `**kwargs`).
+  `object` is acceptable only for Python protocol signatures
+  (e.g. `_missing_(cls, value: object)`, `__exit__(*args: object)`).
+  Never use `cast()` to paper over a type mismatch — fix the source.
 - Composition over inheritance. Functions over methods when in doubt.
 - `Protocol` for interfaces. Subclassing only for strict is-a
   (e.g. exceptions).
@@ -188,6 +196,17 @@ Agent rules. Short, imperative.
 - **Multiline strings for test source code.** Use `"""\..."""` for
   any inline code snippet longer than one line — never concatenate
   strings or use escaped `\n`.
+- **Data-first test design.** Build test suites around a shared,
+  realistic dataset — not around the API surface.
+  Define semantically distinct test entities (e.g. three functions
+  from different domains with orthogonal embedding vectors) as
+  module-level constants. Seed them through a helper
+  (e.g. `_seed_store(store, embed=True)`).
+  Then write tests that verify *behaviours against this data*:
+  ranking, scoping, edge cases, roundtrips.
+  This grounds every assertion in concrete, inspectable content
+  instead of anonymous stubs or mocks.
+  When the data is right, the tests document the system.
 
 ## Dependencies & tooling
 
