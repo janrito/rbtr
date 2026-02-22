@@ -26,6 +26,7 @@ def _build_env() -> minijinja.Environment:
     env.add_template("system", _load_template("system.md"))
     env.add_template("review", _load_template("review.md"))
     env.add_template("index_status", _load_template("index_status.md"))
+    env.add_template("compact", _load_template("compact.md"))
     return env
 
 
@@ -117,3 +118,12 @@ def render_index_status(*, status: str, tool_names: list[str]) -> str:
     env = _build_env()
     tool_list = ", ".join(f"`{n}`" for n in tool_names)
     return env.render_template("index_status", status=status, tool_list=tool_list)
+
+
+def render_compact(extra_instructions: str = "") -> str:
+    """Render the compaction system instructions."""
+    env = _build_env()
+    return env.render_template(
+        "compact",
+        extra_instructions=extra_instructions,
+    )

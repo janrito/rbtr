@@ -263,3 +263,16 @@ def test_build_model_by_name_no_slash_raises() -> None:
 
     with pytest.raises(RbtrError, match="Invalid model format"):
         build_model("noslash")
+
+
+# ── genai_provider_id ────────────────────────────────────────────────
+
+
+def test_all_builtin_providers_have_genai_id() -> None:
+    """Every BuiltinProvider member must map to a genai-prices provider ID."""
+    from rbtr.providers import BuiltinProvider
+
+    for provider in BuiltinProvider:
+        gid = provider.genai_provider_id
+        assert isinstance(gid, str), f"{provider}.genai_provider_id is not a str"
+        assert gid, f"{provider}.genai_provider_id is empty"

@@ -134,6 +134,22 @@ class IndexCleared(BaseModel):
     """The index has been cleared — no data available."""
 
 
+# ── Compaction events ────────────────────────────────────────────────
+
+
+class CompactionStarted(BaseModel):
+    """Auto or manual compaction has begun."""
+
+    old_messages: int
+    kept_messages: int
+
+
+class CompactionFinished(BaseModel):
+    """Compaction complete — history was replaced."""
+
+    summary_tokens: int
+
+
 # Union of all event types the UI needs to handle.
 Event = (
     TaskStarted
@@ -150,4 +166,6 @@ Event = (
     | IndexProgress
     | IndexReady
     | IndexCleared
+    | CompactionStarted
+    | CompactionFinished
 )

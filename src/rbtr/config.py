@@ -94,12 +94,23 @@ class IndexConfig(BaseModel):
     db_dir: str = str(WORKSPACE_DIR / "index")
     model_cache_dir: str = str(RBTR_DIR / "models")
     max_file_size: int = 512 * 1024  # 512 KiB
-    include: list[str] = []
-    extend_exclude: list[str] = [".rbtr"]
+    include: list[str] = [".rbtr/REVIEW-*"]
+    extend_exclude: list[str] = [".rbtr/index"]
     chunk_lines: int = 50
     chunk_overlap: int = 5
     embedding_model: str = "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"
     embedding_batch_size: int = 32
+
+
+class CompactionConfig(BaseModel):
+    auto_compact_pct: int = 85
+    """Trigger auto-compaction when context usage exceeds this %."""
+    keep_turns: int = 5
+    """Number of recent user→assistant turns to preserve."""
+    reserve_tokens: int = 16_000
+    """Tokens reserved for the summary response."""
+    summary_max_chars: int = 2_000
+    """Max chars per tool result in the serialised summary input."""
 
 
 class ToolsConfig(BaseModel):
@@ -192,6 +203,7 @@ class Config(BaseSettings):
 
     model: str | None = None
     thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
+    compaction: CompactionConfig = CompactionConfig()
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
     index: IndexConfig = IndexConfig()

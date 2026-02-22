@@ -19,6 +19,10 @@ from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import claude, endpoint, openai, openai_codex
 
+# Max completion tokens when the server's default might be too
+# aggressive.  Set to half the context window, capped at 128 k.
+_MAX_TOKENS_CAP = 131_072
+
 
 class BuiltinProvider(StrEnum):
     """Known first-party provider prefixes."""
@@ -26,6 +30,15 @@ class BuiltinProvider(StrEnum):
     CLAUDE = "claude"
     CHATGPT = "chatgpt"
     OPENAI = "openai"
+
+    @property
+    def genai_provider_id(self) -> str:
+        """Return the ``genai-prices`` provider ID for this provider."""
+        match self:
+            case BuiltinProvider.CLAUDE:
+                return "anthropic"
+            case BuiltinProvider.CHATGPT | BuiltinProvider.OPENAI:
+                return "openai"
 
 
 # ── Model construction ───────────────────────────────────────────────
@@ -149,3 +162,124 @@ def build_model_settings(
                 return OpenAIChatModelSettings(openai_reasoning_effort="xhigh")
 
     return None
+
+
+def _endpoint_parts(model_name: str | None) -> tuple[str, str] | None:
+    """Split *model_name* into ``(endpoint_name, model_id)`` if it
+    belongs to a custom endpoint.  Returns ``None`` for built-in
+    providers or malformed names.
+    """
+    if not model_name or "/" not in model_name:
+        return None
+    prefix, model_id = model_name.split("/", 1)
+    try:
+        BuiltinProvider(prefix)
+        return None  # built-in providers don't use endpoint metadata
+    except ValueError:
+        return prefix, model_id
+
+
+def _endpoint_metadata(
+    model_name: str | None,
+) -> endpoint.ModelMetadata | None:
+    """Return cached or freshly fetched metadata for an endpoint model."""
+    parts = _endpoint_parts(model_name)
+    if parts is None:
+        return None
+    return endpoint.fetch_model_metadata(*parts)
+
+
+def endpoint_model_settings(model_name: str | None) -> ModelSettings | None:
+    """Build ``ModelSettings`` with a safe ``max_tokens`` for an endpoint model.
+
+    When the endpoint reports a ``context_length`` via ``GET /models``
+    metadata, set ``max_tokens`` to half the context window (capped at
+    128 k) so the server doesn't pick an aggressive default that blows
+    the budget.
+
+    Returns ``None`` when metadata is unavailable or the model is not
+    a custom endpoint.
+    """
+    meta = _endpoint_metadata(model_name)
+    if meta is None:
+        return None
+    max_tokens = min(meta.context_window // 2, _MAX_TOKENS_CAP)
+    return ModelSettings(max_tokens=max_tokens)
+
+
+def endpoint_context_window(model_name: str | None) -> int | None:
+    """Return the context window for a custom endpoint model.
+
+    Auto-fetched from the endpoint's ``GET /models`` metadata.
+    Returns ``None`` when unavailable.
+    """
+    meta = _endpoint_metadata(model_name)
+    if meta is None:
+        return None
+    return meta.context_window
+
+
+def chatgpt_context_window(model_name: str | None) -> int | None:
+    """Return the context window for a ChatGPT model.
+
+    Uses metadata from the Codex ``GET /models`` response when
+    available. Returns ``None`` when the model is not ChatGPT or
+    metadata is unavailable.
+    """
+    if not model_name or "/" not in model_name:
+        return None
+    prefix, model_id = model_name.split("/", 1)
+    if prefix != BuiltinProvider.CHATGPT:
+        return None
+
+    meta = openai_codex.fetch_model_metadata(model_id)
+    if meta is None:
+        return None
+    return meta.context_window
+
+
+# ── Generic context-window lookup ────────────────────────────────────
+
+
+def model_context_window(model_name: str | None) -> int | None:
+    """Return the context window for *any* model — endpoint or built-in.
+
+    Lookup order:
+      1) custom endpoint metadata
+      2) ChatGPT Codex model metadata
+      3) ``genai-prices`` for built-in providers
+
+    Returns ``None`` when unavailable.
+    """
+    # Try custom endpoint first.
+    ep_ctx = endpoint_context_window(model_name)
+    if ep_ctx is not None:
+        return ep_ctx
+
+    # ChatGPT can expose context limits from its own /models payload,
+    # including models that may not exist in the genai-prices snapshot yet.
+    codex_ctx = chatgpt_context_window(model_name)
+    if codex_ctx is not None:
+        return codex_ctx
+
+    # Try genai-prices for built-in providers.
+    if not model_name or "/" not in model_name:
+        return None
+    prefix, model_id = model_name.split("/", 1)
+    try:
+        provider = BuiltinProvider(prefix)
+    except ValueError:
+        return None  # unknown prefix, not a built-in
+
+    try:
+        # deferred: loads pricing snapshot from disk on first call
+        from genai_prices.data_snapshot import get_snapshot
+
+        snapshot = get_snapshot()
+        _, model_info = snapshot.find_provider_model(
+            model_id, None, provider.genai_provider_id, None
+        )
+        ctx = model_info.context_window
+        return ctx if isinstance(ctx, int) and ctx > 0 else None
+    except (LookupError, ValueError):
+        return None

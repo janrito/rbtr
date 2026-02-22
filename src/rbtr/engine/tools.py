@@ -18,7 +18,7 @@ from pydantic_ai.tools import ToolDefinition
 from pygit2.enums import SortMode
 
 from rbtr.config import config
-from rbtr.index.git import is_binary, resolve_commit, walk_tree
+from rbtr.index.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
 
@@ -946,11 +946,13 @@ def _read_fs_file(path: str) -> tuple[list[str], str | None]:
     return data.decode(errors="replace").splitlines(), None
 
 
-def _list_fs_files(prefix: str) -> list[str]:
+def _list_fs_files(prefix: str, repo: pygit2.Repository | None = None) -> list[str]:
     """List files on the local filesystem matching *prefix*.
 
     *prefix* is treated as a directory path.  Returns sorted
     relative paths for all regular files under that directory.
+    Respects ``.gitignore``, ``include``, and ``extend_exclude``
+    via :func:`is_path_ignored`.
     """
     base = Path(prefix) if prefix else Path(".")
     if not base.is_dir():
@@ -959,7 +961,10 @@ def _list_fs_files(prefix: str) -> list[str]:
     for p in sorted(base.rglob("*")):
         if not p.is_file():
             continue
-        entries.append(str(PurePosixPath(p)))
+        rel = str(PurePosixPath(p))
+        if is_path_ignored(rel, repo):
+            continue
+        entries.append(rel)
     return entries
 
 
@@ -1058,6 +1063,8 @@ def read_file(
         return _format_file_page(path, data.decode(errors="replace").splitlines(), offset, capped)
 
     # Fall back to local filesystem.
+    if is_path_ignored(path, repo):
+        return blob_result  # treat ignored paths as not found
     fs_lines, fs_err = _read_fs_file(path)
     if fs_err:
         # Return the original git error — it's more informative.
@@ -1068,7 +1075,7 @@ def read_file(
 @agent.tool(prepare=_require_repo)
 def grep(
     ctx: RunContext[AgentDeps],
-    search: str,
+    search: str | int | float,
     path: str = "",
     ref: str = "head",
     offset: int = 0,
@@ -1126,6 +1133,7 @@ def grep(
         context_lines: Number of lines to show above and below
             each match.  Defaults to the configured value.
     """
+    search = str(search)  # coerce non-string args (e.g. model sends a number)
     if path and (err := _validate_path(path)):
         return err
 
@@ -1160,7 +1168,7 @@ def grep(
             return _grep_tree(repo, commit, path, needle, ctx_n, offset, capped_hits)
 
         # No git files under prefix — fall back to local filesystem.
-        return _grep_filesystem(path, needle, ctx_n, offset, capped_hits)
+        return _grep_filesystem(path, needle, ctx_n, offset, capped_hits, repo=repo)
     else:
         # Repo-wide search — git only.
         try:
@@ -1220,8 +1228,19 @@ def _grep_blob(
     )
 
 
-def _grep_filesystem(path: str, needle: str, ctx_n: int, offset: int, max_hits: int) -> str:
-    """Search local filesystem files under *path* for *needle*."""
+def _grep_filesystem(
+    path: str,
+    needle: str,
+    ctx_n: int,
+    offset: int,
+    max_hits: int,
+    repo: pygit2.Repository | None = None,
+) -> str:
+    """Search local filesystem files under *path* for *needle*.
+
+    Respects ``.gitignore``, ``include``, and ``extend_exclude``
+    via :func:`is_path_ignored`.
+    """
     # Check if path is an exact file first.
     p = Path(path)
     if p.is_file():
@@ -1231,7 +1250,7 @@ def _grep_filesystem(path: str, needle: str, ctx_n: int, offset: int, max_hits: 
         return _grep_lines(file_lines, path, needle, ctx_n, offset, max_hits)
 
     # Otherwise treat as a directory prefix.
-    files = _list_fs_files(path)
+    files = _list_fs_files(path, repo=repo)
     if not files:
         return f"No matches for '{needle}' under '{path}'."
 
@@ -1453,7 +1472,7 @@ def list_files(
 
     # Fall back to local filesystem when path is set.
     if path:
-        fs_entries = _list_fs_files(path)
+        fs_entries = _list_fs_files(path, repo=repo)
         if fs_entries:
             return _format_file_list(fs_entries, offset, limit)
 

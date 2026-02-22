@@ -1,13 +1,16 @@
 """Tests for engine/llm.py helper functions.
 
-Covers ``_emit_tool_event``, ``_record_usage``, and the
-``UsageLimitExceeded`` → summary flow in ``_stream_agent``.
+Covers ``_emit_tool_event``, ``_record_usage``, ``_update_live_usage``,
+``_is_context_overflow``, ``_auto_compact_on_overflow``,
+and the ``UsageLimitExceeded`` → summary flow.
 """
 
 from __future__ import annotations
 
 import asyncio
 
+import pytest
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -17,7 +20,15 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RunUsage
 
-from rbtr.engine.llm import _emit_tool_event, _record_usage
+from rbtr.engine.llm import (
+    _auto_compact_on_overflow,
+    _emit_tool_event,
+    _is_context_overflow,
+    _is_effort_unsupported,
+    _record_usage,
+    _update_live_usage,
+    resolve_model_settings,
+)
 from rbtr.events import ToolCallFinished, ToolCallStarted
 
 from .conftest import drain, make_engine
@@ -212,6 +223,211 @@ def test_record_usage_skips_messages_without_model_name() -> None:
 
     # Tokens are still recorded from RunUsage, but cost stays 0
     assert session.usage.total_cost == 0.0
+
+
+# ── _record_usage: context tracking ─────────────────────────────────
+
+# Provider presets for building realistic ModelResponse objects.
+_PROVIDERS: dict[str, tuple[str, str, str]] = {
+    # rbtr model prefix → (pydantic-ai model_name, provider_name, provider_url)
+    "claude": ("claude-sonnet-4-20250514", "anthropic", "https://api.anthropic.com"),
+    "openai": ("gpt-4o", "openai", "https://api.openai.com/v1"),
+}
+
+
+def _make_provider_response(
+    provider: str = "claude",
+    *,
+    input_tokens: int = 5000,
+    output_tokens: int = 200,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> ModelResponse:
+    """Build a ModelResponse mimicking what a real streaming run produces."""
+    from pydantic_ai.usage import RequestUsage
+
+    model_name, provider_name, provider_url = _PROVIDERS[provider]
+    return ModelResponse(
+        parts=[TextPart(content="response")],
+        model_name=model_name,
+        provider_name=provider_name,
+        provider_url=provider_url,
+        usage=RequestUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("session_model", "provider", "expected_window"),
+    [
+        ("claude/claude-sonnet-4-20250514", "claude", 200_000),
+        ("openai/gpt-4o", "openai", 128_000),
+    ],
+)
+def test_record_usage_sets_context_window(
+    session_model: str, provider: str, expected_window: int
+) -> None:
+    """_record_usage resolves the real context window for built-in providers."""
+    engine, _, session = make_engine()
+    session.model_name = session_model
+    response = _make_provider_response(provider, input_tokens=5000, output_tokens=200)
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        response,
+    ]
+
+    _record_usage(engine, [], messages, _make_run_usage(input_tokens=5000, output_tokens=200))
+
+    assert session.usage.context_window == expected_window
+    assert session.usage.context_window_known is True
+    assert session.usage.last_input_tokens == 5000
+
+
+def test_record_usage_last_input_tokens_from_response() -> None:
+    """last_input_tokens comes from the last ModelResponse.usage, not cumulative RunUsage."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+    # Simulate a multi-request run (tool calls):
+    # RunUsage is cumulative across requests, but we want the last request's value.
+    response1 = _make_provider_response(input_tokens=5000)
+    response2 = _make_provider_response(input_tokens=8000)
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        response1,
+        ModelRequest(parts=[UserPromptPart(content="tool result")]),
+        response2,
+    ]
+    # RunUsage cumulative = 5000 + 8000 = 13000
+    _record_usage(engine, [], messages, _make_run_usage(input_tokens=13000, output_tokens=400))
+
+    # last_input_tokens should be the last response's value, not cumulative
+    assert session.usage.last_input_tokens == 8000
+    assert session.usage.input_tokens == 13000
+
+
+def test_record_usage_context_used_pct() -> None:
+    """context_used_pct uses the real context window, not the 128 k default."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+    response = _make_provider_response(input_tokens=100_000)
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        response,
+    ]
+
+    _record_usage(engine, [], messages, _make_run_usage(input_tokens=100_000))
+
+    # 100k / 200k = 50%, NOT 100k / 128k = 78%
+    assert session.usage.context_window == 200_000
+    assert session.usage.context_used_pct == pytest.approx(50.0)
+
+
+def test_record_usage_cache_tokens() -> None:
+    """Cache tokens are tracked alongside the context window."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+    response = _make_provider_response(
+        input_tokens=5000,
+        cache_read_tokens=3000,
+        cache_write_tokens=1000,
+    )
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        response,
+    ]
+    usage = RunUsage(
+        requests=1,
+        input_tokens=5000,
+        output_tokens=200,
+        cache_read_tokens=3000,
+        cache_write_tokens=1000,
+    )
+
+    _record_usage(engine, [], messages, usage)
+
+    assert session.usage.cache_read_tokens == 3000
+    assert session.usage.cache_write_tokens == 1000
+    assert session.usage.context_window == 200_000
+
+
+def test_record_usage_multi_turn_context_pct() -> None:
+    """Context % stays correct across multiple turns."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+
+    # Turn 1
+    resp1 = _make_provider_response(input_tokens=10_000)
+    msgs1: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="turn 1")]),
+        resp1,
+    ]
+    _record_usage(engine, [], msgs1, _make_run_usage(input_tokens=10_000))
+
+    assert session.usage.context_window == 200_000
+    assert session.usage.context_used_pct == pytest.approx(5.0)
+
+    # Turn 2 — context grows
+    resp2 = _make_provider_response(input_tokens=50_000)
+    msgs2: list[ModelMessage] = [
+        *msgs1,
+        ModelRequest(parts=[UserPromptPart(content="turn 2")]),
+        resp2,
+    ]
+    _record_usage(engine, msgs1, msgs2, _make_run_usage(input_tokens=50_000))
+
+    assert session.usage.context_window == 200_000  # stays correct
+    assert session.usage.context_used_pct == pytest.approx(25.0)
+
+
+# ── _update_live_usage: mid-run context tracking ─────────────────────
+
+
+def test_update_live_usage_sets_context_window() -> None:
+    """_update_live_usage resolves the context window during streaming."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+    session.usage.snapshot_base()
+
+    response = _make_provider_response(input_tokens=10_000, output_tokens=500)
+    run_usage = RunUsage(requests=1, input_tokens=10_000, output_tokens=500)
+
+    _update_live_usage(engine, run_usage, response)
+
+    assert session.usage.last_input_tokens == 10_000
+    assert session.usage.context_window == 200_000
+    assert session.usage.context_window_known is True
+    # 10k / 200k = 5%, NOT 10k / 128k = 7.8%
+    assert session.usage.context_used_pct == pytest.approx(5.0)
+
+
+def test_update_live_usage_accumulates_over_base() -> None:
+    """Live usage correctly adds to the baseline from previous runs."""
+    engine, _, session = make_engine()
+    session.model_name = "claude/claude-sonnet-4-20250514"
+
+    # Simulate a completed first run.
+    session.usage.record_run(
+        input_tokens=5000,
+        output_tokens=200,
+        context_window=200_000,
+    )
+    session.usage.snapshot_base()  # start of second run
+
+    response = _make_provider_response(input_tokens=8000, output_tokens=300)
+    run_usage = RunUsage(requests=1, input_tokens=8000, output_tokens=300)
+
+    _update_live_usage(engine, run_usage, response)
+
+    # Lifetime totals: 5000 + 8000 = 13000
+    assert session.usage.input_tokens == 13_000
+    assert session.usage.output_tokens == 500
+    # But context % uses only last request's tokens
+    assert session.usage.last_input_tokens == 8000
+    assert session.usage.context_used_pct == pytest.approx(4.0)
 
 
 # ── UsageLimitExceeded → summary flow ────────────────────────────────
@@ -443,3 +659,253 @@ def test_stream_agent_no_limit_hit_skips_summary(mocker, creds_path) -> None:
 
     assert not summary_called
     assert len(session.message_history) == 2
+
+
+# ── _is_context_overflow ─────────────────────────────────────────────
+
+
+def _make_http_error(status: int, body: str) -> ModelHTTPError:
+    """Construct a ModelHTTPError with given status and body text."""
+    return ModelHTTPError(status, "test-model", body)
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (400, "This model's maximum context length is 128000 tokens"),
+        (400, "prompt is too long: 150000 tokens > 128000 token limit"),
+        (400, "Request too large for model"),
+        (400, "input is too long (150000 tokens, max 128000)"),
+        (400, "content_too_large: message exceeds context window"),
+        (400, "too many tokens in the prompt"),
+        (413, "Payload too large"),
+    ],
+)
+def test_is_context_overflow_positive(status: int, body: str) -> None:
+    """Errors that indicate context overflow are detected."""
+    exc = _make_http_error(status, body)
+    assert _is_context_overflow(exc)
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (400, "Invalid API key"),
+        (400, "malformed request body"),
+        (401, "Unauthorized"),
+        (429, "Rate limit exceeded"),
+        (500, "Internal server error"),
+    ],
+)
+def test_is_context_overflow_negative(status: int, body: str) -> None:
+    """Non-context errors are not misidentified."""
+    exc = _make_http_error(status, body)
+    assert not _is_context_overflow(exc)
+
+
+# ── _is_effort_unsupported ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "This model does not support the effort parameter.",
+        "Effort is not supported for this model",
+        "unsupported parameter: effort",
+        "effort parameter is not available for this model",
+        "effort is not allowed with this configuration",
+        "unknown parameter: effort",
+        "invalid parameter 'effort'",
+        "unrecognized parameter: effort",
+    ],
+)
+def test_is_effort_unsupported_positive(body: str) -> None:
+    """Error messages about unsupported effort are detected."""
+    exc = _make_http_error(400, body)
+    assert _is_effort_unsupported(exc)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Invalid API key",
+        "maximum context length exceeded",
+        "malformed request body",
+        "unsupported parameter: temperature",
+        "not supported: streaming mode",
+    ],
+)
+def test_is_effort_unsupported_negative(body: str) -> None:
+    """Unrelated errors are not misidentified as effort-unsupported."""
+    exc = _make_http_error(400, body)
+    assert not _is_effort_unsupported(exc)
+
+
+# ── resolve_model_settings: effort_supported ─────────────────────────
+
+
+def test_resolve_model_settings_skips_effort_when_unsupported(mocker) -> None:
+    """When effort_supported=False, effort settings are omitted."""
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    mock_model = mocker.MagicMock(spec=AnthropicModel)
+
+    settings = resolve_model_settings(mock_model, "claude/claude-sonnet-4-5-20250929")
+    # Default effort is MEDIUM → should produce settings
+    assert settings is not None
+
+    # With effort_supported=False → no effort settings
+    settings_no = resolve_model_settings(
+        mock_model, "claude/claude-sonnet-4-5-20250929", effort_supported=False
+    )
+    assert settings_no is None
+
+
+# ── handle_llm: effort-unsupported retry ─────────────────────────────
+
+
+def test_handle_llm_retries_without_effort_on_rejection(mocker, config_path, creds_path) -> None:
+    """handle_llm retries without effort when the model rejects it."""
+    from rbtr.creds import creds
+    from rbtr.engine.llm import handle_llm
+
+    creds.update(openai_api_key="sk-test")
+    engine, _events, session = make_engine()
+    session.openai_connected = True
+    session.model_name = "openai/gpt-4o"
+
+    call_count = 0
+
+    def fake_run_agent(eng, model, msg):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise _make_http_error(400, "This model does not support the effort parameter.")
+
+    mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
+
+    handle_llm(engine, "test question")
+
+    assert call_count == 2
+    assert session.effort_supported is False
+
+
+# ── _auto_compact_on_overflow ────────────────────────────────────────
+
+
+def test_auto_compact_on_overflow_returns_false_short_history() -> None:
+    """No compaction when history has < 2 messages."""
+    engine, _, session = make_engine()
+    session.message_history = [_USER_MSG]
+
+    result = _auto_compact_on_overflow(engine, "test")
+    assert result is False
+
+
+def test_auto_compact_on_overflow_compacts_and_retries(mocker, config_path, creds_path) -> None:
+    """When compaction reduces history, the message is retried."""
+    from rbtr.creds import creds
+
+    creds.update(openai_api_key="sk-test")
+    engine, _events, session = make_engine()
+    session.openai_connected = True
+    session.model_name = "openai/gpt-4o"
+
+    # Build a history long enough to compact
+    session.message_history = [
+        _USER_MSG,
+        _PARTIAL_RESPONSE,
+        ModelRequest(parts=[UserPromptPart(content="turn 2")]),
+        ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
+        ModelRequest(parts=[UserPromptPart(content="turn 3")]),
+        ModelResponse(parts=[TextPart(content="resp 3")], model_name="test"),
+    ]
+
+    # Mock compact_history to simulate reducing history
+    def fake_compact(eng, extra_instructions=""):
+        eng.session.message_history = eng.session.message_history[-2:]
+
+    mocker.patch("rbtr.engine.compact.compact_history", fake_compact)
+
+    # Mock handle_llm (the recursive call) to track it was called
+    retry_calls: list[str] = []
+
+    def fake_handle_llm(eng, msg):
+        retry_calls.append(msg)
+
+    mocker.patch("rbtr.engine.llm.handle_llm", fake_handle_llm)
+
+    result = _auto_compact_on_overflow(engine, "my question")
+
+    assert result is True
+    assert retry_calls == ["my question"]
+
+
+def test_auto_compact_on_overflow_no_reduction_returns_false(
+    mocker, config_path, creds_path
+) -> None:
+    """When compaction doesn't reduce history length, returns False."""
+    from rbtr.creds import creds
+
+    creds.update(openai_api_key="sk-test")
+    engine, _, session = make_engine()
+    session.openai_connected = True
+    session.model_name = "openai/gpt-4o"
+
+    session.message_history = [
+        _USER_MSG,
+        _PARTIAL_RESPONSE,
+    ]
+
+    # Mock compact_history that does nothing (e.g. compaction failed)
+    def fake_noop_compact(eng, extra_instructions=""):
+        pass
+
+    mocker.patch("rbtr.engine.compact.compact_history", fake_noop_compact)
+
+    result = _auto_compact_on_overflow(engine, "my question")
+    assert result is False
+
+
+# ── handle_llm context overflow integration ──────────────────────────
+
+
+def test_handle_llm_context_overflow_triggers_compact(mocker, config_path, creds_path) -> None:
+    """handle_llm auto-compacts on context overflow and retries."""
+    from rbtr.creds import creds
+
+    creds.update(openai_api_key="sk-test")
+    engine, _events, session = make_engine()
+    session.openai_connected = True
+    session.model_name = "openai/gpt-4o"
+    session.message_history = [
+        _USER_MSG,
+        _PARTIAL_RESPONSE,
+        ModelRequest(parts=[UserPromptPart(content="turn 2")]),
+        ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
+    ]
+
+    # First call to _run_agent raises overflow, second succeeds
+    call_count = 0
+
+    def fake_run_agent(eng, model, msg):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise _make_http_error(400, "maximum context length exceeded")
+
+    mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
+
+    # Mock compact_history to reduce history
+    def fake_compact(eng, extra_instructions=""):
+        eng.session.message_history = eng.session.message_history[-2:]
+
+    mocker.patch("rbtr.engine.compact.compact_history", fake_compact)
+
+    from rbtr.engine.llm import handle_llm
+
+    handle_llm(engine, "test question")
+
+    # _run_agent called twice: first fails, compact, then retry via handle_llm
+    # But handle_llm calls _run_agent for the retry, so total = 2
+    assert call_count == 2

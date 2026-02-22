@@ -18,9 +18,10 @@ from rbtr.creds import creds
 from rbtr.events import Event, FlushPanel, Output, TaskFinished, TaskStarted
 from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
-from rbtr.providers import endpoint as endpoint_provider
+from rbtr.providers import endpoint as endpoint_provider, model_context_window
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
+from .compact import compact_history
 from .connect import cmd_connect
 from .index_cmd import cmd_index
 from .llm import handle_llm
@@ -166,6 +167,7 @@ class Engine:
         saved_model = config.model
         if saved_model:
             self.session.model_name = saved_model
+            _init_context_window(self)
 
         self._out("Type a message for the LLM, /help for commands, !cmd for shell")
 
@@ -192,6 +194,8 @@ class Engine:
                 cmd_model(self, args)
             case Command.INDEX:
                 cmd_index(self, args)
+            case Command.COMPACT:
+                compact_history(self, extra_instructions=args)
             case Command.NEW:
                 self._cmd_new()
             case Command.QUIT:
@@ -223,3 +227,16 @@ class Engine:
                     check=True,
                     timeout=2,
                 )
+
+
+def _init_context_window(engine: Engine) -> None:
+    """Set the context window from model metadata at startup.
+
+    Called once when the saved model is loaded so the footer shows the
+    correct context window immediately, not just after the first LLM
+    response.  Works for both custom endpoints and built-in providers.
+    """
+    ctx = model_context_window(engine.session.model_name)
+    if ctx is not None:
+        engine.session.usage.context_window = ctx
+        engine.session.usage.context_window_known = True

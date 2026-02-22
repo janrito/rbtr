@@ -18,6 +18,8 @@ from rbtr.providers.openai_codex import (
     begin_login,
     complete_login,
     ensure_credentials,
+    fetch_model_metadata,
+    list_models,
     parse_callback_url,
 )
 
@@ -190,6 +192,56 @@ def test_ensure_raises_when_expired_no_refresh(creds_path: Path) -> None:
     _store_oauth(creds_path, refresh_token="", expires_at=time.time() - 100)
     with pytest.raises(RbtrError, match="expired"):
         ensure_credentials()
+
+
+# ── model listing / metadata ────────────────────────────────────────
+
+
+def test_list_models_caches_context_window(mocker) -> None:
+    mocker.patch(
+        "rbtr.providers.openai_codex.ensure_credentials",
+        return_value=_make_oauth(),
+    )
+    mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
+
+    response = mocker.Mock()
+    response.raise_for_status = mocker.Mock()
+    response.json.return_value = {
+        "models": [
+            {
+                "slug": "o3-pro",
+                "limits": {"max_input_tokens": 200_000},
+            }
+        ]
+    }
+    mocker.patch("rbtr.providers.openai_codex.httpx.get", return_value=response)
+
+    ids = list_models()
+
+    assert ids == ["o3-pro"]
+    meta = fetch_model_metadata("o3-pro")
+    assert meta is not None
+    assert meta.context_window == 200_000
+
+
+def test_fetch_model_metadata_refetches_on_cache_miss(mocker) -> None:
+    from rbtr.providers import openai_codex as codex_provider
+
+    mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
+
+    def _fake_list_models() -> list[str]:
+        codex_provider._metadata_cache["gpt-5.2-codex"] = None
+        return ["gpt-5.2-codex"]
+
+    list_mock = mocker.patch(
+        "rbtr.providers.openai_codex.list_models",
+        side_effect=_fake_list_models,
+    )
+
+    meta = fetch_model_metadata("gpt-5.2-codex")
+
+    list_mock.assert_called_once()
+    assert meta is None
 
 
 # ── complete_login ───────────────────────────────────────────────────

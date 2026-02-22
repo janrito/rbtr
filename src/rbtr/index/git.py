@@ -45,8 +45,43 @@ def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
 
 
 def _matches_globs(path: str, patterns: list[str]) -> bool:
-    """Check whether *path* matches any of the given globs."""
-    return any(fnmatch.fnmatch(path, pat) for pat in patterns)
+    """Check whether *path* matches any of the given globs.
+
+    A literal pattern (no ``*``, ``?``, or ``[``) also matches
+    any child path — e.g. pattern ``".rbtr/index"`` matches
+    ``".rbtr/index/data.db"``.
+    """
+    for pat in patterns:
+        if fnmatch.fnmatch(path, pat):
+            return True
+        # Treat literal patterns as directory prefixes too.
+        if not any(c in pat for c in "*?[") and path.startswith(pat + "/"):
+            return True
+    return False
+
+
+def is_path_ignored(
+    path: str,
+    repo: pygit2.Repository | None = None,
+) -> bool:
+    """Check whether *path* should be excluded from file tools.
+
+    Applies the same three-layer filter as the indexer:
+
+    1. ``config.index.include`` force-includes (overrides gitignore
+       and extend_exclude).
+    2. ``.gitignore`` via ``repo.path_is_ignored`` (when *repo* is
+       available).
+    3. ``config.index.extend_exclude`` globs.
+    """
+    include = config.index.include
+    extend = config.index.extend_exclude
+    forced = bool(include) and _matches_globs(path, include)
+    if forced:
+        return False
+    if repo is not None and repo.path_is_ignored(path):
+        return True
+    return _matches_globs(path, extend)
 
 
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:
@@ -76,17 +111,12 @@ def list_files(
     """
     if max_file_size is None:
         max_file_size = config.index.max_file_size
-    include = config.index.include
-    extend = config.index.extend_exclude
     commit = resolve_commit(repo, ref)
     tree = commit.tree
 
     for entry in walk_tree(repo, tree, ""):
         path, blob = entry
-        forced = include and _matches_globs(path, include)
-        if not forced and repo.path_is_ignored(path):
-            continue
-        if not forced and _matches_globs(path, extend):
+        if is_path_ignored(path, repo):
             continue
         if blob.size > max_file_size:
             continue

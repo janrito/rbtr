@@ -15,6 +15,7 @@ import time
 import webbrowser
 from dataclasses import dataclass
 from http import HTTPStatus
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -34,6 +35,17 @@ class PendingLogin:
 
     code_verifier: str
     state: str
+
+
+@dataclass
+class ModelMetadata:
+    """Metadata for a ChatGPT model, fetched from ``GET /models``."""
+
+    context_window: int
+
+
+# Process-lifetime cache: "model-id" → metadata.
+_metadata_cache: dict[str, ModelMetadata | None] = {}
 
 
 # ── JWT helpers ──────────────────────────────────────────────────────
@@ -320,7 +332,47 @@ def ensure_credentials() -> OAuthCreds:
     return refreshed
 
 
-# ── Model listing ────────────────────────────────────────────────────
+# ── Model listing / metadata ─────────────────────────────────────────
+
+
+def _context_window_from_model(model: dict[str, Any]) -> int | None:
+    """Extract a positive context-window value from a model payload.
+
+    The Codex backend is not documented publicly and has changed shape
+    over time, so we accept multiple keys and nested objects.
+    """
+    key_names = {
+        "context_window",
+        "context_length",
+        "max_input_tokens",
+        "input_token_limit",
+        "max_prompt_tokens",
+    }
+
+    stack: list[dict[str, Any]] = [model]
+    while stack:
+        current = stack.pop()
+        for key, value in current.items():
+            if key in key_names and isinstance(value, int) and value > 0:
+                return value
+            if isinstance(value, dict):
+                stack.append(value)
+    return None
+
+
+def _cache_model_metadata(model: dict[str, Any]) -> None:
+    """Extract and cache metadata for one ChatGPT model payload."""
+    slug = model.get("slug")
+    if not isinstance(slug, str) or not slug:
+        return
+    if slug in _metadata_cache:
+        return
+
+    ctx = _context_window_from_model(model)
+    if ctx is None:
+        _metadata_cache[slug] = None
+    else:
+        _metadata_cache[slug] = ModelMetadata(context_window=ctx)
 
 
 def list_models() -> list[str]:
@@ -329,6 +381,8 @@ def list_models() -> list[str]:
     The Codex backend returns a non-standard response shape
     (``models[].slug`` instead of ``data[].id``), so we call it
     directly with httpx rather than through the OpenAI SDK.
+
+    Also populates :data:`_metadata_cache` for context-window lookups.
     """
     pc = config.providers.chatgpt
     oauth = ensure_credentials()
@@ -345,9 +399,41 @@ def list_models() -> list[str]:
             timeout=30.0,
         )
         r.raise_for_status()
-        return [m["slug"] for m in r.json()["models"]]
-    except (httpx.HTTPError, KeyError) as e:
+
+        payload = r.json()
+        models = payload.get("models")
+        if not isinstance(models, list):
+            raise KeyError("models")
+
+        ids: list[str] = []
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            slug = model.get("slug")
+            if isinstance(slug, str) and slug:
+                ids.append(slug)
+            _cache_model_metadata(model)
+        return ids
+    except (httpx.HTTPError, KeyError, AttributeError) as e:
         raise RbtrError(f"Failed to list ChatGPT models ({pc.codex_base_url}): {e}") from e
+
+
+def fetch_model_metadata(model_id: str) -> ModelMetadata | None:
+    """Return cached metadata for a ChatGPT model.
+
+    If metadata is not cached yet, performs a model-list fetch once and
+    reuses the populated cache for subsequent lookups.
+    """
+    if model_id in _metadata_cache:
+        return _metadata_cache[model_id]
+
+    try:
+        list_models()
+    except RbtrError:
+        _metadata_cache[model_id] = None
+        return None
+
+    return _metadata_cache.get(model_id)
 
 
 # ── Model construction ───────────────────────────────────────────────

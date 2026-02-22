@@ -35,6 +35,8 @@ from rbtr.config import ThinkingEffort, config
 from rbtr.engine import Command, Engine, Service, Session, TaskType
 from rbtr.engine.model import get_models
 from rbtr.events import (
+    CompactionFinished,
+    CompactionStarted,
     Event,
     FlushPanel,
     IndexCleared,
@@ -420,6 +422,20 @@ class UI:
                 self._index_phase = ""
                 self._index_indexed = 0
                 self._index_total = 0
+            case CompactionStarted(old_messages=old, kept_messages=kept):
+                self._active_lines.append(
+                    Text(
+                        f"Compacting context ({old} messages → summary + {kept} kept)…",
+                        style=STYLE_DIM,
+                    )
+                )
+            case CompactionFinished(summary_tokens=tokens):
+                self._active_lines.append(
+                    Text(
+                        f"Context compacted (~{_format_count(tokens)} tokens in summary).",
+                        style=STYLE_DIM,
+                    )
+                )
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True

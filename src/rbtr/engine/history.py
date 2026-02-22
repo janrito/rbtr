@@ -1,10 +1,25 @@
-"""History repair helpers for cross-provider compatibility."""
+"""History repair and compaction helpers.
+
+Includes cross-provider compatibility (``demote_thinking``) and
+context-compaction utilities (``split_history``, ``serialise_for_summary``,
+``build_summary_message``).
+"""
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ThinkingPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 
 
 def is_history_format_error(exc: Exception) -> bool:
@@ -44,3 +59,96 @@ def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
         else:
             cleaned.append(msg)
     return cleaned
+
+
+# ── Compaction helpers ───────────────────────────────────────────────
+
+_SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
+
+
+def _is_user_turn_start(msg: ModelMessage) -> bool:
+    """Check if a message starts a new user turn.
+
+    A turn begins with a ``ModelRequest`` that contains at least one
+    ``UserPromptPart`` (as opposed to tool-return-only requests).
+    """
+    if not isinstance(msg, ModelRequest):
+        return False
+    return any(isinstance(p, UserPromptPart) for p in msg.parts)
+
+
+def split_history(
+    history: list[ModelMessage],
+    keep_turns: int,
+) -> tuple[list[ModelMessage], list[ModelMessage]]:
+    """Split history into (old, kept) by user turn count.
+
+    A *turn* starts at a ``ModelRequest`` containing a ``UserPromptPart``
+    and includes all subsequent messages until the next such request.
+
+    Returns ``(old, kept)`` where ``kept`` has the last *keep_turns*
+    turns and ``old`` has everything before.  If the history has
+    ``keep_turns`` or fewer turns, ``old`` is empty.
+    """
+    # Find indices where each user turn starts.
+    turn_starts: list[int] = [i for i, msg in enumerate(history) if _is_user_turn_start(msg)]
+
+    if len(turn_starts) <= keep_turns:
+        return [], list(history)
+
+    # The cut point is where the kept turns begin.
+    cut = turn_starts[-keep_turns]
+    return list(history[:cut]), list(history[cut:])
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate: 1 token ≈ 4 characters."""
+    return len(text) // 4
+
+
+def serialise_for_summary(
+    messages: list[ModelMessage],
+    max_tool_chars: int = 2_000,
+) -> str:
+    """Convert messages to a human-readable text for the summary prompt.
+
+    Tool return content is truncated to *max_tool_chars* to keep the
+    serialised output manageable.  Thinking parts are omitted.
+    """
+    sections: list[str] = []
+
+    for msg in messages:
+        match msg:
+            case ModelRequest(parts=req_parts):
+                for req_part in req_parts:
+                    match req_part:
+                        case UserPromptPart(content=content):
+                            text = content if isinstance(content, str) else str(content)
+                            sections.append(f"## User\n{text}")
+                        case ToolReturnPart(tool_name=name, content=content):
+                            text = str(content)
+                            if len(text) > max_tool_chars:
+                                text = text[:max_tool_chars] + "…[truncated]"
+                            sections.append(f"## Tool result: {name}\n{text}")
+            case ModelResponse(parts=resp_parts):
+                for resp_part in resp_parts:
+                    match resp_part:
+                        case TextPart(content=content):
+                            sections.append(f"## Assistant\n{content}")
+                        case ToolCallPart(tool_name=name, args=args):
+                            if isinstance(args, dict):
+                                args_str = json.dumps(args, ensure_ascii=False)
+                            elif args is not None:
+                                args_str = str(args)
+                            else:
+                                args_str = ""
+                            sections.append(f"## Tool call: {name}({args_str})")
+                        # ThinkingPart — omit from summary input
+
+    return "\n\n".join(sections)
+
+
+def build_summary_message(summary_text: str) -> ModelRequest:
+    """Create a synthetic first message containing the compaction summary."""
+    content = f"{_SUMMARY_MARKER}\n\n{summary_text}"
+    return ModelRequest(parts=[UserPromptPart(content=content)])

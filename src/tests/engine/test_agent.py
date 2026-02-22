@@ -51,6 +51,7 @@ def test_index_not_ready_warns() -> None:
     ctx = _make_ctx(review_target=target, index_ready=False)
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "still building" in result.lower()
+    assert "wait" in result.lower()
     assert "search_symbols" in result
     assert "changed_symbols" in result
 

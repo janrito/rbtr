@@ -7,7 +7,7 @@ internally.  This module never imports provider or pricing libraries.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 DEFAULT_CONTEXT_WINDOW = 128_000
@@ -27,6 +27,20 @@ class MessageCountStatus(StrEnum):
     OK = "ok"
     WARNING = "warning"  # >25 messages
     CRITICAL = "critical"  # >50 messages
+
+
+@dataclass
+class _LiveBase:
+    """Snapshot of cumulative counters at the start of an agent run.
+
+    ``_update_live_usage`` adds the run's incremental ``RunUsage``
+    on top of these to produce accurate lifetime totals mid-run.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -56,6 +70,24 @@ class SessionUsage:
     # Whether the context window size is known from model metadata.
     # When False, context_window is the DEFAULT_CONTEXT_WINDOW assumption.
     context_window_known: bool = False
+    # Baseline snapshot taken at the start of each agent run, used by
+    # _update_live_usage to compute accurate lifetime totals mid-run.
+    live_base: _LiveBase = field(default_factory=_LiveBase)
+
+    def snapshot_base(self) -> None:
+        """Save current cumulative counters as the live-update baseline.
+
+        Call this at the start of each agent run, before streaming.
+        ``_update_live_usage`` then adds the run's incremental
+        ``RunUsage`` on top to produce accurate lifetime totals
+        for the footer while tool calls are in progress.
+        """
+        self.live_base = _LiveBase(
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens,
+        )
 
     def record_run(
         self,
@@ -64,11 +96,19 @@ class SessionUsage:
         output_tokens: int,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
+        last_input_tokens: int | None = None,
         cost: float = 0.0,
         cost_available: bool = True,
         context_window: int | None = None,
     ) -> None:
         """Add tokens from a completed LLM run.
+
+        *input_tokens* is the cumulative total across all requests in
+        the run (PydanticAI sums them).  *last_input_tokens* is the
+        input tokens from the **last** request only — the actual prompt
+        size that determines context-window consumption.  When
+        ``None``, falls back to *input_tokens* (assumes single-request
+        run).
 
         *cost* and *context_window* come from ``ModelResponse.cost()``
         and default to zero / unchanged when pricing is unavailable.
@@ -76,11 +116,16 @@ class SessionUsage:
         rather than carrying over a previous model's value.
         """
         self.message_count += 1
-        self.input_tokens += input_tokens
-        self.output_tokens += output_tokens
-        self.cache_read_tokens += cache_read_tokens
-        self.cache_write_tokens += cache_write_tokens
-        self.last_input_tokens = input_tokens
+        self.input_tokens = self.live_base.input_tokens + input_tokens
+        self.output_tokens = self.live_base.output_tokens + output_tokens
+        self.cache_read_tokens = self.live_base.cache_read_tokens + cache_read_tokens
+        self.cache_write_tokens = self.live_base.cache_write_tokens + cache_write_tokens
+        # For context-% display we need the single-request prompt size,
+        # not the cumulative sum.  Fall back to cumulative when the
+        # per-request value is unavailable.
+        self.last_input_tokens = (
+            last_input_tokens if last_input_tokens is not None else input_tokens
+        )
         self.total_cost += cost
         self.cost_available = cost_available
 
@@ -90,6 +135,10 @@ class SessionUsage:
         else:
             self.context_window = DEFAULT_CONTEXT_WINDOW
             self.context_window_known = False
+
+        # Snapshot so the next run or live-update starts from the
+        # correct baseline.
+        self.snapshot_base()
 
     @property
     def context_used_pct(self) -> float:
@@ -129,6 +178,7 @@ class SessionUsage:
         self.context_window = DEFAULT_CONTEXT_WINDOW
         self.cost_available = True
         self.context_window_known = False
+        self.live_base = _LiveBase()
 
 
 def format_tokens(count: int) -> str:

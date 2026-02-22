@@ -1,11 +1,15 @@
 """Tests for rbtr.providers.endpoint — custom OpenAI-compatible endpoints."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from rbtr.exceptions import RbtrError
 from rbtr.providers.endpoint import (
+    ModelMetadata,
+    _metadata_cache,
+    fetch_model_metadata,
     list_endpoints,
     load_endpoint,
     remove_endpoint,
@@ -83,3 +87,108 @@ def test_save_endpoint_no_key(creds_path: Path, config_path: Path) -> None:
 def test_save_invalid_name_raises() -> None:
     with pytest.raises(RbtrError, match="Invalid endpoint name"):
         save_endpoint("BAD NAME", "https://x.com", "k")
+
+
+# ── Model metadata ───────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _clear_metadata_cache():
+    """Clear the metadata cache between tests."""
+    _metadata_cache.clear()
+    yield
+    _metadata_cache.clear()
+
+
+def _mock_models_endpoint(mocker, models: list[MagicMock]) -> MagicMock:
+    """Patch ``openai.OpenAI`` so ``client.models.list()`` returns *models*.
+
+    ``list_models`` accesses ``.data`` on the page object, so we need
+    both ``.data`` and iteration to work.
+    """
+    page = MagicMock()
+    page.data = models
+    page.__iter__ = lambda self: iter(models)
+    mock_client = MagicMock()
+    mock_client.models.list.return_value = page
+    return mocker.patch("openai.OpenAI", return_value=mock_client)
+
+
+def test_fetch_model_metadata_extracts_context_length(
+    creds_path: Path,
+    config_path: Path,
+    mocker,
+) -> None:
+    """context_length from /models metadata → ModelMetadata."""
+    save_endpoint("myep", "http://localhost/v1", "")
+
+    model = MagicMock()
+    model.id = "some-model"
+    model.model_extra = {"metadata": {"context_length": 196608}}
+    _mock_models_endpoint(mocker, [model])
+
+    result = fetch_model_metadata("myep", "some-model")
+    assert result == ModelMetadata(context_window=196608)
+
+
+def test_fetch_model_metadata_caches_result(
+    creds_path: Path,
+    config_path: Path,
+    mocker,
+) -> None:
+    save_endpoint("myep", "http://localhost/v1", "")
+
+    model = MagicMock()
+    model.id = "some-model"
+    model.model_extra = {"metadata": {"context_length": 128000}}
+    mock_cls = _mock_models_endpoint(mocker, [model])
+
+    fetch_model_metadata("myep", "some-model")
+    fetch_model_metadata("myep", "some-model")
+
+    mock_cls.assert_called_once()  # only one API call despite two fetches
+
+
+def test_fetch_model_metadata_returns_none_when_no_context_length(
+    creds_path: Path,
+    config_path: Path,
+    mocker,
+) -> None:
+    save_endpoint("myep", "http://localhost/v1", "")
+
+    model = MagicMock()
+    model.id = "some-model"
+    model.model_extra = {"metadata": {}}
+    _mock_models_endpoint(mocker, [model])
+
+    assert fetch_model_metadata("myep", "some-model") is None
+
+
+def test_fetch_model_metadata_returns_none_for_unknown_endpoint() -> None:
+    assert fetch_model_metadata("nonexistent", "model") is None
+
+
+def test_list_models_populates_metadata_cache(
+    creds_path: Path,
+    config_path: Path,
+    mocker,
+) -> None:
+    """list_models piggybacks metadata caching — no extra HTTP call."""
+    from rbtr.providers.endpoint import list_models
+
+    save_endpoint("myep", "http://localhost/v1", "")
+
+    m1 = MagicMock()
+    m1.id = "model-a"
+    m1.model_extra = {"metadata": {"context_length": 32000}}
+    m2 = MagicMock()
+    m2.id = "model-b"
+    m2.model_extra = {"metadata": {"context_length": 128000}}
+    mock_cls = _mock_models_endpoint(mocker, [m1, m2])
+
+    list_models("myep")
+
+    # Both models should be cached — no additional API call needed.
+    assert fetch_model_metadata("myep", "model-a") == ModelMetadata(context_window=32000)
+    assert fetch_model_metadata("myep", "model-b") == ModelMetadata(context_window=128000)
+    mock_cls.assert_called_once()

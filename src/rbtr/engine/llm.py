@@ -25,7 +25,12 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError
-from rbtr.providers import build_model, build_model_settings
+from rbtr.providers import (
+    build_model,
+    build_model_settings,
+    endpoint_model_settings,
+    model_context_window,
+)
 
 from .agent import AgentDeps, agent
 from .history import demote_thinking, is_history_format_error
@@ -33,6 +38,80 @@ from .types import TaskCancelled
 
 if TYPE_CHECKING:
     from .core import Engine
+
+
+def resolve_model_settings(
+    model: Model,
+    model_name: str | None,
+    *,
+    effort_supported: bool | None = None,
+) -> ModelSettings | None:
+    """Build merged model settings (thinking effort + endpoint overrides).
+
+    Used by both the main agent run and compaction summaries to avoid
+    duplicating settings-construction logic.
+
+    When *effort_supported* is ``False``, the effort parameter is
+    omitted even if ``config.thinking_effort`` is set — this avoids
+    re-sending a parameter the model already rejected.
+    """
+    effort = config.thinking_effort
+    if effort is not ThinkingEffort.NONE and effort_supported is not False:
+        settings: ModelSettings | None = build_model_settings(model, effort)
+    else:
+        settings = None
+
+    ep_settings = endpoint_model_settings(model_name)
+    if ep_settings is not None:
+        settings = {**(settings or {}), **ep_settings}
+
+    return settings
+
+
+_CONTEXT_OVERFLOW_HINT = "Try /compact to free context space, then re-send your message."
+
+# Keywords in API error messages that indicate a context-length issue.
+_OVERFLOW_KEYWORDS = (
+    "context length",
+    "context window",
+    "maximum context",
+    "token limit",
+    "too many tokens",
+    "too long",
+    "max_tokens",
+    "prompt is too long",
+    "input is too long",
+    "request too large",
+    "content_too_large",
+)
+
+# Keywords paired with "effort" that signal the parameter was rejected.
+_EFFORT_REJECTION_KEYWORDS = (
+    "not support",
+    "unsupported",
+    "not available",
+    "not allowed",
+    "unknown parameter",
+    "invalid parameter",
+    "unrecognized",
+)
+
+
+def _is_effort_unsupported(exc: ModelHTTPError) -> bool:
+    """Does the API error indicate that the model doesn't support the effort parameter?"""
+    msg = str(exc).lower()
+    return "effort" in msg and any(kw in msg for kw in _EFFORT_REJECTION_KEYWORDS)
+
+
+def _is_context_overflow(exc: ModelHTTPError) -> bool:
+    """Heuristic: does the API error indicate a context-length problem?"""
+    if exc.status_code == 413:
+        return True
+    if exc.status_code == 400:
+        msg = str(exc).lower()
+        return any(kw in msg for kw in _OVERFLOW_KEYWORDS)
+    return False
+
 
 _LIMIT_SUMMARY_PROMPT = (
     "You have reached the tool-call limit for this turn. "
@@ -56,11 +135,46 @@ def handle_llm(engine: Engine, message: str) -> None:
     try:
         _run_agent(engine, model, message)
     except ModelHTTPError as exc:
-        if exc.status_code != 400 or not is_history_format_error(exc):
-            raise
-        engine._out("Retrying with simplified history…")
-        engine.session.message_history = demote_thinking(engine.session.message_history)
-        _run_agent(engine, model, message)
+        if exc.status_code == 400 and _is_effort_unsupported(exc):
+            engine.session.effort_supported = False
+            engine._out("Model does not support effort — retrying without it…")
+            _run_agent(engine, model, message)
+            return
+        if exc.status_code == 400 and is_history_format_error(exc):
+            engine._out("Retrying with simplified history…")
+            engine.session.message_history = demote_thinking(engine.session.message_history)
+            _run_agent(engine, model, message)
+            return
+        if _is_context_overflow(exc) and _auto_compact_on_overflow(engine, message):
+            return
+        if _is_context_overflow(exc):
+            engine._out(_CONTEXT_OVERFLOW_HINT)
+        raise
+
+
+def _auto_compact_on_overflow(engine: Engine, message: str) -> bool:
+    """Attempt auto-compaction after a context-overflow error.
+
+    Returns True if compaction succeeded and the message was re-sent,
+    False if compaction was not possible (caller should fall through
+    to the normal error path).
+    """
+    if len(engine.session.message_history) < 2:  # nothing to compact
+        return False
+
+    from .compact import compact_history  # deferred: avoid circular at module level
+
+    pre_len = len(engine.session.message_history)
+    engine._out("Context limit reached — compacting history…")
+    compact_history(engine)
+
+    if len(engine.session.message_history) >= pre_len:
+        # Compaction didn't reduce anything — don't retry.
+        return False
+
+    engine._out("Retrying with compacted history…")
+    handle_llm(engine, message)
+    return True
 
 
 def _run_agent(engine: Engine, model: Model, message: str) -> None:
@@ -74,12 +188,16 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     history = engine.session.message_history
     deps = AgentDeps(session=engine.session)
 
-    effort = config.thinking_effort
-    if effort is not ThinkingEffort.NONE:
-        settings = build_model_settings(model, effort)
+    settings = resolve_model_settings(
+        model, engine.session.model_name, effort_supported=engine.session.effort_supported
+    )
+    if (
+        config.thinking_effort is not ThinkingEffort.NONE
+        and engine.session.effort_supported is not False
+    ):
         engine.session.effort_supported = settings is not None
-    else:
-        settings = None
+
+    engine.session.usage.snapshot_base()
 
     async def _do_stream() -> tuple[list[ModelMessage], RunUsage, bool]:
         limit_hit = False
@@ -98,6 +216,10 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
                             async for delta in stream.stream_text(delta=True):
                                 engine._emit(TextDelta(delta=delta))
                     elif isinstance(node, CallToolsNode):
+                        # model_response carries per-request usage from
+                        # the request that just completed — update the
+                        # session so the footer shows live progress.
+                        _update_live_usage(engine, run.usage(), node.model_response)
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
                                 _emit_tool_event(engine, event)
@@ -131,6 +253,12 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
 
     if limit_hit:
         await _stream_summary(engine, model, settings)
+
+    # Auto-compact when context usage exceeds the threshold.
+    if engine.session.usage.context_used_pct >= config.compaction.auto_compact_pct:
+        from .compact import compact_history  # deferred: avoid circular at module level
+
+        compact_history(engine)
 
 
 async def _stream_summary(
@@ -190,21 +318,76 @@ def _emit_tool_event(
             engine._emit(ToolCallFinished(tool_name=tool_name, result=text))
 
 
+def _update_live_usage(
+    engine: Engine,
+    run_usage: RunUsage,
+    response: ModelResponse,
+) -> None:
+    """Snapshot mid-run usage into the session for live footer display.
+
+    Called after each model request completes (before tool execution).
+    Uses cumulative ``run_usage`` for totals, and the per-request
+    ``response.usage.input_tokens`` for context-% so the footer
+    updates progressively during a multi-tool-call turn.
+
+    Does **not** increment ``message_count`` or cost — the
+    authoritative ``_record_usage`` at run-end handles those.
+    """
+    usage = engine.session.usage
+    base = usage.live_base
+    usage.input_tokens = base.input_tokens + run_usage.input_tokens
+    usage.output_tokens = base.output_tokens + run_usage.output_tokens
+    usage.cache_read_tokens = base.cache_read_tokens + run_usage.cache_read_tokens
+    usage.cache_write_tokens = base.cache_write_tokens + run_usage.cache_write_tokens
+    usage.last_input_tokens = response.usage.input_tokens
+
+    # Set context window from model metadata so the footer shows the
+    # correct value during streaming — works for both endpoints and
+    # built-in providers (Anthropic, OpenAI, etc.).
+    _apply_model_context_window(engine)
+
+
+def _apply_model_context_window(engine: Engine) -> None:
+    """Set the context window from model metadata if available.
+
+    No-op when the context window is already known.  Checks endpoint
+    metadata first, then falls back to genai-prices for built-in
+    providers.
+    """
+    if engine.session.usage.context_window_known:
+        return
+    ctx = model_context_window(engine.session.model_name)
+    if ctx is not None:
+        engine.session.usage.context_window = ctx
+        engine.session.usage.context_window_known = True
+
+
 def _record_usage(
     engine: Engine,
     old_history: list[ModelMessage],
     messages: list[ModelMessage],
     run_usage: RunUsage,
 ) -> None:
-    """Extract cost/context-window from new messages and update session usage."""
+    """Extract cost/context-window from new messages and update session usage.
+
+    ``run_usage.input_tokens`` is the **sum** across all requests in
+    the run (PydanticAI accumulates).  For context-% we need the
+    *last* request's input tokens — that's the actual prompt size the
+    model received, reflecting the full conversation + tool results.
+    We pull it from the last ``ModelResponse.usage.input_tokens``.
+    """
     new_messages = messages[len(old_history or []) :]
     run_cost = 0.0
     cost_available = False
     context_window: int | None = None
+    last_input_tokens: int | None = None
 
     for msg in new_messages:
         if not isinstance(msg, ModelResponse) or not msg.model_name:
             continue
+        # Each ModelResponse carries per-request usage — the last one
+        # is the most recent prompt size (what we display as context %).
+        last_input_tokens = msg.usage.input_tokens
         try:
             price = msg.cost()
             run_cost += float(price.total_price)
@@ -214,11 +397,18 @@ def _record_usage(
         except (AssertionError, LookupError, ValueError):
             pass
 
+    # Prefer model metadata (endpoint config or genai-prices lookup)
+    # over the value from msg.cost(), which may not know the model.
+    meta_context_window = model_context_window(engine.session.model_name)
+    if meta_context_window is not None:
+        context_window = meta_context_window
+
     engine.session.usage.record_run(
         input_tokens=run_usage.input_tokens,
         output_tokens=run_usage.output_tokens,
         cache_read_tokens=run_usage.cache_read_tokens,
         cache_write_tokens=run_usage.cache_write_tokens,
+        last_input_tokens=last_input_tokens,
         cost=run_cost,
         cost_available=cost_available,
         context_window=context_window,

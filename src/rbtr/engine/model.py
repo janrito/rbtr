@@ -12,6 +12,7 @@ from rbtr.providers import (
     BuiltinProvider,
     claude as claude_provider,
     endpoint as endpoint_provider,
+    model_context_window,
     openai as openai_provider,
     openai_codex as codex_provider,
 )
@@ -96,6 +97,14 @@ def _apply_model(engine: Engine, model_id: str) -> None:
     engine.session.model_name = model_id
     engine.session.effort_supported = None  # re-evaluate on next LLM call
     config.update(model=model_id)
+
+    # Update context window from model metadata so the footer
+    # shows the correct value immediately after model switch.
+    ctx = model_context_window(model_id)
+    if ctx is not None:
+        engine.session.usage.context_window = ctx
+        engine.session.usage.context_window_known = True
+
     engine._out(f"Model set to {model_id}")
 
 
