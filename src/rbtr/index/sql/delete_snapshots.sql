@@ -1,1 +1,2 @@
-DELETE FROM file_snapshots WHERE commit_sha = ?
+DELETE FROM file_snapshots
+WHERE commit_sha = ?

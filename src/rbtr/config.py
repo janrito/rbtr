@@ -95,7 +95,7 @@ class IndexConfig(BaseModel):
     model_cache_dir: str = str(RBTR_DIR / "models")
     max_file_size: int = 512 * 1024  # 512 KiB
     include: list[str] = [".rbtr/REVIEW-*"]
-    extend_exclude: list[str] = [".rbtr/index"]
+    extend_exclude: list[str] = [".rbtr/"]
     chunk_lines: int = 50
     chunk_overlap: int = 5
     embedding_model: str = "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"

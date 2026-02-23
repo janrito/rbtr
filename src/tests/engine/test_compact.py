@@ -302,6 +302,7 @@ def test_compact_fewer_turns_than_keep_falls_back(config_path: str, mocker: obje
         "rbtr.engine.compact._run_summary",
         return_value="Summary of turns 1 and 2.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, events, session = make_engine()
     session.claude_connected = True
@@ -325,6 +326,7 @@ def test_compact_replaces_history(config_path: str, mocker: object) -> None:
         "rbtr.engine.compact._run_summary",
         return_value="Reviewed PR #42. Found unused import in foo.py.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, _events, session = make_engine()
     session.claude_connected = True
@@ -359,6 +361,7 @@ def test_compact_emits_both_events(config_path: str, mocker: object) -> None:
         "rbtr.engine.compact._run_summary",
         return_value="Summary.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, events, session = make_engine()
     session.claude_connected = True
@@ -382,6 +385,7 @@ def test_compact_extra_instructions_in_prompt(config_path: str, mocker: object) 
         "rbtr.engine.compact._run_summary",
         return_value="Summary.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, _events, session = make_engine()
     session.claude_connected = True
@@ -402,6 +406,7 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object) -> Non
         "rbtr.engine.compact._run_summary",
         return_value="Partial summary.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, events, session = make_engine()
     session.claude_connected = True
@@ -457,6 +462,7 @@ def test_compact_llm_error_leaves_history_unchanged(config_path: str, mocker: ob
         "rbtr.engine.compact._run_summary",
         side_effect=ModelHTTPError(status_code=500, model_name="test", body=b"server error"),
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, events, session = make_engine()
     session.claude_connected = True
@@ -502,6 +508,7 @@ def test_compact_leaves_last_input_tokens_unchanged(config_path: str, mocker: ob
         "rbtr.engine.compact._run_summary",
         return_value="Short summary.",
     )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine, _events, session = make_engine()
     session.claude_connected = True

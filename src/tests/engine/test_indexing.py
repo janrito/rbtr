@@ -135,6 +135,16 @@ def test_index_skipped_without_review_target() -> None:
         assert session.index is None
 
 
+_swift_grammar_available = False
+try:
+    import tree_sitter_swift as _ts_swift  # noqa: F401
+
+    _swift_grammar_available = True
+except ImportError:
+    pass
+
+
+@pytest.mark.skipif(_swift_grammar_available, reason="Swift grammar is installed")
 def test_index_warns_missing_grammars() -> None:
     """Indexing warns about languages with no grammar installed."""
     with tempfile.TemporaryDirectory() as tmp:

@@ -113,6 +113,7 @@ max-complexity = 12
 # -- rumdl --
 
 [tool.rumdl]
+respect_gitignore = true
 exclude = ["cov-append.md"]
 
 [tool.rumdl.MD013]
