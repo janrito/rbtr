@@ -27,6 +27,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.rule import Rule
+from rich.segment import Segment
 from rich.spinner import SPINNERS
 from rich.table import Table
 from rich.text import Text
@@ -108,6 +109,42 @@ def _format_count(n: int) -> str:
     if n >= 1_000:
         return f"{n / 1_000:.1f}k"
     return str(n)
+
+
+type _SegmentLine = list[Segment]
+
+
+def _render_lines(console: Console, renderable: RenderableType) -> list[_SegmentLine]:
+    """Render a Rich object to terminal lines at the current console width."""
+    opts = console.options.update_width(console.width)
+    return console.render_lines(renderable, options=opts, pad=False)
+
+
+def _segment_line_to_text(line: _SegmentLine) -> Text:
+    """Convert one rendered Segment line into plain Rich Text."""
+    text = Text()
+    for seg in line:
+        if seg.control or not seg.text:
+            continue
+        text.append(seg.text, style=seg.style)
+    return text
+
+
+def _tail_renderable_lines(
+    console: Console,
+    renderable: RenderableType,
+    max_lines: int,
+) -> RenderableType:
+    """Return the bottom ``max_lines`` of *renderable* for live viewporting."""
+    if max_lines <= 0:
+        return Text("")
+
+    lines = _render_lines(console, renderable)
+    if len(lines) <= max_lines:
+        return renderable
+
+    tail = lines[-max_lines:]
+    return Group(*(_segment_line_to_text(line) for line in tail))
 
 
 class _ExpandKind(StrEnum):
@@ -534,45 +571,64 @@ class UI:
         return t
 
     def _render_view(self) -> Group:
-        """Build the Live renderable — active panel + input chrome."""
-        parts: list[RenderableType] = []
+        """Build the Live renderable — active panel + input chrome.
+
+        The input chrome (prompt/completions/footer) is always kept
+        visible by clipping oversized history content from the top.
+        This preserves the *bottom* of the active/pending panel, where
+        new streaming updates appear.
+        """
+        top_parts: list[RenderableType] = []
         if self._active_task:
             # Margin above active panel — matches the margin that
             # _print_to_scrollback adds for finalized panels.
-            parts.append(Text(""))
+            top_parts.append(Text(""))
             content = Group(*self._active_lines) if self._active_lines else Text("")
-            parts.append(self._history_panel("active", content))
+            top_parts.append(self._history_panel("active", content))
         elif self._pending_lines is not None:
             # Last finished panel — stays in Live so Ctrl+O can rewrite it.
-            parts.append(Text(""))
+            top_parts.append(Text(""))
             content = Group(*self._pending_lines) if self._pending_lines else Text("")
             bottom = 1
             if self._expandable:
                 bottom = 0  # hint provides the visual closure
-            parts.append(self._history_panel(self._pending_variant, content, bottom_pad=bottom))
+            top_parts.append(self._history_panel(self._pending_variant, content, bottom_pad=bottom))
             if self._expandable:
                 bg = self._HISTORY_STYLES[self._pending_variant]
                 hint = Text(
                     f"  … {self._expand_hidden} more lines (ctrl+o to expand)",
                     style=STYLE_DIM_ITALIC,
                 )
-                parts.append(Padding(hint, (0, 2, 1, 2), style=bg))
+                top_parts.append(Padding(hint, (0, 2, 1, 2), style=bg))
         if self._pending_commands:
             lines = [Text(f"  > {cmd}", style=MUTED) for cmd in self._pending_commands]
-            parts.append(Text(""))
-            parts.append(self._history_panel("queued", Group(*lines)))
-        parts.append(Text(""))
+            top_parts.append(Text(""))
+            top_parts.append(self._history_panel("queued", Group(*lines)))
+
+        chrome_parts: list[RenderableType] = [Text("")]
         if self._active_task:
             frame = self._spinner_frame()
-            parts.append(Rule(title=f"[{DIM}]{frame}[/{DIM}]", style=RULE))
+            chrome_parts.append(Rule(title=f"[{DIM}]{frame}[/{DIM}]", style=RULE))
         else:
-            parts.append(Rule(style=RULE))
-        parts.append(self._render_input_line())
+            chrome_parts.append(Rule(style=RULE))
+        chrome_parts.append(self._render_input_line())
         if self.inp.completions:
-            parts.append(self._render_completions())
-        parts.append(Rule(style=RULE))
-        parts.append(self._render_footer())
-        return Group(*parts)
+            chrome_parts.append(self._render_completions())
+        chrome_parts.append(Rule(style=RULE))
+        chrome_parts.append(self._render_footer())
+
+        if not top_parts:
+            return Group(*chrome_parts)
+
+        chrome = Group(*chrome_parts)
+        chrome_height = len(_render_lines(self.console, chrome))
+        top_budget = self.console.height - chrome_height
+        if top_budget <= 0:
+            return Group(*chrome_parts)
+
+        top = Group(*top_parts)
+        clipped_top = _tail_renderable_lines(self.console, top, top_budget)
+        return Group(clipped_top, *chrome_parts)
 
     def _spinner_frame(self) -> str:
         return _SPINNER_FRAMES[int(time.time() / _SPINNER_INTERVAL) % len(_SPINNER_FRAMES)]
