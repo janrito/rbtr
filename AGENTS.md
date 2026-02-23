@@ -23,6 +23,22 @@ Agent rules. Short, imperative.
 - New output types → new event in `events.py`, handle in
   both Engine and UI.
 
+## Sessions
+
+- Session persistence lives in `sessions/` package.
+  `store.py` owns SQLite access, `serialise.py` owns
+  message↔row conversion. Both are pure — no engine or UI imports.
+- Single `messages` table. Sessions are a grouping column
+  (`session_id`), not a separate entity. Aggregates via `GROUP BY`.
+- `engine/save.py` persists new messages after each LLM turn.
+  Incremental: only inserts `message_history[saved_count:]`.
+- `EngineState` (`engine/state.py`) is runtime state — repo,
+  connections, model cache, message history.
+  "Session" is unambiguous: always the persisted DB concept.
+- Input history (Up/Down) reads from the session DB via a
+  callback on `InputState.history_provider`. Falls back to the
+  legacy flat file on first run.
+
 ## Code index & plugins
 
 - Language support is provided by **plugins** via pluggy.

@@ -12,7 +12,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine import Engine, Session
+from rbtr.engine import Engine, EngineState
 from rbtr.engine.save import save_new_messages
 from rbtr.events import Event
 from rbtr.sessions.store import SessionStore
@@ -20,7 +20,7 @@ from rbtr.sessions.store import SessionStore
 
 def _make_engine() -> tuple[Engine, SessionStore]:
     """Engine with an in-memory store, pre-populated session."""
-    session = Session(owner="acme", repo_name="app", model_name="claude/sonnet")
+    session = EngineState(owner="acme", repo_name="app", model_name="claude/sonnet")
     events: queue.Queue[Event] = queue.Queue()
     store = SessionStore()  # in-memory
     engine = Engine(session, events, store=store)

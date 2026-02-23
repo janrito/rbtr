@@ -4,8 +4,6 @@ Unit tests for the InputState convenience methods and the underlying
 Buffer editing — pure state manipulation, no threads or I/O.
 """
 
-from pathlib import Path
-
 import pytest
 
 from rbtr.input import InputState
@@ -271,14 +269,12 @@ def test_history_append_adds_to_list(inp):
     assert inp.history == ["first", "second"]
 
 
-def test_history_append_no_disk_write(tmp_path, monkeypatch):
+def test_history_append_no_disk_write():
     """append_history updates in-memory list only — no disk I/O."""
-    monkeypatch.setattr("rbtr.input.HISTORY_PATH", tmp_path / "history")
     s = InputState()
     s.append_history("/review")
     s.append_history("!git status")
     assert s.history == ["/review", "!git status"]
-    assert not (tmp_path / "history").exists()
 
 
 def test_history_append_bounds_at_max():
@@ -370,13 +366,8 @@ def test_history_prefix_locked_on_first_up():
 # ── History provider (DB-backed) ────────────────────────────────────
 
 
-def _make_reader_with_provider(
-    provider_data: list[str],
-    *,
-    legacy_lines: list[str] | None = None,
-    tmp_path: Path | None = None,
-):
-    """Create a reader with a history provider and optional legacy file."""
+def _make_reader_with_provider(provider_data: list[str]):
+    """Create a reader with a history provider."""
     from rbtr.input import InputReader
 
     # Provider returns most-recent-first (like search_history).
@@ -393,10 +384,6 @@ def _make_reader_with_provider(
     reader._saved_text = ""
     reader._search_prefix = ""
 
-    if legacy_lines is not None and tmp_path is not None:
-        history_path = tmp_path / "history"
-        history_path.write_text("\n".join(legacy_lines) + "\n")
-
     return reader, state
 
 
@@ -407,37 +394,15 @@ def test_provider_seeds_history():
     assert state.history == ["oldest", "middle", "newest"]
 
 
-def test_provider_empty_falls_back_to_legacy(tmp_path, monkeypatch):
-    """When provider returns empty, legacy flat file is imported."""
-    monkeypatch.setattr("rbtr.input.HISTORY_PATH", tmp_path / "history")
-    (tmp_path / "history").write_text("old_cmd1\nold_cmd2\n")
-
-    reader, state = _make_reader_with_provider([], tmp_path=tmp_path)
+def test_provider_empty_leaves_history_empty():
+    """When provider returns empty, history stays empty."""
+    reader, state = _make_reader_with_provider([])
     reader._load_history()
-    assert state.history == ["old_cmd1", "old_cmd2"]
-    # Legacy file renamed to .bak after import.
-    assert not (tmp_path / "history").exists()
-    assert (tmp_path / "history.bak").exists()
+    assert state.history == []
 
 
-def test_provider_nonempty_skips_legacy(tmp_path, monkeypatch):
-    """When provider has data, legacy file is not touched."""
-    monkeypatch.setattr("rbtr.input.HISTORY_PATH", tmp_path / "history")
-    (tmp_path / "history").write_text("should_not_import\n")
-
-    reader, state = _make_reader_with_provider(["from_db"])
-    reader._load_history()
-    assert "should_not_import" not in state.history
-    assert state.history == ["from_db"]
-    # Legacy file untouched.
-    assert (tmp_path / "history").exists()
-
-
-def test_no_provider_uses_legacy_file(tmp_path, monkeypatch):
-    """Without a provider, falls back to legacy flat file."""
-    monkeypatch.setattr("rbtr.input.HISTORY_PATH", tmp_path / "history")
-    (tmp_path / "history").write_text("cmd1\ncmd2\n")
-
+def test_no_provider_leaves_history_empty():
+    """Without a provider, history stays empty (no legacy fallback)."""
     from rbtr.input import InputReader
 
     state = InputState()
@@ -447,4 +412,4 @@ def test_no_provider_uses_legacy_file(tmp_path, monkeypatch):
     reader._saved_text = ""
     reader._search_prefix = ""
     reader._load_history()
-    assert state.history == ["cmd1", "cmd2"]
+    assert state.history == []

@@ -20,7 +20,7 @@ import pygit2
 import pytest
 
 from rbtr.config import config
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.engine.tools import grep, list_files, read_file
 from rbtr.git import is_path_ignored
 from rbtr.git.filters import _matches_globs
@@ -32,12 +32,12 @@ from rbtr.models import BranchTarget
 class _FakeCtx:
     """Minimal stand-in for RunContext[AgentDeps] in tool tests."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: EngineState) -> None:
         self.deps = _FakeDeps(session)
 
 
 class _FakeDeps:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: EngineState) -> None:
         self.session = session
 
 
@@ -55,8 +55,8 @@ def _make_repo(tmp: str) -> tuple[pygit2.Repository, str]:
     return repo, str(sha)
 
 
-def _session(repo: pygit2.Repository) -> Session:
-    session = Session(repo=repo, owner="o", repo_name="r")
+def _session(repo: pygit2.Repository) -> EngineState:
+    session = EngineState(repo=repo, owner="o", repo_name="r")
     session.review_target = BranchTarget(
         base_branch="main",
         head_branch="main",

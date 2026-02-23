@@ -102,6 +102,13 @@ class IndexConfig(BaseModel):
     embedding_batch_size: int = 32
 
 
+class SessionsConfig(BaseModel):
+    max_sessions: int = 100
+    """Maximum number of sessions to keep. Oldest pruned on startup."""
+    max_age_days: int = 30
+    """Sessions older than this many days are pruned on startup."""
+
+
 class CompactionConfig(BaseModel):
     auto_compact_pct: int = 85
     """Trigger auto-compaction when context usage exceeds this %."""
@@ -217,6 +224,7 @@ class Config(BaseSettings):
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
     index: IndexConfig = IndexConfig()
+    sessions: SessionsConfig = SessionsConfig()
     log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()
     providers: ProvidersConfig = ProvidersConfig()

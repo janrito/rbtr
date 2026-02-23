@@ -13,7 +13,7 @@ from rbtr.config import config
 from rbtr.models import BranchTarget, PRTarget
 
 if TYPE_CHECKING:
-    from rbtr.engine import Session
+    from rbtr.engine import EngineState
 
 
 def _load_template(name: str) -> str:
@@ -31,7 +31,7 @@ def _build_env() -> minijinja.Environment:
     return env
 
 
-def _context(session: Session) -> dict[str, Any]:
+def _context(session: EngineState) -> dict[str, Any]:
     """Build template context from live session state."""
     ctx: dict[str, Any] = {
         "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
@@ -74,7 +74,7 @@ def _context(session: Session) -> dict[str, Any]:
     return ctx
 
 
-def review_tag(session: Session) -> str:
+def review_tag(session: EngineState) -> str:
     """Derive a short tag from the review target for file naming.
 
     Examples: ``PR-42`` for a pull request, ``fix-auth`` for a branch.
@@ -92,13 +92,13 @@ def review_tag(session: Session) -> str:
     return ""
 
 
-def render_system(session: Session) -> str:
+def render_system(session: EngineState) -> str:
     """Render the system prompt with live session data."""
     env = _build_env()
     return env.render_template("system", **_context(session))
 
 
-def render_review(session: Session) -> str:
+def render_review(session: EngineState) -> str:
     """Render the review guidelines with session context."""
     env = _build_env()
     return env.render_template(

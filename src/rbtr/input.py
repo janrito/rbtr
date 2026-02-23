@@ -16,7 +16,6 @@ Architecture
 
 from __future__ import annotations
 
-import contextlib
 import os
 import queue
 import select
@@ -36,9 +35,6 @@ from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
 from rbtr.config import config
-from rbtr.constants import RBTR_DIR
-
-HISTORY_PATH = RBTR_DIR / "history"
 
 # (value, description) — a single completion candidate.
 type Completions = list[tuple[str, str]]
@@ -445,32 +441,6 @@ class InputReader:
         provider = self._state.history_provider
         if provider is not None:
             self._state.history = list(reversed(provider(None, config.tui.max_history)))
-            if not self._state.history:
-                # First run with DB — import legacy flat file if it exists.
-                self._import_legacy_history()
-            return
-        # No provider — fall back to legacy flat file.
-        with contextlib.suppress(FileNotFoundError, OSError):
-            lines = HISTORY_PATH.read_text().splitlines()
-            self._state.history = [ln for ln in lines if ln.strip()]
-
-    def _import_legacy_history(self) -> None:
-        """One-time import of the legacy flat history file into memory.
-
-        After import, the flat file is renamed to ``history.bak`` so
-        it is not imported again.  The entries will be persisted to the
-        DB naturally when the user re-submits them, or on the next
-        engine auto-save cycle.
-        """
-        if not HISTORY_PATH.exists():
-            return
-        with contextlib.suppress(FileNotFoundError, OSError):
-            lines = HISTORY_PATH.read_text().splitlines()
-            self._state.history = [ln for ln in lines if ln.strip()]
-        if self._state.history:
-            backup = HISTORY_PATH.with_suffix(".bak")
-            with contextlib.suppress(OSError):
-                HISTORY_PATH.rename(backup)
 
     # ── Reader loop ──────────────────────────────────────────────────
 

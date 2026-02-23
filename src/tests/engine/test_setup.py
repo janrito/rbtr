@@ -14,7 +14,7 @@ import pygit2
 
 from rbtr.config import config
 from rbtr.creds import creds
-from rbtr.engine import Engine, Session, TaskType
+from rbtr.engine import Engine, EngineState, TaskType
 from rbtr.events import Event
 
 from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, make_engine, output_texts
@@ -47,7 +47,7 @@ def test_setup_detects_github_token(monkeypatch, creds_path, config_path) -> Non
 
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 
@@ -64,7 +64,7 @@ def test_setup_detects_claude_oauth(monkeypatch, creds_path, config_path) -> Non
     creds.update(claude=CLAUDE_OAUTH)
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 
@@ -80,7 +80,7 @@ def test_setup_detects_chatgpt_oauth(monkeypatch, creds_path, config_path) -> No
     creds.update(chatgpt=CHATGPT_OAUTH)
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 
@@ -96,7 +96,7 @@ def test_setup_detects_openai_key(monkeypatch, creds_path, config_path) -> None:
     creds.update(openai_api_key="sk-test")
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 
@@ -118,7 +118,7 @@ def test_setup_lists_endpoints(monkeypatch, creds_path, config_path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 
@@ -139,7 +139,7 @@ def test_setup_loads_saved_model(monkeypatch, creds_path, config_path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
-        session = Session()
+        session = EngineState()
         events: __import__("queue").Queue[Event] = __import__("queue").Queue()
         engine = Engine(session, events)
 

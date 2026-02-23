@@ -1,4 +1,4 @@
-"""Mutable session state — shared between engine and UI."""
+"""Mutable engine state — shared between engine and UI."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class Session:
+class EngineState:
     """Mutable state for the current rbtr session."""
 
     # Session persistence — ID set on init, label set on setup.

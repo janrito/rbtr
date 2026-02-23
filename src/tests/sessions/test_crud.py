@@ -345,3 +345,45 @@ def test_mark_compacted_empty_is_noop() -> None:
     """Empty ID list doesn't error."""
     with SessionStore() as store:
         store.mark_compacted([], summary_id="x")  # should not raise
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# delete_excess_sessions
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_delete_excess_keeps_recent() -> None:
+    """Keeps the N most recent sessions, deletes the rest."""
+    rows_a = _make_rows(CTX_A, [_user("old")])
+    time.sleep(0.01)
+    rows_b = _make_rows(CTX_B, [_user("new")])
+
+    with SessionStore() as store:
+        store.save_messages(rows_a)
+        store.save_messages(rows_b)
+        deleted = store.delete_excess_sessions(keep=1)
+        assert deleted > 0
+        sessions = store.list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "ses-bbb"
+
+
+def test_delete_excess_noop_when_under_limit() -> None:
+    """No deletion when session count is at or below the limit."""
+    rows = _make_rows(CTX_A, [_user("only")])
+
+    with SessionStore() as store:
+        store.save_messages(rows)
+        deleted = store.delete_excess_sessions(keep=5)
+        assert deleted == 0
+        assert len(store.list_sessions()) == 1
+
+
+def test_delete_excess_zero_keep_is_noop() -> None:
+    """keep=0 or negative doesn't delete anything (safety guard)."""
+    rows = _make_rows(CTX_A, [_user("safe")])
+
+    with SessionStore() as store:
+        store.save_messages(rows)
+        assert store.delete_excess_sessions(keep=0) == 0
+        assert len(store.list_sessions()) == 1

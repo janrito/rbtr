@@ -22,7 +22,7 @@ from rbtr.engine.draft_cmd import (
     _resolve_event,
     cmd_draft,
 )
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
@@ -68,7 +68,7 @@ class FakeEngine:
     """Minimal engine stub that captures events for assertions."""
 
     def __init__(self, *, gh: Any = None, gh_username: str = "") -> None:
-        self.session = Session()
+        self.session = EngineState()
         self.session.review_target = PR
         self.session.gh = gh
         self.session.gh_username = gh_username

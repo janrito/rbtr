@@ -120,7 +120,8 @@ chatgpt/o3-pro: Based on the retry logic we discussed…
 ```
 
 Only `/new` clears history (explicit user action). The active model is
-persisted to `config.toml` across sessions.
+persisted to `config.toml` across restarts. Conversation messages are
+saved automatically to the session database (see Sessions below).
 
 ## Commands
 
@@ -135,6 +136,7 @@ persisted to `config.toml` across sessions.
 | `/model <provider/id>` | Set the active model                     |
 | `/index`               | Show index status, clear, rebuild        |
 | `/compact`             | Summarise older context to free space    |
+| `/session`             | List, inspect, or delete sessions        |
 | `/new`                 | Start a new conversation                 |
 | `/quit`                | Exit (also `/q`)                         |
 
@@ -271,6 +273,58 @@ summary_max_chars = 2000    # max chars per tool result in summary input
 Token estimation uses `len(text) // 4` — no external tokenizer
 dependency. After compaction the footer's context % stays at the
 pre-compaction value until the next LLM call corrects it.
+
+## Sessions
+
+Every conversation is automatically saved to a local SQLite database
+at `~/.config/rbtr/sessions.db`. Sessions are append-only — each LLM
+turn is persisted immediately after the model responds.
+
+### Automatic behaviour
+
+- **New session on startup.** Each `rbtr` invocation starts a fresh
+  session. The session is labelled with the current repo and branch
+  (e.g. `acme/app — main`).
+- **Auto-save after every LLM turn.** Messages are persisted
+  incrementally — only new messages since the last save are inserted.
+- **`/new` creates a new session.** The previous session remains in
+  the database. All in-memory state (history, usage counters) is reset.
+- **Input history from the database.** Up/Down arrow browses input
+  history across all sessions, not just the current one. History is
+  deduplicated and sorted by recency.
+- **Startup pruning.** Old sessions are pruned automatically based on
+  `sessions.max_age_days` and `sessions.max_sessions` (see
+  Configuration below).
+
+### `/session` command
+
+```text
+/session              List recent sessions (current repo)
+/session list         Same as above
+/session list --all   List sessions across all repos
+/session info         Show current session details
+/session delete <id>  Delete a session by ID (prefix match)
+/session delete --before 7d   Delete sessions older than 7 days
+```
+
+Duration suffixes for `--before`: `d` (days), `w` (weeks), `h` (hours).
+
+### Session settings
+
+Settings in `config.toml` under `[sessions]`:
+
+```toml
+[sessions]
+max_sessions = 100    # keep at most N sessions (oldest pruned on startup)
+max_age_days = 30     # prune sessions older than this on startup
+```
+
+The input history buffer size is configurable under `[tui]`:
+
+```toml
+[tui]
+max_history = 500     # max entries kept in memory for Up/Down navigation
+```
 
 ## Configuration
 

@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from rbtr.engine.review import sync_review_draft
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.exceptions import RbtrError
 from rbtr.github.client import get_pending_review
@@ -166,7 +166,7 @@ class _FakeEngine:
     def __init__(self, *, gh: Any = None, gh_username: str = "") -> None:
         from datetime import UTC, datetime
 
-        self.session = Session()
+        self.session = EngineState()
         self.session.review_target = PRTarget(
             number=42,
             title="Test PR",

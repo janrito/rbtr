@@ -7,7 +7,7 @@ import queue
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from rbtr.engine import Session
+from rbtr.engine import EngineState
 from rbtr.styles import THEME
 from rbtr.tui import UI, _render_lines, _tail_renderable_lines
 
@@ -29,7 +29,7 @@ def test_tail_renderable_lines_keeps_bottom_lines() -> None:
 
 def test_render_view_keeps_input_visible_with_tall_active_panel(mocker) -> None:
     console = Console(width=80, height=12, force_terminal=True, theme=THEME)
-    session = Session()
+    session = EngineState()
     engine = mocker.MagicMock()
     engine._last_shell_full_output = None
     ui = UI(console, session, queue.Queue(), engine)
@@ -45,7 +45,7 @@ def test_render_view_keeps_input_visible_with_tall_active_panel(mocker) -> None:
 
 def test_render_view_keeps_input_visible_with_tall_pending_panel(mocker) -> None:
     console = Console(width=80, height=12, force_terminal=True, theme=THEME)
-    session = Session()
+    session = EngineState()
     engine = mocker.MagicMock()
     engine._last_shell_full_output = None
     ui = UI(console, session, queue.Queue(), engine)

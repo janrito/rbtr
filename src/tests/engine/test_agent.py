@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from rbtr.engine.agent import AgentDeps, _index_tool_names, index_status
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.models import BranchTarget
 
 
@@ -21,7 +21,7 @@ _NOW = datetime.now(tz=UTC)
 
 
 def _make_ctx(*, review_target=None, index_ready: bool = False) -> _FakeCtx:
-    session = Session()
+    session = EngineState()
     session.review_target = review_target
     session.index_ready = index_ready
     return _FakeCtx(deps=AgentDeps(session=session))

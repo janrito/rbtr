@@ -1,6 +1,6 @@
 """End-to-end tests for the Engine via its event contract.
 
-These tests create a real Engine with a mock Session, run tasks
+These tests create a real Engine with a mock EngineState, run tasks
 synchronously (no daemon threads needed — run_task is a plain method),
 and assert on the sequence of events emitted to the queue.
 """
@@ -24,7 +24,7 @@ from pydantic_ai.messages import (
 
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
-from rbtr.engine import Engine, Session, TaskCancelled, TaskType
+from rbtr.engine import Engine, EngineState, TaskCancelled, TaskType
 from rbtr.engine.history import demote_thinking, is_history_format_error
 from rbtr.engine.shell import _truncate_output
 from rbtr.events import (
@@ -113,7 +113,7 @@ def test_list_without_auth_falls_back_to_local() -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature-1", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review")
@@ -212,7 +212,7 @@ def test_list_caches_review_targets_local() -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature-1", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review")
@@ -276,7 +276,7 @@ def test_review_branch_by_name(mocker) -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("my-branch", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review my-branch")
@@ -296,7 +296,7 @@ def test_review_nonexistent_branch_warns() -> None:
         repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
         repo.set_head("refs/heads/main")
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review ghost-branch")
@@ -318,7 +318,7 @@ def test_review_branch_two_args(mocker) -> None:
         repo.branches.local.create("develop", repo.head.peel(pygit2.Commit))
         repo.branches.local.create("feature-x", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review develop feature-x")
@@ -342,7 +342,7 @@ def test_review_branch_bad_base_warns() -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature-x", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review nonexistent feature-x")
@@ -569,7 +569,7 @@ def test_setup_in_valid_repo(monkeypatch, creds_path) -> None:
         repo.remotes.create("origin", "git@github.com:testowner/testrepo.git")
 
         monkeypatch.chdir(tmp)
-        session = Session()
+        session = EngineState()
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
 
@@ -587,7 +587,7 @@ def test_setup_in_valid_repo(monkeypatch, creds_path) -> None:
 def test_setup_outside_repo_errors(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         monkeypatch.chdir(tmp)
-        session = Session()
+        session = EngineState()
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
 
@@ -707,7 +707,7 @@ def test_403_falls_back_to_local_branches(mocker) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo = _make_repo_with_branch(tmp)
         mock_gh = mocker.MagicMock()
-        session = Session(repo=repo, owner="o", repo_name="r", gh=mock_gh)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=mock_gh)
         events_q: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events_q)
 
@@ -728,7 +728,7 @@ def test_500_falls_back_to_local_branches(mocker) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo = _make_repo_with_branch(tmp)
         mock_gh = mocker.MagicMock()
-        session = Session(repo=repo, owner="o", repo_name="r", gh=mock_gh)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=mock_gh)
         events_q: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events_q)
 
@@ -1094,11 +1094,11 @@ def test_is_history_format_error_rejects_unrelated() -> None:
     assert not is_history_format_error(exc)
 
 
-# ── Session.index & index events ─────────────────────────────────────
+# ── EngineState.index & index events ─────────────────────────────────────
 
 
 def test_session_index_defaults_to_none() -> None:
-    session = Session()
+    session = EngineState()
     assert session.index is None
 
 

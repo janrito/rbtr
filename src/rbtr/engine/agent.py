@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from pydantic_ai import Agent, RunContext
 
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.prompts import render_index_status, render_review, render_system
 
 
@@ -23,7 +23,7 @@ from rbtr.prompts import render_index_status, render_review, render_system
 class AgentDeps:
     """Dependencies injected into every agent run."""
 
-    session: Session
+    session: EngineState
 
 
 agent: Agent[AgentDeps, str] = Agent(deps_type=AgentDeps)

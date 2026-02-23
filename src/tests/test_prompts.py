@@ -50,14 +50,14 @@ _BRANCH_TARGET = BranchTarget(
 
 
 def _make_session(**kwargs):  # type: ignore[no-untyped-def]
-    from rbtr.engine import Session
+    from rbtr.engine import EngineState
 
     defaults = {
         "owner": "acme",
         "repo_name": "widgets",
     }
     defaults.update(kwargs)
-    return Session(**defaults)
+    return EngineState(**defaults)
 
 
 # ── System prompt ────────────────────────────────────────────────────

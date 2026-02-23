@@ -9,7 +9,7 @@ import pytest
 from pydantic_ai import RunContext
 
 from rbtr.engine.agent import AgentDeps
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.engine.tools import (
     add_review_comment,
     edit_review_comment,
@@ -46,7 +46,7 @@ def pr_target() -> PRTarget:
 @pytest.fixture
 def ctx(pr_target: PRTarget) -> RunContext[AgentDeps]:
     """Build a minimal RunContext with a PR target in session."""
-    session = Session()
+    session = EngineState()
     session.review_target = pr_target
     deps = AgentDeps(session=session)
     mock_ctx = MagicMock(spec=RunContext)

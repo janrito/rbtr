@@ -49,6 +49,7 @@ _LOAD_MESSAGES_SQL = _load_sql("load_messages.sql")
 _LIST_SESSIONS_SQL = _load_sql("list_sessions.sql")
 _DELETE_SESSION_SQL = _load_sql("delete_session.sql")
 _DELETE_OLD_SESSIONS_SQL = _load_sql("delete_old_sessions.sql")
+_DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 
 
@@ -191,6 +192,17 @@ class SessionStore:
                 _DELETE_OLD_SESSIONS_SQL,
                 [before.isoformat()],
             )
+            return cur.rowcount
+
+    def delete_excess_sessions(self, keep: int) -> int:
+        """Keep only the *keep* most recent sessions, delete the rest.
+
+        Returns the number of rows deleted.
+        """
+        if keep < 1:
+            return 0
+        with self._lock, self._con:
+            cur = self._con.execute(_DELETE_EXCESS_SESSIONS_SQL, [keep])
             return cur.rowcount
 
     # ── Reads ────────────────────────────────────────────────────────

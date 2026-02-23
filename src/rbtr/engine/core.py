@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import queue
 import signal
 import subprocess
 import sys
 import threading
+from datetime import UTC, datetime, timedelta
 
 import pygit2
 from github import Auth, Github
@@ -30,9 +32,12 @@ from .index_cmd import cmd_index
 from .llm import handle_llm
 from .model import cmd_model, get_models
 from .review import cmd_review
-from .session import Session
+from .session_cmd import cmd_session
 from .shell import handle_shell
+from .state import EngineState
 from .types import Command, TaskCancelled, TaskType
+
+log = logging.getLogger(__name__)
 
 
 class Engine:
@@ -40,7 +45,7 @@ class Engine:
 
     def __init__(
         self,
-        session: Session,
+        session: EngineState,
         events: queue.Queue[Event],
         *,
         store: SessionStore | None = None,
@@ -53,7 +58,7 @@ class Engine:
         self._cancel = threading.Event()
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
-        # Session persistence store.
+        # EngineState persistence store.
         self._store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
         session.session_id = self._store.new_id()
         # Long-lived event loop for async work (LLM streaming).
@@ -186,6 +191,9 @@ class Engine:
             self.session.model_name = saved_model
             _init_context_window(self)
 
+        # Prune old sessions in the background — silent, best-effort.
+        _prune_sessions(self)
+
         self._out("Type a message for the LLM, /help for commands, !cmd for shell")
 
     # ── Commands ─────────────────────────────────────────────────────
@@ -215,6 +223,8 @@ class Engine:
                 cmd_index(self, args)
             case Command.COMPACT:
                 compact_history(self, extra_instructions=args)
+            case Command.SESSION:
+                cmd_session(self, args)
             case Command.NEW:
                 self._cmd_new()
             case Command.QUIT:
@@ -267,6 +277,24 @@ def _init_context_window(engine: Engine) -> None:
     if ctx is not None:
         engine.session.usage.context_window = ctx
         engine.session.usage.context_window_known = True
+
+
+def _prune_sessions(engine: Engine) -> None:
+    """Remove old sessions based on config limits.
+
+    Runs silently — pruning failures are logged, not shown to the user.
+    """
+    try:
+        age_days = config.sessions.max_age_days
+        if age_days > 0:
+            cutoff = datetime.now(UTC) - timedelta(days=age_days)
+            engine._store.delete_old_sessions(before=cutoff)
+
+        max_sessions = config.sessions.max_sessions
+        if max_sessions > 0:
+            engine._store.delete_excess_sessions(keep=max_sessions)
+    except OSError:
+        log.warning("sessions: pruning failed", exc_info=True)
 
 
 def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:

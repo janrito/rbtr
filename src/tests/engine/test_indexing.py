@@ -8,7 +8,7 @@ import tempfile
 import pygit2
 import pytest
 
-from rbtr.engine import Engine, Session
+from rbtr.engine import Engine, EngineState
 from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import (
@@ -34,8 +34,8 @@ def _mock_embeddings(mocker):
 
 def _make_engine(
     repo: pygit2.Repository,
-) -> tuple[Engine, queue.Queue[Event], Session]:
-    session = Session(repo=repo, owner="o", repo_name="r")
+) -> tuple[Engine, queue.Queue[Event], EngineState]:
+    session = EngineState(repo=repo, owner="o", repo_name="r")
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(session, events)
     return engine, events, session
@@ -176,7 +176,7 @@ def test_review_branch_triggers_indexing() -> None:
         repo = make_repo_with_file(tmp, content="def greet():\n    pass\n")
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review feature")
@@ -199,7 +199,7 @@ def test_review_two_args_triggers_indexing() -> None:
         repo.branches.local.create("develop", repo.head.peel(pygit2.Commit))
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        session = Session(repo=repo, owner="o", repo_name="r", gh=None)
+        session = EngineState(repo=repo, owner="o", repo_name="r", gh=None)
         events: queue.Queue[Event] = queue.Queue()
         engine = Engine(session, events)
         engine.run_task(TaskType.COMMAND, "/review develop feature")

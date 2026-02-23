@@ -33,7 +33,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
-from rbtr.engine import Command, Engine, Service, Session, TaskType
+from rbtr.engine import Command, Engine, EngineState, Service, TaskType
 from rbtr.engine.model import get_models
 from rbtr.events import (
     CompactionFinished,
@@ -174,7 +174,7 @@ class UI:
     def __init__(
         self,
         console: Console,
-        session: Session,
+        session: EngineState,
         events: queue.Queue[Event],
         engine: Engine,
         pr_number: int | None = None,
@@ -249,6 +249,16 @@ class UI:
                     ]
                     matches = [
                         (f"/index {name}", desc) for name, desc in subs if name.startswith(arg)
+                    ]
+                    self.inp.apply_completions(matches)
+                case Command.SESSION:
+                    subs = [
+                        ("list", "Recent sessions (--all for all repos)"),
+                        ("info", "Current session details"),
+                        ("delete", "Delete a session by ID or age"),
+                    ]
+                    matches = [
+                        (f"/session {name}", desc) for name, desc in subs if name.startswith(arg)
                     ]
                     self.inp.apply_completions(matches)
             return
@@ -1014,7 +1024,7 @@ class UI:
 def run(pr_number: int | None) -> None:
     """Launch the rbtr interactive session."""
     console = Console(markup=True, highlight=False, theme=THEME)
-    session = Session()
+    session = EngineState()
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(session, events)
     try:

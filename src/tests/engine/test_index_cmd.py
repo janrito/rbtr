@@ -8,7 +8,7 @@ import tempfile
 import pygit2
 import pytest
 
-from rbtr.engine import Engine, Session
+from rbtr.engine import Engine, EngineState
 from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import (
@@ -32,14 +32,14 @@ def _mock_embeddings(mocker):
 
 def _make_engine(
     repo: pygit2.Repository,
-) -> tuple[Engine, queue.Queue[Event], Session]:
-    session = Session(repo=repo, owner="o", repo_name="r")
+) -> tuple[Engine, queue.Queue[Event], EngineState]:
+    session = EngineState(repo=repo, owner="o", repo_name="r")
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(session, events)
     return engine, events, session
 
 
-def _index_repo(engine: Engine, session: Session, repo: pygit2.Repository) -> None:
+def _index_repo(engine: Engine, session: EngineState, repo: pygit2.Repository) -> None:
     """Set a review target and run indexing."""
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
     session.review_target = BranchTarget(

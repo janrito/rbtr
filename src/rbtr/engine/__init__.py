@@ -1,14 +1,14 @@
 """Engine package — public API re-exports."""
 
 from .core import Engine
-from .session import Session
+from .state import EngineState
 from .types import Command, Service, TaskCancelled, TaskType
 
 __all__ = [
     "Command",
     "Engine",
+    "EngineState",
     "Service",
-    "Session",
     "TaskCancelled",
     "TaskType",
 ]

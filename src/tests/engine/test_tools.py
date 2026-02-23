@@ -13,7 +13,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.engine.session import Session
+from rbtr.engine.state import EngineState
 from rbtr.engine.tools import (
     changed_files,
     changed_symbols,
@@ -40,12 +40,12 @@ from rbtr.models import BranchTarget
 class _FakeCtx:
     """Minimal stand-in for RunContext[AgentDeps] in tool tests."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: EngineState) -> None:
         self.deps = _FakeDeps(session)
 
 
 class _FakeDeps:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: EngineState) -> None:
         self.session = session
 
 
@@ -206,10 +206,10 @@ ALL_EDGES = [
 ]
 
 
-def _make_session(*, embed: bool = False) -> tuple[Session, IndexStore]:
+def _make_session(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
     """Build an in-memory store with the full test dataset."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(
         base_branch="main",
@@ -454,10 +454,10 @@ def test_find_references_invalid_kind() -> None:
 #   - (src/api/client.py removed — old importer gone)
 
 
-def _make_two_ref_session() -> tuple[Session, IndexStore]:
+def _make_two_ref_session() -> tuple[EngineState, IndexStore]:
     """Build a store with base and head snapshots for ref tests."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(
         base_branch="main",
@@ -815,7 +815,7 @@ def test_ref_scoping_search_codebase_only_returns_head() -> None:
 def test_ref_scoping_find_references_edge_without_visible_source() -> None:
     """Edge source chunk not in current ref's snapshots is silently skipped."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(
         base_branch="main",
@@ -881,7 +881,7 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
 def test_stale_review_data_does_not_leak() -> None:
     """Chunks and edges from an older, unrelated review are invisible."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
 
     # ── Old review residue (old-base / old-head) ─────────────────
@@ -1143,8 +1143,8 @@ def _make_repo_two_commits(tmp: str) -> tuple[pygit2.Repository, str, str]:
     return repo, str(c1), str(c2)
 
 
-def _git_session(repo: pygit2.Repository) -> Session:
-    session = Session(repo=repo, owner="o", repo_name="r")
+def _git_session(repo: pygit2.Repository) -> EngineState:
+    session = EngineState(repo=repo, owner="o", repo_name="r")
     session.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
@@ -1195,7 +1195,7 @@ def test_diff_bad_ref() -> None:
 def test_diff_no_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = Session(repo=repo, owner="o", repo_name="r")
+        session = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = _FakeCtx(session)
         result = diff(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
@@ -1260,7 +1260,7 @@ def test_changed_files_no_target() -> None:
     """No review target returns message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = Session(repo=repo, owner="o", repo_name="r")
+        session = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = _FakeCtx(session)
         result = changed_files(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
@@ -1299,7 +1299,7 @@ def test_commit_log_no_target() -> None:
         repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
         repo.set_head("refs/heads/main")
 
-        session = Session(repo=repo, owner="o", repo_name="r")
+        session = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = _FakeCtx(session)
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
@@ -1308,7 +1308,7 @@ def test_commit_log_no_target() -> None:
 # ── changed_symbols ────────────────────────────────────────────────────
 
 
-def _make_diff_session() -> tuple[Session, IndexStore]:
+def _make_diff_session() -> tuple[EngineState, IndexStore]:
     """Build a store with base (v1) and head (v2) for semantic diff tests.
 
     Base has: handler (v1), calculate_mean.
@@ -1317,7 +1317,7 @@ def _make_diff_session() -> tuple[Session, IndexStore]:
               new_endpoint has no test.
     """
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(
         base_branch="main",
@@ -1442,7 +1442,7 @@ def test_changed_symbols_reports_missing_tests() -> None:
 def test_changed_symbols_no_changes() -> None:
     """Same blob at base and head → no structural differences."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(
         base_branch="main",
@@ -1481,7 +1481,7 @@ def test_require_index_hides_when_no_index() -> None:
     """_require_index returns None when no index is loaded."""
     import asyncio
 
-    session = Session()
+    session = EngineState()
     session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
     assert session.index is None
     ctx = _FakeCtx(session)
@@ -1497,7 +1497,7 @@ def test_require_index_hides_when_no_target() -> None:
     """_require_index returns None when no review target is set."""
     import asyncio
 
-    session = Session()
+    session = EngineState()
     session.index = IndexStore()
     assert session.review_target is None
     ctx = _FakeCtx(session)
@@ -1529,7 +1529,7 @@ def test_require_repo_hides_when_no_repo() -> None:
     """_require_repo returns None when no repo is loaded."""
     import asyncio
 
-    session = Session()
+    session = EngineState()
     session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
     ctx = _FakeCtx(session)
 
@@ -1546,7 +1546,7 @@ def test_require_repo_hides_when_no_target() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = Session(repo=repo)
+        session = EngineState(repo=repo)
         ctx = _FakeCtx(session)
 
         from rbtr.engine.tools import _require_repo
@@ -1578,7 +1578,7 @@ def test_search_similar_embedding_error(mocker) -> None:
 def test_changed_symbols_no_review_target() -> None:
     """changed_symbols without a target returns message."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     ctx = _FakeCtx(session)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
@@ -1589,7 +1589,7 @@ def test_changed_symbols_no_review_target() -> None:
 def test_changed_symbols_detects_removed_symbol() -> None:
     """A symbol present in base but not head is reported as removed."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
@@ -1640,7 +1640,7 @@ def test_changed_symbols_detects_removed_symbol() -> None:
 def test_changed_symbols_detects_stale_docs() -> None:
     """Doc that references a modified symbol is flagged as stale."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
@@ -1700,7 +1700,7 @@ def test_changed_symbols_detects_stale_docs() -> None:
 def test_changed_symbols_detects_broken_edges() -> None:
     """Import edge pointing at a removed symbol is flagged as broken."""
     store = IndexStore()
-    session = Session()
+    session = EngineState()
     session.index = store
     session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
@@ -1881,7 +1881,7 @@ def test_commit_log_bad_refs() -> None:
         repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
         repo.set_head("refs/heads/main")
 
-        session = Session(repo=repo, owner="o", repo_name="r")
+        session = EngineState(repo=repo, owner="o", repo_name="r")
         session.review_target = BranchTarget(
             base_branch="main",
             head_branch="nonexistent",
@@ -2097,9 +2097,9 @@ def _make_file_repo(tmp: str) -> tuple[pygit2.Repository, str, str]:
     return repo, str(c1), str(c2)
 
 
-def _file_session(repo: pygit2.Repository) -> Session:
-    """Session with repo and review target for file tool tests."""
-    session = Session(repo=repo, owner="o", repo_name="r")
+def _file_session(repo: pygit2.Repository) -> EngineState:
+    """EngineState with repo and review target for file tool tests."""
+    session = EngineState(repo=repo, owner="o", repo_name="r")
     session.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
@@ -2488,7 +2488,7 @@ def test_list_files_bad_ref() -> None:
 
 def _edit_ctx() -> _FakeCtx:
     """Minimal context — edit doesn't need repo or index."""
-    session = Session()
+    session = EngineState()
     return _FakeCtx(session)
 
 
