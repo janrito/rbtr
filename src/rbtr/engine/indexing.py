@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING
 
 from rbtr.config import config
 from rbtr.events import IndexProgress, IndexReady, IndexStarted, Output
-from rbtr.index.git import FileEntry, list_files
+from rbtr.git import FileEntry, list_files
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
-from rbtr.models import BranchTarget, PRTarget
 from rbtr.plugins.manager import get_manager
 from rbtr.styles import STYLE_DIM, STYLE_WARNING
 
@@ -44,14 +43,8 @@ def _build_index(engine: Engine) -> None:
     if not config.index.enabled:
         return
 
-    # Resolve base and head SHAs.
-    match target:
-        case PRTarget(base_branch=base, head_branch=head):
-            base_ref = base
-            head_ref = head
-        case BranchTarget(base_branch=base, head_branch=head):
-            base_ref = base
-            head_ref = head
+    base_ref = target.base_branch
+    head_ref = target.head_ref
 
     # Open (or reuse) the DuckDB store.
     db_path = Path(config.index.db_dir) / "index.duckdb"

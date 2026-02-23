@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import minijinja
 
+from rbtr.config import config
 from rbtr.models import BranchTarget, PRTarget
 
 if TYPE_CHECKING:
@@ -103,6 +104,7 @@ def render_review(session: Session) -> str:
     return env.render_template(
         "review",
         review_tag=review_tag(session),
+        workspace_prefix=config.tools.workspace_prefix,
     )
 
 

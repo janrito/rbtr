@@ -1,4 +1,4 @@
-"""Tests for rbtr.repo."""
+"""Tests for rbtr.git.repo."""
 
 import os
 import tempfile
@@ -7,7 +7,7 @@ import pygit2
 import pytest
 
 from rbtr.exceptions import RbtrError
-from rbtr.repo import open_repo, parse_github_remote, require_clean
+from rbtr.git import open_repo, parse_github_remote, require_clean
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 

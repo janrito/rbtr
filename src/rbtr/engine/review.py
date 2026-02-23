@@ -1,4 +1,4 @@
-"""Handler for /review — PR and branch listing/selection."""
+"""Handler for /review — PR and branch listing/selection, draft posting."""
 
 from __future__ import annotations
 
@@ -8,12 +8,19 @@ from typing import TYPE_CHECKING
 import pygit2
 from github.GithubException import GithubException
 
-from rbtr.events import ColumnDef, TableOutput
+from rbtr.events import ColumnDef, LinkOutput, ReviewPosted, TableOutput
 from rbtr.exceptions import RbtrError
+from rbtr.git import default_branch, fetch_pr_head, list_local_branches
 from rbtr.github import client
-from rbtr.models import BranchTarget, PRTarget
-from rbtr.repo import default_branch, list_local_branches
-from rbtr.styles import COLUMN_BRANCH
+from rbtr.github.draft import (
+    delete_draft,
+    get_unsynced_comments,
+    load_draft,
+    merge_remote,
+    save_draft,
+)
+from rbtr.models import BranchTarget, PRTarget, ReviewDraft, ReviewEvent
+from rbtr.styles import COLUMN_BRANCH, LINK_STYLE
 
 from .indexing import run_index
 
@@ -178,9 +185,18 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
             body=pr.body,
             base_branch=pr.base_branch,
             head_branch=pr.head_branch,
+            head_sha=pr.head_sha,
             updated_at=pr.updated_at,
         )
+        engine.session.discussion_cache = None
+
+        # Fetch the PR head commit so it's available locally for
+        # indexing and tools (works for forks and unfetched branches).
+        if engine.session.repo is not None:
+            fetch_pr_head(engine.session.repo, pr.number)
+
         _print_review_target(engine)
+        _sync_pending_draft(engine, pr.number)
         run_index(engine)
     except GithubException as e:
         engine._clear()
@@ -228,6 +244,230 @@ def _print_review_target(engine: Engine) -> None:
             engine._out(f"Reviewing PR #{number}: {title} ({base} → {head})")
         case BranchTarget(base_branch=base, head_branch=head):
             engine._out(f"Reviewing branch: {base} → {head}")
+
+
+def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
+    """Download the user's pending review from GitHub and merge into local draft.
+
+    Pull-only — called automatically on ``/review <n>`` to seed the
+    local draft.  For bidirectional sync, use ``sync_review_draft``.
+    """
+    gh = engine.session.gh
+    if gh is None or not engine.session.gh_username:
+        return
+
+    pending = client.get_pending_review(
+        gh, engine.session.owner, engine.session.repo_name,
+        pr_number, engine.session.gh_username,
+    )
+
+    if pending is None:
+        # No remote pending review — check for local draft only.
+        local = load_draft(pr_number)
+        if local is not None:
+            n = len(local.comments)
+            engine._out(f"Local draft loaded ({n} comment{'s' if n != 1 else ''}).")
+        return
+
+    local = load_draft(pr_number)
+    merged = merge_remote(local, pending.comments)
+
+    # Preserve the remote review body as summary if local has none.
+    if not merged.summary and pending.body:
+        merged = merged.model_copy(update={"summary": pending.body})
+
+    save_draft(pr_number, merged)
+    n = len(merged.comments)
+    engine._out(f"Draft synced from GitHub ({n} comment{'s' if n != 1 else ''}).")
+
+
+def post_review_draft(
+    engine: Engine,
+    pr_number: int,
+    draft: ReviewDraft,
+    event: ReviewEvent,
+) -> bool:
+    """Post a review draft to GitHub.
+
+    Handles the full flow: guard against unsynced remote comments,
+    delete any existing pending review, post the new review, emit
+    events, and clean up the local draft.  Returns True on success.
+    """
+    gh = engine.session.gh
+    if gh is None or not engine.session.gh_username:
+        engine._warn("Not authenticated. Run /connect github first.")
+        return False
+
+    draft = draft.model_copy(update={"event": event})
+
+    # Guard: check for unsynced remote comments.
+    engine._out("Checking for unsynced remote comments…")
+    try:
+        pending = client.get_pending_review(
+            gh, engine.session.owner, engine.session.repo_name,
+            pr_number, engine.session.gh_username,
+        )
+    except GithubException as exc:
+        engine._clear()
+        engine._warn(f"GitHub error checking pending review: {exc.data}")
+        return False
+
+    if pending is not None:
+        unsynced = get_unsynced_comments(draft, pending.comments)
+        if unsynced:
+            engine._warn(
+                f"Remote pending review has {len(unsynced)} comment(s) not in "
+                f"your local draft. Run /draft sync first."
+            )
+            for c in unsynced:
+                engine._out(f"  {c.path}:{c.line} — {c.body[:60]}")
+            return False
+
+    engine._clear()
+
+    # Delete existing pending review before posting.
+    if pending is not None:
+        engine._out("Replacing existing pending review…")
+        try:
+            client.delete_pending_review(
+                gh, engine.session.owner, engine.session.repo_name,
+                pr_number, pending.review_id,
+            )
+        except GithubException as exc:
+            engine._clear()
+            engine._warn(f"Failed to delete pending review: {exc.data}")
+            return False
+
+    # Post.
+    n = len(draft.comments)
+    engine._out(f"Posting review ({event.value}, {n} comment{'s' if n != 1 else ''})…")
+    try:
+        url = client.post_review(
+            gh, engine.session.owner, engine.session.repo_name,
+            pr_number, draft,
+        )
+    except GithubException as exc:
+        engine._clear()
+        engine._warn(f"Failed to post review: {exc.data}")
+        return False
+
+    engine._clear()
+    engine._emit(ReviewPosted(url=url))
+    engine._emit(
+        LinkOutput(
+            markup=(
+                f"Review posted: "
+                f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
+            )
+        )
+    )
+
+    # Clean up local draft.
+    delete_draft(pr_number)
+    engine._out("Local draft cleared.")
+    return True
+
+
+def sync_review_draft(engine: Engine, pr_number: int) -> None:
+    """Bidirectional sync: pull remote pending comments, push local back.
+
+    1. Fetch the user's PENDING review from GitHub.
+    2. Merge any new remote comments into the local draft.
+    3. Delete the old pending review.
+    4. Push the merged local draft back as a new PENDING review.
+
+    If there is no local draft and no remote pending review,
+    this is a no-op.
+    """
+    gh = engine.session.gh
+    if gh is None or not engine.session.gh_username:
+        engine._warn("Not authenticated. Run /connect github first.")
+        return
+
+    # 1. Pull: fetch remote pending review.
+    engine._out("Pulling remote pending review…")
+    try:
+        pending = client.get_pending_review(
+            gh, engine.session.owner, engine.session.repo_name,
+            pr_number, engine.session.gh_username,
+        )
+    except GithubException as exc:
+        engine._clear()
+        engine._warn(f"GitHub error fetching pending review: {exc.data}")
+        return
+
+    # 2. Merge remote into local.
+    local = load_draft(pr_number)
+    if pending is not None:
+        merged = merge_remote(local, pending.comments)
+        if not merged.summary and pending.body:
+            merged = merged.model_copy(update={"summary": pending.body})
+        save_draft(pr_number, merged)
+        local = merged
+
+    if local is None or (not local.summary and not local.comments):
+        engine._clear()
+        engine._out("Nothing to sync — no local or remote draft.")
+        return
+
+    engine._clear()
+
+    # 3. Delete existing pending review before pushing.
+    if pending is not None:
+        try:
+            client.delete_pending_review(
+                gh, engine.session.owner, engine.session.repo_name,
+                pr_number, pending.review_id,
+            )
+        except GithubException as exc:
+            engine._warn(f"Failed to delete pending review: {exc.data}")
+            return
+
+    # 4. Push merged draft as new PENDING.
+    n = len(local.comments)
+    engine._out(f"Pushing draft ({n} comment{'s' if n != 1 else ''})…")
+    try:
+        client.push_pending_review(
+            gh, engine.session.owner, engine.session.repo_name,
+            pr_number, local,
+        )
+    except GithubException as exc:
+        engine._clear()
+        engine._warn(f"Failed to push draft: {exc.data}")
+        return
+
+    engine._clear()
+    engine._out(f"Draft synced ({n} comment{'s' if n != 1 else ''}).")
+
+
+def clear_review_draft(engine: Engine, pr_number: int) -> None:
+    """Delete the local draft file and any remote pending review."""
+    if delete_draft(pr_number):
+        engine._out("Local draft deleted.")
+    else:
+        engine._out("No local draft to delete.")
+
+    gh = engine.session.gh
+    if gh is None or not engine.session.gh_username:
+        return
+
+    try:
+        pending = client.get_pending_review(
+            gh, engine.session.owner, engine.session.repo_name,
+            pr_number, engine.session.gh_username,
+        )
+    except GithubException:
+        return
+
+    if pending is not None:
+        try:
+            client.delete_pending_review(
+                gh, engine.session.owner, engine.session.repo_name,
+                pr_number, pending.review_id,
+            )
+            engine._out("Remote pending review deleted.")
+        except GithubException as exc:
+            engine._warn(f"Failed to delete remote pending review: {exc.data}")
 
 
 def _warn_access(engine: Engine, exc: GithubException) -> None:

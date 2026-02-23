@@ -62,7 +62,7 @@ def _status(engine: Engine) -> None:
         return
 
     base_ref = target.base_branch
-    head_ref = target.head_branch
+    head_ref = target.head_ref
 
     # Query head first; fall back to base if head isn't indexed yet
     # (build_index finishes the base before update_index starts the head).

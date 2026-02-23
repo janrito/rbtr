@@ -129,6 +129,7 @@ persisted to `config.toml` across sessions.
 | `/help`                | Show available commands                 |
 | `/review`              | List open PRs and branches              |
 | `/review <id>`         | Select a PR or branch for review        |
+| `/draft`               | View, sync, or post the review draft    |
 | `/connect <service>`   | Authenticate with a service             |
 | `/model`               | List available models from all providers|
 | `/model <provider/id>` | Set the active model                    |
@@ -156,7 +157,7 @@ Tab works across all input modes:
 | Context            | Example             | Completes                                |
 | ------------------ | ------------------- | ---------------------------------------- |
 | Slash commands     | `/rev` → `/review`  | Command names                            |
-| Command arguments  | `/connect c`        | Provider names, model IDs                |
+| Command arguments  | `/connect c`        | Provider names, model IDs, draft subcommands |
 | Shell commands     | `!git ch`           | Bash programmable completion (branches, flags) |
 | File paths         | `!cat ~/Doc`        | Directories and files (expands `~`)      |
 | Executables        | `!my`               | Commands found in `PATH`                 |
@@ -448,6 +449,30 @@ creates the file or appends; when set, replaces the exact
 match. Review notes are readable by `read_file`, `grep`,
 and `list_files` via the filesystem fallback.
 
+#### PR discussion (require PR)
+
+**`get_pr_discussion(offset?, max_results?)`** — Read
+all existing discussion on the current PR. Returns reviews,
+inline comments, and general comments sorted chronologically.
+Includes bot comments (CI, linters) and emoji reactions.
+Cached per session — fetched once, then read from memory.
+
+#### Draft management (require PR)
+
+**`add_review_comment(path, line, body, suggestion?)`** —
+Add an inline comment to the review draft. Persisted to
+`.rbtr/REVIEW-DRAFT-<pr>.toml` immediately.
+
+**`edit_review_comment(index, body?, suggestion?)`** —
+Edit an existing comment by 1-based index. Only provided
+fields are changed.
+
+**`remove_review_comment(index)`** — Remove a comment
+by 1-based index.
+
+**`set_review_summary(summary)`** — Set the top-level
+review body that appears at the top of the GitHub review.
+
 #### The `ref` parameter
 
 Tools that accept `ref` return the **state of the codebase at
@@ -550,6 +575,76 @@ repo skip unchanged files (keyed by git blob SHA).
 - **Slow indexing** → review starts immediately, index catches
   up in a background thread.
 
+## Review draft
+
+When reviewing a GitHub PR, rbtr helps you build a structured
+review that can be posted back to GitHub. The LLM builds the
+draft incrementally using tool calls; you control when and how
+it's posted.
+
+### Workflow
+
+1. **Select a PR** — `/review 42` fetches the PR and
+   auto-syncs any existing pending review from GitHub.
+
+2. **Review with the LLM** — as you discuss the code, the
+   LLM uses `add_review_comment` and `set_review_summary`
+   to build a draft. Each change persists immediately to
+   `.rbtr/REVIEW-DRAFT-42.toml`.
+
+3. **Inspect the draft** — `/draft` shows the current state:
+   summary, numbered inline comments, suggestion indicators.
+
+4. **Sync** — `/draft sync` does a bidirectional sync: pulls
+   any remote pending comments into the local draft, then
+   pushes the merged result back to GitHub as a pending review
+   (visible in the UI but not submitted).
+
+5. **Post** — `/draft post` submits the review to GitHub.
+   `/draft post approve` and `/draft post request_changes`
+   set the review event type (default is COMMENT).
+
+### Draft commands
+
+| Subcommand                | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `/draft`                  | Show the current draft                   |
+| `/draft sync`             | Bidirectional sync with GitHub           |
+| `/draft post [event]`     | Submit review to GitHub                  |
+| `/draft clear`            | Delete local draft and remote pending    |
+
+Tab completes subcommands and event types.
+
+### Safety
+
+- **Unsynced guard** — `/draft post` refuses if the remote
+  pending review has comments not in your local draft. Run
+  `/draft sync` first.
+- **Atomic posting** — all comments are submitted in a single
+  `create_review` API call. No partial reviews.
+- **Crash-safe** — the draft is a TOML file on disk, updated
+  on every mutation. If rbtr crashes, the draft survives.
+- **Human-editable** — `.rbtr/REVIEW-DRAFT-42.toml` is plain
+  TOML with `[[comments]]` array-of-tables. You can edit it
+  by hand.
+- **Draft cleanup** — after a successful post, the local file
+  is deleted automatically.
+
+### GitHub suggestions
+
+When the LLM provides a `suggestion` parameter in
+`add_review_comment`, it's posted as a GitHub suggestion block:
+
+~~~markdown
+Use exponential backoff.
+
+```suggestion
+time.sleep(2 ** attempt)
+```
+~~~
+
+The author can apply suggestions with one click in the GitHub UI.
+
 ## Tool-call limits
 
 Each turn has a limit on how many tool calls the LLM can make
@@ -574,6 +669,22 @@ The limit is configurable in `config.toml`:
 ```toml
 [tools]
 max_requests_per_turn = 25    # default
+workspace_prefix = "REVIEW-"  # filename prefix for writable .rbtr/ files
+```
+
+The `workspace_prefix` controls which files in `.rbtr/` the
+LLM can create and edit (e.g. `REVIEW-plan.md`,
+`REVIEW-findings.md`).  Review drafts use
+`<prefix>DRAFT-<pr>.toml` — with the default prefix,
+`.rbtr/REVIEW-DRAFT-42.toml`.  If you change the prefix,
+update `index.include` to match:
+
+```toml
+[index]
+include = [".rbtr/MY-PREFIX-*"]
+
+[tools]
+workspace_prefix = "MY-PREFIX-"
 ```
 
 ## Known issues

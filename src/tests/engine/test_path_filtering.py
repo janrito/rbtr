@@ -22,7 +22,8 @@ import pytest
 from rbtr.config import config
 from rbtr.engine.session import Session
 from rbtr.engine.tools import grep, list_files, read_file
-from rbtr.index.git import _matches_globs, is_path_ignored
+from rbtr.git import is_path_ignored
+from rbtr.git.filters import _matches_globs
 from rbtr.models import BranchTarget
 
 # ── Helpers ──────────────────────────────────────────────────────────

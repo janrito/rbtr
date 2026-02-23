@@ -150,6 +150,15 @@ class CompactionFinished(BaseModel):
     summary_tokens: int
 
 
+# ── Review events ────────────────────────────────────────────────────
+
+
+class ReviewPosted(BaseModel):
+    """A review was posted to GitHub."""
+
+    url: str
+
+
 # Union of all event types the UI needs to handle.
 Event = (
     TaskStarted
@@ -168,4 +177,5 @@ Event = (
     | IndexCleared
     | CompactionStarted
     | CompactionFinished
+    | ReviewPosted
 )

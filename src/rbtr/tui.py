@@ -46,6 +46,7 @@ from rbtr.events import (
     LinkOutput,
     MarkdownOutput,
     Output,
+    ReviewPosted,
     TableOutput,
     TaskFinished,
     TaskStarted,
@@ -201,6 +202,8 @@ class UI:
                     self._complete_model(arg)
                 case Command.REVIEW:
                     self._complete_review(arg)
+                case Command.DRAFT:
+                    self._complete_draft(arg)
                 case Command.INDEX:
                     subs = [
                         ("status", "Show index stats"),
@@ -259,7 +262,7 @@ class UI:
         if not cached and self._engine.session.repo is not None:
             # No cache yet — use local branches.
             try:
-                from rbtr.repo import list_local_branches
+                from rbtr.git import list_local_branches
 
                 branches = list_local_branches(self._engine.session.repo)
                 cached = [(b.name, b.name) for b in branches]
@@ -269,6 +272,28 @@ class UI:
             (f"/review {text}", label)
             for label, text in cached
             if text.startswith(partial) or label.lower().startswith(partial.lower())
+        ]
+        self.inp.apply_completions(matches)
+
+    def _complete_draft(self, partial: str) -> None:
+        """Complete /draft subcommands and post event types."""
+        from rbtr.engine.draft_cmd import POST_EVENTS, SUBCOMMANDS
+
+        # "/draft post comment" → two-level completion.
+        if partial.startswith("post "):
+            event_partial = partial[5:]
+            matches = [
+                (f"/draft post {name}", desc)
+                for name, desc in POST_EVENTS
+                if name.startswith(event_partial)
+            ]
+            self.inp.apply_completions(matches)
+            return
+
+        matches = [
+            (f"/draft {name}", desc)
+            for name, desc in SUBCOMMANDS
+            if name.startswith(partial)
         ]
         self.inp.apply_completions(matches)
 
@@ -436,6 +461,8 @@ class UI:
                         style=STYLE_DIM,
                     )
                 )
+            case ReviewPosted():
+                pass  # Visual feedback handled by LinkOutput
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True

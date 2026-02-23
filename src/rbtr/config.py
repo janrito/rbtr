@@ -122,6 +122,14 @@ class ToolsConfig(BaseModel):
     """Max match groups returned by grep."""
     grep_context_lines: int = 50
     """Lines of context above and below each grep match."""
+    workspace_prefix: str = "REVIEW-"
+    """Filename prefix for writable files in ``.rbtr/``.
+
+    The ``edit`` tool only allows writing files whose name starts
+    with this prefix.  Review drafts use
+    ``<prefix>DRAFT-<pr>.toml``.  The index ``include`` glob
+    should match (default ``REVIEW-*`` catches both notes and
+    drafts)."""
     max_requests_per_turn: int = 25
 
 

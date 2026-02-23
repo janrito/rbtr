@@ -23,6 +23,7 @@ from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
 from .compact import compact_history
 from .connect import cmd_connect
+from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
 from .llm import handle_llm
 from .model import cmd_model, get_models
@@ -119,7 +120,7 @@ class Engine:
 
     def _run_setup(self) -> None:
         # Deferred: open_repo calls pygit2.discover_repository which needs CWD set.
-        from rbtr.repo import open_repo, parse_github_remote
+        from rbtr.git import open_repo, parse_github_remote
 
         try:
             repo = open_repo()
@@ -134,9 +135,9 @@ class Engine:
         self._out(f"Repository: {owner}/{repo_name}")
 
         if creds.github_token:
-            self.session.gh = Github(
-                auth=Auth.Token(creds.github_token), timeout=config.github.timeout
-            )
+            gh = Github(auth=Auth.Token(creds.github_token), timeout=config.github.timeout)
+            self.session.gh = gh
+            self.session.gh_username = gh.get_user().login
             self._out("Authenticated with GitHub.")
         else:
             self._out("Not authenticated. Use /connect github to authenticate.")
@@ -188,6 +189,8 @@ class Engine:
                 self._cmd_help()
             case Command.REVIEW:
                 cmd_review(self, args)
+            case Command.DRAFT:
+                cmd_draft(self, args)
             case Command.CONNECT:
                 cmd_connect(self, args)
             case Command.MODEL:

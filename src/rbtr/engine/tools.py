@@ -15,12 +15,20 @@ from pathlib import Path, PurePosixPath
 import pygit2
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
-from pygit2.enums import SortMode
 
 from rbtr.config import config
-from rbtr.index.git import is_binary, is_path_ignored, resolve_commit, walk_tree
+from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
+from rbtr.git.objects import DiffResult, commit_log_between, diff_refs, diff_single, read_blob
+from rbtr.github.client import format_discussion_entry, get_pr_discussion as fetch_pr_discussion
+from rbtr.github.draft import load_draft, save_draft
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
+from rbtr.models import (
+    DiscussionEntry,
+    InlineComment,
+    PRTarget,
+    ReviewDraft,
+)
 
 from .agent import AgentDeps, agent
 
@@ -47,16 +55,41 @@ async def _require_repo(
     return tool_def
 
 
+async def _require_pr(
+    ctx: RunContext[AgentDeps],
+    tool_def: ToolDefinition,
+) -> ToolDefinition | None:
+    """Return the tool definition only when a PR target and GitHub auth are available."""
+    session = ctx.deps.session
+    if session.gh is None or not isinstance(session.review_target, PRTarget):
+        return None
+    return tool_def
+
+
+async def _require_pr_target(
+    ctx: RunContext[AgentDeps],
+    tool_def: ToolDefinition,
+) -> ToolDefinition | None:
+    """Return the tool definition only when a PR target is selected.
+
+    Unlike ``_require_pr``, does not require GitHub auth — draft
+    management is purely local.
+    """
+    if not isinstance(ctx.deps.session.review_target, PRTarget):
+        return None
+    return tool_def
+
+
 # ── Accessor helpers ─────────────────────────────────────────────────
 
 
 def _head_ref(ctx: RunContext[AgentDeps]) -> str:
-    """Return the head branch ref from the review target."""
+    """Return the git-resolvable head ref from the review target."""
     target = ctx.deps.session.review_target
     if target is None:  # pragma: no cover — guarded by prepare
         msg = "no review target"
         raise RuntimeError(msg)
-    return target.head_branch
+    return target.head_ref
 
 
 def _store(ctx: RunContext[AgentDeps]) -> IndexStore:
@@ -88,7 +121,7 @@ def _resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
             if target is None:  # pragma: no cover — guarded by prepare
                 msg = "no review target"
                 raise RuntimeError(msg)
-            return target.head_branch
+            return target.head_ref
         case "base":
             if target is None:  # pragma: no cover — guarded by prepare
                 msg = "no review target"
@@ -108,6 +141,241 @@ def _limited(shown: int, total: int, *, hint: str) -> str:
     consistent format and knows how to request more.
     """
     return f"\n\n... limited ({shown}/{total}). {hint}"
+
+
+# ── GitHub discussion tool (require PR) ──────────────────────────────
+
+
+@agent.tool(prepare=_require_pr)
+def get_pr_discussion(
+    ctx: RunContext[AgentDeps],
+    offset: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """Read the existing discussion on the current pull request.
+
+    Fetches all reviews, inline comments, and general comments
+    from GitHub, sorted chronologically (oldest first).  Includes
+    bot comments (CI, linters) and emoji reactions.
+
+    Use this before starting a review to see what's already been
+    said — avoid duplicating existing feedback, build on
+    unresolved threads, and respect resolved discussions.
+
+    Each entry shows the author, timestamp, type (review/inline/
+    comment), and body.  Inline comments include the file path,
+    line number, and diff context.  Reviews show their verdict
+    (APPROVED, CHANGES_REQUESTED, etc.).
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.
+
+    Args:
+        offset: Number of entries to skip (default 0).  Use to
+            fetch the next page when a previous call was limited.
+        max_results: Maximum entries to return per call
+            (defaults to ``tools.max_results`` config value).
+    """
+    session = ctx.deps.session
+    target = session.review_target
+    if not isinstance(target, PRTarget) or session.gh is None:
+        return "No PR selected or not authenticated with GitHub."
+
+    # Fetch and cache on session for the duration of the review.
+    if session.discussion_cache is None:
+        session.discussion_cache = fetch_pr_discussion(
+            session.gh, session.owner, session.repo_name, target.number
+        )
+    entries = session.discussion_cache
+
+    if not entries:
+        return "No discussion on this PR yet."
+
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    total = len(entries)
+    page: list[DiscussionEntry] = entries[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} entries."
+
+    lines = [format_discussion_entry(entry) for entry in page]
+    result = "\n\n---\n\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+# ── Draft management tools (require PR target) ──────────────────────
+
+
+def _pr_number(ctx: RunContext[AgentDeps]) -> int:
+    """Return the PR number from the review target."""
+    target = ctx.deps.session.review_target
+    if not isinstance(target, PRTarget):  # pragma: no cover — guarded by prepare
+        msg = "no PR target"
+        raise RuntimeError(msg)
+    return target.number
+
+
+def _load_or_create_draft(pr_number: int) -> ReviewDraft:
+    """Load the draft from disk or create an empty one."""
+    return load_draft(pr_number) or ReviewDraft()
+
+
+@agent.tool(prepare=_require_pr_target)
+def add_review_comment(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    line: int,
+    body: str,
+    suggestion: str = "",
+) -> str:
+    """Add an inline comment to the review draft.
+
+    Appends a new comment targeting a specific file and line.
+    The draft is saved to disk immediately.  Use this to build
+    up review feedback incrementally during the conversation.
+
+    The comment will appear on the PR at the specified file and
+    line when the review is posted via ``/draft post``.
+
+    Args:
+        path: File path relative to repo root
+            (e.g. ``src/api/handler.py``).
+        line: Line number in the head version of the file
+            (1-indexed).
+        body: Markdown body of the comment.  Include a severity
+            label (e.g. ``**blocker:**``) as part of the text
+            when appropriate.
+        suggestion: Optional replacement code.  When non-empty,
+            posted as a GitHub suggestion block that the author
+            can apply directly.
+    """
+
+    pr = _pr_number(ctx)
+    draft = _load_or_create_draft(pr)
+
+    comment = InlineComment(
+        path=path,
+        line=line,
+        body=body,
+        suggestion=suggestion,
+    )
+    draft = draft.model_copy(update={"comments": [*draft.comments, comment]})
+    save_draft(pr, draft)
+
+    return f"Comment added ({path}:{line}). Draft has {len(draft.comments)} comment(s)."
+
+
+@agent.tool(prepare=_require_pr_target)
+def edit_review_comment(
+    ctx: RunContext[AgentDeps],
+    index: int,
+    body: str = "",
+    suggestion: str | None = None,
+) -> str:
+    """Edit an existing comment in the review draft by index.
+
+    Update the body or suggestion of a comment.  Only the fields
+    you provide are changed — omit a field to keep its current
+    value.  Use ``/draft`` to see the current draft with numbered
+    comments.
+
+    Args:
+        index: 1-based index of the comment to edit (as shown
+            by ``/draft``).
+        body: New markdown body.  Empty string keeps the
+            current body.
+        suggestion: New replacement code.  ``None`` keeps the
+            current value.  Empty string clears it.
+    """
+
+    pr = _pr_number(ctx)
+    draft = _load_or_create_draft(pr)
+
+    if not draft.comments:
+        return "Draft has no comments to edit."
+
+    if index < 1 or index > len(draft.comments):
+        return f"Invalid index {index}. Draft has {len(draft.comments)} comment(s) (1-indexed)."
+
+    comment = draft.comments[index - 1]
+    updates: dict[str, str] = {}
+
+    if body:
+        updates["body"] = body
+    if suggestion is not None:
+        updates["suggestion"] = suggestion
+
+    updated = comment.model_copy(update=updates)
+    new_comments = list(draft.comments)
+    new_comments[index - 1] = updated
+    draft = draft.model_copy(update={"comments": new_comments})
+    save_draft(pr, draft)
+
+    return f"Comment {index} updated ({updated.path}:{updated.line})."
+
+
+@agent.tool(prepare=_require_pr_target)
+def remove_review_comment(
+    ctx: RunContext[AgentDeps],
+    index: int,
+) -> str:
+    """Remove a comment from the review draft by index.
+
+    Use ``/draft`` to see the current draft with numbered
+    comments.
+
+    Args:
+        index: 1-based index of the comment to remove (as shown
+            by ``/draft``).
+    """
+
+    pr = _pr_number(ctx)
+    draft = _load_or_create_draft(pr)
+
+    if not draft.comments:
+        return "Draft has no comments to remove."
+
+    if index < 1 or index > len(draft.comments):
+        return f"Invalid index {index}. Draft has {len(draft.comments)} comment(s) (1-indexed)."
+
+    removed = draft.comments[index - 1]
+    new_comments = [c for i, c in enumerate(draft.comments) if i != index - 1]
+    draft = draft.model_copy(update={"comments": new_comments})
+    save_draft(pr, draft)
+
+    return (
+        f"Removed comment {index} ({removed.path}:{removed.line}). "
+        f"Draft has {len(draft.comments)} comment(s)."
+    )
+
+
+@agent.tool(prepare=_require_pr_target)
+def set_review_summary(
+    ctx: RunContext[AgentDeps],
+    summary: str,
+) -> str:
+    """Set or replace the top-level summary of the review draft.
+
+    This is the main body of the review that appears at the top
+    when posted to GitHub — a high-level assessment of the PR.
+
+    Args:
+        summary: Markdown text for the review summary.
+    """
+
+    pr = _pr_number(ctx)
+    draft = _load_or_create_draft(pr)
+    draft = draft.model_copy(update={"summary": summary})
+    save_draft(pr, draft)
+
+    return f"Review summary updated ({len(summary)} chars)."
 
 
 # ── Search tools (require index) ────────────────────────────────────
@@ -621,7 +889,7 @@ def changed_symbols(
     if target is None:
         return "No review target selected."
 
-    sd = compute_diff(target.base_branch, target.head_branch, store)
+    sd = compute_diff(target.base_branch, target.head_ref, store)
     sections: list[str] = []
 
     if sd.added:
@@ -701,7 +969,7 @@ def changed_files(
         max_results: Maximum entries to return per call
             (defaults to ``tools.max_results`` config value).
     """
-    from rbtr.index.git import changed_files as _changed_files  # deferred: avoid circular
+    from rbtr.git import changed_files as _changed_files  # deferred: avoid circular
 
     repo = _repo(ctx)
     target = ctx.deps.session.review_target
@@ -709,7 +977,7 @@ def changed_files(
         return "No review target selected."
 
     try:
-        paths = _changed_files(repo, target.base_branch, target.head_branch)
+        paths = _changed_files(repo, target.base_branch, target.head_ref)
     except KeyError as exc:
         return f"Could not resolve refs: {exc}"
 
@@ -793,60 +1061,29 @@ def diff(
         # Default: base → head of review target.
         if target is None:
             return "No review target selected."
-        base_ref = target.base_branch
-        head_ref = target.head_branch
+        result = diff_refs(repo, target.base_branch, target.head_ref, path=path)
     elif ".." in ref:
         parts = ref.split("..", 1)
-        base_ref = parts[0]
-        head_ref = parts[1]
+        result = diff_refs(repo, parts[0], parts[1], path=path)
     else:
         # Single ref — diff against parent.
-        try:
-            commit = repo.revparse_single(ref).peel(pygit2.Commit)
-        except (KeyError, ValueError, pygit2.GitError):
-            return f"Ref '{ref}' not found."
-        if not commit.parent_ids:
-            return f"Commit {ref} has no parent (initial commit)."
-        parent_obj = repo.get(commit.parent_ids[0])
-        if parent_obj is None:
-            return f"Parent of {ref} not found."
-        parent = parent_obj.peel(pygit2.Commit)
-        return _format_diff(repo.diff(parent, commit), path, offset, capped)
+        result = diff_single(repo, ref, path=path)
 
-    try:
-        base_commit = repo.revparse_single(base_ref).peel(pygit2.Commit)
-        head_commit = repo.revparse_single(head_ref).peel(pygit2.Commit)
-    except (KeyError, ValueError, pygit2.GitError) as exc:
-        return f"Could not resolve refs: {exc}"
-
-    return _format_diff(repo.diff(base_commit, head_commit), path, offset, capped)
+    if isinstance(result, str):
+        return result
+    return _paginate_diff(result, offset, capped)
 
 
-def _format_diff(d: pygit2.Diff, path: str, offset: int, max_lines: int) -> str:
-    """Format a pygit2 Diff as a line-limited unified diff string."""
-    if path:
-        patches = [p for p in d if p.delta.old_file.path == path or p.delta.new_file.path == path]
-        if not patches:
-            return f"No changes to '{path}' in this diff."
-        patch_text = "\n".join(p.text for p in patches)
-        n_files = len(patches)
-        insertions = sum(p.line_stats[1] for p in patches)
-        deletions = sum(p.line_stats[2] for p in patches)
-        header = f"{n_files} files changed, +{insertions} -{deletions}"
-    else:
-        stats = d.stats
-        header = f"{stats.files_changed} files changed, +{stats.insertions} -{stats.deletions}"
-        patch_text = d.patch or "(empty diff)"
+def _paginate_diff(dr: DiffResult, offset: int, max_lines: int) -> str:
+    """Apply pagination to a ``DiffResult``."""
+    total = len(dr.patch_lines)
+    page = dr.patch_lines[offset : offset + max_lines]
 
-    all_lines = patch_text.splitlines()
-    total = len(all_lines)
-    page = all_lines[offset : offset + max_lines]
-
-    result = header + "\n\n" + "\n".join(page)
+    text = dr.header + "\n\n" + "\n".join(page)
     shown_end = offset + len(page)
     if shown_end < total:
-        result += _limited(shown_end, total, hint=f"offset={shown_end} to continue")
-    return result
+        text += _limited(shown_end, total, hint=f"offset={shown_end} to continue")
+    return text
 
 
 @agent.tool(prepare=_require_repo)
@@ -880,35 +1117,21 @@ def commit_log(
     if target is None:
         return "No review target selected."
 
-    try:
-        head_commit = repo.revparse_single(target.head_branch).peel(pygit2.Commit)
-        base_commit = repo.revparse_single(target.base_branch).peel(pygit2.Commit)
-    except (KeyError, ValueError, pygit2.GitError) as exc:
-        return f"Could not resolve refs: {exc}"
+    entries = commit_log_between(repo, target.base_branch, target.head_ref)
+    if isinstance(entries, str):
+        return entries
 
-    # Find merge base to know where to stop.
-    merge_base = repo.merge_base(head_commit.id, base_commit.id)
-    stop_at = merge_base if merge_base else None
-
-    all_entries: list[str] = []
-    for commit in repo.walk(head_commit.id, SortMode.TOPOLOGICAL):
-        if stop_at and commit.id == stop_at:
-            break
-        msg = commit.message.strip().split("\n", 1)[0]
-        sha = str(commit.id)[:8]
-        author = commit.author.name
-        all_entries.append(f"{sha} {author}: {msg}")
-
-    if not all_entries:
+    if not entries:
         return "No commits between base and head (branches are identical)."
 
-    total = len(all_entries)
+    all_lines = [f"{e.short_sha} {e.author}: {e.message}" for e in entries]
+    total = len(all_lines)
     limit = (
         min(max_results, config.tools.max_results)
         if max_results is not None
         else config.tools.max_results
     )
-    page = all_entries[offset : offset + limit]
+    page = all_lines[offset : offset + limit]
     if not page:
         return f"Offset {offset} exceeds {total} commits."
     result = "\n".join(page)
@@ -969,18 +1192,11 @@ def _list_fs_files(prefix: str, repo: pygit2.Repository | None = None) -> list[s
 
 
 def _read_blob(repo: pygit2.Repository, ref: str, path: str) -> pygit2.Blob | str:
-    """Walk the tree at *ref* and return the blob for *path*.
-
-    Returns the blob on success, or an error string on failure.
-    """
-    try:
-        commit = resolve_commit(repo, ref)
-    except KeyError:
-        return f"Ref '{ref}' not found."
-    for entry_path, blob in walk_tree(repo, commit.tree, ""):
-        if entry_path == path:
-            return blob
-    return f"File '{path}' not found at ref '{ref}'."
+    """Return the blob for *path* at *ref*, or an error string."""
+    blob = read_blob(repo, ref, path)
+    if blob is None:
+        return f"File '{path}' not found at ref '{ref}'."
+    return blob
 
 
 def _number_lines(lines: list[str], start: int) -> str:
@@ -1497,9 +1713,6 @@ def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
 # ── Review notes (always available) ──────────────────────────────────
 
 _REVIEW_DIR = Path(".rbtr")
-_REVIEW_PREFIX = "REVIEW-"
-
-
 @agent.tool
 def edit(
     ctx: RunContext[AgentDeps],
@@ -1513,8 +1726,9 @@ def edit(
     findings, checklists, draft comments — that persist across
     turns.  Files are plain text (Markdown recommended).
 
-    Only files inside ``.rbtr/`` whose name starts with
-    ``REVIEW-`` are writable (e.g. ``.rbtr/REVIEW-plan.md``,
+    Only files inside ``.rbtr/`` whose name starts with the
+    configured workspace prefix (default ``REVIEW-``) are
+    writable (e.g. ``.rbtr/REVIEW-plan.md``,
     ``.rbtr/REVIEW-findings.md``).
 
     Two modes:
@@ -1529,18 +1743,19 @@ def edit(
     Args:
         path: File path relative to the workspace root
             (e.g. ``.rbtr/REVIEW-plan.md``).  Must be inside
-            ``.rbtr/`` and start with ``REVIEW-``.
+            ``.rbtr/`` and start with the workspace prefix.
         new_text: Content to write or insert.
         old_text: Exact text to find and replace.  Empty string
             (default) creates the file or appends to it.
     """
+    prefix = config.tools.workspace_prefix
     # Validate path.
     p = PurePosixPath(path)
     parts = p.parts
     if len(parts) < 2 or parts[0] != ".rbtr":
         return f"Path must be inside .rbtr/ — got '{path}'."
-    if not p.name.startswith(_REVIEW_PREFIX):
-        return f"Filename must start with '{_REVIEW_PREFIX}' — got '{p.name}'."
+    if not p.name.startswith(prefix):
+        return f"Filename must start with '{prefix}' — got '{p.name}'."
     if ".." in parts:
         return f"Path '{path}' contains '..' — not allowed."
 

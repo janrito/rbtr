@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 import pygit2
 
 from rbtr.config import config
+from rbtr.git import FileEntry, list_files
 from rbtr.index.chunks import chunk_plaintext
 from rbtr.index.edges import infer_doc_edges, infer_import_edges, infer_test_edges
-from rbtr.index.git import FileEntry, list_files
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, IndexStats
 from rbtr.index.store import IndexStore
 from rbtr.plugins.manager import get_manager
@@ -216,7 +216,7 @@ def update_index(
         on_progress:       Optional file extraction progress callback.
         on_embed_progress: Optional embedding progress callback.
     """
-    from rbtr.index.git import changed_files
+    from rbtr.git import changed_files
 
     t0 = time.monotonic()
     result = IndexResult()

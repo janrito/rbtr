@@ -37,6 +37,14 @@ def _setup_repo(monkeypatch, tmp) -> None:
 def test_setup_detects_github_token(monkeypatch, creds_path, config_path) -> None:
     """Setup with a stored GitHub token authenticates automatically."""
     creds.update(github_token="ghp_test123")
+
+    # Mock Github so get_user().login succeeds without a real API call.
+    from unittest.mock import MagicMock
+
+    fake_gh = MagicMock()
+    fake_gh.get_user.return_value.login = "testuser"
+    monkeypatch.setattr("rbtr.engine.core.Github", lambda **_kw: fake_gh)
+
     with tempfile.TemporaryDirectory() as tmp:
         _setup_repo(monkeypatch, tmp)
         session = Session()
@@ -47,6 +55,7 @@ def test_setup_detects_github_token(monkeypatch, creds_path, config_path) -> Non
         texts = output_texts(drain(events))
 
         assert session.gh is not None
+        assert session.gh_username == "testuser"
         assert any("Authenticated with GitHub" in t for t in texts)
 
 

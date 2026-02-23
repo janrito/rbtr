@@ -9,7 +9,7 @@ import pygit2
 from github import Github
 from pydantic_ai.messages import ModelMessage
 
-from rbtr.models import Target
+from rbtr.models import DiscussionEntry, Target
 from rbtr.providers import claude as claude_provider, openai_codex as codex_provider
 from rbtr.usage import SessionUsage
 
@@ -25,6 +25,7 @@ class Session:
     owner: str = ""
     repo_name: str = ""
     gh: Github | None = None
+    gh_username: str = ""
     review_target: Target | None = None
     # Code index store — populated on /review, cleared on /new.
     index: IndexStore | None = None
@@ -54,6 +55,8 @@ class Session:
     message_history: list[ModelMessage] = field(default_factory=list)
     # Cumulative token usage and cost for the current conversation.
     usage: SessionUsage = field(default_factory=SessionUsage)
+    # Cached PR discussion — fetched once per PR, cleared on new /review.
+    discussion_cache: list[DiscussionEntry] | None = None
 
     @property
     def has_llm(self) -> bool:

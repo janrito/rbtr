@@ -650,11 +650,18 @@ def test_connect_github_success(creds_path, mocker) -> None:
     mocker.patch("rbtr.engine.connect.auth.request_device_code", return_value=device_resp)
     mocker.patch("rbtr.engine.connect.auth.poll_for_token", return_value="ghp_newtoken")
     mocker.patch.object(Engine, "_copy_to_clipboard")
+
+    # Mock Github so get_user().login succeeds without a real API call.
+    fake_gh = mocker.MagicMock()
+    fake_gh.get_user.return_value.login = "testuser"
+    mocker.patch("rbtr.engine.connect.Github", return_value=fake_gh)
+
     engine.run_task(TaskType.COMMAND, "/connect github")
 
     evts = drain(events)
     assert evts[-1].success is True
     assert session.gh is not None
+    assert session.gh_username == "testuser"
     assert creds.github_token == "ghp_newtoken"
 
     links = [e for e in evts if isinstance(e, LinkOutput)]
@@ -917,6 +924,11 @@ def test_connect_github_flushes_link_panel(creds_path, mocker) -> None:
     mocker.patch("rbtr.engine.connect.auth.request_device_code", return_value=device_resp)
     mocker.patch("rbtr.engine.connect.auth.poll_for_token", return_value="ghp_tok")
     mocker.patch.object(engine, "_copy_to_clipboard")
+
+    fake_gh = mocker.MagicMock()
+    fake_gh.get_user.return_value.login = "testuser"
+    mocker.patch("rbtr.engine.connect.Github", return_value=fake_gh)
+
     engine.run_task(TaskType.COMMAND, "/connect github")
 
     evts = drain(events)

@@ -8,13 +8,8 @@ import pygit2
 import pytest
 
 from rbtr.config import config
-from rbtr.index.git import (
-    FileEntry,
-    _matches_globs,
-    changed_files,
-    is_binary,
-    list_files,
-)
+from rbtr.git import FileEntry, changed_files, is_binary, list_files
+from rbtr.git.filters import _matches_globs
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

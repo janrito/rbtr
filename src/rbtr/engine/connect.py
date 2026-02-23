@@ -84,7 +84,9 @@ def _connect_github(engine: Engine) -> None:
         engine._clear()
 
         creds.update(github_token=token)
-        engine.session.gh = Github(auth=Auth.Token(token), timeout=config.github.timeout)
+        gh = Github(auth=Auth.Token(token), timeout=config.github.timeout)
+        engine.session.gh = gh
+        engine.session.gh_username = gh.get_user().login
         engine._out("Authenticated with GitHub.")
     except TaskCancelled:
         raise

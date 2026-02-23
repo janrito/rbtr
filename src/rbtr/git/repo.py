@@ -1,5 +1,8 @@
-"""Local git repository operations for rbtr."""
+"""Repository lifecycle — open, status, branches, remotes, fetch."""
 
+from __future__ import annotations
+
+import logging
 import re
 from datetime import UTC, datetime
 
@@ -7,6 +10,8 @@ import pygit2
 
 from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary
+
+log = logging.getLogger(__name__)
 
 
 def open_repo() -> pygit2.Repository:
@@ -36,6 +41,47 @@ def require_clean(repo: pygit2.Repository) -> None:
         raise RbtrError(
             "Working tree has uncommitted changes. Please commit or stash before running rbtr."
         )
+
+
+def fetch_pr_head(repo: pygit2.Repository, pr_number: int) -> None:
+    """Fetch a PR's head ref from origin so it's available locally.
+
+    Uses GitHub's canonical ``refs/pull/<number>/head`` ref, which
+    works regardless of whether the PR comes from a fork or the
+    same repository.  The fetched commit is stored under
+    ``refs/pull/<number>/head`` in the local ref namespace.
+
+    Silently succeeds if the fetch fails (e.g. no network, auth
+    error) — callers handle missing refs downstream.
+    """
+    try:
+        remote = repo.remotes["origin"]
+    except KeyError:
+        return
+    url = remote.url
+    if url is None:
+        return
+    pr_ref = f"refs/pull/{pr_number}/head"
+    refspec = f"+{pr_ref}:{pr_ref}"
+    callbacks = _make_fetch_callbacks(url)
+    try:
+        remote.fetch([refspec], callbacks=callbacks)
+    except pygit2.GitError as exc:
+        log.debug("fetch_pr_head(#%d) failed: %s", pr_number, exc)
+
+
+def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
+    """Build ``RemoteCallbacks`` with credentials suitable for *url*.
+
+    SSH URLs (``git@…`` or ``ssh://…``) → ``KeypairFromAgent``
+    (delegates to the user's SSH agent).  Everything else uses
+    pygit2's default credential discovery.
+    """
+    if url.startswith("git@") or url.startswith("ssh://"):
+        return pygit2.RemoteCallbacks(
+            credentials=pygit2.KeypairFromAgent("git"),
+        )
+    return pygit2.RemoteCallbacks()
 
 
 def parse_github_remote(repo: pygit2.Repository) -> tuple[str, str]:

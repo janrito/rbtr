@@ -17,6 +17,7 @@ class Command(_CommandMixin, Enum):
 
     HELP = "/help", "Show available commands"
     REVIEW = "/review", "List open PRs, or select a target"
+    DRAFT = "/draft", "View, sync, or post the review draft"
     CONNECT = "/connect", "Connect a service"
     MODEL = "/model", "List or set active model"
     INDEX = "/index", "Index status, clear, rebuild, prune, model"
