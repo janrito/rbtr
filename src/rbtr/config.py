@@ -144,6 +144,8 @@ class TuiConfig(BaseModel):
     tool_max_lines: int = 15
     tool_max_chars: int = 8_000
     max_completions: int = 20
+    max_history: int = 500
+    """Max input history entries kept in memory for Up/Down navigation."""
     shell_completion_timeout: float = 2.0
     double_ctrl_c_window: float = 0.5
     poll_interval: float = 1 / 30

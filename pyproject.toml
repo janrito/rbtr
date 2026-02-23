@@ -33,6 +33,7 @@ dependencies = [
   "llama-cpp-python",
   "huggingface-hub",
   "pluggy>=1.6.0",
+  "uuid-utils>=0.14.1",
 ]
 
 [project.optional-dependencies]

@@ -181,7 +181,7 @@ class UI:
     ) -> None:
         self.console = console
         self.session = session
-        self.inp = InputState()
+        self.inp = InputState(history_provider=engine._store.search_history)
         self._events = events
         self._engine = engine
         self._pr_number = pr_number
@@ -1017,5 +1017,8 @@ def run(pr_number: int | None) -> None:
     session = Session()
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(session, events)
-    ui = UI(console, session, events, engine, pr_number)
-    ui.run()
+    try:
+        ui = UI(console, session, events, engine, pr_number)
+        ui.run()
+    finally:
+        engine.close()

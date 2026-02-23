@@ -100,6 +100,11 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
     summary_msg = build_summary_message(summary_text)
     engine.session.message_history = [summary_msg, *kept]
 
+    # Reset saved count so the compacted history (summary + kept) is
+    # persisted on the next LLM turn.  Old rows remain in the DB —
+    # compacted_by marking is deferred to session-resume support.
+    engine.session.saved_count = 0
+
     # last_input_tokens intentionally not updated — we can't accurately
     # estimate it without knowing system prompt and tool definition
     # overhead.  The next LLM call will set the correct value.

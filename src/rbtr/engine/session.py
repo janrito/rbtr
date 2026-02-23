@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 class Session:
     """Mutable state for the current rbtr session."""
 
+    # Session persistence — ID set on init, label set on setup.
+    session_id: str = ""
+    session_label: str = ""
+    # Number of messages already persisted — auto-save only inserts
+    # messages from ``message_history[saved_count:]``.
+    saved_count: int = 0
     repo: pygit2.Repository | None = None
     owner: str = ""
     repo_name: str = ""

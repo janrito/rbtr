@@ -290,6 +290,10 @@ class InputState:
     # Shared history — reader uses for Up/Down, UI appends for
     # auto-dispatched commands (e.g. startup /review).
     history: list[str] = field(default_factory=list)
+    # Optional callback to load history from an external store (e.g.
+    # session DB).  Called once on startup by InputReader._load_history.
+    # Signature: (prefix, limit) -> list[str], most recent first.
+    history_provider: typing.Callable[[str | None, int], list[str]] | None = None
 
     # ── Convenience accessors ────────────────────────────────────────
 
@@ -313,13 +317,14 @@ class InputState:
         self.buffer.set_document(Document(text, pos), bypass_readonly=True)
 
     def append_history(self, entry: str) -> None:
-        """Append to in-memory list and flush to disk immediately."""
+        """Append to in-memory list for Up/Down navigation.
+
+        Disk persistence is handled by the engine's auto-save, not here.
+        """
         self.history.append(entry)
-        if len(self.history) > 500:
-            self.history = self.history[-500:]
-        with contextlib.suppress(OSError):
-            HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-            HISTORY_PATH.write_text("\n".join(self.history) + "\n")
+        max_hist = config.tui.max_history
+        if len(self.history) > max_hist:
+            self.history = self.history[-max_hist:]
 
     def clear_completions(self) -> None:
         self.completions = []
@@ -437,10 +442,35 @@ class InputReader:
     # ── History persistence ──────────────────────────────────────────
 
     def _load_history(self) -> None:
-        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        provider = self._state.history_provider
+        if provider is not None:
+            self._state.history = list(reversed(provider(None, config.tui.max_history)))
+            if not self._state.history:
+                # First run with DB — import legacy flat file if it exists.
+                self._import_legacy_history()
+            return
+        # No provider — fall back to legacy flat file.
         with contextlib.suppress(FileNotFoundError, OSError):
             lines = HISTORY_PATH.read_text().splitlines()
             self._state.history = [ln for ln in lines if ln.strip()]
+
+    def _import_legacy_history(self) -> None:
+        """One-time import of the legacy flat history file into memory.
+
+        After import, the flat file is renamed to ``history.bak`` so
+        it is not imported again.  The entries will be persisted to the
+        DB naturally when the user re-submits them, or on the next
+        engine auto-save cycle.
+        """
+        if not HISTORY_PATH.exists():
+            return
+        with contextlib.suppress(FileNotFoundError, OSError):
+            lines = HISTORY_PATH.read_text().splitlines()
+            self._state.history = [ln for ln in lines if ln.strip()]
+        if self._state.history:
+            backup = HISTORY_PATH.with_suffix(".bak")
+            with contextlib.suppress(OSError):
+                HISTORY_PATH.rename(backup)
 
     # ── Reader loop ──────────────────────────────────────────────────
 

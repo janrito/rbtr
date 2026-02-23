@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 
+import pygit2
 from github import Auth, Github
 
 from rbtr.config import config
@@ -19,6 +20,7 @@ from rbtr.events import Event, FlushPanel, Output, TaskFinished, TaskStarted
 from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import endpoint as endpoint_provider, model_context_window
+from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
 from .compact import compact_history
@@ -36,7 +38,13 @@ from .types import Command, TaskCancelled, TaskType
 class Engine:
     """Executes commands and emits typed events. Knows nothing about the UI."""
 
-    def __init__(self, session: Session, events: queue.Queue[Event]) -> None:
+    def __init__(
+        self,
+        session: Session,
+        events: queue.Queue[Event],
+        *,
+        store: SessionStore | None = None,
+    ) -> None:
         self.session = session
         self._events = events
         self._last_shell_full_output: tuple[str, str, int, int] | None = (
@@ -45,6 +53,9 @@ class Engine:
         self._cancel = threading.Event()
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
+        # Session persistence store.
+        self._store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
+        session.session_id = self._store.new_id()
         # Long-lived event loop for async work (LLM streaming).
         # Keeps httpx connection pools alive across calls.
         self._loop = asyncio.new_event_loop()
@@ -136,6 +147,7 @@ class Engine:
         self.session.repo = repo
         self.session.owner = owner
         self.session.repo_name = repo_name
+        self.session.session_label = _make_session_label(owner, repo_name, repo)
         self._out(f"Repository: {owner}/{repo_name}")
 
         if creds.github_token:
@@ -220,7 +232,15 @@ class Engine:
     def _cmd_new(self) -> None:
         self.session.message_history.clear()
         self.session.usage.reset()
+        self.session.session_id = self._store.new_id()
+        self.session.saved_count = 0
         self._out("Conversation cleared.")
+
+    # ── Lifecycle ─────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        """Release resources — call on shutdown."""
+        self._store.close()
 
     # ── Utilities ────────────────────────────────────────────────────
 
@@ -247,3 +267,15 @@ def _init_context_window(engine: Engine) -> None:
     if ctx is not None:
         engine.session.usage.context_window = ctx
         engine.session.usage.context_window_known = True
+
+
+def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:
+    """Build a human-readable session label from repo context.
+
+    Format: ``owner/repo — ref`` where *ref* is the current branch
+    name or short commit hash.
+    """
+    ref = ""
+    if not repo.head_is_unborn:
+        ref = str(repo.head.target)[:8] if repo.head_is_detached else repo.head.shorthand
+    return f"{owner}/{repo_name} — {ref}" if ref else f"{owner}/{repo_name}"

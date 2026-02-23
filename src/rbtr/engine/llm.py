@@ -34,6 +34,7 @@ from rbtr.providers import (
 
 from .agent import AgentDeps, agent
 from .history import demote_thinking, is_history_format_error
+from .save import save_new_messages
 from .types import TaskCancelled
 
 if TYPE_CHECKING:
@@ -413,3 +414,6 @@ def _record_usage(
         cost_available=cost_available,
         context_window=context_window,
     )
+
+    # Persist new messages to the session store.
+    save_new_messages(engine, run_cost=run_cost if cost_available else None)

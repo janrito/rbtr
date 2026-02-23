@@ -19,6 +19,7 @@ from rbtr.creds import OAuthCreds
 from rbtr.engine import Engine, Session
 from rbtr.events import Event, IndexReady, Output
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
+from rbtr.sessions.store import SessionStore
 
 # ── Shared test data ─────────────────────────────────────────────────
 #
@@ -100,12 +101,13 @@ def make_engine(
     gh: Github | None = None,
     repo: pygit2.Repository | None = None,
 ) -> tuple[Engine, queue.Queue[Event], Session]:
-    """Create an Engine with a pre-populated Session."""
+    """Create an Engine with a pre-populated Session and in-memory store."""
     session = Session(owner=owner, repo_name=repo_name, gh=gh)
     if repo is not None:
         session.repo = repo
     events: queue.Queue[Event] = queue.Queue()
-    engine = Engine(session, events)
+    store = SessionStore()  # in-memory
+    engine = Engine(session, events, store=store)
     return engine, events, session
 
 
