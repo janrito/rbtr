@@ -111,6 +111,9 @@ class Engine:
         except TaskCancelled:
             success = False
             cancelled = True
+        except RbtrError as e:
+            self._error(str(e))
+            success = False
         except Exception as e:
             self._error(f"Unexpected error: {e}")
             success = False

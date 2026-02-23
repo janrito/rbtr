@@ -291,9 +291,7 @@ class UI:
             return
 
         matches = [
-            (f"/draft {name}", desc)
-            for name, desc in SUBCOMMANDS
-            if name.startswith(partial)
+            (f"/draft {name}", desc) for name, desc in SUBCOMMANDS if name.startswith(partial)
         ]
         self.inp.apply_completions(matches)
 

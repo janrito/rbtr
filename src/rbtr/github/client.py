@@ -6,9 +6,11 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import pygit2
-from github import Github, GithubException
+from github import Github, UnknownObjectException
+from github.GithubObject import GithubObject
 from github.IssueComment import IssueComment
 from github.PullRequest import PullRequest, ReviewComment
 from github.PullRequestComment import PullRequestComment
@@ -87,10 +89,10 @@ class GitHubCtx:
 
 def _pull(ctx: GitHubCtx, pr_number: int) -> PullRequest:
     """Fetch a pull request or raise ``RbtrError``."""
-    repo = ctx.gh.get_repo(ctx.full_name)
     try:
+        repo = ctx.gh.get_repo(ctx.full_name)
         return repo.get_pull(pr_number)
-    except GithubException as err:
+    except UnknownObjectException as err:
         raise RbtrError(f"PR #{pr_number} not found in {ctx.full_name}.") from err
 
 
@@ -98,12 +100,16 @@ def _pull(ctx: GitHubCtx, pr_number: int) -> PullRequest:
 
 
 def list_open_prs(ctx: GitHubCtx) -> list[PRSummary]:
-    """List open pull requests, most recently updated first."""
+    """List open pull requests, most recently updated first.
+
+    Fetches only the first page (up to 30 PRs) to avoid
+    multiple paginated API calls on large repositories.
+    """
     repo = ctx.gh.get_repo(ctx.full_name)
     pulls = repo.get_pulls(state="open", sort="updated", direction="desc")
 
     results: list[PRSummary] = []
-    for pr in pulls:
+    for pr in pulls.get_page(0):
         results.append(
             PRSummary(
                 number=pr.number,
@@ -122,32 +128,42 @@ def list_open_prs(ctx: GitHubCtx) -> list[PRSummary]:
 def list_unmerged_branches(ctx: GitHubCtx, open_pr_branches: set[str]) -> list[BranchSummary]:
     """List remote branches that have no open PR, excluding the default branch.
 
-    Returns at most config.github.max_branches results, sorted by most recently updated first.
+    Returns at most ``config.github.max_branches`` results, sorted by
+    most recently updated first.  Fetches branch pages incrementally
+    and stops as soon as the limit is reached to avoid exhausting the
+    full branch list on large repositories.
     """
     repo = ctx.gh.get_repo(ctx.full_name)
-    default_branch = repo.default_branch
+    default = repo.default_branch
+    limit = config.github.max_branches
+    skip = {default} | open_pr_branches
 
+    branches = repo.get_branches()
     results: list[BranchSummary] = []
-    for branch in repo.get_branches():
-        if len(results) >= config.github.max_branches:
+    page = 0
+    while len(results) < limit:
+        batch = branches.get_page(page)
+        if not batch:
             break
-        if branch.name == default_branch:
-            continue
-        if branch.name in open_pr_branches:
-            continue
-        commit = branch.commit
-        results.append(
-            BranchSummary(
-                name=branch.name,
-                last_commit_sha=commit.sha,
-                last_commit_message=(
-                    commit.commit.message.split("\n", 1)[0] if commit.commit else ""
-                ),
-                updated_at=commit.commit.committer.date
-                if commit.commit and commit.commit.committer
-                else datetime.now(tz=UTC),
+        for branch in batch:
+            if branch.name in skip:
+                continue
+            commit = branch.commit
+            results.append(
+                BranchSummary(
+                    name=branch.name,
+                    last_commit_sha=commit.sha,
+                    last_commit_message=(
+                        commit.commit.message.split("\n", 1)[0] if commit.commit else ""
+                    ),
+                    updated_at=commit.commit.committer.date
+                    if commit.commit and commit.commit.committer
+                    else datetime.now(tz=UTC),
+                )
             )
-        )
+            if len(results) >= limit:
+                break
+        page += 1
 
     results.sort(key=lambda b: b.updated_at, reverse=True)
     return results
@@ -190,13 +206,21 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> Pending
         return None
 
     # Fetch inline comments for this specific review.
+    #
+    # Read from the list-response data directly via the base-class
+    # raw_data getter.  PullRequestComment properties trigger lazy-load
+    # completion against GET /repos/{owner}/{repo}/pulls/comments/{id},
+    # but pending review comments are NOT accessible at that endpoint
+    # (404).  The data we need is already present from the list call.
     comments: list[InlineComment] = []
+    raw_data = GithubObject.raw_data.fget  # type: ignore[attr-defined]  # @property always has fget
     for comment in pr.get_single_review_comments(pending.id):
+        data: dict[str, Any] = raw_data(comment)
         comments.append(
             InlineComment(
-                path=comment.path or "",
-                line=comment.line or 0,
-                body=comment.body or "",
+                path=data.get("path") or "",
+                line=data.get("line") or 0,
+                body=data.get("body") or "",
             )
         )
 

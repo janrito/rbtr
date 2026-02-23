@@ -11,13 +11,17 @@ The filename prefix comes from ``config.tools.workspace_prefix``
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from pathlib import Path
 
 import tomli_w
 
 from rbtr.config import WORKSPACE_DIR, config
+from rbtr.exceptions import RbtrError
 from rbtr.models import InlineComment, ReviewDraft
+
+log = logging.getLogger(__name__)
 
 
 def _draft_path(pr_number: int) -> Path:
@@ -27,19 +31,45 @@ def _draft_path(pr_number: int) -> Path:
 
 
 def load_draft(pr_number: int) -> ReviewDraft | None:
-    """Load a draft from disk, or ``None`` if it doesn't exist."""
+    """Load a draft from disk, or ``None`` if it doesn't exist.
+
+    Raises :class:`~rbtr.exceptions.RbtrError` if the file exists
+    but cannot be parsed, so the caller can surface a clear message
+    instead of a cryptic traceback.
+    """
     path = _draft_path(pr_number)
     if not path.exists():
         return None
     data = path.read_bytes()
-    return ReviewDraft.model_validate(tomllib.loads(data.decode()))
+    try:
+        return ReviewDraft.model_validate(tomllib.loads(data.decode()))
+    except (tomllib.TOMLDecodeError, ValueError) as exc:
+        log.warning("Corrupt draft %s: %s", path, exc)
+        raise RbtrError(
+            f"Draft file is corrupt ({path.name}): {exc}\n"
+            f"Run /draft clear to delete it and start fresh."
+        ) from exc
 
 
 def save_draft(pr_number: int, draft: ReviewDraft) -> None:
-    """Persist *draft* to disk.  Creates parent dirs if needed."""
+    """Persist *draft* to disk.  Creates parent dirs if needed.
+
+    Validates the serialised TOML round-trips before writing so a
+    corrupt file is never persisted.
+    """
     path = _draft_path(pr_number)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(draft.model_dump(mode="json")))
+    payload = draft.model_dump(
+        mode="json", exclude_defaults=True, exclude_unset=True, exclude_none=True
+    )
+    text = tomli_w.dumps(payload, multiline_strings=True)
+    # Guard: verify the TOML we're about to write can be parsed back.
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        log.warning("tomli_w produced unparseable TOML for PR #%d, falling back", pr_number)
+        text = tomli_w.dumps(payload)
+    path.write_text(text)
 
 
 def delete_draft(pr_number: int) -> bool:

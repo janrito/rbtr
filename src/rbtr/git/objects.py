@@ -254,6 +254,58 @@ def _build_diff_result(d: pygit2.Diff, path: str) -> DiffResult:
     )
 
 
+# ── Diff line ranges (for review comment validation) ─────────────────
+
+type DiffLineRanges = dict[str, set[int]]
+"""Mapping of file path → set of commentable line numbers (head side)."""
+
+
+def diff_line_ranges(
+    repo: pygit2.Repository,
+    base_ref: str,
+    head_ref: str,
+) -> DiffLineRanges:
+    """Return the set of commentable line numbers per file in the diff.
+
+    A line is "commentable" on GitHub if it appears in a diff hunk
+    — either as a changed line or a context line on the HEAD side.
+
+    The diff is computed from the **merge base** of the two refs,
+    matching how GitHub computes the PR diff (three-dot diff).
+    Without this, lines diverge when the base branch has received
+    new commits since the PR was opened.
+
+    Uses the ``new_lineno`` of each :class:`pygit2.DiffLine` to
+    collect every line the GitHub review API will accept for
+    ``side=RIGHT``.
+    """
+    base_commit = resolve_commit(repo, base_ref)
+    head_commit = resolve_commit(repo, head_ref)
+
+    # Use merge base to match GitHub's three-dot diff.
+    merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
+    if merge_base_oid is not None:
+        mb_obj = repo.get(merge_base_oid)
+        if mb_obj is not None:
+            base_commit = mb_obj.peel(pygit2.Commit)
+
+    d = repo.diff(base_commit, head_commit)
+
+    ranges: DiffLineRanges = {}
+    for patch in d:
+        if patch is None:
+            continue
+        path = patch.delta.new_file.path
+        lines: set[int] = set()
+        for hunk in patch.hunks:
+            for diff_line in hunk.lines:
+                if diff_line.new_lineno >= 0:
+                    lines.add(diff_line.new_lineno)
+        if lines:
+            ranges[path] = lines
+    return ranges
+
+
 # ── Changed files ────────────────────────────────────────────────────
 
 

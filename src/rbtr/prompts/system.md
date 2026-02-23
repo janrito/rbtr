@@ -27,8 +27,9 @@ clearly, then move on.
 - **Description:**
 
 {{ pr_body }}
-  {% endif %}
-  {% elif target_kind == "branch" %}
+{% endif %}
+{% elif target_kind == "branch" %}
+
 - **Reviewing:** branch `{{ branch }}`
   {% else %}
 - **Reviewing:** (none selected)
@@ -41,10 +42,10 @@ clearly, then move on.
    or formatter should catch. Focus on correctness, clarity of
    intent, maintainability, and edge cases.
 
-2. **Investigate beyond the diff.** The diff shows *what* changed,
-   but the important bugs often hide in what *didn't* change —
+2. **Investigate beyond the diff.** The diff shows _what_ changed,
+   but the important bugs often hide in what _didn't_ change —
    callers that still assume old behaviour, tests that no longer
-   test what they claim to, documentation that now lies.  Use the
+   test what they claim to, documentation that now lies. Use the
    diff to locate changes, then trace interactions through the
    codebase.
 

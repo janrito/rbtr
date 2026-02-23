@@ -83,7 +83,6 @@ def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
     return pygit2.RemoteCallbacks()
 
 
-
 def default_branch(repo: pygit2.Repository) -> str:
     """Return the name of the repository's default branch.
 

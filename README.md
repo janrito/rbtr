@@ -124,19 +124,19 @@ persisted to `config.toml` across sessions.
 
 ## Commands
 
-| Command                | Description                             |
-| ---------------------- | --------------------------------------- |
-| `/help`                | Show available commands                 |
-| `/review`              | List open PRs and branches              |
-| `/review <id>`         | Select a PR or branch for review        |
-| `/draft`               | View, sync, or post the review draft    |
-| `/connect <service>`   | Authenticate with a service             |
-| `/model`               | List available models from all providers|
-| `/model <provider/id>` | Set the active model                    |
-| `/index`               | Show index status, clear, rebuild       |
-| `/compact`             | Summarise older context to free space   |
-| `/new`                 | Start a new conversation                |
-| `/quit`                | Exit (also `/q`)                        |
+| Command                | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `/help`                | Show available commands                  |
+| `/review`              | List open PRs and branches               |
+| `/review <id>`         | Select a PR or branch for review         |
+| `/draft`               | View, sync, or post the review draft     |
+| `/connect <service>`   | Authenticate with a service              |
+| `/model`               | List available models from all providers |
+| `/model <provider/id>` | Set the active model                     |
+| `/index`               | Show index status, clear, rebuild        |
+| `/compact`             | Summarise older context to free space    |
+| `/new`                 | Start a new conversation                 |
+| `/quit`                | Exit (also `/q`)                         |
 
 ## Shell commands
 
@@ -154,13 +154,13 @@ Long output is truncated — press **Ctrl+O** to expand it.
 
 Tab works across all input modes:
 
-| Context            | Example             | Completes                                |
-| ------------------ | ------------------- | ---------------------------------------- |
-| Slash commands     | `/rev` → `/review`  | Command names                            |
-| Command arguments  | `/connect c`        | Provider names, model IDs, draft subcommands |
-| Shell commands     | `!git ch`           | Bash programmable completion (branches, flags) |
-| File paths         | `!cat ~/Doc`        | Directories and files (expands `~`)      |
-| Executables        | `!my`               | Commands found in `PATH`                 |
+| Context           | Example            | Completes                                      |
+| ----------------- | ------------------ | ---------------------------------------------- |
+| Slash commands    | `/rev` → `/review` | Command names                                  |
+| Command arguments | `/connect c`       | Provider names, model IDs, draft subcommands   |
+| Shell commands    | `!git ch`          | Bash programmable completion (branches, flags) |
+| File paths        | `!cat ~/Doc`       | Directories and files (expands `~`)            |
+| Executables       | `!my`              | Commands found in `PATH`                       |
 
 A single match auto-accepts; multiple matches extend the common prefix
 and show a menu (capped at 20 suggestions).
@@ -186,15 +186,15 @@ information:
  PR #42 · feature-branch   |7|  12% of 200k  ↑ 24.3k  ↓ 1.2k  ↯ 18.0k  $0.0450
 ```
 
-| Field        | Example    | Description                                            |
-| ------------ | ---------- | ------------------------------------------------------ |
-| `\|7\|`      |            | Messages in this conversation                          |
-| `12%`        |            | Last request size as % of context window               |
-| `of 200k`    |            | Model's context window size                            |
-| `↑ 24.3k`    |            | Cumulative input tokens                                |
-| `↓ 1.2k`     |            | Cumulative output tokens                               |
-| `↯ 18.0k`    |            | Cumulative cache-read tokens (hidden when zero)        |
-| `$0.0450`    |            | Cumulative cost                                        |
+| Field     | Example | Description                                     |
+| --------- | ------- | ----------------------------------------------- |
+| `\|7\|`   |         | Messages in this conversation                   |
+| `12%`     |         | Last request size as % of context window        |
+| `of 200k` |         | Model's context window size                     |
+| `↑ 24.3k` |         | Cumulative input tokens                         |
+| `↓ 1.2k`  |         | Cumulative output tokens                        |
+| `↯ 18.0k` |         | Cumulative cache-read tokens (hidden when zero) |
+| `$0.0450` |         | Cumulative cost                                 |
 
 **Colour signals help you manage context:**
 
@@ -354,7 +354,7 @@ codebase at any point in time.
 
 All paginated tools accept `offset` and a per-call limit
 (`max_results`, `max_lines`, or `max_hits`) that defaults
-to the configured cap.  When output is truncated, a
+to the configured cap. When output is truncated, a
 `... limited (shown/total)` trailer tells the LLM how to
 request the next page.
 
@@ -483,7 +483,7 @@ that snapshot**, not the changes introduced by it:
 - Any raw commit SHA or git ref (e.g. `"abc1234"`, `"v2.1.0"`).
 
 Change tools (`diff`, `changed_symbols`, `changed_files`) show
-changes *between* base and head — they don't accept `ref` in
+changes _between_ base and head — they don't accept `ref` in
 the same sense.
 
 #### Git-first with filesystem fallback
@@ -532,14 +532,14 @@ indexing to finish.
 
 ### `/index` command
 
-| Subcommand              | Description                              |
-| ----------------------- | ---------------------------------------- |
-| `/index`                | Show index status (chunks, edges, size)  |
-| `/index clear`          | Delete the index database                |
-| `/index rebuild`        | Clear and re-index from scratch          |
-| `/index prune`          | Remove orphan chunks not in any snapshot |
-| `/index model`          | Show current embedding model             |
-| `/index model <id>`     | Switch embedding model and re-embed      |
+| Subcommand          | Description                              |
+| ------------------- | ---------------------------------------- |
+| `/index`            | Show index status (chunks, edges, size)  |
+| `/index clear`      | Delete the index database                |
+| `/index rebuild`    | Clear and re-index from scratch          |
+| `/index prune`      | Remove orphan chunks not in any snapshot |
+| `/index model`      | Show current embedding model             |
+| `/index model <id>` | Switch embedding model and re-embed      |
 
 ### Index configuration
 
@@ -606,12 +606,12 @@ it's posted.
 
 ### Draft commands
 
-| Subcommand                | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `/draft`                  | Show the current draft                   |
-| `/draft sync`             | Bidirectional sync with GitHub           |
-| `/draft post [event]`     | Submit review to GitHub                  |
-| `/draft clear`            | Delete local draft and remote pending    |
+| Subcommand            | Description                           |
+| --------------------- | ------------------------------------- |
+| `/draft`              | Show the current draft                |
+| `/draft sync`         | Bidirectional sync with GitHub        |
+| `/draft post [event]` | Submit review to GitHub               |
+| `/draft clear`        | Delete local draft and remote pending |
 
 Tab completes subcommands and event types.
 
@@ -635,13 +635,13 @@ Tab completes subcommands and event types.
 When the LLM provides a `suggestion` parameter in
 `add_review_comment`, it's posted as a GitHub suggestion block:
 
-~~~markdown
+````markdown
 Use exponential backoff.
 
 ```suggestion
 time.sleep(2 ** attempt)
 ```
-~~~
+````
 
 The author can apply suggestions with one click in the GitHub UI.
 
@@ -674,9 +674,9 @@ workspace_prefix = "REVIEW-"  # filename prefix for writable .rbtr/ files
 
 The `workspace_prefix` controls which files in `.rbtr/` the
 LLM can create and edit (e.g. `REVIEW-plan.md`,
-`REVIEW-findings.md`).  Review drafts use
+`REVIEW-findings.md`). Review drafts use
 `<prefix>DRAFT-<pr>.toml` — with the default prefix,
-`.rbtr/REVIEW-DRAFT-42.toml`.  If you change the prefix,
+`.rbtr/REVIEW-DRAFT-42.toml`. If you change the prefix,
 update `index.include` to match:
 
 ```toml

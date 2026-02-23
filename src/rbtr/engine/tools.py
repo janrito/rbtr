@@ -19,9 +19,11 @@ from pydantic_ai.tools import ToolDefinition
 from rbtr.config import config
 from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.git.objects import (
+    DiffLineRanges,
     DiffResult,
     DiffStats,
     commit_log_between,
+    diff_line_ranges,
     diff_refs,
     diff_single,
     read_blob,
@@ -187,9 +189,7 @@ def _format_discussion_entry(entry: DiscussionEntry) -> str:
         parts.append(entry.body)
 
     if entry.reactions:
-        reaction_str = "  ".join(
-            f"{emoji} {count}" for emoji, count in entry.reactions.items()
-        )
+        reaction_str = "  ".join(f"{emoji} {count}" for emoji, count in entry.reactions.items())
         parts.append(f"Reactions: {reaction_str}")
 
     return "\n".join(parts)
@@ -275,6 +275,61 @@ def _load_or_create_draft(pr_number: int) -> ReviewDraft:
     return load_draft(pr_number) or ReviewDraft()
 
 
+# Cached diff line ranges — invalidated on new /review.
+_cached_ranges: DiffLineRanges | None = None
+_cached_ranges_key: tuple[str, str] = ("", "")
+
+
+def _get_diff_ranges(ctx: RunContext[AgentDeps]) -> DiffLineRanges:
+    """Return commentable line ranges for the current review target.
+
+    Caches the result so repeated ``add_review_comment`` calls in the
+    same turn don't recompute the diff.
+    """
+    global _cached_ranges, _cached_ranges_key
+    session = ctx.deps.session
+    target = session.review_target
+    repo = session.repo
+    if target is None or repo is None:
+        return {}
+    key = (target.base_branch, target.head_ref)
+    if _cached_ranges is not None and _cached_ranges_key == key:
+        return _cached_ranges
+    try:
+        _cached_ranges = diff_line_ranges(repo, target.base_branch, target.head_ref)
+    except KeyError:
+        _cached_ranges = {}
+    _cached_ranges_key = key
+    return _cached_ranges
+
+
+def _validate_comment_location(
+    ranges: DiffLineRanges,
+    path: str,
+    line: int,
+) -> str | None:
+    """Return an error message if *path*/*line* can't be commented on, else None."""
+    if not ranges:
+        return None  # no diff data — skip validation
+    if path not in ranges:
+        available = sorted(ranges.keys())
+        return (
+            f"'{path}' is not in the PR diff. "
+            f"Comments must target changed files. Changed files: {', '.join(available[:20])}"
+        )
+    valid_lines = ranges[path]
+    if line not in valid_lines:
+        # Find nearest valid lines for a helpful message.
+        sorted_lines = sorted(valid_lines)
+        nearest = min(sorted_lines, key=lambda n: abs(n - line))
+        return (
+            f"Line {line} in '{path}' is not in the PR diff. "
+            f"Use a line that appears in a changed hunk. "
+            f"Nearest commentable line: {nearest}."
+        )
+    return None
+
+
 @agent.tool(prepare=_require_pr_target)
 def add_review_comment(
     ctx: RunContext[AgentDeps],
@@ -292,11 +347,19 @@ def add_review_comment(
     The comment will appear on the PR at the specified file and
     line when the review is posted via ``/draft post``.
 
+    **Important:** the ``path`` must be a file changed in the PR,
+    and ``line`` must be visible in the diff (a changed line or a
+    nearby context line).  The GitHub API rejects comments on
+    lines outside the diff.  Use the ``diff`` tool first to see
+    which lines are available.
+
     Args:
         path: File path relative to repo root
-            (e.g. ``src/api/handler.py``).
-        line: Line number in the head version of the file
-            (1-indexed).
+            (e.g. ``src/api/handler.py``).  Must be a file
+            that was changed in the PR diff.
+        line: Line number in the **diff** of the head version
+            (1-indexed).  Must be a line visible in a diff hunk
+            (changed or context line).
         body: Markdown body of the comment.  Include a severity
             label (e.g. ``**blocker:**``) as part of the text
             when appropriate.
@@ -306,6 +369,13 @@ def add_review_comment(
     """
 
     pr = _pr_number(ctx)
+
+    # Validate path/line against the PR diff.
+    ranges = _get_diff_ranges(ctx)
+    error = _validate_comment_location(ranges, path, line)
+    if error:
+        return f"Cannot add comment: {error}"
+
     draft = _load_or_create_draft(pr)
 
     comment = InlineComment(
@@ -1766,6 +1836,8 @@ def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
 # ── Review notes (always available) ──────────────────────────────────
 
 _REVIEW_DIR = Path(".rbtr")
+
+
 @agent.tool
 def edit(
     ctx: RunContext[AgentDeps],

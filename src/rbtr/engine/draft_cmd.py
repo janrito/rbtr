@@ -105,8 +105,7 @@ def _post_draft(engine: Engine, pr_number: int, event_arg: str) -> None:
     event = _resolve_event(event_arg)
     if event is None:
         engine._warn(
-            f"Unknown event type: {event_arg}. "
-            f"Use: comment (default), approve, or request_changes."
+            f"Unknown event type: {event_arg}. Use: comment (default), approve, or request_changes."
         )
         return
 

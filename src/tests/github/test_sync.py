@@ -11,6 +11,7 @@ import pytest
 from rbtr.engine.review import sync_review_draft
 from rbtr.engine.session import Session
 from rbtr.events import Event, FlushPanel, Output
+from rbtr.exceptions import RbtrError
 from rbtr.github.client import get_pending_review
 from rbtr.github.draft import load_draft, merge_remote, save_draft
 from rbtr.models import InlineComment, PendingReview, PRTarget, ReviewDraft
@@ -252,11 +253,11 @@ def test_sync_orchestration_no_draft_no_remote(workspace: Path) -> None:
 
 
 def test_sync_orchestration_not_authenticated(workspace: Path) -> None:
-    """sync_review_draft warns when not authenticated."""
+    """sync_review_draft raises when not authenticated."""
     engine = _FakeEngine()
 
-    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
-    assert "Not authenticated" in engine.collected_text()
+    with pytest.raises(RbtrError, match="Not authenticated"):
+        sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
 
 
 def test_sync_orchestration_local_only_pushes(workspace: Path) -> None:

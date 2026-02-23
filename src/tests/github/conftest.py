@@ -74,6 +74,13 @@ class FakeInlineComment:
         self.created_at = created_at or datetime(2025, 1, 15, 11, 0, tzinfo=UTC)
         self.in_reply_to_id = in_reply_to_id
         self._reactions = reactions or []
+        # Matches GithubObject._rawData so get_pending_review can
+        # read fields without triggering lazy-load completion.
+        self._rawData = {
+            "path": path,
+            "line": line,
+            "body": body,
+        }
 
     def get_reactions(self) -> list[FakeReaction]:
         return self._reactions

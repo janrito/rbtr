@@ -120,6 +120,7 @@ line_length = 88
 headings = false
 code_blocks = false
 tables = false
+reflow = true
 
 
 # -- sqlfluff --
@@ -152,7 +153,6 @@ warn_redundant_casts = true
 warn_unused_configs = true
 
 exclude = ["^src/tests/"]
-
 
 
 # -- Pytest & Coverage --
