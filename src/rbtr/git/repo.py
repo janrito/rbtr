@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime
 
 import pygit2
@@ -83,45 +82,6 @@ def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
         )
     return pygit2.RemoteCallbacks()
 
-
-def parse_github_remote(repo: pygit2.Repository) -> tuple[str, str]:
-    """Extract (owner, repo_name) from the GitHub remote URL.
-
-    Tries 'origin' first, then falls back to the first remote that looks like GitHub.
-    """
-    remotes: list[pygit2.Remote] = list(repo.remotes)
-
-    # Try origin first
-    for remote in remotes:
-        if remote.name == "origin" and remote.url is not None:
-            result = _parse_github_url(remote.url)
-            if result is not None:
-                return result
-
-    # Fall back to any GitHub remote
-    for remote in remotes:
-        if remote.url is not None:
-            result = _parse_github_url(remote.url)
-            if result is not None:
-                return result
-
-    raise RbtrError("No GitHub remote found. rbtr requires a repository with a GitHub remote.")
-
-
-_GITHUB_PATTERNS = [
-    # SSH: git@github.com:owner/repo.git
-    re.compile(r"git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/.]+?)(?:\.git)?$"),
-    # HTTPS: https://github.com/owner/repo.git
-    re.compile(r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/.]+?)(?:\.git)?$"),
-]
-
-
-def _parse_github_url(url: str) -> tuple[str, str] | None:
-    for pattern in _GITHUB_PATTERNS:
-        m = pattern.match(url)
-        if m:
-            return m.group("owner"), m.group("repo")
-    return None
 
 
 def default_branch(repo: pygit2.Repository) -> str:

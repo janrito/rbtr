@@ -6,11 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.github.client import format_comment_body, post_review, push_pending_review
+from rbtr.github.client import (
+    delete_pending_review,
+    format_comment_body,
+    post_review,
+    push_pending_review,
+)
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, ReviewDraft, ReviewEvent
 
-from .conftest import FakeGithub, FakePR, FakeRepo
+from .conftest import FakeGithub, FakePR, FakeRepo, FakeReview, fake_ctx
 
 # ── format_comment_body ──────────────────────────────────────────────
 
@@ -47,7 +52,7 @@ def test_post_review_sends_correct_data() -> None:
         ],
     )
 
-    url = post_review(gh, "owner", "repo", 1, draft)  # type: ignore[arg-type]  # fake stub
+    url = post_review(fake_ctx(gh), 1, draft)
     assert url == "https://github.com/pr/1#review"
     assert len(pr.created_reviews) == 1
 
@@ -72,7 +77,7 @@ def test_post_review_event_types(event: ReviewEvent, expected: str) -> None:
     gh = FakeGithub(FakeRepo(pr))
     draft = ReviewDraft(summary=".", event=event)
 
-    post_review(gh, "owner", "repo", 1, draft)  # type: ignore[arg-type]  # fake stub
+    post_review(fake_ctx(gh), 1, draft)
     assert pr.created_reviews[0]["event"] == expected
 
 
@@ -88,7 +93,7 @@ def test_push_pending_creates_without_event() -> None:
         comments=[InlineComment(path="a.py", line=5, body="Needs work.")],
     )
 
-    review_id = push_pending_review(gh, "owner", "repo", 1, draft)  # type: ignore[arg-type]  # fake stub
+    review_id = push_pending_review(fake_ctx(gh), 1, draft)
     assert review_id == 200
     assert len(pr.created_reviews) == 1
 
@@ -106,7 +111,7 @@ def test_push_pending_formats_suggestions() -> None:
         comments=[InlineComment(path="a.py", line=1, body="Fix.", suggestion="better()")],
     )
 
-    push_pending_review(gh, "owner", "repo", 1, draft)  # type: ignore[arg-type]  # fake stub
+    push_pending_review(fake_ctx(gh), 1, draft)
     assert "```suggestion" in pr.created_reviews[0]["comments"][0]["body"]
 
 
@@ -114,15 +119,11 @@ def test_push_pending_formats_suggestions() -> None:
 
 
 def test_delete_pending_review() -> None:
-    from rbtr.github.client import delete_pending_review
-
-    from .conftest import FakeReview
-
     tracked = FakeReview(review_id=42)
     pr = FakePR(reviews=[tracked])
     gh = FakeGithub(FakeRepo(pr))
 
-    delete_pending_review(gh, "owner", "repo", 1, 42)  # type: ignore[arg-type]  # fake stub
+    delete_pending_review(fake_ctx(gh), 1, 42)
     assert tracked.deleted is True
 
 
@@ -150,6 +151,6 @@ def test_draft_file_used_for_post(workspace: Path) -> None:
 
     pr = FakePR()
     gh = FakeGithub(FakeRepo(pr))
-    post_review(gh, "owner", "repo", 99, loaded)  # type: ignore[arg-type]  # fake stub
+    post_review(fake_ctx(gh), 99, loaded)
     assert len(pr.created_reviews) == 1
     assert pr.created_reviews[0]["comments"][0]["path"] == "x.py"

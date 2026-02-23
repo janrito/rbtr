@@ -120,7 +120,8 @@ class Engine:
 
     def _run_setup(self) -> None:
         # Deferred: open_repo calls pygit2.discover_repository which needs CWD set.
-        from rbtr.git import open_repo, parse_github_remote
+        from rbtr.git import open_repo
+        from rbtr.github.client import parse_github_remote
 
         try:
             repo = open_repo()

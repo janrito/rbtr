@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from rbtr.engine.tools import _format_discussion_entry as format_discussion_entry
 from rbtr.github.client import (
     _aggregate_reactions,
     _inline_to_entry,
     _issue_comment_to_entry,
     _review_to_entry,
-    format_discussion_entry,
     get_pr_discussion,
 )
 from rbtr.models import DiscussionEntryKind
@@ -23,6 +23,7 @@ from .conftest import (
     FakeRepo,
     FakeReview,
     FakeUser,
+    fake_ctx,
 )
 
 # ── aggregate_reactions ──────────────────────────────────────────────
@@ -111,7 +112,7 @@ def test_discussion_sorted_chronologically() -> None:
     pr = FakePR(reviews=[review], inline_comments=[inline], issue_comments=[issue])
     gh = FakeGithub(FakeRepo(pr))
 
-    entries = get_pr_discussion(gh, "owner", "repo", 1)  # type: ignore[arg-type]  # fake stub
+    entries = get_pr_discussion(fake_ctx(gh), 1)
     assert len(entries) == 3
     assert entries[0].comment_id == 2  # inline (10:00)
     assert entries[1].comment_id == 3  # issue (11:00)
@@ -125,14 +126,14 @@ def test_discussion_skips_empty_review_bodies() -> None:
     pr = FakePR(reviews=[review_with_body, review_empty])
     gh = FakeGithub(FakeRepo(pr))
 
-    entries = get_pr_discussion(gh, "owner", "repo", 1)  # type: ignore[arg-type]  # fake stub
+    entries = get_pr_discussion(fake_ctx(gh), 1)
     assert len(entries) == 1
     assert entries[0].comment_id == 1
 
 
 def test_discussion_empty_pr() -> None:
     gh = FakeGithub()
-    entries = get_pr_discussion(gh, "owner", "repo", 1)  # type: ignore[arg-type]  # fake stub
+    entries = get_pr_discussion(fake_ctx(gh), 1)
     assert entries == []
 
 

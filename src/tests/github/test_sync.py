@@ -15,7 +15,15 @@ from rbtr.github.client import get_pending_review
 from rbtr.github.draft import load_draft, merge_remote, save_draft
 from rbtr.models import InlineComment, PendingReview, PRTarget, ReviewDraft
 
-from .conftest import FakeGithub, FakeInlineComment, FakePR, FakeRepo, FakeReview, FakeUser
+from .conftest import (
+    FakeGithub,
+    FakeInlineComment,
+    FakePR,
+    FakeRepo,
+    FakeReview,
+    FakeUser,
+    fake_ctx,
+)
 
 # ── get_pending_review ───────────────────────────────────────────────
 
@@ -28,7 +36,7 @@ def test_pending_review_found() -> None:
     )
     gh = FakeGithub(FakeRepo(pr))
 
-    result = get_pending_review(gh, "owner", "repo", 1, "reviewer")  # type: ignore[arg-type]  # fake stub
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
     assert result.review_id == 100
     assert len(result.comments) == 1
@@ -39,7 +47,7 @@ def test_pending_review_not_found() -> None:
     pr = FakePR(reviews=[FakeReview(state="APPROVED")])
     gh = FakeGithub(FakeRepo(pr))
 
-    result = get_pending_review(gh, "owner", "repo", 1, "reviewer")  # type: ignore[arg-type]  # fake stub
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is None
 
 
@@ -47,7 +55,7 @@ def test_pending_review_wrong_user() -> None:
     pr = FakePR(reviews=[FakeReview(state="PENDING", user=FakeUser("other"))])
     gh = FakeGithub(FakeRepo(pr))
 
-    result = get_pending_review(gh, "owner", "repo", 1, "reviewer")  # type: ignore[arg-type]  # fake stub
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is None
 
 
@@ -65,7 +73,7 @@ def test_pending_review_picks_latest() -> None:
     )
     gh = FakeGithub(FakeRepo(pr))
 
-    result = get_pending_review(gh, "owner", "repo", 1, "reviewer")  # type: ignore[arg-type]  # fake stub
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
     assert result.review_id == 2
     assert result.comments[0].body == "new"
@@ -73,12 +81,19 @@ def test_pending_review_picks_latest() -> None:
 
 def test_pending_review_preserves_body() -> None:
     pr = FakePR(
-        reviews=[FakeReview(review_id=1, state="PENDING", body="Overall good.", user=FakeUser("reviewer"))],
+        reviews=[
+            FakeReview(
+                review_id=1,
+                state="PENDING",
+                body="Overall good.",
+                user=FakeUser("reviewer"),
+            )
+        ],
         review_comments_by_id={1: []},
     )
     gh = FakeGithub(FakeRepo(pr))
 
-    result = get_pending_review(gh, "owner", "repo", 1, "reviewer")  # type: ignore[arg-type]  # fake stub
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
     assert result.body == "Overall good."
 
@@ -246,10 +261,13 @@ def test_sync_orchestration_not_authenticated(workspace: Path) -> None:
 
 def test_sync_orchestration_local_only_pushes(workspace: Path) -> None:
     """When there's a local draft but no remote, push without delete."""
-    save_draft(42, ReviewDraft(
-        summary="My review.",
-        comments=[InlineComment(path="a.py", line=5, body="Issue.")],
-    ))
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="My review.",
+            comments=[InlineComment(path="a.py", line=5, body="Issue.")],
+        ),
+    )
 
     pr = FakePR(reviews=[])
     gh = FakeGithub(FakeRepo(pr))
@@ -267,10 +285,14 @@ def test_sync_orchestration_remote_summary_used(workspace: Path) -> None:
     """Remote review body becomes local summary when local has none."""
     remote_comment = FakeInlineComment(path="a.py", line=10, body="Fix.")
     pr = FakePR(
-        reviews=[FakeReview(
-            review_id=50, state="PENDING",
-            body="Overall assessment.", user=FakeUser("reviewer"),
-        )],
+        reviews=[
+            FakeReview(
+                review_id=50,
+                state="PENDING",
+                body="Overall assessment.",
+                user=FakeUser("reviewer"),
+            )
+        ],
         review_comments_by_id={50: [remote_comment]},
     )
     gh = FakeGithub(FakeRepo(pr))

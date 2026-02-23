@@ -1189,7 +1189,7 @@ def test_diff_bad_ref() -> None:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = _FakeCtx(_git_session(repo))
         result = diff(ctx, ref="nonexistent")  # type: ignore[arg-type]
-        assert "not found" in result
+        assert "Cannot resolve ref" in result
 
 
 def test_diff_no_target() -> None:
@@ -1782,7 +1782,7 @@ def test_diff_bad_range_refs() -> None:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = _FakeCtx(_git_session(repo))
         result = diff(ctx, ref="badref1..badref2")  # type: ignore[arg-type]
-        assert "Could not resolve" in result
+        assert "Cannot resolve ref" in result
 
 
 def test_diff_truncation(config_path) -> None:
@@ -1841,12 +1841,12 @@ def test_diff_path_empty_shows_full() -> None:
 
 
 def test_diff_path_nonexistent() -> None:
-    """Nonexistent path returns no-changes message."""
+    """Nonexistent path returns empty diff."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = _FakeCtx(_git_session(repo))
         result = diff(ctx, path="nonexistent.py")  # type: ignore[arg-type]
-        assert "No changes" in result
+        assert "0 files changed" in result
 
 
 def test_diff_path_with_single_ref() -> None:
@@ -1889,7 +1889,7 @@ def test_commit_log_bad_refs() -> None:
         )
         ctx = _FakeCtx(session)
         result = commit_log(ctx)  # type: ignore[arg-type]
-        assert "Could not resolve" in result
+        assert "Cannot resolve ref" in result
 
 
 def test_commit_log_truncation(config_path) -> None:

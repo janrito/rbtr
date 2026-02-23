@@ -18,13 +18,21 @@ from pydantic_ai.tools import ToolDefinition
 
 from rbtr.config import config
 from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
-from rbtr.git.objects import DiffResult, commit_log_between, diff_refs, diff_single, read_blob
-from rbtr.github.client import format_discussion_entry, get_pr_discussion as fetch_pr_discussion
+from rbtr.git.objects import (
+    DiffResult,
+    DiffStats,
+    commit_log_between,
+    diff_refs,
+    diff_single,
+    read_blob,
+)
+from rbtr.github.client import get_pr_discussion as fetch_pr_discussion
 from rbtr.github.draft import load_draft, save_draft
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.models import (
     DiscussionEntry,
+    DiscussionEntryKind,
     InlineComment,
     PRTarget,
     ReviewDraft,
@@ -146,6 +154,47 @@ def _limited(shown: int, total: int, *, hint: str) -> str:
 # ── GitHub discussion tool (require PR) ──────────────────────────────
 
 
+def _format_discussion_entry(entry: DiscussionEntry) -> str:
+    """Format a single discussion entry as text for LLM consumption.
+
+    Produces a self-contained block with header (timestamp, author,
+    kind-specific metadata), optional diff hunk, body, and reactions.
+    """
+    ts = entry.created_at.strftime("%Y-%m-%d %H:%M")
+    bot_tag = " [bot]" if entry.is_bot else ""
+    header_parts: list[str] = [f"[{ts}] @{entry.author}{bot_tag}"]
+
+    match entry.kind:
+        case DiscussionEntryKind.REVIEW:
+            header_parts.append(f"({entry.review_state})")
+        case DiscussionEntryKind.INLINE:
+            location = entry.path
+            if entry.line is not None:
+                location += f":{entry.line}"
+            header_parts.append(f"on {location}")
+            if entry.in_reply_to_id is not None:
+                header_parts.append("(reply)")
+        case DiscussionEntryKind.COMMENT:
+            pass
+
+    header = " ".join(header_parts)
+    parts: list[str] = [header]
+
+    if entry.diff_hunk:
+        parts.append(f"```\n{entry.diff_hunk}\n```")
+
+    if entry.body:
+        parts.append(entry.body)
+
+    if entry.reactions:
+        reaction_str = "  ".join(
+            f"{emoji} {count}" for emoji, count in entry.reactions.items()
+        )
+        parts.append(f"Reactions: {reaction_str}")
+
+    return "\n".join(parts)
+
+
 @agent.tool(prepare=_require_pr)
 def get_pr_discussion(
     ctx: RunContext[AgentDeps],
@@ -179,14 +228,13 @@ def get_pr_discussion(
     """
     session = ctx.deps.session
     target = session.review_target
-    if not isinstance(target, PRTarget) or session.gh is None:
+    gh_ctx = session.gh_ctx
+    if not isinstance(target, PRTarget) or gh_ctx is None:
         return "No PR selected or not authenticated with GitHub."
 
     # Fetch and cache on session for the duration of the review.
     if session.discussion_cache is None:
-        session.discussion_cache = fetch_pr_discussion(
-            session.gh, session.owner, session.repo_name, target.number
-        )
+        session.discussion_cache = fetch_pr_discussion(gh_ctx, target.number)
     entries = session.discussion_cache
 
     if not entries:
@@ -202,7 +250,7 @@ def get_pr_discussion(
     if not page:
         return f"Offset {offset} exceeds {total} entries."
 
-    lines = [format_discussion_entry(entry) for entry in page]
+    lines = [_format_discussion_entry(entry) for entry in page]
     result = "\n\n---\n\n".join(lines)
     shown = offset + len(page)
     if shown < total:
@@ -1057,21 +1105,25 @@ def diff(
         min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
     )
 
-    if not ref:
-        # Default: base → head of review target.
-        if target is None:
-            return "No review target selected."
-        result = diff_refs(repo, target.base_branch, target.head_ref, path=path)
-    elif ".." in ref:
-        parts = ref.split("..", 1)
-        result = diff_refs(repo, parts[0], parts[1], path=path)
-    else:
-        # Single ref — diff against parent.
-        result = diff_single(repo, ref, path=path)
+    try:
+        if not ref:
+            if target is None:
+                return "No review target selected."
+            result = diff_refs(repo, target.base_branch, target.head_ref, path=path)
+        elif ".." in ref:
+            parts = ref.split("..", 1)
+            result = diff_refs(repo, parts[0], parts[1], path=path)
+        else:
+            result = diff_single(repo, ref, path=path)
+    except (KeyError, ValueError) as exc:
+        return exc.args[0] if exc.args else str(exc)
 
-    if isinstance(result, str):
-        return result
     return _paginate_diff(result, offset, capped)
+
+
+def _format_diff_stats(s: DiffStats) -> str:
+    """Format ``DiffStats`` into a one-line summary."""
+    return f"{s.files_changed} files changed, +{s.insertions} -{s.deletions}"
 
 
 def _paginate_diff(dr: DiffResult, offset: int, max_lines: int) -> str:
@@ -1079,7 +1131,7 @@ def _paginate_diff(dr: DiffResult, offset: int, max_lines: int) -> str:
     total = len(dr.patch_lines)
     page = dr.patch_lines[offset : offset + max_lines]
 
-    text = dr.header + "\n\n" + "\n".join(page)
+    text = _format_diff_stats(dr.stats) + "\n\n" + "\n".join(page)
     shown_end = offset + len(page)
     if shown_end < total:
         text += _limited(shown_end, total, hint=f"offset={shown_end} to continue")
@@ -1117,14 +1169,15 @@ def commit_log(
     if target is None:
         return "No review target selected."
 
-    entries = commit_log_between(repo, target.base_branch, target.head_ref)
-    if isinstance(entries, str):
-        return entries
+    try:
+        entries = commit_log_between(repo, target.base_branch, target.head_ref)
+    except KeyError as exc:
+        return exc.args[0] if exc.args else str(exc)
 
     if not entries:
         return "No commits between base and head (branches are identical)."
 
-    all_lines = [f"{e.short_sha} {e.author}: {e.message}" for e in entries]
+    all_lines = [f"{e.sha[:8]} {e.author}: {e.message}" for e in entries]
     total = len(all_lines)
     limit = (
         min(max_results, config.tools.max_results)

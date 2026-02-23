@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pygit2
 from github import Github, GithubException
 from github.IssueComment import IssueComment
 from github.PullRequest import PullRequest, ReviewComment
@@ -24,10 +27,79 @@ from rbtr.models import (
     ReviewDraft,
 )
 
+# ── Remote URL parsing ───────────────────────────────────────────────
 
-def list_open_prs(gh: Github, owner: str, repo_name: str) -> list[PRSummary]:
+_GITHUB_PATTERNS = [
+    # SSH: git@github.com:owner/repo.git
+    re.compile(r"git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/.]+?)(?:\.git)?$"),
+    # HTTPS: https://github.com/owner/repo.git
+    re.compile(r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/.]+?)(?:\.git)?$"),
+]
+
+
+def _parse_github_url(url: str) -> tuple[str, str] | None:
+    for pattern in _GITHUB_PATTERNS:
+        m = pattern.match(url)
+        if m:
+            return m.group("owner"), m.group("repo")
+    return None
+
+
+def parse_github_remote(repo: pygit2.Repository) -> tuple[str, str]:
+    """Extract (owner, repo_name) from the GitHub remote URL.
+
+    Tries 'origin' first, then falls back to the first remote that looks like GitHub.
+    """
+    remotes: list[pygit2.Remote] = list(repo.remotes)
+
+    # Try origin first
+    for remote in remotes:
+        if remote.name == "origin" and remote.url is not None:
+            result = _parse_github_url(remote.url)
+            if result is not None:
+                return result
+
+    # Fall back to any GitHub remote
+    for remote in remotes:
+        if remote.url is not None:
+            result = _parse_github_url(remote.url)
+            if result is not None:
+                return result
+
+    raise RbtrError("No GitHub remote found. rbtr requires a repository with a GitHub remote.")
+
+
+# ── Context ───────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCtx:
+    """Lightweight bundle for the three values every API call needs."""
+
+    gh: Github
+    owner: str
+    repo_name: str
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.owner}/{self.repo_name}"
+
+
+def _pull(ctx: GitHubCtx, pr_number: int) -> PullRequest:
+    """Fetch a pull request or raise ``RbtrError``."""
+    repo = ctx.gh.get_repo(ctx.full_name)
+    try:
+        return repo.get_pull(pr_number)
+    except GithubException as err:
+        raise RbtrError(f"PR #{pr_number} not found in {ctx.full_name}.") from err
+
+
+# ── PR / branch listing ──────────────────────────────────────────────
+
+
+def list_open_prs(ctx: GitHubCtx) -> list[PRSummary]:
     """List open pull requests, most recently updated first."""
-    repo = gh.get_repo(f"{owner}/{repo_name}")
+    repo = ctx.gh.get_repo(ctx.full_name)
     pulls = repo.get_pulls(state="open", sort="updated", direction="desc")
 
     results: list[PRSummary] = []
@@ -47,14 +119,12 @@ def list_open_prs(gh: Github, owner: str, repo_name: str) -> list[PRSummary]:
     return results
 
 
-def list_unmerged_branches(
-    gh: Github, owner: str, repo_name: str, open_pr_branches: set[str]
-) -> list[BranchSummary]:
+def list_unmerged_branches(ctx: GitHubCtx, open_pr_branches: set[str]) -> list[BranchSummary]:
     """List remote branches that have no open PR, excluding the default branch.
 
     Returns at most config.github.max_branches results, sorted by most recently updated first.
     """
-    repo = gh.get_repo(f"{owner}/{repo_name}")
+    repo = ctx.gh.get_repo(ctx.full_name)
     default_branch = repo.default_branch
 
     results: list[BranchSummary] = []
@@ -83,18 +153,9 @@ def list_unmerged_branches(
     return results
 
 
-def _get_pull(gh: Github, owner: str, repo_name: str, pr_number: int) -> PullRequest:
-    """Fetch a pull request or raise ``RbtrError``."""
-    repo = gh.get_repo(f"{owner}/{repo_name}")
-    try:
-        return repo.get_pull(pr_number)
-    except GithubException as err:
-        raise RbtrError(f"PR #{pr_number} not found in {owner}/{repo_name}.") from err
-
-
-def validate_pr_number(gh: Github, owner: str, repo_name: str, pr_number: int) -> PRSummary:
+def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
     """Fetch a specific PR by number. Raises RbtrError if not found."""
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
     return PRSummary(
         number=pr.number,
         title=pr.title,
@@ -110,25 +171,19 @@ def validate_pr_number(gh: Github, owner: str, repo_name: str, pr_number: int) -
 # ── Pending review ────────────────────────────────────────────────────
 
 
-def get_pending_review(
-    gh: Github, owner: str, repo_name: str, pr_number: int, username: str
-) -> PendingReview | None:
+def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> PendingReview | None:
     """Return the user's PENDING review on a PR, or None if there isn't one.
 
     Fetches all reviews, finds the most recent one in PENDING state
     belonging to *username*, and returns it with its inline comments
     converted to ``InlineComment`` models.
     """
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
 
     # Find the user's most recent PENDING review.
     pending = None
     for review in pr.get_reviews():
-        if (
-            review.state == "PENDING"
-            and review.user is not None
-            and review.user.login == username
-        ):
+        if review.state == "PENDING" and review.user is not None and review.user.login == username:
             pending = review
 
     if pending is None:
@@ -176,19 +231,13 @@ def _build_review_comments(draft: ReviewDraft) -> list[ReviewComment]:
     ]
 
 
-def post_review(
-    gh: Github,
-    owner: str,
-    repo_name: str,
-    pr_number: int,
-    draft: ReviewDraft,
-) -> str:
+def post_review(ctx: GitHubCtx, pr_number: int, draft: ReviewDraft) -> str:
     """Post a review to GitHub.  Returns the review's HTML URL.
 
     If ``draft.event`` is ``COMMENT``, ``APPROVE``, or
     ``REQUEST_CHANGES``, the review is submitted immediately.
     """
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
     review = pr.create_review(
         body=draft.summary,
         event=draft.event.value,
@@ -197,19 +246,13 @@ def post_review(
     return review.html_url
 
 
-def push_pending_review(
-    gh: Github,
-    owner: str,
-    repo_name: str,
-    pr_number: int,
-    draft: ReviewDraft,
-) -> int:
+def push_pending_review(ctx: GitHubCtx, pr_number: int, draft: ReviewDraft) -> int:
     """Push a draft as a PENDING review (not submitted).
 
     Comments appear in the GitHub UI but the review stays in
     draft state.  Returns the review ID for future operations.
     """
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
     review = pr.create_review(
         body=draft.summary,
         comments=_build_review_comments(draft),
@@ -217,15 +260,9 @@ def push_pending_review(
     return review.id
 
 
-def delete_pending_review(
-    gh: Github,
-    owner: str,
-    repo_name: str,
-    pr_number: int,
-    review_id: int,
-) -> None:
+def delete_pending_review(ctx: GitHubCtx, pr_number: int, review_id: int) -> None:
     """Delete a pending (unsubmitted) review."""
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
     review = pr.get_review(review_id)
     review.delete()
 
@@ -233,14 +270,12 @@ def delete_pending_review(
 # ── PR discussion ────────────────────────────────────────────────────
 
 
-def get_pr_discussion(
-    gh: Github, owner: str, repo_name: str, pr_number: int
-) -> list[DiscussionEntry]:
+def get_pr_discussion(ctx: GitHubCtx, pr_number: int) -> list[DiscussionEntry]:
     """Fetch all discussion on a PR — reviews, inline comments, and issue comments.
 
     Returns a flat list sorted chronologically (oldest first).
     """
-    pr = _get_pull(gh, owner, repo_name, pr_number)
+    pr = _pull(ctx, pr_number)
 
     entries: list[DiscussionEntry] = []
 
@@ -311,45 +346,3 @@ def _issue_comment_to_entry(comment: IssueComment) -> DiscussionEntry:
         is_bot=comment.user.type == "Bot" if comment.user else False,
         reactions=reactions,
     )
-
-
-# ── Formatting ───────────────────────────────────────────────────────
-
-
-def format_discussion_entry(entry: DiscussionEntry) -> str:
-    """Format a single discussion entry as text for LLM consumption.
-
-    Produces a self-contained block with header (timestamp, author,
-    kind-specific metadata), optional diff hunk, body, and reactions.
-    """
-    ts = entry.created_at.strftime("%Y-%m-%d %H:%M")
-    bot_tag = " [bot]" if entry.is_bot else ""
-    header_parts: list[str] = [f"[{ts}] @{entry.author}{bot_tag}"]
-
-    match entry.kind:
-        case DiscussionEntryKind.REVIEW:
-            header_parts.append(f"({entry.review_state})")
-        case DiscussionEntryKind.INLINE:
-            location = entry.path
-            if entry.line is not None:
-                location += f":{entry.line}"
-            header_parts.append(f"on {location}")
-            if entry.in_reply_to_id is not None:
-                header_parts.append("(reply)")
-        case DiscussionEntryKind.COMMENT:
-            pass
-
-    header = " ".join(header_parts)
-    parts: list[str] = [header]
-
-    if entry.diff_hunk:
-        parts.append(f"```\n{entry.diff_hunk}\n```")
-
-    if entry.body:
-        parts.append(entry.body)
-
-    if entry.reactions:
-        reaction_str = "  ".join(f"{emoji} {count}" for emoji, count in entry.reactions.items())
-        parts.append(f"Reactions: {reaction_str}")
-
-    return "\n".join(parts)

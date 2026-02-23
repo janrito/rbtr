@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from rbtr.github.client import GitHubCtx
+
 
 class FakeUser:
     def __init__(self, login: str = "alice", user_type: str = "User") -> None:
@@ -140,12 +142,15 @@ class FakePR:
         event: str = "",
         comments: list[Any] | None = None,
     ) -> FakeReview:
-        self.created_reviews.append({
-            "body": body,
-            "event": event,
-            "comments": comments or [],
-        })
-        return FakeReview(review_id=200)
+        review_id = 200 + len(self.created_reviews)
+        self.created_reviews.append(
+            {
+                "body": body,
+                "event": event,
+                "comments": comments or [],
+            }
+        )
+        return FakeReview(review_id=review_id)
 
 
 class FakeRepo:
@@ -162,3 +167,16 @@ class FakeGithub:
 
     def get_repo(self, full_name: str) -> FakeRepo:
         return self._repo
+
+
+def fake_ctx(
+    gh: FakeGithub | None = None,
+    owner: str = "owner",
+    repo_name: str = "repo",
+) -> GitHubCtx:
+    """Build a ``GitHubCtx`` backed by fake objects for tests."""
+    return GitHubCtx(
+        gh=gh or FakeGithub(),  # type: ignore[arg-type]  # fake stub
+        owner=owner,
+        repo_name=repo_name,
+    )

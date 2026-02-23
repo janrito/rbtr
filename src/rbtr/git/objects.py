@@ -32,11 +32,20 @@ class FileEntry:
 
 
 @dataclass(frozen=True)
+class DiffStats:
+    """Raw numeric statistics for a diff."""
+
+    files_changed: int
+    insertions: int
+    deletions: int
+
+
+@dataclass(frozen=True)
 class DiffResult:
     """Unified diff output between two commits."""
 
-    header: str
-    """Summary line (e.g. ``"3 files changed, +12 -5"``)."""
+    stats: DiffStats
+    """Numeric change summary."""
 
     patch_lines: list[str]
     """Full patch text split into lines."""
@@ -46,7 +55,9 @@ class DiffResult:
 class LogEntry:
     """One commit in a log range."""
 
-    short_sha: str
+    sha: str
+    """Full hex SHA of the commit."""
+
     author: str
     message: str
 
@@ -141,14 +152,22 @@ def read_blob(
     ref: str,
     path: str,
 ) -> pygit2.Blob | None:
-    """Return the blob for *path* at *ref*, or ``None`` if not found."""
+    """Return the blob for *path* at *ref*, or ``None`` if not found.
+
+    Uses tree path lookup for O(log n) access instead of walking
+    the entire tree.
+    """
     try:
         commit = resolve_commit(repo, ref)
     except KeyError:
         return None
-    for entry_path, blob in walk_tree(repo, commit.tree, ""):
-        if entry_path == path:
-            return blob
+    try:
+        entry = commit.tree[path]
+    except KeyError:
+        return None
+    obj = repo.get(entry.id)
+    if isinstance(obj, pygit2.Blob):
+        return obj
     return None
 
 
@@ -161,18 +180,16 @@ def diff_refs(
     head_ref: str,
     *,
     path: str = "",
-) -> DiffResult | str:
+) -> DiffResult:
     """Compute a diff between two refs.
 
     When *path* is non-empty, restricts the diff to that file.
-    Returns a ``DiffResult`` on success, or an error string on failure.
-    """
-    try:
-        base_commit = resolve_commit(repo, base_ref)
-        head_commit = resolve_commit(repo, head_ref)
-    except KeyError as exc:
-        return f"Could not resolve refs: {exc}"
 
+    Raises:
+        KeyError: If either ref cannot be resolved.
+    """
+    base_commit = resolve_commit(repo, base_ref)
+    head_commit = resolve_commit(repo, head_ref)
     d = repo.diff(base_commit, head_commit)
     return _build_diff_result(d, path)
 
@@ -182,47 +199,59 @@ def diff_single(
     ref: str,
     *,
     path: str = "",
-) -> DiffResult | str:
+) -> DiffResult:
     """Diff a single commit against its parent.
 
-    Returns a ``DiffResult`` on success, or an error string on failure.
+    Raises:
+        KeyError: If *ref* cannot be resolved.
+        ValueError: If the commit has no parent (initial commit)
+            or the parent object is missing.
     """
-    try:
-        commit = resolve_commit(repo, ref)
-    except KeyError:
-        return f"Ref '{ref}' not found."
+    commit = resolve_commit(repo, ref)
     if not commit.parent_ids:
-        return f"Commit {ref} has no parent (initial commit)."
+        msg = f"Commit {ref} has no parent (initial commit)."
+        raise ValueError(msg)
     parent_obj = repo.get(commit.parent_ids[0])
     if parent_obj is None:
-        return f"Parent of {ref} not found."
+        msg = f"Parent of {ref} not found."
+        raise ValueError(msg)
     parent = parent_obj.peel(pygit2.Commit)
     d = repo.diff(parent, commit)
     return _build_diff_result(d, path)
 
 
-def _build_diff_result(d: pygit2.Diff, path: str) -> DiffResult | str:
-    """Format a pygit2 Diff into a ``DiffResult``."""
+def _build_diff_result(d: pygit2.Diff, path: str) -> DiffResult:
+    """Build a ``DiffResult`` from a pygit2 Diff.
+
+    When *path* is given but has no changes, returns a ``DiffResult``
+    with an empty ``patch_lines`` list and zeroed stats.
+    """
     if path:
         patches = [
             p
             for p in d
-            if p is not None
-            and (p.delta.old_file.path == path or p.delta.new_file.path == path)
+            if p is not None and (p.delta.old_file.path == path or p.delta.new_file.path == path)
         ]
         if not patches:
-            return f"No changes to '{path}' in this diff."
+            return DiffResult(
+                stats=DiffStats(files_changed=0, insertions=0, deletions=0),
+                patch_lines=[],
+            )
         patch_text = "\n".join(p.text for p in patches if p.text)
         n_files = len(patches)
         insertions = sum(p.line_stats[1] for p in patches)
         deletions = sum(p.line_stats[2] for p in patches)
-        header = f"{n_files} files changed, +{insertions} -{deletions}"
     else:
-        stats = d.stats
-        header = f"{stats.files_changed} files changed, +{stats.insertions} -{stats.deletions}"
+        raw = d.stats
+        n_files = raw.files_changed
+        insertions = raw.insertions
+        deletions = raw.deletions
         patch_text = d.patch or "(empty diff)"
 
-    return DiffResult(header=header, patch_lines=patch_text.splitlines())
+    return DiffResult(
+        stats=DiffStats(files_changed=n_files, insertions=insertions, deletions=deletions),
+        patch_lines=patch_text.splitlines(),
+    )
 
 
 # ── Changed files ────────────────────────────────────────────────────
@@ -260,17 +289,17 @@ def commit_log_between(
     repo: pygit2.Repository,
     base_ref: str,
     head_ref: str,
-) -> list[LogEntry] | str:
+) -> list[LogEntry]:
     """Return commits on *head_ref* not reachable from *base_ref*.
 
-    Returns a list of ``LogEntry`` on success, or an error string
-    on failure.  Commits are in reverse chronological order.
+    Commits are in reverse chronological order.  Returns an empty
+    list when the branches are identical.
+
+    Raises:
+        KeyError: If either ref cannot be resolved.
     """
-    try:
-        head_commit = resolve_commit(repo, head_ref)
-        base_commit = resolve_commit(repo, base_ref)
-    except KeyError as exc:
-        return f"Could not resolve refs: {exc}"
+    head_commit = resolve_commit(repo, head_ref)
+    base_commit = resolve_commit(repo, base_ref)
 
     merge_base = repo.merge_base(head_commit.id, base_commit.id)
     stop_at = merge_base if merge_base else None
@@ -281,7 +310,7 @@ def commit_log_between(
             break
         entries.append(
             LogEntry(
-                short_sha=str(commit.id)[:8],
+                sha=str(commit.id),
                 author=commit.author.name,
                 message=commit.message.strip().split("\n", 1)[0],
             )

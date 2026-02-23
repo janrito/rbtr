@@ -58,27 +58,18 @@ def cmd_review(engine: Engine, identifier: str) -> None:
 
 
 def _list(engine: Engine) -> None:
-    if engine.session.gh is not None:
+    ctx = engine.session.gh_ctx
+    if ctx is not None:
         try:
             engine._out("Fetching from GitHub…")
-            prs = client.list_open_prs(
-                engine.session.gh, engine.session.owner, engine.session.repo_name
-            )
+            prs = client.list_open_prs(ctx)
             engine._check_cancel()
             pr_branches = {pr.head_branch for pr in prs}
-            branches = client.list_unmerged_branches(
-                engine.session.gh,
-                engine.session.owner,
-                engine.session.repo_name,
-                pr_branches,
-            )
+            branches = client.list_unmerged_branches(ctx, pr_branches)
             engine._clear()
 
             if not prs and not branches:
-                engine._out(
-                    f"No open PRs or unmerged branches in "
-                    f"{engine.session.owner}/{engine.session.repo_name}."
-                )
+                engine._out(f"No open PRs or unmerged branches in {ctx.full_name}.")
                 return
 
             if prs:
@@ -168,15 +159,13 @@ def _list(engine: Engine) -> None:
 
 
 def _review_pr(engine: Engine, pr_number: int) -> None:
-
-    if engine.session.gh is None:
+    ctx = engine.session.gh_ctx
+    if ctx is None:
         engine._warn("Not authenticated. Run /connect github first.")
         return
     try:
         engine._out(f"Fetching PR #{pr_number}…")
-        pr = client.validate_pr_number(
-            engine.session.gh, engine.session.owner, engine.session.repo_name, pr_number
-        )
+        pr = client.validate_pr_number(ctx, pr_number)
         engine._clear()
         engine.session.review_target = PRTarget(
             number=pr.number,
@@ -252,14 +241,11 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
     Pull-only — called automatically on ``/review <n>`` to seed the
     local draft.  For bidirectional sync, use ``sync_review_draft``.
     """
-    gh = engine.session.gh
-    if gh is None or not engine.session.gh_username:
+    ctx = engine.session.gh_ctx
+    if ctx is None or not engine.session.gh_username:
         return
 
-    pending = client.get_pending_review(
-        gh, engine.session.owner, engine.session.repo_name,
-        pr_number, engine.session.gh_username,
-    )
+    pending = client.get_pending_review(ctx, pr_number, engine.session.gh_username)
 
     if pending is None:
         # No remote pending review — check for local draft only.
@@ -293,8 +279,8 @@ def post_review_draft(
     delete any existing pending review, post the new review, emit
     events, and clean up the local draft.  Returns True on success.
     """
-    gh = engine.session.gh
-    if gh is None or not engine.session.gh_username:
+    ctx = engine.session.gh_ctx
+    if ctx is None or not engine.session.gh_username:
         engine._warn("Not authenticated. Run /connect github first.")
         return False
 
@@ -304,8 +290,9 @@ def post_review_draft(
     engine._out("Checking for unsynced remote comments…")
     try:
         pending = client.get_pending_review(
-            gh, engine.session.owner, engine.session.repo_name,
-            pr_number, engine.session.gh_username,
+            ctx,
+            pr_number,
+            engine.session.gh_username,
         )
     except GithubException as exc:
         engine._clear()
@@ -329,10 +316,7 @@ def post_review_draft(
     if pending is not None:
         engine._out("Replacing existing pending review…")
         try:
-            client.delete_pending_review(
-                gh, engine.session.owner, engine.session.repo_name,
-                pr_number, pending.review_id,
-            )
+            client.delete_pending_review(ctx, pr_number, pending.review_id)
         except GithubException as exc:
             engine._clear()
             engine._warn(f"Failed to delete pending review: {exc.data}")
@@ -342,10 +326,7 @@ def post_review_draft(
     n = len(draft.comments)
     engine._out(f"Posting review ({event.value}, {n} comment{'s' if n != 1 else ''})…")
     try:
-        url = client.post_review(
-            gh, engine.session.owner, engine.session.repo_name,
-            pr_number, draft,
-        )
+        url = client.post_review(ctx, pr_number, draft)
     except GithubException as exc:
         engine._clear()
         engine._warn(f"Failed to post review: {exc.data}")
@@ -354,12 +335,7 @@ def post_review_draft(
     engine._clear()
     engine._emit(ReviewPosted(url=url))
     engine._emit(
-        LinkOutput(
-            markup=(
-                f"Review posted: "
-                f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
-            )
-        )
+        LinkOutput(markup=(f"Review posted: [link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"))
     )
 
     # Clean up local draft.
@@ -379,8 +355,8 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     If there is no local draft and no remote pending review,
     this is a no-op.
     """
-    gh = engine.session.gh
-    if gh is None or not engine.session.gh_username:
+    ctx = engine.session.gh_ctx
+    if ctx is None or not engine.session.gh_username:
         engine._warn("Not authenticated. Run /connect github first.")
         return
 
@@ -388,8 +364,9 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     engine._out("Pulling remote pending review…")
     try:
         pending = client.get_pending_review(
-            gh, engine.session.owner, engine.session.repo_name,
-            pr_number, engine.session.gh_username,
+            ctx,
+            pr_number,
+            engine.session.gh_username,
         )
     except GithubException as exc:
         engine._clear()
@@ -415,10 +392,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     # 3. Delete existing pending review before pushing.
     if pending is not None:
         try:
-            client.delete_pending_review(
-                gh, engine.session.owner, engine.session.repo_name,
-                pr_number, pending.review_id,
-            )
+            client.delete_pending_review(ctx, pr_number, pending.review_id)
         except GithubException as exc:
             engine._warn(f"Failed to delete pending review: {exc.data}")
             return
@@ -427,10 +401,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     n = len(local.comments)
     engine._out(f"Pushing draft ({n} comment{'s' if n != 1 else ''})…")
     try:
-        client.push_pending_review(
-            gh, engine.session.owner, engine.session.repo_name,
-            pr_number, local,
-        )
+        client.push_pending_review(ctx, pr_number, local)
     except GithubException as exc:
         engine._clear()
         engine._warn(f"Failed to push draft: {exc.data}")
@@ -447,34 +418,31 @@ def clear_review_draft(engine: Engine, pr_number: int) -> None:
     else:
         engine._out("No local draft to delete.")
 
-    gh = engine.session.gh
-    if gh is None or not engine.session.gh_username:
+    ctx = engine.session.gh_ctx
+    if ctx is None or not engine.session.gh_username:
         return
 
     try:
         pending = client.get_pending_review(
-            gh, engine.session.owner, engine.session.repo_name,
-            pr_number, engine.session.gh_username,
+            ctx,
+            pr_number,
+            engine.session.gh_username,
         )
     except GithubException:
         return
 
     if pending is not None:
         try:
-            client.delete_pending_review(
-                gh, engine.session.owner, engine.session.repo_name,
-                pr_number, pending.review_id,
-            )
+            client.delete_pending_review(ctx, pr_number, pending.review_id)
             engine._out("Remote pending review deleted.")
         except GithubException as exc:
             engine._warn(f"Failed to delete remote pending review: {exc.data}")
 
 
 def _warn_access(engine: Engine, exc: GithubException) -> None:
-    engine._warn(
-        f"Cannot access {engine.session.owner}/{engine.session.repo_name} "
-        f"via GitHub API ({exc.status})."
-    )
+    ctx = engine.session.gh_ctx
+    name = ctx.full_name if ctx else f"{engine.session.owner}/{engine.session.repo_name}"
+    engine._warn(f"Cannot access {name} via GitHub API ({exc.status}).")
     message = exc.data.get("message", "") if isinstance(exc.data, dict) else ""
     if message:
         engine._out(message)

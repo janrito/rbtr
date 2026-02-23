@@ -9,6 +9,7 @@ import pygit2
 from github import Github
 from pydantic_ai.messages import ModelMessage
 
+from rbtr.github.client import GitHubCtx
 from rbtr.models import DiscussionEntry, Target
 from rbtr.providers import claude as claude_provider, openai_codex as codex_provider
 from rbtr.usage import SessionUsage
@@ -57,6 +58,13 @@ class Session:
     usage: SessionUsage = field(default_factory=SessionUsage)
     # Cached PR discussion — fetched once per PR, cleared on new /review.
     discussion_cache: list[DiscussionEntry] | None = None
+
+    @property
+    def gh_ctx(self) -> GitHubCtx | None:
+        """Build a :class:`GitHubCtx` from session state, or ``None``."""
+        if self.gh is None:
+            return None
+        return GitHubCtx(gh=self.gh, owner=self.owner, repo_name=self.repo_name)
 
     @property
     def has_llm(self) -> bool:

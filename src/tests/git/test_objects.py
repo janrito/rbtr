@@ -1,4 +1,20 @@
-"""Tests for git file listing and change detection."""
+"""Tests for git object-store operations.
+
+Tests are organised around a shared multi-commit repository
+(``sample_repo`` from conftest) that has adds, modifications,
+deletions, and binary files across three commits.  Individual
+tests verify *behaviours* against this dataset rather than
+constructing throwaway repos for each assertion.
+
+Functions under test:
+- resolve_commit
+- walk_tree / list_files
+- read_blob
+- diff_refs / diff_single
+- commit_log_between
+- changed_files
+- is_binary / _matches_globs
+"""
 
 from __future__ import annotations
 
@@ -10,60 +26,24 @@ import pytest
 from rbtr.config import config
 from rbtr.git import FileEntry, changed_files, is_binary, list_files
 from rbtr.git.filters import _matches_globs
+from rbtr.git.objects import (
+    DiffStats,
+    commit_log_between,
+    diff_refs,
+    diff_single,
+    read_blob,
+    resolve_commit,
+    walk_tree,
+)
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def _build_tree(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-) -> pygit2.Oid:
-    """Build a nested tree from ``{"dir/file.py": b"..."}`` paths."""
-    # Group files by top-level directory component.
-    subtrees: dict[str, dict[str, bytes]] = {}
-    blobs: dict[str, bytes] = {}
-
-    for path, content in files.items():
-        if "/" in path:
-            top, rest = path.split("/", 1)
-            subtrees.setdefault(top, {})[rest] = content
-        else:
-            blobs[path] = content
-
-    tb = repo.TreeBuilder()
-    for name, data in blobs.items():
-        tb.insert(name, repo.create_blob(data), pygit2.GIT_FILEMODE_BLOB)
-    for name, sub_files in subtrees.items():
-        tb.insert(name, _build_tree(repo, sub_files), pygit2.GIT_FILEMODE_TREE)
-    return tb.write()
-
-
-def _commit_files(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-    *,
-    message: str = "commit",
-    parents: list[pygit2.Oid] | None = None,
-) -> pygit2.Oid:
-    """Create a commit with the given file tree and return its OID."""
-    tree_oid = _build_tree(repo, files)
-
-    sig = pygit2.Signature("test", "test@test.com")
-    return repo.create_commit(
-        "refs/heads/main",
-        sig,
-        sig,
-        message,
-        tree_oid,
-        parents or [],
-    )
-
-
-@pytest.fixture
-def git_repo(tmp_path: Path) -> pygit2.Repository:
-    """Create a bare-minimum git repo with one commit."""
-    return pygit2.init_repository(str(tmp_path / "repo"))
-
+from .conftest import (
+    BINARY_PNG,
+    HANDLER_V1,
+    README,
+    UTILS,
+    SampleRepo,
+    make_commit,
+)
 
 # ── _matches_globs ───────────────────────────────────────────────────
 
@@ -83,274 +63,378 @@ def test_matches_globs_empty_patterns() -> None:
 # ── is_binary ───────────────────────────────────────────────────────
 
 
-def testis_binary_with_null_byte() -> None:
+def test_is_binary_with_null_byte() -> None:
     assert is_binary(b"hello\x00world")
 
 
-def testis_binary_text() -> None:
+def test_is_binary_text() -> None:
     assert not is_binary(b"hello world\n")
 
 
-def testis_binary_empty() -> None:
+def test_is_binary_empty() -> None:
     assert not is_binary(b"")
 
 
-def testis_binary_null_beyond_sample() -> None:
+def test_is_binary_null_beyond_sample() -> None:
     data = b"a" * 100 + b"\x00"
     assert not is_binary(data, sample_size=50)
 
 
-# ── list_files basic ─────────────────────────────────────────────────
+# ── resolve_commit ───────────────────────────────────────────────────
 
 
-def test_list_files_returns_text_files(git_repo: pygit2.Repository, config_path: Path) -> None:
-    oid = _commit_files(
-        git_repo,
-        {
-            "hello.py": b"print('hi')\n",
-            "readme.md": b"# Hello\n",
-        },
-    )
-    entries = list(list_files(git_repo, str(oid)))
+def test_resolve_by_sha(sample_repo: SampleRepo) -> None:
+    commit = resolve_commit(sample_repo.repo, str(sample_repo.base))
+    assert commit.id == sample_repo.base
+
+
+def test_resolve_by_branch_name(sample_repo: SampleRepo) -> None:
+    commit = resolve_commit(sample_repo.repo, "feature")
+    assert commit.id == sample_repo.head
+
+
+def test_resolve_falls_back_to_origin(sample_repo: SampleRepo) -> None:
+    """When a local branch doesn't exist, origin/<name> is tried."""
+    repo = sample_repo.repo
+    # Create a remote-only ref.
+    repo.references.create("refs/remotes/origin/remote-only", sample_repo.mid)
+
+    commit = resolve_commit(repo, "remote-only")
+    assert commit.id == sample_repo.mid
+
+
+def test_resolve_prefers_local_over_remote(sample_repo: SampleRepo) -> None:
+    repo = sample_repo.repo
+    repo.references.create("refs/remotes/origin/main", sample_repo.head)
+
+    # "main" resolves to local (base), not origin (head).
+    commit = resolve_commit(repo, "main")
+    assert commit.id == sample_repo.base
+
+
+def test_resolve_unknown_ref_raises(sample_repo: SampleRepo) -> None:
+    with pytest.raises(KeyError, match="Cannot resolve ref"):
+        resolve_commit(sample_repo.repo, "nonexistent")
+
+
+# ── read_blob ────────────────────────────────────────────────────────
+
+
+def test_read_blob_existing_file(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/handler.py")
+    assert blob is not None
+    assert blob.data == HANDLER_V1
+
+
+def test_read_blob_nested_path(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/utils.py")
+    assert blob is not None
+    assert blob.data == UTILS
+
+
+def test_read_blob_missing_file(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, str(sample_repo.base), "nonexistent.py")
+    assert blob is None
+
+
+def test_read_blob_missing_ref(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, "nonexistent-branch", "src/handler.py")
+    assert blob is None
+
+
+def test_read_blob_binary_file(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, "feature", "binary.png")
+    assert blob is not None
+    assert blob.data == BINARY_PNG
+
+
+def test_read_blob_deleted_file(sample_repo: SampleRepo) -> None:
+    """readme.md exists at base but is deleted at head."""
+    assert read_blob(sample_repo.repo, str(sample_repo.base), "readme.md") is not None
+    assert read_blob(sample_repo.repo, "feature", "readme.md") is None
+
+
+def test_read_blob_by_branch_name(sample_repo: SampleRepo) -> None:
+    blob = read_blob(sample_repo.repo, "main", "readme.md")
+    assert blob is not None
+    assert blob.data == README
+
+
+# ── diff_refs ────────────────────────────────────────────────────────
+
+
+def test_diff_refs_detects_changes(sample_repo: SampleRepo) -> None:
+    """Diff base→head should show handler modified, config added, readme deleted."""
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature")
+    # 4 files: handler.py (mod), readme.md (del), config.yaml (add), binary.png (add)
+    assert result.stats.files_changed == 4
+    assert result.stats.insertions > 0 or result.stats.deletions > 0
+    assert len(result.patch_lines) > 0
+
+
+def test_diff_refs_stats_types(sample_repo: SampleRepo) -> None:
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature")
+    assert isinstance(result.stats, DiffStats)
+    assert isinstance(result.stats.files_changed, int)
+    assert isinstance(result.stats.insertions, int)
+    assert isinstance(result.stats.deletions, int)
+
+
+def test_diff_refs_identical(sample_repo: SampleRepo) -> None:
+    """Diffing a ref against itself produces an empty diff."""
+    result = diff_refs(sample_repo.repo, "main", "main")
+    assert result.stats.files_changed == 0
+    assert result.patch_lines == ["(empty diff)"]
+
+
+def test_diff_refs_path_filter(sample_repo: SampleRepo) -> None:
+    """Restrict diff to a single file."""
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="src/handler.py")
+    assert result.stats.files_changed == 1
+    # Patch should mention handler.py
+    patch = "\n".join(result.patch_lines)
+    assert "handler.py" in patch
+
+
+def test_diff_refs_path_no_changes(sample_repo: SampleRepo) -> None:
+    """Path filter for an unchanged file returns empty stats."""
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="src/utils.py")
+    assert result.stats.files_changed == 0
+    assert result.patch_lines == []
+
+
+def test_diff_refs_path_nonexistent(sample_repo: SampleRepo) -> None:
+    """Path filter for a file that doesn't exist in either ref."""
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="nope.py")
+    assert result.stats.files_changed == 0
+    assert result.patch_lines == []
+
+
+def test_diff_refs_bad_ref_raises(sample_repo: SampleRepo) -> None:
+    with pytest.raises(KeyError, match="Cannot resolve ref"):
+        diff_refs(sample_repo.repo, "main", "nonexistent")
+
+
+# ── diff_single ──────────────────────────────────────────────────────
+
+
+def test_diff_single_against_parent(sample_repo: SampleRepo) -> None:
+    """Mid commit modifies handler.py and adds config.yaml."""
+    result = diff_single(sample_repo.repo, str(sample_repo.mid))
+    assert result.stats.files_changed == 2
+    patch = "\n".join(result.patch_lines)
+    assert "handler.py" in patch
+    assert "config.yaml" in patch
+
+
+def test_diff_single_head_commit(sample_repo: SampleRepo) -> None:
+    """Head commit deletes readme.md and adds binary.png."""
+    result = diff_single(sample_repo.repo, str(sample_repo.head))
+    assert result.stats.files_changed == 2
+    patch = "\n".join(result.patch_lines)
+    assert "readme.md" in patch
+
+
+def test_diff_single_path_filter(sample_repo: SampleRepo) -> None:
+    result = diff_single(sample_repo.repo, str(sample_repo.mid), path="src/handler.py")
+    assert result.stats.files_changed == 1
+    patch = "\n".join(result.patch_lines)
+    assert "validate" in patch  # handler_v2 adds validate call
+
+
+def test_diff_single_initial_commit_raises(sample_repo: SampleRepo) -> None:
+    """The base commit has no parent — should raise ValueError."""
+    with pytest.raises(ValueError, match="no parent"):
+        diff_single(sample_repo.repo, str(sample_repo.base))
+
+
+def test_diff_single_bad_ref_raises(sample_repo: SampleRepo) -> None:
+    with pytest.raises(KeyError, match="Cannot resolve ref"):
+        diff_single(sample_repo.repo, "nonexistent")
+
+
+# ── commit_log_between ───────────────────────────────────────────────
+
+
+def test_commit_log_returns_entries(sample_repo: SampleRepo) -> None:
+    """Log from base to head should have 2 commits (mid + head)."""
+    entries = commit_log_between(sample_repo.repo, "main", "feature")
+    assert len(entries) == 2
+
+
+def test_commit_log_order(sample_repo: SampleRepo) -> None:
+    """Entries are in reverse chronological (topological) order."""
+    entries = commit_log_between(sample_repo.repo, "main", "feature")
+    # head is newer, so it comes first
+    assert entries[0].sha == str(sample_repo.head)
+    assert entries[1].sha == str(sample_repo.mid)
+
+
+def test_commit_log_full_sha(sample_repo: SampleRepo) -> None:
+    """sha field contains the full 40-char hex SHA."""
+    entries = commit_log_between(sample_repo.repo, "main", "feature")
+    for entry in entries:
+        assert len(entry.sha) == 40
+        int(entry.sha, 16)  # valid hex
+
+
+def test_commit_log_authors(sample_repo: SampleRepo) -> None:
+    entries = commit_log_between(sample_repo.repo, "main", "feature")
+    authors = {e.author for e in entries}
+    assert authors == {"Alice", "Bob"}
+
+
+def test_commit_log_messages(sample_repo: SampleRepo) -> None:
+    entries = commit_log_between(sample_repo.repo, "main", "feature")
+    messages = {e.message for e in entries}
+    assert "Remove readme, add image" in messages
+    assert "Add validation and config" in messages
+
+
+def test_commit_log_identical_refs(sample_repo: SampleRepo) -> None:
+    """Same ref on both sides → empty list."""
+    entries = commit_log_between(sample_repo.repo, "main", "main")
+    assert entries == []
+
+
+def test_commit_log_bad_ref_raises(sample_repo: SampleRepo) -> None:
+    with pytest.raises(KeyError, match="Cannot resolve ref"):
+        commit_log_between(sample_repo.repo, "main", "nonexistent")
+
+
+# ── list_files ───────────────────────────────────────────────────────
+
+
+def test_list_files_at_base(sample_repo: SampleRepo, config_path: Path) -> None:
+    entries = list(list_files(sample_repo.repo, "main"))
     paths = {e.path for e in entries}
-    assert paths == {"hello.py", "readme.md"}
+    assert paths == {"src/handler.py", "src/utils.py", "readme.md"}
+
+
+def test_list_files_at_head(sample_repo: SampleRepo, config_path: Path) -> None:
+    """Head has no readme.md but has config.yaml.  binary.png is skipped."""
+    entries = list(list_files(sample_repo.repo, "feature"))
+    paths = {e.path for e in entries}
+    assert paths == {"src/handler.py", "src/utils.py", "config.yaml"}
+    assert "binary.png" not in paths  # binary → skipped
+    assert "readme.md" not in paths  # deleted
+
+
+def test_list_files_returns_file_entries(sample_repo: SampleRepo, config_path: Path) -> None:
+    entries = list(list_files(sample_repo.repo, "main"))
     assert all(isinstance(e, FileEntry) for e in entries)
+    handler = next(e for e in entries if e.path == "src/handler.py")
+    assert handler.content == HANDLER_V1
+    assert handler.blob_sha  # non-empty
 
 
-def test_list_files_skips_binary(git_repo: pygit2.Repository, config_path: Path) -> None:
-    oid = _commit_files(
-        git_repo,
-        {
-            "image.png": b"\x89PNG\r\n\x1a\n\x00\x00",
-            "code.py": b"x = 1\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"code.py"}
+def test_list_files_skips_binary(sample_repo: SampleRepo, config_path: Path) -> None:
+    entries = list(list_files(sample_repo.repo, "feature"))
+    paths = {e.path for e in entries}
+    assert "binary.png" not in paths
 
 
-def test_list_files_skips_large_files(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.max_file_size = 100
-    oid = _commit_files(
-        git_repo,
-        {
-            "big.py": b"x" * 200,
-            "small.py": b"x = 1\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"small.py"}
+def test_list_files_max_file_size(sample_repo: SampleRepo, config_path: Path) -> None:
+    entries = list(list_files(sample_repo.repo, "main", max_file_size=10))
+    # All sample files are > 10 bytes
+    assert entries == []
 
 
-def test_list_files_max_file_size_override(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.max_file_size = 1000
-    oid = _commit_files(
-        git_repo,
-        {
-            "big.py": b"x" * 200,
-        },
-    )
-    # Override with a smaller limit via kwarg.
-    paths = {e.path for e in list_files(git_repo, str(oid), max_file_size=50)}
-    assert paths == set()
-
-
-# ── extend_exclude ───────────────────────────────────────────────────
-
-
-def test_list_files_extend_exclude(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.extend_exclude = ["*.lock"]
-    oid = _commit_files(
-        git_repo,
-        {
-            "app.py": b"x = 1\n",
-            "poetry.lock": b"lots of lock data\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"app.py"}
-
-
-def test_list_files_extend_exclude_empty(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.extend_exclude = []
-    oid = _commit_files(
-        git_repo,
-        {
-            "app.py": b"x = 1\n",
-            "style.min.css": b"body{}\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert "style.min.css" in paths
-
-
-# ── gitignore ────────────────────────────────────────────────────────
-
-
-def test_list_files_respects_gitignore(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.extend_exclude = []
-    # Write a .gitignore to the working directory so pygit2 sees it.
-    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs return Optional
-    (workdir / ".gitignore").write_text("ignored.py\n")
-
-    oid = _commit_files(
-        git_repo,
-        {
-            "kept.py": b"x = 1\n",
-            "ignored.py": b"y = 2\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert "kept.py" in paths
-    assert "ignored.py" not in paths
-
-
-# ── include (force-include overrides gitignore) ──────────────────────
-
-
-def test_list_files_include_overrides_gitignore(
-    git_repo: pygit2.Repository, config_path: Path
-) -> None:
-    config.index.extend_exclude = []
-    config.index.include = ["ignored.py"]
-    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs return Optional
-    (workdir / ".gitignore").write_text("ignored.py\n")
-
-    oid = _commit_files(
-        git_repo,
-        {
-            "kept.py": b"x = 1\n",
-            "ignored.py": b"y = 2\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"kept.py", "ignored.py"}
+def test_list_files_extend_exclude(sample_repo: SampleRepo, config_path: Path) -> None:
+    config.index.extend_exclude = ["*.yaml"]
+    entries = list(list_files(sample_repo.repo, "feature"))
+    paths = {e.path for e in entries}
+    assert "config.yaml" not in paths
 
 
 def test_list_files_include_overrides_extend_exclude(
-    git_repo: pygit2.Repository, config_path: Path
+    sample_repo: SampleRepo, config_path: Path
 ) -> None:
-    config.index.extend_exclude = ["*.lock"]
-    config.index.include = ["important.lock"]
-    oid = _commit_files(
-        git_repo,
-        {
-            "app.py": b"x = 1\n",
-            "important.lock": b"keep me\n",
-            "other.lock": b"skip me\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"app.py", "important.lock"}
+    config.index.extend_exclude = ["*.yaml"]
+    config.index.include = ["config.yaml"]
+    entries = list(list_files(sample_repo.repo, "feature"))
+    paths = {e.path for e in entries}
+    assert "config.yaml" in paths
 
 
-def test_list_files_include_still_skips_binary(
-    git_repo: pygit2.Repository, config_path: Path
-) -> None:
-    config.index.include = ["image.png"]
-    oid = _commit_files(
-        git_repo,
-        {
-            "image.png": b"\x89PNG\r\n\x1a\n\x00\x00",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == set()
+def test_list_files_gitignore(sample_repo: SampleRepo, config_path: Path) -> None:
+    config.index.extend_exclude = []
+    workdir = Path(sample_repo.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
+    (workdir / ".gitignore").write_text("config.yaml\n")
+
+    entries = list(list_files(sample_repo.repo, "feature"))
+    paths = {e.path for e in entries}
+    assert "config.yaml" not in paths
 
 
-def test_list_files_include_still_skips_oversized(
-    git_repo: pygit2.Repository, config_path: Path
-) -> None:
-    config.index.max_file_size = 50
-    config.index.include = ["big.py"]
-    oid = _commit_files(
-        git_repo,
-        {
-            "big.py": b"x" * 200,
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == set()
+def test_list_files_unresolvable_ref_raises(sample_repo: SampleRepo, config_path: Path) -> None:
+    with pytest.raises(KeyError, match="Cannot resolve ref"):
+        list(list_files(sample_repo.repo, "nonexistent-branch"))
+
+
+def test_list_files_remote_branch(sample_repo: SampleRepo, config_path: Path) -> None:
+    """Resolves origin/<name> when local branch doesn't exist."""
+    repo = sample_repo.repo
+    repo.references.create("refs/remotes/origin/remote-only", sample_repo.mid)
+
+    entries = list(list_files(repo, "remote-only"))
+    paths = {e.path for e in entries}
+    assert "config.yaml" in paths  # added at mid
 
 
 # ── changed_files ────────────────────────────────────────────────────
 
 
-def test_changed_files_detects_added(git_repo: pygit2.Repository, config_path: Path) -> None:
-    base = _commit_files(git_repo, {"a.py": b"x = 1\n"})
-    head = _commit_files(
-        git_repo,
-        {"a.py": b"x = 1\n", "b.py": b"y = 2\n"},
-        parents=[base],
-    )
-    paths = changed_files(git_repo, str(base), str(head))
-    assert "b.py" in paths
+def test_changed_files_base_to_head(sample_repo: SampleRepo) -> None:
+    paths = changed_files(sample_repo.repo, "main", "feature")
+    # handler.py (modified), readme.md (deleted), config.yaml (added), binary.png (added)
+    assert paths == {"src/handler.py", "readme.md", "config.yaml", "binary.png"}
 
 
-def test_changed_files_detects_modified(git_repo: pygit2.Repository, config_path: Path) -> None:
-    base = _commit_files(git_repo, {"a.py": b"x = 1\n"})
-    head = _commit_files(
-        git_repo,
-        {"a.py": b"x = 2\n"},
-        parents=[base],
-    )
-    paths = changed_files(git_repo, str(base), str(head))
-    assert "a.py" in paths
+def test_changed_files_base_to_mid(sample_repo: SampleRepo) -> None:
+    paths = changed_files(sample_repo.repo, str(sample_repo.base), str(sample_repo.mid))
+    assert paths == {"src/handler.py", "config.yaml"}
 
 
-def test_changed_files_detects_deleted(git_repo: pygit2.Repository, config_path: Path) -> None:
-    base = _commit_files(git_repo, {"a.py": b"x = 1\n", "b.py": b"y = 2\n"})
-    head = _commit_files(
-        git_repo,
-        {"a.py": b"x = 1\n"},
-        parents=[base],
-    )
-    paths = changed_files(git_repo, str(base), str(head))
-    assert "b.py" in paths
-
-
-def test_changed_files_empty_when_identical(git_repo: pygit2.Repository, config_path: Path) -> None:
-    base = _commit_files(git_repo, {"a.py": b"x = 1\n"})
-    head = _commit_files(
-        git_repo,
-        {"a.py": b"x = 1\n"},
-        parents=[base],
-    )
-    paths = changed_files(git_repo, str(base), str(head))
+def test_changed_files_identical(sample_repo: SampleRepo) -> None:
+    paths = changed_files(sample_repo.repo, "main", "main")
     assert paths == set()
 
 
-# ── Nested directories ───────────────────────────────────────────────
+def test_changed_files_with_remote_branch(sample_repo: SampleRepo) -> None:
+    repo = sample_repo.repo
+    repo.references.create("refs/remotes/origin/pr-head", sample_repo.head)
+    paths = changed_files(repo, "main", "pr-head")
+    assert "src/handler.py" in paths
+    assert "readme.md" in paths
 
 
-def test_list_files_nested_dirs(git_repo: pygit2.Repository, config_path: Path) -> None:
-    oid = _commit_files(
-        git_repo,
-        {
-            "src/app.py": b"x = 1\n",
-            "src/lib/util.py": b"y = 2\n",
-            "readme.md": b"# Hi\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert paths == {"src/app.py", "src/lib/util.py", "readme.md"}
+# ── walk_tree ────────────────────────────────────────────────────────
 
 
-def test_list_files_gitignore_nested_dir(git_repo: pygit2.Repository, config_path: Path) -> None:
-    config.index.extend_exclude = []
-    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs return Optional
-    (workdir / ".gitignore").write_text("vendor/\n")
+def test_walk_tree_yields_all_blobs(sample_repo: SampleRepo) -> None:
+    commit = resolve_commit(sample_repo.repo, "main")
+    pairs = list(walk_tree(sample_repo.repo, commit.tree, ""))
+    paths = {p for p, _ in pairs}
+    assert paths == {"src/handler.py", "src/utils.py", "readme.md"}
 
-    oid = _commit_files(
-        git_repo,
-        {
-            "app.py": b"x = 1\n",
-            "vendor/lib.py": b"y = 2\n",
-        },
-    )
-    paths = {e.path for e in list_files(git_repo, str(oid))}
-    assert "app.py" in paths
-    assert "vendor/lib.py" not in paths
+
+def test_walk_tree_blobs_are_readable(sample_repo: SampleRepo) -> None:
+    commit = resolve_commit(sample_repo.repo, "main")
+    for _path, blob in walk_tree(sample_repo.repo, commit.tree, ""):
+        assert isinstance(blob, pygit2.Blob)
+        assert len(blob.data) > 0
+
+
+# ── Edge cases with standalone repos ─────────────────────────────────
+# Some scenarios are hard to represent in the shared dataset
+# (e.g. include overriding gitignore for nested dirs).
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> pygit2.Repository:
+    """A bare repo for one-off edge case tests."""
+    return pygit2.init_repository(str(tmp_path / "edge"))
 
 
 def test_list_files_include_overrides_gitignore_nested(
@@ -358,10 +442,10 @@ def test_list_files_include_overrides_gitignore_nested(
 ) -> None:
     config.index.extend_exclude = []
     config.index.include = ["vendor/important.py"]
-    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs return Optional
+    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / ".gitignore").write_text("vendor/\n")
 
-    oid = _commit_files(
+    oid = make_commit(
         git_repo,
         {
             "app.py": b"x = 1\n",
@@ -373,78 +457,20 @@ def test_list_files_include_overrides_gitignore_nested(
     assert paths == {"app.py", "vendor/important.py"}
 
 
-# ── FileEntry fields ─────────────────────────────────────────────────
-
-
-def test_list_files_entry_content(git_repo: pygit2.Repository, config_path: Path) -> None:
-    oid = _commit_files(git_repo, {"hello.py": b"print('hi')\n"})
-    entries = list(list_files(git_repo, str(oid)))
-    assert len(entries) == 1
-    assert entries[0].path == "hello.py"
-    assert entries[0].content == b"print('hi')\n"
-    assert entries[0].blob_sha  # non-empty string
-
-
-# ── Remote branch fallback ───────────────────────────────────────────
-
-
-def test_list_files_resolves_remote_branch(git_repo: pygit2.Repository, config_path: Path) -> None:
-    """list_files resolves ``origin/<branch>`` when the local branch
-    doesn't exist — common for PR head branches.
-    """
-    oid = _commit_files(git_repo, {"app.py": b"x = 1\n"})
-
-    # Create a remote ref that mimics ``git fetch origin feature``.
-    git_repo.references.create("refs/remotes/origin/feature", oid)
-
-    # "feature" doesn't exist as a local branch, but origin/feature does.
-    entries = list(list_files(git_repo, "feature"))
-    assert {e.path for e in entries} == {"app.py"}
-
-
-def test_list_files_unresolvable_ref_raises(git_repo: pygit2.Repository, config_path: Path) -> None:
-    _commit_files(git_repo, {"app.py": b"x = 1\n"})
-    with pytest.raises(KeyError, match="Cannot resolve ref"):
-        list(list_files(git_repo, "nonexistent-branch"))
-
-
-def test_changed_files_with_remote_branch(git_repo: pygit2.Repository, config_path: Path) -> None:
-    """changed_files works when the head ref is a remote-only branch.
-
-    This is the exact scenario for PR reviews: base is a local branch
-    (``main``), head is remote-only (``origin/feature``).
-    """
-    base = _commit_files(git_repo, {"a.py": b"x = 1\n"})
-    head = _commit_files(
-        git_repo,
-        {"a.py": b"x = 1\n", "b.py": b"y = 2\n"},
-        parents=[base],
-    )
-
-    # Move main back to base, put head on a remote-only ref.
-    git_repo.references.create("refs/heads/main", base, force=True)
-    git_repo.references.create("refs/remotes/origin/feature", head)
-
-    paths = changed_files(git_repo, "main", "feature")
-    assert "b.py" in paths
-
-
-def test_list_files_prefers_local_over_remote(
+def test_list_files_include_still_skips_binary(
     git_repo: pygit2.Repository, config_path: Path
 ) -> None:
-    """When both local and remote refs exist, the local one wins."""
-    local_oid = _commit_files(git_repo, {"local.py": b"x = 1\n"})
+    config.index.include = ["image.png"]
+    oid = make_commit(git_repo, {"image.png": b"\x89PNG\r\n\x1a\n\x00\x00"})
+    paths = {e.path for e in list_files(git_repo, str(oid))}
+    assert paths == set()
 
-    # Create a remote ref pointing to a different commit.
-    remote_oid = _commit_files(
-        git_repo,
-        {"remote.py": b"y = 2\n"},
-        parents=[local_oid],
-    )
-    git_repo.references.create("refs/heads/main", local_oid, force=True)
-    git_repo.references.create("refs/remotes/origin/main", remote_oid)
 
-    # "main" should resolve to the local branch, not the remote.
-    entries = list(list_files(git_repo, "main"))
-    paths = {e.path for e in entries}
-    assert "local.py" in paths
+def test_list_files_include_still_skips_oversized(
+    git_repo: pygit2.Repository, config_path: Path
+) -> None:
+    config.index.max_file_size = 50
+    config.index.include = ["big.py"]
+    oid = make_commit(git_repo, {"big.py": b"x" * 200})
+    paths = {e.path for e in list_files(git_repo, str(oid))}
+    assert paths == set()
