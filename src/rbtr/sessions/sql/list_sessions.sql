@@ -3,7 +3,8 @@ SELECT
   MAX(session_label) AS session_label,
   MAX(created_at) AS last_active,
   COUNT(*) AS message_count,
-  SUM(COALESCE(cost, 0)) AS total_cost
+  SUM(COALESCE(cost, 0)) AS total_cost,
+  MAX(model_name) AS model_name
 FROM messages
 WHERE
   (? IS NULL OR repo_owner = ?)

@@ -59,7 +59,7 @@ def cmd_review(engine: Engine, identifier: str) -> None:
 
 
 def _list(engine: Engine) -> None:
-    ctx = engine.session.gh_ctx
+    ctx = engine.state.gh_ctx
     if ctx is not None:
         try:
             engine._out("Fetching from GitHub…")
@@ -116,7 +116,7 @@ def _list(engine: Engine) -> None:
                 targets.append((f"#{pr.number} {pr.title}", str(pr.number)))
             for b in branches:
                 targets.append((b.name, b.name))
-            engine.session.cached_review_targets = targets
+            engine.state.cached_review_targets = targets
 
             engine._out("Use /review <pr_number> or /review <branch_name> to select.")
             return
@@ -128,9 +128,9 @@ def _list(engine: Engine) -> None:
                 engine._warn(f"GitHub error ({e.status}): {e.data}")
                 engine._out("Falling back to local branches.")
 
-    if engine.session.repo is None:
+    if engine.state.repo is None:
         return
-    branches_local = list_local_branches(engine.session.repo)
+    branches_local = list_local_branches(engine.state.repo)
     if not branches_local:
         engine._out("No local branches found.")
         return
@@ -154,13 +154,13 @@ def _list(engine: Engine) -> None:
         )
     )
     # Cache for Tab completion.
-    engine.session.cached_review_targets = [(b.name, b.name) for b in branches_local]
+    engine.state.cached_review_targets = [(b.name, b.name) for b in branches_local]
 
     engine._out("Use /review <branch_name> to select.")
 
 
 def _review_pr(engine: Engine, pr_number: int) -> None:
-    ctx = engine.session.gh_ctx
+    ctx = engine.state.gh_ctx
     if ctx is None:
         engine._warn("Not authenticated. Run /connect github first.")
         return
@@ -168,7 +168,7 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
         engine._out(f"Fetching PR #{pr_number}…")
         pr = client.validate_pr_number(ctx, pr_number)
         engine._clear()
-        engine.session.review_target = PRTarget(
+        engine.state.review_target = PRTarget(
             number=pr.number,
             title=pr.title,
             author=pr.author,
@@ -178,12 +178,12 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
             head_sha=pr.head_sha,
             updated_at=pr.updated_at,
         )
-        engine.session.discussion_cache = None
+        engine.state.discussion_cache = None
 
         # Fetch the PR head commit so it's available locally for
         # indexing and tools (works for forks and unfetched branches).
-        if engine.session.repo is not None:
-            fetch_pr_head(engine.session.repo, pr.number)
+        if engine.state.repo is not None:
+            fetch_pr_head(engine.state.repo, pr.number)
 
         _print_review_target(engine)
         _sync_pending_draft(engine, pr.number)
@@ -197,10 +197,10 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
 
 
 def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
-    if engine.session.repo is None:
+    if engine.state.repo is None:
         return
 
-    repo = engine.session.repo
+    repo = engine.state.repo
 
     # Validate target branch exists locally.
     if target not in repo.branches.local:
@@ -215,7 +215,7 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
 
     branch = repo.branches.local[target]
     commit = branch.peel(pygit2.Commit)
-    engine.session.review_target = BranchTarget(
+    engine.state.review_target = BranchTarget(
         base_branch=resolved_base,
         head_branch=target,
         updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
@@ -225,7 +225,7 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
 
 
 def _print_review_target(engine: Engine) -> None:
-    target = engine.session.review_target
+    target = engine.state.review_target
     if target is None:
         engine._out("No review target selected. Use /review to select one.")
         return
@@ -242,12 +242,12 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
     Pull-only — called automatically on ``/review <n>`` to seed the
     local draft.  For bidirectional sync, use ``sync_review_draft``.
     """
-    ctx = engine.session.gh_ctx
-    if ctx is None or not engine.session.gh_username:
+    ctx = engine.state.gh_ctx
+    if ctx is None or not engine.state.gh_username:
         return
 
     try:
-        pending = client.get_pending_review(ctx, pr_number, engine.session.gh_username)
+        pending = client.get_pending_review(ctx, pr_number, engine.state.gh_username)
     except UnknownObjectException:
         # No pending review on this PR — not an error.
         return
@@ -288,8 +288,8 @@ def post_review_draft(
     events, and clean up the local draft.  Raises
     :class:`~rbtr.exceptions.RbtrError` on failure.
     """
-    ctx = engine.session.gh_ctx
-    if ctx is None or not engine.session.gh_username:
+    ctx = engine.state.gh_ctx
+    if ctx is None or not engine.state.gh_username:
         raise RbtrError("Not authenticated. Run /connect github first.")
 
     draft = draft.model_copy(update={"event": event})
@@ -300,7 +300,7 @@ def post_review_draft(
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.session.gh_username,
+            engine.state.gh_username,
         )
     except GithubException as exc:
         engine._clear()
@@ -358,8 +358,8 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     this is a no-op.  Raises :class:`~rbtr.exceptions.RbtrError`
     on failure so the command is marked as failed.
     """
-    ctx = engine.session.gh_ctx
-    if ctx is None or not engine.session.gh_username:
+    ctx = engine.state.gh_ctx
+    if ctx is None or not engine.state.gh_username:
         raise RbtrError("Not authenticated. Run /connect github first.")
 
     # 1. Pull: fetch remote pending review.
@@ -368,7 +368,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.session.gh_username,
+            engine.state.gh_username,
         )
     except GithubException as exc:
         engine._clear()
@@ -417,15 +417,15 @@ def clear_review_draft(engine: Engine, pr_number: int) -> None:
     else:
         engine._out("No local draft to delete.")
 
-    ctx = engine.session.gh_ctx
-    if ctx is None or not engine.session.gh_username:
+    ctx = engine.state.gh_ctx
+    if ctx is None or not engine.state.gh_username:
         return
 
     try:
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.session.gh_username,
+            engine.state.gh_username,
         )
     except GithubException:
         return
@@ -439,8 +439,8 @@ def clear_review_draft(engine: Engine, pr_number: int) -> None:
 
 
 def _warn_access(engine: Engine, exc: GithubException) -> None:
-    ctx = engine.session.gh_ctx
-    name = ctx.full_name if ctx else f"{engine.session.owner}/{engine.session.repo_name}"
+    ctx = engine.state.gh_ctx
+    name = ctx.full_name if ctx else f"{engine.state.owner}/{engine.state.repo_name}"
     engine._warn(f"Cannot access {name} via GitHub API ({exc.status}).")
     message = exc.data.get("message", "") if isinstance(exc.data, dict) else ""
     if message:

@@ -174,13 +174,13 @@ class UI:
     def __init__(
         self,
         console: Console,
-        session: EngineState,
+        state: EngineState,
         events: queue.Queue[Event],
         engine: Engine,
         pr_number: int | None = None,
     ) -> None:
         self.console = console
-        self.session = session
+        self.state = state
         self.inp = InputState(history_provider=engine._store.search_history)
         self._events = events
         self._engine = engine
@@ -253,9 +253,11 @@ class UI:
                     self.inp.apply_completions(matches)
                 case Command.SESSION:
                     subs = [
-                        ("list", "Recent sessions (--all for all repos)"),
+                        ("all", "Sessions across all repos"),
                         ("info", "Current session details"),
-                        ("delete", "Delete a session by ID or age"),
+                        ("resume", "Resume a previous session"),
+                        ("delete", "Delete a session by ID"),
+                        ("purge", "Delete sessions older than duration"),
                     ]
                     matches = [
                         (f"/session {name}", desc) for name, desc in subs if name.startswith(arg)
@@ -270,10 +272,10 @@ class UI:
     def _complete_model(self, partial: str) -> None:
         """Complete a model ID argument for /model.
 
-        Uses the cached model list from ``session.cached_models``.
+        Uses the cached model list from ``state.cached_models``.
         If the cache is empty, fetches in a background thread.
         """
-        cached = self._engine.session.cached_models
+        cached = self._engine.state.cached_models
         if cached:
             flat = [m for _, models in cached for m in models]
             matches = [(f"/model {m}", "") for m in flat if m.startswith(partial)]
@@ -305,13 +307,13 @@ class UI:
         Uses cached PR/branch data from the last ``/review`` list.
         Falls back to local branches from the repo.
         """
-        cached = self._engine.session.cached_review_targets
-        if not cached and self._engine.session.repo is not None:
+        cached = self._engine.state.cached_review_targets
+        if not cached and self._engine.state.repo is not None:
             # No cache yet — use local branches.
             try:
                 from rbtr.git import list_local_branches
 
-                branches = list_local_branches(self._engine.session.repo)
+                branches = list_local_branches(self._engine.state.repo)
                 cached = [(b.name, b.name) for b in branches]
             except Exception:
                 cached = []
@@ -647,9 +649,9 @@ class UI:
         width = self.console.width
 
         # ── Left side ────────────────────────────────────────────────
-        repo = f" {self.session.owner}/{self.session.repo_name}" if self.session.owner else " rbtr"
+        repo = f" {self.state.owner}/{self.state.repo_name}" if self.state.owner else " rbtr"
 
-        target = self.session.review_target
+        target = self.state.review_target
         match target:
             case PRTarget(number=n, base_branch=base, head_branch=head):
                 review = f" PR #{n} · {base} → {head}"
@@ -657,7 +659,7 @@ class UI:
                 review = f" {target.base_branch} → {target.head_branch}"
             case _:
                 review = ""
-        if not self.session.gh and not review:
+        if not self.state.gh and not review:
             review = " ✗ not authenticated"
 
         # Index status — appended to the review target on line 2.
@@ -674,14 +676,14 @@ class UI:
             review += index_status
 
         # ── Right side ───────────────────────────────────────────────
-        model = self.session.model_name or ""
-        usage = self.session.usage
+        model = self.state.model_name or ""
+        usage = self.state.usage
         has_usage = usage.input_tokens > 0 or usage.output_tokens > 0
 
         # Line 1: repo left, model + thinking effort right.
         # effort_supported is None until the first LLM call determines it.
         effort = config.thinking_effort
-        supported = self.session.effort_supported
+        supported = self.state.effort_supported
         if model and effort is not ThinkingEffort.NONE:
             # Show effort level; red "off" when model doesn't support it.
             if supported is False:
@@ -1024,11 +1026,11 @@ class UI:
 def run(pr_number: int | None) -> None:
     """Launch the rbtr interactive session."""
     console = Console(markup=True, highlight=False, theme=THEME)
-    session = EngineState()
+    state = EngineState()
     events: queue.Queue[Event] = queue.Queue()
-    engine = Engine(session, events)
+    engine = Engine(state, events)
     try:
-        ui = UI(console, session, events, engine, pr_number)
+        ui = UI(console, state, events, engine, pr_number)
         ui.run()
     finally:
         engine.close()

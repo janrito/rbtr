@@ -1,7 +1,9 @@
 """Shared helpers and test data for engine tests.
 
 Provides:
-- Engine construction helpers (``make_engine``, ``drain``, ``output_texts``)
+- ``engine`` fixture — default engine with auto-cleanup
+- ``repo_engine`` fixture — engine backed by a git repo in a temp dir
+- Event helpers (``drain``, ``output_texts``)
 - Git repo helpers (``make_repo_with_file``, ``wait_for_index``)
 - Realistic, reusable model instances for PRs and branches
 """
@@ -10,10 +12,12 @@ from __future__ import annotations
 
 import queue
 import time
+from collections.abc import Generator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pygit2
-from github import Github
+import pytest
 
 from rbtr.creds import OAuthCreds
 from rbtr.engine import Engine, EngineState
@@ -91,24 +95,36 @@ CHATGPT_OAUTH = OAuthCreds(
 )
 
 
-# ── Engine helpers ───────────────────────────────────────────────────
+# ── Engine fixtures ──────────────────────────────────────────────────
 
 
-def make_engine(
-    *,
-    owner: str = "testowner",
-    repo_name: str = "testrepo",
-    gh: Github | None = None,
-    repo: pygit2.Repository | None = None,
-) -> tuple[Engine, queue.Queue[Event], EngineState]:
-    """Create an Engine with a pre-populated EngineState and in-memory store."""
-    session = EngineState(owner=owner, repo_name=repo_name, gh=gh)
-    if repo is not None:
-        session.repo = repo
-    events: queue.Queue[Event] = queue.Queue()
-    store = SessionStore()  # in-memory
-    engine = Engine(session, events, store=store)
-    return engine, events, session
+@pytest.fixture
+def engine() -> Generator[Engine]:
+    """Default engine with auto-cleanup."""
+    state = EngineState(owner="testowner", repo_name="testrepo")
+    eng = Engine(state, queue.Queue(), store=SessionStore())
+    yield eng
+    eng.close()
+
+
+@pytest.fixture
+def repo_engine(tmp_path: Path) -> Generator[Engine]:
+    """Engine backed by a git repo in a temp directory.
+
+    The repo has a single commit on ``main`` with ``hello.py``.
+    Tests can add branches/files via ``engine.state.repo``.
+    """
+    repo = pygit2.init_repository(str(tmp_path))
+    sig = pygit2.Signature("Test", "test@test.com")
+    blob = repo.create_blob(b"def hello():\n    pass\n")
+    tb = repo.TreeBuilder()
+    tb.insert("hello.py", blob, pygit2.GIT_FILEMODE_BLOB)
+    repo.create_commit("refs/heads/main", sig, sig, "init", tb.write(), [])
+    repo.set_head("refs/heads/main")
+    state = EngineState(owner="o", repo_name="r", repo=repo)
+    eng = Engine(state, queue.Queue(), store=SessionStore())
+    yield eng
+    eng.close()
 
 
 def drain(events: queue.Queue[Event]) -> list[Event]:

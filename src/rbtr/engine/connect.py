@@ -85,8 +85,8 @@ def _connect_github(engine: Engine) -> None:
 
         creds.update(github_token=token)
         gh = Github(auth=Auth.Token(token), timeout=config.github.timeout)
-        engine.session.gh = gh
-        engine.session.gh_username = gh.get_user().login
+        engine.state.gh = gh
+        engine.state.gh_username = gh.get_user().login
         engine._out("Authenticated with GitHub.")
     except TaskCancelled:
         raise
@@ -99,7 +99,7 @@ def _connect_claude(engine: Engine, auth_code: str) -> None:
 
     # Phase 2: user pasted the code#state from the browser
     if auth_code:
-        pending = engine.session.claude_pending_login
+        pending = engine.state.claude_pending_login
         if pending is None:
             engine._warn("No pending Claude login. Run /connect claude first to start.")
             return
@@ -107,27 +107,27 @@ def _connect_claude(engine: Engine, auth_code: str) -> None:
             code, state = claude_provider.parse_auth_code(auth_code)
             oauth_creds = claude_provider.complete_login(code, state, pending)
             creds.update(claude=oauth_creds)
-            engine.session.claude_connected = True
-            engine.session.claude_pending_login = None
+            engine.state.claude_connected = True
+            engine.state.claude_pending_login = None
             engine._out("Connected to Anthropic. LLM is ready.")
             get_models(engine)
         except TaskCancelled:
             raise
         except Exception as e:
             engine._check_cancel()
-            engine.session.claude_pending_login = None
+            engine.state.claude_pending_login = None
             engine._warn(f"Anthropic connection failed: {e}")
         return
 
     # Check for existing credentials
     if oauth_is_set(creds.claude):
-        engine.session.claude_connected = True
+        engine.state.claude_connected = True
         engine._out("Already connected to Anthropic.")
         return
 
     # Phase 1: generate PKCE, open browser, show instructions
     authorize_url, pending = claude_provider.begin_login()
-    engine.session.claude_pending_login = pending
+    engine.state.claude_pending_login = pending
 
     engine._emit(
         LinkOutput(
@@ -147,28 +147,28 @@ def _connect_chatgpt(engine: Engine, extra: str) -> None:
 
     # Phase 2 (manual fallback): user pasted the redirect URL
     if extra:
-        pending = engine.session.chatgpt_pending_login
+        pending = engine.state.chatgpt_pending_login
         if pending is None:
             engine._warn("No pending ChatGPT login. Run /connect chatgpt first to start.")
             return
         try:
             oauth_creds = codex_provider.complete_login(extra, pending)
             creds.update(chatgpt=oauth_creds)
-            engine.session.chatgpt_connected = True
-            engine.session.chatgpt_pending_login = None
+            engine.state.chatgpt_connected = True
+            engine.state.chatgpt_pending_login = None
             engine._out("Connected to ChatGPT. LLM is ready.")
             get_models(engine)
         except TaskCancelled:
             raise
         except Exception as e:
             engine._check_cancel()
-            engine.session.chatgpt_pending_login = None
+            engine.state.chatgpt_pending_login = None
             engine._warn(f"ChatGPT connection failed: {e}")
         return
 
     # Check for existing credentials
     if oauth_is_set(creds.chatgpt):
-        engine.session.chatgpt_connected = True
+        engine.state.chatgpt_connected = True
         engine._out("Already connected to ChatGPT.")
         return
 
@@ -183,7 +183,7 @@ def _connect_chatgpt(engine: Engine, extra: str) -> None:
         engine._clear()
 
         creds.update(chatgpt=oauth_creds)
-        engine.session.chatgpt_connected = True
+        engine.state.chatgpt_connected = True
         engine._out("Connected to ChatGPT. LLM is ready.")
         get_models(engine)
     except TaskCancelled:
@@ -194,7 +194,7 @@ def _connect_chatgpt(engine: Engine, extra: str) -> None:
         if "busy" in str(e).lower() or "1455" in str(e):
             # Port busy — fall back to manual paste flow
             authorize_url, pending = codex_provider.begin_login()
-            engine.session.chatgpt_pending_login = pending
+            engine.state.chatgpt_pending_login = pending
             engine._emit(
                 LinkOutput(
                     markup=(
@@ -220,7 +220,7 @@ def _connect_openai(engine: Engine, api_key: str) -> None:
 
     # Check for existing key
     if creds.openai_api_key and not api_key:
-        engine.session.openai_connected = True
+        engine.state.openai_connected = True
         engine._out("Already connected to OpenAI.")
         return
 
@@ -235,7 +235,7 @@ def _connect_openai(engine: Engine, api_key: str) -> None:
         return
 
     creds.update(openai_api_key=api_key)
-    engine.session.openai_connected = True
+    engine.state.openai_connected = True
     engine._out("Connected to OpenAI. LLM is ready.")
     get_models(engine)
 

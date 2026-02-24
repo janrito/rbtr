@@ -45,10 +45,10 @@ def pr_target() -> PRTarget:
 
 @pytest.fixture
 def ctx(pr_target: PRTarget) -> RunContext[AgentDeps]:
-    """Build a minimal RunContext with a PR target in session."""
-    session = EngineState()
-    session.review_target = pr_target
-    deps = AgentDeps(session=session)
+    """Build a minimal RunContext with a PR target in state."""
+    state = EngineState()
+    state.review_target = pr_target
+    deps = AgentDeps(state=state)
     mock_ctx = MagicMock(spec=RunContext)
     mock_ctx.deps = deps
     return mock_ctx

@@ -323,28 +323,36 @@ def test_search_history_respects_limit() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_mark_compacted_hides_from_load() -> None:
-    """Compacted messages are excluded from load_messages."""
+def test_mark_session_compacted_hides_from_load() -> None:
+    """All rows for a session are marked, then excluded from load."""
     msgs = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
     rows = _make_rows(CTX_A, msgs)
 
     with SessionStore() as store:
         store.save_messages(rows)
-
-        # Mark first two as compacted by a summary.
-        old_ids = [rows[0].id, rows[1].id]
-        store.mark_compacted(old_ids, summary_id="summary-001")
+        marked = store.mark_session_compacted("ses-aaa", summary_id="summary-001")
+        assert marked == 4
 
         loaded = store.load_messages("ses-aaa")
 
-    # Only the non-compacted messages remain.
-    assert len(loaded) == 2
+    assert len(loaded) == 0
 
 
-def test_mark_compacted_empty_is_noop() -> None:
-    """Empty ID list doesn't error."""
+def test_mark_session_compacted_does_not_affect_other_sessions() -> None:
+    """Marking one session leaves other sessions intact."""
+    rows_a = _make_rows(CTX_A, [_user("q1")])
+    rows_b = _make_rows(CTX_B, [_user("q2")])
+
     with SessionStore() as store:
-        store.mark_compacted([], summary_id="x")  # should not raise
+        store.save_messages(rows_a)
+        store.save_messages(rows_b)
+        store.mark_session_compacted("ses-aaa", summary_id="s1")
+
+        loaded_a = store.load_messages("ses-aaa")
+        loaded_b = store.load_messages("ses-bbb")
+
+    assert len(loaded_a) == 0
+    assert len(loaded_b) == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════

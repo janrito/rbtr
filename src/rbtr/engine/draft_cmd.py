@@ -35,7 +35,7 @@ POST_EVENTS: list[tuple[str, str]] = [
 
 def cmd_draft(engine: Engine, args: str) -> None:
     """Dispatch /draft subcommands."""
-    target = engine.session.review_target
+    target = engine.state.review_target
     if not isinstance(target, PRTarget):
         engine._warn("No PR selected. Use /review <number> first.")
         return

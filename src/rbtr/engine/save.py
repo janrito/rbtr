@@ -16,10 +16,10 @@ log = logging.getLogger(__name__)
 
 
 def save_new_messages(engine: Engine, *, run_cost: float | None = None) -> None:
-    """Persist unsaved messages from the current session.
+    """Persist unsaved messages from the current state.
 
-    Compares ``session.message_history`` length against
-    ``session.saved_count`` and inserts only the new tail.
+    Compares ``state.message_history`` length against
+    ``state.saved_count`` and inserts only the new tail.
 
     Parameters
     ----------
@@ -27,20 +27,20 @@ def save_new_messages(engine: Engine, *, run_cost: float | None = None) -> None:
         USD cost of the LLM run — attributed to the last
         ``ModelResponse`` in the new messages (if any).
     """
-    session = engine.session
-    history = session.message_history
-    saved = session.saved_count
+    state = engine.state
+    history = state.message_history
+    saved = state.saved_count
 
     if saved >= len(history):
         return
 
     new_messages = history[saved:]
     ctx = SessionContext(
-        session_id=session.session_id,
-        session_label=session.session_label,
-        repo_owner=session.owner,
-        repo_name=session.repo_name,
-        model_name=session.model_name,
+        session_id=state.session_id,
+        session_label=state.session_label,
+        repo_owner=state.owner,
+        repo_name=state.repo_name,
+        model_name=state.model_name,
     )
 
     # Find the last ModelResponse index for cost attribution.
@@ -65,6 +65,6 @@ def save_new_messages(engine: Engine, *, run_cost: float | None = None) -> None:
 
     try:
         engine._store.save_messages(rows)
-        session.saved_count = len(history)
+        state.saved_count = len(history)
     except OSError:
         log.warning("sessions: failed to persist %d messages", len(rows), exc_info=True)

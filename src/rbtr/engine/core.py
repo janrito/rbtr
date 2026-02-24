@@ -45,13 +45,13 @@ class Engine:
 
     def __init__(
         self,
-        session: EngineState,
+        state: EngineState,
         events: queue.Queue[Event],
         *,
         store: SessionStore | None = None,
     ) -> None:
-        self.session = session
-        self._events = events
+        self.state = state
+        self.events = events
         self._last_shell_full_output: tuple[str, str, int, int] | None = (
             None  # (stdout, stderr, returncode, hidden_count)
         )
@@ -60,7 +60,7 @@ class Engine:
         self._shell_pgid: int | None = None
         # EngineState persistence store.
         self._store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
-        session.session_id = self._store.new_id()
+        state.session_id = self._store.new_id()
         # Long-lived event loop for async work (LLM streaming).
         # Keeps httpx connection pools alive across calls.
         self._loop = asyncio.new_event_loop()
@@ -87,7 +87,7 @@ class Engine:
     # ── Event emitters ───────────────────────────────────────────────
 
     def _emit(self, event: Event) -> None:
-        self._events.put(event)
+        self.events.put(event)
 
     def _out(self, text: str, style: str = STYLE_DIM) -> None:
         self._check_cancel()
@@ -149,30 +149,30 @@ class Engine:
             self._error(str(e))
             return
 
-        self.session.repo = repo
-        self.session.owner = owner
-        self.session.repo_name = repo_name
-        self.session.session_label = _make_session_label(owner, repo_name, repo)
+        self.state.repo = repo
+        self.state.owner = owner
+        self.state.repo_name = repo_name
+        self.state.session_label = _make_session_label(owner, repo_name, repo)
         self._out(f"Repository: {owner}/{repo_name}")
 
         if creds.github_token:
             gh = Github(auth=Auth.Token(creds.github_token), timeout=config.github.timeout)
-            self.session.gh = gh
-            self.session.gh_username = gh.get_user().login
+            self.state.gh = gh
+            self.state.gh_username = gh.get_user().login
             self._out("Authenticated with GitHub.")
         else:
             self._out("Not authenticated. Use /connect github to authenticate.")
 
         if oauth_is_set(creds.claude):
-            self.session.claude_connected = True
+            self.state.claude_connected = True
             self._out("Connected to Anthropic.")
 
         if oauth_is_set(creds.chatgpt):
-            self.session.chatgpt_connected = True
+            self.state.chatgpt_connected = True
             self._out("Connected to ChatGPT.")
 
         if creds.openai_api_key:
-            self.session.openai_connected = True
+            self.state.openai_connected = True
             self._out("Connected to OpenAI.")
 
         endpoints = endpoint_provider.list_endpoints()
@@ -182,13 +182,13 @@ class Engine:
         # Pre-populate model cache so Tab completion is instant.
         get_models(self)
 
-        if not (self.session.has_llm or endpoints):
+        if not (self.state.has_llm or endpoints):
             self._out("No LLM connected. Use /connect claude, chatgpt, or openai.")
 
         # Load saved model preference
         saved_model = config.model
         if saved_model:
-            self.session.model_name = saved_model
+            self.state.model_name = saved_model
             _init_context_window(self)
 
         # Prune old sessions in the background — silent, best-effort.
@@ -240,10 +240,10 @@ class Engine:
             )
 
     def _cmd_new(self) -> None:
-        self.session.message_history.clear()
-        self.session.usage.reset()
-        self.session.session_id = self._store.new_id()
-        self.session.saved_count = 0
+        self.state.message_history.clear()
+        self.state.usage.reset()
+        self.state.session_id = self._store.new_id()
+        self.state.saved_count = 0
         self._out("Conversation cleared.")
 
     # ── Lifecycle ─────────────────────────────────────────────────────
@@ -273,10 +273,10 @@ def _init_context_window(engine: Engine) -> None:
     correct context window immediately, not just after the first LLM
     response.  Works for both custom endpoints and built-in providers.
     """
-    ctx = model_context_window(engine.session.model_name)
+    ctx = model_context_window(engine.state.model_name)
     if ctx is not None:
-        engine.session.usage.context_window = ctx
-        engine.session.usage.context_window_known = True
+        engine.state.usage.context_window = ctx
+        engine.state.usage.context_window_known = True
 
 
 def _prune_sessions(engine: Engine) -> None:

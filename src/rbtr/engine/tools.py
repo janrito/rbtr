@@ -2,7 +2,7 @@
 
 Each tool is registered on the shared ``agent`` instance via
 ``@agent.tool``.  Tools receive ``RunContext[AgentDeps]`` and
-read ``session.index`` / ``session.review_target`` / ``session.repo``.
+read ``state.index`` / ``state.review_target`` / ``state.repo``.
 
 Index tools are hidden when no index is loaded.  Git tools are
 hidden when no repo is available.  File tools need only a repo.
@@ -50,7 +50,7 @@ async def _require_index(
     tool_def: ToolDefinition,
 ) -> ToolDefinition | None:
     """Return the tool definition only when an index is available."""
-    if ctx.deps.session.index is None or ctx.deps.session.review_target is None:
+    if ctx.deps.state.index is None or ctx.deps.state.review_target is None:
         return None
     return tool_def
 
@@ -60,7 +60,7 @@ async def _require_repo(
     tool_def: ToolDefinition,
 ) -> ToolDefinition | None:
     """Return the tool definition only when a repo + review target is available."""
-    if ctx.deps.session.repo is None or ctx.deps.session.review_target is None:
+    if ctx.deps.state.repo is None or ctx.deps.state.review_target is None:
         return None
     return tool_def
 
@@ -70,8 +70,8 @@ async def _require_pr(
     tool_def: ToolDefinition,
 ) -> ToolDefinition | None:
     """Return the tool definition only when a PR target and GitHub auth are available."""
-    session = ctx.deps.session
-    if session.gh is None or not isinstance(session.review_target, PRTarget):
+    state = ctx.deps.state
+    if state.gh is None or not isinstance(state.review_target, PRTarget):
         return None
     return tool_def
 
@@ -85,7 +85,7 @@ async def _require_pr_target(
     Unlike ``_require_pr``, does not require GitHub auth — draft
     management is purely local.
     """
-    if not isinstance(ctx.deps.session.review_target, PRTarget):
+    if not isinstance(ctx.deps.state.review_target, PRTarget):
         return None
     return tool_def
 
@@ -95,7 +95,7 @@ async def _require_pr_target(
 
 def _head_ref(ctx: RunContext[AgentDeps]) -> str:
     """Return the git-resolvable head ref from the review target."""
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     if target is None:  # pragma: no cover — guarded by prepare
         msg = "no review target"
         raise RuntimeError(msg)
@@ -104,7 +104,7 @@ def _head_ref(ctx: RunContext[AgentDeps]) -> str:
 
 def _store(ctx: RunContext[AgentDeps]) -> IndexStore:
     """Return the index store."""
-    store = ctx.deps.session.index
+    store = ctx.deps.state.index
     if store is None:  # pragma: no cover — guarded by _require_index
         msg = "no index store"
         raise RuntimeError(msg)
@@ -113,7 +113,7 @@ def _store(ctx: RunContext[AgentDeps]) -> IndexStore:
 
 def _repo(ctx: RunContext[AgentDeps]) -> pygit2.Repository:
     """Return the git repo."""
-    repo = ctx.deps.session.repo
+    repo = ctx.deps.state.repo
     if repo is None:  # pragma: no cover — guarded by _require_repo
         msg = "no repository"
         raise RuntimeError(msg)
@@ -125,7 +125,7 @@ def _resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
 
     Any other value is returned as-is (raw git ref).
     """
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     match ref:
         case "head":
             if target is None:  # pragma: no cover — guarded by prepare
@@ -226,16 +226,16 @@ def get_pr_discussion(
         max_results: Maximum entries to return per call
             (defaults to ``tools.max_results`` config value).
     """
-    session = ctx.deps.session
-    target = session.review_target
-    gh_ctx = session.gh_ctx
+    state = ctx.deps.state
+    target = state.review_target
+    gh_ctx = state.gh_ctx
     if not isinstance(target, PRTarget) or gh_ctx is None:
         return "No PR selected or not authenticated with GitHub."
 
-    # Fetch and cache on session for the duration of the review.
-    if session.discussion_cache is None:
-        session.discussion_cache = fetch_pr_discussion(gh_ctx, target.number)
-    entries = session.discussion_cache
+    # Fetch and cache on state for the duration of the review.
+    if state.discussion_cache is None:
+        state.discussion_cache = fetch_pr_discussion(gh_ctx, target.number)
+    entries = state.discussion_cache
 
     if not entries:
         return "No discussion on this PR yet."
@@ -263,7 +263,7 @@ def get_pr_discussion(
 
 def _pr_number(ctx: RunContext[AgentDeps]) -> int:
     """Return the PR number from the review target."""
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     if not isinstance(target, PRTarget):  # pragma: no cover — guarded by prepare
         msg = "no PR target"
         raise RuntimeError(msg)
@@ -287,9 +287,9 @@ def _get_diff_ranges(ctx: RunContext[AgentDeps]) -> DiffLineRanges:
     same turn don't recompute the diff.
     """
     global _cached_ranges, _cached_ranges_key
-    session = ctx.deps.session
-    target = session.review_target
-    repo = session.repo
+    state = ctx.deps.state
+    target = state.review_target
+    repo = state.repo
     if target is None or repo is None:
         return {}
     key = (target.base_branch, target.head_ref)
@@ -1003,7 +1003,7 @@ def changed_symbols(
     from rbtr.index.orchestrator import compute_diff  # deferred: avoid circular
 
     store = _store(ctx)
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     if target is None:
         return "No review target selected."
 
@@ -1090,7 +1090,7 @@ def changed_files(
     from rbtr.git import changed_files as _changed_files  # deferred: avoid circular
 
     repo = _repo(ctx)
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     if target is None:
         return "No review target selected."
 
@@ -1170,7 +1170,7 @@ def diff(
             (defaults to ``tools.max_lines`` config value).
     """
     repo = _repo(ctx)
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     capped = (
         min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
     )
@@ -1235,7 +1235,7 @@ def commit_log(
             (defaults to ``tools.max_results`` config value).
     """
     repo = _repo(ctx)
-    target = ctx.deps.session.review_target
+    target = ctx.deps.state.review_target
     if target is None:
         return "No review target selected."
 

@@ -35,8 +35,8 @@ def run_index(engine: Engine) -> None:
 
 def _build_index(engine: Engine) -> None:
     """Build or update the code index (runs in a background thread)."""
-    target = engine.session.review_target
-    repo = engine.session.repo
+    target = engine.state.review_target
+    repo = engine.state.repo
     if target is None or repo is None:
         return
 
@@ -49,8 +49,8 @@ def _build_index(engine: Engine) -> None:
     # Open (or reuse) the DuckDB store.
     db_path = Path(config.index.db_dir) / "index.duckdb"
     store = IndexStore(db_path)
-    engine.session.index = store
-    engine.session.index_ready = False
+    engine.state.index = store
+    engine.state.index_ready = False
 
     # Count files for the progress total.
     head_files = list(list_files(repo, head_ref))
@@ -86,7 +86,7 @@ def _build_index(engine: Engine) -> None:
             on_embed_progress=on_embed_progress,
         )
 
-        engine.session.index_ready = True
+        engine.state.index_ready = True
         engine._emit(IndexReady(chunk_count=result.stats.total_chunks))
         engine._emit(
             Output(
@@ -111,7 +111,7 @@ def _build_index(engine: Engine) -> None:
                 style=STYLE_WARNING,
             )
         )
-        engine.session.index = None
+        engine.state.index = None
         store.close()
 
 

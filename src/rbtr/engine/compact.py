@@ -45,11 +45,11 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
     exceed the available context, only a prefix that fits is
     summarised — the rest is pushed into the kept portion.
     """
-    if not engine.session.has_llm:
+    if not engine.state.has_llm:
         engine._warn("No LLM connected — cannot compact.")
         return
 
-    history = engine.session.message_history
+    history = engine.state.message_history
     keep_turns = config.compaction.keep_turns
     old, kept = split_history(history, keep_turns)
 
@@ -68,7 +68,7 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
     # If the serialised old messages are too large for the context,
     # shrink until they fit.
     reserve = config.compaction.reserve_tokens
-    available = engine.session.usage.context_window - reserve
+    available = engine.state.usage.context_window - reserve
     estimated = estimate_tokens(serialised)
 
     if estimated > available > 0:
@@ -84,7 +84,7 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
     engine._emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))
 
     try:
-        model = build_model(engine.session.model_name)
+        model = build_model(engine.state.model_name)
     except RbtrError as e:
         engine._warn(str(e))
         return
@@ -98,12 +98,16 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
         return
 
     summary_msg = build_summary_message(summary_text)
-    engine.session.message_history = [summary_msg, *kept]
+    engine.state.message_history = [summary_msg, *kept]
+
+    # Mark all existing rows for this session as compacted so
+    # load_messages returns only the post-compaction state.
+    summary_id = engine._store.new_id()
+    engine._store.mark_session_compacted(engine.state.session_id, summary_id)
 
     # Reset saved count so the compacted history (summary + kept) is
-    # persisted on the next LLM turn.  Old rows remain in the DB —
-    # compacted_by marking is deferred to session-resume support.
-    engine.session.saved_count = 0
+    # persisted on the next LLM turn as fresh rows.
+    engine.state.saved_count = 0
 
     # last_input_tokens intentionally not updated — we can't accurately
     # estimate it without knowing system prompt and tool definition
@@ -150,7 +154,7 @@ async def _stream_summary(
     from .llm import resolve_model_settings  # deferred: avoid circular at module level
 
     settings = resolve_model_settings(
-        model, engine.session.model_name, effort_supported=engine.session.effort_supported
+        model, engine.state.model_name, effort_supported=engine.state.effort_supported
     )
 
     summary_agent: Agent[None, str] = Agent(model, instructions=instructions)

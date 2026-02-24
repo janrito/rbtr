@@ -1,8 +1,8 @@
 """Tests for context compaction — history helpers and engine integration.
 
 Pure functions are tested with realistic message data.  Integration
-tests go through ``compact_history`` and check emitted events + session
-state, mocking only the LLM call boundary (``_run_summary``).
+tests go through ``compact_history`` and check emitted events + state,
+mocking only the LLM call boundary (``_run_summary``).
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine.compact import find_fit_count
+from rbtr.engine import Engine
+from rbtr.engine.compact import compact_history, find_fit_count
 from rbtr.engine.history import (
     _SUMMARY_MARKER,
     build_summary_message,
@@ -29,7 +30,7 @@ from rbtr.engine.history import (
 )
 from rbtr.events import CompactionFinished, CompactionStarted, Output
 
-from .conftest import drain, has_event_type, make_engine, output_texts
+from .conftest import drain, has_event_type, output_texts
 
 # ── Test data builders ───────────────────────────────────────────────
 
@@ -272,31 +273,29 @@ def test_find_fit_count_with_tool_results() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_compact_no_llm(config_path: str) -> None:
+def test_compact_no_llm(config_path: str, engine: Engine) -> None:
     """Warns when no LLM is connected."""
-    engine, events, _session = make_engine()
-
-    from rbtr.engine.compact import compact_history
 
     compact_history(engine)
-    texts = output_texts(drain(events))
+    texts = output_texts(drain(engine.events))
     assert any("No LLM connected" in t for t in texts)
 
 
-def test_compact_single_turn(config_path: str) -> None:
+def test_compact_single_turn(config_path: str, engine: Engine) -> None:
     """Single-turn history has nothing to compact."""
-    engine, events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(_turns(1))
+    engine.state.claude_connected = True
+    engine.state.message_history = list(_turns(1))
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
-    texts = output_texts(drain(events))
+    texts = output_texts(drain(engine.events))
     assert any("Nothing to compact" in t for t in texts)
 
 
-def test_compact_fewer_turns_than_keep_falls_back(config_path: str, mocker: object) -> None:
+def test_compact_fewer_turns_than_keep_falls_back(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
     """With 3 turns (< keep_turns=10), falls back to keeping 1 turn."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -304,15 +303,12 @@ def test_compact_fewer_turns_than_keep_falls_back(config_path: str, mocker: obje
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(_turns(3))
-    session.usage.context_window = 200_000
-
-    from rbtr.engine.compact import compact_history
+    engine.state.claude_connected = True
+    engine.state.message_history = list(_turns(3))
+    engine.state.usage.context_window = 200_000
 
     compact_history(engine)
-    all_events = drain(events)
+    all_events = drain(engine.events)
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
     assert len(started) == 1
@@ -320,7 +316,7 @@ def test_compact_fewer_turns_than_keep_falls_back(config_path: str, mocker: obje
     assert started[0].kept_messages == 2  # 1 turn kept
 
 
-def test_compact_replaces_history(config_path: str, mocker: object) -> None:
+def test_compact_replaces_history(config_path: str, mocker: object, engine: Engine) -> None:
     """After compaction, history = [summary_msg] + kept turns."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -328,17 +324,16 @@ def test_compact_replaces_history(config_path: str, mocker: object) -> None:
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, _events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(REALISTIC_HISTORY)
-    session.usage.context_window = 200_000
+    engine.state.claude_connected = True
+    engine.state.message_history = list(REALISTIC_HISTORY)
+    engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
     # First message is the summary
-    first = session.message_history[0]
+    first = engine.state.message_history[0]
     assert isinstance(first, ModelRequest)
     part = first.parts[0]
     assert isinstance(part, UserPromptPart)
@@ -347,15 +342,15 @@ def test_compact_replaces_history(config_path: str, mocker: object) -> None:
     assert "Reviewed PR #42" in part.content
 
     # History is shorter than before
-    assert len(session.message_history) < len(REALISTIC_HISTORY)
+    assert len(engine.state.message_history) < len(REALISTIC_HISTORY)
 
     # Last message is preserved (the last assistant response)
-    last = session.message_history[-1]
+    last = engine.state.message_history[-1]
     assert isinstance(last, ModelResponse)
     assert any(isinstance(p, TextPart) and "import os" in p.content for p in last.parts)
 
 
-def test_compact_emits_both_events(config_path: str, mocker: object) -> None:
+def test_compact_emits_both_events(config_path: str, mocker: object, engine: Engine) -> None:
     """Both CompactionStarted and CompactionFinished are emitted."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -363,15 +358,14 @@ def test_compact_emits_both_events(config_path: str, mocker: object) -> None:
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(_turns(15))
-    session.usage.context_window = 200_000
+    engine.state.claude_connected = True
+    engine.state.message_history = list(_turns(15))
+    engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
-    all_events = drain(events)
+    all_events = drain(engine.events)
     assert has_event_type(all_events, CompactionStarted)
     assert has_event_type(all_events, CompactionFinished)
 
@@ -379,7 +373,9 @@ def test_compact_emits_both_events(config_path: str, mocker: object) -> None:
     assert finished[0].summary_tokens > 0
 
 
-def test_compact_extra_instructions_in_prompt(config_path: str, mocker: object) -> None:
+def test_compact_extra_instructions_in_prompt(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
     """Extra instructions appear in the prompt sent to the model."""
     mock = mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -387,10 +383,9 @@ def test_compact_extra_instructions_in_prompt(config_path: str, mocker: object) 
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, _events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(_turns(15))
-    session.usage.context_window = 200_000
+    engine.state.claude_connected = True
+    engine.state.message_history = list(_turns(15))
+    engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
 
@@ -400,7 +395,7 @@ def test_compact_extra_instructions_in_prompt(config_path: str, mocker: object) 
     assert "Focus on security" in prompt
 
 
-def test_compact_over_limit_shrinks_old(config_path: str, mocker: object) -> None:
+def test_compact_over_limit_shrinks_old(config_path: str, mocker: object, engine: Engine) -> None:
     """When serialised old exceeds context, only a fitting prefix is summarised."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -408,23 +403,22 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object) -> Non
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, events, session = make_engine()
-    session.claude_connected = True
+    engine.state.claude_connected = True
     # 10 turns with large user messages (each ~2500 tokens after 4-char heuristic)
     big_history: list[ModelRequest | ModelResponse] = []
     for i in range(10):
         big_history.append(_user(f"{'x' * 10_000} question {i}"))
         big_history.append(_assistant(f"answer {i}"))
-    session.message_history = list(big_history)
+    engine.state.message_history = list(big_history)
     # Context window that can't fit all old messages after reserve.
     # 10 turns, keep 1 → 9 turns old. Each turn serialises to ~2500 tokens.
     # 9 turns ≈ 22.5k tokens. Set available to ~7.5k so only ~3 turns fit.
-    session.usage.context_window = 23_500  # minus 16k reserve = 7.5k available
+    engine.state.usage.context_window = 23_500  # minus 16k reserve = 7.5k available
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
-    all_events = drain(events)
+    all_events = drain(engine.events)
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
     assert len(started) == 1
@@ -434,27 +428,28 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object) -> Non
     assert started[0].kept_messages > 2
 
 
-def test_compact_single_message_exceeds_context(config_path: str) -> None:
+def test_compact_single_message_exceeds_context(config_path: str, engine: Engine) -> None:
     """When even one message exceeds available context, warns gracefully."""
-    engine, events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = [
+    engine.state.claude_connected = True
+    engine.state.message_history = [
         _user("x" * 100_000),  # ~25k tokens
         _assistant("ok"),
         _user("next"),
         _assistant("done"),
     ]
     # Context window so small that even 1 message doesn't fit
-    session.usage.context_window = 17_000  # 17k - 16k reserve = 1k available
+    engine.state.usage.context_window = 17_000  # 17k - 16k reserve = 1k available
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
-    texts = output_texts(drain(events))
+    texts = output_texts(drain(engine.events))
     assert any("even a single message exceeds" in t for t in texts)
 
 
-def test_compact_llm_error_leaves_history_unchanged(config_path: str, mocker: object) -> None:
+def test_compact_llm_error_leaves_history_unchanged(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
     """If the LLM call fails, history is not modified."""
     from pydantic_ai.exceptions import ModelHTTPError
 
@@ -464,20 +459,19 @@ def test_compact_llm_error_leaves_history_unchanged(config_path: str, mocker: ob
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, events, session = make_engine()
-    session.claude_connected = True
+    engine.state.claude_connected = True
     original = list(_turns(15))
-    session.message_history = list(original)
-    session.usage.context_window = 200_000
+    engine.state.message_history = list(original)
+    engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
     # History unchanged after error
-    assert len(session.message_history) == len(original)
+    assert len(engine.state.message_history) == len(original)
     # Error event emitted
-    all_events = drain(events)
+    all_events = drain(engine.events)
     error_outputs = [e for e in all_events if isinstance(e, Output) and "error" in e.style]
     assert any("Compaction failed" in e.text for e in error_outputs)
 
@@ -502,7 +496,9 @@ def test_is_context_overflow_ignores_non_overflow() -> None:
     assert not _is_context_overflow(exc)
 
 
-def test_compact_leaves_last_input_tokens_unchanged(config_path: str, mocker: object) -> None:
+def test_compact_leaves_last_input_tokens_unchanged(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
     """After compaction, last_input_tokens is unchanged — corrected on next LLM call."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.engine.compact._run_summary",
@@ -510,15 +506,14 @@ def test_compact_leaves_last_input_tokens_unchanged(config_path: str, mocker: ob
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
-    engine, _events, session = make_engine()
-    session.claude_connected = True
-    session.message_history = list(_turns(15))
-    session.usage.context_window = 200_000
-    session.usage.last_input_tokens = 150_000  # simulate high usage
+    engine.state.claude_connected = True
+    engine.state.message_history = list(_turns(15))
+    engine.state.usage.context_window = 200_000
+    engine.state.usage.last_input_tokens = 150_000  # simulate high usage
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
     # last_input_tokens untouched — no inaccurate estimate
-    assert session.usage.last_input_tokens == 150_000
+    assert engine.state.usage.last_input_tokens == 150_000

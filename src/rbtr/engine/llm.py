@@ -123,12 +123,12 @@ _LIMIT_SUMMARY_PROMPT = (
 
 def handle_llm(engine: Engine, message: str) -> None:
     """Send a message to the active LLM, streaming the response."""
-    if not engine.session.has_llm:
+    if not engine.state.has_llm:
         engine._warn("No LLM connected. Use /connect claude, chatgpt, or openai.")
         return
 
     try:
-        model = build_model(engine.session.model_name)
+        model = build_model(engine.state.model_name)
     except RbtrError as e:
         engine._warn(str(e))
         return
@@ -137,13 +137,13 @@ def handle_llm(engine: Engine, message: str) -> None:
         _run_agent(engine, model, message)
     except ModelHTTPError as exc:
         if exc.status_code == 400 and _is_effort_unsupported(exc):
-            engine.session.effort_supported = False
+            engine.state.effort_supported = False
             engine._out("Model does not support effort — retrying without it…")
             _run_agent(engine, model, message)
             return
         if exc.status_code == 400 and is_history_format_error(exc):
             engine._out("Retrying with simplified history…")
-            engine.session.message_history = demote_thinking(engine.session.message_history)
+            engine.state.message_history = demote_thinking(engine.state.message_history)
             _run_agent(engine, model, message)
             return
         if _is_context_overflow(exc) and _auto_compact_on_overflow(engine, message):
@@ -160,16 +160,16 @@ def _auto_compact_on_overflow(engine: Engine, message: str) -> bool:
     False if compaction was not possible (caller should fall through
     to the normal error path).
     """
-    if len(engine.session.message_history) < 2:  # nothing to compact
+    if len(engine.state.message_history) < 2:  # nothing to compact
         return False
 
     from .compact import compact_history  # deferred: avoid circular at module level
 
-    pre_len = len(engine.session.message_history)
+    pre_len = len(engine.state.message_history)
     engine._out("Context limit reached — compacting history…")
     compact_history(engine)
 
-    if len(engine.session.message_history) >= pre_len:
+    if len(engine.state.message_history) >= pre_len:
         # Compaction didn't reduce anything — don't retry.
         return False
 
@@ -186,19 +186,19 @@ def _run_agent(engine: Engine, model: Model, message: str) -> None:
 
 async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     """Run the agent with cancellation support, update session state."""
-    history = engine.session.message_history
-    deps = AgentDeps(session=engine.session)
+    history = engine.state.message_history
+    deps = AgentDeps(state=engine.state)
 
     settings = resolve_model_settings(
-        model, engine.session.model_name, effort_supported=engine.session.effort_supported
+        model, engine.state.model_name, effort_supported=engine.state.effort_supported
     )
     if (
         config.thinking_effort is not ThinkingEffort.NONE
-        and engine.session.effort_supported is not False
+        and engine.state.effort_supported is not False
     ):
-        engine.session.effort_supported = settings is not None
+        engine.state.effort_supported = settings is not None
 
-    engine.session.usage.snapshot_base()
+    engine.state.usage.snapshot_base()
 
     async def _do_stream() -> tuple[list[ModelMessage], RunUsage, bool]:
         limit_hit = False
@@ -249,14 +249,14 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
             task.result()  # raises TaskCancelled
 
     messages, run_usage, limit_hit = stream_task.result()
-    engine.session.message_history = list(messages)
+    engine.state.message_history = list(messages)
     _record_usage(engine, history, messages, run_usage)
 
     if limit_hit:
         await _stream_summary(engine, model, settings)
 
     # Auto-compact when context usage exceeds the threshold.
-    if engine.session.usage.context_used_pct >= config.compaction.auto_compact_pct:
+    if engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct:
         from .compact import compact_history  # deferred: avoid circular at module level
 
         compact_history(engine)
@@ -272,7 +272,7 @@ async def _stream_summary(
     Uses a plain agent (no tools) with a single request so the model
     can only produce text — no further tool calls.
     """
-    history = engine.session.message_history
+    history = engine.state.message_history
 
     summary_agent: Agent[None, str] = Agent(model)
     async with summary_agent.iter(
@@ -289,7 +289,7 @@ async def _stream_summary(
                         engine._emit(TextDelta(delta=delta))
 
     summary_messages = list(run.all_messages())
-    engine.session.message_history = list(history) + summary_messages[len(history) :]
+    engine.state.message_history = list(history) + summary_messages[len(history) :]
 
 
 def _emit_tool_event(
@@ -334,7 +334,7 @@ def _update_live_usage(
     Does **not** increment ``message_count`` or cost — the
     authoritative ``_record_usage`` at run-end handles those.
     """
-    usage = engine.session.usage
+    usage = engine.state.usage
     base = usage.live_base
     usage.input_tokens = base.input_tokens + run_usage.input_tokens
     usage.output_tokens = base.output_tokens + run_usage.output_tokens
@@ -355,12 +355,12 @@ def _apply_model_context_window(engine: Engine) -> None:
     metadata first, then falls back to genai-prices for built-in
     providers.
     """
-    if engine.session.usage.context_window_known:
+    if engine.state.usage.context_window_known:
         return
-    ctx = model_context_window(engine.session.model_name)
+    ctx = model_context_window(engine.state.model_name)
     if ctx is not None:
-        engine.session.usage.context_window = ctx
-        engine.session.usage.context_window_known = True
+        engine.state.usage.context_window = ctx
+        engine.state.usage.context_window_known = True
 
 
 def _record_usage(
@@ -400,11 +400,11 @@ def _record_usage(
 
     # Prefer model metadata (endpoint config or genai-prices lookup)
     # over the value from msg.cost(), which may not know the model.
-    meta_context_window = model_context_window(engine.session.model_name)
+    meta_context_window = model_context_window(engine.state.model_name)
     if meta_context_window is not None:
         context_window = meta_context_window
 
-    engine.session.usage.record_run(
+    engine.state.usage.record_run(
         input_tokens=run_usage.input_tokens,
         output_tokens=run_usage.output_tokens,
         cache_read_tokens=run_usage.cache_read_tokens,

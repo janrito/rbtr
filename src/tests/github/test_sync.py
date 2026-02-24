@@ -166,8 +166,8 @@ class _FakeEngine:
     def __init__(self, *, gh: Any = None, gh_username: str = "") -> None:
         from datetime import UTC, datetime
 
-        self.session = EngineState()
-        self.session.review_target = PRTarget(
+        self.state = EngineState()
+        self.state.review_target = PRTarget(
             number=42,
             title="Test PR",
             author="alice",
@@ -175,10 +175,10 @@ class _FakeEngine:
             head_branch="feature",
             updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         )
-        self.session.gh = gh
-        self.session.gh_username = gh_username
-        self.session.owner = "owner"
-        self.session.repo_name = "repo"
+        self.state.gh = gh
+        self.state.gh_username = gh_username
+        self.state.owner = "owner"
+        self.state.repo_name = "repo"
         self._events: queue.Queue[Event] = queue.Queue()
 
     def _emit(self, event: Event) -> None:

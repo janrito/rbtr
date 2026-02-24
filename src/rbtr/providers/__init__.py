@@ -114,7 +114,7 @@ def build_model_settings(
 
     Returns ``None`` when the model doesn't support an effort setting.
     The caller is responsible for recording whether the setting was
-    applied (e.g. updating ``session.effort_supported``).
+    applied (e.g. updating ``state.effort_supported``).
     """
     # Deferred: only import when we need to check the model type.
     from pydantic_ai.models.anthropic import AnthropicModel

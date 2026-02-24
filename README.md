@@ -300,14 +300,14 @@ turn is persisted immediately after the model responds.
 
 ```text
 /session              List recent sessions (current repo)
-/session list         Same as above
-/session list --all   List sessions across all repos
+/session all          List sessions across all repos
 /session info         Show current session details
+/session resume <id>  Resume a previous session (prefix match)
 /session delete <id>  Delete a session by ID (prefix match)
-/session delete --before 7d   Delete sessions older than 7 days
+/session purge 7d     Delete sessions older than 7 days
 ```
 
-Duration suffixes for `--before`: `d` (days), `w` (weeks), `h` (hours).
+Duration suffixes for `purge`: `d` (days), `w` (weeks), `h` (hours).
 
 ### Session settings
 

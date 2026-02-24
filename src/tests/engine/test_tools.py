@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pygit2
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.engine.state import EngineState
 from rbtr.engine.tools import (
@@ -40,13 +41,13 @@ from rbtr.models import BranchTarget
 class _FakeCtx:
     """Minimal stand-in for RunContext[AgentDeps] in tool tests."""
 
-    def __init__(self, session: EngineState) -> None:
-        self.deps = _FakeDeps(session)
+    def __init__(self, state: EngineState) -> None:
+        self.deps = _FakeDeps(state)
 
 
 class _FakeDeps:
-    def __init__(self, session: EngineState) -> None:
-        self.session = session
+    def __init__(self, state: EngineState) -> None:
+        self.state = state
 
 
 # ── Shared test data ─────────────────────────────────────────────────
@@ -206,12 +207,12 @@ ALL_EDGES = [
 ]
 
 
-def _make_session(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
+def _make_state(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
     """Build an in-memory store with the full test dataset."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -233,15 +234,15 @@ def _make_session(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
         store.update_embedding("test_math_1", _VEC_MATH)
         store.update_embedding("doc_api_1", _VEC_DOC)
 
-    return session, store
+    return state, store
 
 
 # ── search_symbols ───────────────────────────────────────────────────
 
 
 def test_search_symbols_finds_exact_name() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_symbols(ctx, "handle_request")  # type: ignore[arg-type]
     assert "handle_request" in result
     assert "src/api/handler.py:10" in result
@@ -249,8 +250,8 @@ def test_search_symbols_finds_exact_name() -> None:
 
 
 def test_search_symbols_finds_partial_name() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_symbols(ctx, "calculate")  # type: ignore[arg-type]
     # Should find both math functions.
     assert "calculate_mean" in result
@@ -259,8 +260,8 @@ def test_search_symbols_finds_partial_name() -> None:
 
 
 def test_search_symbols_no_match() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_symbols(ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
     assert "No symbols" in result
     store.close()
@@ -271,8 +272,8 @@ def test_search_symbols_no_match() -> None:
 
 def test_search_codebase_ranks_by_relevance() -> None:
     """Searching 'variance' should rank math_stddev highest."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_codebase(ctx, "variance")  # type: ignore[arg-type]
     lines = result.strip().split("\n")
     # First result should be the stddev function (contains "variance").
@@ -281,16 +282,16 @@ def test_search_codebase_ranks_by_relevance() -> None:
 
 
 def test_search_codebase_finds_http_content() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_codebase(ctx, "Response status")  # type: ignore[arg-type]
     assert "handle_request" in result
     store.close()
 
 
 def test_search_codebase_no_match() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = search_codebase(ctx, "zzz_gibberish_xyz_999")  # type: ignore[arg-type]
     assert "No results" in result
     store.close()
@@ -299,11 +300,11 @@ def test_search_codebase_no_match() -> None:
 # ── search_similar (embedding) ───────────────────────────────────────
 
 
-def test_search_similar_ranks_math_first(mocker) -> None:
+def test_search_similar_ranks_math_first(mocker: MockerFixture) -> None:
     """Query near the math axis ranks math chunks above HTTP."""
-    session, store = _make_session(embed=True)
+    state, store = _make_state(embed=True)
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = search_similar(ctx, "statistics calculations")  # type: ignore[arg-type]
 
     lines = result.strip().split("\n")
@@ -315,11 +316,11 @@ def test_search_similar_ranks_math_first(mocker) -> None:
     store.close()
 
 
-def test_search_similar_ranks_http_first(mocker) -> None:
+def test_search_similar_ranks_http_first(mocker: MockerFixture) -> None:
     """Query near the HTTP axis ranks HTTP chunks above math."""
-    session, store = _make_session(embed=True)
+    state, store = _make_state(embed=True)
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = search_similar(ctx, "web request handling")  # type: ignore[arg-type]
 
     lines = result.strip().split("\n")
@@ -328,11 +329,11 @@ def test_search_similar_ranks_http_first(mocker) -> None:
     store.close()
 
 
-def test_search_similar_no_embeddings(mocker) -> None:
+def test_search_similar_no_embeddings(mocker: MockerFixture) -> None:
     """Store with no embeddings returns no results."""
-    session, store = _make_session(embed=False)
+    state, store = _make_state(embed=False)
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[1.0, 0.0, 0.0])
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = search_similar(ctx, "anything")  # type: ignore[arg-type]
     assert "No similar" in result
     store.close()
@@ -343,8 +344,8 @@ def test_search_similar_no_embeddings(mocker) -> None:
 
 def test_find_references_all_edges() -> None:
     """handle_request has import, test, and doc edges — all returned."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "handle_request")  # type: ignore[arg-type]
     assert "[imports]" in result
     assert "process_data" in result
@@ -357,8 +358,8 @@ def test_find_references_all_edges() -> None:
 
 def test_find_references_filter_imports() -> None:
     """kind='imports' returns only import edges."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "handle_request", kind="imports")  # type: ignore[arg-type]
     assert "process_data" in result
     assert "[imports]" in result
@@ -370,8 +371,8 @@ def test_find_references_filter_imports() -> None:
 
 def test_find_references_filter_tests() -> None:
     """kind='tests' returns only test edges."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "handle_request", kind="tests")  # type: ignore[arg-type]
     assert "test_handle_request" in result
     assert "[tests]" in result
@@ -381,8 +382,8 @@ def test_find_references_filter_tests() -> None:
 
 def test_find_references_filter_documents() -> None:
     """kind='documents' returns only doc edges."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "handle_request", kind="documents")  # type: ignore[arg-type]
     assert "API Reference" in result
     assert "[documents]" in result
@@ -392,8 +393,8 @@ def test_find_references_filter_documents() -> None:
 
 def test_find_references_imports_mean() -> None:
     """calculate_standard_deviation imports calculate_mean."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "calculate_mean", kind="imports")  # type: ignore[arg-type]
     assert "calculate_standard_deviation" in result
     store.close()
@@ -401,8 +402,8 @@ def test_find_references_imports_mean() -> None:
 
 def test_find_references_no_match() -> None:
     """Symbol with no inbound edges returns clear message."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "calculate_standard_deviation")  # type: ignore[arg-type]
     assert "No references" in result
     store.close()
@@ -410,16 +411,16 @@ def test_find_references_no_match() -> None:
 
 def test_find_references_no_match_with_kind() -> None:
     """StatisticsCalculator has no test edges."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "StatisticsCalculator", kind="tests")  # type: ignore[arg-type]
     assert "No 'tests' references" in result
     store.close()
 
 
 def test_find_references_unknown_symbol() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "zzz_nonexistent")  # type: ignore[arg-type]
     assert "not found" in result
     store.close()
@@ -427,8 +428,8 @@ def test_find_references_unknown_symbol() -> None:
 
 def test_find_references_invalid_kind() -> None:
     """Invalid kind value returns helpful error."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "handle_request", kind="bogus")  # type: ignore[arg-type]
     assert "Unknown edge kind" in result
     assert "imports" in result  # lists valid kinds
@@ -454,12 +455,12 @@ def test_find_references_invalid_kind() -> None:
 #   - (src/api/client.py removed — old importer gone)
 
 
-def _make_two_ref_session() -> tuple[EngineState, IndexStore]:
+def _make_two_ref_state() -> tuple[EngineState, IndexStore]:
     """Build a store with base and head snapshots for ref tests."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -638,13 +639,13 @@ def auth_middleware(request: Request) -> Request:
         "feature",
     )
 
-    return session, store
+    return state, store
 
 
 def test_find_references_ref_base_vs_head() -> None:
     """Base has api_client importing parse_request; head has auth_middleware."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = find_references(ctx, "parse_request", kind="imports", ref="base")  # type: ignore[arg-type]
     head_result = find_references(ctx, "parse_request", kind="imports", ref="head")  # type: ignore[arg-type]
@@ -663,7 +664,7 @@ def test_find_references_ref_base_vs_head() -> None:
 #
 # These tests verify that querying at a ref returns the *full state*
 # at that snapshot and never leaks chunks or edges from the other ref.
-# The _make_two_ref_session fixture has carefully separated data:
+# The _make_two_ref_state fixture has carefully separated data:
 #
 # Only in base: api_client (src/api/client.py)
 # Only in head: validate_schema, auth_middleware (src/api/middleware.py)
@@ -673,9 +674,9 @@ def test_find_references_ref_base_vs_head() -> None:
 
 def test_ref_scoping_search_symbols_base_excludes_head_only() -> None:
     """search_symbols at base must not find head-only symbols."""
-    session, store = _make_two_ref_session()
+    state, store = _make_two_ref_state()
     # search_symbols always uses head — verify it finds head-only symbols.
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = search_symbols(ctx, "validate_schema")  # type: ignore[arg-type]
     assert "validate_schema" in result
     # Now verify via read_symbol that validate_schema is invisible at base.
@@ -686,8 +687,8 @@ def test_ref_scoping_search_symbols_base_excludes_head_only() -> None:
 
 def test_ref_scoping_list_symbols_removed_file() -> None:
     """client.py exists at base but not head — list_symbols reflects this."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = list_symbols(ctx, "src/api/client.py", ref="base")  # type: ignore[arg-type]
     head_result = list_symbols(ctx, "src/api/client.py", ref="head")  # type: ignore[arg-type]
@@ -703,8 +704,8 @@ def test_ref_scoping_list_symbols_removed_file() -> None:
 
 def test_ref_scoping_list_symbols_added_file() -> None:
     """middleware.py exists at head but not base — list_symbols reflects this."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = list_symbols(ctx, "src/api/middleware.py", ref="base")  # type: ignore[arg-type]
     head_result = list_symbols(ctx, "src/api/middleware.py", ref="head")  # type: ignore[arg-type]
@@ -719,8 +720,8 @@ def test_ref_scoping_list_symbols_added_file() -> None:
 
 def test_ref_scoping_read_symbol_content_matches_ref() -> None:
     """Modified symbol returns different content per ref — not a mix."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = read_symbol(ctx, "parse_request", ref="base")  # type: ignore[arg-type]
     head_result = read_symbol(ctx, "parse_request", ref="head")  # type: ignore[arg-type]
@@ -744,8 +745,8 @@ def test_ref_scoping_read_symbol_content_matches_ref() -> None:
 
 def test_ref_scoping_find_references_edges_isolated() -> None:
     """Edges are scoped per commit — base and head edges don't mix."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     # All references at base.
     base_all = find_references(ctx, "parse_request", ref="base")  # type: ignore[arg-type]
@@ -766,8 +767,8 @@ def test_ref_scoping_find_references_edges_isolated() -> None:
 
 def test_ref_scoping_unchanged_symbol_same_at_both_refs() -> None:
     """format_response is unchanged — same content at both refs."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = read_symbol(ctx, "format_response", ref="base")  # type: ignore[arg-type]
     head_result = read_symbol(ctx, "format_response", ref="head")  # type: ignore[arg-type]
@@ -783,8 +784,8 @@ def test_ref_scoping_unchanged_symbol_same_at_both_refs() -> None:
 
 def test_ref_scoping_search_symbols_only_returns_head() -> None:
     """search_symbols always queries head — finds head-only, misses base-only."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     # validate_schema only exists at head — search_symbols must find it.
     result = search_symbols(ctx, "validate_schema")  # type: ignore[arg-type]
@@ -798,9 +799,9 @@ def test_ref_scoping_search_symbols_only_returns_head() -> None:
 
 def test_ref_scoping_search_codebase_only_returns_head() -> None:
     """search_codebase (BM25) always queries head — misses base-only content."""
-    session, store = _make_two_ref_session()
+    state, store = _make_two_ref_state()
     store.rebuild_fts_index()
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
 
     # "missing key" only appears in validate_schema (head-only).
     result = search_codebase(ctx, "missing key")  # type: ignore[arg-type]
@@ -815,9 +816,9 @@ def test_ref_scoping_search_codebase_only_returns_head() -> None:
 def test_ref_scoping_find_references_edge_without_visible_source() -> None:
     """Edge source chunk not in current ref's snapshots is silently skipped."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -855,7 +856,7 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
         "feature",
     )
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = find_references(ctx, "target_fn", ref="head")  # type: ignore[arg-type]
 
     # orphan_caller should NOT appear — its chunk isn't in head's snapshots.
@@ -881,8 +882,8 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
 def test_stale_review_data_does_not_leak() -> None:
     """Chunks and edges from an older, unrelated review are invisible."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
+    state = EngineState()
+    state.index = store
 
     # ── Old review residue (old-base / old-head) ─────────────────
     stale_chunk = Chunk(
@@ -927,7 +928,7 @@ def monthly_report():
     )
 
     # ── Current review (main / feature) ──────────────────────────
-    session.review_target = BranchTarget(
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -954,7 +955,7 @@ def handle_request(req):
         ]
     )
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
 
     # search_symbols (always head) must not find stale symbols.
     sym_result = search_symbols(ctx, "generate_invoice")  # type: ignore[arg-type]
@@ -990,8 +991,8 @@ def handle_request(req):
 
 
 def test_read_symbol_returns_full_source() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = read_symbol(ctx, "handle_request")  # type: ignore[arg-type]
     assert "async def handle_request" in result
     assert "Response(status=200" in result
@@ -1001,8 +1002,8 @@ def test_read_symbol_returns_full_source() -> None:
 
 def test_read_symbol_prefers_code_over_tests() -> None:
     """When both a function and its test match, return the function."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = read_symbol(ctx, "handle_request")  # type: ignore[arg-type]
     # Should be the function, not the test.
     assert "src/api/handler.py" in result
@@ -1010,8 +1011,8 @@ def test_read_symbol_prefers_code_over_tests() -> None:
 
 
 def test_read_symbol_not_found() -> None:
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = read_symbol(ctx, "zzz_nonexistent")  # type: ignore[arg-type]
     assert "No symbol" in result
     store.close()
@@ -1019,8 +1020,8 @@ def test_read_symbol_not_found() -> None:
 
 def test_read_symbol_ref_base_vs_head() -> None:
     """Base parse_request has simple body; head has schema validation."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = read_symbol(ctx, "parse_request", ref="base")  # type: ignore[arg-type]
     head_result = read_symbol(ctx, "parse_request", ref="head")  # type: ignore[arg-type]
@@ -1039,8 +1040,8 @@ def test_read_symbol_ref_base_vs_head() -> None:
 
 def test_read_symbol_ref_base_not_found() -> None:
     """validate_schema only exists in head → base returns not-found."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = read_symbol(ctx, "validate_schema", ref="base")  # type: ignore[arg-type]
     head_result = read_symbol(ctx, "validate_schema", ref="head")  # type: ignore[arg-type]
@@ -1056,8 +1057,8 @@ def test_read_symbol_ref_base_not_found() -> None:
 
 def test_list_symbols_shows_symbols() -> None:
     """Indexed file shows symbols with line numbers."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = list_symbols(ctx, "src/api/handler.py")  # type: ignore[arg-type]
     assert "2 symbols" in result
     assert "handle_request" in result
@@ -1069,8 +1070,8 @@ def test_list_symbols_shows_symbols() -> None:
 
 def test_list_symbols_math_file() -> None:
     """Math file shows all three symbols (2 functions + 1 class)."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = list_symbols(ctx, "src/stats/math_utils.py")  # type: ignore[arg-type]
     assert "3 symbols" in result
     assert "calculate_mean" in result
@@ -1081,8 +1082,8 @@ def test_list_symbols_math_file() -> None:
 
 def test_list_symbols_no_symbols() -> None:
     """File with no indexed code symbols returns clear message."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = list_symbols(ctx, "config/settings.toml")  # type: ignore[arg-type]
     assert "No symbols" in result
     store.close()
@@ -1090,8 +1091,8 @@ def test_list_symbols_no_symbols() -> None:
 
 def test_list_symbols_path_traversal_rejected() -> None:
     """Paths with '..' are rejected."""
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
     result = list_symbols(ctx, "../etc/passwd")  # type: ignore[arg-type]
     assert "'..' " in result or "contains '..'" in result
     store.close()
@@ -1099,8 +1100,8 @@ def test_list_symbols_path_traversal_rejected() -> None:
 
 def test_list_symbols_ref_base_vs_head() -> None:
     """Base handler.py has 2 symbols; head has 3 (validate_schema added)."""
-    session, store = _make_two_ref_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_two_ref_state()
+    ctx = _FakeCtx(state)
 
     base_result = list_symbols(ctx, "src/api/handler.py", ref="base")  # type: ignore[arg-type]
     head_result = list_symbols(ctx, "src/api/handler.py", ref="head")  # type: ignore[arg-type]
@@ -1143,14 +1144,14 @@ def _make_repo_two_commits(tmp: str) -> tuple[pygit2.Repository, str, str]:
     return repo, str(c1), str(c2)
 
 
-def _git_session(repo: pygit2.Repository) -> EngineState:
-    session = EngineState(repo=repo, owner="o", repo_name="r")
-    session.review_target = BranchTarget(
+def _git_state(repo: pygit2.Repository) -> EngineState:
+    state = EngineState(repo=repo, owner="o", repo_name="r")
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
     )
-    return session
+    return state
 
 
 # ── diff ─────────────────────────────────────────────────────────────
@@ -1160,7 +1161,7 @@ def test_diff_shows_both_changed_files() -> None:
     """Default diff (base → head) shows both a.py and b.py changes."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx)  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" in result
@@ -1170,7 +1171,7 @@ def test_diff_shows_both_changed_files() -> None:
 def test_diff_single_ref_shows_commit() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, c2 = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, ref=c2[:8])  # type: ignore[arg-type]
         assert "files changed" in result
         assert "a.py" in result
@@ -1179,7 +1180,7 @@ def test_diff_single_ref_shows_commit() -> None:
 def test_diff_range_syntax() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, c2 = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, ref=f"{c1[:8]}..{c2[:8]}")  # type: ignore[arg-type]
         assert "files changed" in result
 
@@ -1187,7 +1188,7 @@ def test_diff_range_syntax() -> None:
 def test_diff_bad_ref() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, ref="nonexistent")  # type: ignore[arg-type]
         assert "Cannot resolve ref" in result
 
@@ -1195,8 +1196,8 @@ def test_diff_bad_ref() -> None:
 def test_diff_no_target() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = _FakeCtx(session)
+        state = EngineState(repo=repo, owner="o", repo_name="r")
+        ctx = _FakeCtx(state)
         result = diff(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
 
@@ -1208,7 +1209,7 @@ def test_changed_files_lists_modified_and_added() -> None:
     """changed_files returns both modified and added files."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = changed_files(ctx)  # type: ignore[arg-type]
         assert "a.py" in result  # modified
         assert "b.py" in result  # added
@@ -1235,7 +1236,7 @@ def test_changed_files_includes_deleted() -> None:
         tb2.insert("keep.py", b1, pygit2.GIT_FILEMODE_BLOB)
         repo.create_commit("refs/heads/feature", sig, sig, "delete", tb2.write(), [c1])
 
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = changed_files(ctx)  # type: ignore[arg-type]
         assert "remove.py" in result
         assert "keep.py" not in result  # unchanged — should not appear
@@ -1251,7 +1252,7 @@ def test_changed_files_identical_branches() -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = changed_files(ctx)  # type: ignore[arg-type]
         assert "No files changed" in result
 
@@ -1260,8 +1261,8 @@ def test_changed_files_no_target() -> None:
     """No review target returns message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = _FakeCtx(session)
+        state = EngineState(repo=repo, owner="o", repo_name="r")
+        ctx = _FakeCtx(state)
         result = changed_files(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
 
@@ -1272,7 +1273,7 @@ def test_changed_files_no_target() -> None:
 def test_commit_log_shows_message() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "add b and change a" in result
 
@@ -1286,7 +1287,7 @@ def test_commit_log_identical_branches() -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "No commits" in result or "identical" in result.lower()
 
@@ -1299,8 +1300,8 @@ def test_commit_log_no_target() -> None:
         repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
         repo.set_head("refs/heads/main")
 
-        session = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = _FakeCtx(session)
+        state = EngineState(repo=repo, owner="o", repo_name="r")
+        ctx = _FakeCtx(state)
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "No review target" in result
 
@@ -1308,7 +1309,7 @@ def test_commit_log_no_target() -> None:
 # ── changed_symbols ────────────────────────────────────────────────────
 
 
-def _make_diff_session() -> tuple[EngineState, IndexStore]:
+def _make_diff_state() -> tuple[EngineState, IndexStore]:
     """Build a store with base (v1) and head (v2) for semantic diff tests.
 
     Base has: handler (v1), calculate_mean.
@@ -1317,9 +1318,9 @@ def _make_diff_session() -> tuple[EngineState, IndexStore]:
               new_endpoint has no test.
     """
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -1405,12 +1406,12 @@ def _make_diff_session() -> tuple[EngineState, IndexStore]:
         "feature",
     )
 
-    return session, store
+    return state, store
 
 
 def test_changed_symbols_detects_added_symbol() -> None:
-    session, store = _make_diff_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_diff_state()
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Added" in result
     assert "new_endpoint" in result
@@ -1418,8 +1419,8 @@ def test_changed_symbols_detects_added_symbol() -> None:
 
 
 def test_changed_symbols_detects_modified_symbol() -> None:
-    session, store = _make_diff_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_diff_state()
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Modified" in result
     assert "handle_request" in result
@@ -1428,8 +1429,8 @@ def test_changed_symbols_detects_modified_symbol() -> None:
 
 def test_changed_symbols_reports_missing_tests() -> None:
     """new_endpoint has no test edge → reported as missing."""
-    session, store = _make_diff_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_diff_state()
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Missing tests" in result
     assert "new_endpoint" in result
@@ -1442,9 +1443,9 @@ def test_changed_symbols_reports_missing_tests() -> None:
 def test_changed_symbols_no_changes() -> None:
     """Same blob at base and head → no structural differences."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
@@ -1468,7 +1469,7 @@ def test_changed_symbols_no_changes() -> None:
         ]
     )
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "No structural differences" in result
     store.close()
@@ -1481,10 +1482,10 @@ def test_require_index_hides_when_no_index() -> None:
     """_require_index returns None when no index is loaded."""
     import asyncio
 
-    session = EngineState()
-    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
-    assert session.index is None
-    ctx = _FakeCtx(session)
+    state = EngineState()
+    state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    assert state.index is None
+    ctx = _FakeCtx(state)
 
     from rbtr.engine.tools import _require_index
 
@@ -1497,25 +1498,25 @@ def test_require_index_hides_when_no_target() -> None:
     """_require_index returns None when no review target is set."""
     import asyncio
 
-    session = EngineState()
-    session.index = IndexStore()
-    assert session.review_target is None
-    ctx = _FakeCtx(session)
+    state = EngineState()
+    state.index = IndexStore()
+    assert state.review_target is None
+    ctx = _FakeCtx(state)
 
     from rbtr.engine.tools import _require_index
 
     tool_def = object()
     result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
     assert result is None
-    session.index.close()
+    state.index.close()
 
 
 def test_require_index_returns_tool_when_ready() -> None:
     """_require_index returns the tool definition when both index and target exist."""
     import asyncio
 
-    session, store = _make_session()
-    ctx = _FakeCtx(session)
+    state, store = _make_state()
+    ctx = _FakeCtx(state)
 
     from rbtr.engine.tools import _require_index
 
@@ -1529,9 +1530,9 @@ def test_require_repo_hides_when_no_repo() -> None:
     """_require_repo returns None when no repo is loaded."""
     import asyncio
 
-    session = EngineState()
-    session.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
-    ctx = _FakeCtx(session)
+    state = EngineState()
+    state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    ctx = _FakeCtx(state)
 
     from rbtr.engine.tools import _require_repo
 
@@ -1546,8 +1547,8 @@ def test_require_repo_hides_when_no_target() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        session = EngineState(repo=repo)
-        ctx = _FakeCtx(session)
+        state = EngineState(repo=repo)
+        ctx = _FakeCtx(state)
 
         from rbtr.engine.tools import _require_repo
 
@@ -1559,14 +1560,14 @@ def test_require_repo_hides_when_no_target() -> None:
 # ── search_similar edge cases ────────────────────────────────────────
 
 
-def test_search_similar_embedding_error(mocker) -> None:
+def test_search_similar_embedding_error(mocker: MockerFixture) -> None:
     """Embedding model failure returns a helpful fallback message."""
-    session, store = _make_session()
+    state, store = _make_state()
     mocker.patch(
         "rbtr.index.store.IndexStore.search_by_text",
         side_effect=RuntimeError("model not loaded"),
     )
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = search_similar(ctx, "anything")  # type: ignore[arg-type]
     assert "Semantic search unavailable" in result
     store.close()
@@ -1578,9 +1579,9 @@ def test_search_similar_embedding_error(mocker) -> None:
 def test_changed_symbols_no_review_target() -> None:
     """changed_symbols without a target returns message."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    ctx = _FakeCtx(session)
+    state = EngineState()
+    state.index = store
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "No review target" in result
     store.close()
@@ -1589,9 +1590,9 @@ def test_changed_symbols_no_review_target() -> None:
 def test_changed_symbols_detects_removed_symbol() -> None:
     """A symbol present in base but not head is reported as removed."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
     # Base has two functions; head has only one.
     base_a = Chunk(
@@ -1630,7 +1631,7 @@ def test_changed_symbols_detects_removed_symbol() -> None:
     store.insert_chunks([head_a])
     store.insert_snapshot("feature", "src/a.py", "b2")
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Removed" in result
     assert "func_b" in result
@@ -1640,9 +1641,9 @@ def test_changed_symbols_detects_removed_symbol() -> None:
 def test_changed_symbols_detects_stale_docs() -> None:
     """Doc that references a modified symbol is flagged as stale."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
     # Base: handler v1 + doc
     base_handler = Chunk(
@@ -1690,7 +1691,7 @@ def test_changed_symbols_detects_stale_docs() -> None:
         "feature",
     )
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Stale docs" in result
     assert "API" in result
@@ -1700,9 +1701,9 @@ def test_changed_symbols_detects_stale_docs() -> None:
 def test_changed_symbols_detects_broken_edges() -> None:
     """Import edge pointing at a removed symbol is flagged as broken."""
     store = IndexStore()
-    session = EngineState()
-    session.index = store
-    session.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state = EngineState()
+    state.index = store
+    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
 
     # Base: two modules that import each other
     base_a = Chunk(
@@ -1750,7 +1751,7 @@ def test_changed_symbols_detects_broken_edges() -> None:
         "feature",
     )
 
-    ctx = _FakeCtx(session)
+    ctx = _FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
     assert "Broken edges" in result
     store.close()
@@ -1770,8 +1771,8 @@ def test_diff_initial_commit() -> None:
         c = repo.create_commit("refs/heads/main", sig, sig, "init", tb.write(), [])
         repo.set_head("refs/heads/main")
 
-        session = _git_session(repo)
-        ctx = _FakeCtx(session)
+        state = _git_state(repo)
+        ctx = _FakeCtx(state)
         result = diff(ctx, ref=str(c)[:8])  # type: ignore[arg-type]
         assert "no parent" in result or "initial commit" in result
 
@@ -1780,12 +1781,12 @@ def test_diff_bad_range_refs() -> None:
     """Unresolvable refs in range syntax returns error."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, ref="badref1..badref2")  # type: ignore[arg-type]
         assert "Cannot resolve ref" in result
 
 
-def test_diff_truncation(config_path) -> None:
+def test_diff_truncation(config_path: Path) -> None:
     """Large diffs are limited at max_lines."""
     from rbtr.config import config as cfg
 
@@ -1808,8 +1809,8 @@ def test_diff_truncation(config_path) -> None:
         tb2.insert("a.py", b2, pygit2.GIT_FILEMODE_BLOB)
         repo.create_commit("refs/heads/feature", sig, sig, "big", tb2.write(), [c1])
 
-        session = _git_session(repo)
-        ctx = _FakeCtx(session)
+        state = _git_state(repo)
+        ctx = _FakeCtx(state)
         result = diff(ctx)  # type: ignore[arg-type]
         assert "... limited" in result
         assert "offset=" in result
@@ -1822,7 +1823,7 @@ def test_diff_path_filters_to_single_file() -> None:
     """path='a.py' shows only that file's diff."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, path="a.py")  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" not in result
@@ -1833,7 +1834,7 @@ def test_diff_path_empty_shows_full() -> None:
     """Empty path (default) shows the full diff as before."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx)  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" in result
@@ -1844,7 +1845,7 @@ def test_diff_path_nonexistent() -> None:
     """Nonexistent path returns empty diff."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, path="nonexistent.py")  # type: ignore[arg-type]
         assert "0 files changed" in result
 
@@ -1853,7 +1854,7 @@ def test_diff_path_with_single_ref() -> None:
     """path also works in single-ref mode."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, c2 = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, path="a.py", ref=c2[:8])  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" not in result
@@ -1863,7 +1864,7 @@ def test_diff_path_with_range() -> None:
     """path also works with range syntax."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, c2 = _make_repo_two_commits(tmp)
-        ctx = _FakeCtx(_git_session(repo))
+        ctx = _FakeCtx(_git_state(repo))
         result = diff(ctx, path="b.py", ref=f"{c1[:8]}..{c2[:8]}")  # type: ignore[arg-type]
         assert "b.py" in result
         assert "a.py" not in result
@@ -1881,18 +1882,18 @@ def test_commit_log_bad_refs() -> None:
         repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
         repo.set_head("refs/heads/main")
 
-        session = EngineState(repo=repo, owner="o", repo_name="r")
-        session.review_target = BranchTarget(
+        state = EngineState(repo=repo, owner="o", repo_name="r")
+        state.review_target = BranchTarget(
             base_branch="main",
             head_branch="nonexistent",
             updated_at=0,
         )
-        ctx = _FakeCtx(session)
+        ctx = _FakeCtx(state)
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "Cannot resolve ref" in result
 
 
-def test_commit_log_truncation(config_path) -> None:
+def test_commit_log_truncation(config_path: Path) -> None:
     """Long commit log is limited at max_results."""
     from rbtr.config import config as cfg
 
@@ -1917,8 +1918,8 @@ def test_commit_log_truncation(config_path) -> None:
                 [parent_id],
             )
 
-        session = _git_session(repo)
-        ctx = _FakeCtx(session)
+        state = _git_state(repo)
+        ctx = _FakeCtx(state)
         result = commit_log(ctx)  # type: ignore[arg-type]
         assert "... limited" in result
         assert "offset=" in result
@@ -2097,15 +2098,15 @@ def _make_file_repo(tmp: str) -> tuple[pygit2.Repository, str, str]:
     return repo, str(c1), str(c2)
 
 
-def _file_session(repo: pygit2.Repository) -> EngineState:
+def _file_state(repo: pygit2.Repository) -> EngineState:
     """EngineState with repo and review target for file tool tests."""
-    session = EngineState(repo=repo, owner="o", repo_name="r")
-    session.review_target = BranchTarget(
+    state = EngineState(repo=repo, owner="o", repo_name="r")
+    state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         updated_at=0,
     )
-    return session
+    return state
 
 
 # ── read_file ────────────────────────────────────────────────────────
@@ -2115,7 +2116,7 @@ def test_read_file_full() -> None:
     """Full file read returns numbered lines with correct content."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "config/settings.toml")  # type: ignore[arg-type]
         assert "config/settings.toml" in result
         assert 'host = "0.0.0.0"' in result
@@ -2128,7 +2129,7 @@ def test_read_file_line_range() -> None:
     """Line range returns exact slice with correct line numbers."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "config/settings.toml", offset=5, max_lines=3)  # type: ignore[arg-type]
         # Lines 6-8 are the [database] section.
         assert "[database]" in result
@@ -2142,7 +2143,7 @@ def test_read_file_head_vs_base() -> None:
     """Head and base refs return different content for modified file."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         head_result = read_file(ctx, "src/api/handler.py", ref="head")  # type: ignore[arg-type]
         base_result = read_file(ctx, "src/api/handler.py", ref="base")  # type: ignore[arg-type]
         # Head has @require_auth and shutdown; base does not.
@@ -2156,7 +2157,7 @@ def test_read_file_raw_ref() -> None:
     """Raw commit SHA resolves correctly."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "src/api/handler.py", ref=c1[:8])  # type: ignore[arg-type]
         # c1 is the base commit — should have v1 content.
         assert "require_auth" not in result
@@ -2168,7 +2169,7 @@ def test_read_file_rejects_traversal(bad_path: str) -> None:
     """Paths with '..' are rejected."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, bad_path)  # type: ignore[arg-type]
         assert "'..' " in result or "traversal" in result.lower() or "contains '..'" in result
 
@@ -2177,7 +2178,7 @@ def test_read_file_binary_rejection() -> None:
     """Binary files are rejected with a clear message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "assets/logo.png")  # type: ignore[arg-type]
         assert "binary" in result.lower()
 
@@ -2186,12 +2187,12 @@ def test_read_file_not_found() -> None:
     """Nonexistent path returns not-found message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "nonexistent/file.py")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
 
-def test_read_file_truncation(config_path) -> None:
+def test_read_file_truncation(config_path: Path) -> None:
     """Files exceeding max_lines are limited with pagination hint."""
     from rbtr.config import config as cfg
 
@@ -2199,7 +2200,7 @@ def test_read_file_truncation(config_path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "src/api/handler.py")  # type: ignore[arg-type]
         assert "... limited" in result
         assert "offset=" in result
@@ -2209,7 +2210,7 @@ def test_read_file_bad_ref() -> None:
     """Unresolvable ref returns error."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "src/api/handler.py", ref="nonexistent_branch")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
@@ -2221,7 +2222,7 @@ def test_grep_single_match() -> None:
     """Single match returns the line with context."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "CONTRIBUTING", path="docs/README.md")  # type: ignore[arg-type]
         assert "1 match" in result
         assert "CONTRIBUTING" in result
@@ -2233,7 +2234,7 @@ def test_grep_multiple_matches() -> None:
     """Multiple matches each appear in output."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "handle_request" appears in both handler.py imports and the ROUTES list.
         result = grep(ctx, "handle_request", path="src/api/routes.py")  # type: ignore[arg-type]
         assert "handle_request" in result
@@ -2245,7 +2246,7 @@ def test_grep_overlapping_context_merge() -> None:
     """Matches close together produce merged context (no duplicate lines)."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # In README, "handle_request" and "health_check" are on adjacent lines.
         result = grep(ctx, "handle_request", path="docs/README.md", context_lines=3)  # type: ignore[arg-type]
         # Count line number markers — should not have duplicate line numbers.
@@ -2258,7 +2259,7 @@ def test_grep_custom_context_lines() -> None:
     """Custom context_lines overrides the default window size."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # Search with tiny context (1 line) vs default (10).
         small = grep(ctx, "CONTRIBUTING", path="docs/README.md", context_lines=1)  # type: ignore[arg-type]
         large = grep(ctx, "CONTRIBUTING", path="docs/README.md", context_lines=10)  # type: ignore[arg-type]
@@ -2272,7 +2273,7 @@ def test_grep_no_match() -> None:
     """No matches returns a clear message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "zzz_nonexistent_zzz", path="docs/README.md")  # type: ignore[arg-type]
         assert "No matches" in result
 
@@ -2281,7 +2282,7 @@ def test_grep_case_insensitive() -> None:
     """Search is case-insensitive."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "overview", path="docs/README.md")  # type: ignore[arg-type]
         # "## Overview" has capital O but search is lowercase.
         assert "Overview" in result
@@ -2293,7 +2294,7 @@ def test_grep_rejects_traversal(bad_path: str) -> None:
     """Paths with '..' are rejected."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "anything", path=bad_path)  # type: ignore[arg-type]
         assert "'..' " in result or "contains '..'" in result
 
@@ -2302,7 +2303,7 @@ def test_grep_binary_rejection() -> None:
     """Binary files are rejected."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "PNG", path="assets/logo.png")  # type: ignore[arg-type]
         assert "binary" in result.lower()
 
@@ -2314,7 +2315,7 @@ def test_grep_repo_wide_no_path() -> None:
     """Empty path searches all files, finds matches across multiple files."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "handle_request" appears in handler.py, routes.py, and README.md.
         result = grep(ctx, "handle_request")  # type: ignore[arg-type]
         assert "src/api/handler.py" in result
@@ -2327,7 +2328,7 @@ def test_grep_directory_prefix() -> None:
     """Directory prefix scopes search to subtree."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # Search only in src/ — should find handler.py and routes.py but not README.md.
         result = grep(ctx, "handle_request", path="src/")  # type: ignore[arg-type]
         assert "src/api/handler.py" in result
@@ -2339,7 +2340,7 @@ def test_grep_exact_file_still_works() -> None:
     """Exact file path behaves as single-file grep."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "pool_size", path="config/settings.toml")  # type: ignore[arg-type]
         assert "1 match" in result
         assert "pool_size" in result
@@ -2350,7 +2351,7 @@ def test_grep_repo_wide_skips_binary() -> None:
     """Binary files are silently skipped in repo-wide search."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "PNG" is in the binary logo — should not appear.
         result = grep(ctx, "pool_size")  # type: ignore[arg-type]
         assert "logo.png" not in result
@@ -2361,7 +2362,7 @@ def test_grep_repo_wide_ref_base() -> None:
     """ref='base' searches the base snapshot — misses head-only content."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "require_auth" only exists in handler v2 (head).
         head_result = grep(ctx, "require_auth", ref="head")  # type: ignore[arg-type]
         base_result = grep(ctx, "require_auth", ref="base")  # type: ignore[arg-type]
@@ -2373,12 +2374,12 @@ def test_grep_repo_wide_no_match() -> None:
     """No matches across all files returns clear message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
-def test_grep_repo_wide_truncation(config_path) -> None:
+def test_grep_repo_wide_truncation(config_path: Path) -> None:
     """Repo-wide results are limited at max_grep_hits."""
     from rbtr.config import config as cfg
 
@@ -2386,7 +2387,7 @@ def test_grep_repo_wide_truncation(config_path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "handle_request" matches in multiple files — should limit.
         result = grep(ctx, "handle_request")  # type: ignore[arg-type]
         assert "... limited" in result
@@ -2400,7 +2401,7 @@ def test_list_files_root() -> None:
     """Root listing returns all files."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx)  # type: ignore[arg-type]
         assert "src/api/handler.py" in result
         assert "src/api/routes.py" in result
@@ -2413,7 +2414,7 @@ def test_list_files_directory_prefix() -> None:
     """Directory prefix filters to files under that path."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path="src/api")  # type: ignore[arg-type]
         assert "handler.py" in result
         assert "routes.py" in result
@@ -2426,7 +2427,7 @@ def test_list_files_config_prefix() -> None:
     """Prefix 'config' returns only config files."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path="config")  # type: ignore[arg-type]
         assert "settings.toml" in result
         assert "handler.py" not in result
@@ -2436,7 +2437,7 @@ def test_list_files_base_ref_omits_new_files() -> None:
     """Base ref doesn't include head-only files (routes.py)."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, ref="base")  # type: ignore[arg-type]
         assert "handler.py" in result
         assert "routes.py" not in result
@@ -2446,12 +2447,12 @@ def test_list_files_head_ref_includes_new_files() -> None:
     """Head ref includes new files added on the feature branch."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, ref="head")  # type: ignore[arg-type]
         assert "routes.py" in result
 
 
-def test_list_files_truncation(config_path) -> None:
+def test_list_files_truncation(config_path: Path) -> None:
     """More than max_results entries triggers limitation."""
     from rbtr.config import config as cfg
 
@@ -2459,7 +2460,7 @@ def test_list_files_truncation(config_path) -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx)  # type: ignore[arg-type]
         assert "... limited" in result
         assert "offset=" in result
@@ -2469,7 +2470,7 @@ def test_list_files_no_match() -> None:
     """Nonexistent directory returns empty message."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path="nonexistent/dir")  # type: ignore[arg-type]
         assert "No files" in result
 
@@ -2478,7 +2479,7 @@ def test_list_files_bad_ref() -> None:
     """Unresolvable ref returns error."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, ref="nonexistent_branch")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
@@ -2488,11 +2489,11 @@ def test_list_files_bad_ref() -> None:
 
 def _edit_ctx() -> _FakeCtx:
     """Minimal context — edit doesn't need repo or index."""
-    session = EngineState()
-    return _FakeCtx(session)
+    state = EngineState()
+    return _FakeCtx(state)
 
 
-def test_edit_create_new_file(tmp_path, monkeypatch) -> None:
+def test_edit_create_new_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Creating a new REVIEW- file writes content and returns confirmation."""
     monkeypatch.chdir(tmp_path)
     ctx = _edit_ctx()
@@ -2502,7 +2503,7 @@ def test_edit_create_new_file(tmp_path, monkeypatch) -> None:
     assert content == "# Plan\n\n- Step 1\n"
 
 
-def test_edit_append_to_existing(tmp_path, monkeypatch) -> None:
+def test_edit_append_to_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Appending to an existing file concatenates content."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rbtr").mkdir()
@@ -2514,7 +2515,7 @@ def test_edit_append_to_existing(tmp_path, monkeypatch) -> None:
     assert content == "# Notes\n\n- Finding 1\n"
 
 
-def test_edit_replace_exact_match(tmp_path, monkeypatch) -> None:
+def test_edit_replace_exact_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exact old_text match is replaced with new_text."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rbtr").mkdir()
@@ -2533,7 +2534,7 @@ def test_edit_replace_exact_match(tmp_path, monkeypatch) -> None:
     assert "- [ ] Review config" in content  # untouched
 
 
-def test_edit_replace_not_found(tmp_path, monkeypatch) -> None:
+def test_edit_replace_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """old_text that doesn't exist returns an error."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rbtr").mkdir()
@@ -2548,7 +2549,7 @@ def test_edit_replace_not_found(tmp_path, monkeypatch) -> None:
     assert "not found" in result
 
 
-def test_edit_replace_ambiguous(tmp_path, monkeypatch) -> None:
+def test_edit_replace_ambiguous(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """old_text matching multiple times returns an error."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rbtr").mkdir()
@@ -2563,7 +2564,7 @@ def test_edit_replace_ambiguous(tmp_path, monkeypatch) -> None:
     assert "2 times" in result
 
 
-def test_edit_replace_file_missing(tmp_path, monkeypatch) -> None:
+def test_edit_replace_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Replacing in a nonexistent file returns an error."""
     monkeypatch.chdir(tmp_path)
     ctx = _edit_ctx()
@@ -2597,7 +2598,7 @@ def test_edit_rejects_path_traversal() -> None:
     assert "not allowed" in result
 
 
-def test_edit_creates_subdirectory(tmp_path, monkeypatch) -> None:
+def test_edit_creates_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Nested paths under .rbtr/ create intermediate directories."""
     monkeypatch.chdir(tmp_path)
     ctx = _edit_ctx()
@@ -2644,60 +2645,60 @@ the old architecture but should be revisited.
     )
 
 
-def test_read_file_workspace(tmp_path, monkeypatch) -> None:
+def test_read_file_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """read_file reads .rbtr/ files from the local filesystem."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, ".rbtr/REVIEW-plan.md")  # type: ignore[arg-type]
         assert "# Review Plan" in result
         assert "Phase 1" in result
         assert "handler.py" in result
 
 
-def test_read_file_workspace_not_found(tmp_path, monkeypatch) -> None:
+def test_read_file_workspace_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """read_file returns error for nonexistent .rbtr/ file."""
     monkeypatch.chdir(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, ".rbtr/REVIEW-nonexistent.md")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
 
-def test_read_file_workspace_ignores_ref(tmp_path, monkeypatch) -> None:
+def test_read_file_workspace_ignores_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """ref parameter is ignored for .rbtr/ workspace files."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # ref="base" would fail for git files, but is ignored for .rbtr/
         result = read_file(ctx, ".rbtr/REVIEW-plan.md", ref="base")  # type: ignore[arg-type]
         assert "# Review Plan" in result
 
 
-def test_grep_workspace_single_file(tmp_path, monkeypatch) -> None:
+def test_grep_workspace_single_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """grep searches a single .rbtr/ file from the filesystem."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "null check", path=".rbtr/REVIEW-findings.md")  # type: ignore[arg-type]
         assert "null check" in result.lower()
         assert "REVIEW-findings.md" in result
 
 
-def test_grep_workspace_directory(tmp_path, monkeypatch) -> None:
+def test_grep_workspace_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """grep searches all files under .rbtr/ when given a directory prefix."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         # "handler" appears in both plan and findings
         result = grep(ctx, "handler", path=".rbtr/")  # type: ignore[arg-type]
         assert "handler" in result.lower()
@@ -2705,35 +2706,35 @@ def test_grep_workspace_directory(tmp_path, monkeypatch) -> None:
         assert "REVIEW-" in result
 
 
-def test_grep_workspace_no_match(tmp_path, monkeypatch) -> None:
+def test_grep_workspace_no_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """grep returns no-match message for workspace files."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "xyznonexistent", path=".rbtr/")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
-def test_list_files_workspace(tmp_path, monkeypatch) -> None:
+def test_list_files_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """list_files lists .rbtr/ files from the local filesystem."""
     monkeypatch.chdir(tmp_path)
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path=".rbtr/")  # type: ignore[arg-type]
         assert "REVIEW-plan.md" in result
         assert "REVIEW-findings.md" in result
 
 
-def test_list_files_workspace_empty(tmp_path, monkeypatch) -> None:
+def test_list_files_workspace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """list_files returns empty message for nonexistent .rbtr/ directory."""
     monkeypatch.chdir(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path=".rbtr/")  # type: ignore[arg-type]
         assert "No files" in result
 
@@ -2747,7 +2748,9 @@ def test_list_files_workspace_empty(tmp_path, monkeypatch) -> None:
 # grep: git blob/tree → filesystem.
 
 
-def test_list_files_git_prefix_wins_over_filesystem(tmp_path, monkeypatch) -> None:
+def test_list_files_git_prefix_wins_over_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When git tree has files under the prefix, filesystem is NOT used."""
     monkeypatch.chdir(tmp_path)
     # Create a filesystem file under src/api/ (same prefix as git files).
@@ -2755,7 +2758,7 @@ def test_list_files_git_prefix_wins_over_filesystem(tmp_path, monkeypatch) -> No
     (tmp_path / "src" / "api" / "local_only.py").write_text("# local\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path="src/api")  # type: ignore[arg-type]
         # Git files should be listed.
         assert "handler.py" in result
@@ -2763,19 +2766,23 @@ def test_list_files_git_prefix_wins_over_filesystem(tmp_path, monkeypatch) -> No
         assert "local_only.py" not in result
 
 
-def test_list_files_falls_back_to_filesystem(tmp_path, monkeypatch) -> None:
+def test_list_files_falls_back_to_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When prefix has no git files, filesystem is used as fallback."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "local_dir").mkdir()
     (tmp_path / "local_dir" / "notes.txt").write_text("hello\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path="local_dir")  # type: ignore[arg-type]
         assert "notes.txt" in result
 
 
-def test_read_file_git_blob_wins_over_filesystem(tmp_path, monkeypatch) -> None:
+def test_read_file_git_blob_wins_over_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When a file exists in both git and filesystem, git version is used."""
     monkeypatch.chdir(tmp_path)
     # Create a local file with different content than the git blob.
@@ -2783,20 +2790,22 @@ def test_read_file_git_blob_wins_over_filesystem(tmp_path, monkeypatch) -> None:
     (tmp_path / "src" / "api" / "handler.py").write_text("# FILESYSTEM VERSION\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "src/api/handler.py")  # type: ignore[arg-type]
         # Git content has handle_request; filesystem has "FILESYSTEM VERSION".
         assert "handle_request" in result
         assert "FILESYSTEM VERSION" not in result
 
 
-def test_read_file_falls_back_to_filesystem(tmp_path, monkeypatch) -> None:
+def test_read_file_falls_back_to_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When a file is not in git, falls back to local filesystem."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "untracked.txt").write_text("local content here\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "untracked.txt")  # type: ignore[arg-type]
         assert "local content here" in result
 
@@ -2805,12 +2814,14 @@ def test_read_file_not_in_git_or_filesystem() -> None:
     """When a file is in neither git nor filesystem, returns git error."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = read_file(ctx, "totally_missing.txt")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
 
-def test_grep_git_prefix_wins_over_filesystem(tmp_path, monkeypatch) -> None:
+def test_grep_git_prefix_wins_over_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When git tree has files under prefix, grep searches git only."""
     monkeypatch.chdir(tmp_path)
     # Create filesystem file with unique content under the same prefix.
@@ -2818,31 +2829,33 @@ def test_grep_git_prefix_wins_over_filesystem(tmp_path, monkeypatch) -> None:
     (tmp_path / "src" / "api" / "local.py").write_text("UNIQUE_LOCAL_MARKER\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "UNIQUE_LOCAL_MARKER", path="src/api")  # type: ignore[arg-type]
         # Git has files under src/api but none contain this marker.
         assert "No matches" in result
 
 
-def test_grep_falls_back_to_filesystem(tmp_path, monkeypatch) -> None:
+def test_grep_falls_back_to_filesystem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When prefix has no git files, grep searches filesystem."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "local_dir").mkdir()
     (tmp_path / "local_dir" / "notes.txt").write_text("important finding\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "important", path="local_dir")  # type: ignore[arg-type]
         assert "important finding" in result
         assert "notes.txt" in result
 
 
-def test_grep_single_file_falls_back_to_filesystem(tmp_path, monkeypatch) -> None:
+def test_grep_single_file_falls_back_to_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When an exact file path isn't in git, grep searches filesystem."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "local.txt").write_text("needle in haystack\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = _FakeCtx(_file_session(repo))
+        ctx = _FakeCtx(_file_state(repo))
         result = grep(ctx, "needle", path="local.txt")  # type: ignore[arg-type]
         assert "needle in haystack" in result

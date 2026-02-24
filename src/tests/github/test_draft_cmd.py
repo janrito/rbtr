@@ -68,12 +68,12 @@ class FakeEngine:
     """Minimal engine stub that captures events for assertions."""
 
     def __init__(self, *, gh: Any = None, gh_username: str = "") -> None:
-        self.session = EngineState()
-        self.session.review_target = PR
-        self.session.gh = gh
-        self.session.gh_username = gh_username
-        self.session.owner = "owner"
-        self.session.repo_name = "repo"
+        self.state = EngineState()
+        self.state.review_target = PR
+        self.state.gh = gh
+        self.state.gh_username = gh_username
+        self.state.owner = "owner"
+        self.state.repo_name = "repo"
         self._events: queue.Queue[Event] = queue.Queue()
 
     def _emit(self, event: Event) -> None:
@@ -125,7 +125,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_no_pr_selected() -> None:
     engine = FakeEngine()
-    engine.session.review_target = None
+    engine.state.review_target = None
     cmd_draft(engine, "")  # type: ignore[arg-type]  # FakeEngine stub
     assert "No PR selected" in engine.collected_text()
 

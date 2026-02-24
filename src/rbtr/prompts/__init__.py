@@ -31,12 +31,12 @@ def _build_env() -> minijinja.Environment:
     return env
 
 
-def _context(session: EngineState) -> dict[str, Any]:
-    """Build template context from live session state."""
+def _context(state: EngineState) -> dict[str, Any]:
+    """Build template context from live state."""
     ctx: dict[str, Any] = {
         "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
-        "owner": session.owner or "unknown",
-        "repo": session.repo_name or "unknown",
+        "owner": state.owner or "unknown",
+        "repo": state.repo_name or "unknown",
         "target_kind": "none",
         "base_branch": "",
         "branch": "",
@@ -46,7 +46,7 @@ def _context(session: EngineState) -> dict[str, Any]:
         "pr_body": "",
     }
 
-    match session.review_target:
+    match state.review_target:
         case PRTarget(
             number=n,
             title=t,
@@ -74,13 +74,13 @@ def _context(session: EngineState) -> dict[str, Any]:
     return ctx
 
 
-def review_tag(session: EngineState) -> str:
+def review_tag(state: EngineState) -> str:
     """Derive a short tag from the review target for file naming.
 
     Examples: ``PR-42`` for a pull request, ``fix-auth`` for a branch.
     Returns ``""`` when no target is selected.
     """
-    match session.review_target:
+    match state.review_target:
         case PRTarget(number=n):
             return f"PR-{n}"
         case BranchTarget(head_branch=head):
@@ -92,18 +92,18 @@ def review_tag(session: EngineState) -> str:
     return ""
 
 
-def render_system(session: EngineState) -> str:
-    """Render the system prompt with live session data."""
+def render_system(state: EngineState) -> str:
+    """Render the system prompt with live state data."""
     env = _build_env()
-    return env.render_template("system", **_context(session))
+    return env.render_template("system", **_context(state))
 
 
-def render_review(session: EngineState) -> str:
-    """Render the review guidelines with session context."""
+def render_review(state: EngineState) -> str:
+    """Render the review guidelines with state context."""
     env = _build_env()
     return env.render_template(
         "review",
-        review_tag=review_tag(session),
+        review_tag=review_tag(state),
         workspace_prefix=config.tools.workspace_prefix,
     )
 

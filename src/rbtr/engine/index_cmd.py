@@ -51,12 +51,12 @@ def cmd_index(engine: Engine, args: str) -> None:
 
 def _status(engine: Engine) -> None:
     """Show index stats with per-kind breakdowns."""
-    store = engine.session.index
+    store = engine.state.index
     if store is None:
         engine._out("No index loaded. Use /review to start indexing.")
         return
 
-    target = engine.session.review_target
+    target = engine.state.review_target
     if target is None:
         engine._out("No review target selected.")
         return
@@ -148,12 +148,12 @@ def _emit_edge_table(engine: Engine, edges: list[Edge]) -> None:
 
 
 def _clear(engine: Engine) -> None:
-    """Delete the DuckDB file and reset session.index."""
-    store = engine.session.index
+    """Delete the DuckDB file and reset state.index."""
+    store = engine.state.index
     if store is not None:
         store.close()
-        engine.session.index = None
-    engine.session.index_ready = False
+        engine.state.index = None
+    engine.state.index_ready = False
 
     db_path = Path(config.index.db_dir) / "index.duckdb"
     if db_path.exists():
@@ -166,7 +166,7 @@ def _clear(engine: Engine) -> None:
 
 def _rebuild(engine: Engine) -> None:
     """Clear and re-trigger a full index for the current review target."""
-    if engine.session.review_target is None:
+    if engine.state.review_target is None:
         engine._warn("No review target. Use /review first.")
         return
 
@@ -205,7 +205,7 @@ def _model(engine: Engine, model_id: str) -> None:
         pass  # llama-cpp not installed — nothing to release
 
     # Clear existing embeddings — they're from the old model.
-    store = engine.session.index
+    store = engine.state.index
     if store is None:
         engine._out("No index loaded. Embeddings will use the new model on next /review.")
         return
@@ -216,18 +216,18 @@ def _model(engine: Engine, model_id: str) -> None:
         engine._out(f"Cleared {cleared} embeddings from old model.")
 
     # Re-embed with the new model if we have a review target.
-    if engine.session.review_target is not None:
+    if engine.state.review_target is not None:
         from .indexing import run_index
 
         engine._out("Re-embedding with new model…")
         store.close()
-        engine.session.index = None
+        engine.state.index = None
         run_index(engine)
 
 
 def _prune(engine: Engine) -> None:
     """Manually prune orphaned chunks and edges."""
-    store = engine.session.index
+    store = engine.state.index
     if store is None:
         engine._out("No index loaded. Use /review to start indexing.")
         return

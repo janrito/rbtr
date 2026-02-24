@@ -2,7 +2,7 @@
 
 The agent is defined once at module level.  Instructions use the
 ``@agent.instructions`` decorator so they receive ``RunContext`` and
-can read live session state.
+can read live state.
 
 The model is provided at each call site via ``agent.iter(model=...)``,
 not baked into the agent.  Future tools and output validation plug in
@@ -23,7 +23,7 @@ from rbtr.prompts import render_index_status, render_review, render_system
 class AgentDeps:
     """Dependencies injected into every agent run."""
 
-    session: EngineState
+    state: EngineState
 
 
 agent: Agent[AgentDeps, str] = Agent(deps_type=AgentDeps)
@@ -31,14 +31,14 @@ agent: Agent[AgentDeps, str] = Agent(deps_type=AgentDeps)
 
 @agent.instructions
 def system_prompt(ctx: RunContext[AgentDeps]) -> str:
-    """Render the main system prompt with live session context."""
-    return render_system(ctx.deps.session)
+    """Render the main system prompt with live state context."""
+    return render_system(ctx.deps.state)
 
 
 @agent.instructions
 def review_guidelines(ctx: RunContext[AgentDeps]) -> str:
-    """Render the review guidelines with session-aware file naming."""
-    return render_review(ctx.deps.session)
+    """Render the review guidelines with state-aware file naming."""
+    return render_review(ctx.deps.state)
 
 
 def _index_tool_names() -> list[str]:
@@ -55,10 +55,10 @@ def _index_tool_names() -> list[str]:
 @agent.instructions
 def index_status(ctx: RunContext[AgentDeps]) -> str:
     """Render index status instruction from the template."""
-    session = ctx.deps.session
-    if session.review_target is None:
+    state = ctx.deps.state
+    if state.review_target is None:
         return ""
-    status = "ready" if session.index_ready else "building"
+    status = "ready" if state.index_ready else "building"
     return render_index_status(status=status, tool_names=_index_tool_names())
 
 

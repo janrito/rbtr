@@ -1,10 +1,11 @@
-"""Handler for /session — list, inspect, and delete sessions."""
+"""Handler for /session — list, inspect, delete, purge, resume."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from rbtr.sessions.store import SessionSummary
 from rbtr.styles import STYLE_DIM
 
 if TYPE_CHECKING:
@@ -40,27 +41,33 @@ def _parse_duration(spec: str) -> timedelta | None:
 
 _HELP = """\
   /session             List recent sessions (current repo)
-  /session list        Same as above
-  /session list --all  List sessions across all repos
+  /session all         List sessions across all repos
   /session info        Show current session details
+  /session resume <id> Resume a previous session (prefix match)
   /session delete <id> Delete a session by ID (prefix match)
-  /session delete --before <duration>  Delete sessions older than duration (e.g. 7d, 2w)\
+  /session purge <dur> Delete sessions older than duration (e.g. 7d, 2w)\
 """
 
 
 def cmd_session(engine: Engine, args: str) -> None:
     """Dispatch /session subcommands."""
     parts = args.split()
-    subcmd = parts[0] if parts else "list"
+    subcmd = parts[0] if parts else ""
     rest = parts[1:]
 
     match subcmd:
-        case "list":
-            _cmd_list(engine, rest)
+        case "" | "list":
+            _cmd_list(engine)
+        case "all":
+            _cmd_all(engine)
         case "info":
             _cmd_info(engine)
+        case "resume":
+            _cmd_resume(engine, rest)
         case "delete":
             _cmd_delete(engine, rest)
+        case "purge":
+            _cmd_purge(engine, rest)
         case "help":
             engine._out(_HELP, style=STYLE_DIM)
         case _:
@@ -68,25 +75,31 @@ def cmd_session(engine: Engine, args: str) -> None:
             engine._out(_HELP, style=STYLE_DIM)
 
 
-# ── list ─────────────────────────────────────────────────────────────
+# ── list / all ───────────────────────────────────────────────────────
 
 
-def _cmd_list(engine: Engine, args: list[str]) -> None:
-    """List recent sessions, optionally across all repos."""
-    show_all = "--all" in args
-    if show_all:
-        sessions = engine._store.list_sessions()
-    else:
-        sessions = engine._store.list_sessions(
-            repo_owner=engine.session.owner or None,
-            repo_name=engine.session.repo_name or None,
-        )
+def _cmd_list(engine: Engine) -> None:
+    """List recent sessions for the current repo."""
+    sessions = engine._store.list_sessions(
+        repo_owner=engine.state.owner or None,
+        repo_name=engine.state.repo_name or None,
+    )
+    _render_session_list(engine, sessions)
 
+
+def _cmd_all(engine: Engine) -> None:
+    """List sessions across all repos."""
+    sessions = engine._store.list_sessions()
+    _render_session_list(engine, sessions)
+
+
+def _render_session_list(engine: Engine, sessions: list[SessionSummary]) -> None:
+    """Render a session listing."""
     if not sessions:
         engine._out("No sessions found.")
         return
 
-    current_id = engine.session.session_id
+    current_id = engine.state.session_id
     for s in sessions:
         short_id = s.session_id[:8]
         label = s.session_label or "—"
@@ -129,7 +142,7 @@ def _format_age(iso_timestamp: str) -> str:
 
 def _cmd_info(engine: Engine) -> None:
     """Show current session details."""
-    s = engine.session
+    s = engine.state
     repo = f"{s.owner}/{s.repo_name}" if s.owner else "—"
     engine._out(f"  Session ID    {s.session_id[:8]}", style=STYLE_DIM)
     engine._out(f"  Label         {s.session_label or '—'}", style=STYLE_DIM)
@@ -139,39 +152,16 @@ def _cmd_info(engine: Engine) -> None:
     engine._out(f"  Saved         {s.saved_count}", style=STYLE_DIM)
 
 
-# ── delete ───────────────────────────────────────────────────────────
+# ── resume ───────────────────────────────────────────────────────────
 
 
-def _cmd_delete(engine: Engine, args: list[str]) -> None:
-    """Delete sessions by ID prefix or age."""
+def _cmd_resume(engine: Engine, args: list[str]) -> None:
+    """Resume a previous session by ID prefix."""
     if not args:
-        engine._warn("Usage: /session delete <id> or /session delete --before <duration>")
+        engine._warn("Usage: /session resume <id>")
         return
 
-    if args[0] == "--before":
-        _delete_before(engine, args[1:])
-    else:
-        _delete_by_id(engine, args[0])
-
-
-def _delete_before(engine: Engine, args: list[str]) -> None:
-    """Delete sessions older than a duration."""
-    if not args:
-        engine._warn("Usage: /session delete --before <duration> (e.g. 7d, 2w, 24h)")
-        return
-
-    duration = _parse_duration(args[0])
-    if duration is None:
-        engine._warn(f"Invalid duration: {args[0]}. Use e.g. 7d, 2w, 24h.")
-        return
-
-    cutoff = datetime.now(UTC) - duration
-    deleted = engine._store.delete_old_sessions(before=cutoff)
-    engine._out(f"Deleted {deleted} message{'s' if deleted != 1 else ''} from old sessions.")
-
-
-def _delete_by_id(engine: Engine, prefix: str) -> None:
-    """Delete a session by ID prefix match."""
+    prefix = args[0]
     sessions = engine._store.list_sessions(limit=200)
     matches = [s for s in sessions if s.session_id.startswith(prefix)]
 
@@ -185,10 +175,71 @@ def _delete_by_id(engine: Engine, prefix: str) -> None:
         return
 
     target = matches[0]
-    if target.session_id == engine.session.session_id:
+    if target.session_id == engine.state.session_id:
+        engine._warn("Already in this session.")
+        return
+
+    messages = engine._store.load_messages(target.session_id)
+    if not messages:
+        engine._warn("Session has no messages (may have been compacted).")
+        return
+
+    # Switch conversation state only — usage and model are untouched.
+    engine.state.message_history = messages
+    engine.state.session_id = target.session_id
+    engine.state.session_label = target.session_label or engine.state.session_label
+    engine.state.saved_count = len(messages)
+
+    label = target.session_label or target.session_id[:8]
+    engine._out(f"Resumed session '{label}' ({len(messages)} messages).")
+
+
+# ── delete ───────────────────────────────────────────────────────────
+
+
+def _cmd_delete(engine: Engine, args: list[str]) -> None:
+    """Delete a session by ID prefix."""
+    if not args:
+        engine._warn("Usage: /session delete <id>")
+        return
+
+    prefix = args[0]
+    sessions = engine._store.list_sessions(limit=200)
+    matches = [s for s in sessions if s.session_id.startswith(prefix)]
+
+    if not matches:
+        engine._warn(f"No session matching '{prefix}'.")
+        return
+    if len(matches) > 1:
+        engine._warn(f"Ambiguous prefix '{prefix}' — matches {len(matches)} sessions.")
+        for s in matches[:5]:
+            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}", style=STYLE_DIM)
+        return
+
+    target = matches[0]
+    if target.session_id == engine.state.session_id:
         engine._warn("Cannot delete the active session. Use /new first.")
         return
 
     deleted = engine._store.delete_session(target.session_id)
     label = target.session_label or target.session_id[:8]
     engine._out(f"Deleted session '{label}' ({deleted} messages).")
+
+
+# ── purge ────────────────────────────────────────────────────────────
+
+
+def _cmd_purge(engine: Engine, args: list[str]) -> None:
+    """Delete sessions older than a duration."""
+    if not args:
+        engine._warn("Usage: /session purge <duration> (e.g. 7d, 2w, 24h)")
+        return
+
+    duration = _parse_duration(args[0])
+    if duration is None:
+        engine._warn(f"Invalid duration: {args[0]}. Use e.g. 7d, 2w, 24h.")
+        return
+
+    cutoff = datetime.now(UTC) - duration
+    deleted = engine._store.delete_old_sessions(before=cutoff)
+    engine._out(f"Deleted {deleted} message{'s' if deleted != 1 else ''} from old sessions.")

@@ -50,6 +50,7 @@ _LIST_SESSIONS_SQL = _load_sql("list_sessions.sql")
 _DELETE_SESSION_SQL = _load_sql("delete_session.sql")
 _DELETE_OLD_SESSIONS_SQL = _load_sql("delete_old_sessions.sql")
 _DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
+_MARK_SESSION_COMPACTED_SQL = _load_sql("mark_session_compacted.sql")
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 
 
@@ -65,6 +66,7 @@ class SessionSummary:
     last_active: str
     message_count: int
     total_cost: float
+    model_name: str | None
 
 
 # ── Store ────────────────────────────────────────────────────────────
@@ -164,17 +166,19 @@ class SessionStore:
                 [dataclasses.astuple(r) for r in rows],
             )
 
-    def mark_compacted(self, message_ids: list[str], summary_id: str) -> None:
-        """Set ``compacted_by`` on the given message rows.
+    def mark_session_compacted(self, session_id: str, summary_id: str) -> int:
+        """Mark all non-compacted rows for a session as compacted.
 
-        Called after compaction to link old messages to their summary.
+        Called before re-saving compacted history so that
+        ``load_messages`` returns only the post-compaction rows.
+        Returns the number of rows marked.
         """
-        if not message_ids:
-            return
-        placeholders = ",".join("?" * len(message_ids))
-        sql = f"UPDATE messages SET compacted_by = ? WHERE id IN ({placeholders})"  # noqa: S608  # placeholders are only '?' chars
         with self._lock, self._con:
-            self._con.execute(sql, [summary_id, *message_ids])
+            cur = self._con.execute(
+                _MARK_SESSION_COMPACTED_SQL,
+                [summary_id, session_id],
+            )
+            return cur.rowcount
 
     def delete_session(self, session_id: str) -> int:
         """Delete all messages for a session.  Returns rows deleted."""
@@ -244,6 +248,7 @@ class SessionStore:
                 last_active=row["last_active"],
                 message_count=row["message_count"],
                 total_cost=float(row["total_cost"]),
+                model_name=row["model_name"],
             )
             for row in rows
         ]

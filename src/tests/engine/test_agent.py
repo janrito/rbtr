@@ -21,10 +21,10 @@ _NOW = datetime.now(tz=UTC)
 
 
 def _make_ctx(*, review_target=None, index_ready: bool = False) -> _FakeCtx:
-    session = EngineState()
-    session.review_target = review_target
-    session.index_ready = index_ready
-    return _FakeCtx(deps=AgentDeps(session=session))
+    state = EngineState()
+    state.review_target = review_target
+    state.index_ready = index_ready
+    return _FakeCtx(deps=AgentDeps(state=state))
 
 
 def test_no_review_target_empty() -> None:

@@ -8,155 +8,135 @@ and the generic Exception handler.
 
 from __future__ import annotations
 
-import tempfile
+from pathlib import Path
 
-import pygit2
+import pytest
 
 from rbtr.config import config
 from rbtr.creds import creds
-from rbtr.engine import Engine, EngineState, TaskType
-from rbtr.events import Event
+from rbtr.engine import Engine, TaskType
 
-from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, make_engine, output_texts
+from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, output_texts
 
 
-def _setup_repo(monkeypatch, tmp) -> None:
-    """Create a git repo at *tmp* and chdir into it."""
-    repo = pygit2.init_repository(tmp)
-    sig = pygit2.Signature("Test", "test@test.com")
-    tree = repo.TreeBuilder().write()
-    repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
-    repo.set_head("refs/heads/main")
+@pytest.fixture
+def setup_engine(monkeypatch: pytest.MonkeyPatch, repo_engine: Engine) -> Engine:
+    """Engine chdir'd into its repo with a remote — ready for _run_setup discovery."""
+    repo = repo_engine.state.repo
+    assert repo is not None
     repo.remotes.create("origin", "git@github.com:acme/widgets.git")
-    monkeypatch.chdir(tmp)
+    monkeypatch.chdir(repo.workdir)
+    repo_engine.state.owner = ""
+    repo_engine.state.repo_name = ""
+    return repo_engine
 
 
 # ── Setup with credentials ───────────────────────────────────────────
 
 
-def test_setup_detects_github_token(monkeypatch, creds_path, config_path) -> None:
+def test_setup_detects_github_token(
+    monkeypatch: pytest.MonkeyPatch, creds_path: Path, config_path: Path, setup_engine: Engine
+) -> None:
     """Setup with a stored GitHub token authenticates automatically."""
     creds.update(github_token="ghp_test123")
 
-    # Mock Github so get_user().login succeeds without a real API call.
     from unittest.mock import MagicMock
 
     fake_gh = MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
     monkeypatch.setattr("rbtr.engine.core.Github", lambda **_kw: fake_gh)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        texts = output_texts(drain(events))
+    engine.run_task(TaskType.SETUP, "")
+    texts = output_texts(drain(engine.events))
 
-        assert session.gh is not None
-        assert session.gh_username == "testuser"
-        assert any("Authenticated with GitHub" in t for t in texts)
+    assert engine.state.gh is not None
+    assert engine.state.gh_username == "testuser"
+    assert any("Authenticated with GitHub" in t for t in texts)
 
 
-def test_setup_detects_claude_oauth(monkeypatch, creds_path, config_path) -> None:
+def test_setup_detects_claude_oauth(
+    creds_path: Path, config_path: Path, setup_engine: Engine
+) -> None:
     """Setup with stored Claude OAuth marks provider as connected."""
     creds.update(claude=CLAUDE_OAUTH)
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        texts = output_texts(drain(events))
+    engine.run_task(TaskType.SETUP, "")
+    texts = output_texts(drain(engine.events))
 
-        assert session.claude_connected is True
-        assert any("Connected to Anthropic" in t for t in texts)
+    assert engine.state.claude_connected is True
+    assert any("Connected to Anthropic" in t for t in texts)
 
 
-def test_setup_detects_chatgpt_oauth(monkeypatch, creds_path, config_path) -> None:
+def test_setup_detects_chatgpt_oauth(
+    creds_path: Path, config_path: Path, setup_engine: Engine
+) -> None:
     """Setup with stored ChatGPT OAuth marks provider as connected."""
     creds.update(chatgpt=CHATGPT_OAUTH)
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        texts = output_texts(drain(events))
+    engine.run_task(TaskType.SETUP, "")
+    texts = output_texts(drain(engine.events))
 
-        assert session.chatgpt_connected is True
-        assert any("Connected to ChatGPT" in t for t in texts)
+    assert engine.state.chatgpt_connected is True
+    assert any("Connected to ChatGPT" in t for t in texts)
 
 
-def test_setup_detects_openai_key(monkeypatch, creds_path, config_path) -> None:
+def test_setup_detects_openai_key(
+    creds_path: Path, config_path: Path, setup_engine: Engine
+) -> None:
     """Setup with stored OpenAI key marks provider as connected."""
     creds.update(openai_api_key="sk-test")
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        texts = output_texts(drain(events))
+    engine.run_task(TaskType.SETUP, "")
+    texts = output_texts(drain(engine.events))
 
-        assert session.openai_connected is True
-        assert any("Connected to OpenAI" in t for t in texts)
+    assert engine.state.openai_connected is True
+    assert any("Connected to OpenAI" in t for t in texts)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
-def test_setup_lists_endpoints(monkeypatch, creds_path, config_path) -> None:
+def test_setup_lists_endpoints(creds_path: Path, config_path: Path, setup_engine: Engine) -> None:
     """Setup lists stored endpoints."""
     from rbtr.providers.endpoint import save_endpoint
 
     save_endpoint("ollama", "http://localhost:11434/v1", "")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        texts = output_texts(drain(events))
+    engine.run_task(TaskType.SETUP, "")
+    texts = output_texts(drain(engine.events))
 
-        assert any("ollama" in t and "localhost:11434" in t for t in texts)
-        # With an endpoint present, "No LLM connected" should NOT appear
-        assert not any("No LLM connected" in t for t in texts)
+    assert any("ollama" in t and "localhost:11434" in t for t in texts)
+    assert not any("No LLM connected" in t for t in texts)
 
 
 # ── Saved model ──────────────────────────────────────────────────────
 
 
-def test_setup_loads_saved_model(monkeypatch, creds_path, config_path) -> None:
+def test_setup_loads_saved_model(creds_path: Path, config_path: Path, setup_engine: Engine) -> None:
     """Setup restores saved model preference from config."""
     config.update(model="claude/claude-sonnet-4-20250514")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        _setup_repo(monkeypatch, tmp)
-        session = EngineState()
-        events: __import__("queue").Queue[Event] = __import__("queue").Queue()
-        engine = Engine(session, events)
+    engine = setup_engine
 
-        engine.run_task(TaskType.SETUP, "")
-        drain(events)
+    engine.run_task(TaskType.SETUP, "")
+    drain(engine.events)
 
-        assert session.model_name == "claude/claude-sonnet-4-20250514"
+    assert engine.state.model_name == "claude/claude-sonnet-4-20250514"
 
 
 # ── Error handling ───────────────────────────────────────────────────
 
 
-def test_run_task_unexpected_error_emits_failure(config_path) -> None:
+def test_run_task_unexpected_error_emits_failure(config_path: Path, engine: Engine) -> None:
     """Generic exception in a task emits error output and TaskFinished(success=False)."""
-    engine, events, _ = make_engine()
 
-    # Force an unexpected error during a command
     def _explode(eng, args):
         raise RuntimeError("kaboom")
 
@@ -166,11 +146,11 @@ def test_run_task_unexpected_error_emits_failure(config_path) -> None:
     core_mod.cmd_connect = _explode
     try:
         engine.run_task(TaskType.COMMAND, "/connect claude")
-        evts = drain(events)
+        drained_events = drain(engine.events)
 
-        assert evts[-1].success is False
-        assert evts[-1].cancelled is False
-        texts = output_texts(evts)
+        assert drained_events[-1].success is False
+        assert drained_events[-1].cancelled is False
+        texts = output_texts(drained_events)
         assert any("kaboom" in t for t in texts)
     finally:
         core_mod.cmd_connect = original
@@ -178,5 +158,4 @@ def test_run_task_unexpected_error_emits_failure(config_path) -> None:
 
 def test_copy_to_clipboard_does_not_raise() -> None:
     """_copy_to_clipboard swallows errors gracefully."""
-    # Just ensure it doesn't raise on any platform
     Engine._copy_to_clipboard("test text")
