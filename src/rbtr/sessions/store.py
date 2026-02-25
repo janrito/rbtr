@@ -1,12 +1,26 @@
 """SQLite-backed session store for conversation persistence.
 
-Single ``messages`` table: sessions are a grouping column
-(``session_id``), not a separate entity.  Session-level metadata
-is denormalised onto every row.  Aggregates are computed via
-``GROUP BY``.
+Single ``fragments`` table: sessions are a grouping column
+(``session_id``), not a separate entity.  Each row is either a
+message-level fragment (``message_id = id``, self-referencing) or
+a content fragment (``message_id`` points to the message row).
+Aggregates are computed via ``GROUP BY``.
 
 Schema versioning uses ``PRAGMA user_version``.  Migrations are
 hand-written functions run sequentially on open.
+
+Public API
+----------
+- **read**: ``load_messages``, ``load_message_ids``, ``list_sessions``,
+  ``search_history``
+- **write**: ``save_messages``, ``begin_response``, ``compact_session``
+- **delete**: ``delete_session``, ``delete_old_sessions``,
+  ``delete_excess_sessions``
+- **lifecycle**: ``new_id``, ``close``
+
+All write methods accept ``ModelMessage`` objects and plain kwargs —
+serialisation is fully internal.  Engine callers never import from
+``serialise.py``.
 """
 
 from __future__ import annotations
@@ -21,17 +35,26 @@ from datetime import datetime
 from pathlib import Path
 
 from pydantic import ValidationError
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelResponse, ModelResponsePart
 from uuid_utils import uuid7
 
 from rbtr.constants import RBTR_DIR
-from rbtr.sessions.serialise import MessageRow, deserialise_message
+from rbtr.sessions.serialise import (
+    Fragment,
+    FragmentKind,
+    SessionContext,
+    _dump_part,
+    prepare_message_row,
+    prepare_part_row,
+    prepare_part_rows,
+    reconstruct_message,
+)
 
 log = logging.getLogger(__name__)
 
 SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -44,14 +67,18 @@ def _load_sql(name: str) -> str:
 
 
 _SCHEMA_SQL = _load_sql("schema.sql")
-_INSERT_MESSAGE_SQL = _load_sql("insert_message.sql")
+_INSERT_FRAGMENT_SQL = _load_sql("insert_fragment.sql")
+_UPDATE_FRAGMENT_SQL = _load_sql("update_fragment.sql")
 _LOAD_MESSAGES_SQL = _load_sql("load_messages.sql")
+_LOAD_MESSAGE_IDS_SQL = _load_sql("load_message_ids.sql")
+_COMPACT_MARK_MESSAGE_SQL = _load_sql("compact_mark_message.sql")
 _LIST_SESSIONS_SQL = _load_sql("list_sessions.sql")
 _DELETE_SESSION_SQL = _load_sql("delete_session.sql")
 _DELETE_OLD_SESSIONS_SQL = _load_sql("delete_old_sessions.sql")
 _DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
-_MARK_SESSION_COMPACTED_SQL = _load_sql("mark_session_compacted.sql")
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
+_GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
+_COMPLETE_MESSAGE_SQL = _load_sql("complete_message.sql")
 
 
 # ── Result types ─────────────────────────────────────────────────────
@@ -67,6 +94,85 @@ class SessionSummary:
     message_count: int
     total_cost: float
     model_name: str | None
+
+
+# ── ResponseWriter ───────────────────────────────────────────────────
+
+
+class ResponseWriter:
+    """Incrementally persist a streaming model response.
+
+    Created by :meth:`SessionStore.begin_response`.  The engine
+    iterates PydanticAI stream events and calls :meth:`add_part`
+    / :meth:`finish_part`.  The response is invisible to
+    ``load_messages()`` until :meth:`finish` (or context-manager
+    exit) marks it complete.
+
+    Usage::
+
+        writer = store.begin_response(session_id, model_name="openai/gpt-4o")
+        writer.add_part(0, initial_part)
+        writer.finish_part(0, final_part)
+        writer.finish(cost=0.003)
+    """
+
+    def __init__(
+        self,
+        *,
+        store: SessionStore,
+        message_id: str,
+    ) -> None:
+        self._store = store
+        self.message_id = message_id
+        self._part_ids: dict[int, str] = {}
+
+    def add_part(self, index: int, part: ModelResponsePart) -> None:
+        """Insert an incomplete content fragment for *part* at *index*.
+
+        Called on ``PartStartEvent``.  The fragment is ``complete=0``
+        until :meth:`finish_part` is called.
+        """
+        row_id = self._store.new_id()
+        row = prepare_part_row(
+            part,
+            message_id=self.message_id,
+            fragment_index=index + 1,
+            context=self._store._ctx,
+            row_id=row_id,
+            complete=False,
+        )
+        with self._store._lock, self._store._con:
+            self._store._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
+        self._part_ids[index] = row_id
+
+    def finish_part(self, index: int, part: ModelResponsePart) -> None:
+        """Update the fragment at *index* with the final part data.
+
+        Called on ``PartEndEvent``.
+        """
+        fid = self._part_ids.get(index)
+        if fid is None:
+            return
+        with self._store._lock, self._store._con:
+            self._store._con.execute(_UPDATE_FRAGMENT_SQL, [_dump_part(part), fid])
+
+    def finish(self, *, cost: float | None = None) -> None:
+        """Mark the response message as complete and optionally set cost.
+
+        Safe to call multiple times — the UPDATE is idempotent.
+        A later call with ``cost`` overwrites an earlier one without.
+        """
+        with self._store._lock, self._store._con:
+            self._store._con.execute(_COMPLETE_MESSAGE_SQL, [cost, self.message_id])
+
+    def __enter__(self) -> ResponseWriter:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        # Auto-complete without cost on normal exit.  Callers that
+        # know the cost should call finish() explicitly before exit.
+        # Double-finish is safe — UPDATE is idempotent.
+        self.finish()
 
 
 # ── Store ────────────────────────────────────────────────────────────
@@ -92,6 +198,7 @@ class SessionStore:
         self._con = sqlite3.connect(uri, check_same_thread=False)
         self._con.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        self._ctx = SessionContext(session_id="")
         self._setup()
 
     # ── Setup & migrations ───────────────────────────────────────────
@@ -104,12 +211,12 @@ class SessionStore:
 
         version = self._user_version()
         if version == 0:
-            # Fresh database — apply schema and set version.
             self._con.executescript(_SCHEMA_SQL)
             self._set_user_version(_SCHEMA_VERSION)
             log.debug("sessions: created schema v%d", _SCHEMA_VERSION)
         elif version < _SCHEMA_VERSION:
-            self._migrate(version)
+            log.info("sessions: wiping v%d DB, recreating as v%d", version, _SCHEMA_VERSION)
+            self._wipe_and_recreate()
         elif version > _SCHEMA_VERSION:
             log.warning(
                 "sessions: DB version %d is newer than code version %d — "
@@ -123,86 +230,246 @@ class SessionStore:
         return int(row[0]) if row else 0
 
     def _set_user_version(self, version: int) -> None:
-        # PRAGMA doesn't support parameter binding.
         self._con.execute(f"PRAGMA user_version = {version}")
 
-    def _migrate(self, from_version: int) -> None:
-        """Run sequential migrations from *from_version* to current.
+    def _wipe_and_recreate(self) -> None:
+        tables = [
+            row[0]
+            for row in self._con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        ]
+        for table in tables:
+            self._con.execute(f"DROP TABLE IF EXISTS [{table}]")
+        self._con.executescript(_SCHEMA_SQL)
+        self._set_user_version(_SCHEMA_VERSION)
 
-        Each migration is a function ``_migrate_vN_to_vM(con)`` that
-        applies DDL changes inside a transaction.
-        """
-        current = from_version
-        while current < _SCHEMA_VERSION:
-            target = current + 1
-            fn_name = f"_migrate_v{current}_to_v{target}"
-            fn = globals().get(fn_name)
-            if fn is None:
-                msg = f"Missing migration function: {fn_name}"
-                raise RuntimeError(msg)
-            log.info("sessions: migrating v%d → v%d", current, target)
-            fn(self._con)
-            self._set_user_version(target)
-            current = target
-
-    # ── Public API ───────────────────────────────────────────────────
+    # ── Public helpers ───────────────────────────────────────────────
 
     def new_id(self) -> str:
         """Generate a new UUID7 identifier (for sessions or rows)."""
         return str(uuid7())
 
+    def set_context(
+        self,
+        session_id: str,
+        *,
+        session_label: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        """Set the session context used by all subsequent writes.
+
+        Call once when the session starts or when metadata changes
+        (e.g. model switch).  Thread-safe.
+        """
+        self._ctx = SessionContext(
+            session_id=session_id,
+            session_label=session_label,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            model_name=model_name,
+        )
+
     # ── Writes ───────────────────────────────────────────────────────
 
-    def save_messages(self, rows: list[MessageRow]) -> None:
-        """Bulk insert message rows (append-only).
+    def save_messages(
+        self,
+        session_id: str,
+        messages: list[ModelMessage],
+        *,
+        session_label: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        model_name: str | None = None,
+        cost: float | None = None,
+    ) -> None:
+        """Persist a list of ``ModelMessage`` objects.
 
-        Uses a single transaction for atomicity.
+        Serialisation is handled internally.  *cost* is attributed to
+        the last ``ModelResponse`` in *messages*.
+
+        When metadata kwargs are omitted, falls back to the context
+        set by :meth:`set_context`.
         """
-        if not rows:
+        if not messages:
             return
+        ctx = SessionContext(
+            session_id=session_id,
+            session_label=session_label or self._ctx.session_label,
+            repo_owner=repo_owner or self._ctx.repo_owner,
+            repo_name=repo_name or self._ctx.repo_name,
+            model_name=model_name or self._ctx.model_name,
+        )
+        rows: list[Fragment] = []
+        last_response_idx: int | None = None
+
+        for msg in messages:
+            row_id = self.new_id()
+            rows.append(prepare_message_row(msg, context=ctx, row_id=row_id))
+            rows.extend(prepare_part_rows(msg, message_id=row_id, context=ctx))
+            if isinstance(msg, ModelResponse):
+                last_response_idx = len(rows) - len(msg.parts) - 1
+
+        # Set cost on the last response's message row at build time.
+        if last_response_idx is not None and cost is not None:
+            rows[last_response_idx] = dataclasses.replace(rows[last_response_idx], cost=cost)
+
         with self._lock, self._con:
             self._con.executemany(
-                _INSERT_MESSAGE_SQL,
+                _INSERT_FRAGMENT_SQL,
                 [dataclasses.astuple(r) for r in rows],
             )
 
-    def mark_session_compacted(self, session_id: str, summary_id: str) -> int:
-        """Mark all non-compacted rows for a session as compacted.
+    def save_input(
+        self,
+        session_id: str,
+        text: str,
+        kind: str,
+        *,
+        session_label: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        """Persist a command or shell input as a self-referencing row.
 
-        Called before re-saving compacted history so that
-        ``load_messages`` returns only the post-compaction rows.
-        Returns the number of rows marked.
+        *kind* must be ``"command"`` or ``"shell"``.
+
+        The row has ``message_id = id``, ``fragment_index = 0``,
+        ``user_text = text``, no ``data_json``.  Visible in
+        ``search_history`` but excluded from ``load_messages``.
+
+        When metadata kwargs are omitted, falls back to the context
+        set by :meth:`set_context`.
         """
+        from datetime import UTC, datetime
+
+        fk = FragmentKind(kind)
+        row_id = self.new_id()
+        now = datetime.now(UTC).isoformat()
+        row = Fragment(
+            id=row_id,
+            session_id=session_id,
+            message_id=row_id,
+            fragment_index=0,
+            fragment_kind=fk,
+            created_at=now,
+            session_label=session_label or self._ctx.session_label,
+            repo_owner=repo_owner or self._ctx.repo_owner,
+            repo_name=repo_name or self._ctx.repo_name,
+            model_name=model_name or self._ctx.model_name,
+            input_tokens=None,
+            output_tokens=None,
+            cost=None,
+            data_json=None,
+            user_text=text,
+            tool_name=None,
+            compacted_by=None,
+            complete=1,
+        )
         with self._lock, self._con:
-            cur = self._con.execute(
-                _MARK_SESSION_COMPACTED_SQL,
-                [summary_id, session_id],
+            self._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
+
+    # ── Streaming writes ────────────────────────────────────────────
+
+    def begin_response(
+        self,
+        session_id: str,
+        *,
+        model_name: str | None = None,
+    ) -> ResponseWriter:
+        """Start streaming a model response.
+
+        Inserts an incomplete message header (``complete=0``) and
+        returns a :class:`ResponseWriter` for adding parts
+        incrementally.  The message is invisible to
+        ``load_messages()`` until the writer is finished.
+        """
+        row_id = self.new_id()
+        placeholder = ModelResponse(parts=[], model_name=model_name)
+        row = prepare_message_row(placeholder, context=self._ctx, row_id=row_id, complete=False)
+        with self._lock, self._con:
+            self._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
+        return ResponseWriter(store=self, message_id=row_id)
+
+    # ── Compaction ───────────────────────────────────────────────────
+
+    def compact_session(
+        self,
+        session_id: str,
+        *,
+        summary: ModelMessage,
+        compact_ids: list[str],
+        session_label: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        """Compact a session: insert summary, mark old messages.
+
+        1. Insert the summary message + its content fragments.
+        2. Mark each message in *compact_ids* (and its fragments)
+           as compacted by the summary.
+
+        Kept messages are **not re-inserted** — they remain as-is
+        in the DB.  Only the messages in *compact_ids* are marked.
+        The summary inherits the ``created_at`` of the earliest
+        compacted message so it sorts before the kept messages.
+
+        When metadata kwargs are omitted, falls back to the context
+        set by :meth:`set_context`.
+        """
+        if not compact_ids:
+            return
+
+        ctx = SessionContext(
+            session_id=session_id,
+            session_label=session_label or self._ctx.session_label,
+            repo_owner=repo_owner or self._ctx.repo_owner,
+            repo_name=repo_name or self._ctx.repo_name,
+            model_name=model_name or self._ctx.model_name,
+        )
+
+        summary_id = self.new_id()
+        summary_rows: list[Fragment] = [
+            prepare_message_row(summary, context=ctx, row_id=summary_id),
+            *prepare_part_rows(summary, message_id=summary_id, context=ctx),
+        ]
+
+        # Use the earliest compacted message's created_at for the
+        # summary so it sorts before the kept messages.
+        first_id = compact_ids[0]
+        row = self._con.execute(_GET_CREATED_AT_SQL, [first_id]).fetchone()
+        if row is not None:
+            earliest = row["created_at"]
+            summary_rows = [dataclasses.replace(r, created_at=earliest) for r in summary_rows]
+
+        with self._lock, self._con:
+            self._con.executemany(
+                _INSERT_FRAGMENT_SQL,
+                [dataclasses.astuple(r) for r in summary_rows],
             )
-            return cur.rowcount
+            self._con.executemany(
+                _COMPACT_MARK_MESSAGE_SQL,
+                [[summary_id, mid, mid] for mid in compact_ids],
+            )
 
     def delete_session(self, session_id: str) -> int:
-        """Delete all messages for a session.  Returns rows deleted."""
+        """Delete all fragments for a session.  Returns rows deleted."""
         with self._lock, self._con:
             cur = self._con.execute(_DELETE_SESSION_SQL, [session_id])
             return cur.rowcount
 
     def delete_old_sessions(self, before: datetime) -> int:
-        """Delete sessions whose last activity is before *before*.
-
-        Returns the number of rows deleted.
-        """
+        """Delete sessions whose last activity is before *before*."""
         with self._lock, self._con:
-            cur = self._con.execute(
-                _DELETE_OLD_SESSIONS_SQL,
-                [before.isoformat()],
-            )
+            cur = self._con.execute(_DELETE_OLD_SESSIONS_SQL, [before.isoformat()])
             return cur.rowcount
 
     def delete_excess_sessions(self, keep: int) -> int:
-        """Keep only the *keep* most recent sessions, delete the rest.
-
-        Returns the number of rows deleted.
-        """
+        """Keep only the *keep* most recent sessions, delete the rest."""
         if keep < 1:
             return 0
         with self._lock, self._con:
@@ -212,19 +479,58 @@ class SessionStore:
     # ── Reads ────────────────────────────────────────────────────────
 
     def load_messages(self, session_id: str) -> list[ModelMessage]:
-        """Load active (non-compacted) messages for a session.
+        """Load active, complete messages for a session.
 
-        Returns deserialised ``ModelMessage`` objects in chronological
-        order.  Corrupt rows are logged and skipped.
+        Reconstructs ``ModelMessage`` objects from fragment rows.
+        Returns ``list[ModelMessage]`` in chronological order.
+        Corrupt rows are logged and skipped.
         """
         rows = self._con.execute(_LOAD_MESSAGES_SQL, [session_id]).fetchall()
+        if not rows:
+            return []
+
+        from itertools import groupby
+
         messages: list[ModelMessage] = []
-        for row in rows:
+
+        for mid, group in groupby(rows, key=lambda r: r["message_id"]):
+            fragment_list = list(group)
+            message_row = None
+            part_jsons: list[str] = []
+            for r in fragment_list:
+                if r["id"] == r["message_id"] and r["fragment_index"] == 0:
+                    message_row = r
+                elif r["data_json"]:
+                    part_jsons.append(r["data_json"])
+
+            if message_row is None:
+                log.warning("sessions: orphan fragments for message %s", mid)
+                continue
+
+            fk = message_row["fragment_kind"]
+            if fk not in (FragmentKind.REQUEST_MESSAGE, FragmentKind.RESPONSE_MESSAGE):
+                continue
+
             try:
-                messages.append(deserialise_message(row["message_json"]))
+                msg = reconstruct_message(FragmentKind(fk), message_row["data_json"], part_jsons)
+                messages.append(msg)
             except (ValidationError, ValueError, KeyError):
-                log.warning("sessions: skipping corrupt message in %s", session_id)
+                log.warning("sessions: corrupt message %s", mid)
+
         return messages
+
+    def load_message_ids(
+        self,
+        session_id: str,
+        *,
+        before_created_at: str | None = None,
+    ) -> list[str]:
+        """Return message-level row IDs for a session, optionally filtered."""
+        rows = self._con.execute(
+            _LOAD_MESSAGE_IDS_SQL,
+            [session_id, before_created_at, before_created_at],
+        ).fetchall()
+        return [r["id"] for r in rows]
 
     def list_sessions(
         self,
@@ -233,10 +539,7 @@ class SessionStore:
         repo_name: str | None = None,
         limit: int = 50,
     ) -> list[SessionSummary]:
-        """List sessions, most recent first.
-
-        Optionally filter by repo.  Returns lightweight summaries.
-        """
+        """List sessions, most recent first."""
         rows = self._con.execute(
             _LIST_SESSIONS_SQL,
             [repo_owner, repo_owner, repo_name, repo_name, limit],
@@ -258,10 +561,7 @@ class SessionStore:
         prefix: str | None = None,
         limit: int = 100,
     ) -> list[str]:
-        """Search user input history across all sessions.
-
-        Returns deduplicated ``user_text`` values, most recent first.
-        """
+        """Search user input history across all sessions."""
         rows = self._con.execute(
             _SEARCH_HISTORY_SQL,
             [prefix, prefix, limit],

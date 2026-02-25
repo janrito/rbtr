@@ -25,9 +25,6 @@ class EngineState:
     # Session persistence — ID set on init, label set on setup.
     session_id: str = ""
     session_label: str = ""
-    # Number of messages already persisted — auto-save only inserts
-    # messages from ``message_history[saved_count:]``.
-    saved_count: int = 0
     repo: pygit2.Repository | None = None
     owner: str = ""
     repo_name: str = ""
@@ -57,8 +54,10 @@ class EngineState:
     # (display_label, completion_text) pairs, e.g. ("#42 Fix bug", "42")
     # or ("feature-x", "feature-x").
     cached_review_targets: list[tuple[str, str]] = field(default_factory=list)
-    # Conversation history — independent of the model so switching
-    # models preserves context. Passed to Agent.iter(message_history=…).
+    # Transient cache of the conversation history — loaded from DB
+    # before each Agent.iter(), set after each turn.  The DB is the
+    # source of truth.  Direct reads are acceptable for compaction
+    # checks and error-retry flows within a single turn.
     message_history: list[ModelMessage] = field(default_factory=list)
     # Cumulative token usage and cost for the current conversation.
     usage: SessionUsage = field(default_factory=SessionUsage)

@@ -181,7 +181,7 @@ class UI:
     ) -> None:
         self.console = console
         self.state = state
-        self.inp = InputState(history_provider=engine._store.search_history)
+        self.inp = InputState(history_provider=engine.store.search_history)
         self._events = events
         self._engine = engine
         self._pr_number = pr_number

@@ -11,7 +11,6 @@ import signal
 import subprocess
 import sys
 import threading
-from datetime import UTC, datetime, timedelta
 
 import pygit2
 from github import Auth, Github
@@ -58,9 +57,9 @@ class Engine:
         self._cancel = threading.Event()
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
-        # EngineState persistence store.
-        self._store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
-        state.session_id = self._store.new_id()
+        # Session persistence store.
+        self.store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
+        state.session_id = self.store.new_id()
         # Long-lived event loop for async work (LLM streaming).
         # Keeps httpx connection pools alive across calls.
         self._loop = asyncio.new_event_loop()
@@ -107,11 +106,26 @@ class Engine:
         """Discard current transient output (e.g. "Fetching…" messages)."""
         self._emit(FlushPanel(discard=True))
 
+    def _sync_store_context(self) -> None:
+        """Push current engine metadata to the store context.
+
+        Called before each task so ``save_messages`` / ``save_input`` /
+        ``compact_session`` inherit metadata without explicit kwargs.
+        """
+        self.store.set_context(
+            self.state.session_id,
+            session_label=self.state.session_label,
+            repo_owner=self.state.owner,
+            repo_name=self.state.repo_name,
+            model_name=self.state.model_name,
+        )
+
     # ── Task runner ──────────────────────────────────────────────────
 
     def run_task(self, task_type: TaskType, arg: str) -> None:
         """Run a task synchronously (called from a daemon thread)."""
         self._emit(TaskStarted(task_id=f"{task_type}:{arg}"))
+        self._sync_store_context()
         success = True
         cancelled = False
         try:
@@ -119,8 +133,10 @@ class Engine:
                 case TaskType.SETUP:
                     self._run_setup()
                 case TaskType.COMMAND:
+                    self._persist_input(arg, "command")
                     self._handle_command(arg)
                 case TaskType.SHELL:
+                    self._persist_input(arg, "shell")
                     handle_shell(self, arg)
                 case TaskType.LLM:
                     handle_llm(self, arg)
@@ -191,9 +207,6 @@ class Engine:
             self.state.model_name = saved_model
             _init_context_window(self)
 
-        # Prune old sessions in the background — silent, best-effort.
-        _prune_sessions(self)
-
         self._out("Type a message for the LLM, /help for commands, !cmd for shell")
 
     # ── Commands ─────────────────────────────────────────────────────
@@ -242,15 +255,21 @@ class Engine:
     def _cmd_new(self) -> None:
         self.state.message_history.clear()
         self.state.usage.reset()
-        self.state.session_id = self._store.new_id()
-        self.state.saved_count = 0
+        self.state.session_id = self.store.new_id()
         self._out("Conversation cleared.")
+
+    def _persist_input(self, text: str, kind: str) -> None:
+        """Save a command or shell input to the session store."""
+        try:
+            self.store.save_input(self.state.session_id, text, kind)
+        except OSError:
+            log.warning("sessions: failed to persist input", exc_info=True)
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
     def close(self) -> None:
         """Release resources — call on shutdown."""
-        self._store.close()
+        self.store.close()
 
     # ── Utilities ────────────────────────────────────────────────────
 
@@ -277,24 +296,6 @@ def _init_context_window(engine: Engine) -> None:
     if ctx is not None:
         engine.state.usage.context_window = ctx
         engine.state.usage.context_window_known = True
-
-
-def _prune_sessions(engine: Engine) -> None:
-    """Remove old sessions based on config limits.
-
-    Runs silently — pruning failures are logged, not shown to the user.
-    """
-    try:
-        age_days = config.sessions.max_age_days
-        if age_days > 0:
-            cutoff = datetime.now(UTC) - timedelta(days=age_days)
-            engine._store.delete_old_sessions(before=cutoff)
-
-        max_sessions = config.sessions.max_sessions
-        if max_sessions > 0:
-            engine._store.delete_excess_sessions(keep=max_sessions)
-    except OSError:
-        log.warning("sessions: pruning failed", exc_info=True)
 
 
 def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:

@@ -80,7 +80,7 @@ def cmd_session(engine: Engine, args: str) -> None:
 
 def _cmd_list(engine: Engine) -> None:
     """List recent sessions for the current repo."""
-    sessions = engine._store.list_sessions(
+    sessions = engine.store.list_sessions(
         repo_owner=engine.state.owner or None,
         repo_name=engine.state.repo_name or None,
     )
@@ -89,7 +89,7 @@ def _cmd_list(engine: Engine) -> None:
 
 def _cmd_all(engine: Engine) -> None:
     """List sessions across all repos."""
-    sessions = engine._store.list_sessions()
+    sessions = engine.store.list_sessions()
     _render_session_list(engine, sessions)
 
 
@@ -148,8 +148,8 @@ def _cmd_info(engine: Engine) -> None:
     engine._out(f"  Label         {s.session_label or '—'}", style=STYLE_DIM)
     engine._out(f"  Repo          {repo}", style=STYLE_DIM)
     engine._out(f"  Model         {s.model_name or '—'}", style=STYLE_DIM)
-    engine._out(f"  Messages      {len(s.message_history)}", style=STYLE_DIM)
-    engine._out(f"  Saved         {s.saved_count}", style=STYLE_DIM)
+    msg_count = len(engine.store.load_messages(s.session_id))
+    engine._out(f"  Messages      {msg_count}", style=STYLE_DIM)
 
 
 # ── resume ───────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         return
 
     prefix = args[0]
-    sessions = engine._store.list_sessions(limit=200)
+    sessions = engine.store.list_sessions(limit=200)
     matches = [s for s in sessions if s.session_id.startswith(prefix)]
 
     if not matches:
@@ -179,16 +179,17 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         engine._warn("Already in this session.")
         return
 
-    messages = engine._store.load_messages(target.session_id)
+    messages = engine.store.load_messages(target.session_id)
     if not messages:
         engine._warn("Session has no messages (may have been compacted).")
         return
 
-    # Switch conversation state only — usage and model are untouched.
+    # Switch session — usage and model are untouched.
+    # The transient cache is updated for compatibility with
+    # compaction checks; the DB is the source of truth.
     engine.state.message_history = messages
     engine.state.session_id = target.session_id
     engine.state.session_label = target.session_label or engine.state.session_label
-    engine.state.saved_count = len(messages)
 
     label = target.session_label or target.session_id[:8]
     engine._out(f"Resumed session '{label}' ({len(messages)} messages).")
@@ -204,7 +205,7 @@ def _cmd_delete(engine: Engine, args: list[str]) -> None:
         return
 
     prefix = args[0]
-    sessions = engine._store.list_sessions(limit=200)
+    sessions = engine.store.list_sessions(limit=200)
     matches = [s for s in sessions if s.session_id.startswith(prefix)]
 
     if not matches:
@@ -221,7 +222,7 @@ def _cmd_delete(engine: Engine, args: list[str]) -> None:
         engine._warn("Cannot delete the active session. Use /new first.")
         return
 
-    deleted = engine._store.delete_session(target.session_id)
+    deleted = engine.store.delete_session(target.session_id)
     label = target.session_label or target.session_id[:8]
     engine._out(f"Deleted session '{label}' ({deleted} messages).")
 
@@ -241,5 +242,5 @@ def _cmd_purge(engine: Engine, args: list[str]) -> None:
         return
 
     cutoff = datetime.now(UTC) - duration
-    deleted = engine._store.delete_old_sessions(before=cutoff)
+    deleted = engine.store.delete_old_sessions(before=cutoff)
     engine._out(f"Deleted {deleted} message{'s' if deleted != 1 else ''} from old sessions.")

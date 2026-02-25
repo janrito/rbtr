@@ -1,7 +1,12 @@
-SELECT message_json
-FROM messages
+SELECT
+  id,
+  message_id,
+  fragment_index,
+  fragment_kind,
+  data_json
+FROM fragments
 WHERE
   session_id = ?
   AND compacted_by IS NULL
-  AND message_json IS NOT NULL
-ORDER BY created_at;
+  AND complete = 1
+ORDER BY created_at, fragment_index;

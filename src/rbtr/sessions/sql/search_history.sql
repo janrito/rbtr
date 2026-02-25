@@ -1,5 +1,5 @@
 SELECT DISTINCT user_text
-FROM messages
+FROM fragments
 WHERE
   user_text IS NOT NULL
   AND (? IS NULL OR user_text LIKE ? || '%')

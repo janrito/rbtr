@@ -1,2 +1,2 @@
-DELETE FROM messages
+DELETE FROM fragments
 WHERE session_id = ?;

@@ -87,61 +87,37 @@ def _make_tool_retry_event(tool_name: str, content: str) -> FunctionToolResultEv
     return FunctionToolResultEvent(result=result)
 
 
-# ── _emit_tool_event: tool calls ─────────────────────────────────────
+# ── _emit_tool_event ─────────────────────────────────────────────────
 
 
-def test_emit_tool_call_dict_args(engine: Engine) -> None:
-    """Dict args are serialised as JSON."""
-    event = _make_tool_call_event("read_file", {"path": "foo.py"})
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    assert isinstance(drained_events[0], ToolCallStarted)
-    assert drained_events[0].tool_name == "read_file"
-    assert '"path"' in drained_events[0].args
-    assert "foo.py" in drained_events[0].args
-
-
-def test_emit_tool_call_non_dict_args(engine: Engine) -> None:
-    """Non-dict args use str()."""
-    event = _make_tool_call_event("search", "hello world")
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    assert isinstance(drained_events[0], ToolCallStarted)
-    assert drained_events[0].args == "hello world"
-
-
-def test_emit_tool_call_none_args(engine: Engine) -> None:
-    """None args produce empty string."""
-    event = _make_tool_call_event("list_files", None)
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    assert isinstance(drained_events[0], ToolCallStarted)
-    assert drained_events[0].args == ""
-
-
-# ── _emit_tool_event: tool results ──────────────────────────────────
+@pytest.mark.parametrize(
+    ("tool_name", "args", "expected_args"),
+    [
+        ("read_file", {"path": "foo.py"}, '"path"'),
+        ("search", "hello world", "hello world"),
+        ("list_files", None, ""),
+    ],
+    ids=["dict_args", "str_args", "none_args"],
+)
+def test_emit_tool_call(
+    engine: Engine, tool_name: str, args: str | dict[str, str] | None, expected_args: str
+) -> None:
+    """Tool call events are emitted with correctly formatted args."""
+    _emit_tool_event(engine, _make_tool_call_event(tool_name, args))
+    events = drain(engine.events)
+    assert len(events) == 1
+    assert isinstance(events[0], ToolCallStarted)
+    assert events[0].tool_name == tool_name
+    assert expected_args in events[0].args
 
 
 def test_emit_tool_result_normal(engine: Engine) -> None:
     """Normal tool result emits content text."""
-    event = _make_tool_result_event("read_file", "file contents here")
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    assert isinstance(drained_events[0], ToolCallFinished)
-    assert drained_events[0].tool_name == "read_file"
-    assert drained_events[0].result == "file contents here"
+    _emit_tool_event(engine, _make_tool_result_event("read_file", "file contents here"))
+    events = drain(engine.events)
+    assert len(events) == 1
+    assert isinstance(events[0], ToolCallFinished)
+    assert events[0].result == "file contents here"
 
 
 def test_emit_tool_result_truncation(engine: Engine) -> None:
@@ -149,27 +125,18 @@ def test_emit_tool_result_truncation(engine: Engine) -> None:
     from rbtr.config import config
 
     long_content = "x" * (config.tui.tool_max_chars + 100)
-    event = _make_tool_result_event("read_file", long_content)
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    result = drained_events[0].result
-    assert len(result) == config.tui.tool_max_chars + 1  # +1 for "…"
-    assert result.endswith("…")
+    _emit_tool_event(engine, _make_tool_result_event("read_file", long_content))
+    events = drain(engine.events)
+    assert len(events[0].result) == config.tui.tool_max_chars + 1  # +1 for "…"
+    assert events[0].result.endswith("…")
 
 
 def test_emit_tool_result_retry(engine: Engine) -> None:
     """Retry prompt result emits '(retry)'."""
-    event = _make_tool_retry_event("read_file", "tool failed, try again")
-
-    _emit_tool_event(engine, event)
-    drained_events = drain(engine.events)
-
-    assert len(drained_events) == 1
-    assert isinstance(drained_events[0], ToolCallFinished)
-    assert drained_events[0].result == "(retry)"
+    _emit_tool_event(engine, _make_tool_retry_event("read_file", "tool failed, try again"))
+    events = drain(engine.events)
+    assert isinstance(events[0], ToolCallFinished)
+    assert events[0].result == "(retry)"
 
 
 # ── _record_usage ────────────────────────────────────────────────────
@@ -183,49 +150,57 @@ def _make_run_usage(*, input_tokens: int = 100, output_tokens: int = 50) -> RunU
     )
 
 
-def test_record_usage_no_new_messages(engine: Engine) -> None:
-    """No new messages → usage tokens still recorded, zero cost."""
-    history: list[ModelMessage] = []
-    messages: list[ModelMessage] = []
-    usage = _make_run_usage()
-
-    _record_usage(engine, history, messages, usage)
-
-    assert engine.state.usage.total_cost == 0.0
-
-
-def test_record_usage_with_model_response(engine: Engine) -> None:
-    """ModelResponse with model_name records usage."""
-    history: list[ModelMessage] = []
-    messages: list[ModelMessage] = [
-        ModelResponse(
-            parts=[TextPart(content="hello")],
-            model_name="claude-sonnet-4-20250514",
+@pytest.mark.parametrize(
+    (
+        "messages",
+        "input_tokens",
+        "output_tokens",
+        "expected_cost",
+        "expected_input",
+        "expected_output",
+    ),
+    [
+        ([], 100, 50, 0.0, 100, 50),
+        (
+            [
+                ModelResponse(
+                    parts=[TextPart(content="hello")], model_name="claude-sonnet-4-20250514"
+                )
+            ],
+            500,
+            200,
+            None,
+            500,
+            200,
         ),
-    ]
-    usage = _make_run_usage(input_tokens=500, output_tokens=200)
-
-    _record_usage(engine, history, messages, usage)
-
-    assert engine.state.usage.input_tokens == 500
-    assert engine.state.usage.output_tokens == 200
-
-
-def test_record_usage_skips_messages_without_model_name(engine: Engine) -> None:
-    """ModelResponse without model_name is skipped for cost."""
-    history: list[ModelMessage] = []
-    messages: list[ModelMessage] = [
-        ModelResponse(
-            parts=[TextPart(content="hello")],
-            model_name=None,
+        (
+            [ModelResponse(parts=[TextPart(content="hello")], model_name=None)],
+            100,
+            50,
+            0.0,
+            100,
+            50,
         ),
-    ]
-    usage = _make_run_usage()
-
-    _record_usage(engine, history, messages, usage)
-
-    # Tokens are still recorded from RunUsage, but cost stays 0
-    assert engine.state.usage.total_cost == 0.0
+    ],
+    ids=["no_messages", "with_response", "no_model_name"],
+)
+def test_record_usage_basics(
+    engine: Engine,
+    messages: list[ModelMessage],
+    input_tokens: int,
+    output_tokens: int,
+    expected_cost: float | None,
+    expected_input: int,
+    expected_output: int,
+) -> None:
+    """Basic _record_usage scenarios: empty, with response, no model name."""
+    _record_usage(
+        engine, messages, _make_run_usage(input_tokens=input_tokens, output_tokens=output_tokens)
+    )
+    if expected_cost is not None:
+        assert engine.state.usage.total_cost == expected_cost
+    assert engine.state.usage.input_tokens == expected_input
+    assert engine.state.usage.output_tokens == expected_output
 
 
 # ── _record_usage: context tracking ─────────────────────────────────
@@ -285,7 +260,7 @@ def test_record_usage_sets_context_window(
         response,
     ]
 
-    _record_usage(engine, [], messages, _make_run_usage(input_tokens=5000, output_tokens=200))
+    _record_usage(engine, messages, _make_run_usage(input_tokens=5000, output_tokens=200))
 
     assert engine.state.usage.context_window == expected_window
     assert engine.state.usage.context_window_known is True
@@ -306,7 +281,7 @@ def test_record_usage_last_input_tokens_from_response(engine: Engine) -> None:
         response2,
     ]
     # RunUsage cumulative = 5000 + 8000 = 13000
-    _record_usage(engine, [], messages, _make_run_usage(input_tokens=13000, output_tokens=400))
+    _record_usage(engine, messages, _make_run_usage(input_tokens=13000, output_tokens=400))
 
     # last_input_tokens should be the last response's value, not cumulative
     assert engine.state.usage.last_input_tokens == 8000
@@ -322,7 +297,7 @@ def test_record_usage_context_used_pct(engine: Engine) -> None:
         response,
     ]
 
-    _record_usage(engine, [], messages, _make_run_usage(input_tokens=100_000))
+    _record_usage(engine, messages, _make_run_usage(input_tokens=100_000))
 
     # 100k / 200k = 50%, NOT 100k / 128k = 78%
     assert engine.state.usage.context_window == 200_000
@@ -349,7 +324,7 @@ def test_record_usage_cache_tokens(engine: Engine) -> None:
         cache_write_tokens=1000,
     )
 
-    _record_usage(engine, [], messages, usage)
+    _record_usage(engine, messages, usage)
 
     assert engine.state.usage.cache_read_tokens == 3000
     assert engine.state.usage.cache_write_tokens == 1000
@@ -366,7 +341,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
         ModelRequest(parts=[UserPromptPart(content="turn 1")]),
         resp1,
     ]
-    _record_usage(engine, [], msgs1, _make_run_usage(input_tokens=10_000))
+    _record_usage(engine, msgs1, _make_run_usage(input_tokens=10_000))
 
     assert engine.state.usage.context_window == 200_000
     assert engine.state.usage.context_used_pct == pytest.approx(5.0)
@@ -378,7 +353,8 @@ def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
         ModelRequest(parts=[UserPromptPart(content="turn 2")]),
         resp2,
     ]
-    _record_usage(engine, msgs1, msgs2, _make_run_usage(input_tokens=50_000))
+    new_msgs2 = msgs2[len(msgs1) :]
+    _record_usage(engine, new_msgs2, _make_run_usage(input_tokens=50_000))
 
     assert engine.state.usage.context_window == 200_000  # stays correct
     assert engine.state.usage.context_used_pct == pytest.approx(25.0)
@@ -460,6 +436,9 @@ def test_stream_agent_catches_limit_and_triggers_summary(
     class _FakeRun:
         def all_messages(self) -> list[ModelRequest | ModelResponse]:
             return partial_messages
+
+        def new_messages(self) -> list[ModelRequest | ModelResponse]:
+            return partial_messages  # no history, so all are "new"
 
         def usage(self) -> RunUsage:
             return RunUsage(requests=25, input_tokens=1000, output_tokens=500)
@@ -548,6 +527,9 @@ def test_stream_summary_sends_prompt_and_appends_history(
                 summary_msg,
             ]
 
+        def new_messages(self) -> list[ModelMessage]:
+            return [summary_request, summary_msg]
+
         def __aiter__(self) -> _FakeRun:
             return self
 
@@ -620,6 +602,9 @@ def test_stream_agent_no_limit_hit_skips_summary(
     class _FakeRun:
         def all_messages(self):
             return completed_messages
+
+        def new_messages(self):
+            return completed_messages  # no history, so all are "new"
 
         def usage(self):
             return RunUsage(requests=5, input_tokens=500, output_tokens=200)
@@ -799,83 +784,28 @@ def test_handle_llm_retries_without_effort_on_rejection(
 # ── _auto_compact_on_overflow ────────────────────────────────────────
 
 
-def test_auto_compact_on_overflow_returns_false_short_history(engine: Engine) -> None:
-    """No compaction when history has < 2 messages."""
-    engine.state.message_history = [_USER_MSG]
-
-    result = _auto_compact_on_overflow(engine, "test")
-    assert result is False
-
-
 def test_auto_compact_on_overflow_compacts_and_retries(
     mocker: MockerFixture,
     config_path: Path,
     creds_path: Path,
     engine: Engine,
 ) -> None:
-    """When compaction reduces history, the message is retried."""
+    """Overflow handler compacts history then retries via handle_llm."""
     from rbtr.creds import creds
 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
     engine.state.model_name = "openai/gpt-4o"
 
-    # Build a history long enough to compact
-    engine.state.message_history = [
-        _USER_MSG,
-        _PARTIAL_RESPONSE,
-        ModelRequest(parts=[UserPromptPart(content="turn 2")]),
-        ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
-        ModelRequest(parts=[UserPromptPart(content="turn 3")]),
-        ModelResponse(parts=[TextPart(content="resp 3")], model_name="test"),
-    ]
+    compact_mock = mocker.patch("rbtr.engine.compact.compact_history")
 
-    # Mock compact_history to simulate reducing history
-    def fake_compact(eng, extra_instructions=""):
-        eng.state.message_history = eng.state.message_history[-2:]
-
-    mocker.patch("rbtr.engine.compact.compact_history", fake_compact)
-
-    # Mock handle_llm (the recursive call) to track it was called
     retry_calls: list[str] = []
+    mocker.patch("rbtr.engine.llm.handle_llm", lambda eng, msg: retry_calls.append(msg))
 
-    def fake_handle_llm(eng, msg):
-        retry_calls.append(msg)
+    _auto_compact_on_overflow(engine, "my question")
 
-    mocker.patch("rbtr.engine.llm.handle_llm", fake_handle_llm)
-
-    result = _auto_compact_on_overflow(engine, "my question")
-
-    assert result is True
+    compact_mock.assert_called_once()
     assert retry_calls == ["my question"]
-
-
-def test_auto_compact_on_overflow_no_reduction_returns_false(
-    mocker: MockerFixture,
-    config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-) -> None:
-    """When compaction doesn't reduce history length, returns False."""
-    from rbtr.creds import creds
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
-    engine.state.model_name = "openai/gpt-4o"
-
-    engine.state.message_history = [
-        _USER_MSG,
-        _PARTIAL_RESPONSE,
-    ]
-
-    # Mock compact_history that does nothing (e.g. compaction failed)
-    def fake_noop_compact(eng, extra_instructions=""):
-        pass
-
-    mocker.patch("rbtr.engine.compact.compact_history", fake_noop_compact)
-
-    result = _auto_compact_on_overflow(engine, "my question")
-    assert result is False
 
 
 # ── handle_llm context overflow integration ──────────────────────────
@@ -893,17 +823,20 @@ def test_handle_llm_context_overflow_triggers_compact(
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
     engine.state.model_name = "openai/gpt-4o"
-    engine.state.message_history = [
+    messages: list[ModelMessage] = [
         _USER_MSG,
         _PARTIAL_RESPONSE,
         ModelRequest(parts=[UserPromptPart(content="turn 2")]),
         ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
     ]
+    engine.state.message_history = list(messages)
+    engine._sync_store_context()
+    engine.store.save_messages(engine.state.session_id, messages)
 
     # First call to _run_agent raises overflow, second succeeds
     call_count = 0
 
-    def fake_run_agent(eng, model, msg):
+    def fake_run_agent(eng: Engine, model: object, msg: str) -> None:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -911,8 +844,8 @@ def test_handle_llm_context_overflow_triggers_compact(
 
     mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
 
-    # Mock compact_history to reduce history
-    def fake_compact(eng, extra_instructions=""):
+    # Mock compact_history to reduce history (both cache and DB).
+    def fake_compact(eng: Engine, extra_instructions: str = "") -> None:
         eng.state.message_history = eng.state.message_history[-2:]
 
     mocker.patch("rbtr.engine.compact.compact_history", fake_compact)

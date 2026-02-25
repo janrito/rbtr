@@ -10,7 +10,6 @@ from pydantic_ai.usage import RequestUsage
 from pytest_mock import MockerFixture
 
 from rbtr.engine import Engine
-from rbtr.engine.save import save_new_messages
 from rbtr.engine.session_cmd import _format_age, _parse_duration
 
 from .conftest import drain, output_texts
@@ -26,13 +25,18 @@ def _assistant(text: str) -> ModelResponse:
     return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
 
 
+def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs: object) -> None:
+    """Seed messages into the engine's current session."""
+    engine._sync_store_context()
+    engine.store.save_messages(engine.state.session_id, messages, **kwargs)  # type: ignore[arg-type]  # cost forwarded
+
+
 @pytest.fixture
 def seeded_engine(engine: Engine) -> Engine:
     """Engine with two saved messages."""
     engine.state.session_label = "testowner/testrepo — main"
     engine.state.model_name = "claude/sonnet"
-    engine.state.message_history = [_user("hello"), _assistant("hi")]
-    save_new_messages(engine, run_cost=0.01)
+    _seed(engine, [_user("hello"), _assistant("hi")], cost=0.01)
     drain(engine.events)
     return engine
 
@@ -47,14 +51,11 @@ def double_seeded_engine(seeded_engine: Engine) -> Engine:
     engine = seeded_engine
     first_id = engine.state.session_id
 
-    engine.state.session_id = engine._store.new_id()
-    engine.state.saved_count = 0
-    engine.state.message_history = [_user("second"), _assistant("reply")]
-    save_new_messages(engine, run_cost=0.02)
+    engine.state.session_id = engine.store.new_id()
+    _seed(engine, [_user("second"), _assistant("reply")], cost=0.02)
 
     # Switch back to first.
     engine.state.session_id = first_id
-    engine.state.saved_count = 2
     engine.state.message_history = [_user("hello"), _assistant("hi")]
 
     drain(engine.events)
@@ -64,7 +65,7 @@ def double_seeded_engine(seeded_engine: Engine) -> Engine:
 def _other_session_id(engine: Engine) -> str:
     """Return the session ID that is *not* the current one."""
     current = engine.state.session_id
-    for s in engine._store.list_sessions():
+    for s in engine.store.list_sessions():
         if s.session_id != current:
             return s.session_id
     raise AssertionError("expected two sessions in store")
@@ -94,15 +95,19 @@ def test_list_filters_by_repo(seeded_engine: Engine) -> None:
 
     # Save messages under a different repo context.
     old_owner = engine.state.owner
+    old_repo = engine.state.repo_name
     engine.state.owner = "other"
     engine.state.repo_name = "other-repo"
-    engine.state.session_id = engine._store.new_id()
-    engine.state.saved_count = 0
-    engine.state.message_history = [_user("other")]
-    save_new_messages(engine)
+    engine.state.session_id = engine.store.new_id()
+    engine.store.save_messages(
+        engine.state.session_id,
+        [_user("other")],
+        repo_owner="other",
+        repo_name="other-repo",
+    )
 
     engine.state.owner = old_owner
-    engine.state.repo_name = "testrepo"
+    engine.state.repo_name = old_repo
 
     drain(engine.events)
     engine.run_task("command", "/session")
@@ -117,13 +122,14 @@ def test_all_shows_all_repos(seeded_engine: Engine) -> None:
     """all shows sessions from all repos."""
     engine = seeded_engine
 
-    engine.state.owner = "other"
-    engine.state.repo_name = "lib"
-    engine.state.session_label = "other/lib — main"
-    engine.state.session_id = engine._store.new_id()
-    engine.state.saved_count = 0
-    engine.state.message_history = [_user("from lib")]
-    save_new_messages(engine)
+    engine.state.session_id = engine.store.new_id()
+    engine.store.save_messages(
+        engine.state.session_id,
+        [_user("from lib")],
+        session_label="other/lib — main",
+        repo_owner="other",
+        repo_name="lib",
+    )
 
     drain(engine.events)
     engine.run_task("command", "/session all")
@@ -162,7 +168,6 @@ def test_resume_loads_messages(double_seeded_engine: Engine) -> None:
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == second_id
     assert len(engine.state.message_history) == 2
-    assert engine.state.saved_count == 2
     # Usage is unchanged — not reset, not restored from DB.
     assert engine.state.usage.total_cost == 0.99
     assert engine.state.usage.input_tokens == 5000
@@ -193,12 +198,10 @@ def test_resume_no_args(seeded_engine: Engine) -> None:
 def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     """Resume after compaction loads only the post-compaction state."""
     mocker.patch(
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Summary of conversation.",
     )
     mocker.patch("rbtr.engine.compact.build_model")
-
-    from rbtr.engine.compact import compact_history
 
     engine.state.claude_connected = True
     engine.state.model_name = "claude/sonnet"
@@ -206,23 +209,23 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     engine.state.usage.context_window = 200_000
 
     # Build 15 turns and save.
-    history = []
+    history: list[ModelRequest | ModelResponse] = []
     for i in range(15):
         history.extend([_user(f"q{i}"), _assistant(f"a{i}")])
-    engine.state.message_history = history
-    save_new_messages(engine)
+    _seed(engine, history)
+    # Set transient cache so compact_history can split it.
+    engine.state.message_history = list(history)
     compacted_session_id = engine.state.session_id
 
-    # Compact and save the result.
+    # Compact (rewrites DB).
+    from rbtr.engine.compact import compact_history
+
     compact_history(engine)
-    save_new_messages(engine)
-    post_compact_count = len(engine.state.message_history)
+    post_compact_count = len(engine.store.load_messages(compacted_session_id))
 
     # Switch to a new session.
-    engine.state.session_id = engine._store.new_id()
-    engine.state.saved_count = 0
-    engine.state.message_history = [_user("new")]
-    save_new_messages(engine)
+    engine.state.session_id = engine.store.new_id()
+    _seed(engine, [_user("new")])
 
     drain(engine.events)
 
@@ -245,7 +248,7 @@ def test_delete_by_prefix(double_seeded_engine: Engine) -> None:
     texts = output_texts(drain(engine.events))
     assert any("Deleted" in t for t in texts)
 
-    ids = {s.session_id for s in engine._store.list_sessions()}
+    ids = {s.session_id for s in engine.store.list_sessions()}
     assert second_id not in ids
 
 
@@ -324,13 +327,3 @@ def test_format_age_days() -> None:
 
 def test_format_age_invalid() -> None:
     assert _format_age("not-a-date") == "?"
-
-
-# ── config defaults ──────────────────────────────────────────────────
-
-
-def test_sessions_config_defaults() -> None:
-    from rbtr.config import config
-
-    assert config.sessions.max_sessions == 100
-    assert config.sessions.max_age_days == 30

@@ -2,13 +2,16 @@
 
 Pure functions are tested with realistic message data.  Integration
 tests go through ``compact_history`` and check emitted events + state,
-mocking only the LLM call boundary (``_run_summary``).
+mocking only the LLM call boundary (``_stream_summary``).
 """
 
 from __future__ import annotations
 
+from collections.abc import Generator
+
 import pytest
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -17,6 +20,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.engine import Engine
@@ -28,7 +32,7 @@ from rbtr.engine.history import (
     serialise_for_summary,
     split_history,
 )
-from rbtr.events import CompactionFinished, CompactionStarted, Output
+from rbtr.events import CompactionFinished, CompactionStarted, Output, TaskFinished
 
 from .conftest import drain, has_event_type, output_texts
 
@@ -57,6 +61,12 @@ def _tool_call(name: str, args: dict[str, str]) -> ModelResponse:
 
 def _thinking(text: str) -> ModelResponse:
     return ModelResponse(parts=[ThinkingPart(content=text)], usage=_USAGE, model_name="test")
+
+
+def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse]) -> None:
+    """Seed messages into the engine's store and transient cache."""
+    engine.store.save_messages(engine.state.session_id, messages)
+    engine.state.message_history = list(messages)
 
 
 def _turns(n: int) -> list[ModelRequest | ModelResponse]:
@@ -284,7 +294,7 @@ def test_compact_no_llm(config_path: str, engine: Engine) -> None:
 def test_compact_single_turn(config_path: str, engine: Engine) -> None:
     """Single-turn history has nothing to compact."""
     engine.state.claude_connected = True
-    engine.state.message_history = list(_turns(1))
+    _seed(engine, _turns(1))
 
     from rbtr.engine.compact import compact_history
 
@@ -296,15 +306,17 @@ def test_compact_single_turn(config_path: str, engine: Engine) -> None:
 def test_compact_fewer_turns_than_keep_falls_back(
     config_path: str, mocker: object, engine: Engine
 ) -> None:
-    """With 3 turns (< keep_turns=10), falls back to keeping 1 turn."""
+    """With 2 turns (= keep_turns=2), normal split finds nothing to
+    compact, so it falls back to keeping 1 turn.
+    """
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
-        return_value="Summary of turns 1 and 2.",
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary of turn 1.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
-    engine.state.message_history = list(_turns(3))
+    _seed(engine, _turns(2))
     engine.state.usage.context_window = 200_000
 
     compact_history(engine)
@@ -312,20 +324,20 @@ def test_compact_fewer_turns_than_keep_falls_back(
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
     assert len(started) == 1
-    assert started[0].old_messages == 4  # 2 turns compacted
+    assert started[0].old_messages == 2  # 1 turn compacted
     assert started[0].kept_messages == 2  # 1 turn kept
 
 
 def test_compact_replaces_history(config_path: str, mocker: object, engine: Engine) -> None:
     """After compaction, history = [summary_msg] + kept turns."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Reviewed PR #42. Found unused import in foo.py.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
-    engine.state.message_history = list(REALISTIC_HISTORY)
+    _seed(engine, list(REALISTIC_HISTORY))
     engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
@@ -353,13 +365,13 @@ def test_compact_replaces_history(config_path: str, mocker: object, engine: Engi
 def test_compact_emits_both_events(config_path: str, mocker: object, engine: Engine) -> None:
     """Both CompactionStarted and CompactionFinished are emitted."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Summary.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
-    engine.state.message_history = list(_turns(15))
+    _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
@@ -378,13 +390,13 @@ def test_compact_extra_instructions_in_prompt(
 ) -> None:
     """Extra instructions appear in the prompt sent to the model."""
     mock = mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Summary.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
-    engine.state.message_history = list(_turns(15))
+    _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
@@ -398,7 +410,7 @@ def test_compact_extra_instructions_in_prompt(
 def test_compact_over_limit_shrinks_old(config_path: str, mocker: object, engine: Engine) -> None:
     """When serialised old exceeds context, only a fitting prefix is summarised."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Partial summary.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
@@ -409,7 +421,7 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object, engine
     for i in range(10):
         big_history.append(_user(f"{'x' * 10_000} question {i}"))
         big_history.append(_assistant(f"answer {i}"))
-    engine.state.message_history = list(big_history)
+    _seed(engine, big_history)
     # Context window that can't fit all old messages after reserve.
     # 10 turns, keep 1 → 9 turns old. Each turn serialises to ~2500 tokens.
     # 9 turns ≈ 22.5k tokens. Set available to ~7.5k so only ~3 turns fit.
@@ -431,12 +443,15 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object, engine
 def test_compact_single_message_exceeds_context(config_path: str, engine: Engine) -> None:
     """When even one message exceeds available context, warns gracefully."""
     engine.state.claude_connected = True
-    engine.state.message_history = [
-        _user("x" * 100_000),  # ~25k tokens
-        _assistant("ok"),
-        _user("next"),
-        _assistant("done"),
-    ]
+    _seed(
+        engine,
+        [
+            _user("x" * 100_000),  # ~25k tokens
+            _assistant("ok"),
+            _user("next"),
+            _assistant("done"),
+        ],
+    )
     # Context window so small that even 1 message doesn't fit
     engine.state.usage.context_window = 17_000  # 17k - 16k reserve = 1k available
 
@@ -454,46 +469,26 @@ def test_compact_llm_error_leaves_history_unchanged(
     from pydantic_ai.exceptions import ModelHTTPError
 
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         side_effect=ModelHTTPError(status_code=500, model_name="test", body=b"server error"),
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
     original = list(_turns(15))
-    engine.state.message_history = list(original)
+    _seed(engine, original)
     engine.state.usage.context_window = 200_000
 
     from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
-    # History unchanged after error
-    assert len(engine.state.message_history) == len(original)
+    # DB unchanged after error — load_messages returns same count.
+    assert len(engine.store.load_messages(engine.state.session_id)) == len(original)
     # Error event emitted
     all_events = drain(engine.events)
     error_outputs = [e for e in all_events if isinstance(e, Output) and "error" in e.style]
     assert any("Compaction failed" in e.text for e in error_outputs)
-
-
-def test_is_context_overflow_detects_overflow() -> None:
-    """Context-overflow errors are correctly identified."""
-    from pydantic_ai.exceptions import ModelHTTPError
-
-    from rbtr.engine.llm import _is_context_overflow
-
-    exc = ModelHTTPError(status_code=400, model_name="test", body="context length exceeded")
-    assert _is_context_overflow(exc)
-
-
-def test_is_context_overflow_ignores_non_overflow() -> None:
-    """Non-overflow errors are not misidentified."""
-    from pydantic_ai.exceptions import ModelHTTPError
-
-    from rbtr.engine.llm import _is_context_overflow
-
-    exc = ModelHTTPError(status_code=400, model_name="test", body="invalid api key")
-    assert not _is_context_overflow(exc)
 
 
 def test_compact_leaves_last_input_tokens_unchanged(
@@ -501,13 +496,13 @@ def test_compact_leaves_last_input_tokens_unchanged(
 ) -> None:
     """After compaction, last_input_tokens is unchanged — corrected on next LLM call."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
-        "rbtr.engine.compact._run_summary",
+        "rbtr.engine.compact._stream_summary",
         return_value="Short summary.",
     )
     mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
 
     engine.state.claude_connected = True
-    engine.state.message_history = list(_turns(15))
+    _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
     engine.state.usage.last_input_tokens = 150_000  # simulate high usage
 
@@ -517,3 +512,262 @@ def test_compact_leaves_last_input_tokens_unchanged(
 
     # last_input_tokens untouched — no inaccurate estimate
     assert engine.state.usage.last_input_tokens == 150_000
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Mid-turn compaction — via handle_llm event contract
+# ═══════════════════════════════════════════════════════════════════════
+
+# These tests exercise mid-turn compaction through the public
+# ``run_task("llm", ...)`` entry point.  The agent loop runs for real
+# with a ``FunctionModel`` that always calls tools on the first
+# request (regardless of history — unlike ``TestModel``).  The
+# compaction LLM call (``_stream_summary``) is mocked.
+
+
+def _tool_then_text_model() -> FunctionModel:
+    """A ``FunctionModel`` that calls a tool on its first request,
+    then returns text on the second.
+
+    Stateful: each instance has its own call counter.  Works
+    correctly with message history (unlike ``TestModel``).
+    Provides both ``function`` and ``stream_function`` so the
+    agent's streaming iteration works.
+    """
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai.models.function import DeltaToolCall
+
+    call_count = 0
+
+    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal call_count
+        call_count += 1
+        usage = RequestUsage(input_tokens=50, output_tokens=10)
+        if call_count == 1 and info.function_tools:
+            tool = info.function_tools[0]
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name=tool.name, args="{}")],
+                usage=usage,
+                model_name="test-fn",
+            )
+        return ModelResponse(
+            parts=[TextPart(content="done")],
+            usage=usage,
+            model_name="test-fn",
+        )
+
+    async def stream_fn(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1 and info.function_tools:
+            tool = info.function_tools[0]
+            yield {0: DeltaToolCall(name=tool.name, json_args="{}")}
+        else:
+            yield "done"
+
+    return FunctionModel(model_fn, stream_function=stream_fn)
+
+
+def _text_only_model() -> FunctionModel:
+    """A ``FunctionModel`` that always returns text, never tools."""
+    from collections.abc import AsyncIterator
+
+    from pydantic_ai.models.function import DeltaToolCall
+
+    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart(content="text only")],
+            usage=RequestUsage(input_tokens=50, output_tokens=10),
+            model_name="test-fn",
+        )
+
+    async def stream_fn(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        yield "text only"
+
+    return FunctionModel(model_fn, stream_function=stream_fn)
+
+
+@pytest.fixture
+def llm_engine(creds_path: str) -> Generator[Engine]:
+    """Engine wired with OpenAI credentials for LLM tests."""
+    import queue
+
+    from rbtr.creds import creds
+    from rbtr.engine import Engine, EngineState
+    from rbtr.sessions.store import SessionStore
+
+    creds.update(openai_api_key="sk-test")
+    state = EngineState(owner="testowner", repo_name="testrepo")
+    state.openai_connected = True
+    state.model_name = "openai/gpt-4o"
+    eng = Engine(state, queue.Queue(), store=SessionStore())
+    yield eng
+    eng.close()
+
+
+def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:
+    """Seed the DB and transient cache with *turns* of history."""
+    msgs = _turns(turns)
+    engine._sync_store_context()
+    engine.store.save_messages(engine.state.session_id, msgs)
+    engine.state.message_history = list(msgs)
+
+
+def _patch_for_mid_turn(engine: Engine, mocker: object) -> None:
+    """Patch ``build_model`` with a tool-calling ``FunctionModel`` and
+    set up compaction mocks.
+
+    ``_update_live_usage`` is wrapped to shrink the context window
+    after each model response, simulating high context usage.
+    """
+    from rbtr.engine.llm import _update_live_usage as _real_update
+
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.llm.build_model",
+        return_value=_tool_then_text_model(),
+    )
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary", return_value="Summary."
+    )
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact.build_model",
+        return_value=_text_only_model(),
+    )
+
+    def _inflating_update(eng: Engine, run_usage: object, response: object) -> None:
+        _real_update(eng, run_usage, response)  # type: ignore[arg-type]
+        eng.state.usage.context_window = 50
+        eng.state.usage.context_window_known = True
+
+    mocker.patch("rbtr.engine.llm._update_live_usage", side_effect=_inflating_update)  # type: ignore[union-attr]
+
+
+def test_mid_turn_compaction_fires(config_path: str, mocker: object, llm_engine: Engine) -> None:
+    """When context exceeds threshold during a tool-call turn,
+    compaction fires mid-turn and the model continues.
+    """
+    _seed_llm_history(llm_engine)
+    _patch_for_mid_turn(llm_engine, mocker)
+
+    llm_engine.run_task("llm", "trigger tools")
+    events = drain(llm_engine.events)
+
+    assert any(isinstance(e, TaskFinished) and e.success for e in events)
+    assert any("compacting" in t.lower() for t in output_texts(events))
+
+
+def test_mid_turn_compaction_produces_summary_in_db(
+    config_path: str, mocker: object, llm_engine: Engine
+) -> None:
+    """After mid-turn compaction the DB contains a summary message."""
+    _seed_llm_history(llm_engine)
+    _patch_for_mid_turn(llm_engine, mocker)
+
+    llm_engine.run_task("llm", "trigger tools")
+    drain(llm_engine.events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(msg, ModelRequest)
+        and any(
+            isinstance(p, UserPromptPart) and isinstance(p.content, str) and "Summary" in p.content
+            for p in msg.parts
+        )
+        for msg in loaded
+    )
+
+
+def test_mid_turn_compaction_only_once_per_turn(
+    config_path: str, mocker: object, llm_engine: Engine
+) -> None:
+    """Mid-turn compaction fires at most once — the resume run does not
+    re-trigger even if context is still high.
+    """
+    from rbtr.engine.llm import _update_live_usage as _real_update
+
+    _seed_llm_history(llm_engine)
+
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.llm.build_model",
+        return_value=_tool_then_text_model(),
+    )
+    summary_mock = mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary", return_value="Summary."
+    )
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact.build_model",
+        return_value=_text_only_model(),
+    )
+
+    def _inflating_update(eng: Engine, run_usage: object, response: object) -> None:
+        _real_update(eng, run_usage, response)  # type: ignore[arg-type]
+        eng.state.usage.context_window = 50
+        eng.state.usage.context_window_known = True
+
+    mocker.patch("rbtr.engine.llm._update_live_usage", side_effect=_inflating_update)  # type: ignore[union-attr]
+
+    llm_engine.run_task("llm", "trigger tools")
+    drain(llm_engine.events)
+
+    assert summary_mock.call_count == 1
+
+
+def test_mid_turn_compaction_preserves_continuity(
+    config_path: str, mocker: object, llm_engine: Engine
+) -> None:
+    """After mid-turn compaction the conversation can continue normally."""
+    _seed_llm_history(llm_engine)
+    _patch_for_mid_turn(llm_engine, mocker)
+
+    llm_engine.run_task("llm", "trigger tools")
+    drain(llm_engine.events)
+
+    # Reset to normal context window and send a follow-up turn.
+    llm_engine.state.usage.context_window = 200_000
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.llm.build_model",
+        return_value=_text_only_model(),
+    )
+    llm_engine.run_task("llm", "follow up")
+    events = drain(llm_engine.events)
+
+    assert any(isinstance(e, TaskFinished) and e.success for e in events)
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    user_texts = [
+        p.content
+        for msg in loaded
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+        if isinstance(p, UserPromptPart) and isinstance(p.content, str)
+    ]
+    assert "follow up" in user_texts
+
+
+def test_no_mid_turn_compaction_without_tools(
+    config_path: str, mocker: object, llm_engine: Engine
+) -> None:
+    """When the turn has no tool calls, mid-turn compaction does not
+    fire — it falls through to post-turn compaction.
+    """
+    _seed_llm_history(llm_engine)
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.llm.build_model",
+        return_value=_text_only_model(),
+    )
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary", return_value="Summary."
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+    llm_engine.state.usage.context_window = 50
+    llm_engine.state.usage.context_window_known = True
+
+    llm_engine.run_task("llm", "no tools")
+    events = drain(llm_engine.events)
+    texts = output_texts(events)
+
+    assert not any("mid-turn" in t.lower() for t in texts)

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import collections.abc
 import contextlib
 import json
+import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic_ai import Agent
@@ -15,7 +18,13 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
     HandleResponseEvent,
     ModelMessage,
+    ModelRequest,
     ModelResponse,
+    PartDeltaEvent,
+    PartEndEvent,
+    PartStartEvent,
+    TextPartDelta,
+    ToolCallPart,
     ToolReturnPart,
 )
 from pydantic_ai.models import Model
@@ -34,11 +43,26 @@ from rbtr.providers import (
 
 from .agent import AgentDeps, agent
 from .history import demote_thinking, is_history_format_error
-from .save import save_new_messages
 from .types import TaskCancelled
 
 if TYPE_CHECKING:
+    from rbtr.sessions.store import ResponseWriter
+
     from .core import Engine
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _StreamResult:
+    """Result of a single agent streaming run."""
+
+    all_messages: list[ModelMessage]
+    new_messages: list[ModelMessage]
+    usage: RunUsage
+    limit_hit: bool
+    last_writer: ResponseWriter | None
+    compact_needed: bool = False
 
 
 def resolve_model_settings(
@@ -146,36 +170,28 @@ def handle_llm(engine: Engine, message: str) -> None:
             engine.state.message_history = demote_thinking(engine.state.message_history)
             _run_agent(engine, model, message)
             return
-        if _is_context_overflow(exc) and _auto_compact_on_overflow(engine, message):
-            return
         if _is_context_overflow(exc):
-            engine._out(_CONTEXT_OVERFLOW_HINT)
+            _auto_compact_on_overflow(engine, message)
+            return
         raise
 
 
-def _auto_compact_on_overflow(engine: Engine, message: str) -> bool:
-    """Attempt auto-compaction after a context-overflow error.
+def _auto_compact_on_overflow(engine: Engine, message: str) -> None:
+    """Compact history and retry after a context-overflow error.
 
-    Returns True if compaction succeeded and the message was re-sent,
-    False if compaction was not possible (caller should fall through
-    to the normal error path).
+    ``compact_history`` handles all edge cases internally (no LLM,
+    too few messages, LLM failure).  If compaction doesn't help,
+    the retry raises the same overflow and the caller handles it.
     """
-    if len(engine.state.message_history) < 2:  # nothing to compact
-        return False
-
     from .compact import compact_history  # deferred: avoid circular at module level
 
-    pre_len = len(engine.state.message_history)
     engine._out("Context limit reached — compacting history…")
     compact_history(engine)
-
-    if len(engine.state.message_history) >= pre_len:
-        # Compaction didn't reduce anything — don't retry.
-        return False
-
     engine._out("Retrying with compacted history…")
     handle_llm(engine, message)
-    return True
+
+
+# ── Agent run ────────────────────────────────────────────────────────
 
 
 def _run_agent(engine: Engine, model: Model, message: str) -> None:
@@ -186,7 +202,9 @@ def _run_agent(engine: Engine, model: Model, message: str) -> None:
 
 async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
     """Run the agent with cancellation support, update session state."""
-    history = engine.state.message_history
+    # Load history from DB — the source of truth.
+    store = engine.store
+    history = store.load_messages(engine.state.session_id)
     deps = AgentDeps(state=engine.state)
 
     settings = resolve_model_settings(
@@ -200,66 +218,134 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
 
     engine.state.usage.snapshot_base()
 
-    async def _do_stream() -> tuple[list[ModelMessage], RunUsage, bool]:
+    # ── inner helper: one agent.iter() pass ──────────────────────
+
+    async def _do_stream(
+        prompt: str | None,
+        msg_history: list[ModelMessage],
+    ) -> _StreamResult:
+        saved_count = len(msg_history)
+        saved_request_count = 0
         limit_hit = False
+        compact_needed = False
+        last_writer: ResponseWriter | None = None
+
         async with agent.iter(
-            message,
+            prompt,
             model=model,
             deps=deps,
-            message_history=history or None,
+            message_history=msg_history or None,
             model_settings=settings,
             usage_limits=UsageLimits(request_limit=config.tools.max_requests_per_turn),
         ) as run:
             try:
                 async for node in run:
                     if isinstance(node, ModelRequestNode):
-                        async with node.stream(run.ctx) as stream:
-                            async for delta in stream.stream_text(delta=True):
-                                engine._emit(TextDelta(delta=delta))
-                    elif isinstance(node, CallToolsNode):
-                        # model_response carries per-request usage from
-                        # the request that just completed — update the
-                        # session so the footer shows live progress.
-                        _update_live_usage(engine, run.usage(), node.model_response)
+                        writer = store.begin_response(
+                            engine.state.session_id,
+                            model_name=engine.state.model_name,
+                        )
+                        last_writer = writer
+
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
-                                _emit_tool_event(engine, event)
+                                match event:
+                                    case PartStartEvent(index=idx, part=part):
+                                        writer.add_part(idx, part)
+                                    case PartDeltaEvent(delta=delta):
+                                        if isinstance(delta, TextPartDelta):
+                                            engine._emit(TextDelta(delta=delta.content_delta))
+                                    case PartEndEvent(index=idx, part=part):
+                                        writer.finish_part(idx, part)
+
+                        writer.finish()
+
+                        all_msgs = run.all_messages()
+                        n = _save_new_requests(engine, all_msgs, saved_count)
+                        saved_request_count += n
+                        saved_count = len(all_msgs)
+
+                    elif isinstance(node, CallToolsNode):
+                        _update_live_usage(engine, run.usage(), node.model_response)
+                        has_tool_calls = any(
+                            isinstance(p, ToolCallPart) for p in node.model_response.parts
+                        )
+                        async with node.stream(run.ctx) as tool_stream:
+                            async for tool_event in tool_stream:
+                                _emit_tool_event(engine, tool_event)
+
+                        all_msgs = run.all_messages()
+                        n = _save_new_requests(engine, all_msgs, saved_count)
+                        saved_request_count += n
+                        saved_count = len(all_msgs)
+
+                        # Mid-turn compaction: only when the model made
+                        # tool calls (more requests will follow).  When
+                        # there are no tool calls the turn ends naturally.
+                        if (
+                            has_tool_calls
+                            and engine.state.usage.context_used_pct
+                            >= config.compaction.auto_compact_pct
+                        ):
+                            compact_needed = True
+                            break
             except UsageLimitExceeded:
                 limit_hit = True
-        return list(run.all_messages()), run.usage(), limit_hit
 
-    async def _watch_cancel() -> None:
-        while not engine._cancel.is_set():
-            await asyncio.sleep(0.1)
-        raise TaskCancelled
+        new = list(run.new_messages())
+        requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
+        if len(requests) > saved_request_count:
+            _save_messages_safe(engine, requests[saved_request_count:])
 
-    stream_task = asyncio.create_task(_do_stream())
-    cancel_task = asyncio.create_task(_watch_cancel())
+        return _StreamResult(
+            all_messages=list(run.all_messages()),
+            new_messages=new,
+            usage=run.usage(),
+            limit_hit=limit_hit,
+            last_writer=last_writer,
+            compact_needed=compact_needed,
+        )
 
-    done, pending = await asyncio.wait(
-        {stream_task, cancel_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for task in pending:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    for task in done:
-        if task is cancel_task:
-            task.result()  # raises TaskCancelled
+    # ── run with cancellation ────────────────────────────────────
 
-    messages, run_usage, limit_hit = stream_task.result()
-    engine.state.message_history = list(messages)
-    _record_usage(engine, history, messages, run_usage)
+    result = await _run_with_cancel(engine, _do_stream(message, history))
 
-    if limit_hit:
+    # Mid-turn compaction: if context exceeded the threshold during
+    # a tool-call cycle, compact once and resume.
+    if result.compact_needed:
+        from .compact import compact_history_async  # deferred: avoid circular
+
+        engine._out("Context limit reached mid-turn — compacting…")
+        await compact_history_async(
+            engine, extra_instructions="The model is mid-turn with active tool calls."
+        )
+        # compact_history_async already reloads from DB and updates
+        # engine.state.message_history — just read it back.
+        history = list(engine.state.message_history)
+        engine.state.usage.snapshot_base()
+
+        resume = await _run_with_cancel(engine, _do_stream(None, history))
+        result = _merge_results(result, resume)
+
+    # Update the transient cache.
+    engine.state.message_history = list(result.all_messages)
+
+    # Record usage and set cost on the last response.
+    run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
+    if result.last_writer is not None:
+        result.last_writer.finish(cost=run_cost if cost_available else None)
+
+    if result.limit_hit:
         await _stream_summary(engine, model, settings)
 
-    # Auto-compact when context usage exceeds the threshold.
-    if engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct:
-        from .compact import compact_history  # deferred: avoid circular at module level
+    # Post-turn compaction for turns that didn't trigger mid-turn.
+    if (
+        not result.compact_needed
+        and engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct
+    ):
+        from .compact import compact_history_async  # deferred: avoid circular at module level
 
-        compact_history(engine)
+        await compact_history_async(engine)
 
 
 async def _stream_summary(
@@ -288,8 +374,106 @@ async def _stream_summary(
                     async for delta in stream.stream_text(delta=True):
                         engine._emit(TextDelta(delta=delta))
 
-    summary_messages = list(run.all_messages())
-    engine.state.message_history = list(history) + summary_messages[len(history) :]
+    new_summary = list(run.new_messages())
+
+    # Update cache.
+    engine.state.message_history = list(run.all_messages())
+
+    # Persist summary messages.
+    _save_messages_safe(engine, new_summary)
+
+
+# ── Persistence helpers ──────────────────────────────────────────────
+
+
+def _save_new_requests(
+    engine: Engine,
+    all_messages: list[ModelMessage],
+    saved_count: int,
+) -> int:
+    """Save new ``ModelRequest`` messages that appeared since *saved_count*.
+
+    Responses are persisted incrementally via ``begin_response``.
+    Returns the number of request messages saved.
+    """
+    new = all_messages[saved_count:]
+    requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
+    if requests:
+        _save_messages_safe(engine, requests)
+    return len(requests)
+
+
+def _save_messages_safe(engine: Engine, messages: list[ModelMessage]) -> None:
+    """Save messages to the store, logging failures instead of raising.
+
+    Relies on ``engine._sync_store_context()`` having been called at
+    task start — metadata is inherited from the stored context.
+    """
+    if not messages:
+        return
+    try:
+        engine.store.save_messages(engine.state.session_id, messages)
+    except OSError:
+        log.warning("sessions: failed to persist messages", exc_info=True)
+
+
+async def _run_with_cancel(
+    engine: Engine,
+    coro: collections.abc.Coroutine[object, object, _StreamResult],
+) -> _StreamResult:
+    """Run *coro* with a parallel cancellation watcher.
+
+    Raises ``TaskCancelled`` if the engine's cancel event fires
+    before the coroutine completes.
+    """
+
+    async def _watch() -> None:
+        while not engine._cancel.is_set():
+            await asyncio.sleep(0.1)
+        raise TaskCancelled
+
+    stream_task = asyncio.create_task(coro)
+    cancel_task = asyncio.create_task(_watch())
+
+    done, pending = await asyncio.wait(
+        {stream_task, cancel_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    for task in done:
+        if task is cancel_task:
+            task.result()  # raises TaskCancelled
+
+    return stream_task.result()
+
+
+def _merge_results(first: _StreamResult, second: _StreamResult) -> _StreamResult:
+    """Combine two sequential stream results (pre-compact + post-compact)."""
+    return _StreamResult(
+        all_messages=second.all_messages,
+        new_messages=first.new_messages + second.new_messages,
+        usage=_merge_usage(first.usage, second.usage),
+        limit_hit=first.limit_hit or second.limit_hit,
+        last_writer=second.last_writer or first.last_writer,
+        compact_needed=False,
+    )
+
+
+def _merge_usage(a: RunUsage, b: RunUsage) -> RunUsage:
+    """Sum two ``RunUsage`` instances."""
+    return RunUsage(
+        requests=a.requests + b.requests,
+        input_tokens=a.input_tokens + b.input_tokens,
+        output_tokens=a.output_tokens + b.output_tokens,
+        cache_read_tokens=a.cache_read_tokens + b.cache_read_tokens,
+        cache_write_tokens=a.cache_write_tokens + b.cache_write_tokens,
+    )
+
+
+# ── Event helpers ────────────────────────────────────────────────────
 
 
 def _emit_tool_event(
@@ -317,6 +501,9 @@ def _emit_tool_event(
                 text = "(retry)"
             tool_name = getattr(result, "tool_name", None) or "?"
             engine._emit(ToolCallFinished(tool_name=tool_name, result=text))
+
+
+# ── Usage tracking ───────────────────────────────────────────────────
 
 
 def _update_live_usage(
@@ -365,19 +552,19 @@ def _apply_model_context_window(engine: Engine) -> None:
 
 def _record_usage(
     engine: Engine,
-    old_history: list[ModelMessage],
-    messages: list[ModelMessage],
+    new_messages: list[ModelMessage],
     run_usage: RunUsage,
-) -> None:
+) -> tuple[float, bool]:
     """Extract cost/context-window from new messages and update session usage.
+
+    Returns ``(run_cost, cost_available)`` so callers can persist cost.
 
     ``run_usage.input_tokens`` is the **sum** across all requests in
     the run (PydanticAI accumulates).  For context-% we need the
-    *last* request's input tokens — that's the actual prompt size the
+    *last* request's input tokens -- that's the actual prompt size the
     model received, reflecting the full conversation + tool results.
     We pull it from the last ``ModelResponse.usage.input_tokens``.
     """
-    new_messages = messages[len(old_history or []) :]
     run_cost = 0.0
     cost_available = False
     context_window: int | None = None
@@ -386,7 +573,7 @@ def _record_usage(
     for msg in new_messages:
         if not isinstance(msg, ModelResponse) or not msg.model_name:
             continue
-        # Each ModelResponse carries per-request usage — the last one
+        # Each ModelResponse carries per-request usage -- the last one
         # is the most recent prompt size (what we display as context %).
         last_input_tokens = msg.usage.input_tokens
         try:
@@ -415,5 +602,4 @@ def _record_usage(
         context_window=context_window,
     )
 
-    # Persist new messages to the session store.
-    save_new_messages(engine, run_cost=run_cost if cost_available else None)
+    return run_cost, cost_available

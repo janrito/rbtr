@@ -37,6 +37,24 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "socket", _guarded)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_session_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect SESSIONS_DB_PATH to a temp dir so no test touches the
+    real user database at ``~/.config/rbtr/sessions.db``.
+
+    Tests that create ``SessionStore()`` (no args) use ``:memory:``.
+    This guard catches ``Engine(state, q)`` without an explicit
+    ``store=`` kwarg — the fallback path will land in ``tmp_path``
+    instead of the user's home directory.
+
+    Both the canonical definition and every re-export must be patched
+    because ``from X import Y`` creates a separate binding.
+    """
+    safe_path = tmp_path / "sessions.db"
+    monkeypatch.setattr("rbtr.sessions.store.SESSIONS_DB_PATH", safe_path)
+    monkeypatch.setattr("rbtr.engine.core.SESSIONS_DB_PATH", safe_path)
+
+
 @pytest.fixture
 def creds_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point credential storage at a temp file for test isolation."""

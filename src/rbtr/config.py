@@ -103,16 +103,13 @@ class IndexConfig(BaseModel):
 
 
 class SessionsConfig(BaseModel):
-    max_sessions: int = 100
-    """Maximum number of sessions to keep. Oldest pruned on startup."""
-    max_age_days: int = 30
-    """Sessions older than this many days are pruned on startup."""
+    pass
 
 
 class CompactionConfig(BaseModel):
     auto_compact_pct: int = 85
     """Trigger auto-compaction when context usage exceeds this %."""
-    keep_turns: int = 5
+    keep_turns: int = 2
     """Number of recent user→assistant turns to preserve."""
     reserve_tokens: int = 16_000
     """Tokens reserved for the summary response."""
