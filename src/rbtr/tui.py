@@ -210,6 +210,9 @@ class UI:
         self._index_total: int = 0
         self._index_ready: bool = False
         self._index_chunks: int = 0
+        # Compaction progress — set by CompactionStarted, read by CompactionFinished.
+        self._compaction_old: int = 0
+        self._compaction_kept: int = 0
 
     # ── Completion helpers ────────────────────────────────────────────
 
@@ -495,19 +498,20 @@ class UI:
                 self._index_indexed = 0
                 self._index_total = 0
             case CompactionStarted(old_messages=old, kept_messages=kept):
-                self._active_lines.append(
-                    Text(
-                        f"Compacting context ({old} messages → summary + {kept} kept)…",
-                        style=STYLE_DIM,
-                    )
-                )
+                self._compaction_old = old
+                self._compaction_kept = kept
             case CompactionFinished(summary_tokens=tokens):
-                self._active_lines.append(
-                    Text(
-                        f"Context compacted (~{_format_count(tokens)} tokens in summary).",
-                        style=STYLE_DIM,
-                    )
+                old = self._compaction_old
+                kept = self._compaction_kept
+                line = Text(
+                    f"Context compacted — {old} messages → summary "
+                    f"(~{_format_count(tokens)} tokens) + {kept} kept",
+                    style=STYLE_DIM,
                 )
+                panel = self._history_panel("queued", line)
+                if self._live:
+                    self._live.update(self._render_view(), refresh=True)
+                self._print_to_scrollback(panel)
             case ReviewPosted():
                 pass  # Visual feedback handled by LinkOutput
             case TaskFinished(success=success, cancelled=cancelled):

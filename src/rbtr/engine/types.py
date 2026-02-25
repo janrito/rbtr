@@ -23,6 +23,7 @@ class Command(_CommandMixin, Enum):
     INDEX = "/index", "Index status, clear, rebuild, prune, model"
     COMPACT = "/compact", "Summarise older context to free space"
     SESSION = "/session", "List, inspect, or delete sessions"
+    STATS = "/stats", "Show session token and cost statistics"
     NEW = "/new", "Start a new conversation"
     QUIT = "/quit", "Exit rbtr (also /q)"
 

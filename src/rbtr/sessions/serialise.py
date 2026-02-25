@@ -133,6 +133,8 @@ class Fragment:
     model_name: str | None
     input_tokens: int | None
     output_tokens: int | None
+    cache_read_tokens: int | None
+    cache_write_tokens: int | None
     cost: float | None
     data_json: str | None
     user_text: str | None
@@ -179,6 +181,8 @@ def prepare_message_row(
 
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
     match message:
         case ModelRequest():
@@ -187,6 +191,8 @@ def prepare_message_row(
             kind = FragmentKind.RESPONSE_MESSAGE
             input_tokens = usage.input_tokens
             output_tokens = usage.output_tokens
+            cache_read_tokens = usage.cache_read_tokens or None
+            cache_write_tokens = usage.cache_write_tokens or None
         case _:
             msg = f"Unsupported message type: {type(message)}"
             raise TypeError(msg)
@@ -204,6 +210,8 @@ def prepare_message_row(
         model_name=context.model_name,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
         cost=None,
         data_json=_dump_header(message),
         user_text=None,
@@ -231,7 +239,7 @@ def prepare_part_row(
 
     if isinstance(part, UserPromptPart):
         user_text = part.content if isinstance(part.content, str) else str(part.content)
-    elif isinstance(part, (ToolCallPart, ToolReturnPart)):
+    elif isinstance(part, (ToolCallPart, ToolReturnPart, RetryPromptPart)):
         tool_name = part.tool_name
 
     return Fragment(
@@ -247,6 +255,8 @@ def prepare_part_row(
         model_name=context.model_name,
         input_tokens=None,
         output_tokens=None,
+        cache_read_tokens=None,
+        cache_write_tokens=None,
         cost=None,
         data_json=_dump_part(part),
         user_text=user_text,

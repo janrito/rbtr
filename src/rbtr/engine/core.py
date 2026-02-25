@@ -34,6 +34,7 @@ from .review import cmd_review
 from .session_cmd import cmd_session
 from .shell import handle_shell
 from .state import EngineState
+from .stats_cmd import cmd_stats
 from .types import Command, TaskCancelled, TaskType
 
 log = logging.getLogger(__name__)
@@ -238,6 +239,8 @@ class Engine:
                 compact_history(self, extra_instructions=args)
             case Command.SESSION:
                 cmd_session(self, args)
+            case Command.STATS:
+                cmd_stats(self, args)
             case Command.NEW:
                 self._cmd_new()
             case Command.QUIT:
@@ -253,8 +256,11 @@ class Engine:
             )
 
     def _cmd_new(self) -> None:
+        import time
+
         self.state.usage.reset()
         self.state.session_id = self.store.new_id()
+        self.state.session_started_at = time.monotonic()
         self._out("Conversation cleared.")
 
     def _persist_input(self, text: str, kind: str) -> None:

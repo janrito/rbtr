@@ -122,6 +122,7 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
     summary_msg = build_summary_message(summary_text)
 
     engine.store.compact_session(sid, summary=summary_msg, compact_ids=old_ids)
+    engine.state.usage.compaction_count += 1
 
     engine._emit(CompactionFinished(summary_tokens=estimate_tokens(summary_text)))
 

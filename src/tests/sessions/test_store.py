@@ -65,6 +65,15 @@ def _assistant(text: str, *, model: str = "test-model") -> ModelResponse:
     return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name=model)
 
 
+def _response(input_tokens: int, output_tokens: int, *, model: str = "test") -> ModelResponse:
+    """Build a ModelResponse with specific token counts."""
+    return ModelResponse(
+        parts=[TextPart(content="ok")],
+        usage=RequestUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+        model_name=model,
+    )
+
+
 def _tool_call_response(name: str, args: dict[str, str]) -> ModelResponse:
     return ModelResponse(
         parts=[
@@ -898,6 +907,297 @@ def test_list_sessions_cost_with_compacted_rows() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Token stats: lifetime vs active split
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _cached_assistant(text: str) -> ModelResponse:
+    """Response with cache tokens populated."""
+    return ModelResponse(
+        parts=[TextPart(content=text)],
+        usage=RequestUsage(
+            input_tokens=2000,
+            output_tokens=400,
+            cache_read_tokens=1500,
+            cache_write_tokens=300,
+        ),
+        model_name="test-model",
+    )
+
+
+def test_token_stats_empty_session() -> None:
+    """token_stats returns zeros for an unknown session."""
+    with SessionStore() as store:
+        stats = store.token_stats("nonexistent")
+    assert stats.total_input_tokens == 0
+    assert stats.active_messages == 0
+    assert stats.compaction_count == 0
+
+
+def test_token_stats_no_compaction() -> None:
+    """Without compaction, total == active."""
+    with SessionStore() as store:
+        store.save_messages(
+            "s1",
+            [_user("q1"), _cached_assistant("a1"), _user("q2"), _cached_assistant("a2")],
+            cost=0.05,
+        )
+        stats = store.token_stats("s1")
+
+    # 2 responses x 2000 input tokens each.
+    assert stats.total_input_tokens == 4000
+    assert stats.active_input_tokens == 4000
+    assert stats.total_output_tokens == 800
+    assert stats.active_output_tokens == 800
+    assert stats.total_cache_read_tokens == 3000
+    assert stats.active_cache_read_tokens == 3000
+    assert stats.total_cache_write_tokens == 600
+    assert stats.active_cache_write_tokens == 600
+    assert stats.total_cost == pytest.approx(0.05)
+    assert stats.active_cost == pytest.approx(0.05)
+    assert stats.total_messages == 4
+    assert stats.active_messages == 4
+    assert stats.compaction_count == 0
+
+
+def test_token_stats_after_compaction() -> None:
+    """After compaction, lifetime > active for tokens and cost."""
+    with SessionStore() as store:
+        # Turn 1.
+        store.save_messages(
+            "s1",
+            [_user("q1"), _cached_assistant("a1")],
+            cost=0.01,
+        )
+        # Turn 2.
+        store.save_messages(
+            "s1",
+            [_user("q2"), _cached_assistant("a2")],
+            cost=0.02,
+        )
+        # Turn 3 (kept).
+        store.save_messages(
+            "s1",
+            [_user("q3"), _cached_assistant("a3")],
+            cost=0.03,
+        )
+
+        # Compact turns 1-2 (4 messages: q1, a1, q2, a2).
+        ids = store.load_message_ids("s1")
+        store.compact_session("s1", summary=_user("[summary]"), compact_ids=ids[:4])
+
+        stats = store.token_stats("s1")
+
+    # Lifetime: 3 responses x 2000 = 6000 input.
+    assert stats.total_input_tokens == 6000
+    assert stats.total_output_tokens == 1200
+    assert stats.total_cache_read_tokens == 4500
+    assert stats.total_cache_write_tokens == 900
+
+    # Active: only turn 3 response + summary (summary is a request, no tokens).
+    assert stats.active_input_tokens == 2000
+    assert stats.active_output_tokens == 400
+    assert stats.active_cache_read_tokens == 1500
+    assert stats.active_cache_write_tokens == 300
+
+    # Cost: turn 1 cost on first response, turn 2 on second, turn 3 on third.
+    assert stats.total_cost == pytest.approx(0.06)
+    assert stats.active_cost == pytest.approx(0.03)
+
+    # Messages: 6 original + 1 summary = 7 total; 3 active (summary + q3 + a3).
+    assert stats.total_messages == 7
+    assert stats.active_messages == 3
+    assert stats.compaction_count == 1
+
+
+def test_token_stats_streamed_response() -> None:
+    """token_stats includes tokens set via ResponseWriter.finish()."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+
+        writer = store.begin_response("s1", model_name="test")
+        writer.add_part(0, TextPart(content=""))
+        writer.finish_part(0, TextPart(content="hi"))
+        writer.finish(
+            cost=0.01,
+            input_tokens=3000,
+            output_tokens=500,
+            cache_read_tokens=2000,
+            cache_write_tokens=100,
+        )
+
+        stats = store.token_stats("s1")
+
+    assert stats.total_input_tokens == 3000
+    assert stats.total_output_tokens == 500
+    assert stats.total_cache_read_tokens == 2000
+    assert stats.total_cache_write_tokens == 100
+    assert stats.total_cost == pytest.approx(0.01)
+    assert stats.total_messages == 2
+    assert stats.compaction_count == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Tool stats
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_tool_stats_empty_session() -> None:
+    """tool_stats returns an empty list for an unknown session."""
+    with SessionStore() as store:
+        assert store.tool_stats("nonexistent") == []
+
+
+def test_tool_stats_counts_calls_and_failures() -> None:
+    """tool_stats counts tool-call and retry-prompt fragments per tool."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        messages: list[ModelRequest | ModelResponse] = [
+            _user("do something"),
+            # Two tool calls in a single response.
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="t1"),
+                    ToolCallPart(tool_name="grep", args={"pattern": "x"}, tool_call_id="t2"),
+                ],
+                model_name="test",
+            ),
+            # Tool returns + a retry for grep.
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="t1"),
+                    RetryPromptPart(content="bad", tool_name="grep", tool_call_id="t2"),
+                ]
+            ),
+            # Second call to read_file.
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="t3"),
+                ],
+                model_name="test",
+            ),
+        ]
+        store.save_messages("s1", messages)
+        stats = store.tool_stats("s1")
+
+    by_name = {s.tool_name: s for s in stats}
+    assert by_name["read_file"].call_count == 2
+    assert by_name["read_file"].failure_count == 0
+    assert by_name["grep"].call_count == 1
+    assert by_name["grep"].failure_count == 1
+
+
+def test_tool_stats_ordered_by_count() -> None:
+    """tool_stats returns tools sorted by call count descending."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        messages: list[ModelRequest | ModelResponse] = [
+            _user("go"),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="grep", args={}, tool_call_id="t1"),
+                    ToolCallPart(tool_name="read_file", args={}, tool_call_id="t2"),
+                    ToolCallPart(tool_name="read_file", args={}, tool_call_id="t3"),
+                    ToolCallPart(tool_name="read_file", args={}, tool_call_id="t4"),
+                ],
+                model_name="test",
+            ),
+        ]
+        store.save_messages("s1", messages)
+        stats = store.tool_stats("s1")
+
+    assert [s.tool_name for s in stats] == ["read_file", "grep"]
+
+
+def test_tool_stats_no_tool_calls() -> None:
+    """Session with only text messages returns empty tool stats."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello"), _assistant("hi")])
+        assert store.tool_stats("s1") == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Global stats
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_global_stats_empty() -> None:
+    """global_stats returns zeros when no sessions exist."""
+    with SessionStore() as store:
+        gs = store.global_stats()
+    assert gs.session_count == 0
+    assert gs.total_cost == 0.0
+    assert gs.models == []
+    assert gs.tools == []
+
+
+def test_global_stats_aggregates_across_sessions() -> None:
+    """global_stats sums tokens and cost across multiple sessions."""
+    with SessionStore() as store:
+        store.set_context("s1", model_name="claude/sonnet")
+        store.save_messages(
+            "s1",
+            [_user("q1"), _response(100, 50)],
+            model_name="claude/sonnet",
+            cost=0.01,
+        )
+        store.set_context("s2", model_name="openai/gpt-4o")
+        store.save_messages(
+            "s2",
+            [_user("q2"), _response(200, 80)],
+            model_name="openai/gpt-4o",
+            cost=0.02,
+        )
+        gs = store.global_stats()
+
+    assert gs.session_count == 2
+    assert gs.total_input_tokens == 300
+    assert gs.total_output_tokens == 130
+    assert gs.total_cost == pytest.approx(0.03)
+    assert len(gs.models) == 2
+
+    by_model = {m.model_name: m for m in gs.models}
+    assert by_model["claude/sonnet"].total_cost == pytest.approx(0.01)
+    assert by_model["openai/gpt-4o"].total_cost == pytest.approx(0.02)
+    assert by_model["claude/sonnet"].session_count == 1
+
+
+def test_global_stats_tool_frequency() -> None:
+    """global_stats counts tool calls across all sessions."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages(
+            "s1",
+            [
+                _user("go"),
+                ModelResponse(
+                    parts=[ToolCallPart(tool_name="read_file", args={}, tool_call_id="t1")],
+                    model_name="test",
+                ),
+            ],
+        )
+        store.set_context("s2")
+        store.save_messages(
+            "s2",
+            [
+                _user("search"),
+                ModelResponse(
+                    parts=[ToolCallPart(tool_name="grep", args={}, tool_call_id="t2")],
+                    model_name="test",
+                ),
+            ],
+        )
+        gs = store.global_stats()
+
+    assert len(gs.tools) == 2
+    by_tool = {t.tool_name: t for t in gs.tools}
+    assert by_tool["read_file"].call_count == 1
+    assert by_tool["grep"].call_count == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Streaming: edge cases
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -928,6 +1228,37 @@ def test_streaming_tool_call_parts() -> None:
     assert response.parts[1].content == "Here's the file."
 
 
+def test_tool_name_populated_on_all_fragment_kinds() -> None:
+    """tool_name column is set for tool-call, tool-return, and retry-prompt rows."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        messages: list[ModelRequest | ModelResponse] = [
+            # Response with a tool call.
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1")],
+                model_name="test",
+            ),
+            # Request with tool return + retry prompt for different tools.
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="read_file", content="contents", tool_call_id="tc1"),
+                    RetryPromptPart(content="bad args", tool_name="grep", tool_call_id="tc2"),
+                ]
+            ),
+        ]
+        store.save_messages("s1", messages)
+
+        rows = store._con.execute(
+            "SELECT fragment_kind, tool_name FROM fragments"
+            " WHERE tool_name IS NOT NULL ORDER BY created_at, fragment_index",
+        ).fetchall()
+
+    by_kind = {r["fragment_kind"]: r["tool_name"] for r in rows}
+    assert by_kind["tool-call"] == "read_file"
+    assert by_kind["tool-return"] == "read_file"
+    assert by_kind["retry-prompt"] == "grep"
+
+
 def test_streaming_finish_idempotent() -> None:
     """Calling finish() multiple times doesn't create duplicates."""
     with SessionStore() as store:
@@ -945,6 +1276,83 @@ def test_streaming_finish_idempotent() -> None:
 
     # Still just 2 messages (request + response), not duplicated.
     assert len(loaded) == 2
+
+
+def test_streaming_finish_sets_token_counts() -> None:
+    """finish() persists all token columns on the response row."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+
+        writer = store.begin_response("s1", model_name="test")
+        writer.add_part(0, TextPart(content=""))
+        writer.finish_part(0, TextPart(content="response"))
+
+        # First finish — tokens only.
+        writer.finish(
+            input_tokens=1500,
+            output_tokens=300,
+            cache_read_tokens=800,
+            cache_write_tokens=200,
+        )
+
+        # Verify via raw SQL that all token columns are populated.
+        row = store._con.execute(
+            "SELECT input_tokens, output_tokens, cache_read_tokens,"
+            " cache_write_tokens, cost FROM fragments WHERE id = ?",
+            [writer.message_id],
+        ).fetchone()
+        assert row["input_tokens"] == 1500
+        assert row["output_tokens"] == 300
+        assert row["cache_read_tokens"] == 800
+        assert row["cache_write_tokens"] == 200
+        assert row["cost"] is None
+
+        # Re-finish with cost — all columns preserved.
+        writer.finish(
+            cost=0.005,
+            input_tokens=1500,
+            output_tokens=300,
+            cache_read_tokens=800,
+            cache_write_tokens=200,
+        )
+        row = store._con.execute(
+            "SELECT input_tokens, output_tokens, cache_read_tokens,"
+            " cache_write_tokens, cost FROM fragments WHERE id = ?",
+            [writer.message_id],
+        ).fetchone()
+        assert row["input_tokens"] == 1500
+        assert row["output_tokens"] == 300
+        assert row["cache_read_tokens"] == 800
+        assert row["cache_write_tokens"] == 200
+        assert row["cost"] == pytest.approx(0.005)
+
+
+def test_batch_save_persists_cache_tokens() -> None:
+    """save_messages() populates cache token columns from ModelResponse.usage."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        resp = ModelResponse(
+            parts=[TextPart(content="hi")],
+            model_name="test",
+            usage=RequestUsage(
+                input_tokens=2000,
+                output_tokens=500,
+                cache_read_tokens=1200,
+                cache_write_tokens=400,
+            ),
+        )
+        store.save_messages("s1", [_user("hello"), resp])
+
+        row = store._con.execute(
+            "SELECT input_tokens, output_tokens, cache_read_tokens,"
+            " cache_write_tokens FROM fragments"
+            " WHERE fragment_kind = 'response-message'",
+        ).fetchone()
+        assert row["input_tokens"] == 2000
+        assert row["output_tokens"] == 500
+        assert row["cache_read_tokens"] == 1200
+        assert row["cache_write_tokens"] == 400
 
 
 def test_streaming_two_responses_in_sequence() -> None:

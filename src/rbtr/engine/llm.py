@@ -274,9 +274,21 @@ async def _stream_agent(
                                     case PartEndEvent(index=idx, part=part):
                                         writer.finish_part(idx, part)
 
-                        writer.finish()
-
                         all_msgs = run.all_messages()
+
+                        # Extract per-request token counts from the
+                        # ModelResponse that was just streamed.
+                        last_resp = all_msgs[-1] if all_msgs else None
+                        if isinstance(last_resp, ModelResponse):
+                            writer.finish(
+                                input_tokens=last_resp.usage.input_tokens,
+                                output_tokens=last_resp.usage.output_tokens,
+                                cache_read_tokens=last_resp.usage.cache_read_tokens or None,
+                                cache_write_tokens=last_resp.usage.cache_write_tokens or None,
+                            )
+                        else:
+                            writer.finish()
+
                         n = _save_new_requests(engine, all_msgs, saved_count)
                         saved_request_count += n
                         saved_count = len(all_msgs)
@@ -345,7 +357,18 @@ async def _stream_agent(
     # Record usage and set cost on the last response.
     run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
     if result.last_writer is not None:
-        result.last_writer.finish(cost=run_cost if cost_available else None)
+        # Find the last ModelResponse to get per-request token counts.
+        last_resp = next(
+            (m for m in reversed(result.new_messages) if isinstance(m, ModelResponse)),
+            None,
+        )
+        result.last_writer.finish(
+            cost=run_cost if cost_available else None,
+            input_tokens=last_resp.usage.input_tokens if last_resp else None,
+            output_tokens=last_resp.usage.output_tokens if last_resp else None,
+            cache_read_tokens=(last_resp.usage.cache_read_tokens or None) if last_resp else None,
+            cache_write_tokens=(last_resp.usage.cache_write_tokens or None) if last_resp else None,
+        )
 
     if result.limit_hit:
         await _stream_summary(engine, model, settings)

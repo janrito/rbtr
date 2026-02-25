@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS fragments (
   model_name TEXT,
   input_tokens INTEGER,
   output_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
   cost REAL,
   data_json TEXT,
   user_text TEXT,

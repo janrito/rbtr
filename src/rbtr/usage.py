@@ -70,6 +70,8 @@ class SessionUsage:
     # Whether the context window size is known from model metadata.
     # When False, context_window is the DEFAULT_CONTEXT_WINDOW assumption.
     context_window_known: bool = False
+    # Number of compactions performed in this session.
+    compaction_count: int = 0
     # Baseline snapshot taken at the start of each agent run, used by
     # _update_live_usage to compute accurate lifetime totals mid-run.
     live_base: _LiveBase = field(default_factory=_LiveBase)
@@ -178,6 +180,7 @@ class SessionUsage:
         self.context_window = DEFAULT_CONTEXT_WINDOW
         self.cost_available = True
         self.context_window_known = False
+        self.compaction_count = 0
         self.live_base = _LiveBase()
 
 

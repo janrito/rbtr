@@ -49,12 +49,20 @@ from rbtr.sessions.serialise import (
     prepare_part_rows,
     reconstruct_message,
 )
+from rbtr.sessions.stats import (
+    GlobalStats,
+    TokenStats,
+    ToolStat,
+    global_stats as _global_stats,
+    token_stats as _token_stats,
+    tool_stats as _tool_stats,
+)
 
 log = logging.getLogger(__name__)
 
 SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -156,14 +164,32 @@ class ResponseWriter:
         with self._store._lock, self._store._con:
             self._store._con.execute(_UPDATE_FRAGMENT_SQL, [_dump_part(part), fid])
 
-    def finish(self, *, cost: float | None = None) -> None:
-        """Mark the response message as complete and optionally set cost.
+    def finish(
+        self,
+        *,
+        cost: float | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cache_read_tokens: int | None = None,
+        cache_write_tokens: int | None = None,
+    ) -> None:
+        """Mark the response message as complete and set final metadata.
 
         Safe to call multiple times — the UPDATE is idempotent.
-        A later call with ``cost`` overwrites an earlier one without.
+        A later call with ``cost`` / token counts overwrites earlier values.
         """
         with self._store._lock, self._store._con:
-            self._store._con.execute(_COMPLETE_MESSAGE_SQL, [cost, self.message_id])
+            self._store._con.execute(
+                _COMPLETE_MESSAGE_SQL,
+                [
+                    cost,
+                    input_tokens,
+                    output_tokens,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    self.message_id,
+                ],
+            )
 
     def __enter__(self) -> ResponseWriter:
         return self
@@ -362,6 +388,8 @@ class SessionStore:
             model_name=model_name or self._ctx.model_name,
             input_tokens=None,
             output_tokens=None,
+            cache_read_tokens=None,
+            cache_write_tokens=None,
             cost=None,
             data_json=None,
             user_text=text,
@@ -567,6 +595,18 @@ class SessionStore:
             [prefix, prefix, limit],
         ).fetchall()
         return [row["user_text"] for row in rows]
+
+    def token_stats(self, session_id: str) -> TokenStats:
+        """Return token usage for a session, split by compaction status."""
+        return _token_stats(self._con, session_id)
+
+    def tool_stats(self, session_id: str) -> list[ToolStat]:
+        """Return per-tool call and failure counts for a session."""
+        return _tool_stats(self._con, session_id)
+
+    def global_stats(self) -> GlobalStats:
+        """Return aggregate statistics across all persisted sessions."""
+        return _global_stats(self._con)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

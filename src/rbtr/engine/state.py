@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,7 @@ class EngineState:
     """Mutable state for the current rbtr session."""
 
     # Session persistence — ID set on init, label set on setup.
+    session_started_at: float = field(default_factory=time.monotonic)
     session_id: str = ""
     session_label: str = ""
     repo: pygit2.Repository | None = None

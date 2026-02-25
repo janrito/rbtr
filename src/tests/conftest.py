@@ -55,14 +55,26 @@ def _isolate_session_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("rbtr.engine.core.SESSIONS_DB_PATH", safe_path)
 
 
-@pytest.fixture
-def creds_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point credential storage at a temp file for test isolation."""
+@pytest.fixture(autouse=True)
+def _isolate_creds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Redirect credential storage to a temp file so no test leaks
+    API keys into the singleton or touches the real creds file.
+
+    Applied globally — every test starts with a clean ``creds``
+    singleton and ends by restoring defaults.
+    """
     path = tmp_path / "creds.toml"
     monkeypatch.setattr("rbtr.creds.CREDS_PATH", path)
     monkeypatch.setitem(Creds.model_config, "toml_file", str(path))
     creds.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
-    return path
+    yield
+    creds.__init__()  # type: ignore[misc]  # restore defaults after monkeypatch unwinds
+
+
+@pytest.fixture
+def creds_path(tmp_path: Path) -> Path:
+    """Return the temp creds path (already isolated by ``_isolate_creds``)."""
+    return tmp_path / "creds.toml"
 
 
 @pytest.fixture
