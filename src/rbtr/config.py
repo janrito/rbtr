@@ -124,7 +124,7 @@ class ToolsConfig(BaseModel):
     """Hard entry cap for list/search/reference tools."""
     max_grep_hits: int = 50
     """Max match groups returned by grep."""
-    grep_context_lines: int = 50
+    grep_context_lines: int = 5
     """Lines of context above and below each grep match."""
     workspace_prefix: str = "REVIEW-"
     """Filename prefix for writable files in ``.rbtr/``.

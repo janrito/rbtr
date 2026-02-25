@@ -513,13 +513,26 @@ class SessionStore:
         Returns ``list[ModelMessage]`` in chronological order.
         Corrupt rows are logged and skipped.
         """
+        return [msg for _id, msg in self._load_messages_paired(session_id)]
+
+    def load_messages_with_ids(self, session_id: str) -> list[tuple[str, ModelMessage]]:
+        """Load messages paired with their DB row IDs.
+
+        Same as :meth:`load_messages` but returns
+        ``list[(message_id, ModelMessage)]``.  Used by compaction
+        to get IDs from the same query that loads messages —
+        no index-alignment with a separate query.
+        """
+        return self._load_messages_paired(session_id)
+
+    def _load_messages_paired(self, session_id: str) -> list[tuple[str, ModelMessage]]:
         rows = self._con.execute(_LOAD_MESSAGES_SQL, [session_id]).fetchall()
         if not rows:
             return []
 
         from itertools import groupby
 
-        messages: list[ModelMessage] = []
+        result: list[tuple[str, ModelMessage]] = []
 
         for mid, group in groupby(rows, key=lambda r: r["message_id"]):
             fragment_list = list(group)
@@ -541,11 +554,11 @@ class SessionStore:
 
             try:
                 msg = reconstruct_message(FragmentKind(fk), message_row["data_json"], part_jsons)
-                messages.append(msg)
+                result.append((mid, msg))
             except (ValidationError, ValueError, KeyError):
                 log.warning("sessions: corrupt message %s", mid)
 
-        return messages
+        return result
 
     def load_message_ids(
         self,

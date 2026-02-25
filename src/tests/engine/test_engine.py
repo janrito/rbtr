@@ -1020,6 +1020,20 @@ def test_is_history_format_error_rejects_unrelated() -> None:
     assert not is_history_format_error(exc)
 
 
+def test_is_history_format_error_rejects_orphan_tool_return() -> None:
+    """Orphaned tool returns (from bad compaction) are not format errors."""
+    exc = ModelHTTPError(
+        400,
+        "gpt-5.3-codex",
+        body={
+            "message": "No tool call found for function call output "
+            "with call_id call_2dSruMECzg5uxFmSBi4lC893.",
+            "type": "invalid_request_error",
+        },
+    )
+    assert not is_history_format_error(exc)
+
+
 # ── EngineState.index & index events ─────────────────────────────────────
 
 

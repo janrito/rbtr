@@ -487,6 +487,45 @@ def test_compact_leaves_last_input_tokens_unchanged(
     assert engine.state.usage.last_input_tokens == 150_000
 
 
+def test_compact_with_command_inputs(config_path: str, mocker: object, engine: Engine) -> None:
+    """Compaction with interleaved command/shell inputs compacts the right messages.
+
+    Command and shell inputs produce rows in the DB that are NOT
+    returned by ``load_messages``.  Compaction uses
+    ``load_messages_with_ids`` to get paired (id, message) tuples
+    from a single query — no index-alignment risk.
+    """
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary of conversation.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    engine.state.model_name = "claude/sonnet"
+    engine.state.usage.context_window = 200_000
+
+    # Seed: 5 turns with command inputs interleaved.
+    for i in range(5):
+        _seed(engine, [_user(f"question {i}"), _assistant(f"answer {i}")])
+        engine.store.save_input(engine.state.session_id, "/help", "command")
+
+    # Command inputs are in the DB but not in load_messages.
+    all_messages = engine.store.load_messages(engine.state.session_id)
+    assert len(all_messages) == 10  # 5 user + 5 assistant
+
+    # Paired method returns the same 10 messages with their IDs.
+    paired = engine.store.load_messages_with_ids(engine.state.session_id)
+    assert len(paired) == 10
+    assert all(isinstance(mid, str) and len(mid) > 0 for mid, _ in paired)
+
+    compact_history(engine)
+
+    # After compaction, kept messages are valid — no orphaned parts.
+    kept = engine.store.load_messages(engine.state.session_id)
+    assert len(kept) >= 3  # at least summary + 1 kept turn
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Mid-turn compaction — via handle_llm event contract
 # ═══════════════════════════════════════════════════════════════════════

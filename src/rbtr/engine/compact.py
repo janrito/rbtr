@@ -69,10 +69,11 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
         engine._warn("No LLM connected — cannot compact.")
         return
 
-    # Load history and message IDs from DB — the source of truth.
+    # Load history with DB row IDs — guarantees 1:1 alignment.
     sid = engine.state.session_id
-    history = engine.store.load_messages(sid)
-    message_ids = engine.store.load_message_ids(sid)
+    paired = engine.store.load_messages_with_ids(sid)
+    history = [msg for _id, msg in paired]
+    ids = [mid for mid, _msg in paired]
     keep_turns = config.compaction.keep_turns
     old, kept = split_history(history, keep_turns)
 
@@ -83,8 +84,8 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
         engine._out("Nothing to compact — conversation is short enough.")
         return
 
-    # Split message IDs at the same boundary as messages.
-    old_ids = message_ids[: len(old)]
+    # IDs align with messages — same query, same order.
+    old_ids = ids[: len(old)]
 
     max_tool_chars = config.compaction.summary_max_chars
     serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
@@ -100,7 +101,7 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
             return
         kept = list(old[fit_count:]) + kept
         old = list(old[:fit_count])
-        old_ids = message_ids[: len(old)]
+        old_ids = ids[: len(old)]
         serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
 
     engine._emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))

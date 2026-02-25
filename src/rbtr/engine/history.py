@@ -28,10 +28,14 @@ def is_history_format_error(exc: Exception) -> bool:
     PydanticAI stores provider-specific reasoning IDs in message history.
     When history is replayed to a different provider (or API variant),
     these IDs may be rejected (e.g. OpenAI Responses API expects ``rs_*``).
+
+    Must be narrow — other 400 errors (orphaned tool returns, missing
+    tool calls) are NOT format errors and should not trigger retry.
     """
     msg = str(exc).lower()
-    # "Invalid 'input[6].id': 'reasoning_content'" — wrong ID format
-    if "invalid" in msg and ("id" in msg or "input" in msg):
+    # "Invalid 'input[6].id': 'reasoning_content'" — wrong ID format.
+    # Match the specific pattern: "invalid" + "'input[" or ".id'"
+    if "invalid" in msg and ("'input[" in msg or ".id'" in msg):
         return True
     # "Item 'fc_...' was provided without its required 'reasoning' item"
     return "provided without" in msg and "reasoning" in msg
