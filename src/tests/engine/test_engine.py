@@ -389,7 +389,7 @@ def test_llm_streams_response(creds_path: Path, mocker: MockerFixture, engine: E
     creds.update(claude=OAuthCreds(access_token="t", refresh_token="r", expires_at=9e9))
     engine.state.claude_connected = True
 
-    async def fake_stream(eng, model, message):
+    async def fake_stream(eng, model, message, **kwargs):
         from rbtr.events import TextDelta
 
         eng._emit(TextDelta(delta="Hello "))
@@ -405,29 +405,37 @@ def test_llm_streams_response(creds_path: Path, mocker: MockerFixture, engine: E
     assert deltas[1].delta == "world"
 
 
-def test_llm_preserves_history(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
-    """After an LLM call, message_history is populated."""
+def test_llm_persists_to_store(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
+    """After an LLM call, messages are persisted to the store."""
 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
 
-    async def fake_stream(eng, model, message):
-        eng.state.message_history = [
-            ModelRequest(parts=[UserPromptPart(content=message)]),
-        ]
+    async def fake_stream(eng, model, message, **kwargs):
+        eng.store.save_messages(
+            eng.state.session_id,
+            [ModelRequest(parts=[UserPromptPart(content=message)])],
+        )
 
     mocker.patch("rbtr.engine.llm._stream_agent", fake_stream)
     engine.run_task(TaskType.LLM, "hello")
     drain(engine.events)
-    assert len(engine.state.message_history) == 1
+    assert len(engine.store.load_messages(engine.state.session_id)) == 1
 
 
-def test_new_clears_history(engine: Engine) -> None:
-    engine.state.message_history = [ModelRequest(parts=[UserPromptPart(content="old")])]
+def test_new_starts_fresh_session(engine: Engine) -> None:
+    engine._sync_store_context()
+    engine.store.save_messages(
+        engine.state.session_id,
+        [ModelRequest(parts=[UserPromptPart(content="old")])],
+    )
+    old_session_id = engine.state.session_id
     engine.run_task(TaskType.COMMAND, "/new")
     drained_events = drain(engine.events)
     assert drained_events[-1].success is True
-    assert engine.state.message_history == []
+    # New session ID — old messages untouched, new session is empty.
+    assert engine.state.session_id != old_session_id
+    assert engine.store.load_messages(engine.state.session_id) == []
     texts = output_texts(drained_events)
     assert any("cleared" in t.lower() for t in texts)
 
@@ -887,9 +895,13 @@ def test_model_change_updates_state_model(config_path: Path, engine: Engine) -> 
 
 
 def test_model_change_cross_provider_preserves_history(config_path: Path, engine: Engine) -> None:
-    """Switching providers preserves message history."""
+    """Switching providers preserves message history in the DB."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
-    engine.state.message_history = [ModelRequest(parts=[UserPromptPart(content="keep me")])]
+    engine._sync_store_context()
+    engine.store.save_messages(
+        engine.state.session_id,
+        [ModelRequest(parts=[UserPromptPart(content="keep me")])],
+    )
     engine.state.usage.record_run(input_tokens=1000, output_tokens=500)
     engine.state.cached_models = [("chatgpt", ["chatgpt/gpt-4o"])]
 
@@ -897,14 +909,18 @@ def test_model_change_cross_provider_preserves_history(config_path: Path, engine
     drain(engine.events)
 
     assert engine.state.model_name == "chatgpt/gpt-4o"
-    assert len(engine.state.message_history) == 1
+    assert len(engine.store.load_messages(engine.state.session_id)) == 1
     assert engine.state.usage.input_tokens == 1000
 
 
 def test_model_change_same_provider_preserves_history(config_path: Path, engine: Engine) -> None:
-    """Switching models within the same provider preserves history."""
+    """Switching models within the same provider preserves history in the DB."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
-    engine.state.message_history = [ModelRequest(parts=[UserPromptPart(content="keep me")])]
+    engine._sync_store_context()
+    engine.store.save_messages(
+        engine.state.session_id,
+        [ModelRequest(parts=[UserPromptPart(content="keep me")])],
+    )
     engine.state.cached_models = [
         ("claude", ["claude/claude-sonnet-4-20250514", "claude/claude-opus-4-20250514"])
     ]
@@ -913,7 +929,7 @@ def test_model_change_same_provider_preserves_history(config_path: Path, engine:
     drain(engine.events)
 
     assert engine.state.model_name == "claude/claude-opus-4-20250514"
-    assert len(engine.state.message_history) == 1
+    assert len(engine.store.load_messages(engine.state.session_id)) == 1
 
 
 # ── History repair ───────────────────────────────────────────────────

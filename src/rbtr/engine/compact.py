@@ -123,9 +123,6 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
 
     engine.store.compact_session(sid, summary=summary_msg, compact_ids=old_ids)
 
-    # Update the transient cache from DB.
-    engine.state.message_history = engine.store.load_messages(engine.state.session_id)
-
     engine._emit(CompactionFinished(summary_tokens=estimate_tokens(summary_text)))
 
 

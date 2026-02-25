@@ -253,7 +253,6 @@ class Engine:
             )
 
     def _cmd_new(self) -> None:
-        self.state.message_history.clear()
         self.state.usage.reset()
         self.state.session_id = self.store.new_id()
         self._out("Conversation cleared.")

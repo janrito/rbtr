@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import pygit2
 from github import Github
-from pydantic_ai.messages import ModelMessage
 
 from rbtr.github.client import GitHubCtx
 from rbtr.models import DiscussionEntry, Target
@@ -54,11 +53,6 @@ class EngineState:
     # (display_label, completion_text) pairs, e.g. ("#42 Fix bug", "42")
     # or ("feature-x", "feature-x").
     cached_review_targets: list[tuple[str, str]] = field(default_factory=list)
-    # Transient cache of the conversation history — loaded from DB
-    # before each Agent.iter(), set after each turn.  The DB is the
-    # source of truth.  Direct reads are acceptable for compaction
-    # checks and error-retry flows within a single turn.
-    message_history: list[ModelMessage] = field(default_factory=list)
     # Cumulative token usage and cost for the current conversation.
     usage: SessionUsage = field(default_factory=SessionUsage)
     # Cached PR discussion — fetched once per PR, cleared on new /review.

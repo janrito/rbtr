@@ -18,6 +18,16 @@ from pathlib import Path
 
 import pygit2
 import pytest
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.usage import RequestUsage
 
 from rbtr.creds import OAuthCreds
 from rbtr.engine import Engine, EngineState
@@ -93,6 +103,48 @@ CHATGPT_OAUTH = OAuthCreds(
     expires_at=9999999999,
     account_id="acct_123",
 )
+
+
+# ── Message data builders ────────────────────────────────────────────
+
+_USAGE = RequestUsage(input_tokens=0, output_tokens=0)
+
+
+def _user(text: str) -> ModelRequest:
+    return ModelRequest(parts=[UserPromptPart(content=text)])
+
+
+def _assistant(text: str) -> ModelResponse:
+    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
+
+
+def _tool_return(name: str, content: str) -> ModelRequest:
+    return ModelRequest(parts=[ToolReturnPart(tool_name=name, content=content)])
+
+
+def _tool_call(name: str, args: dict[str, str]) -> ModelResponse:
+    return ModelResponse(
+        parts=[ToolCallPart(tool_name=name, args=args)], usage=_USAGE, model_name="test"
+    )
+
+
+def _thinking(text: str) -> ModelResponse:
+    return ModelResponse(parts=[ThinkingPart(content=text)], usage=_USAGE, model_name="test")
+
+
+def _turns(n: int) -> list[ModelRequest | ModelResponse]:
+    """Create *n* user→assistant turn pairs."""
+    msgs: list[ModelRequest | ModelResponse] = []
+    for i in range(n):
+        msgs.append(_user(f"question {i}"))
+        msgs.append(_assistant(f"answer {i}"))
+    return msgs
+
+
+def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs: object) -> None:
+    """Seed messages into the engine's store."""
+    engine._sync_store_context()
+    engine.store.save_messages(engine.state.session_id, messages, **kwargs)  # type: ignore[arg-type]
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────

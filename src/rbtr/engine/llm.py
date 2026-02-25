@@ -167,8 +167,7 @@ def handle_llm(engine: Engine, message: str) -> None:
             return
         if exc.status_code == 400 and is_history_format_error(exc):
             engine._out("Retrying with simplified history…")
-            engine.state.message_history = demote_thinking(engine.state.message_history)
-            _run_agent(engine, model, message)
+            _run_agent(engine, model, message, simplify_history=True)
             return
         if _is_context_overflow(exc):
             _auto_compact_on_overflow(engine, message)
@@ -194,17 +193,34 @@ def _auto_compact_on_overflow(engine: Engine, message: str) -> None:
 # ── Agent run ────────────────────────────────────────────────────────
 
 
-def _run_agent(engine: Engine, model: Model, message: str) -> None:
+def _run_agent(
+    engine: Engine,
+    model: Model,
+    message: str,
+    *,
+    simplify_history: bool = False,
+) -> None:
     """Stream an agent run, blocking until complete."""
-    future = asyncio.run_coroutine_threadsafe(_stream_agent(engine, model, message), engine._loop)
+    future = asyncio.run_coroutine_threadsafe(
+        _stream_agent(engine, model, message, simplify_history=simplify_history),
+        engine._loop,
+    )
     future.result()
 
 
-async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
+async def _stream_agent(
+    engine: Engine,
+    model: Model,
+    message: str,
+    *,
+    simplify_history: bool = False,
+) -> None:
     """Run the agent with cancellation support, update session state."""
     # Load history from DB — the source of truth.
     store = engine.store
     history = store.load_messages(engine.state.session_id)
+    if simplify_history:
+        history = demote_thinking(history)
     deps = AgentDeps(state=engine.state)
 
     settings = resolve_model_settings(
@@ -319,16 +335,12 @@ async def _stream_agent(engine: Engine, model: Model, message: str) -> None:
         await compact_history_async(
             engine, extra_instructions="The model is mid-turn with active tool calls."
         )
-        # compact_history_async already reloads from DB and updates
-        # engine.state.message_history — just read it back.
-        history = list(engine.state.message_history)
+        # Reload from DB after compaction.
+        history = store.load_messages(engine.state.session_id)
         engine.state.usage.snapshot_base()
 
         resume = await _run_with_cancel(engine, _do_stream(None, history))
         result = _merge_results(result, resume)
-
-    # Update the transient cache.
-    engine.state.message_history = list(result.all_messages)
 
     # Record usage and set cost on the last response.
     run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
@@ -358,7 +370,7 @@ async def _stream_summary(
     Uses a plain agent (no tools) with a single request so the model
     can only produce text — no further tool calls.
     """
-    history = engine.state.message_history
+    history = engine.store.load_messages(engine.state.session_id)
 
     summary_agent: Agent[None, str] = Agent(model)
     async with summary_agent.iter(
@@ -375,9 +387,6 @@ async def _stream_summary(
                         engine._emit(TextDelta(delta=delta))
 
     new_summary = list(run.new_messages())
-
-    # Update cache.
-    engine.state.message_history = list(run.all_messages())
 
     # Persist summary messages.
     _save_messages_safe(engine, new_summary)

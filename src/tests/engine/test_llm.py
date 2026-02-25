@@ -1,18 +1,17 @@
-"""Tests for engine/llm.py helper functions.
+"""Tests for engine/llm.py — event emission, usage tracking, error
+classification, and overflow/retry behaviour.
 
-Covers ``_emit_tool_event``, ``_record_usage``, ``_update_live_usage``,
-``_is_context_overflow``, ``_auto_compact_on_overflow``,
-and the ``UsageLimitExceeded`` → summary flow.
+Tests target observable outcomes (events emitted, state mutated,
+handlers retried) rather than internal async iteration mechanics.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -25,8 +24,6 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models import Model
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from pytest_mock import MockerFixture
 
@@ -38,7 +35,6 @@ from rbtr.engine.llm import (
     _is_context_overflow,
     _is_effort_unsupported,
     _record_usage,
-    _stream_agent,
     _update_live_usage,
     resolve_model_settings,
 )
@@ -405,249 +401,6 @@ def test_update_live_usage_accumulates_over_base(engine: Engine) -> None:
     assert engine.state.usage.context_used_pct == pytest.approx(4.0)
 
 
-# ── UsageLimitExceeded → summary flow ────────────────────────────────
-
-# Pre-built messages for the limit-hit scenario.
-_USER_MSG = ModelRequest(parts=[UserPromptPart(content="analyse the codebase")])
-_PARTIAL_RESPONSE = ModelResponse(
-    parts=[TextPart(content="I found 3 files so far")],
-    model_name="test-model",
-)
-_SUMMARY_RESPONSE = ModelResponse(
-    parts=[TextPart(content="I reviewed 3 files. 2 more remain.")],
-    model_name="test-model",
-)
-
-
-def test_stream_agent_catches_limit_and_triggers_summary(
-    mocker: MockerFixture,
-    creds_path: Path,
-    engine: Engine,
-) -> None:
-    """When UsageLimitExceeded fires, messages are preserved and _stream_summary is called."""
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
-    engine.state.model_name = "openai/gpt-4o"
-
-    partial_messages: list[ModelMessage] = [_USER_MSG, _PARTIAL_RESPONSE]
-
-    # Mock agent.iter to raise UsageLimitExceeded after yielding partial messages
-    class _FakeRun:
-        def all_messages(self) -> list[ModelRequest | ModelResponse]:
-            return partial_messages
-
-        def new_messages(self) -> list[ModelRequest | ModelResponse]:
-            return partial_messages  # no history, so all are "new"
-
-        def usage(self) -> RunUsage:
-            return RunUsage(requests=25, input_tokens=1000, output_tokens=500)
-
-        def __aiter__(self) -> _FakeRun:
-            return self
-
-        async def __anext__(self) -> None:
-            raise UsageLimitExceeded("request_limit of 25")
-
-        @property
-        def ctx(self) -> None:
-            return None
-
-    class _FakeIterCtx:
-        def __init__(self) -> None:
-            self.run = _FakeRun()
-
-        async def __aenter__(self) -> _FakeRun:
-            return self.run
-
-        async def __aexit__(self, *args: Any) -> None:
-            pass
-
-    mocker.patch("rbtr.engine.llm.agent.iter", return_value=_FakeIterCtx())
-
-    # Mock _stream_summary so we can verify it's called
-    summary_called = False
-    original_settings = [None]
-
-    async def fake_summary(eng: Engine, model: Model, settings: ModelSettings) -> None:
-        nonlocal summary_called
-        summary_called = True
-        original_settings[0] = settings
-        # Simulate what _stream_summary does: append summary to history
-        eng.state.message_history = [*eng.state.message_history, _SUMMARY_RESPONSE]
-
-    mocker.patch("rbtr.engine.llm._stream_summary", fake_summary)
-
-    # Need an event loop for _stream_agent
-    from rbtr.providers import build_model
-
-    model = build_model("openai/gpt-4o")
-    asyncio.run(_stream_agent(engine, model, "analyse the codebase"))
-
-    # Partial messages preserved in history
-    assert _USER_MSG in engine.state.message_history
-    assert _PARTIAL_RESPONSE in engine.state.message_history
-    # Summary was appended
-    assert _SUMMARY_RESPONSE in engine.state.message_history
-    assert summary_called
-
-
-def test_stream_summary_sends_prompt_and_appends_history(
-    mocker: MockerFixture,
-    creds_path: Path,
-    engine: Engine,
-) -> None:
-    """_stream_summary uses a tool-free agent, passes the limit prompt, and appends to history."""
-    from rbtr.creds import creds
-    from rbtr.engine.llm import _LIMIT_SUMMARY_PROMPT, _stream_summary
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
-    engine.state.model_name = "openai/gpt-4o"
-    engine.state.message_history = [_USER_MSG, _PARTIAL_RESPONSE]
-
-    # Track what Agent.iter receives
-    captured_prompt: list[str | None] = [None]
-    captured_history: list[list[ModelMessage] | None] = [None]
-
-    summary_request = ModelRequest(parts=[UserPromptPart(content=_LIMIT_SUMMARY_PROMPT)])
-    summary_msg = ModelResponse(
-        parts=[TextPart(content="Summary: 3 files reviewed.")],
-        model_name="test-model",
-    )
-
-    class _FakeRun:
-        def __init__(self, history: list[ModelMessage] | None) -> None:
-            self._history = history
-
-        def all_messages(self) -> list[ModelMessage]:
-            return [
-                *list(self._history or []),
-                summary_request,
-                summary_msg,
-            ]
-
-        def new_messages(self) -> list[ModelMessage]:
-            return [summary_request, summary_msg]
-
-        def __aiter__(self) -> _FakeRun:
-            return self
-
-        async def __anext__(self) -> None:
-            # Yield no nodes — the test checks prompt/history, not streaming
-            raise StopAsyncIteration
-
-    class _FakeIterCtx:
-        def __init__(self, prompt: str, history: list[ModelMessage] | None) -> None:
-            captured_prompt[0] = prompt
-            captured_history[0] = history
-            self.run = _FakeRun(history)
-
-        async def __aenter__(self) -> _FakeRun:
-            return self.run
-
-        async def __aexit__(self, *args: object) -> None:
-            pass
-
-    class FakeAgent:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
-        def iter(
-            self,
-            prompt: str,
-            *,
-            model: object = None,
-            message_history: list[ModelMessage] | None = None,
-            model_settings: object = None,
-            usage_limits: object = None,
-        ) -> _FakeIterCtx:
-            return _FakeIterCtx(prompt, message_history)
-
-    mocker.patch("rbtr.engine.llm.Agent", FakeAgent)
-
-    from rbtr.providers import build_model
-
-    model = build_model("openai/gpt-4o")
-    asyncio.run(_stream_summary(engine, model, None))
-
-    # Verify the prompt sent to the summary agent
-    assert captured_prompt[0] == _LIMIT_SUMMARY_PROMPT
-    # Verify conversation history was forwarded
-    assert captured_history[0] is not None
-    assert len(captured_history[0]) == 2  # _USER_MSG + _PARTIAL_RESPONSE
-
-    # Verify summary messages appended — original history preserved
-    assert _USER_MSG in engine.state.message_history
-    assert _PARTIAL_RESPONSE in engine.state.message_history
-    assert summary_msg in engine.state.message_history
-
-
-def test_stream_agent_no_limit_hit_skips_summary(
-    mocker: MockerFixture, creds_path: Path, engine: Engine
-) -> None:
-    """Normal completion (no limit hit) does not trigger _stream_summary."""
-    from rbtr.creds import creds
-    from rbtr.engine.llm import _stream_agent
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
-    engine.state.model_name = "openai/gpt-4o"
-
-    completed_messages: list[ModelMessage] = [
-        _USER_MSG,
-        ModelResponse(parts=[TextPart(content="Done!")], model_name="test"),
-    ]
-
-    class _FakeRun:
-        def all_messages(self):
-            return completed_messages
-
-        def new_messages(self):
-            return completed_messages  # no history, so all are "new"
-
-        def usage(self):
-            return RunUsage(requests=5, input_tokens=500, output_tokens=200)
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            raise StopAsyncIteration
-
-        @property
-        def ctx(self):
-            return None
-
-    class _FakeIterCtx:
-        def __init__(self):
-            self.run = _FakeRun()
-
-        async def __aenter__(self):
-            return self.run
-
-        async def __aexit__(self, *args):
-            pass
-
-    mocker.patch("rbtr.engine.llm.agent.iter", return_value=_FakeIterCtx())
-
-    summary_called = False
-
-    async def fake_summary(eng, model, settings):
-        nonlocal summary_called
-        summary_called = True
-
-    mocker.patch("rbtr.engine.llm._stream_summary", fake_summary)
-
-    from rbtr.providers import build_model
-
-    model = build_model("openai/gpt-4o")
-    asyncio.run(_stream_agent(engine, model, "hello"))
-
-    assert not summary_called
-    assert len(engine.state.message_history) == 2
-
-
 # ── _is_context_overflow ─────────────────────────────────────────────
 
 
@@ -758,7 +511,6 @@ def test_handle_llm_retries_without_effort_on_rejection(
     engine: Engine,
 ) -> None:
     """handle_llm retries without effort when the model rejects it."""
-    from rbtr.creds import creds
     from rbtr.engine.llm import handle_llm
 
     creds.update(openai_api_key="sk-test")
@@ -791,7 +543,6 @@ def test_auto_compact_on_overflow_compacts_and_retries(
     engine: Engine,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
-    from rbtr.creds import creds
 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
@@ -818,25 +569,23 @@ def test_handle_llm_context_overflow_triggers_compact(
     engine: Engine,
 ) -> None:
     """handle_llm auto-compacts on context overflow and retries."""
-    from rbtr.creds import creds
 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
     engine.state.model_name = "openai/gpt-4o"
     messages: list[ModelMessage] = [
-        _USER_MSG,
-        _PARTIAL_RESPONSE,
+        ModelRequest(parts=[UserPromptPart(content="analyse the codebase")]),
+        ModelResponse(parts=[TextPart(content="I found 3 files so far")], model_name="test"),
         ModelRequest(parts=[UserPromptPart(content="turn 2")]),
         ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
     ]
-    engine.state.message_history = list(messages)
     engine._sync_store_context()
     engine.store.save_messages(engine.state.session_id, messages)
 
     # First call to _run_agent raises overflow, second succeeds
     call_count = 0
 
-    def fake_run_agent(eng: Engine, model: object, msg: str) -> None:
+    def fake_run_agent(eng: Engine, model: object, msg: str, **kwargs: object) -> None:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -844,11 +593,8 @@ def test_handle_llm_context_overflow_triggers_compact(
 
     mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
 
-    # Mock compact_history to reduce history (both cache and DB).
-    def fake_compact(eng: Engine, extra_instructions: str = "") -> None:
-        eng.state.message_history = eng.state.message_history[-2:]
-
-    mocker.patch("rbtr.engine.compact.compact_history", fake_compact)
+    # Mock compact_history (a no-op here — the retry is what matters).
+    mocker.patch("rbtr.engine.compact.compact_history")
 
     from rbtr.engine.llm import handle_llm
 

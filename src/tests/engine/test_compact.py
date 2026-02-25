@@ -15,9 +15,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
-    ThinkingPart,
     ToolCallPart,
-    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -34,49 +32,21 @@ from rbtr.engine.history import (
 )
 from rbtr.events import CompactionFinished, CompactionStarted, Output, TaskFinished
 
-from .conftest import drain, has_event_type, output_texts
+from .conftest import (
+    _USAGE,
+    _assistant,
+    _seed,
+    _thinking,
+    _tool_call,
+    _tool_return,
+    _turns,
+    _user,
+    drain,
+    has_event_type,
+    output_texts,
+)
 
-# ── Test data builders ───────────────────────────────────────────────
-
-_USAGE = RequestUsage(input_tokens=0, output_tokens=0)
-
-
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
-def _assistant(text: str) -> ModelResponse:
-    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
-
-
-def _tool_return(name: str, content: str) -> ModelRequest:
-    return ModelRequest(parts=[ToolReturnPart(tool_name=name, content=content)])
-
-
-def _tool_call(name: str, args: dict[str, str]) -> ModelResponse:
-    return ModelResponse(
-        parts=[ToolCallPart(tool_name=name, args=args)], usage=_USAGE, model_name="test"
-    )
-
-
-def _thinking(text: str) -> ModelResponse:
-    return ModelResponse(parts=[ThinkingPart(content=text)], usage=_USAGE, model_name="test")
-
-
-def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse]) -> None:
-    """Seed messages into the engine's store and transient cache."""
-    engine.store.save_messages(engine.state.session_id, messages)
-    engine.state.message_history = list(messages)
-
-
-def _turns(n: int) -> list[ModelRequest | ModelResponse]:
-    """Create *n* user→assistant turn pairs."""
-    msgs: list[ModelRequest | ModelResponse] = []
-    for i in range(n):
-        msgs.append(_user(f"question {i}"))
-        msgs.append(_assistant(f"answer {i}"))
-    return msgs
-
+# ── Test data ────────────────────────────────────────────────────────
 
 # A realistic multi-turn conversation with tool calls.
 REALISTIC_HISTORY: list[ModelRequest | ModelResponse] = [
@@ -344,8 +314,11 @@ def test_compact_replaces_history(config_path: str, mocker: object, engine: Engi
 
     compact_history(engine)
 
+    # Load from DB — the source of truth.
+    loaded = engine.store.load_messages(engine.state.session_id)
+
     # First message is the summary
-    first = engine.state.message_history[0]
+    first = loaded[0]
     assert isinstance(first, ModelRequest)
     part = first.parts[0]
     assert isinstance(part, UserPromptPart)
@@ -354,10 +327,10 @@ def test_compact_replaces_history(config_path: str, mocker: object, engine: Engi
     assert "Reviewed PR #42" in part.content
 
     # History is shorter than before
-    assert len(engine.state.message_history) < len(REALISTIC_HISTORY)
+    assert len(loaded) < len(REALISTIC_HISTORY)
 
     # Last message is preserved (the last assistant response)
-    last = engine.state.message_history[-1]
+    last = loaded[-1]
     assert isinstance(last, ModelResponse)
     assert any(isinstance(p, TextPart) and "import os" in p.content for p in last.parts)
 
@@ -611,19 +584,20 @@ def llm_engine(creds_path: str) -> Generator[Engine]:
 
 
 def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:
-    """Seed the DB and transient cache with *turns* of history."""
+    """Seed the DB with *turns* of history."""
     msgs = _turns(turns)
     engine._sync_store_context()
     engine.store.save_messages(engine.state.session_id, msgs)
-    engine.state.message_history = list(msgs)
 
 
-def _patch_for_mid_turn(engine: Engine, mocker: object) -> None:
+def _patch_for_mid_turn(engine: Engine, mocker: object) -> object:
     """Patch ``build_model`` with a tool-calling ``FunctionModel`` and
     set up compaction mocks.
 
     ``_update_live_usage`` is wrapped to shrink the context window
     after each model response, simulating high context usage.
+
+    Returns the ``_stream_summary`` mock for call-count assertions.
     """
     from rbtr.engine.llm import _update_live_usage as _real_update
 
@@ -631,7 +605,7 @@ def _patch_for_mid_turn(engine: Engine, mocker: object) -> None:
         "rbtr.engine.llm.build_model",
         return_value=_tool_then_text_model(),
     )
-    mocker.patch(  # type: ignore[union-attr]
+    summary_mock = mocker.patch(  # type: ignore[union-attr]
         "rbtr.engine.compact._stream_summary", return_value="Summary."
     )
     mocker.patch(  # type: ignore[union-attr]
@@ -645,6 +619,7 @@ def _patch_for_mid_turn(engine: Engine, mocker: object) -> None:
         eng.state.usage.context_window_known = True
 
     mocker.patch("rbtr.engine.llm._update_live_usage", side_effect=_inflating_update)  # type: ignore[union-attr]
+    return summary_mock
 
 
 def test_mid_turn_compaction_fires(config_path: str, mocker: object, llm_engine: Engine) -> None:
@@ -688,33 +663,13 @@ def test_mid_turn_compaction_only_once_per_turn(
     """Mid-turn compaction fires at most once — the resume run does not
     re-trigger even if context is still high.
     """
-    from rbtr.engine.llm import _update_live_usage as _real_update
-
     _seed_llm_history(llm_engine)
-
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.engine.llm.build_model",
-        return_value=_tool_then_text_model(),
-    )
-    summary_mock = mocker.patch(  # type: ignore[union-attr]
-        "rbtr.engine.compact._stream_summary", return_value="Summary."
-    )
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.engine.compact.build_model",
-        return_value=_text_only_model(),
-    )
-
-    def _inflating_update(eng: Engine, run_usage: object, response: object) -> None:
-        _real_update(eng, run_usage, response)  # type: ignore[arg-type]
-        eng.state.usage.context_window = 50
-        eng.state.usage.context_window_known = True
-
-    mocker.patch("rbtr.engine.llm._update_live_usage", side_effect=_inflating_update)  # type: ignore[union-attr]
+    summary_mock = _patch_for_mid_turn(llm_engine, mocker)
 
     llm_engine.run_task("llm", "trigger tools")
     drain(llm_engine.events)
 
-    assert summary_mock.call_count == 1
+    assert summary_mock.call_count == 1  # type: ignore[union-attr]
 
 
 def test_mid_turn_compaction_preserves_continuity(

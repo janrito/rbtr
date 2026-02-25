@@ -260,7 +260,7 @@ def test_session_resume_loads_messages(mocker: MockerFixture, creds_path: Path) 
         events = drain(engine.events)
         assert any("Resumed" in t for t in output_texts(events))
         assert engine.state.session_id == session_a_id
-        assert len(engine.state.message_history) == len(messages_a)
+        assert len(engine.store.load_messages(session_a_id)) == len(messages_a)
 
     finally:
         engine.close()
@@ -359,7 +359,7 @@ def test_compaction_then_resume(mocker: MockerFixture, creds_path: Path) -> None
         assert any("Resumed" in t for t in output_texts(events))
 
         # Loaded messages match the compacted state.
-        assert len(engine.state.message_history) == len(compacted_messages)
+        assert len(engine.store.load_messages(compacted_session_id)) == len(compacted_messages)
 
     finally:
         engine.close()

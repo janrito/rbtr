@@ -185,9 +185,7 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         return
 
     # Switch session — usage and model are untouched.
-    # The transient cache is updated for compatibility with
-    # compaction checks; the DB is the source of truth.
-    engine.state.message_history = messages
+    # The next LLM call loads history from the DB.
     engine.state.session_id = target.session_id
     engine.state.session_label = target.session_label or engine.state.session_label
 

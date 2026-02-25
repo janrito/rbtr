@@ -5,30 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.messages import ModelRequest, ModelResponse
 from pytest_mock import MockerFixture
 
 from rbtr.engine import Engine
 from rbtr.engine.session_cmd import _format_age, _parse_duration
 
-from .conftest import drain, output_texts
-
-_USAGE = RequestUsage(input_tokens=100, output_tokens=50)
-
-
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
-def _assistant(text: str) -> ModelResponse:
-    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
-
-
-def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs: object) -> None:
-    """Seed messages into the engine's current session."""
-    engine._sync_store_context()
-    engine.store.save_messages(engine.state.session_id, messages, **kwargs)  # type: ignore[arg-type]  # cost forwarded
+from .conftest import _assistant, _seed, _user, drain, output_texts
 
 
 @pytest.fixture
@@ -56,7 +39,6 @@ def double_seeded_engine(seeded_engine: Engine) -> Engine:
 
     # Switch back to first.
     engine.state.session_id = first_id
-    engine.state.message_history = [_user("hello"), _assistant("hi")]
 
     drain(engine.events)
     return engine
@@ -167,7 +149,7 @@ def test_resume_loads_messages(double_seeded_engine: Engine) -> None:
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == second_id
-    assert len(engine.state.message_history) == 2
+    assert len(engine.store.load_messages(second_id)) == 2
     # Usage is unchanged — not reset, not restored from DB.
     assert engine.state.usage.total_cost == 0.99
     assert engine.state.usage.input_tokens == 5000
@@ -213,8 +195,6 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     for i in range(15):
         history.extend([_user(f"q{i}"), _assistant(f"a{i}")])
     _seed(engine, history)
-    # Set transient cache so compact_history can split it.
-    engine.state.message_history = list(history)
     compacted_session_id = engine.state.session_id
 
     # Compact (rewrites DB).
@@ -233,8 +213,8 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     engine.run_task("command", f"/session resume {compacted_session_id}")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
-    assert len(engine.state.message_history) == post_compact_count
     assert engine.state.session_id == compacted_session_id
+    assert len(engine.store.load_messages(compacted_session_id)) == post_compact_count
 
 
 # ── /session delete ──────────────────────────────────────────────────
