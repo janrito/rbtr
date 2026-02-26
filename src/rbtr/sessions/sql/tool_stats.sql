@@ -1,4 +1,5 @@
 -- Tool call and failure counts for a session, grouped by tool name.
+-- Includes active (non-compacted) counts for compaction-aware display.
 -- Params: session_id.
 SELECT
   tool_name,
@@ -8,6 +9,15 @@ SELECT
       ELSE 0
     END
   ) AS call_count,
+  SUM(
+    CASE
+      WHEN
+        fragment_kind = 'tool-call'
+        AND compacted_by IS NULL
+        THEN 1
+      ELSE 0
+    END
+  ) AS active_call_count,
   SUM(
     CASE
       WHEN fragment_kind = 'retry-prompt' THEN 1

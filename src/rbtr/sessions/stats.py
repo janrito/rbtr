@@ -37,6 +37,7 @@ class ToolStat:
 
     tool_name: str
     call_count: int
+    active_call_count: int
     failure_count: int
 
 
@@ -119,6 +120,7 @@ def tool_stats(con: sqlite3.Connection, session_id: str) -> list[ToolStat]:
         ToolStat(
             tool_name=row["tool_name"],
             call_count=int(row["call_count"]),
+            active_call_count=int(row["active_call_count"]),
             failure_count=int(row["failure_count"]),
         )
         for row in rows
@@ -191,6 +193,7 @@ def global_stats(con: sqlite3.Connection) -> GlobalStats:
         ToolStat(
             tool_name=r["tool_name"],
             call_count=int(r["call_count"]),
+            active_call_count=int(r["call_count"]),  # no compaction at global level
             failure_count=int(r["failure_count"]),
         )
         for r in tool_rows

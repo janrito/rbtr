@@ -94,7 +94,7 @@ def _cmd_global(engine: Engine) -> None:
             cost = format_cost(m.total_cost) if m.total_cost else "—"
             _out(engine, f"    {m.model_name or '?':<30}{cost:>10}   ({m.session_count} sessions)")
 
-    _render_tools(engine, gs.tools)
+    _render_tools(engine, gs.tools, compact=False)
 
 
 # ── Shared rendering ────────────────────────────────────────────────
@@ -137,49 +137,40 @@ def _render_body(
     *,
     show_context: bool = False,
 ) -> None:
-    _render_messages(engine, ts)
-    _render_tokens(engine, ts, show_context=show_context)
-    _render_cost(engine, ts)
-    _render_tools(engine, tools)
+    compact = ts.compaction_count > 0
 
-
-def _render_messages(engine: Engine, ts: TokenStats) -> None:
-    if ts.compaction_count > 0:
-        compacted_resp = ts.total_responses - ts.active_responses
-        compacted_turns = ts.total_turns - ts.active_turns
-        _out(
-            engine,
-            _row(
-                "Turns",
-                str(ts.total_turns),
-                suffix=f"({ts.active_turns} active, {compacted_turns} compacted)",
-            ),
-        )
-        _out(
-            engine,
-            _row(
-                "Responses",
-                str(ts.total_responses),
-                suffix=f"({ts.active_responses} active, {compacted_resp} compacted)",
-            ),
-        )
+    if compact:
         _out(engine, _row("Compactions", str(ts.compaction_count)))
-    else:
-        _out(engine, _row("Turns", str(ts.total_turns)))
-        _out(engine, _row("Responses", str(ts.total_responses)))
+
+    _render_messages(engine, ts, compact)
+    _render_tokens(engine, ts, compact, show_context=show_context)
+    _render_cost(engine, ts, compact)
+    _render_tools(engine, tools, compact)
 
 
-def _render_tokens(engine: Engine, ts: TokenStats, *, show_context: bool = False) -> None:
+def _render_messages(engine: Engine, ts: TokenStats, compact: bool) -> None:
+    def act(val: int) -> str:
+        return str(val) if compact else ""
+
+    _out(engine, "")
+    if compact:
+        _out(engine, _row("", "total", "active"))
+    _out(engine, _row("Turns", str(ts.total_turns), act(ts.active_turns)))
+    _out(engine, _row("Responses", str(ts.total_responses), act(ts.active_responses)))
+
+
+def _render_tokens(
+    engine: Engine, ts: TokenStats, compact: bool, *, show_context: bool = False
+) -> None:
     if not ts.total_input_tokens and not ts.total_output_tokens:
         return
-
-    compact = ts.compaction_count > 0
 
     def act(val: int) -> str:
         return format_tokens(val) if compact else ""
 
     _out(engine, "")
-    _out(engine, _row("Tokens", "total" if compact else "", "active" if compact else ""))
+    if compact:
+        _out(engine, _row("Tokens", "total", "active"))
     _out(engine, _row("Input", format_tokens(ts.total_input_tokens), act(ts.active_input_tokens)))
     _out(
         engine, _row("Output", format_tokens(ts.total_output_tokens), act(ts.active_output_tokens))
@@ -218,25 +209,33 @@ def _render_tokens(engine: Engine, ts: TokenStats, *, show_context: bool = False
             )
 
 
-def _render_cost(engine: Engine, ts: TokenStats) -> None:
+def _render_cost(engine: Engine, ts: TokenStats, compact: bool) -> None:
     if not ts.total_cost:
         return
 
-    compact = ts.compaction_count > 0
     _out(engine, "")
-    _out(engine, _row("Cost", "total" if compact else "", "active" if compact else ""))
+    if compact:
+        _out(engine, _row("Cost", "total", "active"))
     _out(
         engine,
         _row("Total", format_cost(ts.total_cost), format_cost(ts.active_cost) if compact else ""),
     )
 
 
-def _render_tools(engine: Engine, tools: list[ToolStat]) -> None:
+def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:
     if not tools:
         return
     total_calls = sum(t.call_count for t in tools)
+    active_calls = sum(t.active_call_count for t in tools)
+
     _out(engine, "")
-    _out(engine, f"  Tool calls ({total_calls})")
+    if compact:
+        _out(engine, _row("Tools", "total", "active"))
+        _out(engine, _row("Calls", str(total_calls), str(active_calls)))
+    else:
+        _out(engine, f"  Tool calls ({total_calls})")
+
     for t in tools:
+        act = str(t.active_call_count) if compact else ""
         fail = f"  ({t.failure_count} failed)" if t.failure_count else ""
-        _out(engine, f"    {t.tool_name:<20}{t.call_count:>4}{fail}")
+        _out(engine, _row(f"  {t.tool_name}", str(t.call_count), act) + fail)

@@ -1088,8 +1088,10 @@ def test_tool_stats_counts_calls_and_failures() -> None:
 
     by_name = {s.tool_name: s for s in stats}
     assert by_name["read_file"].call_count == 2
+    assert by_name["read_file"].active_call_count == 2  # no compaction
     assert by_name["read_file"].failure_count == 0
     assert by_name["grep"].call_count == 1
+    assert by_name["grep"].active_call_count == 1
     assert by_name["grep"].failure_count == 1
 
 
