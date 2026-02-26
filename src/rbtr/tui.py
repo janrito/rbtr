@@ -206,6 +206,10 @@ class UI:
         self._pending_lines: list[RenderableType] | None = None
         self._pending_variant: Literal["succeeded", "failed", "toolcall"] = "succeeded"
         self._pending_commands: list[str] = []
+        # Startup commands (e.g. /review <n>, /session resume-last) —
+        # dispatched after setup, not echoed or persisted to history.
+        self._startup_commands: list[str] = []
+        self._needs_history_reload: bool = False
         # Index progress state — driven by IndexStarted/Progress/Ready events.
         self._index_phase: str = ""
         self._index_indexed: int = 0
@@ -860,6 +864,12 @@ class UI:
             self._live.update(self._render_view(), refresh=True)
         self._print_to_scrollback(panel)
 
+    def _reload_history(self) -> None:
+        """Reload up-arrow history from the DB."""
+        provider = self.inp.history_provider
+        if provider is not None:
+            self.inp.history = list(reversed(provider(None, config.tui.max_history)))
+
     def _echo_input(self, text: str) -> None:
         """Print an Input HistoryPanel to native scrollback."""
         self._finalize_pending()
@@ -934,7 +944,7 @@ class UI:
 
     # ── Task dispatch ────────────────────────────────────────────────
 
-    def _start_task(self, task_type: TaskType, arg: str) -> None:
+    def _start_task(self, task_type: TaskType, arg: str, *, persist: bool = True) -> None:
         """Start a task in a daemon thread."""
         # Clear cancel from any previous task, then mark active
         # immediately so the input reader sees it before the thread
@@ -943,7 +953,12 @@ class UI:
         self._engine._cancel.clear()
         self._active_task = True
         self.inp.active_task = True
-        t = threading.Thread(target=self._engine.run_task, args=(task_type, arg), daemon=True)
+        t = threading.Thread(
+            target=self._engine.run_task,
+            args=(task_type, arg),
+            kwargs={"persist": persist},
+            daemon=True,
+        )
         t.start()
 
     def _dispatch(self, raw: str) -> None:
@@ -954,6 +969,7 @@ class UI:
             except ValueError:
                 cmd = None
             if cmd is Command.QUIT:
+                self._engine._persist_input(raw, "command")
                 self.inp.quit = True
                 return
             self._start_task(TaskType.COMMAND, raw)
@@ -978,9 +994,9 @@ class UI:
             self.inp.on_cancel = self._engine.cancel
             self._start_task(TaskType.SETUP, "")
             if self._pr_number is not None:
-                self._pending_commands.append(f"/review {self._pr_number}")
+                self._startup_commands.append(f"/review {self._pr_number}")
             elif self._continue_session:
-                self._pending_commands.append("/session resume-last")
+                self._startup_commands.append("/session resume-last")
 
             while not self.inp.quit:
                 # Consume engine events and update UI state
@@ -1013,11 +1029,22 @@ class UI:
                     self._rotate_effort()
                     live.update(self._render_view())
 
+                # Process startup commands (no echo, no history).
+                if not self._active_task and self._startup_commands:
+                    cmd = self._startup_commands.pop(0)
+                    self._needs_history_reload = True
+                    self._start_task(TaskType.COMMAND, cmd, persist=False)
+                    live.update(self._render_view())
+
+                # Reload history from DB after startup commands finish
+                # so resumed session commands appear in up-arrow.
+                if self._needs_history_reload and not self._active_task:
+                    self._needs_history_reload = False
+                    self._reload_history()
+
                 # Process queued commands when task finishes
                 if not self._active_task and self._pending_commands:
                     cmd = self._pending_commands.pop(0)
-                    self.inp.append_history(cmd)
-                    self._echo_input(cmd)
                     self._dispatch(cmd)
                     live.update(self._render_view())
 

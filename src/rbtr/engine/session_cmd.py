@@ -150,8 +150,9 @@ def _cmd_info(engine: Engine) -> None:
     engine._out(f"  Label         {s.session_label or '—'}", style=STYLE_DIM)
     engine._out(f"  Repo          {repo}", style=STYLE_DIM)
     engine._out(f"  Model         {s.model_name or '—'}", style=STYLE_DIM)
-    msg_count = len(engine.store.load_messages(s.session_id))
-    engine._out(f"  Messages      {msg_count}", style=STYLE_DIM)
+    ts = engine.store.token_stats(s.session_id)
+    engine._out(f"  Turns         {ts.active_turns}", style=STYLE_DIM)
+    engine._out(f"  Responses     {ts.active_responses}", style=STYLE_DIM)
 
 
 # ── resume ───────────────────────────────────────────────────────────
@@ -190,17 +191,22 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
     engine.state.session_id = target.session_id
     engine.state.session_label = target.session_label or engine.state.session_label
 
+    # Restore session start time from the earliest message.
+    started = engine.store.session_started_at(target.session_id)
+    if started is not None:
+        engine.state.session_started_at = started
+
     ts = engine.store.token_stats(target.session_id)
     engine.state.usage.restore(
-        turn_count=ts.total_turns,
-        response_count=ts.total_responses,
-        input_tokens=ts.total_input_tokens,
-        output_tokens=ts.total_output_tokens,
-        cost=ts.total_cost,
+        turn_count=ts.active_turns,
+        response_count=ts.active_responses,
+        input_tokens=ts.active_input_tokens,
+        output_tokens=ts.active_output_tokens,
+        cost=ts.active_cost,
     )
 
     label = target.session_label or target.session_id[:8]
-    engine._out(f"Resumed session '{label}' ({len(messages)} messages).")
+    engine._out(f"Resumed session '{label}' ({ts.active_turns} turns).")
 
     # Restore the review target (re-fetches PR metadata / rebuilds index).
     if target.review_target:

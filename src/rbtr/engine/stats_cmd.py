@@ -105,7 +105,7 @@ def _out(engine: Engine, text: str) -> None:
 
 
 def _elapsed(engine: Engine) -> str:
-    secs = int(time.monotonic() - engine.state.session_started_at)
+    secs = int(time.time() - engine.state.session_started_at)
     if secs < 60:
         return f"{secs}s"
     mins, secs = divmod(secs, 60)

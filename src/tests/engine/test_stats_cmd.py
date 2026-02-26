@@ -106,7 +106,7 @@ def stats_engine(engine: Engine) -> Engine:
     """Engine with two seeded sessions and live usage state."""
     engine.state.model_name = "claude/sonnet"
     engine.state.session_label = "testowner/testrepo — main"
-    engine.state.session_started_at = time.monotonic() - 185
+    engine.state.session_started_at = time.time() - 185
     engine.state.usage.context_window = 200_000
     engine.state.usage.context_window_known = True
     engine.state.usage.last_input_tokens = 24_000

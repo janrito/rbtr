@@ -23,7 +23,7 @@ class EngineState:
     """Mutable state for the current rbtr session."""
 
     # Session persistence — ID set on init, label set on setup.
-    session_started_at: float = field(default_factory=time.monotonic)
+    session_started_at: float = field(default_factory=time.time)
     session_id: str = ""
     session_label: str = ""
     repo: pygit2.Repository | None = None

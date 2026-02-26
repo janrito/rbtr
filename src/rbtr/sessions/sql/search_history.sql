@@ -1,4 +1,4 @@
-SELECT DISTINCT user_text
+SELECT user_text
 FROM fragments
 WHERE
   user_text IS NOT NULL

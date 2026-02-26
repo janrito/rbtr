@@ -614,6 +614,24 @@ class SessionStore:
         ).fetchall()
         return [row["user_text"] for row in rows]
 
+    def session_started_at(self, session_id: str) -> float | None:
+        """Return the wall-clock timestamp of the session's first message.
+
+        Returns ``None`` if the session has no messages.
+        """
+        row = self._con.execute(
+            "SELECT MIN(created_at) AS started FROM fragments WHERE session_id = ?",
+            [session_id],
+        ).fetchone()
+        if row is None or row["started"] is None:
+            return None
+        from datetime import UTC, datetime
+
+        dt = datetime.fromisoformat(row["started"])
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.timestamp()
+
     def token_stats(self, session_id: str) -> TokenStats:
         """Return token usage for a session, split by compaction status."""
         return _token_stats(self._con, session_id)

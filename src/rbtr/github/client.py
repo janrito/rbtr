@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ from rbtr.models import (
     ReviewDraft,
     ReviewEvent,
 )
+
+log = logging.getLogger(__name__)
 
 # ── Remote URL parsing ───────────────────────────────────────────────
 
@@ -198,11 +201,27 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewD
 
     # Find the user's most recent PENDING review.
     pending = None
+    reviews_seen = 0
     for review in pr.get_reviews():
+        reviews_seen += 1
+        user_login = review.user.login if review.user else "<none>"
+        log.info(
+            "PR #%d review id=%d state=%s user=%s",
+            pr_number,
+            review.id,
+            review.state,
+            user_login,
+        )
         if review.state == "PENDING" and review.user is not None and review.user.login == username:
             pending = review
 
     if pending is None:
+        log.info(
+            "No PENDING review for '%s' on PR #%d (%d reviews seen)",
+            username,
+            pr_number,
+            reviews_seen,
+        )
         return None
 
     # Fetch inline comments for this specific review.

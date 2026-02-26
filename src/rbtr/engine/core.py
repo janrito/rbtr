@@ -125,7 +125,7 @@ class Engine:
 
     # ── Task runner ──────────────────────────────────────────────────
 
-    def run_task(self, task_type: TaskType, arg: str) -> None:
+    def run_task(self, task_type: TaskType, arg: str, *, persist: bool = True) -> None:
         """Run a task synchronously (called from a daemon thread)."""
         self._emit(TaskStarted(task_id=f"{task_type}:{arg}"))
         self._sync_store_context()
@@ -136,10 +136,11 @@ class Engine:
                 case TaskType.SETUP:
                     self._run_setup()
                 case TaskType.COMMAND:
-                    self._persist_input(arg, "command")
+                    if persist:
+                        self._persist_input(arg, "command")
                     self._handle_command(arg)
                 case TaskType.SHELL:
-                    self._persist_input(arg, "shell")
+                    self._persist_input(f"!{arg}", "shell")
                     handle_shell(self, arg)
                 case TaskType.LLM:
                     handle_llm(self, arg)
@@ -262,7 +263,7 @@ class Engine:
 
         self.state.usage.reset()
         self.state.session_id = self.store.new_id()
-        self.state.session_started_at = time.monotonic()
+        self.state.session_started_at = time.time()
         self._out("Conversation cleared.")
 
     def _persist_input(self, text: str, kind: str) -> None:

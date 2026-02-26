@@ -395,6 +395,8 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
         engine._clear()
         raise RbtrError(f"GitHub error fetching pending review: {exc.data}") from exc
 
+    engine._clear()
+
     # 2. Match remote into local.
     local = load_draft(pr_number) or ReviewDraft()
     if pending is not None:
@@ -406,13 +408,12 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
         if not summary and pending.summary:
             summary = pending.summary
         local = local.model_copy(update={"summary": summary, "comments": result.comments})
+    else:
+        engine._out(f"No pending review found for '{engine.state.gh_username}'.")
 
     if not local.summary and not local.comments:
-        engine._clear()
         engine._out("Nothing to sync — no local or remote draft.")
         return
-
-    engine._clear()
 
     # 3. Delete existing pending review before pushing.
     review_to_delete = pending.github_review_id if pending is not None else local.github_review_id
