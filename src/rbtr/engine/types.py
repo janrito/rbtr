@@ -21,7 +21,7 @@ class Command(_CommandMixin, Enum):
     CONNECT = "/connect", "Connect a service"
     MODEL = "/model", "List or set active model"
     INDEX = "/index", "Index status, clear, rebuild, prune, model"
-    COMPACT = "/compact", "Summarise older context to free space"
+    COMPACT = "/compact", "Summarise older context (reset = undo last)"
     SESSION = "/session", "List, inspect, or delete sessions"
     STATS = "/stats", "Show session token and cost statistics"
     NEW = "/new", "Start a new conversation"

@@ -93,6 +93,10 @@ def split_history(
     Returns ``(old, kept)`` where ``kept`` has the last *keep_turns*
     turns and ``old`` has everything before.  If the history has
     ``keep_turns`` or fewer turns, ``old`` is empty.
+
+    After splitting, any tool-return-only ``ModelRequest`` messages in
+    ``kept`` whose ``tool_call_id`` has no matching ``ToolCallPart``
+    in ``kept`` are moved to ``old`` to prevent orphaned tool returns.
     """
     # Find indices where each user turn starts.
     turn_starts: list[int] = [i for i, msg in enumerate(history) if _is_user_turn_start(msg)]
@@ -102,7 +106,44 @@ def split_history(
 
     # The cut point is where the kept turns begin.
     cut = turn_starts[-keep_turns]
-    return list(history[:cut]), list(history[cut:])
+    old, kept = list(history[:cut]), list(history[cut:])
+
+    # Move orphaned tool-return requests into old.
+    kept_call_ids = _collect_tool_call_ids(kept)
+    clean: list[ModelMessage] = []
+    for msg in kept:
+        if _is_orphaned_tool_return(msg, kept_call_ids):
+            old.append(msg)
+        else:
+            clean.append(msg)
+
+    return old, clean
+
+
+def _collect_tool_call_ids(messages: list[ModelMessage]) -> set[str]:
+    """Collect all tool_call_id values from ToolCallParts in responses."""
+    ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart) and part.tool_call_id:
+                    ids.add(part.tool_call_id)
+    return ids
+
+
+def _is_orphaned_tool_return(msg: ModelMessage, known_call_ids: set[str]) -> bool:
+    """Check if a message is a tool-return-only request with no matching call."""
+    if not isinstance(msg, ModelRequest):
+        return False
+    has_user_prompt = any(isinstance(p, UserPromptPart) for p in msg.parts)
+    if has_user_prompt:
+        return False
+    tool_returns = [
+        p for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id is not None
+    ]
+    if not tool_returns:
+        return False
+    return all(p.tool_call_id not in known_call_ids for p in tool_returns)
 
 
 def estimate_tokens(text: str) -> int:

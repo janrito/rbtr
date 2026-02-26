@@ -136,6 +136,7 @@ saved automatically to the session database (see Sessions below).
 | `/model <provider/id>` | Set the active model                     |
 | `/index`               | Show index status, clear, rebuild        |
 | `/compact`             | Summarise older context to free space    |
+| `/compact reset`       | Undo last compaction (before new messages)|
 | `/session`             | List, inspect, or delete sessions        |
 | `/new`                 | Start a new conversation                 |
 | `/quit`                | Exit (also `/q`)                         |
@@ -362,6 +363,11 @@ messages based on `keep_turns` (default 2).  A *turn* starts at a
 user prompt and includes everything up to the next user prompt
 (the model's responses, tool calls, tool results).
 
+After splitting, any orphaned tool returns in **kept** — tool
+results whose matching tool call is in **old** — are moved to
+**old**.  This prevents API errors from mismatched tool call IDs
+after compaction.
+
 The old messages are serialised to text and sent to the current
 model with a summary prompt.  The result:
 
@@ -467,6 +473,17 @@ instructions for the summary:
 ```text
 you: /compact
 you: /compact Focus on the authentication changes
+```
+
+**5. Reset** — `/compact reset` undoes the latest compaction,
+restoring the original messages to active context.  The summary
+message is deleted (its timestamp would interleave with restored
+messages).  Reset is only allowed if no messages were sent after
+the compaction:
+
+```text
+you: /compact reset
+Compaction reset — 42 fragments restored (26 active messages).
 ```
 
 ### Large conversations

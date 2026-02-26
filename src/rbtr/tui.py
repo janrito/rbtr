@@ -209,7 +209,7 @@ class UI:
         # Startup commands (e.g. /review <n>, /session resume-last) —
         # dispatched after setup, not echoed or persisted to history.
         self._startup_commands: list[str] = []
-        self._needs_history_reload: bool = False
+        self._reload_after_startup: bool = False
         # Index progress state — driven by IndexStarted/Progress/Ready events.
         self._index_phase: str = ""
         self._index_indexed: int = 0
@@ -260,6 +260,13 @@ class UI:
                         (f"/index {name}", desc) for name, desc in subs if name.startswith(arg)
                     ]
                     self.inp.apply_completions(matches)
+                case Command.COMPACT:
+                    if "reset".startswith(arg):
+                        self.inp.apply_completions(
+                            [
+                                ("/compact reset", "Undo last compaction"),
+                            ]
+                        )
                 case Command.SESSION:
                     self._complete_session(arg)
             return
@@ -1030,16 +1037,16 @@ class UI:
                     live.update(self._render_view())
 
                 # Process startup commands (no echo, no history).
+                # Reload history after the last one finishes so
+                # resumed session commands appear in up-arrow.
                 if not self._active_task and self._startup_commands:
                     cmd = self._startup_commands.pop(0)
-                    self._needs_history_reload = True
                     self._start_task(TaskType.COMMAND, cmd, persist=False)
+                    if not self._startup_commands:
+                        self._reload_after_startup = True
                     live.update(self._render_view())
-
-                # Reload history from DB after startup commands finish
-                # so resumed session commands appear in up-arrow.
-                if self._needs_history_reload and not self._active_task:
-                    self._needs_history_reload = False
+                if self._reload_after_startup and not self._active_task:
+                    self._reload_after_startup = False
                     self._reload_history()
 
                 # Process queued commands when task finishes

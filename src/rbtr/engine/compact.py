@@ -49,6 +49,22 @@ def compact_history(engine: Engine, extra_instructions: str = "") -> None:
     future.result()
 
 
+def reset_compaction(engine: Engine) -> None:
+    """Undo the latest compaction — restore compacted messages to active."""
+    sid = engine.state.session_id
+    try:
+        restored = engine.store.reset_latest_compaction(sid)
+    except ValueError as e:
+        engine._warn(str(e))
+        return
+    if restored == 0:
+        engine._out("Nothing to reset — session has no compacted messages.")
+        return
+
+    msgs = engine.store.load_messages(sid)
+    engine._out(f"Compaction reset — {restored} fragments restored ({len(msgs)} active messages).")
+
+
 async def compact_history_async(engine: Engine, extra_instructions: str = "") -> None:
     """Summarise older messages to reduce context usage.
 
@@ -73,7 +89,6 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
     sid = engine.state.session_id
     paired = engine.store.load_messages_with_ids(sid)
     history = [msg for _id, msg in paired]
-    ids = [mid for mid, _msg in paired]
     keep_turns = config.compaction.keep_turns
     old, kept = split_history(history, keep_turns)
 
@@ -84,8 +99,11 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
         engine._out("Nothing to compact — conversation is short enough.")
         return
 
-    # IDs align with messages — same query, same order.
-    old_ids = ids[: len(old)]
+    # Collect IDs for old messages.  split_history may move orphaned
+    # tool returns from kept into old, so positional slicing is wrong —
+    # match by object identity instead.
+    old_set = {id(msg) for msg in old}
+    old_ids = [mid for mid, msg in paired if id(msg) in old_set]
 
     max_tool_chars = config.compaction.summary_max_chars
     serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
@@ -101,7 +119,8 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
             return
         kept = list(old[fit_count:]) + kept
         old = list(old[:fit_count])
-        old_ids = ids[: len(old)]
+        old_set = {id(msg) for msg in old}
+        old_ids = [mid for mid, msg in paired if id(msg) in old_set]
         serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
 
     engine._emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))

@@ -31,7 +31,7 @@ import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -87,6 +87,11 @@ _DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 _GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
 _COMPLETE_MESSAGE_SQL = _load_sql("complete_message.sql")
+_FIND_LATEST_SUMMARY_SQL = _load_sql("find_latest_summary.sql")
+_RESET_COMPACTION_SQL = _load_sql("reset_compaction.sql")
+_HAS_MESSAGES_AFTER_SQL = _load_sql("has_messages_after.sql")
+_DELETE_MESSAGE_SQL = _load_sql("delete_message.sql")
+_SESSION_STARTED_AT_SQL = _load_sql("session_started_at.sql")
 
 
 # ── Result types ─────────────────────────────────────────────────────
@@ -488,6 +493,38 @@ class SessionStore:
                 [[summary_id, mid, mid] for mid in compact_ids],
             )
 
+    def reset_latest_compaction(self, session_id: str) -> int:
+        """Undo the most recent compaction for a session.
+
+        Sets ``compacted_by = NULL`` on all fragments that were
+        marked by the most recent summary, then deletes the summary
+        message.  The summary is removed because its timestamp
+        would interleave with restored messages and break tool-call
+        pairing.
+
+        Returns the number of fragments restored, 0 if none existed.
+
+        Raises :class:`ValueError` if messages were added after the
+        compaction (the summary is already part of later context).
+        """
+        with self._lock, self._con:
+            row = self._con.execute(_FIND_LATEST_SUMMARY_SQL, [session_id]).fetchone()
+            if row is None:
+                return 0
+            summary_id = row["summary_id"]
+            after = self._con.execute(_HAS_MESSAGES_AFTER_SQL, [session_id, summary_id]).fetchone()
+            if after and after["new_count"] > 0:
+                raise ValueError(
+                    "Cannot reset — messages were added after this compaction. "
+                    "The summary is already part of the conversation context."
+                )
+            cur = self._con.execute(_RESET_COMPACTION_SQL, [summary_id])
+            restored = cur.rowcount
+            # Delete the summary — its timestamp would interleave
+            # with restored messages and break tool-call ordering.
+            self._con.execute(_DELETE_MESSAGE_SQL, [summary_id])
+            return restored
+
     def delete_session(self, session_id: str) -> int:
         """Delete all fragments for a session.  Returns rows deleted."""
         with self._lock, self._con:
@@ -619,14 +656,9 @@ class SessionStore:
 
         Returns ``None`` if the session has no messages.
         """
-        row = self._con.execute(
-            "SELECT MIN(created_at) AS started FROM fragments WHERE session_id = ?",
-            [session_id],
-        ).fetchone()
+        row = self._con.execute(_SESSION_STARTED_AT_SQL, [session_id]).fetchone()
         if row is None or row["started"] is None:
             return None
-        from datetime import UTC, datetime
-
         dt = datetime.fromisoformat(row["started"])
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)

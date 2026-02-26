@@ -9,4 +9,4 @@ WHERE
   session_id = ?
   AND compacted_by IS NULL
   AND complete = 1
-ORDER BY created_at, fragment_index;
+ORDER BY created_at, message_id, fragment_index;

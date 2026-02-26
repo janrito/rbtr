@@ -16,13 +16,14 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.usage import RequestUsage, RunUsage
 
 from rbtr.engine import Engine
-from rbtr.engine.compact import compact_history, find_fit_count
+from rbtr.engine.compact import compact_history, find_fit_count, reset_compaction
 from rbtr.engine.history import (
     _SUMMARY_MARKER,
     build_summary_message,
@@ -126,6 +127,299 @@ def test_split_history_realistic() -> None:
     )
     assert kept == REALISTIC_HISTORY[last_user_idx:]
     assert old == REALISTIC_HISTORY[:last_user_idx]
+
+
+# ── Orphaned tool return tests ───────────────────────────────────────
+#
+# After compaction, a ToolReturnPart can reference a ToolCallPart that
+# was compacted away (in a preceding ModelResponse).  The API rejects
+# this: "No tool call found for function call output with call_id …".
+#
+# split_history must move such orphaned tool-return requests into old.
+# These tests build realistic multi-turn conversations with explicit
+# tool_call_ids and verify no orphans survive in kept.
+
+
+def _assert_no_orphaned_returns(kept: list[ModelMessage]) -> None:
+    """Assert every ToolReturnPart in kept has a matching ToolCallPart."""
+    call_ids: set[str] = set()
+    for msg in kept:
+        if isinstance(msg, ModelResponse):
+            for p in msg.parts:
+                if isinstance(p, ToolCallPart) and p.tool_call_id:
+                    call_ids.add(p.tool_call_id)
+    for msg in kept:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, ToolReturnPart) and p.tool_call_id:
+                    assert p.tool_call_id in call_ids, f"Orphaned tool return: {p.tool_call_id}"
+
+
+def test_orphan_single_tool_return_at_boundary() -> None:
+    """A lone tool return right after the cut point is moved to old.
+
+    Turn 1 ends with a tool call; its return sits just before turn 2.
+    Keeping only turn 2 must move the orphaned return into old.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),  # [0]
+        _tool_call("grep", call_id="call_A"),  # [1]
+        _tool_return("grep", "result", call_id="call_A"),  # [2] — orphan candidate
+        _assistant("answer 1"),  # [3]
+        _user("turn 2"),  # [4]
+        _assistant("answer 2"),  # [5]
+    ]
+    old, kept = split_history(history, keep_turns=1)
+    assert kept == [history[4], history[5]]
+    assert history[2] in old  # orphan moved to old
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_multiple_consecutive_returns() -> None:
+    """Multiple orphaned tool returns in a row are all moved to old.
+
+    Model made two parallel tool calls; both returns are orphaned
+    when the response containing the calls is compacted.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="call_A"),
+                ToolCallPart(tool_name="read", args={}, tool_call_id="call_B"),
+            ],
+            usage=_USAGE,
+            model_name="test",
+        ),
+        _tool_return("grep", "result", call_id="call_A"),
+        _tool_return("read", "result", call_id="call_B"),
+        _assistant("done"),
+        _user("turn 2"),
+        _assistant("answer 2"),
+    ]
+    old, kept = split_history(history, keep_turns=1)
+    assert kept == history[-2:]
+    assert history[2] in old
+    assert history[3] in old
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_not_moved_when_call_in_kept() -> None:
+    """A tool return whose call is also in kept stays in kept.
+
+    Both the ToolCallPart and ToolReturnPart are within the same
+    kept turn — no orphan.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _assistant("answer 1"),
+        _user("turn 2"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("answer 2"),
+    ]
+    old, kept = split_history(history, keep_turns=1)
+    assert old == history[:2]
+    assert kept == history[2:]
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_mixed_orphaned_and_paired() -> None:
+    """Only orphaned returns move; paired ones stay.
+
+    Turn 1 makes call_A.  Turn 2 makes call_B.  Keep turn 2.
+    call_A's return (between turns) is orphaned; call_B's is not.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("answer 1"),
+        _user("turn 2"),
+        _tool_call("read", call_id="call_B"),
+        _tool_return("read", "result", call_id="call_B"),
+        _assistant("answer 2"),
+    ]
+    old, kept = split_history(history, keep_turns=1)
+    # call_A's return should be in old, call_B's in kept.
+    assert history[2] in old  # call_A return → orphaned
+    assert history[6] in kept  # call_B return → paired
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_chain_across_turns() -> None:
+    """Orphan cleanup across a three-turn history with keep_turns=1.
+
+    Turn 1: call_A → return_A
+    Turn 2: call_B → return_B
+    Turn 3: text only
+
+    Keep 1 → turns 1 and 2 compacted.  return_B sits between
+    turn 2's response and turn 3's user prompt.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("answer 1"),
+        _user("turn 2"),
+        _tool_call("read", call_id="call_B"),
+        _tool_return("read", "result", call_id="call_B"),
+        _assistant("answer 2"),
+        _user("turn 3"),
+        _assistant("answer 3"),
+    ]
+    _old, kept = split_history(history, keep_turns=1)
+    assert kept == history[-2:]
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_with_response_between_return_and_next_turn() -> None:
+    """Orphaned return followed by a response then the next turn.
+
+    The return is orphaned but the response after it is not a
+    tool-return request — the while-loop should stop at the response.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("continuation"),  # response after tool return, same turn
+        _user("turn 2"),
+        _assistant("answer 2"),
+    ]
+    # Keep 1 — turn 1 (including all its messages) goes to old.
+    _old, kept = split_history(history, keep_turns=1)
+    assert kept == history[-2:]
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_tool_return_with_none_call_id_not_moved() -> None:
+    """A ToolReturnPart with tool_call_id=None is not treated as orphaned.
+
+    Some older pydantic-ai versions or custom agents may produce
+    tool returns without call IDs.  These should stay in kept.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _assistant("answer 1"),
+        _user("turn 2"),
+        # Tool return without a call_id — not orphaned by our definition.
+        ModelRequest(parts=[ToolReturnPart(tool_name="grep", content="x", tool_call_id=None)]),
+        _assistant("answer 2"),
+    ]
+    _old, kept = split_history(history, keep_turns=1)
+    # The None-id return stays in kept (no matching logic applies).
+    assert any(
+        isinstance(p, ToolReturnPart) and p.tool_call_id is None
+        for msg in kept
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+    )
+
+
+def test_orphan_user_prompt_stops_migration() -> None:
+    """The while-loop stops at a UserPromptPart — never moves user turns.
+
+    Even if a tool return appears AFTER a user prompt (unusual but
+    possible), the user prompt is never moved to old.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("answer 1"),
+        _user("turn 2"),
+        _assistant("answer 2"),
+        _user("turn 3"),
+        _assistant("answer 3"),
+    ]
+    _old, kept = split_history(history, keep_turns=2)
+    # Kept must start at "turn 2" — never moves a UserPromptPart.
+    assert isinstance(kept[0], ModelRequest)
+    assert any(isinstance(p, UserPromptPart) for p in kept[0].parts)
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_multi_step_tool_chain_within_turn() -> None:
+    """Multi-step tool chain within one turn — all returns stay paired.
+
+    Model calls tool A, gets result, calls tool B, gets result, answers.
+    All within one turn.  Nothing is orphaned.
+    """
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _assistant("simple"),
+        _user("turn 2"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call("read", call_id="call_B"),
+        _tool_return("read", "result", call_id="call_B"),
+        _assistant("done"),
+    ]
+    _old, kept = split_history(history, keep_turns=1)
+    assert kept == history[2:]
+    _assert_no_orphaned_returns(kept)
+
+
+def test_orphan_all_messages_kept_no_change() -> None:
+    """When nothing is compacted, no orphan cleanup is needed."""
+    history: list[ModelMessage] = [
+        _user("turn 1"),
+        _tool_call("grep", call_id="call_A"),
+        _tool_return("grep", "result", call_id="call_A"),
+        _assistant("answer"),
+    ]
+    old, kept = split_history(history, keep_turns=5)
+    assert old == []
+    assert kept == history
+
+
+def test_orphan_reproduces_real_bug() -> None:
+    """Reproduces the exact pattern from the production bug.
+
+    Turn N (compacted):
+        ... earlier messages ...
+        ModelResponse with ToolCallPart(list_files, call_xJJ)
+
+    Turn N+1 (kept):
+        ModelRequest with UserPromptPart("check notes")
+        ModelResponse with TextPart("no notes found")
+        ModelRequest with ToolReturnPart(list_files, call_xJJ)  ← orphan!
+
+    The orphaned return must be moved to old so the API never sees
+    a tool return without its matching tool call.
+    """
+    history: list[ModelMessage] = [
+        # Earlier turns — will be compacted.
+        _user("review the PR"),
+        _tool_call("diff", call_id="call_111"),
+        _tool_return("diff", "result", call_id="call_111"),
+        _assistant("Here's the diff."),
+        _tool_call("list_files", call_id="call_xJJ"),
+        # ↑ This response has the tool call for list_files.
+        # ↓ The user prompt starts a new turn, splitting here.
+        _user("check notes"),
+        _assistant("No notes found."),
+        # The tool return for call_xJJ arrives AFTER the user prompt
+        # (pydantic-ai structures it as a separate ModelRequest).
+        _tool_return("list_files", "result", call_id="call_xJJ"),
+        # Another turn.
+        _user("any security concerns?"),
+        _assistant("No issues."),
+    ]
+    _old, kept = split_history(history, keep_turns=1)
+    # The orphan (call_xJJ return) must not be in kept.
+    _assert_no_orphaned_returns(kept)
+    assert kept == history[-2:]
+
+    # With keep_turns=2, keep "check notes" and "security" turns.
+    # The orphaned return for call_xJJ should still be in old.
+    _old2, kept2 = split_history(history, keep_turns=2)
+    _assert_no_orphaned_returns(kept2)
+    # kept starts at "check notes"
+    assert isinstance(kept2[0], ModelRequest)
+    assert any(isinstance(p, UserPromptPart) for p in kept2[0].parts)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -266,8 +560,6 @@ def test_compact_single_turn(config_path: str, engine: Engine) -> None:
     engine.state.claude_connected = True
     _seed(engine, _turns(1))
 
-    from rbtr.engine.compact import compact_history
-
     compact_history(engine)
     texts = output_texts(drain(engine.events))
     assert any("Nothing to compact" in t for t in texts)
@@ -310,8 +602,6 @@ def test_compact_replaces_history(config_path: str, mocker: object, engine: Engi
     _seed(engine, list(REALISTIC_HISTORY))
     engine.state.usage.context_window = 200_000
 
-    from rbtr.engine.compact import compact_history
-
     compact_history(engine)
 
     # Load from DB — the source of truth.
@@ -347,8 +637,6 @@ def test_compact_emits_both_events(config_path: str, mocker: object, engine: Eng
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
-    from rbtr.engine.compact import compact_history
-
     compact_history(engine)
     all_events = drain(engine.events)
     assert has_event_type(all_events, CompactionStarted)
@@ -372,9 +660,7 @@ def test_compact_extra_instructions_in_prompt(
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
-    from rbtr.engine.compact import compact_history
-
-    compact_history(engine, extra_instructions="Focus on security")
+    compact_history(engine, "Focus on security")
 
     prompt = mock.call_args[0][2]  # (engine, model, prompt)
     assert "Focus on security" in prompt
@@ -399,8 +685,6 @@ def test_compact_over_limit_shrinks_old(config_path: str, mocker: object, engine
     # 10 turns, keep 1 → 9 turns old. Each turn serialises to ~2500 tokens.
     # 9 turns ≈ 22.5k tokens. Set available to ~7.5k so only ~3 turns fit.
     engine.state.usage.context_window = 23_500  # minus 16k reserve = 7.5k available
-
-    from rbtr.engine.compact import compact_history
 
     compact_history(engine)
     all_events = drain(engine.events)
@@ -428,8 +712,6 @@ def test_compact_single_message_exceeds_context(config_path: str, engine: Engine
     # Context window so small that even 1 message doesn't fit
     engine.state.usage.context_window = 17_000  # 17k - 16k reserve = 1k available
 
-    from rbtr.engine.compact import compact_history
-
     compact_history(engine)
     texts = output_texts(drain(engine.events))
     assert any("even a single message exceeds" in t for t in texts)
@@ -451,8 +733,6 @@ def test_compact_llm_error_leaves_history_unchanged(
     original = list(_turns(15))
     _seed(engine, original)
     engine.state.usage.context_window = 200_000
-
-    from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
@@ -478,8 +758,6 @@ def test_compact_leaves_last_input_tokens_unchanged(
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
     engine.state.usage.last_input_tokens = 150_000  # simulate high usage
-
-    from rbtr.engine.compact import compact_history
 
     compact_history(engine)
 
@@ -765,3 +1043,423 @@ def test_no_mid_turn_compaction_without_tools(
     texts = output_texts(events)
 
     assert not any("mid-turn" in t.lower() for t in texts)
+
+
+def test_mid_turn_compaction_blocks_reset(
+    config_path: str, mocker: object, llm_engine: Engine
+) -> None:
+    """``/compact reset`` is blocked after mid-turn compaction because
+    the model continues and adds messages after the summary.
+    """
+    _seed_llm_history(llm_engine)
+    _patch_for_mid_turn(llm_engine, mocker)
+
+    llm_engine.run_task("llm", "trigger tools")
+    drain(llm_engine.events)
+
+    # The model resumed after mid-turn compaction, so messages
+    # exist with IDs > summary_id.  Reset must be blocked.
+    reset_compaction(llm_engine)
+    events = drain(llm_engine.events)
+    texts = output_texts(events)
+
+    assert any("Cannot reset" in t for t in texts)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# /compact reset
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_compact_reset_restores_messages(config_path: str, mocker: object, engine: Engine) -> None:
+    """``/compact reset`` un-marks compacted messages, summary stays."""
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    original = _turns(8)
+    _seed(engine, original)
+    engine.state.usage.context_window = 200_000
+
+    # Compact — some messages now marked.
+    compact_history(engine)
+    drain(engine.events)
+    compacted_count = len(engine.store.load_messages(engine.state.session_id))
+    assert compacted_count < len(original)
+
+    # Reset.
+    reset_compaction(engine)
+    events = drain(engine.events)
+    texts = output_texts(events)
+
+    assert any("reset" in t.lower() and "restored" in t.lower() for t in texts)
+
+    # All original messages are active again, summary deleted.
+    restored = engine.store.load_messages(engine.state.session_id)
+    assert len(restored) == len(original)
+    # Summary is gone.
+    assert not any(
+        isinstance(m, ModelRequest)
+        and any(
+            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
+        )
+        for m in restored
+    )
+
+
+def test_compact_reset_no_existing_compaction(config_path: str, engine: Engine) -> None:
+    """``/compact reset`` with no prior compaction says nothing to reset."""
+    _seed(engine, _turns(3))
+    engine.state.claude_connected = True
+
+    reset_compaction(engine)
+    events = drain(engine.events)
+    texts = output_texts(events)
+
+    assert any("Nothing to reset" in t for t in texts)
+
+
+def test_compact_reset_only_latest(config_path: str, mocker: object, engine: Engine) -> None:
+    """``/compact reset`` undoes only the latest compaction, not all."""
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    engine.state.usage.context_window = 200_000
+
+    # Build history with many turns so two compactions can stack.
+    _seed(engine, _turns(20))
+
+    # First compaction.
+    compact_history(engine)
+    drain(engine.events)
+    after_first = len(engine.store.load_messages(engine.state.session_id))
+
+    # Add more turns, then compact again.
+    _seed(engine, _turns(10))
+    compact_history(engine)
+    drain(engine.events)
+    after_second = len(engine.store.load_messages(engine.state.session_id))
+    assert after_second <= after_first + 20  # sanity
+
+    # Reset undoes only the second compaction.
+    reset_compaction(engine)
+    drain(engine.events)
+    after_reset = len(engine.store.load_messages(engine.state.session_id))
+
+    # More messages than after second compact (restored some).
+    assert after_reset > after_second
+
+    # First summary survives, second (the one we reset) is deleted.
+    summaries = [
+        m
+        for m in engine.store.load_messages(engine.state.session_id)
+        if isinstance(m, ModelRequest)
+        and any(
+            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
+        )
+    ]
+    assert len(summaries) == 1
+
+    # First compaction's marks still hold — total active count is
+    # less than all 60 original messages (20 + 10 turns x 2 msgs).
+    assert after_reset < 60
+
+
+def test_compact_reset_blocked_after_new_messages(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
+    """``/compact reset`` is blocked when messages were added after compaction."""
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    _seed(engine, _turns(8))
+    engine.state.usage.context_window = 200_000
+
+    # Compact.
+    compact_history(engine)
+    drain(engine.events)
+
+    # Add new messages after compaction.
+    _seed(engine, _turns(2))
+
+    # Reset should be blocked.
+    reset_compaction(engine)
+    events = drain(engine.events)
+    texts = output_texts(events)
+
+    assert any("Cannot reset" in t for t in texts)
+
+    # Messages are unchanged — compaction was not undone.
+    msgs = engine.store.load_messages(engine.state.session_id)
+    assert any(
+        isinstance(m, ModelRequest)
+        and any(
+            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
+        )
+        for m in msgs
+    )
+
+
+def test_compact_reset_allowed_immediately_after_compaction(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
+    """``/compact reset`` works when no messages were added after compaction."""
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    _seed(engine, _turns(8))
+    engine.state.usage.context_window = 200_000
+
+    # Compact then immediately reset — no new messages in between.
+    compact_history(engine)
+    drain(engine.events)
+
+    reset_compaction(engine)
+    events = drain(engine.events)
+    texts = output_texts(events)
+
+    assert any("restored" in t.lower() for t in texts)
+    assert not any("Cannot" in t for t in texts)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# End-to-end: compaction across tool-call boundaries
+# ═══════════════════════════════════════════════════════════════════════
+
+# Realistic conversation where tool returns straddle turn boundaries.
+# This is the pattern that caused the production bug: a ModelResponse
+# at the end of turn N contains a ToolCallPart, but pydantic-ai puts
+# the ToolReturnPart in a separate ModelRequest (no UserPromptPart)
+# that lands AFTER the next turn's user prompt.  When compaction
+# splits at the user-prompt boundary, the tool call goes to old
+# but the tool return stays in kept — an orphan.
+#
+#   Turn 1: user → call_AAA → return_AAA → text
+#   Turn 2: user → call_BBB → return_BBB → call_CCC → return_CCC → text
+#   Turn 3: response with call_DDD (end of model's multi-step)
+#            ↓ user prompt starts turn 4 HERE
+#   Turn 4: user → text
+#            return_DDD ← orphan! (tool call is in turn 3, above the cut)
+#   Turn 5: user → text
+#
+# With keep_turns=2, the cut falls before turn 4.  The response
+# containing call_DDD is in old, but return_DDD is in kept.
+TOOL_BOUNDARY_HISTORY: list[ModelRequest | ModelResponse] = [
+    # Turn 1
+    _user("find all TODO comments"),
+    _tool_call("grep", {"pattern": "TODO"}, call_id="call_AAA"),
+    _tool_return("grep", "foo.py:10 TODO\nbar.py:3 TODO", call_id="call_AAA"),
+    _assistant("Found 2 TODOs."),
+    # Turn 2
+    _user("show me foo.py"),
+    _tool_call("read_file", {"path": "foo.py"}, call_id="call_BBB"),
+    _tool_return("read_file", "def main(): pass", call_id="call_BBB"),
+    _tool_call("grep", {"pattern": "main"}, call_id="call_CCC"),
+    _tool_return("grep", "foo.py:1 def main()", call_id="call_CCC"),
+    _assistant("foo.py has one function."),
+    # Turn 3: model responds with text + tool call in one response
+    _user("what other files?"),
+    ModelResponse(
+        parts=[
+            TextPart(content="Let me check."),
+            ToolCallPart(tool_name="list_files", args={"path": "."}, tool_call_id="call_DDD"),
+        ],
+        usage=RunUsage(requests=1),
+        model_name="test",
+    ),
+    # ---- cut falls here with keep_turns=2 ----
+    # Turn 4: user prompt starts, but return_DDD arrives after it
+    _user("any security concerns?"),
+    _assistant("No issues."),
+    _tool_return("list_files", "foo.py\nbar.py", call_id="call_DDD"),
+    # Turn 5
+    _user("summarise"),
+    _assistant("All good."),
+]
+
+
+def _assert_valid_history(messages: list[ModelMessage]) -> None:
+    """Assert messages form a structurally valid LLM conversation.
+
+    Checks:
+    - Non-empty, starts with ModelRequest, alternates request/response
+    - Every ToolReturnPart has a matching ToolCallPart (no orphaned returns)
+    - Every ToolCallPart has a matching ToolReturnPart (no orphaned calls)
+    - Tool call always precedes its matching return (correct ordering)
+    """
+    assert messages, "History is empty"
+    assert isinstance(messages[0], ModelRequest), "History must start with ModelRequest"
+
+    # A ModelResponse must always be followed by a ModelRequest.
+    # Consecutive ModelRequests are allowed (e.g. tool-return-only
+    # request after a request with a user prompt).
+    for i in range(1, len(messages)):
+        if isinstance(messages[i], ModelResponse) and isinstance(messages[i - 1], ModelResponse):
+            raise AssertionError(f"Consecutive ModelResponse at index {i - 1} and {i}")
+
+    # Collect all tool call IDs with their position.
+    call_positions: dict[str, int] = {}
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ModelResponse):
+            for p in msg.parts:
+                if isinstance(p, ToolCallPart) and p.tool_call_id:
+                    call_positions[p.tool_call_id] = i
+
+    # Collect all tool return IDs with their position.
+    return_positions: dict[str, int] = {}
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, ToolReturnPart) and p.tool_call_id:
+                    return_positions[p.tool_call_id] = i
+
+    # Every return has a matching call.
+    for call_id, pos in return_positions.items():
+        assert call_id in call_positions, f"Orphaned tool return at message {pos}: {call_id}"
+
+    # Every call has a matching return.
+    for call_id, pos in call_positions.items():
+        assert call_id in return_positions, f"Orphaned tool call at message {pos}: {call_id}"
+
+    # Call always precedes its return.
+    for call_id in call_positions:
+        assert call_positions[call_id] < return_positions[call_id], (
+            f"Tool call {call_id} at message {call_positions[call_id]} "
+            f"appears after its return at message {return_positions[call_id]}"
+        )
+
+
+def _assert_loaded_valid(engine: Engine) -> None:
+    """Assert load_messages returns a structurally valid conversation."""
+    _assert_valid_history(engine.store.load_messages(engine.state.session_id))
+
+
+def test_compaction_across_tool_boundaries_no_orphans(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
+    """Compacting a conversation where a tool return straddles the
+    turn boundary produces no orphaned tool returns.
+
+    With keep_turns=2 the cut falls between turn 3 (which has the
+    ToolCallPart for call_DDD) and turn 4 (after which the
+    ToolReturnPart for call_DDD appears).  Without the orphan fix,
+    call_DDD's return would be in kept with no matching call.
+    """
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Found TODOs, read foo.py, listed project files.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    engine.state.usage.context_window = 200_000
+
+    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+    compact_history(engine)  # keep_turns=2 from config
+    drain(engine.events)
+    _assert_loaded_valid(engine)
+
+
+def test_compact_reset_restores_original_messages_without_summary(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
+    """After ``/compact reset``, loaded messages are exactly the
+    originals — no summary injected, no orphaned tool returns,
+    no interleaving artifacts.
+    """
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary of tool conversation.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    engine.state.usage.context_window = 200_000
+    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+
+    # Snapshot original messages before compaction.
+    original = engine.store.load_messages(engine.state.session_id)
+    assert len(original) == len(TOOL_BOUNDARY_HISTORY)
+
+    # Compact.
+    compact_history(engine)
+    drain(engine.events)
+    compacted = engine.store.load_messages(engine.state.session_id)
+    assert len(compacted) < len(original)
+
+    # Reset.
+    reset_compaction(engine)
+    drain(engine.events)
+    restored = engine.store.load_messages(engine.state.session_id)
+
+    # Same count as original — summary is gone.
+    assert len(restored) == len(original)
+
+    # No summary marker anywhere.
+    for msg in restored:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, UserPromptPart):
+                    assert _SUMMARY_MARKER not in str(p.content)
+
+    # No orphaned tool returns.
+    _assert_loaded_valid(engine)
+
+    # Message types match original order.
+    for orig, rest in zip(original, restored, strict=True):
+        assert type(orig) is type(rest)
+
+
+def test_compaction_reset_and_recompact_no_orphans(
+    config_path: str, mocker: object, engine: Engine
+) -> None:
+    """After reset and recompaction, no orphaned tool returns exist.
+
+    1. Compact (may produce orphans in old code, shouldn't now)
+    2. Reset — restores all messages
+    3. Recompact — should still produce clean history
+    """
+    mocker.patch(  # type: ignore[union-attr]
+        "rbtr.engine.compact._stream_summary",
+        return_value="Summary of tool-heavy conversation.",
+    )
+    mocker.patch("rbtr.engine.compact.build_model")  # type: ignore[union-attr]
+
+    engine.state.claude_connected = True
+    engine.state.usage.context_window = 200_000
+    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+
+    # First compaction.
+    compact_history(engine)
+    drain(engine.events)
+    _assert_loaded_valid(engine)
+    after_compact = len(engine.store.load_messages(engine.state.session_id))
+
+    # Reset — restores originals, deletes summary.
+    reset_compaction(engine)
+    drain(engine.events)
+    after_reset = engine.store.load_messages(engine.state.session_id)
+    assert len(after_reset) == len(TOOL_BOUNDARY_HISTORY)
+    _assert_loaded_valid(engine)
+
+    # Recompact.
+    compact_history(engine)
+    drain(engine.events)
+    _assert_loaded_valid(engine)
+    after_recompact = len(engine.store.load_messages(engine.state.session_id))
+    assert after_recompact <= after_compact

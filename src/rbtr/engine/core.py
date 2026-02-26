@@ -25,7 +25,7 @@ from rbtr.providers import endpoint as endpoint_provider, model_context_window
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
-from .compact import compact_history
+from .compact import compact_history, reset_compaction
 from .connect import cmd_connect
 from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
@@ -239,7 +239,11 @@ class Engine:
             case Command.INDEX:
                 cmd_index(self, args)
             case Command.COMPACT:
-                compact_history(self, extra_instructions=args)
+                sub = args.split(maxsplit=1)[0].lower() if args else ""
+                if sub == "reset":
+                    reset_compaction(self)
+                else:
+                    compact_history(self, extra_instructions=args)
             case Command.SESSION:
                 cmd_session(self, args)
             case Command.STATS:
