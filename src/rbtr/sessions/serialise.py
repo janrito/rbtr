@@ -56,6 +56,7 @@ class SessionContext:
     repo_owner: str | None = None
     repo_name: str | None = None
     model_name: str | None = None
+    review_target: str | None = None
 
 
 class FragmentKind(StrEnum):
@@ -131,6 +132,7 @@ class Fragment:
     repo_owner: str | None
     repo_name: str | None
     model_name: str | None
+    review_target: str | None
     input_tokens: int | None
     output_tokens: int | None
     cache_read_tokens: int | None
@@ -208,6 +210,7 @@ def prepare_message_row(
         repo_owner=context.repo_owner,
         repo_name=context.repo_name,
         model_name=context.model_name,
+        review_target=context.review_target,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
@@ -253,6 +256,7 @@ def prepare_part_row(
         repo_owner=context.repo_owner,
         repo_name=context.repo_name,
         model_name=context.model_name,
+        review_target=context.review_target,
         input_tokens=None,
         output_tokens=None,
         cache_read_tokens=None,

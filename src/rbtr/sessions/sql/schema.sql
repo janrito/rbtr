@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS fragments (
   repo_owner TEXT,
   repo_name TEXT,
   model_name TEXT,
+  review_target TEXT,
   input_tokens INTEGER,
   output_tokens INTEGER,
   cache_read_tokens INTEGER,

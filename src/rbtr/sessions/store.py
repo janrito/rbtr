@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -102,6 +102,7 @@ class SessionSummary:
     message_count: int
     total_cost: float
     model_name: str | None
+    review_target: str | None
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────
@@ -284,6 +285,7 @@ class SessionStore:
         repo_owner: str | None = None,
         repo_name: str | None = None,
         model_name: str | None = None,
+        review_target: str | None = None,
     ) -> None:
         """Set the session context used by all subsequent writes.
 
@@ -296,6 +298,7 @@ class SessionStore:
             repo_owner=repo_owner,
             repo_name=repo_name,
             model_name=model_name,
+            review_target=review_target,
         )
 
     # ── Writes ───────────────────────────────────────────────────────
@@ -386,6 +389,7 @@ class SessionStore:
             repo_owner=repo_owner or self._ctx.repo_owner,
             repo_name=repo_name or self._ctx.repo_name,
             model_name=model_name or self._ctx.model_name,
+            review_target=self._ctx.review_target,
             input_tokens=None,
             output_tokens=None,
             cache_read_tokens=None,
@@ -593,6 +597,7 @@ class SessionStore:
                 message_count=row["message_count"],
                 total_cost=float(row["total_cost"]),
                 model_name=row["model_name"],
+                review_target=row["review_target"],
             )
             for row in rows
         ]

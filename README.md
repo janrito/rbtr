@@ -315,6 +315,9 @@ resumed with `/session resume`.
 **`/session resume`** loads the target session's messages from the
 database and switches the active session ID.  The conversation
 continues where it left off — the model sees the full history.
+If the session had a review target (PR or branch), it's
+automatically restored — rbtr re-runs `/review` to fetch fresh
+metadata and rebuild the code index.
 You can resume sessions from different repos or different models.
 
 **`/session delete`** removes all fragments for a session

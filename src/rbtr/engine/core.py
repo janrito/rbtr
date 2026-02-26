@@ -19,6 +19,7 @@ from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.events import Event, FlushPanel, Output, TaskFinished, TaskStarted
 from rbtr.exceptions import RbtrError
+from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import endpoint as endpoint_provider, model_context_window
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
@@ -119,6 +120,7 @@ class Engine:
             repo_owner=self.state.owner,
             repo_name=self.state.repo_name,
             model_name=self.state.model_name,
+            review_target=_review_target_str(self.state.review_target),
         )
 
     # ── Task runner ──────────────────────────────────────────────────
@@ -313,3 +315,17 @@ def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> 
     if not repo.head_is_unborn:
         ref = str(repo.head.target)[:8] if repo.head_is_detached else repo.head.shorthand
     return f"{owner}/{repo_name} — {ref}" if ref else f"{owner}/{repo_name}"
+
+
+def _review_target_str(target: Target | None) -> str | None:
+    """Encode a review target as the string you'd pass to ``/review``.
+
+    ``"42"`` for PRs, ``"main feature"`` for branches.
+    """
+    match target:
+        case PRTarget(number=n):
+            return str(n)
+        case BranchTarget(base_branch=base, head_branch=head):
+            return f"{base} {head}"
+        case _:
+            return None
