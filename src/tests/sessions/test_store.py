@@ -930,7 +930,7 @@ def test_token_stats_empty_session() -> None:
     with SessionStore() as store:
         stats = store.token_stats("nonexistent")
     assert stats.total_input_tokens == 0
-    assert stats.active_messages == 0
+    assert stats.active_responses == 0
     assert stats.compaction_count == 0
 
 
@@ -955,8 +955,10 @@ def test_token_stats_no_compaction() -> None:
     assert stats.active_cache_write_tokens == 600
     assert stats.total_cost == pytest.approx(0.05)
     assert stats.active_cost == pytest.approx(0.05)
-    assert stats.total_messages == 4
-    assert stats.active_messages == 4
+    assert stats.total_responses == 2
+    assert stats.active_responses == 2
+    assert stats.total_turns == 2
+    assert stats.active_turns == 2
     assert stats.compaction_count == 0
 
 
@@ -1004,9 +1006,12 @@ def test_token_stats_after_compaction() -> None:
     assert stats.total_cost == pytest.approx(0.06)
     assert stats.active_cost == pytest.approx(0.03)
 
-    # Messages: 6 original + 1 summary = 7 total; 3 active (summary + q3 + a3).
-    assert stats.total_messages == 7
-    assert stats.active_messages == 3
+    # Responses: 3 original; 1 active (a3). Compacted: a1 + a2.
+    assert stats.total_responses == 3
+    assert stats.active_responses == 1
+    # Turns: 3 original + 1 summary = 4 total; 2 active (summary + q3).
+    assert stats.total_turns == 4
+    assert stats.active_turns == 2
     assert stats.compaction_count == 1
 
 
@@ -1034,7 +1039,7 @@ def test_token_stats_streamed_response() -> None:
     assert stats.total_cache_read_tokens == 2000
     assert stats.total_cache_write_tokens == 100
     assert stats.total_cost == pytest.approx(0.01)
-    assert stats.total_messages == 2
+    assert stats.total_responses == 1
     assert stats.compaction_count == 0
 
 

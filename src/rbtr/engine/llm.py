@@ -550,7 +550,7 @@ def _update_live_usage(
     ``response.usage.input_tokens`` for context-% so the footer
     updates progressively during a multi-tool-call turn.
 
-    Does **not** increment ``message_count`` or cost — the
+    Does **not** increment ``response_count`` or cost — the
     authoritative ``_record_usage`` at run-end handles those.
     """
     usage = engine.state.usage
@@ -623,6 +623,7 @@ def _record_usage(
     if meta_context_window is not None:
         context_window = meta_context_window
 
+    response_count = sum(1 for m in new_messages if isinstance(m, ModelResponse))
     engine.state.usage.record_run(
         input_tokens=run_usage.input_tokens,
         output_tokens=run_usage.output_tokens,
@@ -632,6 +633,7 @@ def _record_usage(
         cost=run_cost,
         cost_available=cost_available,
         context_window=context_window,
+        new_responses=response_count,
     )
 
     return run_cost, cost_available

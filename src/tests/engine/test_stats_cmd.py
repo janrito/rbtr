@@ -201,7 +201,8 @@ def test_empty_session(engine: Engine) -> None:
     combined = " ".join(texts)
 
     assert "Session" in combined
-    assert "Messages" in combined
+    assert "Turns" in combined
+    assert "Responses" in combined
     # No data → no token/cost/tool sections.
     assert "Input" not in combined
     assert "$" not in combined

@@ -63,8 +63,10 @@ class SessionUsage:
     # Context window size reported by the model's last response.
     # Updated every run from ModelResponse.cost().model.context_window.
     context_window: int = DEFAULT_CONTEXT_WINDOW
-    # Number of user-model exchanges in this conversation.
-    message_count: int = 0
+    # Number of user turns (agent invocations) in this conversation.
+    turn_count: int = 0
+    # Number of LLM responses (ModelResponse / API calls).
+    response_count: int = 0
     # Whether the last run had pricing data available.
     cost_available: bool = True
     # Whether the context window size is known from model metadata.
@@ -102,6 +104,7 @@ class SessionUsage:
         cost: float = 0.0,
         cost_available: bool = True,
         context_window: int | None = None,
+        new_responses: int = 0,
     ) -> None:
         """Add tokens from a completed LLM run.
 
@@ -116,8 +119,12 @@ class SessionUsage:
         and default to zero / unchanged when pricing is unavailable.
         When *context_window* is ``None``, fall back to the default
         rather than carrying over a previous model's value.
+
+        *new_responses* is the number of ``ModelResponse`` messages
+        (LLM API calls) produced in this run.
         """
-        self.message_count += 1
+        self.turn_count += 1
+        self.response_count += new_responses
         self.input_tokens = self.live_base.input_tokens + input_tokens
         self.output_tokens = self.live_base.output_tokens + output_tokens
         self.cache_read_tokens = self.live_base.cache_read_tokens + cache_read_tokens
@@ -161,12 +168,29 @@ class SessionUsage:
 
     @property
     def message_count_status(self) -> MessageCountStatus:
-        """Check how long the conversation is by message count."""
-        if self.message_count > 50:
+        """Check how long the conversation is by turn count."""
+        if self.turn_count > 50:
             return MessageCountStatus.CRITICAL
-        if self.message_count > 25:
+        if self.turn_count > 25:
             return MessageCountStatus.WARNING
         return MessageCountStatus.OK
+
+    def restore(
+        self,
+        *,
+        turn_count: int,
+        response_count: int,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+    ) -> None:
+        """Restore counters from DB stats (e.g. on session resume)."""
+        self.turn_count = turn_count
+        self.response_count = response_count
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.total_cost = cost
+        self.snapshot_base()
 
     def reset(self) -> None:
         """Clear all tracked usage (e.g. on /new)."""
@@ -176,7 +200,8 @@ class SessionUsage:
         self.cache_write_tokens = 0
         self.total_cost = 0.0
         self.last_input_tokens = 0
-        self.message_count = 0
+        self.turn_count = 0
+        self.response_count = 0
         self.context_window = DEFAULT_CONTEXT_WINDOW
         self.cost_available = True
         self.context_window_known = False

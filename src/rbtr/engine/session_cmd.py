@@ -184,10 +184,18 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         engine._warn("Session has no messages (may have been compacted).")
         return
 
-    # Switch session — usage and model are untouched.
-    # The next LLM call loads history from the DB.
+    # Switch session and restore usage counters from DB.
     engine.state.session_id = target.session_id
     engine.state.session_label = target.session_label or engine.state.session_label
+
+    ts = engine.store.token_stats(target.session_id)
+    engine.state.usage.restore(
+        turn_count=ts.total_turns,
+        response_count=ts.total_responses,
+        input_tokens=ts.total_input_tokens,
+        output_tokens=ts.total_output_tokens,
+        cost=ts.total_cost,
+    )
 
     label = target.session_label or target.session_id[:8]
     engine._out(f"Resumed session '{label}' ({len(messages)} messages).")

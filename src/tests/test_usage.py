@@ -123,7 +123,7 @@ def test_live_update_shows_progress_mid_run() -> None:
     # First run: 10k input, 2k output.
     u.record_run(input_tokens=10_000, output_tokens=2_000, context_window=200_000)
     assert u.input_tokens == 10_000
-    assert u.message_count == 1
+    assert u.turn_count == 1
 
     # Start second run — snapshot baseline.
     u.snapshot_base()
@@ -147,8 +147,8 @@ def test_live_update_shows_progress_mid_run() -> None:
     assert u.input_tokens == 55_000
     assert u.context_used_pct == pytest.approx(12.5)  # 25k / 200k
 
-    # message_count unchanged during live updates (only record_run bumps it).
-    assert u.message_count == 1
+    # turn_count unchanged during live updates (only record_run bumps it).
+    assert u.turn_count == 1
 
     # Final record_run at end of the run.
     u.record_run(
@@ -156,9 +156,11 @@ def test_live_update_shows_progress_mid_run() -> None:
         output_tokens=6_000,
         last_input_tokens=25_000,
         context_window=200_000,
+        new_responses=4,
     )
     assert u.input_tokens == 55_000
-    assert u.message_count == 2
+    assert u.turn_count == 2
+    assert u.response_count == 4
 
 
 def test_context_used_pct_zero_window() -> None:
@@ -203,33 +205,36 @@ def test_threshold_critical_above_90() -> None:
     assert u.threshold_status == ThresholdStatus.CRITICAL
 
 
-def test_record_run_increments_message_count() -> None:
+def test_record_run_increments_turn_and_response_count() -> None:
     u = SessionUsage()
-    assert u.message_count == 0
-    u.record_run(input_tokens=100, output_tokens=50)
-    assert u.message_count == 1
-    u.record_run(input_tokens=200, output_tokens=100)
-    assert u.message_count == 2
+    assert u.turn_count == 0
+    assert u.response_count == 0
+    u.record_run(input_tokens=100, output_tokens=50, new_responses=2)
+    assert u.turn_count == 1
+    assert u.response_count == 2
+    u.record_run(input_tokens=200, output_tokens=100, new_responses=4)
+    assert u.turn_count == 2
+    assert u.response_count == 6
 
 
 def test_message_count_status_ok() -> None:
     u = SessionUsage()
     for _ in range(25):
-        u.record_run(input_tokens=10, output_tokens=5)
+        u.record_run(input_tokens=10, output_tokens=5, new_responses=1)
     assert u.message_count_status == MessageCountStatus.OK
 
 
 def test_message_count_status_warning() -> None:
     u = SessionUsage()
     for _ in range(26):
-        u.record_run(input_tokens=10, output_tokens=5)
+        u.record_run(input_tokens=10, output_tokens=5, new_responses=1)
     assert u.message_count_status == MessageCountStatus.WARNING
 
 
 def test_message_count_status_critical() -> None:
     u = SessionUsage()
     for _ in range(51):
-        u.record_run(input_tokens=10, output_tokens=5)
+        u.record_run(input_tokens=10, output_tokens=5, new_responses=1)
     assert u.message_count_status == MessageCountStatus.CRITICAL
 
 
@@ -245,7 +250,9 @@ def test_context_window_known_flag() -> None:
 
 def test_reset_clears_everything() -> None:
     u = SessionUsage()
-    u.record_run(input_tokens=1000, output_tokens=500, cost=0.05, context_window=200_000)
+    u.record_run(
+        input_tokens=1000, output_tokens=500, cost=0.05, context_window=200_000, new_responses=3
+    )
     u.reset()
     assert u.input_tokens == 0
     assert u.output_tokens == 0
@@ -253,7 +260,8 @@ def test_reset_clears_everything() -> None:
     assert u.cache_write_tokens == 0
     assert u.total_cost == 0.0
     assert u.last_input_tokens == 0
-    assert u.message_count == 0
+    assert u.turn_count == 0
+    assert u.response_count == 0
     assert u.context_window == DEFAULT_CONTEXT_WINDOW
     assert u.context_window_known is False
 

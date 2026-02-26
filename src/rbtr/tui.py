@@ -718,7 +718,7 @@ class UI:
         msgs = ""
         token_parts: list[str] = []
         if has_usage:
-            msgs = f"|{usage.message_count}|"
+            msgs = f"|{usage.turn_count}:{usage.response_count}|"
             ctx_pct = f"{usage.context_used_pct:.0f}%"
             ctx_size = format_tokens(usage.context_window)
             ctx = f"{ctx_pct} of {ctx_size}"

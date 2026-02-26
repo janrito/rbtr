@@ -145,18 +145,28 @@ def _render_body(
 
 def _render_messages(engine: Engine, ts: TokenStats) -> None:
     if ts.compaction_count > 0:
-        compacted = ts.total_messages - ts.active_messages
+        compacted_resp = ts.total_responses - ts.active_responses
+        compacted_turns = ts.total_turns - ts.active_turns
         _out(
             engine,
             _row(
-                "Messages",
-                str(ts.total_messages),
-                suffix=f"({ts.active_messages} active, {compacted} compacted)",
+                "Turns",
+                str(ts.total_turns),
+                suffix=f"({ts.active_turns} active, {compacted_turns} compacted)",
+            ),
+        )
+        _out(
+            engine,
+            _row(
+                "Responses",
+                str(ts.total_responses),
+                suffix=f"({ts.active_responses} active, {compacted_resp} compacted)",
             ),
         )
         _out(engine, _row("Compactions", str(ts.compaction_count)))
     else:
-        _out(engine, _row("Messages", str(ts.total_messages)))
+        _out(engine, _row("Turns", str(ts.total_turns)))
+        _out(engine, _row("Responses", str(ts.total_responses)))
 
 
 def _render_tokens(engine: Engine, ts: TokenStats, *, show_context: bool = False) -> None:

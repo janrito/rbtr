@@ -137,22 +137,22 @@ def test_info_shows_session_details(seeded_engine: Engine) -> None:
 
 
 def test_resume_loads_messages(double_seeded_engine: Engine) -> None:
-    """Resume restores messages and session ID, leaves usage untouched."""
+    """Resume restores messages, session ID, and usage from DB."""
     engine = double_seeded_engine
     second_id = _other_session_id(engine)
-
-    # Record some usage on the current session.
-    engine.state.usage.total_cost = 0.99
-    engine.state.usage.input_tokens = 5000
 
     engine.run_task("command", f"/session resume {second_id}")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == second_id
     assert len(engine.store.load_messages(second_id)) == 2
-    # Usage is unchanged — not reset, not restored from DB.
-    assert engine.state.usage.total_cost == 0.99
-    assert engine.state.usage.input_tokens == 5000
+
+    # Usage restored from DB stats — turn/response counts and cost
+    # reflect the resumed session's history.
+    ts = engine.store.token_stats(second_id)
+    assert engine.state.usage.turn_count == ts.total_turns
+    assert engine.state.usage.response_count == ts.total_responses
+    assert engine.state.usage.total_cost == ts.total_cost
 
 
 def test_resume_already_active(seeded_engine: Engine) -> None:

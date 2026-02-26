@@ -59,8 +59,10 @@ class TokenStats:
     active_cache_read_tokens: int
     active_cache_write_tokens: int
     active_cost: float
-    total_messages: int
-    active_messages: int
+    total_responses: int
+    active_responses: int
+    total_turns: int
+    active_turns: int
     compaction_count: int
 
 
@@ -75,8 +77,10 @@ _EMPTY_TOKEN_STATS = TokenStats(
     active_cache_read_tokens=0,
     active_cache_write_tokens=0,
     active_cost=0.0,
-    total_messages=0,
-    active_messages=0,
+    total_responses=0,
+    active_responses=0,
+    total_turns=0,
+    active_turns=0,
     compaction_count=0,
 )
 
@@ -86,7 +90,7 @@ _EMPTY_TOKEN_STATS = TokenStats(
 
 def token_stats(con: sqlite3.Connection, session_id: str) -> TokenStats:
     """Return token usage for a session, split by compaction status."""
-    row = con.execute(_SESSION_TOKEN_STATS_SQL, [session_id]).fetchone()
+    row = con.execute(_SESSION_TOKEN_STATS_SQL, [session_id, session_id, session_id]).fetchone()
     if row is None or row["total_input_tokens"] is None:
         return _EMPTY_TOKEN_STATS
     return TokenStats(
@@ -100,8 +104,10 @@ def token_stats(con: sqlite3.Connection, session_id: str) -> TokenStats:
         active_cache_read_tokens=int(row["active_cache_read_tokens"]),
         active_cache_write_tokens=int(row["active_cache_write_tokens"]),
         active_cost=float(row["active_cost"]),
-        total_messages=int(row["total_messages"]),
-        active_messages=int(row["active_messages"]),
+        total_responses=int(row["total_responses"]),
+        active_responses=int(row["active_responses"]),
+        total_turns=int(row["total_turns"]),
+        active_turns=int(row["active_turns"]),
         compaction_count=int(row["compaction_count"]),
     )
 
