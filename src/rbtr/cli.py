@@ -3,12 +3,21 @@
 import logging
 import logging.handlers
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from rbtr.config import WORKSPACE_DIR, config
 from rbtr.tui import run
 
 LOG_PATH = WORKSPACE_DIR / "rbtr.log"
+
+
+@dataclass(frozen=True, slots=True)
+class StartupOpts:
+    """Parsed command-line options."""
+
+    pr_number: int | None = None
+    continue_session: bool = False
 
 
 def _configure_logging() -> None:
@@ -48,25 +57,39 @@ def _configure_logging() -> None:
 
 def main() -> None:
     """Launch rbtr."""
-    pr_number = _parse_args()
+    opts = _parse_args()
     _configure_logging()
-    run(pr_number)
+    run(pr_number=opts.pr_number, continue_session=opts.continue_session)
 
 
-def _parse_args() -> int | None:
-    """Extract an optional PR number from sys.argv."""
-    if len(sys.argv) <= 1:
-        return None
-    arg = sys.argv[1]
-    if arg in ("-h", "--help"):
-        print("Usage: rbtr [pr_number]")
+def _parse_args() -> StartupOpts:
+    """Parse command-line arguments."""
+    args = sys.argv[1:]
+
+    if "-h" in args or "--help" in args:
+        print("Usage: rbtr [-c | --continue] [pr_number]")
         print()
         print("  Launch rbtr in the current git repository.")
-        print("  Optionally pass a PR number to review directly.")
+        print()
+        print("Options:")
+        print("  -c, --continue   Resume the last session for this repo")
+        print("  pr_number        Start a review for the given PR number")
         sys.exit(0)
+
+    continue_session = "-c" in args or "--continue" in args
+    if continue_session:
+        args = [a for a in args if a not in ("-c", "--continue")]
+
+    if not args:
+        return StartupOpts(continue_session=continue_session)
+
+    if continue_session:
+        print("Cannot combine -c with a PR number.")
+        sys.exit(1)
+
     try:
-        return int(arg)
+        return StartupOpts(pr_number=int(args[0]))
     except ValueError:
-        print(f"Unknown argument: {arg}")
-        print("Usage: rbtr [pr_number]")
+        print(f"Unknown argument: {args[0]}")
+        print("Usage: rbtr [-c | --continue] [pr_number]")
         sys.exit(1)

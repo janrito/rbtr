@@ -64,6 +64,8 @@ def cmd_session(engine: Engine, args: str) -> None:
             _cmd_info(engine)
         case "resume":
             _cmd_resume(engine, rest)
+        case "resume-last":
+            _cmd_resume_last(engine)
         case "delete":
             _cmd_delete(engine, rest)
         case "purge":
@@ -199,6 +201,23 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
 
     label = target.session_label or target.session_id[:8]
     engine._out(f"Resumed session '{label}' ({len(messages)} messages).")
+
+
+def _cmd_resume_last(engine: Engine) -> None:
+    """Resume the most recent session for the current repo.
+
+    Used by ``rbtr -c`` at startup.  Silently does nothing when
+    there is no previous session to resume.
+    """
+    sessions = engine.store.list_sessions(
+        repo_owner=engine.state.owner,
+        repo_name=engine.state.repo_name,
+        limit=1,
+    )
+    if not sessions:
+        engine._out("No previous session for this repo.")
+        return
+    _cmd_resume(engine, [sessions[0].session_id])
 
 
 # ── delete ───────────────────────────────────────────────────────────

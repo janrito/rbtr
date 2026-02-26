@@ -178,6 +178,7 @@ class UI:
         events: queue.Queue[Event],
         engine: Engine,
         pr_number: int | None = None,
+        continue_session: bool = False,
     ) -> None:
         self.console = console
         self.state = state
@@ -185,6 +186,7 @@ class UI:
         self._events = events
         self._engine = engine
         self._pr_number = pr_number
+        self._continue_session = continue_session
         self._live: Live | None = None
         # Current active panel state — built from events, never from engine state
         self._active_lines: list[RenderableType] = []
@@ -255,17 +257,7 @@ class UI:
                     ]
                     self.inp.apply_completions(matches)
                 case Command.SESSION:
-                    subs = [
-                        ("all", "Sessions across all repos"),
-                        ("info", "Current session details"),
-                        ("resume", "Resume a previous session"),
-                        ("delete", "Delete a session by ID"),
-                        ("purge", "Delete sessions older than duration"),
-                    ]
-                    matches = [
-                        (f"/session {name}", desc) for name, desc in subs if name.startswith(arg)
-                    ]
-                    self.inp.apply_completions(matches)
+                    self._complete_session(arg)
             return
 
         # Complete the command name
@@ -345,6 +337,40 @@ class UI:
         matches = [
             (f"/draft {name}", desc) for name, desc in SUBCOMMANDS if name.startswith(partial)
         ]
+        self.inp.apply_completions(matches)
+
+    def _complete_session(self, arg: str) -> None:
+        """Complete /session subcommands and session IDs for resume/delete."""
+        sub_parts = arg.split(None, 1)
+        subcmd = sub_parts[0] if sub_parts else arg
+
+        # Second-level: complete session ID after "resume" or "delete".
+        if subcmd in ("resume", "delete") and (
+            len(sub_parts) == 2 or (len(sub_parts) == 1 and arg.endswith(" "))
+        ):
+            partial_id = sub_parts[1] if len(sub_parts) == 2 else ""
+            sessions = self._engine.store.list_sessions(limit=50)
+            current = self._engine.state.session_id
+            matches = [
+                (
+                    f"/session {subcmd} {s.session_id[:12]}",
+                    s.session_label or s.session_id[:8],
+                )
+                for s in sessions
+                if s.session_id != current and s.session_id[:12].startswith(partial_id)
+            ]
+            self.inp.apply_completions(matches)
+            return
+
+        # First-level: complete subcommand name.
+        subs = [
+            ("all", "Sessions across all repos"),
+            ("info", "Current session details"),
+            ("resume", "Resume a previous session"),
+            ("delete", "Delete a session by ID"),
+            ("purge", "Delete sessions older than duration"),
+        ]
+        matches = [(f"/session {name}", desc) for name, desc in subs if name.startswith(arg)]
         self.inp.apply_completions(matches)
 
     def _complete_shell(self) -> None:
@@ -953,8 +979,8 @@ class UI:
             self._start_task(TaskType.SETUP, "")
             if self._pr_number is not None:
                 self._pending_commands.append(f"/review {self._pr_number}")
-            else:
-                self._pending_commands.append("/review")
+            elif self._continue_session:
+                self._pending_commands.append("/session resume-last")
 
             while not self.inp.quit:
                 # Consume engine events and update UI state
@@ -1027,14 +1053,25 @@ class UI:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def run(pr_number: int | None) -> None:
+def run(
+    *,
+    pr_number: int | None = None,
+    continue_session: bool = False,
+) -> None:
     """Launch the rbtr interactive session."""
     console = Console(markup=True, highlight=False, theme=THEME)
     state = EngineState()
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(state, events)
     try:
-        ui = UI(console, state, events, engine, pr_number)
+        ui = UI(
+            console,
+            state,
+            events,
+            engine,
+            pr_number=pr_number,
+            continue_session=continue_session,
+        )
         ui.run()
     finally:
         engine.close()
