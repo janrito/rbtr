@@ -45,14 +45,13 @@ def test_post_review_sends_correct_data() -> None:
     gh = FakeGithub(FakeRepo(pr))
     draft = ReviewDraft(
         summary="Looks good overall.",
-        event=ReviewEvent.COMMENT,
         comments=[
             InlineComment(path="src/a.py", line=10, body="**blocker:** Bug."),
             InlineComment(path="src/b.py", line=20, body="Nit.", suggestion="fixed()"),
         ],
     )
 
-    url = post_review(fake_ctx(gh), 1, draft)
+    url = post_review(fake_ctx(gh), 1, draft, ReviewEvent.COMMENT)
     assert url == "https://github.com/pr/1#review"
     assert len(pr.created_reviews) == 1
 
@@ -75,9 +74,9 @@ def test_post_review_sends_correct_data() -> None:
 def test_post_review_event_types(event: ReviewEvent, expected: str) -> None:
     pr = FakePR()
     gh = FakeGithub(FakeRepo(pr))
-    draft = ReviewDraft(summary=".", event=event)
+    draft = ReviewDraft(summary=".")
 
-    post_review(fake_ctx(gh), 1, draft)
+    post_review(fake_ctx(gh), 1, draft, event)
     assert pr.created_reviews[0]["event"] == expected
 
 
@@ -151,6 +150,6 @@ def test_draft_file_used_for_post(workspace: Path) -> None:
 
     pr = FakePR()
     gh = FakeGithub(FakeRepo(pr))
-    post_review(fake_ctx(gh), 99, loaded)
+    post_review(fake_ctx(gh), 99, loaded, ReviewEvent.COMMENT)
     assert len(pr.created_reviews) == 1
     assert pr.created_reviews[0]["comments"][0]["path"] == "x.py"

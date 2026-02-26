@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.github.draft import load_draft
+from rbtr.github.draft import comment_sync_status, load_draft
 from rbtr.models import PRTarget, ReviewEvent
 
 from .review import clear_review_draft, post_review_draft, sync_review_draft
@@ -76,13 +76,14 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
 
     engine._out(f"{len(draft.comments)} comment{'s' if len(draft.comments) != 1 else ''}:")
     for i, comment in enumerate(draft.comments, 1):
-        prefix = f"  {i}. {comment.path}:{comment.line}"
+        status = comment_sync_status(comment)
+        prefix = f"  {status} {i}. {comment.path}:{comment.line}"
         body_preview = comment.body[:80]
         if len(comment.body) > 80:
             body_preview += "…"
         engine._out(f"{prefix} — {body_preview}")
         if comment.suggestion:
-            engine._out("     └─ has suggestion")
+            engine._out("       └─ has suggestion")
 
 
 def _sync_draft(engine: Engine, pr_number: int) -> None:

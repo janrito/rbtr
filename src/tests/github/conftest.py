@@ -77,6 +77,7 @@ class FakeInlineComment:
         # Matches GithubObject._rawData so get_pending_review can
         # read fields without triggering lazy-load completion.
         self._rawData = {
+            "id": comment_id,
             "path": path,
             "line": line,
             "body": body,

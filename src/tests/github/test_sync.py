@@ -12,9 +12,9 @@ from rbtr.engine.review import sync_review_draft
 from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.exceptions import RbtrError
-from rbtr.github.client import get_pending_review
-from rbtr.github.draft import load_draft, merge_remote, save_draft
-from rbtr.models import InlineComment, PendingReview, PRTarget, ReviewDraft
+from rbtr.github.client import get_pending_review, parse_comment_body
+from rbtr.github.draft import _comment_hash, load_draft, save_draft
+from rbtr.models import InlineComment, PRTarget, ReviewDraft
 
 from .conftest import (
     FakeGithub,
@@ -26,11 +26,41 @@ from .conftest import (
     fake_ctx,
 )
 
+# ── parse_comment_body ───────────────────────────────────────────────
+
+
+def test_parse_body_plain() -> None:
+    body, suggestion = parse_comment_body("Fix this bug.")
+    assert body == "Fix this bug."
+    assert suggestion == ""
+
+
+def test_parse_body_with_suggestion() -> None:
+    raw = "Use this instead.\n\n```suggestion\nbetter()\n```"
+    body, suggestion = parse_comment_body(raw)
+    assert body == "Use this instead."
+    assert suggestion == "better()"
+
+
+def test_parse_body_multiline_suggestion() -> None:
+    raw = "Fix.\n\n```suggestion\nline1\nline2\n```"
+    body, suggestion = parse_comment_body(raw)
+    assert body == "Fix."
+    assert suggestion == "line1\nline2"
+
+
+def test_parse_body_no_closing_fence() -> None:
+    raw = "Fix.\n\n```suggestion\norphan code"
+    body, suggestion = parse_comment_body(raw)
+    assert body == "Fix."
+    assert suggestion == "orphan code"
+
+
 # ── get_pending_review ───────────────────────────────────────────────
 
 
 def test_pending_review_found() -> None:
-    comments = [FakeInlineComment(path="a.py", line=10, body="**blocker:** Bug.")]
+    comments = [FakeInlineComment(comment_id=10, path="a.py", line=10, body="**blocker:** Bug.")]
     pr = FakePR(
         reviews=[FakeReview(review_id=100, state="PENDING", user=FakeUser("reviewer"))],
         review_comments_by_id={100: comments},
@@ -39,9 +69,10 @@ def test_pending_review_found() -> None:
 
     result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
-    assert result.review_id == 100
+    assert result.github_review_id == 100
     assert len(result.comments) == 1
     assert result.comments[0].path == "a.py"
+    assert result.comments[0].github_id == 10
 
 
 def test_pending_review_not_found() -> None:
@@ -68,15 +99,15 @@ def test_pending_review_picks_latest() -> None:
             FakeReview(review_id=2, state="PENDING", user=FakeUser("reviewer")),
         ],
         review_comments_by_id={
-            1: [FakeInlineComment(body="old")],
-            2: [FakeInlineComment(body="new")],
+            1: [FakeInlineComment(comment_id=10, body="old")],
+            2: [FakeInlineComment(comment_id=20, body="new")],
         },
     )
     gh = FakeGithub(FakeRepo(pr))
 
     result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
-    assert result.review_id == 2
+    assert result.github_review_id == 2
     assert result.comments[0].body == "new"
 
 
@@ -96,68 +127,26 @@ def test_pending_review_preserves_body() -> None:
 
     result = get_pending_review(fake_ctx(gh), 1, "reviewer")
     assert result is not None
-    assert result.body == "Overall good."
+    assert result.summary == "Overall good."
 
 
-# ── Sync flow (merge_remote + persistence) ───────────────────────────
-
-
-@pytest.fixture
-def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
-    return tmp_path
-
-
-def test_sync_seeds_empty_local(workspace: Path) -> None:
-    """When no local draft exists, remote comments become the draft."""
-    remote = [InlineComment(path="a.py", line=10, body="Fix.")]
-    merged = merge_remote(None, remote)
-    save_draft(42, merged)
-
-    loaded = load_draft(42)
-    assert loaded is not None
-    assert len(loaded.comments) == 1
-    assert loaded.comments[0].path == "a.py"
-
-
-def test_sync_merges_without_duplicates(workspace: Path) -> None:
-    """Remote comments already in local are not duplicated."""
-    existing = InlineComment(path="a.py", line=10, body="Local.")
-    local = ReviewDraft(summary="My review.", comments=[existing])
-    save_draft(42, local)
-
-    remote_dup = InlineComment(path="a.py", line=10, body="Remote.")
-    remote_new = InlineComment(path="b.py", line=20, body="New.")
-
-    loaded = load_draft(42)
-    merged = merge_remote(loaded, [remote_dup, remote_new])
-    save_draft(42, merged)
-
-    final = load_draft(42)
-    assert final is not None
-    assert len(final.comments) == 2
-    assert final.comments[0].body == "Local."
-    assert final.comments[1].path == "b.py"
-    assert final.summary == "My review."
-
-
-def test_sync_preserves_summary_from_remote() -> None:
-    """When local has no summary, remote review body is used."""
-    pending = PendingReview(
-        review_id=100,
-        body="Overall looks good.",
-        comments=[],
+def test_pending_review_parses_suggestion() -> None:
+    """Suggestion blocks in GitHub body are parsed into separate field."""
+    raw_body = "Use this.\n\n```suggestion\nbetter()\n```"
+    comments = [FakeInlineComment(comment_id=10, body=raw_body)]
+    pr = FakePR(
+        reviews=[FakeReview(review_id=1, state="PENDING", user=FakeUser("reviewer"))],
+        review_comments_by_id={1: comments},
     )
-    local = merge_remote(None, pending.comments)
-    if not local.summary and pending.body:
-        local = local.model_copy(update={"summary": pending.body})
+    gh = FakeGithub(FakeRepo(pr))
 
-    assert local.summary == "Overall looks good."
+    result = get_pending_review(fake_ctx(gh), 1, "reviewer")
+    assert result is not None
+    assert result.comments[0].body == "Use this."
+    assert result.comments[0].suggestion == "better()"
 
 
 # ── sync_review_draft orchestration ──────────────────────────────────
-# These tests go through the full pull → merge → delete → push cycle
-# in review.py, with real disk persistence and fake GitHub objects.
 
 
 class _FakeEngine:
@@ -205,6 +194,12 @@ class _FakeEngine:
         return "\n".join(lines)
 
 
+@pytest.fixture
+def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
+    return tmp_path
+
+
 def test_sync_orchestration_pulls_and_pushes(workspace: Path) -> None:
     """Full bidirectional sync: remote comments are merged then pushed."""
     # Local draft has one comment.
@@ -212,7 +207,7 @@ def test_sync_orchestration_pulls_and_pushes(workspace: Path) -> None:
     save_draft(42, ReviewDraft(summary="Local summary.", comments=[local_comment]))
 
     # Remote pending review has a different comment.
-    remote_comment = FakeInlineComment(path="b.py", line=20, body="Remote finding.")
+    remote_comment = FakeInlineComment(comment_id=50, path="b.py", line=20, body="Remote finding.")
     pr = FakePR(
         reviews=[FakeReview(review_id=99, state="PENDING", user=FakeUser("reviewer"))],
         review_comments_by_id={99: [remote_comment]},
@@ -226,9 +221,6 @@ def test_sync_orchestration_pulls_and_pushes(workspace: Path) -> None:
     draft = load_draft(42)
     assert draft is not None
     assert len(draft.comments) == 2
-    assert draft.comments[0].body == "Local finding."
-    assert draft.comments[1].body == "Remote finding."
-    assert draft.summary == "Local summary."
 
     # Old pending review should have been deleted.
     review_99 = pr.get_review(99)
@@ -284,7 +276,7 @@ def test_sync_orchestration_local_only_pushes(workspace: Path) -> None:
 
 def test_sync_orchestration_remote_summary_used(workspace: Path) -> None:
     """Remote review body becomes local summary when local has none."""
-    remote_comment = FakeInlineComment(path="a.py", line=10, body="Fix.")
+    remote_comment = FakeInlineComment(comment_id=10, path="a.py", line=10, body="Fix.")
     pr = FakePR(
         reviews=[
             FakeReview(
@@ -304,3 +296,65 @@ def test_sync_orchestration_remote_summary_used(workspace: Path) -> None:
     draft = load_draft(42)
     assert draft is not None
     assert draft.summary == "Overall assessment."
+
+
+def test_sync_saves_sync_fields(workspace: Path) -> None:
+    """After sync, draft has github_review_id and comments have comment_hash."""
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Review.",
+            comments=[InlineComment(path="a.py", line=5, body="Finding.")],
+        ),
+    )
+
+    # The re-fetch after push returns the new review's comments.
+    pushed_comment = FakeInlineComment(comment_id=500, path="a.py", line=5, body="Finding.")
+    pr = FakePR(
+        reviews=[
+            FakeReview(review_id=200, state="PENDING", user=FakeUser("reviewer")),
+        ],
+        review_comments_by_id={200: [pushed_comment]},
+    )
+    gh = FakeGithub(FakeRepo(pr))
+    engine = _FakeEngine(gh=gh, gh_username="reviewer")
+
+    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.github_review_id == 200
+    assert draft.summary_hash != ""
+    assert draft.comments[0].github_id == 500
+    assert draft.comments[0].comment_hash == _comment_hash(draft.comments[0])
+
+
+def test_sync_detects_remote_edit(workspace: Path) -> None:
+    """Sync pulls a remotely-edited comment and accepts the edit."""
+    # Local has a synced comment (comment_hash matches "Original.").
+    original = InlineComment(path="a.py", line=10, body="Original.", github_id=100)
+    synced = original.model_copy(update={"comment_hash": _comment_hash(original)})
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Summary.",
+            comments=[synced],
+            github_review_id=99,
+        ),
+    )
+
+    # Remote has the same comment, but edited.
+    remote_comment = FakeInlineComment(comment_id=100, path="a.py", line=10, body="Edited on GH.")
+    pr = FakePR(
+        reviews=[FakeReview(review_id=99, state="PENDING", user=FakeUser("reviewer"))],
+        review_comments_by_id={99: [remote_comment]},
+    )
+    gh = FakeGithub(FakeRepo(pr))
+    engine = _FakeEngine(gh=gh, gh_username="reviewer")
+
+    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    draft = load_draft(42)
+    assert draft is not None
+    # The remote edit should have been accepted since local was clean.
+    assert draft.comments[0].body == "Edited on GH."

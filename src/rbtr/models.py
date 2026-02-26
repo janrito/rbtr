@@ -116,6 +116,16 @@ class InlineComment(BaseModel):
     """Optional suggested replacement code (GitHub suggestion block).
     Empty string means no suggestion."""
 
+    github_id: int | None = None
+    """GitHub's comment ID — set when pulled from or pushed to GitHub.
+    ``None`` for locally-created comments that haven't been synced."""
+
+    comment_hash: str = ""
+    """Content hash frozen at last sync — only updated by
+    ``stamp_synced()``, never by local edits.  Empty means
+    never synced.  Comparing this against the live content
+    hash detects local modifications."""
+
 
 # ── PR discussion ────────────────────────────────────────────────────
 # Unified representation of any comment on a pull request — review
@@ -186,28 +196,16 @@ class DiscussionEntry(BaseModel):
     """Emoji → count mapping (e.g. ``{"+1": 3, "-1": 1}``)."""
 
 
-class PendingReview(BaseModel):
-    """A user's pending (unsubmitted) review on a PR.
-
-    Returned by ``get_pending_review`` for sync purposes.
-    """
-
-    review_id: int
-    """GitHub's ID for this review (needed for delete/replace)."""
-
-    body: str = ""
-    """Top-level review summary, if any."""
-
-    comments: list[InlineComment]
-    """Inline comments attached to this pending review."""
-
-
 class ReviewDraft(BaseModel):
     """A complete review ready to post to GitHub.
 
     Contains a top-level summary and zero or more inline comments.
     The ``event`` field is set by the user at post time, not by
     the LLM.
+
+    Sync tracking is flat: ``github_review_id`` and ``summary_hash``
+    at the draft level, ``comment_hash`` on each comment.  No nested
+    sync section — the TOML stays simple and hand-editable.
     """
 
     summary: str = ""
@@ -216,5 +214,10 @@ class ReviewDraft(BaseModel):
     comments: list[InlineComment] = []
     """Inline comments attached to specific lines in the diff."""
 
-    event: ReviewEvent = ReviewEvent.COMMENT
-    """Review event type — set by the user before posting."""
+    github_review_id: int | None = None
+    """The PENDING review ID on GitHub.  ``None`` = never pushed."""
+
+    summary_hash: str = ""
+    """Hash of the review summary frozen at last sync — only
+    updated by ``stamp_synced()``, never by local edits.
+    Empty means never synced."""

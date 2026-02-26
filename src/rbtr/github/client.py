@@ -24,9 +24,9 @@ from rbtr.models import (
     DiscussionEntry,
     DiscussionEntryKind,
     InlineComment,
-    PendingReview,
     PRSummary,
     ReviewDraft,
+    ReviewEvent,
 )
 
 # ── Remote URL parsing ───────────────────────────────────────────────
@@ -187,12 +187,12 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
 # ── Pending review ────────────────────────────────────────────────────
 
 
-def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> PendingReview | None:
-    """Return the user's PENDING review on a PR, or None if there isn't one.
+def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewDraft | None:
+    """Return the user's PENDING review on a PR, or ``None``.
 
     Fetches all reviews, finds the most recent one in PENDING state
-    belonging to *username*, and returns it with its inline comments
-    converted to ``InlineComment`` models.
+    belonging to *username*, and returns it as a ``ReviewDraft`` with
+    ``github_review_id`` set and hashes empty (not yet synced locally).
     """
     pr = _pull(ctx, pr_number)
 
@@ -216,22 +216,60 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> Pending
     raw_data = GithubObject.raw_data.fget  # type: ignore[attr-defined]  # @property always has fget
     for comment in pr.get_single_review_comments(pending.id):
         data: dict[str, Any] = raw_data(comment)
+        body_raw = data.get("body") or ""
+        body, suggestion = parse_comment_body(body_raw)
         comments.append(
             InlineComment(
                 path=data.get("path") or "",
                 line=data.get("line") or 0,
-                body=data.get("body") or "",
+                body=body,
+                suggestion=suggestion,
+                github_id=data.get("id"),
             )
         )
 
-    return PendingReview(
-        review_id=pending.id,
-        body=pending.body or "",
+    return ReviewDraft(
+        summary=pending.body or "",
         comments=comments,
+        github_review_id=pending.id,
     )
 
 
 # ── Post / delete reviews ────────────────────────────────────────────
+
+
+_SUGGESTION_FENCE = "```suggestion"
+
+
+def parse_comment_body(raw: str) -> tuple[str, str]:
+    """Split a GitHub comment body into ``(body, suggestion)``.
+
+    GitHub stores suggestion blocks inline::
+
+        Review text.
+
+        ```suggestion
+        replacement_code()
+        ```
+
+    Returns ``(body_text, suggestion_code)`` with the fence removed.
+    If there is no suggestion block, *suggestion* is ``""``.
+    """
+    idx = raw.find(_SUGGESTION_FENCE)
+    if idx == -1:
+        return raw, ""
+    body = raw[:idx].rstrip()
+    rest = raw[idx + len(_SUGGESTION_FENCE) :]
+    # Strip optional newline after the fence opening.
+    if rest.startswith("\n"):
+        rest = rest[1:]
+    # Find closing fence.
+    end = rest.find("```")
+    if end == -1:
+        # Malformed — treat everything after as suggestion.
+        return body, rest.rstrip()
+    suggestion = rest[:end].rstrip("\n")
+    return body, suggestion
 
 
 def format_comment_body(comment: InlineComment) -> str:
@@ -255,16 +293,17 @@ def _build_review_comments(draft: ReviewDraft) -> list[ReviewComment]:
     ]
 
 
-def post_review(ctx: GitHubCtx, pr_number: int, draft: ReviewDraft) -> str:
-    """Post a review to GitHub.  Returns the review's HTML URL.
-
-    If ``draft.event`` is ``COMMENT``, ``APPROVE``, or
-    ``REQUEST_CHANGES``, the review is submitted immediately.
-    """
+def post_review(
+    ctx: GitHubCtx,
+    pr_number: int,
+    draft: ReviewDraft,
+    event: ReviewEvent,
+) -> str:
+    """Post a review to GitHub.  Returns the review's HTML URL."""
     pr = _pull(ctx, pr_number)
     review = pr.create_review(
         body=draft.summary,
-        event=draft.event.value,
+        event=event.value,
         comments=_build_review_comments(draft),
     )
     return review.html_url

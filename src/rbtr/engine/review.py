@@ -15,10 +15,10 @@ from rbtr.git import default_branch, fetch_pr_head, list_local_branches
 from rbtr.github import client
 from rbtr.github.draft import (
     delete_draft,
-    get_unsynced_comments,
     load_draft,
-    merge_remote,
+    match_comments,
     save_draft,
+    stamp_synced,
 )
 from rbtr.models import BranchTarget, PRTarget, ReviewDraft, ReviewEvent
 from rbtr.styles import COLUMN_BRANCH, LINK_STYLE
@@ -263,13 +263,26 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
             engine._out(f"Local draft loaded ({n} comment{'s' if n != 1 else ''}).")
         return
 
-    local = load_draft(pr_number)
-    merged = merge_remote(local, pending.comments)
+    local = load_draft(pr_number) or ReviewDraft()
+
+    result = match_comments(local.comments, pending.comments)
+    for w in result.warnings:
+        engine._warn(w)
 
     # Preserve the remote review body as summary if local has none.
-    if not merged.summary and pending.body:
-        merged = merged.model_copy(update={"summary": pending.body})
+    summary = local.summary
+    if not summary and pending.summary:
+        summary = pending.summary
 
+    merged = local.model_copy(
+        update={
+            "summary": summary,
+            "comments": result.comments,
+            "github_review_id": pending.github_review_id,
+        }
+    )
+    # Stamp hashes so we can detect edits on next sync.
+    merged = stamp_synced(merged)
     save_draft(pr_number, merged)
     n = len(merged.comments)
     engine._out(f"Draft synced from GitHub ({n} comment{'s' if n != 1 else ''}).")
@@ -283,16 +296,14 @@ def post_review_draft(
 ) -> None:
     """Post a review draft to GitHub.
 
-    Handles the full flow: guard against unsynced remote comments,
-    delete any existing pending review, post the new review, emit
-    events, and clean up the local draft.  Raises
+    Handles the full flow: pull remote to detect unsynced comments,
+    delete any existing pending review, post the submitted review,
+    emit events, and clean up the local draft.  Raises
     :class:`~rbtr.exceptions.RbtrError` on failure.
     """
     ctx = engine.state.gh_ctx
     if ctx is None or not engine.state.gh_username:
         raise RbtrError("Not authenticated. Run /connect github first.")
-
-    draft = draft.model_copy(update={"event": event})
 
     # Guard: check for unsynced remote comments.
     engine._out("Checking for unsynced remote comments…")
@@ -307,7 +318,14 @@ def post_review_draft(
         raise RbtrError(f"GitHub error checking pending review: {exc.data}") from exc
 
     if pending is not None:
-        unsynced = get_unsynced_comments(draft, pending.comments)
+        # Match remote comments against local to detect unknowns.
+        result = match_comments(draft.comments, pending.comments)
+        # Any remote comment that ended up imported (not matched to a
+        # local comment) means there are unsynced comments.
+        local_gids = {c.github_id for c in draft.comments if c.github_id is not None}
+        unsynced = [
+            c for c in result.comments if c.github_id is not None and c.github_id not in local_gids
+        ]
         if unsynced:
             details = "\n".join(f"  {c.path}:{c.line} — {c.body[:60]}" for c in unsynced)
             raise RbtrError(
@@ -318,19 +336,21 @@ def post_review_draft(
     engine._clear()
 
     # Delete existing pending review before posting.
-    if pending is not None:
+    review_to_delete = pending.github_review_id if pending is not None else draft.github_review_id
+    if review_to_delete is not None:
         engine._out("Replacing existing pending review…")
         try:
-            client.delete_pending_review(ctx, pr_number, pending.review_id)
+            client.delete_pending_review(ctx, pr_number, review_to_delete)
         except GithubException as exc:
             engine._clear()
-            raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
+            if exc.status != 404:
+                raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
 
     # Post.
     n = len(draft.comments)
     engine._out(f"Posting review ({event.value}, {n} comment{'s' if n != 1 else ''})…")
     try:
-        url = client.post_review(ctx, pr_number, draft)
+        url = client.post_review(ctx, pr_number, draft, event)
     except GithubException as exc:
         engine._clear()
         raise RbtrError(f"Failed to post review: {exc.data}") from exc
@@ -350,9 +370,10 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     """Bidirectional sync: pull remote pending comments, push local back.
 
     1. Fetch the user's PENDING review from GitHub.
-    2. Merge any new remote comments into the local draft.
+    2. Match remote comments against local using github_id and content.
     3. Delete the old pending review.
-    4. Push the merged local draft back as a new PENDING review.
+    4. Push the merged draft as a new PENDING review.
+    5. Re-fetch to learn new github_ids, update sync state.
 
     If there is no local draft and no remote pending review,
     this is a no-op.  Raises :class:`~rbtr.exceptions.RbtrError`
@@ -374,16 +395,19 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
         engine._clear()
         raise RbtrError(f"GitHub error fetching pending review: {exc.data}") from exc
 
-    # 2. Merge remote into local.
-    local = load_draft(pr_number)
+    # 2. Match remote into local.
+    local = load_draft(pr_number) or ReviewDraft()
     if pending is not None:
-        merged = merge_remote(local, pending.comments)
-        if not merged.summary and pending.body:
-            merged = merged.model_copy(update={"summary": pending.body})
-        save_draft(pr_number, merged)
-        local = merged
+        result = match_comments(local.comments, pending.comments)
+        for w in result.warnings:
+            engine._warn(w)
 
-    if local is None or (not local.summary and not local.comments):
+        summary = local.summary
+        if not summary and pending.summary:
+            summary = pending.summary
+        local = local.model_copy(update={"summary": summary, "comments": result.comments})
+
+    if not local.summary and not local.comments:
         engine._clear()
         engine._out("Nothing to sync — no local or remote draft.")
         return
@@ -391,20 +415,43 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     engine._clear()
 
     # 3. Delete existing pending review before pushing.
-    if pending is not None:
+    review_to_delete = pending.github_review_id if pending is not None else local.github_review_id
+    if review_to_delete is not None:
         try:
-            client.delete_pending_review(ctx, pr_number, pending.review_id)
+            client.delete_pending_review(ctx, pr_number, review_to_delete)
         except GithubException as exc:
-            raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
+            if exc.status != 404:
+                raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
+            # 404 = already gone (crash recovery). Continue.
 
     # 4. Push merged draft as new PENDING.
     n = len(local.comments)
     engine._out(f"Pushing draft ({n} comment{'s' if n != 1 else ''})…")
     try:
-        client.push_pending_review(ctx, pr_number, local)
+        new_review_id = client.push_pending_review(ctx, pr_number, local)
     except GithubException as exc:
         engine._clear()
         raise RbtrError(f"Failed to push draft: {exc.data}") from exc
+
+    # 5. Re-fetch to learn new github_ids.
+    try:
+        pushed = client.get_pending_review(ctx, pr_number, engine.state.gh_username)
+    except GithubException:
+        pushed = None
+
+    if pushed is not None:
+        # Match by content to assign github_ids to local comments.
+        # Strip comment_hash and github_id so we get pure tier-2 matching
+        # (the old IDs are gone after delete-and-recreate).
+        clean = [
+            c.model_copy(update={"comment_hash": "", "github_id": None}) for c in local.comments
+        ]
+        rematched = match_comments(clean, pushed.comments)
+        local = local.model_copy(update={"comments": rematched.comments})
+
+    local = local.model_copy(update={"github_review_id": new_review_id})
+    local = stamp_synced(local)
+    save_draft(pr_number, local)
 
     engine._clear()
     engine._out(f"Draft synced ({n} comment{'s' if n != 1 else ''}).")
@@ -430,9 +477,9 @@ def clear_review_draft(engine: Engine, pr_number: int) -> None:
     except GithubException:
         return
 
-    if pending is not None:
+    if pending is not None and pending.github_review_id is not None:
         try:
-            client.delete_pending_review(ctx, pr_number, pending.review_id)
+            client.delete_pending_review(ctx, pr_number, pending.github_review_id)
             engine._out("Remote pending review deleted.")
         except GithubException as exc:
             engine._warn(f"Failed to delete remote pending review: {exc.data}")

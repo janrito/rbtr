@@ -795,62 +795,298 @@ repo skip unchanged files (keyed by git blob SHA).
 ## Review draft
 
 When reviewing a GitHub PR, rbtr helps you build a structured
-review that can be posted back to GitHub. The LLM builds the
-draft incrementally using tool calls; you control when and how
-it's posted.
+review that can be posted back to GitHub.  The LLM builds the
+draft incrementally using tool calls; you inspect it locally,
+sync it with GitHub, and post it when ready.
 
 ### Workflow
 
-1. **Select a PR** — `/review 42` fetches the PR and
-   auto-syncs any existing pending review from GitHub.
+1. **Select a PR** — `/review 42` fetches the PR and pulls
+   any existing pending review from GitHub into the local
+   draft.
 
 2. **Review with the LLM** — as you discuss the code, the
    LLM uses `add_review_comment` and `set_review_summary`
-   to build a draft. Each change persists immediately to
+   to build a draft.  Each change persists immediately to
    `.rbtr/REVIEW-DRAFT-42.toml`.
 
 3. **Inspect the draft** — `/draft` shows the current state:
-   summary, numbered inline comments, suggestion indicators.
+   summary, numbered inline comments with sync status
+   indicators, and suggestion markers.
 
-4. **Sync** — `/draft sync` does a bidirectional sync: pulls
-   any remote pending comments into the local draft, then
-   pushes the merged result back to GitHub as a pending review
-   (visible in the UI but not submitted).
+4. **Sync** — `/draft sync` does a bidirectional sync with
+   GitHub: pulls remote changes, merges them into the local
+   draft, then pushes the result back as a pending review.
 
 5. **Post** — `/draft post` submits the review to GitHub.
    `/draft post approve` and `/draft post request_changes`
-   set the review event type (default is COMMENT).
+   set the review event type (default is `COMMENT`).
+
+### How the draft is stored
+
+The draft lives at `.rbtr/REVIEW-DRAFT-<pr>.toml` — a plain
+TOML file updated atomically on every mutation.  It's
+human-readable and hand-editable:
+
+```toml
+summary = "Good PR overall, two issues."
+github_review_id = 12345
+summary_hash = "a1b2c3d4e5f6g7h8"
+
+[[comments]]
+path = "src/client.py"
+line = 42
+body = "**blocker:** Retry without backoff."
+github_id = 98765
+comment_hash = "f9e8d7c6b5a43210"
+
+[[comments]]
+path = "src/config.py"
+line = 8
+body = "**nit:** Unused import."
+```
+
+Top-level fields:
+
+- **`summary`** — the review body (markdown).
+- **`github_review_id`** — the PENDING review ID on
+  GitHub.  Absent until the draft has been synced.
+- **`summary_hash`** — hash of the summary, frozen at last
+  sync.  Only updated when syncing, never on local edits.
+
+Each comment has:
+
+- **`path`, `line`, `body`, `suggestion`** — the review
+  content.  `suggestion` is optional replacement code
+  (posted as a GitHub suggestion block).
+- **`github_id`** — GitHub's comment ID, set after the
+  comment has been pushed to or pulled from GitHub.
+  Absent for locally-created comments that haven't been
+  synced yet.
+- **`comment_hash`** — hash of this comment's content,
+  frozen at last sync.  Only updated when syncing, never
+  on local edits.  Absent for new comments.
+
+Hashes are short (16-char hex) SHA-256 digests.  Comment
+hashes cover `path`, `line`, `body`, and `suggestion`.
+Because hashes are only written during sync — never when
+the LLM or you edit a comment — any change to the content
+makes the live hash diverge from the stored one, which is
+how rbtr detects local modifications.
+
+### Sync with GitHub
+
+`/draft sync` performs a bidirectional sync between the local
+draft and the user's pending review on GitHub.
+
+#### GitHub API constraints
+
+GitHub's PENDING reviews do not support individual comment
+updates — you cannot PATCH or DELETE a single pending
+comment via the API (the endpoints return 404).  The only
+way to modify a pending review is to delete the entire
+review and recreate it.  This is a hard API limitation.
+
+rbtr works within this constraint: every push deletes the
+old pending review and creates a new one.  To track changes
+across this delete-and-recreate cycle, each comment's
+`github_id` is recorded locally and re-established after
+each push by re-fetching the new review's comments.
+
+#### Matching: how local and remote comments are paired
+
+When remote comments are fetched from GitHub, rbtr needs to
+figure out which remote comment corresponds to which local
+comment.  This is done in two tiers:
+
+**Tier 1 — `github_id` (exact match).**  If a local
+comment has a `github_id` from a previous sync, and a
+remote comment has the same ID, they're the same comment.
+This is the primary matching mechanism and handles edits,
+deletions, and unchanged comments reliably.
+
+**Tier 2 — `(path, line, formatted_body)` (content match).**
+For local comments without a `github_id` (newly created by
+the LLM, never synced), rbtr matches by exact content
+against unmatched remote comments.  This pairs them 1:1 —
+if multiple remotes have identical content, none are
+matched (ambiguity is not guessed at).
+
+After both tiers:
+
+- **Unmatched remote comments** are imported as new local
+  comments.  You'll see a warning:
+  `"New remote comment imported: path:line"`.
+- **Local comments with a stale `github_id`** (present in
+  the sync snapshot but absent from the remote) were deleted
+  on GitHub.  They're removed locally with a warning:
+  `"Comment on path:line was deleted on GitHub."`.
+- **Local comments without a `github_id` and no content
+  match** are kept as-is — they're new comments that will
+  be included in the next push.
+
+#### Three-way merge: detecting edits and conflicts
+
+After matching, rbtr uses the synced content hash as a
+common ancestor to detect what changed on each side since
+the last sync.  Each comment's current content is hashed
+and compared to the stored hash:
+
+| Synced | Local | Remote | Outcome |
+| ------ | ----- | ------ | ------- |
+| A | A | A | No change |
+| A | A | B | Remote edit → accept |
+| A | B | A | Local edit → keep, push on next sync |
+| A | B | B | Both changed identically → no conflict |
+| A | B | C | **Conflict** → keep local, warn user |
+
+Conflicts always resolve in favour of the local draft — the
+user chose to edit locally, so that takes priority.  The
+warning includes a preview of the remote body so you can
+decide whether to incorporate it manually.
+
+The same logic applies to the review summary (tracked via
+`summary_hash` on the draft).
+
+#### Sync protocol (step by step)
+
+**Pull** (also runs automatically on `/review <n>`):
+
+1. Fetch the user's PENDING review and its comments.
+2. Match remote comments to local using tiers 1 and 2.
+3. Reconcile each matched pair (accept remote edits,
+   detect conflicts).
+4. Import unmatched remote comments, remove remote
+   deletions.
+5. Stamp `comment_hash` on each comment and `summary_hash`
+   on the draft.
+
+**Push** (runs as part of `/draft sync`):
+
+1. Delete the existing PENDING review (if any).
+2. Create a new PENDING review with all current comments.
+3. Re-fetch the new review's comments to learn their
+   `github_id`s (they change on every recreate).
+4. Match the returned comments to local by content
+   (tier 2 — we just wrote them, so content is exact).
+5. Store the new `github_id`s on local comments.
+6. Stamp `comment_hash` on each comment, set
+   `github_review_id` and `summary_hash` on the draft.
+7. Save the draft to disk.
+
+#### Example: sync with a remote edit
+
+```text
+# Initial state: local and GitHub are in sync.
+# Local comment (github_id=100, comment_hash=abc): "Fix the null check."
+
+# Someone edits the comment on GitHub to "Fix the null check (line 42)."
+# Meanwhile, local is unchanged (body still matches comment_hash).
+
+you: /draft sync
+Pulling remote pending review…
+Pushing draft (1 comment)…
+Draft synced (1 comment).
+
+# Result: local body updated to "Fix the null check (line 42)."
+# comment_hash updated to match the new content.
+```
+
+#### Example: conflict
+
+```text
+# comment_hash represents "Original text."
+# Local body was edited to: "Better explanation."
+# Remote body was edited to: "Different rewrite."
+
+you: /draft sync
+⚠ Conflict on src/client.py:42 — keeping local. Remote was: Different rewrite.
+Pushing draft (1 comment)…
+Draft synced (1 comment).
+
+# Result: local "Better explanation." is pushed to GitHub.
+```
+
+### Sync status indicators
+
+`/draft` shows a status indicator next to each comment:
+
+```text
+you: /draft
+Summary: Good PR overall.
+2 comments:
+  ✓ 1. src/client.py:42 — **blocker:** Retry without backoff.
+  ★ 2. src/config.py:8 — **nit:** Unused import.
+```
+
+| Indicator | Meaning |
+| --------- | ------- |
+| `✓` | **Synced** — matches the last-pushed snapshot |
+| `✎` | **Modified** — changed locally since last sync |
+| `★` | **New** — never synced to GitHub |
 
 ### Draft commands
 
 | Subcommand            | Description                           |
 | --------------------- | ------------------------------------- |
-| `/draft`              | Show the current draft                |
+| `/draft`              | Show the current draft with status    |
 | `/draft sync`         | Bidirectional sync with GitHub        |
 | `/draft post [event]` | Submit review to GitHub               |
 | `/draft clear`        | Delete local draft and remote pending |
 
 Tab completes subcommands and event types.
 
+### Posting
+
+`/draft post` submits the review to GitHub as a final,
+visible review.  Before posting it pulls the remote state
+one last time to check for unsynced comments — if the
+remote pending review has comments that aren't in your
+local draft, the post is refused with a message to run
+`/draft sync` first.
+
+Any existing pending review is deleted before the
+submitted review is created, so you don't end up with
+both a pending and a submitted review.
+
+Event types:
+
+```text
+/draft post                    # COMMENT (default)
+/draft post approve            # APPROVE
+/draft post request_changes    # REQUEST_CHANGES
+```
+
+After posting, the local draft file is deleted
+automatically.
+
 ### Safety
 
 - **Unsynced guard** — `/draft post` refuses if the remote
-  pending review has comments not in your local draft. Run
+  pending review has comments not in your local draft.  Run
   `/draft sync` first.
-- **Atomic posting** — all comments are submitted in a single
-  `create_review` API call. No partial reviews.
-- **Crash-safe** — the draft is a TOML file on disk, updated
-  on every mutation. If rbtr crashes, the draft survives.
-- **Human-editable** — `.rbtr/REVIEW-DRAFT-42.toml` is plain
-  TOML with `[[comments]]` array-of-tables. You can edit it
-  by hand.
-- **Draft cleanup** — after a successful post, the local file
-  is deleted automatically.
+- **Atomic posting** — all comments are submitted in a
+  single `create_review` API call.  No partial reviews.
+- **Crash-safe** — the draft is a TOML file on disk,
+  updated on every mutation.  If rbtr crashes, the draft
+  survives.  If the crash happens mid-sync (after deleting
+  the old review but before creating the new one), the next
+  sync detects the stale `review_id` (404) and recovers
+  gracefully.
+- **Human-editable** — `.rbtr/REVIEW-DRAFT-42.toml` is
+  plain TOML.  You can edit it by hand — add comments,
+  change bodies, or clear `comment_hash` / `summary_hash`
+  to force a full re-sync.  Sync state uses content
+  hashes (not duplicated content), so editing a comment
+  body is automatically detected as a local change.
+- **Draft cleanup** — after a successful post, the local
+  file is deleted automatically.
 
 ### GitHub suggestions
 
 When the LLM provides a `suggestion` parameter in
-`add_review_comment`, it's posted as a GitHub suggestion block:
+`add_review_comment`, it's posted as a GitHub suggestion
+block:
 
 ````markdown
 Use exponential backoff.
@@ -860,7 +1096,12 @@ time.sleep(2 ** attempt)
 ```
 ````
 
-The author can apply suggestions with one click in the GitHub UI.
+The author can apply suggestions with one click in the
+GitHub UI.
+
+Suggestion blocks are parsed back out when pulling from
+GitHub — `body` and `suggestion` stay as separate fields
+locally, even after a round-trip through the API.
 
 ## Tool-call limits
 

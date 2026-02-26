@@ -1,27 +1,61 @@
-"""Review draft persistence — ``.rbtr/<prefix>DRAFT-<pr>.toml``.
+"""Review draft persistence and sync matching.
 
-The draft file is the local source of truth while building a review.
-It survives agent crashes and session restarts.  Every mutation
-persists immediately.
+The draft file (``.rbtr/<prefix>DRAFT-<pr>.toml``) is the local
+source of truth while building a review.  Every mutation persists
+immediately.
 
-The filename prefix comes from ``config.tools.workspace_prefix``
-(default ``REVIEW-``), so the default draft file is
-``.rbtr/REVIEW-DRAFT-42.toml``.
+Matching
+--------
+When syncing with GitHub, we need to match remote comments (which
+have ``github_id``) to local comments.  Two tiers:
+
+**Tier 1 — ``github_id``:** If a local comment already has a
+``github_id`` from a previous sync, match by exact ID.
+
+**Tier 2 — ``(path, line, formatted_body)``:** For comments
+without a ``github_id`` (locally new), match by content against
+unmatched remote comments.  Pairs greedily, 1:1.
+
+All remaining unmatched remote comments are imported as new.
+
+Dirty detection uses content hashes stored directly on each
+comment (``comment_hash``) and on the draft (``summary_hash``).
+No separate sync section — each entity tracks its own state.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 import tomli_w
 
 from rbtr.config import WORKSPACE_DIR, config
 from rbtr.exceptions import RbtrError
+from rbtr.github.client import format_comment_body
 from rbtr.models import InlineComment, ReviewDraft
 
 log = logging.getLogger(__name__)
+
+
+# ── Content hashing ──────────────────────────────────────────────────
+
+
+def _comment_hash(c: InlineComment) -> str:
+    """Deterministic hash of a comment's content fields."""
+    content = f"{c.path}\0{c.line}\0{c.body}\0{c.suggestion}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def _summary_hash(summary: str) -> str:
+    """Deterministic hash of the review summary."""
+    return hashlib.sha256(summary.encode()).hexdigest()[:16]
+
+
+# ── Persistence ──────────────────────────────────────────────────────
 
 
 def _draft_path(pr_number: int) -> Path:
@@ -60,7 +94,10 @@ def save_draft(pr_number: int, draft: ReviewDraft) -> None:
     path = _draft_path(pr_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = draft.model_dump(
-        mode="json", exclude_defaults=True, exclude_unset=True, exclude_none=True
+        mode="json",
+        exclude_defaults=True,
+        exclude_unset=True,
+        exclude_none=True,
     )
     text = tomli_w.dumps(payload, multiline_strings=True)
     # Guard: verify the TOML we're about to write can be parsed back.
@@ -81,37 +118,156 @@ def delete_draft(pr_number: int) -> bool:
     return False
 
 
-def get_unsynced_comments(
-    local: ReviewDraft,
-    remote_comments: list[InlineComment],
-) -> list[InlineComment]:
-    """Return remote comments that are not in the local draft.
+# ── Matching ─────────────────────────────────────────────────────────
 
-    Matches by ``(path, line)`` — same logic as ``merge_remote``.
+
+@dataclass(frozen=True, slots=True)
+class MatchResult:
+    """Outcome of matching remote comments against a local draft.
+
+    After applying this result the local draft contains the merged
+    state of both sides.
     """
-    local_keys = {(c.path, c.line) for c in local.comments}
-    return [c for c in remote_comments if (c.path, c.line) not in local_keys]
+
+    comments: list[InlineComment]
+    """Merged comment list — updated locals + imported remotes."""
+
+    warnings: list[str]
+    """Human-readable messages about conflicts and remote deletions."""
 
 
-def merge_remote(
-    local: ReviewDraft | None,
+def match_comments(
+    local_comments: list[InlineComment],
     remote_comments: list[InlineComment],
-) -> ReviewDraft:
-    """Merge remote comments into a local draft.
+) -> MatchResult:
+    """Match remote comments to local and produce a merged list.
 
-    Appends remote comments whose ``(path, line)`` pair is not
-    already present in the local draft.  Local comments are never
-    modified — the local draft is the source of truth for edits.
-
-    If *local* is ``None``, creates a new draft from the remote
-    comments.
+    See module docstring for the matching algorithm.
     """
-    if local is None:
-        return ReviewDraft(comments=list(remote_comments))
+    warnings: list[str] = []
 
-    existing = {(c.path, c.line) for c in local.comments}
-    new = [c for c in remote_comments if (c.path, c.line) not in existing]
-    if not new:
+    # Index remote comments by github_id for O(1) lookup.
+    remote_by_id: dict[int, InlineComment] = {}
+    for rc in remote_comments:
+        if rc.github_id is not None:
+            remote_by_id[rc.github_id] = rc
+    unmatched_remote_ids = set(remote_by_id.keys())
+
+    # Phase 1: process local comments.
+    merged: list[InlineComment] = []
+    for lc in local_comments:
+        if lc.github_id is not None and lc.github_id in remote_by_id:
+            # ── Tier 1: matched by github_id ─────────────────────
+            rc = remote_by_id[lc.github_id]
+            unmatched_remote_ids.discard(lc.github_id)
+            updated = _reconcile(lc, rc, warnings)
+            merged.append(updated)
+
+        elif lc.github_id is not None and lc.comment_hash:
+            # Had a github_id from a previous sync but the remote
+            # comment is gone → deleted on GitHub.
+            warnings.append(f"Comment on {lc.path}:{lc.line} was deleted on GitHub.")
+            # Don't include in merged — honour the remote deletion.
+
+        else:
+            # ── No github_id or not synced: locally new. ─────────
+            # Try tier 2: content match against unmatched remotes.
+            matched_id = _tier2_match(lc, remote_by_id, unmatched_remote_ids)
+            if matched_id is not None:
+                unmatched_remote_ids.discard(matched_id)
+                # Adopt the github_id from the remote match.
+                merged.append(lc.model_copy(update={"github_id": matched_id}))
+            else:
+                # Genuinely new local comment — keep as-is.
+                merged.append(lc)
+
+    # Phase 2: import remaining unmatched remote comments.
+    for gid in sorted(unmatched_remote_ids):
+        rc = remote_by_id[gid]
+        merged.append(rc)
+        warnings.append(f"New remote comment imported: {rc.path}:{rc.line}")
+
+    return MatchResult(comments=merged, warnings=warnings)
+
+
+def _reconcile(
+    local: InlineComment,
+    remote: InlineComment,
+    warnings: list[str],
+) -> InlineComment:
+    """Reconcile a matched local/remote pair using three-way merge.
+
+    The comment's ``comment_hash`` is the common ancestor.
+    """
+    comment_hash = local.comment_hash
+    if not comment_hash:
+        # No merge base — first time seeing this pair.
+        # Keep local (it was already present before sync tracking).
         return local
 
-    return local.model_copy(update={"comments": [*local.comments, *new]})
+    local_dirty = _comment_hash(local) != comment_hash
+    remote_dirty = _comment_hash(remote) != comment_hash
+
+    if not remote_dirty:
+        # Remote unchanged — keep whatever local has (maybe edited).
+        return local
+
+    if not local_dirty:
+        # Only remote changed — accept remote edit.
+        return remote
+
+    # Both sides changed — conflict.  Keep local, warn user.
+    remote_preview = remote.body[:60]
+    warnings.append(
+        f"Conflict on {local.path}:{local.line} — keeping local. Remote was: {remote_preview}"
+    )
+    return local
+
+
+def _tier2_match(
+    local: InlineComment,
+    remote_by_id: dict[int, InlineComment],
+    unmatched_ids: set[int],
+) -> int | None:
+    """Try to match a local comment by ``(path, line, formatted_body)``.
+
+    Returns the ``github_id`` of the matched remote, or ``None``.
+    Only matches if exactly one candidate exists.
+    """
+    local_key = (local.path, local.line, format_comment_body(local))
+    candidates: list[int] = []
+    for gid in unmatched_ids:
+        rc = remote_by_id[gid]
+        remote_key = (rc.path, rc.line, format_comment_body(rc))
+        if local_key == remote_key:
+            candidates.append(gid)
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def stamp_synced(draft: ReviewDraft) -> ReviewDraft:
+    """Set ``comment_hash`` on every comment and ``summary_hash`` on the draft.
+
+    Called after a successful push to record what was sent to GitHub.
+    """
+    stamped = [c.model_copy(update={"comment_hash": _comment_hash(c)}) for c in draft.comments]
+    return draft.model_copy(
+        update={
+            "comments": stamped,
+            "summary_hash": _summary_hash(draft.summary),
+        }
+    )
+
+
+def comment_sync_status(comment: InlineComment) -> str:
+    """Return a single-char status indicator for display.
+
+    ``★`` new (never synced), ``✎`` dirty (modified since sync),
+    ``✓`` clean (matches synced hash).
+    """
+    if not comment.comment_hash:
+        return "★"
+    if _comment_hash(comment) != comment.comment_hash:
+        return "✎"
+    return "✓"
