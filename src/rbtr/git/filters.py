@@ -11,14 +11,17 @@ def _matches_globs(path: str, patterns: list[str]) -> bool:
     """Check whether *path* matches any of the given globs.
 
     A literal pattern (no ``*``, ``?``, or ``[``) also matches
-    any child path — e.g. pattern ``".rbtr/index"`` matches
-    ``".rbtr/index/data.db"``.
+    any child path — e.g. pattern ``".rbtr/"`` matches
+    ``".rbtr/index/data.db"``.  Trailing slashes on directory
+    patterns are handled correctly.
     """
     for pat in patterns:
         if fnmatch.fnmatch(path, pat):
             return True
         # Treat literal patterns as directory prefixes too.
-        if not any(c in pat for c in "*?[") and path.startswith(pat + "/"):
+        # Strip trailing slash so ".rbtr/" doesn't become ".rbtr//".
+        prefix = pat.rstrip("/")
+        if not any(c in pat for c in "*?[") and (path == prefix or path.startswith(prefix + "/")):
             return True
     return False
 

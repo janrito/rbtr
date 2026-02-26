@@ -739,6 +739,14 @@ def test_matches_globs_literal_prefix_matching() -> None:
     assert not _matches_globs(".rbtr/index-notes.md", [".rbtr/index"])
 
 
+def test_matches_globs_trailing_slash() -> None:
+    """Trailing slash on directory patterns matches children."""
+    assert _matches_globs(".rbtr/index/data.db", [".rbtr/"])
+    assert _matches_globs(".rbtr/REVIEW-plan.md", [".rbtr/"])
+    # Exact directory name (sans trailing slash) also matches
+    assert _matches_globs(".rbtr", [".rbtr/"])
+
+
 def test_matches_globs_wildcard_matches_across_slash() -> None:
     """fnmatch * matches across / — so wildcard patterns are broad."""
     assert _matches_globs(".rbtr/REVIEW-plan.md", [".rbtr/REVIEW-*"])
