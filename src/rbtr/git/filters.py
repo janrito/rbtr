@@ -6,8 +6,6 @@ import fnmatch
 
 import pygit2
 
-from rbtr.config import config
-
 
 def _matches_globs(path: str, patterns: list[str]) -> bool:
     """Check whether *path* matches any of the given globs.
@@ -27,26 +25,26 @@ def _matches_globs(path: str, patterns: list[str]) -> bool:
 
 def is_path_ignored(
     path: str,
-    repo: pygit2.Repository | None = None,
+    repo: pygit2.Repository | None,
+    *,
+    include: list[str],
+    exclude: list[str],
 ) -> bool:
     """Check whether *path* should be excluded from file tools.
 
-    Applies the same three-layer filter as the indexer:
+    Applies a three-layer filter:
 
-    1. ``config.index.include`` force-includes (overrides gitignore
-       and extend_exclude).
+    1. *include* globs force-include (override gitignore and exclude).
     2. ``.gitignore`` via ``repo.path_is_ignored`` (when *repo* is
        available).
-    3. ``config.index.extend_exclude`` globs.
+    3. *exclude* globs.
     """
-    include = config.index.include
-    extend = config.index.extend_exclude
     forced = bool(include) and _matches_globs(path, include)
     if forced:
         return False
     if repo is not None and repo.path_is_ignored(path):
         return True
-    return _matches_globs(path, extend)
+    return _matches_globs(path, exclude)
 
 
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:

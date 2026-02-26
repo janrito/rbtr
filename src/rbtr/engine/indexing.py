@@ -53,7 +53,15 @@ def _build_index(engine: Engine) -> None:
     engine.state.index_ready = False
 
     # Count files for the progress total.
-    head_files = list(list_files(repo, head_ref))
+    head_files = list(
+        list_files(
+            repo,
+            head_ref,
+            max_file_size=config.index.max_file_size,
+            include=config.index.include,
+            exclude=config.index.extend_exclude,
+        )
+    )
     total = len(head_files)
     engine._emit(IndexStarted(total_files=total))
 

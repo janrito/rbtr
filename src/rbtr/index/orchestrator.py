@@ -114,7 +114,15 @@ def build_index(
     result = IndexResult()
 
     # 1. List indexable files.
-    files = list(list_files(repo, commit_sha))
+    files = list(
+        list_files(
+            repo,
+            commit_sha,
+            max_file_size=config.index.max_file_size,
+            include=config.index.include,
+            exclude=config.index.extend_exclude,
+        )
+    )
     total = len(files)
     result.stats.total_files = total
     log.info("Indexing %d files at %s", total, commit_sha[:12])
@@ -225,7 +233,15 @@ def update_index(
     log.info("Incremental index: %d changed files", len(changed))
 
     # List all files at head_sha for snapshots + edge inference.
-    head_files = list(list_files(repo, head_sha))
+    head_files = list(
+        list_files(
+            repo,
+            head_sha,
+            max_file_size=config.index.max_file_size,
+            include=config.index.include,
+            exclude=config.index.extend_exclude,
+        )
+    )
     result.stats.total_files = len(head_files)
 
     all_chunks: list[Chunk] = []

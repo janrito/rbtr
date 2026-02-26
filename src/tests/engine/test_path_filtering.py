@@ -68,84 +68,67 @@ def _state(repo: pygit2.Repository) -> EngineState:
 # ── is_path_ignored unit tests ───────────────────────────────────────
 
 
-def test_is_path_ignored_gitignore(config_path: Path) -> None:
+def test_is_path_ignored_gitignore() -> None:
     """Paths matching .gitignore are ignored when repo is provided."""
-    config.index.include = []
-    config.index.extend_exclude = []
-
     with tempfile.TemporaryDirectory() as tmp:
         repo, _ = _make_repo(tmp)
         workdir = Path(repo.workdir)  # type: ignore[arg-type]
         (workdir / ".gitignore").write_text(".mypy_cache/\n__pycache__/\n")
 
-        assert is_path_ignored(".mypy_cache/foo.json", repo)
-        assert is_path_ignored("__pycache__/mod.pyc", repo)
-        assert not is_path_ignored("src/main.py", repo)
+        assert is_path_ignored(".mypy_cache/foo.json", repo, include=[], exclude=[])
+        assert is_path_ignored("__pycache__/mod.pyc", repo, include=[], exclude=[])
+        assert not is_path_ignored("src/main.py", repo, include=[], exclude=[])
 
 
-def test_is_path_ignored_extend_exclude(config_path: Path) -> None:
-    """Paths matching extend_exclude are ignored even without repo."""
-    config.index.include = []
-    config.index.extend_exclude = [".rbtr/index"]
-
-    assert is_path_ignored(".rbtr/index", None)
-    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None)
+def test_is_path_ignored_extend_exclude() -> None:
+    """Paths matching exclude are ignored even without repo."""
+    assert is_path_ignored(".rbtr/index", None, include=[], exclude=[".rbtr/index"])
+    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None, include=[], exclude=[".rbtr/index"])
 
 
-def test_is_path_ignored_extend_exclude_glob(config_path: Path) -> None:
-    """Extend_exclude supports glob patterns."""
-    config.index.include = []
-    config.index.extend_exclude = ["*.lock", "vendor/*"]
-
-    assert is_path_ignored("package.lock", None)
-    assert is_path_ignored("vendor/lib.py", None)
-    assert not is_path_ignored("src/app.py", None)
+def test_is_path_ignored_extend_exclude_glob() -> None:
+    """Exclude supports glob patterns."""
+    exclude = ["*.lock", "vendor/*"]
+    assert is_path_ignored("package.lock", None, include=[], exclude=exclude)
+    assert is_path_ignored("vendor/lib.py", None, include=[], exclude=exclude)
+    assert not is_path_ignored("src/app.py", None, include=[], exclude=exclude)
 
 
-def test_is_path_ignored_include_overrides_gitignore(config_path: Path) -> None:
+def test_is_path_ignored_include_overrides_gitignore() -> None:
     """Include patterns override gitignore."""
-    config.index.include = [".rbtr/*"]
-    config.index.extend_exclude = []
-
     with tempfile.TemporaryDirectory() as tmp:
         repo, _ = _make_repo(tmp)
         workdir = Path(repo.workdir)  # type: ignore[arg-type]
         (workdir / ".gitignore").write_text(".rbtr/\nnode_modules/\n")
 
         # .rbtr/ is gitignored but force-included
-        assert not is_path_ignored(".rbtr/REVIEW-plan.md", repo)
+        assert not is_path_ignored(".rbtr/REVIEW-plan.md", repo, include=[".rbtr/*"], exclude=[])
         # Other gitignored paths are still excluded
-        assert is_path_ignored("node_modules/foo.js", repo)
+        assert is_path_ignored("node_modules/foo.js", repo, include=[".rbtr/*"], exclude=[])
 
 
-def test_is_path_ignored_include_overrides_extend_exclude(config_path: Path) -> None:
+def test_is_path_ignored_include_overrides_extend_exclude() -> None:
     """Include patterns override extend_exclude."""
-    config.index.include = [".rbtr/*"]
-    config.index.extend_exclude = [".rbtr/*"]
-
-    # Both include and extend_exclude match — include wins
-    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None)
-
-
-def test_is_path_ignored_no_repo_no_gitignore_check(config_path: Path) -> None:
-    """Without a repo, only extend_exclude is applied."""
-    config.index.include = []
-    config.index.extend_exclude = ["*.log"]
-
-    assert is_path_ignored("debug.log", None)
-    assert not is_path_ignored("app.py", None)
+    # Both include and exclude match — include wins
+    assert not is_path_ignored(
+        ".rbtr/REVIEW-plan.md", None, include=[".rbtr/*"], exclude=[".rbtr/*"]
+    )
 
 
-def test_is_path_ignored_default_config(config_path: Path) -> None:
-    """Default config includes .rbtr/REVIEW-* and excludes .rbtr/index."""
-    # Reset to defaults
-    config.index.include = [".rbtr/REVIEW-*"]
-    config.index.extend_exclude = [".rbtr/index"]
+def test_is_path_ignored_no_repo_no_gitignore_check() -> None:
+    """Without a repo, only exclude is applied."""
+    assert is_path_ignored("debug.log", None, include=[], exclude=["*.log"])
+    assert not is_path_ignored("app.py", None, include=[], exclude=["*.log"])
 
-    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None)
-    assert is_path_ignored(".rbtr/index", None)
+
+def test_is_path_ignored_include_and_exclude_interplay() -> None:
+    """Include overrides exclude for matching paths; exclude applies to the rest."""
+    inc = [".rbtr/REVIEW-*"]
+    exc = [".rbtr/index"]
+    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None, include=inc, exclude=exc)
+    assert is_path_ignored(".rbtr/index", None, include=inc, exclude=exc)
     # Children of .rbtr/index are also excluded (prefix matching)
-    assert is_path_ignored(".rbtr/index/rbtr.duckdb", None)
+    assert is_path_ignored(".rbtr/index/rbtr.duckdb", None, include=inc, exclude=exc)
 
 
 # ── read_file filtering tests ───────────────────────────────────────

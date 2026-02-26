@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 import pygit2
 from pygit2.enums import SortMode
 
-from rbtr.config import config
 from rbtr.git.filters import is_binary, is_path_ignored
 
 if TYPE_CHECKING:
@@ -112,28 +111,27 @@ def list_files(
     repo: pygit2.Repository,
     ref: str,
     *,
-    max_file_size: int | None = None,
+    max_file_size: int,
+    include: list[str],
+    exclude: list[str],
 ) -> Iterator[FileEntry]:
     """Yield every indexable file in the tree at *ref*.
 
     Filtering is layered:
 
-    1. ``config.index.include`` globs force-include paths even if
-       they match ``.gitignore`` (e.g. a vendored file you want indexed).
+    1. *include* globs force-include paths even if they match
+       ``.gitignore`` (e.g. a vendored file you want indexed).
     2. The repo's ``.gitignore`` (checked via ``repo.path_is_ignored``).
-    3. ``config.index.extend_exclude`` globs from user config.
+    3. *exclude* globs.
 
     Binary files and files larger than *max_file_size* are also skipped.
-    Defaults come from ``config.index``.
     """
-    if max_file_size is None:
-        max_file_size = config.index.max_file_size
     commit = resolve_commit(repo, ref)
     tree = commit.tree
 
     for entry in walk_tree(repo, tree, ""):
         path, blob = entry
-        if is_path_ignored(path, repo):
+        if is_path_ignored(path, repo, include=include, exclude=exclude):
             continue
         if blob.size > max_file_size:
             continue

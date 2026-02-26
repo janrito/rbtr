@@ -1308,7 +1308,9 @@ def _list_fs_files(prefix: str, repo: pygit2.Repository | None = None) -> list[s
         if not p.is_file():
             continue
         rel = str(PurePosixPath(p))
-        if is_path_ignored(rel, repo):
+        if is_path_ignored(
+            rel, repo, include=config.index.include, exclude=config.index.extend_exclude
+        ):
             continue
         entries.append(rel)
     return entries
@@ -1402,7 +1404,9 @@ def read_file(
         return _format_file_page(path, data.decode(errors="replace").splitlines(), offset, capped)
 
     # Fall back to local filesystem.
-    if is_path_ignored(path, repo):
+    if is_path_ignored(
+        path, repo, include=config.index.include, exclude=config.index.extend_exclude
+    ):
         return blob_result  # treat ignored paths as not found
     fs_lines, fs_err = _read_fs_file(path)
     if fs_err:
