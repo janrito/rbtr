@@ -611,7 +611,7 @@ def test_handle_llm_context_overflow_triggers_compact(
 def test_repair_empty_history() -> None:
     from rbtr.engine.llm import _repair_dangling_tool_calls
 
-    history, tools = _repair_dangling_tool_calls([])
+    history, tools, _ = _repair_dangling_tool_calls([])
     assert history == []
     assert tools == []
 
@@ -625,7 +625,7 @@ def test_repair_no_dangling_calls() -> None:
         ModelResponse(parts=[TextPart(content="hi")]),
         ModelRequest(parts=[UserPromptPart(content="bye")]),
     ]
-    repaired, tools = _repair_dangling_tool_calls(history)
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -638,7 +638,7 @@ def test_repair_response_without_tool_calls() -> None:
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(parts=[TextPart(content="hi")]),
     ]
-    repaired, tools = _repair_dangling_tool_calls(history)
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -657,7 +657,7 @@ def test_repair_dangling_at_end() -> None:
             ]
         ),
     ]
-    repaired, tools = _repair_dangling_tool_calls(history)
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
     assert len(repaired) == 3  # original 2 + synthetic request
     assert tools == ["read_file", "grep"]
 
@@ -688,7 +688,7 @@ def test_repair_dangling_mid_history() -> None:
         ModelRequest(parts=[UserPromptPart(content="try again")]),
         ModelResponse(parts=[TextPart(content="ok")]),
     ]
-    repaired, tools = _repair_dangling_tool_calls(history)
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
     assert tools == ["list_files"]
     assert len(repaired) == 5  # 4 original + 1 synthetic
 
@@ -722,6 +722,90 @@ def test_repair_tool_calls_with_results_untouched() -> None:
         ),
         ModelResponse(parts=[TextPart(content="done")]),
     ]
-    repaired, tools = _repair_dangling_tool_calls(history)
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
+
+
+def test_repair_partial_results() -> None:
+    """Some tool calls answered, others missing → only missing ones get synthetic results."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={"search": "TODO"}, tool_call_id="tc2"),
+                ToolCallPart(tool_name="diff", args={}, tool_call_id="tc3"),
+            ]
+        ),
+        # Only tc1 completed before cancellation.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="file contents", tool_call_id="tc1"),
+            ]
+        ),
+    ]
+    repaired, tools, new_msgs = _repair_dangling_tool_calls(history)
+    assert tools == ["grep", "diff"]
+    # Original 3 messages + 1 synthetic for the 2 missing results.
+    assert len(repaired) == 4
+
+    # The existing partial results are preserved.
+    assert isinstance(repaired[2], ModelRequest)
+    existing = [p for p in repaired[2].parts if isinstance(p, ToolReturnPart)]
+    assert len(existing) == 1
+    assert existing[0].tool_call_id == "tc1"
+
+    # Synthetic results appended for the missing calls.
+    synthetic = repaired[3]
+    assert isinstance(synthetic, ModelRequest)
+    cancelled = [p for p in synthetic.parts if isinstance(p, ToolReturnPart)]
+    assert len(cancelled) == 2
+    assert cancelled[0].tool_call_id == "tc2"
+    assert cancelled[0].content == "(cancelled)"
+    assert cancelled[1].tool_call_id == "tc3"
+    assert cancelled[1].content == "(cancelled)"
+
+    # new_msgs contains only the synthetic messages (for persistence).
+    assert len(new_msgs) == 1
+    assert new_msgs[0] is synthetic
+
+
+def test_repair_partial_results_mid_history() -> None:
+    """Partial results in the middle of history — conversation continues after."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="tc2"),
+            ]
+        ),
+        # Only tc1 answered.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1"),
+            ]
+        ),
+        # User continued with a new prompt.
+        ModelRequest(parts=[UserPromptPart(content="try again")]),
+        ModelResponse(parts=[TextPart(content="ok")]),
+    ]
+    repaired, tools, _ = _repair_dangling_tool_calls(history)
+    assert tools == ["grep"]
+    assert len(repaired) == 6  # 5 original + 1 synthetic
+
+    # Synthetic inserted after the partial results.
+    synthetic = repaired[3]
+    assert isinstance(synthetic, ModelRequest)
+    cancelled = [p for p in synthetic.parts if isinstance(p, ToolReturnPart)]
+    assert len(cancelled) == 1
+    assert cancelled[0].tool_call_id == "tc2"
+
+    # Rest of history preserved.
+    assert isinstance(repaired[4], ModelRequest)  # "try again"
+    assert isinstance(repaired[5], ModelResponse)  # "ok"

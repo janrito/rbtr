@@ -182,26 +182,37 @@ and show a menu (capped at 20 suggestions).
 ### Cancellation recovery
 
 Ctrl+C cancels the current LLM turn immediately.  If the
-model was mid-way through a tool-calling cycle (e.g. it had
-called `read_file` and `grep` but results hadn't been
-processed yet), the model's response is already persisted to
-the session database but the tool results are not.  This
-leaves the conversation history in a broken state — the next
-user prompt would fail because PydanticAI requires every tool
-call to have a matching result.
+model was mid-way through a tool-calling cycle, the model's
+response (with tool calls) is already persisted to the session
+database but some or all tool results may not be.  Both
+PydanticAI and upstream provider APIs (OpenAI, Anthropic)
+reject conversations where a tool call has no matching result.
 
-rbtr detects this on the next turn and repairs the history
-automatically by injecting synthetic `(cancelled)` tool
-results for each dangling call.  A warning is shown:
+rbtr detects this on the next turn by comparing each
+`ToolCallPart` against the `ToolReturnPart`s in the following
+message.  Any tool call without a matching result gets a
+synthetic `(cancelled)` return injected.  This handles both
+cases:
+
+- **No results saved** — all tool calls in the response are
+  patched.
+- **Partial results** — only the tool calls that were still
+  in-flight when Ctrl+C fired are patched; completed results
+  are preserved.
+
+The synthetic results are persisted to the session database
+immediately, so the repair is permanent — it won't re-trigger
+on subsequent loads of the same session.  A one-time warning
+is shown:
 
 ```text
 ⚠ Previous turn was cancelled mid-tool-call (read_file, grep).
   Those tool results are lost — the model will continue without them.
 ```
 
-The model sees the cancelled results and can decide whether
-to retry the tool calls or proceed differently.  No manual
-intervention is needed.
+The model sees the `(cancelled)` results and can decide
+whether to retry the tool calls or proceed differently.  No
+manual intervention is needed.
 
 ## Usage display
 

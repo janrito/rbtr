@@ -23,6 +23,7 @@ from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    RetryPromptPart,
     TextPartDelta,
     ToolCallPart,
     ToolReturnPart,
@@ -58,7 +59,7 @@ log = logging.getLogger(__name__)
 
 def _repair_dangling_tool_calls(
     history: list[ModelMessage],
-) -> tuple[list[ModelMessage], list[str]]:
+) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
     """Fix history left dirty by a cancelled tool-calling turn.
 
     When the user cancels (Ctrl+C) mid-turn, the model's
@@ -68,19 +69,31 @@ def _repair_dangling_tool_calls(
     provider APIs (OpenAI, Anthropic) reject conversations that
     contain function calls without matching results.
 
-    The fix: for every ``ModelResponse`` with ``ToolCallPart``\\ s
-    that is *not* followed by a ``ModelRequest`` containing the
-    corresponding ``ToolReturnPart``\\ s, append a synthetic request
-    with ``(cancelled)`` results.
+    There are two failure modes:
 
-    Returns ``(repaired_history, tool_names)`` where *tool_names*
-    lists every tool that was patched (empty if no repair needed).
+    1. **No results at all** — the next message is not a
+       ``ModelRequest`` with tool returns (e.g. cancellation
+       before any tool ran).
+    2. **Partial results** — some tools completed and their
+       results were saved, but other tool calls have no
+       matching result (cancellation mid-way through parallel
+       tool execution).
+
+    The fix: for every ``ToolCallPart`` whose ``tool_call_id``
+    has no matching ``ToolReturnPart`` in the next message,
+    inject a synthetic ``(cancelled)`` result.
+
+    Returns ``(repaired_history, tool_names, new_messages)`` where
+    *tool_names* lists every tool that was patched (empty if no
+    repair needed), and *new_messages* contains only the synthetic
+    ``ModelRequest``\\ s that were injected (for persistence).
     """
     if not history:
-        return history, []
+        return history, [], []
 
     repaired: list[ModelMessage] | None = None  # lazy copy
     all_tool_names: list[str] = []
+    new_messages: list[ModelMessage] = []
 
     i = 0
     while i < len(history):
@@ -88,33 +101,43 @@ def _repair_dangling_tool_calls(
         if isinstance(msg, ModelResponse):
             tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
             if tool_calls:
-                # Check whether the next message supplies results.
+                # Collect IDs that already have results in the next message.
                 next_msg = history[i + 1] if i + 1 < len(history) else None
-                has_results = isinstance(next_msg, ModelRequest) and any(
-                    isinstance(p, ToolReturnPart) for p in next_msg.parts
-                )
-                if not has_results:
+                answered_ids: set[str | None] = set()
+                if isinstance(next_msg, ModelRequest):
+                    for p in next_msg.parts:
+                        if isinstance(p, (ToolReturnPart, RetryPromptPart)):
+                            answered_ids.add(p.tool_call_id)
+
+                missing = [tc for tc in tool_calls if tc.tool_call_id not in answered_ids]
+                if missing:
                     if repaired is None:
                         repaired = list(history[:i])
                     repaired.append(msg)
-                    names = [tc.tool_name for tc in tool_calls]
+
+                    # Keep the existing partial results if present.
+                    if isinstance(next_msg, ModelRequest) and answered_ids:
+                        repaired.append(next_msg)
+                        i += 1  # skip the next_msg, we already added it
+
+                    names = [tc.tool_name for tc in missing]
                     all_tool_names.extend(names)
                     log.info(
                         "Repairing %d dangling tool call(s) from cancelled turn.",
-                        len(tool_calls),
+                        len(missing),
                     )
-                    repaired.append(
-                        ModelRequest(
-                            parts=[
-                                ToolReturnPart(
-                                    tool_name=tc.tool_name,
-                                    content="(cancelled)",
-                                    tool_call_id=tc.tool_call_id,
-                                )
-                                for tc in tool_calls
-                            ],
-                        )
+                    synthetic = ModelRequest(
+                        parts=[
+                            ToolReturnPart(
+                                tool_name=tc.tool_name,
+                                content="(cancelled)",
+                                tool_call_id=tc.tool_call_id,
+                            )
+                            for tc in missing
+                        ],
                     )
+                    repaired.append(synthetic)
+                    new_messages.append(synthetic)
                     i += 1
                     continue
         if repaired is not None:
@@ -122,8 +145,8 @@ def _repair_dangling_tool_calls(
         i += 1
 
     if repaired is not None:
-        return repaired, all_tool_names
-    return history, []
+        return repaired, all_tool_names, new_messages
+    return history, [], []
 
 
 @dataclass(slots=True)
@@ -292,8 +315,10 @@ async def _stream_agent(
     # Load history from DB — the source of truth.
     store = engine.store
     history = store.load_messages(engine.state.session_id)
-    history, repaired_tools = _repair_dangling_tool_calls(history)
+    history, repaired_tools, repair_messages = _repair_dangling_tool_calls(history)
     if repaired_tools:
+        # Persist the synthetic results so the repair is permanent.
+        _save_messages_safe(engine, repair_messages)
         names = ", ".join(repaired_tools)
         engine._warn(
             f"Previous turn was cancelled mid-tool-call ({names}). "
@@ -429,7 +454,7 @@ async def _stream_agent(
         )
         # Reload from DB after compaction.
         history = store.load_messages(engine.state.session_id)
-        history, _ = _repair_dangling_tool_calls(history)
+        history, _, _ = _repair_dangling_tool_calls(history)
         engine.state.usage.snapshot_base()
 
         resume = await _run_with_cancel(engine, _do_stream(None, history))
@@ -475,7 +500,7 @@ async def _stream_summary(
     can only produce text — no further tool calls.
     """
     history = engine.store.load_messages(engine.state.session_id)
-    history, _ = _repair_dangling_tool_calls(history)
+    history, _, _ = _repair_dangling_tool_calls(history)
 
     summary_agent: Agent[None, str] = Agent(model)
     async with summary_agent.iter(
