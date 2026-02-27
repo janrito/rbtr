@@ -23,6 +23,7 @@ from rbtr.config import config
 from rbtr.exceptions import RbtrError
 from rbtr.models import (
     BranchSummary,
+    DiffSide,
     DiscussionEntry,
     DiscussionEntryKind,
     InlineComment,
@@ -229,7 +230,7 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
 _HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
-def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, str]]:
+def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, DiffSide]]:
     """Yield ``(position, line, side)`` for each diff line in *diff_hunk*.
 
     Skips ``\\ No newline at end of file`` markers.  ``position`` is
@@ -259,19 +260,19 @@ def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, str]]:
             continue
         pos += 1
         if ln.startswith("+"):
-            yield pos, new_line, "RIGHT"
+            yield pos, new_line, DiffSide.RIGHT
             new_line += 1
         elif ln.startswith("-"):
-            yield pos, old_line, "LEFT"
+            yield pos, old_line, DiffSide.LEFT
             old_line += 1
         else:
             # Context line (starts with " " or is empty).
-            yield pos, new_line, "RIGHT"
+            yield pos, new_line, DiffSide.RIGHT
             old_line += 1
             new_line += 1
 
 
-def _position_to_line(diff_hunk: str) -> tuple[int, str]:
+def _position_to_line(diff_hunk: str) -> tuple[int, DiffSide]:
     """Recover ``(line, side)`` from a GitHub ``diff_hunk``.
 
     Pending review comments lack the ``line`` / ``side`` fields and
@@ -280,14 +281,14 @@ def _position_to_line(diff_hunk: str) -> tuple[int, str]:
     last diff line determines the file line number and diff side.
     """
     result_line = 0
-    result_side = "RIGHT"
+    result_side: DiffSide = DiffSide.RIGHT
     for _pos, line, side in _walk_hunk(diff_hunk):
         result_line = line
         result_side = side
     return result_line, result_side
 
 
-def _line_to_position(diff_hunk: str, line: int, side: str) -> int | None:
+def _line_to_position(diff_hunk: str, line: int, side: DiffSide) -> int | None:
     """Convert ``(line, side)`` to a diff position within *diff_hunk*.
 
     Returns the 1-based position, or ``None`` if the line/side pair
@@ -353,11 +354,14 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewD
         # deprecated ``position`` + ``diff_hunk``.  Recover the real
         # file line number (and side) from the hunk when necessary.
         line = data.get("line") or data.get("original_line") or 0
-        side = data.get("side") or ""
+        side_raw = data.get("side") or ""
+        side: DiffSide
         if not line and data.get("diff_hunk"):
             line, side = _position_to_line(data["diff_hunk"])
-        if not side:
-            side = "RIGHT"
+        elif side_raw in ("LEFT", "RIGHT"):
+            side = DiffSide(side_raw)
+        else:
+            side = DiffSide.RIGHT
 
         comments.append(
             InlineComment(

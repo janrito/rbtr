@@ -17,7 +17,7 @@ from github import Auth, Github
 
 from rbtr.config import config
 from rbtr.creds import creds
-from rbtr.events import Event, FlushPanel, Output, TaskFinished, TaskStarted
+from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, TaskFinished, TaskStarted
 from rbtr.exceptions import RbtrError
 from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.oauth import oauth_is_set
@@ -99,6 +99,10 @@ class Engine:
 
     def _error(self, text: str) -> None:
         self._out(text, style=STYLE_ERROR)
+
+    def _markdown(self, text: str) -> None:
+        self._check_cancel()
+        self._emit(MarkdownOutput(text=text))
 
     def _flush(self) -> None:
         """Flush current output as a completed panel and start fresh."""

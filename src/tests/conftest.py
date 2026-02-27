@@ -10,7 +10,7 @@ import pytest
 
 from rbtr.config import config
 from rbtr.creds import Creds, creds
-from rbtr.events import Event, Output
+from rbtr.events import Event, MarkdownOutput, Output
 
 # ── Event helpers ────────────────────────────────────────────────────
 
@@ -27,8 +27,8 @@ def drain(events: queue.Queue[Event]) -> list[Event]:
 
 
 def output_texts(events: list[Event]) -> list[str]:
-    """Extract text from Output events."""
-    return [e.text for e in events if isinstance(e, Output)]
+    """Extract text from Output and MarkdownOutput events."""
+    return [e.text for e in events if isinstance(e, (Output, MarkdownOutput))]
 
 
 def has_event_type(events: list[Event], event_type: type) -> bool:

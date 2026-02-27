@@ -98,6 +98,19 @@ class ReviewEvent(StrEnum):
     REQUEST_CHANGES = "REQUEST_CHANGES"
 
 
+class DiffSide(StrEnum):
+    """Which side of a diff a comment targets.
+
+    GitHub uses this with ``line`` to locate the comment.
+    """
+
+    RIGHT = "RIGHT"
+    """Head (new) version of the file."""
+
+    LEFT = "LEFT"
+    """Base (old) version of the file."""
+
+
 class InlineComment(BaseModel):
     """A single inline comment on a specific line in the diff."""
 
@@ -105,15 +118,12 @@ class InlineComment(BaseModel):
     """File path relative to repo root (e.g. ``src/api/handler.py``)."""
 
     line: int
-    """Line number in the file (1-indexed).  For ``side="RIGHT"``
-    this is the line in the head version; for ``side="LEFT"``
+    """Line number in the file (1-indexed).  For ``RIGHT``
+    this is the line in the head version; for ``LEFT``
     the line in the base version."""
 
-    side: str = "RIGHT"
-    """Which side of the diff this comment targets.  ``"RIGHT"``
-    for the head (new) version, ``"LEFT"`` for the base (old)
-    version.  GitHub uses this with ``line`` to locate the
-    comment in the diff."""
+    side: DiffSide = DiffSide.RIGHT
+    """Which side of the diff this comment targets."""
 
     commit_id: str = ""
     """Commit SHA that ``line`` was resolved against.  Set from

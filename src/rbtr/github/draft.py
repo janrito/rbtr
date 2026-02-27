@@ -89,7 +89,7 @@ def _summary_hash(summary: str) -> str:
 # ── Persistence ──────────────────────────────────────────────────────
 
 
-def _draft_path(pr_number: int) -> Path:
+def draft_path(pr_number: int) -> Path:
     """Return the path for a PR's draft file."""
     return Path(config.tools.drafts_dir) / f"{pr_number}.yaml"
 
@@ -101,7 +101,7 @@ def _yaml() -> YAML:
     return y
 
 
-def _literalize(obj: Any) -> Any:
+def _literalize(obj: Any) -> Any:  # Any: recursive JSON value from model_dump
     """Walk a dict/list and wrap multiline strings as literal block scalars.
 
     This makes ``ruamel.yaml`` emit ``|-`` blocks instead of
@@ -124,7 +124,7 @@ def load_draft(pr_number: int) -> ReviewDraft | None:
     but cannot be parsed, so the caller can surface a clear message
     instead of a cryptic traceback.
     """
-    path = _draft_path(pr_number)
+    path = draft_path(pr_number)
     if not path.exists():
         return None
     try:
@@ -139,24 +139,36 @@ def load_draft(pr_number: int) -> ReviewDraft | None:
 
 
 def save_draft(pr_number: int, draft: ReviewDraft) -> None:
-    """Persist *draft* to disk.  Creates parent dirs if needed."""
-    path = _draft_path(pr_number)
+    """Persist *draft* to disk.  Creates parent dirs if needed.
+
+    All non-``None`` fields are serialised explicitly — no
+    ``exclude_defaults`` or ``exclude_unset``, which are fragile
+    under ``model_copy`` roundtrips.  After writing, the file is
+    read back and validated to catch serialisation bugs early.
+    """
+    path = draft_path(pr_number)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = draft.model_dump(
-        mode="json",
-        exclude_defaults=True,
-        exclude_unset=True,
-        exclude_none=True,
-    )
+    payload = draft.model_dump(mode="json", exclude_none=True)
     payload = _literalize(payload)
     buf = StringIO()
     _yaml().dump(payload, buf)
-    path.write_text(buf.getvalue())
+    text = buf.getvalue()
+    path.write_text(text)
+    # Roundtrip validation — catch corruption at the source.
+    try:
+        data = _yaml().load(text)
+        ReviewDraft.model_validate(data)
+    except Exception as exc:
+        log.error("Draft roundtrip validation failed for %s: %s", path.name, exc)
+        raise RbtrError(
+            f"Draft serialisation produced invalid YAML ({path.name}): {exc}\n"
+            f"This is a bug — please report it."
+        ) from exc
 
 
 def delete_draft(pr_number: int) -> bool:
     """Delete the draft file.  Returns True if it existed."""
-    path = _draft_path(pr_number)
+    path = draft_path(pr_number)
     if path.exists():
         path.unlink()
         return True
@@ -314,52 +326,6 @@ def is_tombstone(comment: InlineComment) -> bool:
     after a successful sync.
     """
     return comment.github_id is not None and not comment.body
-
-
-def format_draft(draft: ReviewDraft, *, head_sha: str = "") -> str:
-    """Return a human-readable formatted view of the draft.
-
-    Used by both the ``/draft`` command and the ``read_draft``
-    tool so formatting is consistent.
-    """
-    lines: list[str] = []
-
-    if draft.summary:
-        lines.append(f"Summary: {draft.summary}")
-    else:
-        lines.append("Summary: (empty)")
-
-    if not draft.comments:
-        lines.append("No inline comments.")
-        return "\n".join(lines)
-
-    live = [c for c in draft.comments if not is_tombstone(c)]
-    tombstones = len(draft.comments) - len(live)
-    header = f"{len(live)} comment{'s' if len(live) != 1 else ''}"
-    if tombstones:
-        header += f" ({tombstones} pending deletion)"
-    lines.append(f"{header}:")
-
-    for i, comment in enumerate(draft.comments, 1):
-        status = comment_sync_status(comment)
-        if is_tombstone(comment):
-            loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
-            lines.append(f"  {status} {i}. {loc} — (will be deleted on next sync)")
-            continue
-        side_tag = " (base)" if comment.side == "LEFT" else ""
-        stale_tag = ""
-        if comment.commit_id and head_sha and comment.commit_id != head_sha:
-            stale_tag = f" (stale: {comment.commit_id[:7]})"
-        loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
-        prefix = f"  {status} {i}. {loc}{side_tag}{stale_tag}"
-        body_preview = comment.body[:80]
-        if len(comment.body) > 80:
-            body_preview += "…"
-        lines.append(f"{prefix} — {body_preview}")
-        if comment.suggestion:
-            lines.append("       └─ has suggestion")
-
-    return "\n".join(lines)
 
 
 def comment_sync_status(comment: InlineComment) -> str:

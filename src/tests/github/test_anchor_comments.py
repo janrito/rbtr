@@ -435,7 +435,7 @@ def test_show_draft_stale_commit_tag(workspace: Path, review_engine: Engine) -> 
     )
     _show_draft(review_engine, 42)
     texts = output_texts(drain(review_engine.events))
-    assert any("(stale:" in t for t in texts)
+    assert any("stale:" in t for t in texts)
     assert any("aabbccd" in t for t in texts)
 
 
@@ -451,6 +451,7 @@ def test_show_draft_file_level_no_line(workspace: Path, review_engine: Engine) -
     _show_draft(review_engine, 42)
     texts = output_texts(drain(review_engine.events))
     combined = "\n".join(texts)
+    # File heading shows path; no ":0" line reference.
     assert "dvc.yaml" in combined
     assert ":0" not in combined
 
@@ -475,5 +476,5 @@ def test_show_draft_current_commit_no_tag(
     _show_draft(review_engine, 42)
     texts = output_texts(drain(review_engine.events))
     combined = "\n".join(texts)
-    assert "(stale:" not in combined
+    assert "stale:" not in combined
     assert "(base)" not in combined

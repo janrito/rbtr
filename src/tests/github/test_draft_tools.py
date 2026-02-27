@@ -19,6 +19,7 @@ from rbtr.engine.state import EngineState
 from rbtr.engine.tools import (
     add_draft_comment,
     edit_draft_comment,
+    read_draft,
     remove_draft_comment,
     set_draft_summary,
 )
@@ -427,3 +428,139 @@ def test_set_summary_overwrites(workspace: Path, ctx_no_repo: RunContext[AgentDe
     draft = load_draft(42)
     assert draft is not None
     assert draft.summary == "Second."
+
+
+# ── read_draft ──────────────────────────────────────────────────────
+
+
+def test_read_draft_no_draft(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
+    assert read_draft(ctx_no_repo) == "No draft yet."
+
+
+def test_read_draft_returns_raw_yaml(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
+    """read_draft returns the raw YAML file content, not a formatted view."""
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Looks good overall.",
+            comments=[
+                InlineComment(path="src/api.py", line=10, body="Fix this."),
+                InlineComment(
+                    path="src/api.py",
+                    line=20,
+                    body="Consider using a context manager.",
+                    suggestion="with open(f) as h:",
+                ),
+            ],
+        ),
+    )
+    result = read_draft(ctx_no_repo)
+    # Raw YAML contains the field names as keys.
+    assert "summary:" in result
+    assert "comments:" in result
+    assert "path: src/api.py" in result
+    assert "body:" in result
+    # Full body text present, not truncated.
+    assert "Fix this." in result
+    assert "Consider using a context manager." in result
+    assert "with open(f) as h:" in result
+
+
+def test_read_draft_roundtrip_with_edit(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps]
+) -> None:
+    """Body text from read_draft can be used as edit_draft_comment's comment arg."""
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Review.",
+            comments=[
+                InlineComment(path="a.py", line=5, body="This function is too long."),
+                InlineComment(path="b.py", line=8, body="Missing error handling."),
+            ],
+        ),
+    )
+    raw = read_draft(ctx_no_repo)
+
+    # Pick a substring from the raw output to use as the comment locator.
+    assert "too long" in raw
+    result = edit_draft_comment(ctx_no_repo, "a.py", "too long", body="Split into helpers.")
+    assert "updated" in result.lower()
+
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.comments[0].body == "Split into helpers."
+    # Other comment untouched.
+    assert draft.comments[1].body == "Missing error handling."
+
+
+def test_read_draft_pagination(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """read_draft paginates with offset/max_lines."""
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="A multiline summary.\nWith two lines.",
+            comments=[
+                InlineComment(path="a.py", line=1, body="Comment A."),
+                InlineComment(path="b.py", line=2, body="Comment B."),
+                InlineComment(path="c.py", line=3, body="Comment C."),
+            ],
+        ),
+    )
+    # Read with a small page to force truncation.
+    page1 = read_draft(ctx_no_repo, max_lines=3)
+    assert "... limited" in page1
+    assert "offset=" in page1
+
+    # Second page has content.
+    assert read_draft(ctx_no_repo, offset=3, max_lines=3).strip()
+
+    # Full file fits with a large limit.
+    from rbtr.github.draft import draft_path
+
+    total_lines = len(draft_path(42).read_text().splitlines())
+    full = read_draft(ctx_no_repo, max_lines=total_lines + 10)
+    assert "... limited" not in full
+
+
+def test_read_draft_offset_exceeds(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
+    save_draft(42, ReviewDraft(summary="Short."))
+    result = read_draft(ctx_no_repo, offset=9999)
+    assert "exceeds" in result.lower()
+
+
+def test_read_draft_multiline_body_preserved(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps]
+) -> None:
+    """Multiline markdown bodies are preserved exactly in read_draft output."""
+    body = "First paragraph.\n\nSecond paragraph with `code`.\n\n- bullet 1\n- bullet 2"
+    save_draft(
+        42,
+        ReviewDraft(
+            comments=[InlineComment(path="x.py", line=1, body=body)],
+        ),
+    )
+    raw = read_draft(ctx_no_repo, max_lines=1000)
+    # The body is present in full — check key parts.
+    assert "First paragraph." in raw
+    assert "Second paragraph with `code`." in raw
+    assert "- bullet 1" in raw
+    assert "- bullet 2" in raw
+
+
+def test_read_draft_content_survives_full_lifecycle(
+    workspace: Path, ctx: RunContext[AgentDeps]
+) -> None:
+    """add → read → edit → read — content is consistent throughout."""
+    # Add via tool.
+    add_draft_comment(ctx, "src/handler.py", "validate(request)", "Bug here.")
+    raw1 = read_draft(ctx)
+    assert "Bug here." in raw1
+
+    # Edit via tool using substring from raw output.
+    edit_draft_comment(ctx, "src/handler.py", "Bug here", body="Not a bug, my mistake.")
+    raw2 = read_draft(ctx)
+    assert "Not a bug, my mistake." in raw2
+    assert "Bug here." not in raw2

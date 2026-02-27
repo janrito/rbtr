@@ -35,6 +35,7 @@ from rbtr.github.draft import load_draft, save_draft
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.models import (
+    DiffSide,
     DiscussionEntry,
     DiscussionEntryKind,
     InlineComment,
@@ -286,13 +287,13 @@ _cached_ranges_key: tuple[str, str] = ("", "")
 def _get_diff_ranges(
     ctx: RunContext[AgentDeps],
     *,
-    side: str = "RIGHT",
+    side: DiffSide = DiffSide.RIGHT,
 ) -> DiffLineRanges:
     """Return commentable line ranges for the current review target.
 
     Caches the result so repeated ``add_draft_comment`` calls in the
     same turn don't recompute the diff.  *side* selects HEAD
-    (``"RIGHT"``) or BASE (``"LEFT"``) ranges.
+    (``RIGHT``) or BASE (``LEFT``) ranges.
     """
     global _cached_ranges, _cached_ranges_left, _cached_ranges_key
     state = ctx.deps.state
@@ -305,7 +306,7 @@ def _get_diff_ranges(
         _cached_ranges = None
         _cached_ranges_left = None
         _cached_ranges_key = key
-    if side == "LEFT":
+    if side is DiffSide.LEFT:
         if _cached_ranges_left is None:
             try:
                 _cached_ranges_left = diff_line_ranges_left(
@@ -344,13 +345,13 @@ def find_comment(
             return f"No comments on '{path}'."
         return (
             f"No comment on '{path}' contains \"{body_substring}\". "
-            f"Comments on this file:\n" + "\n".join(f"  - {c.body[:80]}" for c in on_file)
+            f"Comments on this file:\n" + "\n".join(f"  - L{c.line}: {c.body}" for c in on_file)
         )
     if len(matches) > 1:
         return (
             f"\"{body_substring}\" matches {len(matches)} comments on '{path}'. "
             f"Use a more specific substring:\n"
-            + "\n".join(f"  - {c.body[:80]}" for _, c in matches)
+            + "\n".join(f"  - L{c.line}: {c.body}" for _, c in matches)
         )
     return matches[0]
 
@@ -439,10 +440,10 @@ def add_draft_comment(
 
     # Determine side and resolve ref.
     if ref == "head":
-        side = "RIGHT"
+        side = DiffSide.RIGHT
         resolved_ref = target.head_ref
     else:
-        side = "LEFT"
+        side = DiffSide.LEFT
         resolved_ref = target.base_branch
 
     # Resolve anchor → line number.
@@ -604,23 +605,47 @@ def set_draft_summary(
 @agent.tool(prepare=_require_pr_target)
 def read_draft(
     ctx: RunContext[AgentDeps],
+    offset: int = 0,
+    max_lines: int | None = None,
 ) -> str:
-    """Read the current review draft.
+    """Read the raw review draft YAML file.
 
-    Returns a formatted view of the draft including the summary
-    and all inline comments with their status, location, and
-    body preview.  Returns a message if no draft exists yet.
+    Returns the draft file content exactly as stored on disk.
+    Use ``edit_draft_comment`` and ``set_draft_summary`` to
+    modify the draft — never edit the YAML directly.
+
+    Returns a message if no draft exists yet.
+
+    **Pagination:** when the output ends with ``... limited
+    (shown/total)``, pass the ``offset`` value from the hint to
+    fetch the next page.
+
+    Args:
+        offset: Number of lines to skip (0-indexed, default 0).
+        max_lines: Maximum number of lines to return
+            (defaults to ``tools.max_lines`` config value).
     """
-    from rbtr.github.draft import format_draft
+    from rbtr.github.draft import draft_path
 
     pr = _pr_number(ctx)
-    draft = _load_or_create_draft(pr)
-    if not draft.summary and not draft.comments:
+    path = draft_path(pr)
+    if not path.exists():
         return "No draft yet."
 
-    target = ctx.deps.state.review_target
-    head_sha = target.head_sha if isinstance(target, PRTarget) else ""
-    return format_draft(draft, head_sha=head_sha)
+    text = path.read_text()
+    lines = text.splitlines()
+    total = len(lines)
+    capped = (
+        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
+    )
+    page = lines[offset : offset + capped]
+    if not page:
+        return f"Offset {offset} exceeds {total} lines."
+    result = "\n".join(page)
+    shown = offset + len(page)
+    if shown < total:
+        result += _limited(shown, total, hint=f"offset={shown} to continue")
+    return result
 
 
 # ── Search tools (require index) ────────────────────────────────────
