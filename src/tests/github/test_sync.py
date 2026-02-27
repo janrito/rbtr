@@ -8,10 +8,11 @@ from typing import Any
 
 import pytest
 
-from rbtr.engine.review import sync_review_draft
+from rbtr.engine.review import _partition_comments, sync_review_draft
 from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.exceptions import RbtrError
+from rbtr.git.objects import DiffLineRanges
 from rbtr.github.client import get_pending_review, parse_comment_body
 from rbtr.github.draft import _comment_hash, load_draft, save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
@@ -308,14 +309,10 @@ def test_sync_saves_sync_fields(workspace: Path) -> None:
         ),
     )
 
-    # The re-fetch after push returns the new review's comments.
-    pushed_comment = FakeInlineComment(comment_id=500, path="a.py", line=5, body="Finding.")
-    pr = FakePR(
-        reviews=[
-            FakeReview(review_id=200, state="PENDING", user=FakeUser("reviewer")),
-        ],
-        review_comments_by_id={200: [pushed_comment]},
-    )
+    # No initial remote review — local-only push.
+    # FakePR.create_review auto-generates a PENDING review with
+    # comments for re-fetch.
+    pr = FakePR(reviews=[], default_user=FakeUser("reviewer"))
     gh = FakeGithub(FakeRepo(pr))
     engine = _FakeEngine(gh=gh, gh_username="reviewer")
 
@@ -323,9 +320,11 @@ def test_sync_saves_sync_fields(workspace: Path) -> None:
 
     draft = load_draft(42)
     assert draft is not None
+    # create_review generates review_id=200 → github_review_id.
     assert draft.github_review_id == 200
     assert draft.summary_hash != ""
-    assert draft.comments[0].github_id == 500
+    # Comment gets a github_id via tier-2 content match on re-fetch.
+    assert draft.comments[0].github_id is not None
     assert draft.comments[0].comment_hash == _comment_hash(draft.comments[0])
 
 
@@ -358,3 +357,134 @@ def test_sync_detects_remote_edit(workspace: Path) -> None:
     assert draft is not None
     # The remote edit should have been accepted since local was clean.
     assert draft.comments[0].body == "Edited on GH."
+
+
+# ── _partition_comments ──────────────────────────────────────────────
+
+
+class TestPartitionComments:
+    """Unit tests for _partition_comments."""
+
+    def test_empty_ranges_treats_all_as_valid(self) -> None:
+        comments = [InlineComment(path="a.py", line=10, body="x")]
+        valid, invalid = _partition_comments(comments, {})
+        assert valid == comments
+        assert invalid == []
+
+    def test_valid_comment_passes(self) -> None:
+        ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+        comments = [InlineComment(path="a.py", line=10, body="x")]
+        valid, invalid = _partition_comments(comments, ranges)
+        assert len(valid) == 1
+        assert len(invalid) == 0
+
+    def test_wrong_line_is_invalid(self) -> None:
+        ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+        comments = [InlineComment(path="a.py", line=99, body="x")]
+        valid, invalid = _partition_comments(comments, ranges)
+        assert len(valid) == 0
+        assert len(invalid) == 1
+
+    def test_wrong_path_is_invalid(self) -> None:
+        ranges: DiffLineRanges = {"a.py": {5, 10}}
+        comments = [InlineComment(path="b.py", line=5, body="x")]
+        valid, invalid = _partition_comments(comments, ranges)
+        assert len(valid) == 0
+        assert len(invalid) == 1
+
+    def test_mixed_valid_and_invalid(self) -> None:
+        ranges: DiffLineRanges = {"a.py": {10}, "b.py": {20}}
+        comments = [
+            InlineComment(path="a.py", line=10, body="ok"),
+            InlineComment(path="a.py", line=99, body="stale"),
+            InlineComment(path="b.py", line=20, body="ok2"),
+            InlineComment(path="c.py", line=1, body="gone"),
+        ]
+        valid, invalid = _partition_comments(comments, ranges)
+        assert len(valid) == 2
+        assert len(invalid) == 2
+        assert {c.body for c in valid} == {"ok", "ok2"}
+        assert {c.body for c in invalid} == {"stale", "gone"}
+
+
+# ── sync with stale comments ────────────────────────────────────────
+
+
+def test_sync_skips_stale_comments(
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comments targeting lines not in the diff are skipped during push."""
+    # Restrict the diff to only a.py:10.
+    monkeypatch.setattr(
+        "rbtr.engine.review._get_diff_ranges",
+        lambda _engine: {"a.py": {10}},
+    )
+
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Summary.",
+            comments=[
+                InlineComment(path="a.py", line=10, body="Valid."),
+                InlineComment(path="a.py", line=999, body="Stale line."),
+                InlineComment(path="gone.py", line=1, body="Stale file."),
+            ],
+        ),
+    )
+
+    pr = FakePR(reviews=[])
+    gh = FakeGithub(FakeRepo(pr))
+    engine = _FakeEngine(gh=gh, gh_username="reviewer")
+
+    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    # Only the valid comment should have been pushed.
+    assert len(pr.created_reviews) == 1
+    assert len(pr.created_reviews[0]["comments"]) == 1
+    assert pr.created_reviews[0]["comments"][0]["path"] == "a.py"
+    assert pr.created_reviews[0]["comments"][0]["line"] == 10
+
+    # All three comments are preserved locally.
+    draft = load_draft(42)
+    assert draft is not None
+    assert len(draft.comments) == 3
+
+    # Warnings about skipped comments.
+    text = engine.collected_text()
+    assert "Skipped stale comment" in text
+    assert "a.py:999" in text
+    assert "gone.py:1" in text
+
+
+def test_sync_all_comments_stale_still_pushes_summary(
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When all comments are stale, the summary-only draft is still pushed."""
+    monkeypatch.setattr(
+        "rbtr.engine.review._get_diff_ranges",
+        lambda _engine: {"a.py": {10}},
+    )
+
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Overall feedback.",
+            comments=[InlineComment(path="b.py", line=5, body="Stale.")],
+        ),
+    )
+
+    pr = FakePR(reviews=[])
+    gh = FakeGithub(FakeRepo(pr))
+    engine = _FakeEngine(gh=gh, gh_username="reviewer")
+
+    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    # Push happens with 0 comments but the summary.
+    assert len(pr.created_reviews) == 1
+    assert pr.created_reviews[0]["body"] == "Overall feedback."
+    assert len(pr.created_reviews[0]["comments"]) == 0
+
+    text = engine.collected_text()
+    assert "1 stale comment kept locally" in text

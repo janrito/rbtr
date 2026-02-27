@@ -32,7 +32,9 @@ from rbtr.git.objects import (
     diff_refs,
     diff_single,
     read_blob,
+    resolve_anchor,
     resolve_commit,
+    translate_line,
     walk_tree,
 )
 
@@ -488,3 +490,157 @@ def test_list_files_include_still_skips_oversized(
     oid = make_commit(git_repo, {"big.py": b"x" * 200})
     paths = {e.path for e in _lf(git_repo, str(oid), max_file_size=50, include=["big.py"])}
     assert paths == set()
+
+
+# ── resolve_anchor ───────────────────────────────────────────────────
+
+# sample_repo handler.py at head (HANDLER_V2):
+#   line 1: def handle(request):
+#   line 2:     validate(request)
+#   line 3:     return "ok"
+
+
+class TestResolveAnchor:
+    """Tests for resolve_anchor using the shared sample_repo fixture."""
+
+    @pytest.mark.parametrize(
+        ("anchor", "expected_line"),
+        [
+            ("def handle(request):", 1),
+            ("validate(request)", 2),
+            ('return "ok"', 3),
+            # Multi-line anchor — last line of match.
+            ("def handle(request):\n    validate(request)", 2),
+            ("validate(request)\n    return", 3),
+        ],
+    )
+    def test_found(self, sample_repo: SampleRepo, anchor: str, expected_line: int) -> None:
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.head), "src/handler.py", anchor)
+        assert result == expected_line
+
+    @pytest.mark.parametrize(
+        ("anchor", "error_fragment"),
+        [
+            ("nonexistent_function", "not found"),
+            ("", "empty"),
+        ],
+    )
+    def test_error(self, sample_repo: SampleRepo, anchor: str, error_fragment: str) -> None:
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.head), "src/handler.py", anchor)
+        assert isinstance(result, str)
+        assert error_fragment in result.lower()
+
+    def test_multiple_matches(self, sample_repo: SampleRepo) -> None:
+        # "request" appears on multiple lines in handler.py.
+        result = resolve_anchor(
+            sample_repo.repo, str(sample_repo.head), "src/handler.py", "request"
+        )
+        assert isinstance(result, str)
+        assert "matches" in result.lower()
+
+    def test_file_not_found(self, sample_repo: SampleRepo) -> None:
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.head), "no/such/file.py", "x")
+        assert isinstance(result, str)
+        assert "not found" in result.lower()
+
+    def test_binary_file(self, sample_repo: SampleRepo) -> None:
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.head), "binary.png", "PNG")
+        assert isinstance(result, str)
+        assert "binary" in result.lower()
+
+    def test_base_ref(self, sample_repo: SampleRepo) -> None:
+        # readme.md exists at base but not at head.
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.base), "readme.md", "# Project")
+        assert result == 1
+
+    def test_base_ref_deleted_at_head(self, sample_repo: SampleRepo) -> None:
+        # readme.md was deleted at head.
+        result = resolve_anchor(sample_repo.repo, str(sample_repo.head), "readme.md", "# Project")
+        assert isinstance(result, str)
+        assert "not found" in result.lower()
+
+
+# ── translate_line ───────────────────────────────────────────────────
+
+# sample_repo handler.py base→mid:
+#   base: line 1: def handle(request):  line 2: return "ok"
+#   mid:  line 1: def handle(request):  line 2: validate(request)  line 3: return "ok"
+#   → line 2 inserted; old line 1 stays, old line 2 shifts to 3.
+
+
+class TestTranslateLine:
+    """Tests for translate_line using the shared sample_repo fixture."""
+
+    @pytest.mark.parametrize(
+        ("old_line", "expected"),
+        [
+            (1, 1),  # before insertion — unchanged
+            (2, 3),  # after insertion — shifted down by 1
+        ],
+    )
+    def test_insertion(self, sample_repo: SampleRepo, old_line: int, expected: int) -> None:
+        result = translate_line(
+            sample_repo.repo,
+            "src/handler.py",
+            str(sample_repo.base),
+            str(sample_repo.mid),
+            old_line,
+        )
+        assert result == expected
+
+    def test_file_unchanged(self, sample_repo: SampleRepo) -> None:
+        # utils.py is identical across all commits.
+        result = translate_line(
+            sample_repo.repo,
+            "src/utils.py",
+            str(sample_repo.base),
+            str(sample_repo.head),
+            1,
+        )
+        assert result == 1
+
+    def test_file_deleted(self, sample_repo: SampleRepo) -> None:
+        # readme.md exists at base, deleted at head.
+        result = translate_line(
+            sample_repo.repo,
+            "readme.md",
+            str(sample_repo.base),
+            str(sample_repo.head),
+            1,
+        )
+        assert result is None
+
+    def test_file_not_in_diff(self, sample_repo: SampleRepo) -> None:
+        # File doesn't exist in either ref — identity (no patch).
+        result = translate_line(
+            sample_repo.repo,
+            "no/such/file.py",
+            str(sample_repo.base),
+            str(sample_repo.mid),
+            5,
+        )
+        assert result == 5
+
+    def test_reverse_direction(self, sample_repo: SampleRepo) -> None:
+        # mid→base: the insertion becomes a deletion.
+        # mid line 2 (validate) was added, so translating mid line 2
+        # backwards: it's a new line that doesn't exist in base → None.
+        result = translate_line(
+            sample_repo.repo,
+            "src/handler.py",
+            str(sample_repo.mid),
+            str(sample_repo.base),
+            2,
+        )
+        assert result is None
+
+    def test_reverse_shifted_line(self, sample_repo: SampleRepo) -> None:
+        # mid→base: mid line 3 ("return ok") was old line 2.
+        result = translate_line(
+            sample_repo.repo,
+            "src/handler.py",
+            str(sample_repo.mid),
+            str(sample_repo.base),
+            3,
+        )
+        assert result == 2

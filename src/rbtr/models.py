@@ -105,7 +105,22 @@ class InlineComment(BaseModel):
     """File path relative to repo root (e.g. ``src/api/handler.py``)."""
 
     line: int
-    """Line number in the head version of the file (1-indexed)."""
+    """Line number in the file (1-indexed).  For ``side="RIGHT"``
+    this is the line in the head version; for ``side="LEFT"``
+    the line in the base version."""
+
+    side: str = "RIGHT"
+    """Which side of the diff this comment targets.  ``"RIGHT"``
+    for the head (new) version, ``"LEFT"`` for the base (old)
+    version.  GitHub uses this with ``line`` to locate the
+    comment in the diff."""
+
+    commit_id: str = ""
+    """Commit SHA that ``line`` was resolved against.  Set from
+    ``PRTarget.head_sha`` for locally-created comments, from
+    the GitHub response for remote-imported comments.  Empty
+    means unknown (legacy drafts) — falls back to line-number
+    validation at push time."""
 
     body: str
     """Markdown body of the comment.  Severity labels (blocker,

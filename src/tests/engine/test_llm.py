@@ -603,3 +603,125 @@ def test_handle_llm_context_overflow_triggers_compact(
     # _run_agent called twice: first fails, compact, then retry via handle_llm
     # But handle_llm calls _run_agent for the retry, so total = 2
     assert call_count == 2
+
+
+# ── _repair_dangling_tool_calls ──────────────────────────────────────
+
+
+def test_repair_empty_history() -> None:
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history, tools = _repair_dangling_tool_calls([])
+    assert history == []
+    assert tools == []
+
+
+def test_repair_no_dangling_calls() -> None:
+    """History ending with a ModelRequest is already well-formed."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(parts=[TextPart(content="hi")]),
+        ModelRequest(parts=[UserPromptPart(content="bye")]),
+    ]
+    repaired, tools = _repair_dangling_tool_calls(history)
+    assert repaired is history
+    assert tools == []
+
+
+def test_repair_response_without_tool_calls() -> None:
+    """A text-only ModelResponse doesn't need repair."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(parts=[TextPart(content="hi")]),
+    ]
+    repaired, tools = _repair_dangling_tool_calls(history)
+    assert repaired is history
+    assert tools == []
+
+
+def test_repair_dangling_at_end() -> None:
+    """ModelResponse with tool calls at end of history → synthetic results appended."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                TextPart(content="Let me check..."),
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={"search": "TODO"}, tool_call_id="tc2"),
+            ]
+        ),
+    ]
+    repaired, tools = _repair_dangling_tool_calls(history)
+    assert len(repaired) == 3  # original 2 + synthetic request
+    assert tools == ["read_file", "grep"]
+
+    synthetic = repaired[-1]
+    assert isinstance(synthetic, ModelRequest)
+    tool_returns = [p for p in synthetic.parts if isinstance(p, ToolReturnPart)]
+    assert len(tool_returns) == 2
+    assert tool_returns[0].tool_name == "read_file"
+    assert tool_returns[0].tool_call_id == "tc1"
+    assert tool_returns[0].content == "(cancelled)"
+    assert tool_returns[1].tool_name == "grep"
+    assert tool_returns[1].tool_call_id == "tc2"
+
+
+def test_repair_dangling_mid_history() -> None:
+    """Dangling tool calls in the middle of history (e.g. after compaction)."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        # This response has tool calls but the next message is NOT tool results.
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="list_files", args={}, tool_call_id="tc1"),
+            ]
+        ),
+        # A user prompt follows directly — tool results were lost.
+        ModelRequest(parts=[UserPromptPart(content="try again")]),
+        ModelResponse(parts=[TextPart(content="ok")]),
+    ]
+    repaired, tools = _repair_dangling_tool_calls(history)
+    assert tools == ["list_files"]
+    assert len(repaired) == 5  # 4 original + 1 synthetic
+
+    # Synthetic request inserted after the dangling response.
+    assert isinstance(repaired[2], ModelRequest)
+    returns = [p for p in repaired[2].parts if isinstance(p, ToolReturnPart)]
+    assert len(returns) == 1
+    assert returns[0].tool_name == "list_files"
+    assert returns[0].content == "(cancelled)"
+
+    # Rest of history preserved.
+    assert isinstance(repaired[3], ModelRequest)
+    assert isinstance(repaired[4], ModelResponse)
+
+
+def test_repair_tool_calls_with_results_untouched() -> None:
+    """Tool calls followed by proper results are not touched."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="file contents", tool_call_id="tc1"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    repaired, tools = _repair_dangling_tool_calls(history)
+    assert repaired is history
+    assert tools == []

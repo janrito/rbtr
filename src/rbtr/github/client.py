@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -13,7 +14,7 @@ import pygit2
 from github import Github, UnknownObjectException
 from github.GithubObject import GithubObject
 from github.IssueComment import IssueComment
-from github.PullRequest import PullRequest, ReviewComment
+from github.PullRequest import PullRequest
 from github.PullRequestComment import PullRequestComment
 from github.PullRequestReview import PullRequestReview
 from github.Reaction import Reaction
@@ -188,6 +189,115 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
 
 
 # ── Pending review ────────────────────────────────────────────────────
+#
+# GITHUB API WORKAROUND — position ↔ line conversion
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# As of 2026-02, the per-review comments endpoint
+# ``GET /repos/{owner}/{repo}/pulls/{pr}/reviews/{id}/comments``
+# does NOT return the modern ``line``, ``original_line``, or ``side``
+# fields.  These are always ``null`` — even for submitted reviews,
+# even with ``X-GitHub-Api-Version: 2022-11-28``.  The per-PR
+# endpoint (``GET /pulls/{pr}/comments``) does return them, but
+# excludes pending review comments entirely.
+#
+# The only line-related data available for pending comments is the
+# deprecated ``position`` (1-based offset into the diff hunk) and
+# ``diff_hunk`` (hunk header through the commented line).
+#
+# ``_walk_hunk`` / ``_position_to_line`` / ``_line_to_position``
+# exist solely to work around this gap.  If GitHub updates the
+# per-review endpoint to return ``line`` and ``side``, this
+# machinery can be removed and ``get_pending_review`` can read
+# those fields directly (the ``data.get("line")`` path already
+# takes priority — see the read logic below).
+#
+# Verified 2026-02-27 with direct httpx calls against both
+# endpoints using ``Accept: application/vnd.github+json`` and
+# ``X-GitHub-Api-Version: 2022-11-28``.  Both return
+# ``line: null, side: null`` for review comments fetched via
+# the per-review endpoint.
+#
+# Sync hashing
+# ~~~~~~~~~~~~
+# ``_comment_hash`` (in ``draft.py``) covers ``path``, ``line``,
+# ``body``, and ``suggestion``.  ``side`` and ``commit_id`` are
+# excluded (resolution metadata not visible in the GitHub UI).
+# ``line`` IS included because the ``position`` ↔ ``line``
+# conversion is deterministic — ``_walk_hunk`` is the single
+# source of truth for both directions.
+
+_HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, str]]:
+    """Yield ``(position, line, side)`` for each diff line in *diff_hunk*.
+
+    Skips ``\\ No newline at end of file`` markers.  ``position`` is
+    1-based.  This is the single source of truth for mapping between
+    GitHub's deprecated ``position`` and ``(line, side)``.
+    """
+    lines = diff_hunk.split("\n")
+
+    # Find the last @@ header (multi-hunk hunks are possible).
+    header_idx = -1
+    for i, ln in enumerate(lines):
+        if ln.startswith("@@"):
+            header_idx = i
+    if header_idx == -1:
+        return
+
+    m = _HUNK_RE.match(lines[header_idx])
+    if not m:
+        return
+
+    old_line = int(m.group(1))
+    new_line = int(m.group(2))
+
+    pos = 0
+    for ln in lines[header_idx + 1 :]:
+        if ln.startswith("\\"):
+            continue
+        pos += 1
+        if ln.startswith("+"):
+            yield pos, new_line, "RIGHT"
+            new_line += 1
+        elif ln.startswith("-"):
+            yield pos, old_line, "LEFT"
+            old_line += 1
+        else:
+            # Context line (starts with " " or is empty).
+            yield pos, new_line, "RIGHT"
+            old_line += 1
+            new_line += 1
+
+
+def _position_to_line(diff_hunk: str) -> tuple[int, str]:
+    """Recover ``(line, side)`` from a GitHub ``diff_hunk``.
+
+    Pending review comments lack the ``line`` / ``side`` fields and
+    only provide the deprecated ``position`` plus the ``diff_hunk``
+    that runs from the hunk header through the commented line.  The
+    last diff line determines the file line number and diff side.
+    """
+    result_line = 0
+    result_side = "RIGHT"
+    for _pos, line, side in _walk_hunk(diff_hunk):
+        result_line = line
+        result_side = side
+    return result_line, result_side
+
+
+def _line_to_position(diff_hunk: str, line: int, side: str) -> int | None:
+    """Convert ``(line, side)`` to a diff position within *diff_hunk*.
+
+    Returns the 1-based position, or ``None`` if the line/side pair
+    is not present in the hunk.  This is the inverse of
+    ``_position_to_line``.
+    """
+    for pos, hunk_line, hunk_side in _walk_hunk(diff_hunk):
+        if hunk_line == line and hunk_side == side:
+            return pos
+    return None
 
 
 def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewDraft | None:
@@ -237,10 +347,24 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewD
         data: dict[str, Any] = raw_data(comment)
         body_raw = data.get("body") or ""
         body, suggestion = parse_comment_body(body_raw)
+
+        # Submitted reviews return ``line`` / ``original_line`` /
+        # ``side``.  Pending reviews omit those and only provide the
+        # deprecated ``position`` + ``diff_hunk``.  Recover the real
+        # file line number (and side) from the hunk when necessary.
+        line = data.get("line") or data.get("original_line") or 0
+        side = data.get("side") or ""
+        if not line and data.get("diff_hunk"):
+            line, side = _position_to_line(data["diff_hunk"])
+        if not side:
+            side = "RIGHT"
+
         comments.append(
             InlineComment(
                 path=data.get("path") or "",
-                line=data.get("line") or 0,
+                line=line,
+                side=side,
+                commit_id=data.get("commit_id") or "",
                 body=body,
                 suggestion=suggestion,
                 github_id=data.get("id"),
@@ -299,17 +423,33 @@ def format_comment_body(comment: InlineComment) -> str:
     return body
 
 
-def _build_review_comments(draft: ReviewDraft) -> list[ReviewComment]:
-    """Build the list of ReviewComment dicts for a GitHub API call."""
-    return [
-        {
+def _build_review_comments(draft: ReviewDraft) -> list[dict[str, Any]]:
+    """Build the list of comment dicts for a GitHub API call.
+
+    File-level comments (``line == 0``) omit ``line`` and ``side``
+    so GitHub creates them as file-scoped rather than rejecting them.
+    """
+    result: list[dict[str, Any]] = []
+    for c in draft.comments:
+        entry: dict[str, Any] = {
             "path": c.path,
             "body": format_comment_body(c),
-            "line": c.line,
-            "side": "RIGHT",
         }
-        for c in draft.comments
-    ]
+        if c.line > 0:
+            entry["line"] = c.line
+            entry["side"] = c.side
+        result.append(entry)
+    return result
+
+
+def _resolve_commit(ctx: GitHubCtx, commit_id: str) -> Any:
+    """Fetch a ``Commit`` object by SHA for ``create_review``.
+
+    PyGithub's ``create_review`` asserts ``isinstance(commit,
+    Commit)`` so we cannot pass a lightweight stub.
+    """
+    repo = ctx.gh.get_repo(ctx.full_name)
+    return repo.get_commit(commit_id)
 
 
 def post_review(
@@ -317,28 +457,44 @@ def post_review(
     pr_number: int,
     draft: ReviewDraft,
     event: ReviewEvent,
+    commit_id: str = "",
 ) -> str:
-    """Post a review to GitHub.  Returns the review's HTML URL."""
+    """Post a review to GitHub.  Returns the review's HTML URL.
+
+    When *commit_id* is provided the review is pinned to that
+    commit, ensuring line numbers match the diff GitHub computes.
+    """
     pr = _pull(ctx, pr_number)
-    review = pr.create_review(
-        body=draft.summary,
-        event=event.value,
-        comments=_build_review_comments(draft),
-    )
+    kwargs: dict[str, Any] = {
+        "body": draft.summary,
+        "event": event.value,
+        "comments": _build_review_comments(draft),
+    }
+    if commit_id:
+        kwargs["commit"] = _resolve_commit(ctx, commit_id)
+    review = pr.create_review(**kwargs)
     return review.html_url
 
 
-def push_pending_review(ctx: GitHubCtx, pr_number: int, draft: ReviewDraft) -> int:
+def push_pending_review(
+    ctx: GitHubCtx,
+    pr_number: int,
+    draft: ReviewDraft,
+    commit_id: str = "",
+) -> int:
     """Push a draft as a PENDING review (not submitted).
 
     Comments appear in the GitHub UI but the review stays in
     draft state.  Returns the review ID for future operations.
     """
     pr = _pull(ctx, pr_number)
-    review = pr.create_review(
-        body=draft.summary,
-        comments=_build_review_comments(draft),
-    )
+    kwargs: dict[str, Any] = {
+        "body": draft.summary,
+        "comments": _build_review_comments(draft),
+    }
+    if commit_id:
+        kwargs["commit"] = _resolve_commit(ctx, commit_id)
+    review = pr.create_review(**kwargs)
     return review.id
 
 

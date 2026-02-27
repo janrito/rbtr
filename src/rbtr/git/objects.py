@@ -169,6 +169,137 @@ def read_blob(
     return None
 
 
+# ── Anchor resolution ────────────────────────────────────────────────
+
+
+def resolve_anchor(
+    repo: pygit2.Repository,
+    ref: str,
+    path: str,
+    anchor: str,
+) -> int | str:
+    """Find *anchor* in the file at *ref*/*path* and return the line number.
+
+    Returns the 1-indexed line number of the **last line** of the
+    match (suitable for GitHub's ``line`` parameter on single-line
+    and multi-line comments).
+
+    Returns an error string when the anchor cannot be resolved:
+    file not found, binary file, zero matches, or multiple matches.
+    """
+    blob = read_blob(repo, ref, path)
+    if blob is None:
+        return f"File '{path}' not found at ref '{ref}'."
+    if is_binary(blob.data):
+        return f"File '{path}' is binary — cannot resolve anchor."
+    text = blob.data.decode(errors="replace")
+    if not anchor:
+        return "Anchor text is empty."
+
+    # Find all occurrences of the anchor substring.
+    matches: list[int] = []
+    start = 0
+    while True:
+        idx = text.find(anchor, start)
+        if idx == -1:
+            break
+        # Line number of the last line of the match.
+        line = text[:idx].count("\n") + anchor.count("\n") + 1
+        matches.append(line)
+        start = idx + 1
+
+    if not matches:
+        return (
+            f"Anchor text not found in '{path}' at ref '{ref}'. "
+            f"Make sure the text is an exact substring of the file content."
+        )
+    if len(matches) > 1:
+        locations = ", ".join(f"line {m}" for m in matches)
+        return (
+            f"Anchor text matches {len(matches)} locations in '{path}': {locations}. "
+            f"Use a longer or more unique snippet."
+        )
+    return matches[0]
+
+
+# ── Line translation ─────────────────────────────────────────────────
+
+
+def translate_line(
+    repo: pygit2.Repository,
+    path: str,
+    old_ref: str,
+    new_ref: str,
+    old_line: int,
+) -> int | None:
+    """Translate *old_line* from *old_ref* to *new_ref* via diff hunks.
+
+    Returns the corresponding line number in *new_ref*, or ``None``
+    if the line was deleted.
+
+    The algorithm walks hunks sequentially, accumulating an offset
+    (insertions minus deletions).  For each hunk:
+
+    - Lines **before** the hunk: apply the accumulated offset.
+    - Lines **inside** the hunk: scan individual diff lines.
+      Context lines map via ``new_lineno``; deleted lines
+      return ``None``.
+    - Lines **after all hunks**: apply the final offset.
+
+    If *path* has no changes between the two refs, returns
+    *old_line* unchanged (identity).  If *path* was deleted,
+    returns ``None``.
+    """
+    old_commit = resolve_commit(repo, old_ref)
+    new_commit = resolve_commit(repo, new_ref)
+    d = repo.diff(old_commit, new_commit)
+
+    # Find the patch for this file.
+    patch: pygit2.Patch | None = None
+    for p in d:
+        if p is None:
+            continue
+        delta = p.delta
+        if delta.old_file.path == path or delta.new_file.path == path:
+            patch = p
+            break
+
+    if patch is None:
+        # File unchanged between refs — identity mapping.
+        return old_line
+
+    # File was deleted entirely.
+    if patch.delta.status == pygit2.GIT_DELTA_DELETED:
+        return None
+
+    offset = 0
+    for hunk in patch.hunks:
+        hunk_old_start = hunk.old_start
+        hunk_old_end = hunk_old_start + hunk.old_lines - 1
+
+        if old_line < hunk_old_start:
+            # Before this hunk — apply accumulated offset.
+            return old_line + offset
+
+        if old_line <= hunk_old_end:
+            # Inside this hunk — scan individual lines.
+            for diff_line in hunk.lines:
+                if diff_line.old_lineno == old_line:
+                    if diff_line.new_lineno >= 0:
+                        return diff_line.new_lineno
+                    # Deleted line (old exists, new == -1).
+                    return None
+            # old_line is in the hunk range but not in any diff line
+            # (shouldn't happen with well-formed diffs).
+            return None  # pragma: no cover
+
+        # Past this hunk — accumulate offset and continue.
+        offset += hunk.new_lines - hunk.old_lines
+
+    # After all hunks — apply final offset.
+    return old_line + offset
+
+
 # ── Diffs ────────────────────────────────────────────────────────────
 
 
@@ -299,6 +430,43 @@ def diff_line_ranges(
             for diff_line in hunk.lines:
                 if diff_line.new_lineno >= 0:
                     lines.add(diff_line.new_lineno)
+        if lines:
+            ranges[path] = lines
+    return ranges
+
+
+def diff_line_ranges_left(
+    repo: pygit2.Repository,
+    base_ref: str,
+    head_ref: str,
+) -> DiffLineRanges:
+    """Like :func:`diff_line_ranges` but for the BASE (LEFT) side.
+
+    Returns commentable ``old_lineno`` values keyed by the **old**
+    file path.  Used to validate ``side="LEFT"`` comments on
+    deleted or modified lines.
+    """
+    base_commit = resolve_commit(repo, base_ref)
+    head_commit = resolve_commit(repo, head_ref)
+
+    merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
+    if merge_base_oid is not None:
+        mb_obj = repo.get(merge_base_oid)
+        if mb_obj is not None:
+            base_commit = mb_obj.peel(pygit2.Commit)
+
+    d = repo.diff(base_commit, head_commit)
+
+    ranges: DiffLineRanges = {}
+    for patch in d:
+        if patch is None:
+            continue
+        path = patch.delta.old_file.path
+        lines: set[int] = set()
+        for hunk in patch.hunks:
+            for diff_line in hunk.lines:
+                if diff_line.old_lineno >= 0:
+                    lines.add(diff_line.old_lineno)
         if lines:
             ranges[path] = lines
     return ranges

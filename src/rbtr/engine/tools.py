@@ -24,9 +24,11 @@ from rbtr.git.objects import (
     DiffStats,
     commit_log_between,
     diff_line_ranges,
+    diff_line_ranges_left,
     diff_refs,
     diff_single,
     read_blob,
+    resolve_anchor,
 )
 from rbtr.github.client import get_pr_discussion as fetch_pr_discussion
 from rbtr.github.draft import load_draft, save_draft
@@ -277,30 +279,80 @@ def _load_or_create_draft(pr_number: int) -> ReviewDraft:
 
 # Cached diff line ranges — invalidated on new /review.
 _cached_ranges: DiffLineRanges | None = None
+_cached_ranges_left: DiffLineRanges | None = None
 _cached_ranges_key: tuple[str, str] = ("", "")
 
 
-def _get_diff_ranges(ctx: RunContext[AgentDeps]) -> DiffLineRanges:
+def _get_diff_ranges(
+    ctx: RunContext[AgentDeps],
+    *,
+    side: str = "RIGHT",
+) -> DiffLineRanges:
     """Return commentable line ranges for the current review target.
 
     Caches the result so repeated ``add_review_comment`` calls in the
-    same turn don't recompute the diff.
+    same turn don't recompute the diff.  *side* selects HEAD
+    (``"RIGHT"``) or BASE (``"LEFT"``) ranges.
     """
-    global _cached_ranges, _cached_ranges_key
+    global _cached_ranges, _cached_ranges_left, _cached_ranges_key
     state = ctx.deps.state
     target = state.review_target
     repo = state.repo
     if target is None or repo is None:
         return {}
     key = (target.base_branch, target.head_ref)
-    if _cached_ranges is not None and _cached_ranges_key == key:
-        return _cached_ranges
-    try:
-        _cached_ranges = diff_line_ranges(repo, target.base_branch, target.head_ref)
-    except KeyError:
-        _cached_ranges = {}
-    _cached_ranges_key = key
+    if _cached_ranges_key != key:
+        _cached_ranges = None
+        _cached_ranges_left = None
+        _cached_ranges_key = key
+    if side == "LEFT":
+        if _cached_ranges_left is None:
+            try:
+                _cached_ranges_left = diff_line_ranges_left(
+                    repo, target.base_branch, target.head_ref
+                )
+            except KeyError:
+                _cached_ranges_left = {}
+        return _cached_ranges_left
+    if _cached_ranges is None:
+        try:
+            _cached_ranges = diff_line_ranges(repo, target.base_branch, target.head_ref)
+        except KeyError:
+            _cached_ranges = {}
     return _cached_ranges
+
+
+def find_comment(
+    comments: list[InlineComment],
+    path: str,
+    body_substring: str,
+) -> tuple[int, InlineComment] | str:
+    """Find a single comment by *path* and *body_substring*.
+
+    Searches *comments* for entries whose ``path`` matches and
+    whose ``body`` contains *body_substring*.
+
+    Returns ``(index, comment)`` on a unique match, or an error
+    string when zero or multiple comments match.
+    """
+    matches: list[tuple[int, InlineComment]] = [
+        (i, c) for i, c in enumerate(comments) if c.path == path and body_substring in c.body
+    ]
+    if not matches:
+        on_file = [c for c in comments if c.path == path]
+        if not on_file:
+            return f"No comments on '{path}'."
+        return (
+            f"No comment on '{path}' contains \"{body_substring}\". "
+            f"Comments on this file:\n" + "\n".join(f"  - {c.body[:80]}" for c in on_file)
+        )
+    if len(matches) > 1:
+        return (
+            f"\"{body_substring}\" matches {len(matches)} comments on '{path}'. "
+            f"Use a more specific substring:\n"
+            + "\n".join(f"  - {c.body[:80]}" for _, c in matches)
+        )
+    return matches[0]
 
 
 def _validate_comment_location(
@@ -334,53 +386,87 @@ def _validate_comment_location(
 def add_review_comment(
     ctx: RunContext[AgentDeps],
     path: str,
-    line: int,
+    anchor: str,
     body: str,
     suggestion: str = "",
+    ref: str = "head",
 ) -> str:
     """Add an inline comment to the review draft.
 
-    Appends a new comment targeting a specific file and line.
-    The draft is saved to disk immediately.  Use this to build
-    up review feedback incrementally during the conversation.
+    Appends a new comment targeting a specific file and code
+    location.  The draft is saved to disk immediately.  Use
+    this to build up review feedback incrementally.
 
-    The comment will appear on the PR at the specified file and
-    line when the review is posted via ``/draft post``.
+    The comment will appear on the PR at the anchored location
+    when the review is posted via ``/draft post``.
 
     **Important:** the ``path`` must be a file changed in the PR,
-    and ``line`` must be visible in the diff (a changed line or a
-    nearby context line).  The GitHub API rejects comments on
-    lines outside the diff.  Use the ``diff`` tool first to see
-    which lines are available.
+    and the ``anchor`` must resolve to a line visible in a diff
+    hunk (a changed line or a nearby context line).  Use the
+    ``diff`` tool first to see which code is available.
 
     Args:
         path: File path relative to repo root
             (e.g. ``src/api/handler.py``).  Must be a file
             that was changed in the PR diff.
-        line: Line number in the **diff** of the head version
-            (1-indexed).  Must be a line visible in a diff hunk
-            (changed or context line).
+        anchor: An exact substring of the file content at
+            ``ref``.  Must match exactly one location.  The
+            comment is placed on the **last line** of the match.
+            Use a short, unique snippet — one or two lines of
+            code from the diff output is ideal.
         body: Markdown body of the comment.  Include a severity
             label (e.g. ``**blocker:**``) as part of the text
             when appropriate.
         suggestion: Optional replacement code.  When non-empty,
             posted as a GitHub suggestion block that the author
             can apply directly.
+        ref: Which version of the file to resolve the anchor
+            against.  ``"head"`` (default) targets the new code.
+            ``"base"`` targets the old (deleted/modified) code.
     """
+    if ref not in ("head", "base"):
+        return 'ref must be "head" or "base".'
 
     pr = _pr_number(ctx)
+    state = ctx.deps.state
+    target = state.review_target
+    repo = state.repo
 
-    # Validate path/line against the PR diff.
-    ranges = _get_diff_ranges(ctx)
+    if not isinstance(target, PRTarget):  # pragma: no cover — guarded by prepare
+        return "No PR target."
+    if repo is None:  # pragma: no cover — guarded by prepare
+        return "No repository."
+
+    # Determine side and resolve ref.
+    if ref == "head":
+        side = "RIGHT"
+        resolved_ref = target.head_ref
+    else:
+        side = "LEFT"
+        resolved_ref = target.base_branch
+
+    # Resolve anchor → line number.
+    result = resolve_anchor(repo, resolved_ref, path, anchor)
+    if isinstance(result, str):
+        return f"Cannot add comment: {result}"
+    line = result
+
+    # Validate line is in the PR diff.
+    ranges = _get_diff_ranges(ctx, side=side)
     error = _validate_comment_location(ranges, path, line)
     if error:
-        return f"Cannot add comment: {error}"
+        return (
+            "Cannot add comment: the anchored code is not in the PR diff. "
+            "Comment on code that was changed or is near a change."
+        )
 
     draft = _load_or_create_draft(pr)
 
     comment = InlineComment(
         path=path,
         line=line,
+        side=side,
+        commit_id=target.head_sha,
         body=body,
         suggestion=suggestion,
     )
@@ -393,20 +479,23 @@ def add_review_comment(
 @agent.tool(prepare=_require_pr_target)
 def edit_review_comment(
     ctx: RunContext[AgentDeps],
-    index: int,
+    path: str,
+    comment: str,
     body: str = "",
     suggestion: str | None = None,
 ) -> str:
-    """Edit an existing comment in the review draft by index.
+    """Edit an existing comment in the review draft.
 
-    Update the body or suggestion of a comment.  Only the fields
-    you provide are changed — omit a field to keep its current
-    value.  Use ``/draft`` to see the current draft with numbered
-    comments.
+    Locate a comment by file path and a substring of its body,
+    then update its body or suggestion.  Only the fields you
+    provide are changed — omit a field to keep its current value.
 
     Args:
-        index: 1-based index of the comment to edit (as shown
-            by ``/draft``).
+        path: File path the comment belongs to
+            (e.g. ``src/api/handler.py``).
+        comment: A substring that uniquely identifies the
+            comment's body on this file.  Quote a distinctive
+            phrase from your earlier comment.
         body: New markdown body.  Empty string keeps the
             current body.
         suggestion: New replacement code.  ``None`` keeps the
@@ -419,10 +508,11 @@ def edit_review_comment(
     if not draft.comments:
         return "Draft has no comments to edit."
 
-    if index < 1 or index > len(draft.comments):
-        return f"Invalid index {index}. Draft has {len(draft.comments)} comment(s) (1-indexed)."
+    result = find_comment(draft.comments, path, comment)
+    if isinstance(result, str):
+        return f"Cannot edit comment: {result}"
 
-    comment = draft.comments[index - 1]
+    index, matched = result
     updates: dict[str, str] = {}
 
     if body:
@@ -430,28 +520,32 @@ def edit_review_comment(
     if suggestion is not None:
         updates["suggestion"] = suggestion
 
-    updated = comment.model_copy(update=updates)
+    updated = matched.model_copy(update=updates)
     new_comments = list(draft.comments)
-    new_comments[index - 1] = updated
+    new_comments[index] = updated
     draft = draft.model_copy(update={"comments": new_comments})
     save_draft(pr, draft)
 
-    return f"Comment {index} updated ({updated.path}:{updated.line})."
+    return f"Comment updated ({updated.path}:{updated.line})."
 
 
 @agent.tool(prepare=_require_pr_target)
 def remove_review_comment(
     ctx: RunContext[AgentDeps],
-    index: int,
+    path: str,
+    comment: str,
 ) -> str:
-    """Remove a comment from the review draft by index.
+    """Remove a comment from the review draft.
 
-    Use ``/draft`` to see the current draft with numbered
-    comments.
+    Locate a comment by file path and a substring of its body,
+    then remove it from the draft.
 
     Args:
-        index: 1-based index of the comment to remove (as shown
-            by ``/draft``).
+        path: File path the comment belongs to
+            (e.g. ``src/api/handler.py``).
+        comment: A substring that uniquely identifies the
+            comment's body on this file.  Quote a distinctive
+            phrase from your earlier comment.
     """
 
     pr = _pr_number(ctx)
@@ -460,17 +554,28 @@ def remove_review_comment(
     if not draft.comments:
         return "Draft has no comments to remove."
 
-    if index < 1 or index > len(draft.comments):
-        return f"Invalid index {index}. Draft has {len(draft.comments)} comment(s) (1-indexed)."
+    result = find_comment(draft.comments, path, comment)
+    if isinstance(result, str):
+        return f"Cannot remove comment: {result}"
 
-    removed = draft.comments[index - 1]
-    new_comments = [c for i, c in enumerate(draft.comments) if i != index - 1]
+    index, removed = result
+
+    if removed.github_id is not None:
+        # Synced comment — tombstone it so the next push excludes
+        # it and the remote copy is not re-imported on pull.
+        tombstoned = removed.model_copy(update={"body": "", "suggestion": ""})
+        new_comments = list(draft.comments)
+        new_comments[index] = tombstoned
+    else:
+        # Never synced — safe to drop entirely.
+        new_comments = [c for i, c in enumerate(draft.comments) if i != index]
+
     draft = draft.model_copy(update={"comments": new_comments})
     save_draft(pr, draft)
 
     return (
-        f"Removed comment {index} ({removed.path}:{removed.line}). "
-        f"Draft has {len(draft.comments)} comment(s)."
+        f"Removed comment ({removed.path}:{removed.line}). "
+        f"Draft has {len(new_comments)} comment(s)."
     )
 
 

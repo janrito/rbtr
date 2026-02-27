@@ -12,15 +12,17 @@ from github.GithubException import GithubException
 from rbtr.events import ColumnDef, LinkOutput, ReviewPosted, TableOutput
 from rbtr.exceptions import RbtrError
 from rbtr.git import default_branch, fetch_pr_head, list_local_branches
+from rbtr.git.objects import DiffLineRanges, diff_line_ranges, translate_line
 from rbtr.github import client
 from rbtr.github.draft import (
     delete_draft,
+    is_tombstone,
     load_draft,
     match_comments,
     save_draft,
     stamp_synced,
 )
-from rbtr.models import BranchTarget, PRTarget, ReviewDraft, ReviewEvent
+from rbtr.models import BranchTarget, InlineComment, PRTarget, ReviewDraft, ReviewEvent
 from rbtr.styles import COLUMN_BRANCH, LINK_STYLE
 
 from .indexing import run_index
@@ -288,6 +290,78 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
     engine._out(f"Draft synced from GitHub ({n} comment{'s' if n != 1 else ''}).")
 
 
+def _get_diff_ranges(engine: Engine) -> DiffLineRanges:
+    """Compute commentable line ranges from the review target.
+
+    Returns an empty dict when the repo or target is unavailable
+    (validation is skipped in that case).
+    """
+    target = engine.state.review_target
+    repo = engine.state.repo
+    if target is None or repo is None:
+        return {}
+    try:
+        return diff_line_ranges(repo, target.base_branch, target.head_ref)
+    except KeyError:
+        return {}
+
+
+def _partition_comments(
+    comments: list[InlineComment],
+    ranges: DiffLineRanges,
+) -> tuple[list[InlineComment], list[InlineComment]]:
+    """Split comments into (valid, invalid) based on diff line ranges.
+
+    A comment is valid when its ``path`` and ``line`` appear in the
+    diff.  File-level comments (``line == 0``) are always valid.
+    When *ranges* is empty (no diff data), all comments are
+    treated as valid — validation is best-effort.
+    """
+    if not ranges:
+        return comments, []
+    valid: list[InlineComment] = []
+    invalid: list[InlineComment] = []
+    for c in comments:
+        if c.line == 0 or (c.path in ranges and c.line in ranges[c.path]):
+            valid.append(c)
+        else:
+            invalid.append(c)
+    return valid, invalid
+
+
+def _translate_stale_comments(
+    engine: Engine,
+    comments: list[InlineComment],
+    target_sha: str,
+) -> tuple[list[InlineComment], list[InlineComment]]:
+    """Translate comments whose ``commit_id`` differs from *target_sha*.
+
+    Returns ``(translated, lost)`` where *translated* have updated
+    ``line`` and ``commit_id``, and *lost* are comments whose lines
+    were deleted in the newer commit.
+
+    Comments with an empty ``commit_id`` (legacy) or already matching
+    *target_sha* are returned as-is.
+    """
+    repo = engine.state.repo
+    if repo is None or not target_sha:
+        return comments, []
+
+    translated: list[InlineComment] = []
+    lost: list[InlineComment] = []
+    for c in comments:
+        # File-level comments have no line to translate.
+        if c.line == 0 or not c.commit_id or c.commit_id == target_sha:
+            translated.append(c)
+            continue
+        new_line = translate_line(repo, c.path, c.commit_id, target_sha, c.line)
+        if new_line is None:
+            lost.append(c)
+        else:
+            translated.append(c.model_copy(update={"line": new_line, "commit_id": target_sha}))
+    return translated, lost
+
+
 def post_review_draft(
     engine: Engine,
     pr_number: int,
@@ -346,11 +420,42 @@ def post_review_draft(
             if exc.status != 404:
                 raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
 
+    # Drop tombstones (locally deleted synced comments).
+    draft = draft.model_copy(
+        update={"comments": [c for c in draft.comments if not is_tombstone(c)]}
+    )
+
+    # Translate stale comments (different commit_id) to current head.
+    target = engine.state.review_target
+    head_sha = target.head_sha if isinstance(target, PRTarget) else ""
+    if draft.comments and head_sha:
+        translated, lost = _translate_stale_comments(engine, draft.comments, head_sha)
+        if lost:
+            details = "\n".join(f"  {c.path}:{c.line} — {c.body[:60]}" for c in lost)
+            raise RbtrError(
+                f"{len(lost)} comment(s) target deleted lines and cannot be "
+                f"translated to the current PR head.\n{details}\n"
+                f"Remove or fix them, then try again."
+            )
+        draft = draft.model_copy(update={"comments": translated})
+
+    # Validate comment locations against the current diff.
+    if draft.comments:
+        ranges = _get_diff_ranges(engine)
+        _valid, invalid = _partition_comments(draft.comments, ranges)
+        if invalid:
+            details = "\n".join(f"  {c.path}:{c.line} — {c.body[:60]}" for c in invalid)
+            raise RbtrError(
+                f"{len(invalid)} comment(s) target lines not in the PR diff "
+                f"(the PR may have been updated).\n{details}\n"
+                f"Remove or fix them, then try again."
+            )
+
     # Post.
     n = len(draft.comments)
     engine._out(f"Posting review ({event.value}, {n} comment{'s' if n != 1 else ''})…")
     try:
-        url = client.post_review(ctx, pr_number, draft, event)
+        url = client.post_review(ctx, pr_number, draft, event, commit_id=head_sha)
     except GithubException as exc:
         engine._clear()
         raise RbtrError(f"Failed to post review: {exc.data}") from exc
@@ -372,8 +477,13 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     1. Fetch the user's PENDING review from GitHub.
     2. Match remote comments against local using github_id and content.
     3. Delete the old pending review.
-    4. Push the merged draft as a new PENDING review.
-    5. Re-fetch to learn new github_ids, update sync state.
+    4. Filter tombstones (locally deleted synced comments) — they
+       are excluded from the push and dropped from the draft.
+    5. Validate comments against the current diff — stale comments
+       (targeting lines no longer in the diff) are kept locally
+       but excluded from the push.
+    6. Push the merged draft as a new PENDING review.
+    7. Re-fetch to learn new github_ids, update sync state.
 
     If there is no local draft and no remote pending review,
     this is a no-op.  Raises :class:`~rbtr.exceptions.RbtrError`
@@ -425,37 +535,69 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
                 raise RbtrError(f"Failed to delete pending review: {exc.data}") from exc
             # 404 = already gone (crash recovery). Continue.
 
-    # 4. Push merged draft as new PENDING.
-    n = len(local.comments)
+    # 4. Translate stale comments, then validate against the diff.
+    target = engine.state.review_target
+    head_sha = target.head_sha if isinstance(target, PRTarget) else ""
+    if local.comments and head_sha:
+        translated, lost = _translate_stale_comments(engine, local.comments, head_sha)
+        for c in lost:
+            engine._warn(f"Skipped comment ({c.path}:{c.line}) — line deleted in current head.")
+        local = local.model_copy(update={"comments": translated})
+
+    # Filter tombstones (locally deleted synced comments).  They are
+    # excluded from the push so the remote copy is not recreated.
+    # Dropped entirely after the push — not saved back to the draft.
+    tombstones = [c for c in local.comments if is_tombstone(c)]
+    live_comments = [c for c in local.comments if not is_tombstone(c)]
+    if tombstones:
+        n_t = len(tombstones)
+        engine._out(f"Deleting {n_t} comment{'s' if n_t != 1 else ''} from remote review.")
+
+    ranges = _get_diff_ranges(engine)
+    pushable, stale = _partition_comments(live_comments, ranges)
+    for c in stale:
+        engine._warn(f"Skipped stale comment ({c.path}:{c.line}) — line not in current diff.")
+
+    push_draft = local.model_copy(update={"comments": pushable})
+
+    # 5. Push merged draft as new PENDING.
+    n = len(pushable)
     engine._out(f"Pushing draft ({n} comment{'s' if n != 1 else ''})…")
     try:
-        new_review_id = client.push_pending_review(ctx, pr_number, local)
+        new_review_id = client.push_pending_review(ctx, pr_number, push_draft, commit_id=head_sha)
     except GithubException as exc:
         engine._clear()
         raise RbtrError(f"Failed to push draft: {exc.data}") from exc
 
-    # 5. Re-fetch to learn new github_ids.
+    # 6. Re-fetch to learn new github_ids.
     try:
         pushed = client.get_pending_review(ctx, pr_number, engine.state.gh_username)
     except GithubException:
         pushed = None
 
     if pushed is not None:
-        # Match by content to assign github_ids to local comments.
+        # Match by content to assign github_ids to pushed comments.
         # Strip comment_hash and github_id so we get pure tier-2 matching
         # (the old IDs are gone after delete-and-recreate).
-        clean = [
-            c.model_copy(update={"comment_hash": "", "github_id": None}) for c in local.comments
-        ]
+        clean = [c.model_copy(update={"comment_hash": "", "github_id": None}) for c in pushable]
         rematched = match_comments(clean, pushed.comments)
-        local = local.model_copy(update={"comments": rematched.comments})
+        synced_comments = rematched.comments
+    else:
+        synced_comments = pushable
 
-    local = local.model_copy(update={"github_review_id": new_review_id})
+    # Merge synced (pushed) and stale (skipped) comments back into
+    # the local draft.  Stale comments keep their previous state and
+    # are appended after pushed comments so they remain visible.
+    all_comments = synced_comments + stale
+    local = local.model_copy(update={"comments": all_comments, "github_review_id": new_review_id})
     local = stamp_synced(local)
     save_draft(pr_number, local)
 
     engine._clear()
-    engine._out(f"Draft synced ({n} comment{'s' if n != 1 else ''}).")
+    parts: list[str] = [f"Draft synced ({n} comment{'s' if n != 1 else ''} pushed)"]
+    if stale:
+        parts.append(f"{len(stale)} stale comment{'s' if len(stale) != 1 else ''} kept locally")
+    engine._out(". ".join(parts) + ".")
 
 
 def clear_review_draft(engine: Engine, pr_number: int) -> None:

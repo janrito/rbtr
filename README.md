@@ -125,21 +125,21 @@ saved automatically to the session database (see Sessions below).
 
 ## Commands
 
-| Command                | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `/help`                | Show available commands                  |
-| `/review`              | List open PRs and branches               |
-| `/review <id>`         | Select a PR or branch for review         |
-| `/draft`               | View, sync, or post the review draft     |
-| `/connect <service>`   | Authenticate with a service              |
-| `/model`               | List available models from all providers |
-| `/model <provider/id>` | Set the active model                     |
-| `/index`               | Show index status, clear, rebuild        |
-| `/compact`             | Summarise older context to free space    |
-| `/compact reset`       | Undo last compaction (before new messages)|
-| `/session`             | List, inspect, or delete sessions        |
-| `/new`                 | Start a new conversation                 |
-| `/quit`                | Exit (also `/q`)                         |
+| Command                | Description                                |
+| ---------------------- | ------------------------------------------ |
+| `/help`                | Show available commands                    |
+| `/review`              | List open PRs and branches                 |
+| `/review <id>`         | Select a PR or branch for review           |
+| `/draft`               | View, sync, or post the review draft       |
+| `/connect <service>`   | Authenticate with a service                |
+| `/model`               | List available models from all providers   |
+| `/model <provider/id>` | Set the active model                       |
+| `/index`               | Show index status, clear, rebuild          |
+| `/compact`             | Summarise older context to free space      |
+| `/compact reset`       | Undo last compaction (before new messages) |
+| `/session`             | List, inspect, or delete sessions          |
+| `/new`                 | Start a new conversation                   |
+| `/quit`                | Exit (also `/q`)                           |
 
 ## Shell commands
 
@@ -176,8 +176,32 @@ and show a menu (capped at 20 suggestions).
 | Alt+Enter | Insert newline (multiline input)         |
 | Tab       | Autocomplete                             |
 | Up/Down   | Browse history or navigate multiline     |
-| Ctrl+C    | Cancel running task (double-tap to quit) |
+| Ctrl+C    | Cancel running task (double-tap to quit)  |
 | Ctrl+O    | Expand truncated shell output            |
+
+### Cancellation recovery
+
+Ctrl+C cancels the current LLM turn immediately.  If the
+model was mid-way through a tool-calling cycle (e.g. it had
+called `read_file` and `grep` but results hadn't been
+processed yet), the model's response is already persisted to
+the session database but the tool results are not.  This
+leaves the conversation history in a broken state — the next
+user prompt would fail because PydanticAI requires every tool
+call to have a matching result.
+
+rbtr detects this on the next turn and repairs the history
+automatically by injecting synthetic `(cancelled)` tool
+results for each dangling call.  A warning is shown:
+
+```text
+⚠ Previous turn was cancelled mid-tool-call (read_file, grep).
+  Those tool results are lost — the model will continue without them.
+```
+
+The model sees the cancelled results and can decide whether
+to retry the tool calls or proceed differently.  No manual
+intervention is needed.
 
 ## Usage display
 
@@ -217,15 +241,15 @@ at `~/.config/rbtr/sessions.db`.
 
 ### How messages are stored
 
-The database has a single `fragments` table.  Each message is
+The database has a single `fragments` table. Each message is
 stored as **1 + N rows**:
 
 - **1 message row** — metadata (timestamps, model name, token
-  counts, cost).  Self-referencing (`message_id = id`),
+  counts, cost). Self-referencing (`message_id = id`),
   `fragment_index = 0`.
 - **N content rows** — one per part (user text, assistant text,
   tool call, tool result, thinking, etc.), each serialised as
-  JSON.  Content rows point to the message row via `message_id`
+  JSON. Content rows point to the message row via `message_id`
   and have `fragment_index >= 1`.
 
 Sessions are a `session_id` column, not a separate table.
@@ -240,7 +264,7 @@ appear in input history.
 
 A user asks "list the files" and the model responds with a tool
 call to `list_directory`, gets the result, then writes a text
-answer.  This produces 4 messages and ~10 rows:
+answer. This produces 4 messages and ~10 rows:
 
 ```
 message row  "request"   fragment_index=0   ← user prompt metadata
@@ -283,22 +307,22 @@ conversation as a list — ready to pass to the model as history.
 
 ### Switching providers
 
-The message format is **provider-agnostic**.  A response from
+The message format is **provider-agnostic**. A response from
 Claude and one from GPT-4o have the same structure (text parts,
-tool calls, etc.).  History is preserved across `/model`
+tool calls, etc.). History is preserved across `/model`
 switches — only `/new` clears it.
 
 One exception: thinking parts carry provider-specific IDs that
-some providers reject.  When this causes an API error, rbtr
+some providers reject. When this causes an API error, rbtr
 converts thinking parts to plain text (wrapped in `<thinking>`
-tags) and retries.  The conversion is read-time only — the
+tags) and retries. The conversion is read-time only — the
 original parts stay in the database, so switching back to a
 thinking-capable model recovers them.
 
 ### `/new` — starting fresh
 
 `/new` clears the in-memory conversation (history, usage
-counters) and generates a new session ID.  The previous session's
+counters) and generates a new session ID. The previous session's
 data stays in the database — it can be listed with `/session` and
 resumed with `/session resume`.
 
@@ -314,7 +338,7 @@ resumed with `/session resume`.
 ```
 
 **`/session resume`** loads the target session's messages from the
-database and switches the active session ID.  The conversation
+database and switches the active session ID. The conversation
 continues where it left off — the model sees the full history.
 If the session had a review target (PR or branch), it's
 automatically restored — rbtr re-runs `/review` to fetch fresh
@@ -322,7 +346,7 @@ metadata and rebuild the code index.
 You can resume sessions from different repos or different models.
 
 **`/session delete`** removes all fragments for a session
-(cascading via foreign keys).  You cannot delete the active
+(cascading via foreign keys). You cannot delete the active
 session — use `/new` first.
 
 ### Automatic behaviour
@@ -337,7 +361,7 @@ session — use `/new` first.
 
 ### Pruning old sessions
 
-Sessions accumulate over time.  Use `/session purge` to clean up:
+Sessions accumulate over time. Use `/session purge` to clean up:
 
 ```text
 /session purge 7d     Delete sessions older than 7 days
@@ -345,35 +369,34 @@ Sessions accumulate over time.  Use `/session purge` to clean up:
 /session purge 24h    Delete sessions older than 24 hours
 ```
 
-Duration suffixes: `d` (days), `w` (weeks), `h` (hours).  The
-active session is never deleted.  To remove a specific session,
+Duration suffixes: `d` (days), `w` (weeks), `h` (hours). The
+active session is never deleted. To remove a specific session,
 use `/session delete <id>`.
-
 
 ## Context compaction
 
 Long conversations accumulate tokens until the model's context
-window fills up.  rbtr compacts automatically — summarising older
+window fills up. rbtr compacts automatically — summarising older
 messages while keeping recent turns intact.
 
 ### How compaction works
 
 Compaction splits the conversation into **old** and **kept**
-messages based on `keep_turns` (default 2).  A *turn* starts at a
+messages based on `keep_turns` (default 2). A _turn_ starts at a
 user prompt and includes everything up to the next user prompt
 (the model's responses, tool calls, tool results).
 
 After splitting, any orphaned tool returns in **kept** — tool
 results whose matching tool call is in **old** — are moved to
-**old**.  This prevents API errors from mismatched tool call IDs
+**old**. This prevents API errors from mismatched tool call IDs
 after compaction.
 
 The old messages are serialised to text and sent to the current
-model with a summary prompt.  The result:
+model with a summary prompt. The result:
 
 - **Old rows** get `compacted_by` set to the summary's row ID.
   They become invisible to `load_messages()` but stay in the
-  database for auditing.  Cleaned up when the session is deleted
+  database for auditing. Cleaned up when the session is deleted
   (FK cascade).
 - **Summary** — a single message containing the LLM-generated
   summary, prefixed with
@@ -444,7 +467,7 @@ m9   m9          response-message  NULL          ← turn 4 response, untouched
 ```
 
 `load_messages()` filters `WHERE compacted_by IS NULL`, so it
-returns: summary S1 → turn 4 → turn 5.  The old rows stay in the
+returns: summary S1 → turn 4 → turn 5. The old rows stay in the
 database until the session is deleted.
 
 ### When compaction triggers
@@ -455,13 +478,13 @@ Four paths, all using the same compaction logic:
 usage exceeds `auto_compact_pct` (default 85%).
 
 **2. Mid-turn** — During a multi-step tool-calling turn, after
-each tool-call cycle.  If the threshold is exceeded and the model
+each tool-call cycle. If the threshold is exceeded and the model
 made tool calls (meaning more requests will follow), rbtr breaks
 out of the agent loop, compacts, reloads history from the
-database, and resumes the turn.  The in-progress turn counts as
+database, and resumes the turn. The in-progress turn counts as
 one of the `keep_turns` — so with `keep_turns = 2`, the current
 turn and the previous turn are preserved, and everything older is
-summarised.  Mid-turn compaction fires at most once per turn.
+summarised. Mid-turn compaction fires at most once per turn.
 
 **3. On overflow error** — When the API rejects a request with a
 context-length error (HTTP 400, 413, etc.), rbtr compacts and
@@ -476,9 +499,9 @@ you: /compact Focus on the authentication changes
 ```
 
 **5. Reset** — `/compact reset` undoes the latest compaction,
-restoring the original messages to active context.  The summary
+restoring the original messages to active context. The summary
 message is deleted (its timestamp would interleave with restored
-messages).  Reset is only allowed if no messages were sent after
+messages). Reset is only allowed if no messages were sent after
 the compaction:
 
 ```text
@@ -506,7 +529,7 @@ summary_max_chars = 2000    # max chars per tool result in summary input
 ```
 
 Token estimation uses `len(text) // 4` — no external tokenizer
-dependency.  After compaction the footer's context % stays at the
+dependency. After compaction the footer's context % stays at the
 pre-compaction value until the next LLM call corrects it.
 
 ## Configuration
@@ -815,7 +838,7 @@ repo skip unchanged files (keyed by git blob SHA).
 ## Review draft
 
 When reviewing a GitHub PR, rbtr helps you build a structured
-review that can be posted back to GitHub.  The LLM builds the
+review that can be posted back to GitHub. The LLM builds the
 draft incrementally using tool calls; you inspect it locally,
 sync it with GitHub, and post it when ready.
 
@@ -827,7 +850,7 @@ sync it with GitHub, and post it when ready.
 
 2. **Review with the LLM** — as you discuss the code, the
    LLM uses `add_review_comment` and `set_review_summary`
-   to build a draft.  Each change persists immediately to
+   to build a draft. Each change persists immediately to
    `.rbtr/REVIEW-DRAFT-42.toml`.
 
 3. **Inspect the draft** — `/draft` shows the current state:
@@ -845,7 +868,7 @@ sync it with GitHub, and post it when ready.
 ### How the draft is stored
 
 The draft lives at `.rbtr/REVIEW-DRAFT-<pr>.toml` — a plain
-TOML file updated atomically on every mutation.  It's
+TOML file updated atomically on every mutation. It's
 human-readable and hand-editable:
 
 ```toml
@@ -870,24 +893,24 @@ Top-level fields:
 
 - **`summary`** — the review body (markdown).
 - **`github_review_id`** — the PENDING review ID on
-  GitHub.  Absent until the draft has been synced.
+  GitHub. Absent until the draft has been synced.
 - **`summary_hash`** — hash of the summary, frozen at last
-  sync.  Only updated when syncing, never on local edits.
+  sync. Only updated when syncing, never on local edits.
 
 Each comment has:
 
 - **`path`, `line`, `body`, `suggestion`** — the review
-  content.  `suggestion` is optional replacement code
+  content. `suggestion` is optional replacement code
   (posted as a GitHub suggestion block).
 - **`github_id`** — GitHub's comment ID, set after the
   comment has been pushed to or pulled from GitHub.
   Absent for locally-created comments that haven't been
   synced yet.
 - **`comment_hash`** — hash of this comment's content,
-  frozen at last sync.  Only updated when syncing, never
-  on local edits.  Absent for new comments.
+  frozen at last sync. Only updated when syncing, never
+  on local edits. Absent for new comments.
 
-Hashes are short (16-char hex) SHA-256 digests.  Comment
+Hashes are short (16-char hex) SHA-256 digests. Comment
 hashes cover `path`, `line`, `body`, and `suggestion`.
 Because hashes are only written during sync — never when
 the LLM or you edit a comment — any change to the content
@@ -901,25 +924,61 @@ draft and the user's pending review on GitHub.
 
 #### GitHub API constraints
 
-GitHub's PENDING reviews do not support individual comment
-updates — you cannot PATCH or DELETE a single pending
-comment via the API (the endpoints return 404).  The only
-way to modify a pending review is to delete the entire
-review and recreate it.  This is a hard API limitation.
+Two hard API limitations shape the entire sync design:
+
+**1. No individual pending-comment updates.** You cannot
+PATCH a single pending review comment — the endpoint
+returns 404. You CAN individually DELETE a pending
+comment, but the only way to _modify_ a pending review is
+to delete the entire review and recreate it.
 
 rbtr works within this constraint: every push deletes the
-old pending review and creates a new one.  To track changes
+old pending review and creates a new one. To track changes
 across this delete-and-recreate cycle, each comment's
 `github_id` is recorded locally and re-established after
 each push by re-fetching the new review's comments.
+
+**2. No modern line data on the per-review endpoint.**
+When writing reviews, rbtr sends the modern `line` + `side`
+parameters (e.g. `line: 163, side: "RIGHT"`). GitHub
+accepts these correctly.
+
+However, the endpoint that reads review comments back
+(`GET /repos/{o}/{r}/pulls/{n}/reviews/{id}/comments`)
+returns `line: null`, `side: null`, and `subject_type: null`
+for ALL review comments — pending AND submitted. The only
+line-related data returned is the deprecated `position`
+field (a 1-based offset into the diff hunk) and the
+`diff_hunk` string (the hunk header through the commented
+line).
+
+The per-PR endpoint (`GET /pulls/{n}/comments`) does return
+modern fields, but excludes pending comments entirely. The
+individual comment endpoint (`GET /pulls/comments/{id}`)
+returns 404 for pending comments.
+
+rbtr works around this by walking the `diff_hunk` to
+recover `(line, side)` from the deprecated `position`. The
+conversion is deterministic — the same `diff_hunk` always
+maps to the same file line number. This logic lives in
+`_walk_hunk` / `_position_to_line` / `_line_to_position`
+in `client.py`.
+
+> **Verified 2026-02-27** with direct `httpx` calls using
+> `Accept: application/vnd.github+json` and
+> `X-GitHub-Api-Version: 2022-11-28`. Both pending and
+> submitted reviews show `line: null` on the per-review
+> endpoint. If GitHub fixes this, the `data.get("line")`
+> path in `get_pending_review` already takes priority — the
+> hunk-walking fallback only fires when `line` is null.
 
 #### Matching: how local and remote comments are paired
 
 When remote comments are fetched from GitHub, rbtr needs to
 figure out which remote comment corresponds to which local
-comment.  This is done in two tiers:
+comment. This is done in two tiers:
 
-**Tier 1 — `github_id` (exact match).**  If a local
+**Tier 1 — `github_id` (exact match).** If a local
 comment has a `github_id` from a previous sync, and a
 remote comment has the same ID, they're the same comment.
 This is the primary matching mechanism and handles edits,
@@ -928,40 +987,47 @@ deletions, and unchanged comments reliably.
 **Tier 2 — `(path, line, formatted_body)` (content match).**
 For local comments without a `github_id` (newly created by
 the LLM, never synced), rbtr matches by exact content
-against unmatched remote comments.  This pairs them 1:1 —
+against unmatched remote comments. This pairs them 1:1 —
 if multiple remotes have identical content, none are
 matched (ambiguity is not guessed at).
 
 After both tiers:
 
 - **Unmatched remote comments** are imported as new local
-  comments.  You'll see a warning:
+  comments. You'll see a warning:
   `"New remote comment imported: path:line"`.
 - **Local comments with a stale `github_id`** (present in
   the sync snapshot but absent from the remote) were deleted
-  on GitHub.  They're removed locally with a warning:
+  on GitHub. They're removed locally with a warning:
   `"Comment on path:line was deleted on GitHub."`.
 - **Local comments without a `github_id` and no content
   match** are kept as-is — they're new comments that will
   be included in the next push.
+- **Tombstoned comments** (synced comments whose body was
+  cleared locally via `remove_review_comment`) are excluded
+  from the push and dropped from the draft after sync.
+  This prevents a deleted comment from being re-imported
+  on the next pull. `/draft` shows them with a `✗`
+  indicator and a note that they'll be deleted on next
+  sync.
 
 #### Three-way merge: detecting edits and conflicts
 
 After matching, rbtr uses the synced content hash as a
 common ancestor to detect what changed on each side since
-the last sync.  Each comment's current content is hashed
+the last sync. Each comment's current content is hashed
 and compared to the stored hash:
 
-| Synced | Local | Remote | Outcome |
-| ------ | ----- | ------ | ------- |
-| A | A | A | No change |
-| A | A | B | Remote edit → accept |
-| A | B | A | Local edit → keep, push on next sync |
-| A | B | B | Both changed identically → no conflict |
-| A | B | C | **Conflict** → keep local, warn user |
+| Synced | Local | Remote | Outcome                                |
+| ------ | ----- | ------ | -------------------------------------- |
+| A      | A     | A      | No change                              |
+| A      | A     | B      | Remote edit → accept                   |
+| A      | B     | A      | Local edit → keep, push on next sync   |
+| A      | B     | B      | Both changed identically → no conflict |
+| A      | B     | C      | **Conflict** → keep local, warn user   |
 
 Conflicts always resolve in favour of the local draft — the
-user chose to edit locally, so that takes priority.  The
+user chose to edit locally, so that takes priority. The
 warning includes a preview of the remote body so you can
 decide whether to incorporate it manually.
 
@@ -973,6 +1039,8 @@ The same logic applies to the review summary (tracked via
 **Pull** (also runs automatically on `/review <n>`):
 
 1. Fetch the user's PENDING review and its comments.
+   Remote comments arrive with `line: null` — recover
+   `(line, side)` from `diff_hunk` via `_position_to_line`.
 2. Match remote comments to local using tiers 1 and 2.
 3. Reconcile each matched pair (accept remote edits,
    detect conflicts).
@@ -983,16 +1051,27 @@ The same logic applies to the review summary (tracked via
 
 **Push** (runs as part of `/draft sync`):
 
-1. Delete the existing PENDING review (if any).
-2. Create a new PENDING review with all current comments.
-3. Re-fetch the new review's comments to learn their
-   `github_id`s (they change on every recreate).
-4. Match the returned comments to local by content
+1. Translate stale comments — if a comment's `commit_id`
+   differs from the current PR head, translate its line
+   number using diff hunk arithmetic. Comments targeting
+   deleted lines are skipped with a warning.
+2. Validate all comments against the current diff — skip
+   comments whose `(path, line)` is no longer in a diff
+   hunk.
+3. Delete the existing PENDING review (if any).
+4. Create a new PENDING review with valid comments, sending
+   `line` + `side` + `commit_id` per the modern API.
+5. Re-fetch the new review's comments to learn their
+   `github_id`s (they change on every recreate). Again
+   recover `(line, side)` from `diff_hunk`.
+6. Match the returned comments to local by content
    (tier 2 — we just wrote them, so content is exact).
-5. Store the new `github_id`s on local comments.
-6. Stamp `comment_hash` on each comment, set
+7. Store the new `github_id`s on local comments.
+8. Merge pushed and skipped-stale comments back into the
+   local draft.
+9. Stamp `comment_hash` on each comment, set
    `github_review_id` and `summary_hash` on the draft.
-7. Save the draft to disk.
+10. Save the draft to disk.
 
 #### Example: sync with a remote edit
 
@@ -1027,6 +1106,46 @@ Draft synced (1 comment).
 # Result: local "Better explanation." is pushed to GitHub.
 ```
 
+#### Deleting synced comments locally
+
+Simply removing a synced comment from the draft would cause
+the next pull to re-import it from GitHub (it still exists
+in the remote pending review). rbtr solves this with
+_tombstones_.
+
+When you ask the LLM to remove a comment that has already
+been synced (`github_id` is set), `remove_review_comment`
+does not delete the comment outright. Instead it clears
+the `body` and `suggestion` fields while keeping the
+`github_id` and `comment_hash`. The comment stays in the
+draft as a tombstone.
+
+`/draft` shows tombstoned comments with a `✗` indicator:
+
+```text
+you: /draft
+Summary: Good PR overall.
+2 comments (1 pending deletion):
+  ✓ 1. src/client.py:42 — **blocker:** Retry without backoff.
+  ✗ 2. src/config.py:8 — (will be deleted on next sync)
+```
+
+On the next `/draft sync`:
+
+1. **Pull** — the tombstone matches the remote comment by
+   `github_id` (tier 1). Three-way merge sees the local
+   side as dirty (body changed from the original to empty)
+   and keeps the tombstone.
+2. **Push** — tombstones are excluded from the pushed
+   comments. The new pending review is created without
+   the deleted comment.
+3. **Save** — tombstones are dropped from the saved draft.
+   The comment is gone from both local and remote.
+
+Comments that have never been synced (no `github_id`) are
+removed immediately — no tombstone needed since there is
+nothing to re-import.
+
 ### Sync status indicators
 
 `/draft` shows a status indicator next to each comment:
@@ -1039,11 +1158,12 @@ Summary: Good PR overall.
   ★ 2. src/config.py:8 — **nit:** Unused import.
 ```
 
-| Indicator | Meaning |
-| --------- | ------- |
-| `✓` | **Synced** — matches the last-pushed snapshot |
-| `✎` | **Modified** — changed locally since last sync |
-| `★` | **New** — never synced to GitHub |
+| Indicator | Meaning                                        |
+| --------- | ---------------------------------------------- |
+| `✓`       | **Synced** — matches the last-pushed snapshot  |
+| `✎`       | **Modified** — changed locally since last sync |
+| `★`       | **New** — never synced to GitHub               |
+| `✗`       | **Deleted** — will be removed on next sync     |
 
 ### Draft commands
 
@@ -1059,7 +1179,7 @@ Tab completes subcommands and event types.
 ### Posting
 
 `/draft post` submits the review to GitHub as a final,
-visible review.  Before posting it pulls the remote state
+visible review. Before posting it pulls the remote state
 one last time to check for unsynced comments — if the
 remote pending review has comments that aren't in your
 local draft, the post is refused with a message to run
@@ -1083,24 +1203,56 @@ automatically.
 ### Safety
 
 - **Unsynced guard** — `/draft post` refuses if the remote
-  pending review has comments not in your local draft.  Run
+  pending review has comments not in your local draft. Run
   `/draft sync` first.
 - **Atomic posting** — all comments are submitted in a
-  single `create_review` API call.  No partial reviews.
+  single `create_review` API call. No partial reviews.
 - **Crash-safe** — the draft is a TOML file on disk,
-  updated on every mutation.  If rbtr crashes, the draft
-  survives.  If the crash happens mid-sync (after deleting
+  updated on every mutation. If rbtr crashes, the draft
+  survives. If the crash happens mid-sync (after deleting
   the old review but before creating the new one), the next
   sync detects the stale `review_id` (404) and recovers
   gracefully.
 - **Human-editable** — `.rbtr/REVIEW-DRAFT-42.toml` is
-  plain TOML.  You can edit it by hand — add comments,
+  plain TOML. You can edit it by hand — add comments,
   change bodies, or clear `comment_hash` / `summary_hash`
-  to force a full re-sync.  Sync state uses content
+  to force a full re-sync. Sync state uses content
   hashes (not duplicated content), so editing a comment
   body is automatically detected as a local change.
 - **Draft cleanup** — after a successful post, the local
   file is deleted automatically.
+
+### Position ↔ line round-trip (GitHub API workaround)
+
+The write path sends `line` + `side` (modern API). The
+read path receives `position` + `diff_hunk` (deprecated
+API). The conversion between them is deterministic:
+
+```text
+Write:  line=172, side=RIGHT  →  GitHub stores the comment
+Read:   position=4, diff_hunk="@@ -169,6 +169,7 @@\n ..."  →  _position_to_line → (172, RIGHT)
+```
+
+`_walk_hunk(diff_hunk)` is the single source of truth. It
+yields `(position, line, side)` for each diff line by
+walking the hunk header's start-line counters and
+classifying each line by its `+`/`-`/` ` prefix:
+
+- `+` line → `(new_line, "RIGHT")`, increment `new_line`
+- `-` line → `(old_line, "LEFT")`, increment `old_line`
+- context → `(new_line, "RIGHT")`, increment both
+- `\` (no newline marker) → skip
+
+`_position_to_line(diff_hunk)` returns the last yielded
+triple (the commented line is always last in the hunk
+GitHub returns). `_line_to_position(diff_hunk, line, side)`
+finds the first matching triple and returns its position.
+
+The content hash (`_comment_hash`) includes `line` because
+the conversion is deterministic — the same `position`
+always maps to the same `line`. `side` and `commit_id` are
+excluded from the hash (resolution metadata not visible in
+the GitHub UI).
 
 ### GitHub suggestions
 

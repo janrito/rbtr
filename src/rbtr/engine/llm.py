@@ -53,6 +53,79 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# ── History repair ───────────────────────────────────────────────────
+
+
+def _repair_dangling_tool_calls(
+    history: list[ModelMessage],
+) -> tuple[list[ModelMessage], list[str]]:
+    """Fix history left dirty by a cancelled tool-calling turn.
+
+    When the user cancels (Ctrl+C) mid-turn, the model's
+    ``ModelResponse`` with tool calls may already be persisted but
+    the matching tool results are not.  This leaves the history in
+    a broken state — both PydanticAI's own validation and upstream
+    provider APIs (OpenAI, Anthropic) reject conversations that
+    contain function calls without matching results.
+
+    The fix: for every ``ModelResponse`` with ``ToolCallPart``\\ s
+    that is *not* followed by a ``ModelRequest`` containing the
+    corresponding ``ToolReturnPart``\\ s, append a synthetic request
+    with ``(cancelled)`` results.
+
+    Returns ``(repaired_history, tool_names)`` where *tool_names*
+    lists every tool that was patched (empty if no repair needed).
+    """
+    if not history:
+        return history, []
+
+    repaired: list[ModelMessage] | None = None  # lazy copy
+    all_tool_names: list[str] = []
+
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        if isinstance(msg, ModelResponse):
+            tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
+            if tool_calls:
+                # Check whether the next message supplies results.
+                next_msg = history[i + 1] if i + 1 < len(history) else None
+                has_results = isinstance(next_msg, ModelRequest) and any(
+                    isinstance(p, ToolReturnPart) for p in next_msg.parts
+                )
+                if not has_results:
+                    if repaired is None:
+                        repaired = list(history[:i])
+                    repaired.append(msg)
+                    names = [tc.tool_name for tc in tool_calls]
+                    all_tool_names.extend(names)
+                    log.info(
+                        "Repairing %d dangling tool call(s) from cancelled turn.",
+                        len(tool_calls),
+                    )
+                    repaired.append(
+                        ModelRequest(
+                            parts=[
+                                ToolReturnPart(
+                                    tool_name=tc.tool_name,
+                                    content="(cancelled)",
+                                    tool_call_id=tc.tool_call_id,
+                                )
+                                for tc in tool_calls
+                            ],
+                        )
+                    )
+                    i += 1
+                    continue
+        if repaired is not None:
+            repaired.append(msg)
+        i += 1
+
+    if repaired is not None:
+        return repaired, all_tool_names
+    return history, []
+
+
 @dataclass(slots=True)
 class _StreamResult:
     """Result of a single agent streaming run."""
@@ -219,6 +292,13 @@ async def _stream_agent(
     # Load history from DB — the source of truth.
     store = engine.store
     history = store.load_messages(engine.state.session_id)
+    history, repaired_tools = _repair_dangling_tool_calls(history)
+    if repaired_tools:
+        names = ", ".join(repaired_tools)
+        engine._warn(
+            f"Previous turn was cancelled mid-tool-call ({names}). "
+            f"Those tool results are lost — the model will continue without them."
+        )
     if simplify_history:
         history = demote_thinking(history)
     deps = AgentDeps(state=engine.state)
@@ -349,6 +429,7 @@ async def _stream_agent(
         )
         # Reload from DB after compaction.
         history = store.load_messages(engine.state.session_id)
+        history, _ = _repair_dangling_tool_calls(history)
         engine.state.usage.snapshot_base()
 
         resume = await _run_with_cancel(engine, _do_stream(None, history))
@@ -394,6 +475,7 @@ async def _stream_summary(
     can only produce text — no further tool calls.
     """
     history = engine.store.load_messages(engine.state.session_id)
+    history, _ = _repair_dangling_tool_calls(history)
 
     summary_agent: Agent[None, str] = Agent(model)
     async with summary_agent.iter(

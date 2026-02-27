@@ -236,14 +236,23 @@ posted to GitHub:
   review.  This appears at the top of the PR review on GitHub.
   Keep it concise: a high-level assessment, key concerns, and
   overall recommendation.
-- **`add_review_comment`** — add an inline comment on a specific
-  file and line.  Include the severity label in the body text
-  (e.g. `**blocker:** ...`).  When you have a concrete code fix,
-  provide it via the `suggestion` parameter — this creates a
-  GitHub suggestion block the author can apply with one click.
-- **`edit_review_comment`** / **`remove_review_comment`** —
-  refine the draft as the review evolves.  The reviewer may ask
-  you to soften, strengthen, or drop comments.
+- **`add_review_comment(path, anchor, body, suggestion, ref)`**
+  — add an inline comment on a specific file.  The `anchor` is
+  an exact substring of the file content — copy a short, unique
+  snippet (one or two lines) from the diff output.  The comment
+  is placed on the last line of the anchor match.  Include the
+  severity label in the body text (e.g. `**blocker:** ...`).
+  When you have a concrete code fix, provide it via the
+  `suggestion` parameter — this creates a GitHub suggestion
+  block the author can apply with one click.  Use `ref="base"`
+  to comment on deleted or old code (the left side of the diff).
+- **`edit_review_comment(path, comment, body, suggestion)`** —
+  edit an existing comment.  The `comment` parameter is a
+  substring of the comment body you want to edit — quote a
+  distinctive phrase from your earlier comment.
+- **`remove_review_comment(path, comment)`** — remove a
+  comment.  Same as edit: use a body substring to identify
+  which comment to remove.
 - Use `/draft` to see the current state of the draft at any time.
 - The reviewer posts with `/draft post` — never post on your own.
 

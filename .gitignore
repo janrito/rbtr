@@ -17,3 +17,5 @@ htmlcov/
 .rbtr/
 
 TODO-*
+development_scripts/
+tmp/

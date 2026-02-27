@@ -1,5 +1,6 @@
-"""Shared test fixtures."""
+"""Shared test fixtures and helpers."""
 
+import queue
 import socket
 from collections.abc import Generator
 from pathlib import Path
@@ -9,6 +10,31 @@ import pytest
 
 from rbtr.config import config
 from rbtr.creds import Creds, creds
+from rbtr.events import Event, Output
+
+# ── Event helpers ────────────────────────────────────────────────────
+
+
+def drain(events: queue.Queue[Event]) -> list[Event]:
+    """Drain all events from the queue into a list."""
+    result: list[Event] = []
+    while True:
+        try:
+            result.append(events.get_nowait())
+        except queue.Empty:
+            break
+    return result
+
+
+def output_texts(events: list[Event]) -> list[str]:
+    """Extract text from Output events."""
+    return [e.text for e in events if isinstance(e, Output)]
+
+
+def has_event_type(events: list[Event], event_type: type) -> bool:
+    """Check whether any event matches the given type."""
+    return any(isinstance(e, event_type) for e in events)
+
 
 # ── Network safety net ───────────────────────────────────────────────
 

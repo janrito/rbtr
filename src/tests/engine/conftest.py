@@ -35,6 +35,10 @@ from rbtr.events import Event, IndexReady, Output
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
 
+# Re-export top-level helpers so existing ``from .conftest import …``
+# lines in this package keep working without change.
+from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
+
 # ── Shared test data ─────────────────────────────────────────────────
 #
 # Realistic, semantically distinct review targets so every test that
@@ -183,27 +187,6 @@ def repo_engine(tmp_path: Path) -> Generator[Engine]:
     eng = Engine(state, queue.Queue(), store=SessionStore())
     yield eng
     eng.close()
-
-
-def drain(events: queue.Queue[Event]) -> list[Event]:
-    """Drain all events from the queue into a list."""
-    result: list[Event] = []
-    while True:
-        try:
-            result.append(events.get_nowait())
-        except queue.Empty:
-            break
-    return result
-
-
-def output_texts(events: list[Event]) -> list[str]:
-    """Extract text from Output events."""
-    return [e.text for e in events if isinstance(e, Output)]
-
-
-def has_event_type(events: list[Event], event_type: type) -> bool:
-    """Check whether any event matches the given type."""
-    return any(isinstance(e, event_type) for e in events)
 
 
 def wait_for_index(events: queue.Queue[Event], timeout: float = 30.0) -> list[Event]:

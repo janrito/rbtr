@@ -21,6 +21,26 @@ All remaining unmatched remote comments are imported as new.
 Dirty detection uses content hashes stored directly on each
 comment (``comment_hash``) and on the draft (``summary_hash``).
 No separate sync section — each entity tracks its own state.
+
+Tombstones
+----------
+When a synced comment (has ``github_id``) is removed locally,
+it becomes a *tombstone*: ``body`` and ``suggestion`` are
+cleared but the ``github_id`` and ``comment_hash`` are
+preserved.  See ``is_tombstone()``.
+
+During sync, tombstones are:
+
+1. **Matched** to their remote counterpart by ``github_id``
+   (tier 1).  Three-way merge sees local as dirty → keeps
+   the tombstone.
+2. **Excluded** from the pushed comments, so the remote
+   review is recreated without them.
+3. **Dropped** from the saved draft after the push.
+
+This prevents re-import of a comment the user deleted
+locally.  Comments without a ``github_id`` (never synced)
+are removed immediately — no tombstone needed.
 """
 
 from __future__ import annotations
@@ -45,7 +65,16 @@ log = logging.getLogger(__name__)
 
 
 def _comment_hash(c: InlineComment) -> str:
-    """Deterministic hash of a comment's content fields."""
+    """Deterministic hash of a comment's content fields.
+
+    Covers ``path``, ``line``, ``body``, and ``suggestion``.
+    ``side`` and ``commit_id`` are excluded — they are resolution
+    metadata not visible in the GitHub UI.
+
+    ``line`` IS included because the ``position`` ↔ ``line``
+    conversion via ``_position_to_line`` is deterministic (it
+    walks the diff hunk GitHub returns).
+    """
     content = f"{c.path}\0{c.line}\0{c.body}\0{c.suggestion}"
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
@@ -260,12 +289,25 @@ def stamp_synced(draft: ReviewDraft) -> ReviewDraft:
     )
 
 
+def is_tombstone(comment: InlineComment) -> bool:
+    """True if *comment* is a local deletion marker.
+
+    A tombstone is a previously-synced comment (has ``github_id``)
+    whose ``body`` has been cleared.  It stays in the draft so
+    the push excludes it (preventing re-import), then gets dropped
+    after a successful sync.
+    """
+    return comment.github_id is not None and not comment.body
+
+
 def comment_sync_status(comment: InlineComment) -> str:
     """Return a single-char status indicator for display.
 
-    ``★`` new (never synced), ``✎`` dirty (modified since sync),
-    ``✓`` clean (matches synced hash).
+    ``✗`` tombstone (pending deletion), ``★`` new (never synced),
+    ``✎`` dirty (modified since sync), ``✓`` clean (matches synced hash).
     """
+    if is_tombstone(comment):
+        return "✗"
     if not comment.comment_hash:
         return "★"
     if _comment_hash(comment) != comment.comment_hash:

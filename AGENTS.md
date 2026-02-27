@@ -68,6 +68,10 @@ Agent rules. Short, imperative.
 - **Pure private functions can be tested directly** when
   doing so avoids mocking the full LLM chain.
 - Use library patterns for testing. Don't mock everything.
+- **No `unittest.mock`.** Use `pytest-mock` (`mocker` fixture).
+- **Fixtures over helpers.** Shared setup belongs in
+  `@pytest.fixture`, not in loose helper functions or methods.
+- **No test classes.** Plain test functions only.
 
 ## Dependencies & tooling
 

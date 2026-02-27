@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.github.draft import comment_sync_status, load_draft
+from rbtr.github.draft import comment_sync_status, is_tombstone, load_draft
 from rbtr.models import PRTarget, ReviewEvent
 
 from .review import clear_review_draft, post_review_draft, sync_review_draft
@@ -74,10 +74,30 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
         engine._out("No inline comments.")
         return
 
-    engine._out(f"{len(draft.comments)} comment{'s' if len(draft.comments) != 1 else ''}:")
+    # Determine current head SHA for stale detection.
+    target = engine.state.review_target
+    head_sha = target.head_sha if isinstance(target, PRTarget) else ""
+
+    # Count live (non-tombstoned) comments for the header.
+    live = [c for c in draft.comments if not is_tombstone(c)]
+    tombstones = len(draft.comments) - len(live)
+    header = f"{len(live)} comment{'s' if len(live) != 1 else ''}"
+    if tombstones:
+        header += f" ({tombstones} pending deletion)"
+    engine._out(f"{header}:")
+
     for i, comment in enumerate(draft.comments, 1):
         status = comment_sync_status(comment)
-        prefix = f"  {status} {i}. {comment.path}:{comment.line}"
+        if is_tombstone(comment):
+            loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
+            engine._out(f"  {status} {i}. {loc} — (will be deleted on next sync)")
+            continue
+        side_tag = " (base)" if comment.side == "LEFT" else ""
+        stale_tag = ""
+        if comment.commit_id and head_sha and comment.commit_id != head_sha:
+            stale_tag = f" (stale: {comment.commit_id[:7]})"
+        loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
+        prefix = f"  {status} {i}. {loc}{side_tag}{stale_tag}"
         body_preview = comment.body[:80]
         if len(comment.body) > 80:
             body_preview += "…"
