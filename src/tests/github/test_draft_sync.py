@@ -546,7 +546,7 @@ def test_format_and_parse_roundtrip_with_suggestion() -> None:
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
+    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
     return tmp_path
 
 
@@ -914,7 +914,7 @@ def test_tombstone_excluded_from_push(workspace: Path) -> None:
     live = InlineComment(path="a.py", line=1, body="Keep this.", github_id=100)
     original_b = InlineComment(path="b.py", line=5, body="Was here.", github_id=200)
 
-    # Sync first to set hashes, then tombstone B (like remove_review_comment does).
+    # Sync first to set hashes, then tombstone B (like remove_draft_comment does).
     draft = _make_synced_draft("Summary.", [live, original_b])
     tombstoned_b = draft.comments[1].model_copy(update={"body": "", "suggestion": ""})
     draft = draft.model_copy(update={"comments": [draft.comments[0], tombstoned_b]})

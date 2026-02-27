@@ -2495,42 +2495,42 @@ def _edit_ctx() -> _FakeCtx:
 
 
 def test_edit_create_new_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Creating a new REVIEW- file writes content and returns confirmation."""
+    """Creating a new notes file writes content and returns confirmation."""
     monkeypatch.chdir(tmp_path)
     ctx = _edit_ctx()
-    result = edit(ctx, ".rbtr/REVIEW-plan.md", "# Plan\n\n- Step 1\n")  # type: ignore[arg-type]
+    result = edit(ctx, ".rbtr/notes/plan.md", "# Plan\n\n- Step 1\n")  # type: ignore[arg-type]
     assert "Created" in result
-    content = (tmp_path / ".rbtr" / "REVIEW-plan.md").read_text()
+    content = (tmp_path / ".rbtr" / "notes" / "plan.md").read_text()
     assert content == "# Plan\n\n- Step 1\n"
 
 
 def test_edit_append_to_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Appending to an existing file concatenates content."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".rbtr").mkdir()
-    (tmp_path / ".rbtr" / "REVIEW-notes.md").write_text("# Notes\n")
+    (tmp_path / ".rbtr" / "notes").mkdir(parents=True)
+    (tmp_path / ".rbtr" / "notes" / "notes.md").write_text("# Notes\n")
     ctx = _edit_ctx()
-    result = edit(ctx, ".rbtr/REVIEW-notes.md", "\n- Finding 1\n")  # type: ignore[arg-type]
+    result = edit(ctx, ".rbtr/notes/notes.md", "\n- Finding 1\n")  # type: ignore[arg-type]
     assert "Appended" in result
-    content = (tmp_path / ".rbtr" / "REVIEW-notes.md").read_text()
+    content = (tmp_path / ".rbtr" / "notes" / "notes.md").read_text()
     assert content == "# Notes\n\n- Finding 1\n"
 
 
 def test_edit_replace_exact_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Exact old_text match is replaced with new_text."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".rbtr").mkdir()
+    (tmp_path / ".rbtr" / "notes").mkdir(parents=True)
     original = "# Plan\n\n- [ ] Review handler\n- [ ] Review config\n"
-    (tmp_path / ".rbtr" / "REVIEW-plan.md").write_text(original)
+    (tmp_path / ".rbtr" / "notes" / "plan.md").write_text(original)
     ctx = _edit_ctx()
     result = edit(
         ctx,  # type: ignore[arg-type]
-        ".rbtr/REVIEW-plan.md",
+        ".rbtr/notes/plan.md",
         "- [x] Review handler  ✓\n",
         old_text="- [ ] Review handler\n",
     )
     assert "Replaced" in result
-    content = (tmp_path / ".rbtr" / "REVIEW-plan.md").read_text()
+    content = (tmp_path / ".rbtr" / "notes" / "plan.md").read_text()
     assert "- [x] Review handler  ✓" in content
     assert "- [ ] Review config" in content  # untouched
 
@@ -2538,12 +2538,12 @@ def test_edit_replace_exact_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_edit_replace_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """old_text that doesn't exist returns an error."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".rbtr").mkdir()
-    (tmp_path / ".rbtr" / "REVIEW-plan.md").write_text("# Plan\n")
+    (tmp_path / ".rbtr" / "notes").mkdir(parents=True)
+    (tmp_path / ".rbtr" / "notes" / "plan.md").write_text("# Plan\n")
     ctx = _edit_ctx()
     result = edit(
         ctx,  # type: ignore[arg-type]
-        ".rbtr/REVIEW-plan.md",
+        ".rbtr/notes/plan.md",
         "replacement",
         old_text="nonexistent text",
     )
@@ -2553,12 +2553,12 @@ def test_edit_replace_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 def test_edit_replace_ambiguous(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """old_text matching multiple times returns an error."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".rbtr").mkdir()
-    (tmp_path / ".rbtr" / "REVIEW-plan.md").write_text("AAA\nBBB\nAAA\n")
+    (tmp_path / ".rbtr" / "notes").mkdir(parents=True)
+    (tmp_path / ".rbtr" / "notes" / "plan.md").write_text("AAA\nBBB\nAAA\n")
     ctx = _edit_ctx()
     result = edit(
         ctx,  # type: ignore[arg-type]
-        ".rbtr/REVIEW-plan.md",
+        ".rbtr/notes/plan.md",
         "CCC",
         old_text="AAA",
     )
@@ -2571,41 +2571,41 @@ def test_edit_replace_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     ctx = _edit_ctx()
     result = edit(
         ctx,  # type: ignore[arg-type]
-        ".rbtr/REVIEW-plan.md",
+        ".rbtr/notes/plan.md",
         "new",
         old_text="old",
     )
     assert "does not exist" in result
 
 
-def test_edit_rejects_path_outside_rbtr() -> None:
-    """Paths not inside .rbtr/ are rejected."""
+def test_edit_rejects_path_outside_notes() -> None:
+    """Paths not inside .rbtr/notes/ are rejected."""
     ctx = _edit_ctx()
     result = edit(ctx, "src/main.py", "content")  # type: ignore[arg-type]
-    assert "must be inside .rbtr/" in result
+    assert "must be inside" in result
 
 
-def test_edit_rejects_non_review_filename() -> None:
-    """Filenames not starting with REVIEW- are rejected."""
+def test_edit_rejects_drafts_dir() -> None:
+    """Paths inside .rbtr/drafts/ are rejected — use draft tools."""
     ctx = _edit_ctx()
-    result = edit(ctx, ".rbtr/notes.md", "content")  # type: ignore[arg-type]
-    assert "REVIEW-" in result
+    result = edit(ctx, ".rbtr/drafts/42.yaml", "content")  # type: ignore[arg-type]
+    assert "must be inside" in result
 
 
 def test_edit_rejects_path_traversal() -> None:
     """Paths with '..' are rejected."""
     ctx = _edit_ctx()
-    result = edit(ctx, ".rbtr/../REVIEW-escape.md", "content")  # type: ignore[arg-type]
+    result = edit(ctx, ".rbtr/notes/../escape.md", "content")  # type: ignore[arg-type]
     assert "not allowed" in result
 
 
 def test_edit_creates_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Nested paths under .rbtr/ create intermediate directories."""
+    """Nested paths under .rbtr/notes/ create intermediate directories."""
     monkeypatch.chdir(tmp_path)
     ctx = _edit_ctx()
-    result = edit(ctx, ".rbtr/drafts/REVIEW-comments.md", "# Draft\n")  # type: ignore[arg-type]
+    result = edit(ctx, ".rbtr/notes/sub/comments.md", "# Draft\n")  # type: ignore[arg-type]
     assert "Created" in result
-    assert (tmp_path / ".rbtr" / "drafts" / "REVIEW-comments.md").exists()
+    assert (tmp_path / ".rbtr" / "notes" / "sub" / "comments.md").exists()
 
 
 # ── Workspace file access (.rbtr/) ──────────────────────────────────
@@ -2615,10 +2615,10 @@ def test_edit_creates_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def _make_workspace(tmp_path: Path) -> None:
-    """Create .rbtr/ workspace with review notes for testing."""
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text(
+    """Create .rbtr/notes/ workspace with review notes for testing."""
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text(
         """\
 # Review Plan
 
@@ -2631,7 +2631,7 @@ def _make_workspace(tmp_path: Path) -> None:
 - config.py: verify defaults
 """
     )
-    (rbtr / "REVIEW-findings.md").write_text(
+    (notes / "findings.md").write_text(
         """\
 # Findings
 
@@ -2653,7 +2653,7 @@ def test_read_file_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = _FakeCtx(_file_state(repo))
-        result = read_file(ctx, ".rbtr/REVIEW-plan.md")  # type: ignore[arg-type]
+        result = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
         assert "# Review Plan" in result
         assert "Phase 1" in result
         assert "handler.py" in result
@@ -2665,7 +2665,7 @@ def test_read_file_workspace_not_found(tmp_path: Path, monkeypatch: pytest.Monke
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = _FakeCtx(_file_state(repo))
-        result = read_file(ctx, ".rbtr/REVIEW-nonexistent.md")  # type: ignore[arg-type]
+        result = read_file(ctx, ".rbtr/notes/nonexistent.md")  # type: ignore[arg-type]
         assert "not found" in result.lower()
 
 
@@ -2677,7 +2677,7 @@ def test_read_file_workspace_ignores_ref(tmp_path: Path, monkeypatch: pytest.Mon
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = _FakeCtx(_file_state(repo))
         # ref="base" would fail for git files, but is ignored for .rbtr/
-        result = read_file(ctx, ".rbtr/REVIEW-plan.md", ref="base")  # type: ignore[arg-type]
+        result = read_file(ctx, ".rbtr/notes/plan.md", ref="base")  # type: ignore[arg-type]
         assert "# Review Plan" in result
 
 
@@ -2688,9 +2688,9 @@ def test_grep_workspace_single_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = _FakeCtx(_file_state(repo))
-        result = grep(ctx, "null check", path=".rbtr/REVIEW-findings.md")  # type: ignore[arg-type]
+        result = grep(ctx, "null check", path=".rbtr/notes/findings.md")  # type: ignore[arg-type]
         assert "null check" in result.lower()
-        assert "REVIEW-findings.md" in result
+        assert "findings.md" in result
 
 
 def test_grep_workspace_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2704,7 +2704,7 @@ def test_grep_workspace_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         result = grep(ctx, "handler", path=".rbtr/")  # type: ignore[arg-type]
         assert "handler" in result.lower()
         # Should show matches from at least one file
-        assert "REVIEW-" in result
+        assert "notes" in result
 
 
 def test_grep_workspace_no_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2726,8 +2726,8 @@ def test_list_files_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = _FakeCtx(_file_state(repo))
         result = list_files(ctx, path=".rbtr/")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in result
-        assert "REVIEW-findings.md" in result
+        assert "plan.md" in result
+        assert "findings.md" in result
 
 
 def test_list_files_workspace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

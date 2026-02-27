@@ -20,9 +20,9 @@ from rbtr.engine.agent import AgentDeps
 from rbtr.engine.draft_cmd import _show_draft
 from rbtr.engine.review import post_review_draft, sync_review_draft
 from rbtr.engine.tools import (
-    add_review_comment,
-    edit_review_comment,
-    remove_review_comment,
+    add_draft_comment,
+    edit_draft_comment,
+    remove_draft_comment,
 )
 from rbtr.exceptions import RbtrError
 from rbtr.github.client import get_pending_review, post_review
@@ -81,7 +81,7 @@ def mixed_draft(workspace: Path) -> ReviewDraft:
 
 def test_add_head_anchor_right_side(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
     """Anchor on head file → RIGHT side, commit_id = head SHA."""
-    add_review_comment(tool_ctx, "src/handler.py", "validate(request)", "Bug.")
+    add_draft_comment(tool_ctx, "src/handler.py", "validate(request)", "Bug.")
     draft = load_draft(42)
     assert draft is not None
     c = draft.comments[0]
@@ -92,7 +92,7 @@ def test_add_head_anchor_right_side(workspace: Path, tool_ctx: RunContext[AgentD
 
 def test_add_base_anchor_left_side(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
     """Anchor with ref='base' → LEFT side, resolves against base."""
-    add_review_comment(tool_ctx, "src/handler.py", "return 'ok'", "Old code.", ref="base")
+    add_draft_comment(tool_ctx, "src/handler.py", "return 'ok'", "Old code.", ref="base")
     draft = load_draft(42)
     assert draft is not None
     c = draft.comments[0]
@@ -102,7 +102,7 @@ def test_add_base_anchor_left_side(workspace: Path, tool_ctx: RunContext[AgentDe
 
 def test_add_head_anchor_shifted_line(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
     """Same code at different line numbers on each side."""
-    add_review_comment(tool_ctx, "src/handler.py", "return 'ok'", "Now line 3.")
+    add_draft_comment(tool_ctx, "src/handler.py", "return 'ok'", "Now line 3.")
     draft = load_draft(42)
     assert draft is not None
     assert draft.comments[0].line == 3  # shifted by insertion
@@ -110,7 +110,7 @@ def test_add_head_anchor_shifted_line(workspace: Path, tool_ctx: RunContext[Agen
 
 def test_add_base_anchor_deleted_file(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
     """readme.md deleted at head — can still comment on base side."""
-    result = add_review_comment(tool_ctx, "readme.md", "# Project", "Why deleted?", ref="base")
+    result = add_draft_comment(tool_ctx, "readme.md", "# Project", "Why deleted?", ref="base")
     assert "Comment added" in result
     draft = load_draft(42)
     assert draft is not None
@@ -124,7 +124,7 @@ def test_add_base_anchor_deleted_file(workspace: Path, tool_ctx: RunContext[Agen
 def test_edit_preserves_side_and_commit_id(
     workspace: Path, tool_ctx: RunContext[AgentDeps], mixed_draft: ReviewDraft
 ) -> None:
-    edit_review_comment(tool_ctx, "a.py", "Old code", body="Updated body.")
+    edit_draft_comment(tool_ctx, "a.py", "Old code", body="Updated body.")
     draft = load_draft(42)
     assert draft is not None
     c = draft.comments[0]
@@ -137,7 +137,7 @@ def test_edit_preserves_side_and_commit_id(
 def test_remove_preserves_remaining(
     workspace: Path, tool_ctx: RunContext[AgentDeps], mixed_draft: ReviewDraft
 ) -> None:
-    remove_review_comment(tool_ctx, "b.py", "New code")
+    remove_draft_comment(tool_ctx, "b.py", "New code")
     draft = load_draft(42)
     assert draft is not None
     assert len(draft.comments) == 2
@@ -148,15 +148,15 @@ def test_remove_preserves_remaining(
 
 def test_full_add_edit_remove_cycle(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
     """Add → edit → remove cycle preserves metadata throughout."""
-    add_review_comment(tool_ctx, "src/handler.py", "validate(request)", "Initial.")
-    edit_review_comment(tool_ctx, "src/handler.py", "Initial", body="Revised.")
+    add_draft_comment(tool_ctx, "src/handler.py", "validate(request)", "Initial.")
+    edit_draft_comment(tool_ctx, "src/handler.py", "Initial", body="Revised.")
 
     draft = load_draft(42)
     assert draft is not None
     assert draft.comments[0].body == "Revised."
     assert draft.comments[0].side == "RIGHT"
 
-    remove_review_comment(tool_ctx, "src/handler.py", "Revised")
+    remove_draft_comment(tool_ctx, "src/handler.py", "Revised")
     draft = load_draft(42)
     assert draft is not None
     assert draft.comments == []

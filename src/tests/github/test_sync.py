@@ -197,7 +197,7 @@ class _FakeEngine:
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
+    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
     return tmp_path
 
 

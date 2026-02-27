@@ -290,7 +290,7 @@ def _get_diff_ranges(
 ) -> DiffLineRanges:
     """Return commentable line ranges for the current review target.
 
-    Caches the result so repeated ``add_review_comment`` calls in the
+    Caches the result so repeated ``add_draft_comment`` calls in the
     same turn don't recompute the diff.  *side* selects HEAD
     (``"RIGHT"``) or BASE (``"LEFT"``) ranges.
     """
@@ -383,7 +383,7 @@ def _validate_comment_location(
 
 
 @agent.tool(prepare=_require_pr_target)
-def add_review_comment(
+def add_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
     anchor: str,
@@ -477,7 +477,7 @@ def add_review_comment(
 
 
 @agent.tool(prepare=_require_pr_target)
-def edit_review_comment(
+def edit_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
     comment: str,
@@ -530,7 +530,7 @@ def edit_review_comment(
 
 
 @agent.tool(prepare=_require_pr_target)
-def remove_review_comment(
+def remove_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
     comment: str,
@@ -580,7 +580,7 @@ def remove_review_comment(
 
 
 @agent.tool(prepare=_require_pr_target)
-def set_review_summary(
+def set_draft_summary(
     ctx: RunContext[AgentDeps],
     summary: str,
 ) -> str:
@@ -599,6 +599,28 @@ def set_review_summary(
     save_draft(pr, draft)
 
     return f"Review summary updated ({len(summary)} chars)."
+
+
+@agent.tool(prepare=_require_pr_target)
+def read_draft(
+    ctx: RunContext[AgentDeps],
+) -> str:
+    """Read the current review draft.
+
+    Returns a formatted view of the draft including the summary
+    and all inline comments with their status, location, and
+    body preview.  Returns a message if no draft exists yet.
+    """
+    from rbtr.github.draft import format_draft
+
+    pr = _pr_number(ctx)
+    draft = _load_or_create_draft(pr)
+    if not draft.summary and not draft.comments:
+        return "No draft yet."
+
+    target = ctx.deps.state.review_target
+    head_sha = target.head_sha if isinstance(target, PRTarget) else ""
+    return format_draft(draft, head_sha=head_sha)
 
 
 # ── Search tools (require index) ────────────────────────────────────
@@ -1463,7 +1485,7 @@ def read_file(
 
     Looks up the file in the git object store first.  If the
     path is not found in git, falls back to the local filesystem
-    — this covers workspace files (e.g. ``.rbtr/REVIEW-*`` notes
+    — this covers workspace files (e.g. ``.rbtr/notes/`` files
     created with ``edit``) and any other untracked files.
 
     Works on any file: source code, config files, docs, lockfiles,
@@ -1482,7 +1504,7 @@ def read_file(
 
     Args:
         path: File path relative to repo root
-            (e.g. ``src/main.py``, ``.rbtr/REVIEW-plan.md``).
+            (e.g. ``src/main.py``, ``.rbtr/notes/plan.md``).
             Must not contain ``..``.
         ref: Which version of the codebase to read — ``"head"``
             (default), ``"base"``, or a raw commit SHA.
@@ -1553,7 +1575,7 @@ def grep(
 
     Files not found in the git tree are looked up on the local
     filesystem as a fallback — this covers workspace files (e.g.
-    ``.rbtr/REVIEW-*`` notes) and other untracked files.
+    ``.rbtr/notes/`` files) and other untracked files.
 
     For searching across the indexed codebase by keyword (with
     BM25 ranking), use ``search_codebase``.  For name-based
@@ -1870,7 +1892,7 @@ def list_files(
     sorted alphabetically.  When ``path`` is set and no matching
     files are found in the git tree, falls back to the local
     filesystem — this covers workspace files (e.g.
-    ``.rbtr/REVIEW-*`` notes) and other untracked files.
+    ``.rbtr/notes/`` files) and other untracked files.
 
     Use this to explore project structure before reading specific
     files.  For a list of symbols in a specific file, use
@@ -1944,8 +1966,6 @@ def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
 
 # ── Review notes (always available) ──────────────────────────────────
 
-_REVIEW_DIR = Path(".rbtr")
-
 
 @agent.tool
 def edit(
@@ -1954,16 +1974,14 @@ def edit(
     new_text: str,
     old_text: str = "",
 ) -> str:
-    """Edit or create a review notes file in the .rbtr workspace.
+    """Edit or create a review notes file.
 
     Use this to maintain living review documents — plans,
     findings, checklists, draft comments — that persist across
     turns.  Files are plain text (Markdown recommended).
 
-    Only files inside ``.rbtr/`` whose name starts with the
-    configured workspace prefix (default ``REVIEW-``) are
-    writable (e.g. ``.rbtr/REVIEW-plan.md``,
-    ``.rbtr/REVIEW-findings.md``).
+    Only files inside the notes directory (default
+    ``.rbtr/notes/``) are writable.
 
     Two modes:
 
@@ -1975,25 +1993,23 @@ def edit(
       ``new_text``.
 
     Args:
-        path: File path relative to the workspace root
-            (e.g. ``.rbtr/REVIEW-plan.md``).  Must be inside
-            ``.rbtr/`` and start with the workspace prefix.
+        path: File path relative to the repo root
+            (e.g. ``.rbtr/notes/plan.md``).  Must be inside the
+            notes directory.
         new_text: Content to write or insert.
         old_text: Exact text to find and replace.  Empty string
             (default) creates the file or appends to it.
     """
-    prefix = config.tools.workspace_prefix
+    notes_dir = Path(config.tools.notes_dir)
     # Validate path.
     p = PurePosixPath(path)
-    parts = p.parts
-    if len(parts) < 2 or parts[0] != ".rbtr":
-        return f"Path must be inside .rbtr/ — got '{path}'."
-    if not p.name.startswith(prefix):
-        return f"Filename must start with '{prefix}' — got '{p.name}'."
-    if ".." in parts:
+    if ".." in p.parts:
         return f"Path '{path}' contains '..' — not allowed."
-
-    resolved = _REVIEW_DIR / PurePosixPath(*parts[1:])
+    resolved = Path(p)
+    try:
+        resolved.resolve().relative_to(notes_dir.resolve())
+    except ValueError:
+        return f"Path must be inside {notes_dir}/ — got '{path}'."
 
     if not old_text:
         # Create or append.

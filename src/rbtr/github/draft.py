@@ -1,7 +1,7 @@
 """Review draft persistence and sync matching.
 
-The draft file (``.rbtr/<prefix>DRAFT-<pr>.toml``) is the local
-source of truth while building a review.  Every mutation persists
+The draft file (``.rbtr/drafts/<pr>.yaml``) is the local source
+of truth while building a review.  Every mutation persists
 immediately.
 
 Matching
@@ -47,13 +47,15 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import tomllib
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
+from typing import Any
 
-import tomli_w
+from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import LiteralScalarString
 
-from rbtr.config import WORKSPACE_DIR, config
+from rbtr.config import config
 from rbtr.exceptions import RbtrError
 from rbtr.github.client import format_comment_body
 from rbtr.models import InlineComment, ReviewDraft
@@ -89,8 +91,30 @@ def _summary_hash(summary: str) -> str:
 
 def _draft_path(pr_number: int) -> Path:
     """Return the path for a PR's draft file."""
-    prefix = config.tools.workspace_prefix
-    return WORKSPACE_DIR / f"{prefix}DRAFT-{pr_number}.toml"
+    return Path(config.tools.drafts_dir) / f"{pr_number}.yaml"
+
+
+def _yaml() -> YAML:
+    """Return a configured YAML instance."""
+    y = YAML()
+    y.default_flow_style = False
+    return y
+
+
+def _literalize(obj: Any) -> Any:
+    """Walk a dict/list and wrap multiline strings as literal block scalars.
+
+    This makes ``ruamel.yaml`` emit ``|-`` blocks instead of
+    escaped ``\\n`` sequences — much more readable for markdown
+    bodies and code suggestions.
+    """
+    if isinstance(obj, str):
+        return LiteralScalarString(obj) if "\n" in obj else obj
+    if isinstance(obj, dict):
+        return {k: _literalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_literalize(v) for v in obj]
+    return obj
 
 
 def load_draft(pr_number: int) -> ReviewDraft | None:
@@ -103,10 +127,10 @@ def load_draft(pr_number: int) -> ReviewDraft | None:
     path = _draft_path(pr_number)
     if not path.exists():
         return None
-    data = path.read_bytes()
     try:
-        return ReviewDraft.model_validate(tomllib.loads(data.decode()))
-    except (tomllib.TOMLDecodeError, ValueError) as exc:
+        data = _yaml().load(path)
+        return ReviewDraft.model_validate(data)
+    except Exception as exc:
         log.warning("Corrupt draft %s: %s", path, exc)
         raise RbtrError(
             f"Draft file is corrupt ({path.name}): {exc}\n"
@@ -115,11 +139,7 @@ def load_draft(pr_number: int) -> ReviewDraft | None:
 
 
 def save_draft(pr_number: int, draft: ReviewDraft) -> None:
-    """Persist *draft* to disk.  Creates parent dirs if needed.
-
-    Validates the serialised TOML round-trips before writing so a
-    corrupt file is never persisted.
-    """
+    """Persist *draft* to disk.  Creates parent dirs if needed."""
     path = _draft_path(pr_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = draft.model_dump(
@@ -128,14 +148,10 @@ def save_draft(pr_number: int, draft: ReviewDraft) -> None:
         exclude_unset=True,
         exclude_none=True,
     )
-    text = tomli_w.dumps(payload, multiline_strings=True)
-    # Guard: verify the TOML we're about to write can be parsed back.
-    try:
-        tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        log.warning("tomli_w produced unparseable TOML for PR #%d, falling back", pr_number)
-        text = tomli_w.dumps(payload)
-    path.write_text(text)
+    payload = _literalize(payload)
+    buf = StringIO()
+    _yaml().dump(payload, buf)
+    path.write_text(buf.getvalue())
 
 
 def delete_draft(pr_number: int) -> bool:
@@ -298,6 +314,52 @@ def is_tombstone(comment: InlineComment) -> bool:
     after a successful sync.
     """
     return comment.github_id is not None and not comment.body
+
+
+def format_draft(draft: ReviewDraft, *, head_sha: str = "") -> str:
+    """Return a human-readable formatted view of the draft.
+
+    Used by both the ``/draft`` command and the ``read_draft``
+    tool so formatting is consistent.
+    """
+    lines: list[str] = []
+
+    if draft.summary:
+        lines.append(f"Summary: {draft.summary}")
+    else:
+        lines.append("Summary: (empty)")
+
+    if not draft.comments:
+        lines.append("No inline comments.")
+        return "\n".join(lines)
+
+    live = [c for c in draft.comments if not is_tombstone(c)]
+    tombstones = len(draft.comments) - len(live)
+    header = f"{len(live)} comment{'s' if len(live) != 1 else ''}"
+    if tombstones:
+        header += f" ({tombstones} pending deletion)"
+    lines.append(f"{header}:")
+
+    for i, comment in enumerate(draft.comments, 1):
+        status = comment_sync_status(comment)
+        if is_tombstone(comment):
+            loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
+            lines.append(f"  {status} {i}. {loc} — (will be deleted on next sync)")
+            continue
+        side_tag = " (base)" if comment.side == "LEFT" else ""
+        stale_tag = ""
+        if comment.commit_id and head_sha and comment.commit_id != head_sha:
+            stale_tag = f" (stale: {comment.commit_id[:7]})"
+        loc = f"{comment.path}:{comment.line}" if comment.line > 0 else comment.path
+        prefix = f"  {status} {i}. {loc}{side_tag}{stale_tag}"
+        body_preview = comment.body[:80]
+        if len(comment.body) > 80:
+            body_preview += "…"
+        lines.append(f"{prefix} — {body_preview}")
+        if comment.suggestion:
+            lines.append("       └─ has suggestion")
+
+    return "\n".join(lines)
 
 
 def comment_sync_status(comment: InlineComment) -> str:

@@ -622,7 +622,7 @@ request the next page.
 
 Available as soon as a repository is connected. Read from the
 git object store first; if a path is not found in git, fall
-back to the local filesystem (covers `.rbtr/REVIEW-*` notes
+back to the local filesystem (covers `.rbtr/notes/` files
 and other untracked files). Filesystem fallback respects
 `.gitignore` and the `include`/`extend_exclude` config —
 ignored paths (`.mypy_cache`, `node_modules`, etc.) are
@@ -702,9 +702,8 @@ tests, and broken edges.
 #### Review notes (always available)
 
 **`edit(path, new_text, old_text?)`** — Edit or create
-review notes files in the `.rbtr/` workspace. Files must
-be under `.rbtr/` with names starting with `REVIEW-`
-(e.g. `.rbtr/REVIEW-plan.md`). When `old_text` is empty,
+review notes files.  Files must be under `.rbtr/notes/`
+(e.g. `.rbtr/notes/plan.md`). When `old_text` is empty,
 creates the file or appends; when set, replaces the exact
 match. Review notes are readable by `read_file`, `grep`,
 and `list_files` via the filesystem fallback.
@@ -719,19 +718,24 @@ Cached per session — fetched once, then read from memory.
 
 #### Draft management (require PR)
 
-**`add_review_comment(path, line, body, suggestion?)`** —
-Add an inline comment to the review draft. Persisted to
-`.rbtr/REVIEW-DRAFT-<pr>.toml` immediately.
+**`add_draft_comment(path, anchor, body, suggestion?, ref?)`** —
+Add an inline comment to the review draft.  The `anchor` is
+an exact code snippet from the file; the comment is placed on
+its last line.  Persisted to `.rbtr/drafts/<pr>.yaml`
+immediately.
 
-**`edit_review_comment(index, body?, suggestion?)`** —
-Edit an existing comment by 1-based index. Only provided
-fields are changed.
+**`edit_draft_comment(path, comment, body?, suggestion?)`** —
+Edit an existing comment.  `comment` is a body substring
+identifying which comment to edit.
 
-**`remove_review_comment(index)`** — Remove a comment
-by 1-based index.
+**`remove_draft_comment(path, comment)`** — Remove a
+comment by body substring.
 
-**`set_review_summary(summary)`** — Set the top-level
+**`set_draft_summary(summary)`** — Set the top-level
 review body that appears at the top of the GitHub review.
+
+**`read_draft()`** — Read the current draft (summary +
+all comments with status indicators).
 
 #### The `ref` parameter
 
@@ -754,7 +758,7 @@ in git, they fall back to the local filesystem. This means:
 
 - Repository files are always read from the git snapshot (at
   `ref`), ensuring reproducible reads.
-- Workspace files (`.rbtr/REVIEW-*` notes, untracked files)
+- Workspace files (`.rbtr/notes/` files, untracked files)
   are accessible without committing them to git.
 - When a prefix has files in both git and the filesystem, git
   wins — the filesystem is only tried when git has nothing.
@@ -815,7 +819,7 @@ max_file_size = 524288                                  # skip files > 512 KiB
 chunk_lines = 50                                        # lines per plaintext chunk
 chunk_overlap = 5                                       # overlap between chunks
 embedding_batch_size = 32                               # chunks per embedding call
-include = [".rbtr/REVIEW-*"]                            # force-include globs (override .gitignore)
+include = [".rbtr/notes/*"]                              # force-include globs (override .gitignore)
 extend_exclude = [".rbtr/index"]                        # exclude globs (on top of .gitignore)
 ```
 
@@ -849,9 +853,9 @@ sync it with GitHub, and post it when ready.
    draft.
 
 2. **Review with the LLM** — as you discuss the code, the
-   LLM uses `add_review_comment` and `set_review_summary`
+   LLM uses `add_draft_comment` and `set_draft_summary`
    to build a draft. Each change persists immediately to
-   `.rbtr/REVIEW-DRAFT-42.toml`.
+   `.rbtr/drafts/42.yaml`.
 
 3. **Inspect the draft** — `/draft` shows the current state:
    summary, numbered inline comments with sync status
@@ -867,26 +871,23 @@ sync it with GitHub, and post it when ready.
 
 ### How the draft is stored
 
-The draft lives at `.rbtr/REVIEW-DRAFT-<pr>.toml` — a plain
-TOML file updated atomically on every mutation. It's
+The draft lives at `.rbtr/drafts/<pr>.yaml` — a plain YAML
+file updated atomically on every mutation.  It's
 human-readable and hand-editable:
 
-```toml
-summary = "Good PR overall, two issues."
-github_review_id = 12345
-summary_hash = "a1b2c3d4e5f6g7h8"
-
-[[comments]]
-path = "src/client.py"
-line = 42
-body = "**blocker:** Retry without backoff."
-github_id = 98765
-comment_hash = "f9e8d7c6b5a43210"
-
-[[comments]]
-path = "src/config.py"
-line = 8
-body = "**nit:** Unused import."
+```yaml
+summary: Good PR overall, two issues.
+github_review_id: 12345
+summary_hash: a1b2c3d4e5f6g7h8
+comments:
+- path: src/client.py
+  line: 42
+  body: '**blocker:** Retry without backoff.'
+  github_id: 98765
+  comment_hash: f9e8d7c6b5a43210
+- path: src/config.py
+  line: 8
+  body: '**nit:** Unused import.'
 ```
 
 Top-level fields:
@@ -1004,7 +1005,7 @@ After both tiers:
   match** are kept as-is — they're new comments that will
   be included in the next push.
 - **Tombstoned comments** (synced comments whose body was
-  cleared locally via `remove_review_comment`) are excluded
+  cleared locally via `remove_draft_comment`) are excluded
   from the push and dropped from the draft after sync.
   This prevents a deleted comment from being re-imported
   on the next pull. `/draft` shows them with a `✗`
@@ -1114,7 +1115,7 @@ in the remote pending review). rbtr solves this with
 _tombstones_.
 
 When you ask the LLM to remove a comment that has already
-been synced (`github_id` is set), `remove_review_comment`
+been synced (`github_id` is set), `remove_draft_comment`
 does not delete the comment outright. Instead it clears
 the `body` and `suggestion` fields while keeping the
 `github_id` and `comment_hash`. The comment stays in the
@@ -1213,8 +1214,8 @@ automatically.
   the old review but before creating the new one), the next
   sync detects the stale `review_id` (404) and recovers
   gracefully.
-- **Human-editable** — `.rbtr/REVIEW-DRAFT-42.toml` is
-  plain TOML. You can edit it by hand — add comments,
+- **Human-editable** — `.rbtr/drafts/42.yaml` is plain
+  YAML.  You can edit it by hand — add comments,
   change bodies, or clear `comment_hash` / `summary_hash`
   to force a full re-sync. Sync state uses content
   hashes (not duplicated content), so editing a comment
@@ -1257,7 +1258,7 @@ the GitHub UI).
 ### GitHub suggestions
 
 When the LLM provides a `suggestion` parameter in
-`add_review_comment`, it's posted as a GitHub suggestion
+`add_draft_comment`, it's posted as a GitHub suggestion
 block:
 
 ````markdown
@@ -1298,23 +1299,22 @@ The limit is configurable in `config.toml`:
 
 ```toml
 [tools]
-max_requests_per_turn = 25    # default
-workspace_prefix = "REVIEW-"  # filename prefix for writable .rbtr/ files
+max_requests_per_turn = 25     # default
+notes_dir = ".rbtr/notes"      # directory for review notes (edit tool)
+drafts_dir = ".rbtr/drafts"    # directory for draft YAML files
 ```
 
-The `workspace_prefix` controls which files in `.rbtr/` the
-LLM can create and edit (e.g. `REVIEW-plan.md`,
-`REVIEW-findings.md`). Review drafts use
-`<prefix>DRAFT-<pr>.toml` — with the default prefix,
-`.rbtr/REVIEW-DRAFT-42.toml`. If you change the prefix,
-update `index.include` to match:
+The `notes_dir` controls where the `edit` tool can create
+files (e.g. `.rbtr/notes/plan.md`).  Draft files live in
+`drafts_dir` and are managed exclusively by the draft tools.
+If you change `notes_dir`, update `index.include` to match:
 
 ```toml
 [index]
-include = [".rbtr/MY-PREFIX-*"]
+include = [".rbtr/my-notes/*"]
 
 [tools]
-workspace_prefix = "MY-PREFIX-"
+notes_dir = ".rbtr/my-notes"
 ```
 
 ## Known issues

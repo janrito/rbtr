@@ -104,7 +104,7 @@ def render_review(state: EngineState) -> str:
     return env.render_template(
         "review",
         review_tag=review_tag(state),
-        workspace_prefix=config.tools.workspace_prefix,
+        notes_dir=config.tools.notes_dir,
     )
 
 

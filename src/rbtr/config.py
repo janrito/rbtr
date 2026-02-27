@@ -94,7 +94,7 @@ class IndexConfig(BaseModel):
     db_dir: str = str(WORKSPACE_DIR / "index")
     model_cache_dir: str = str(RBTR_DIR / "models")
     max_file_size: int = 512 * 1024  # 512 KiB
-    include: list[str] = [".rbtr/REVIEW-*"]
+    include: list[str] = [".rbtr/notes/*"]
     extend_exclude: list[str] = [".rbtr/"]
     chunk_lines: int = 50
     chunk_overlap: int = 5
@@ -126,14 +126,16 @@ class ToolsConfig(BaseModel):
     """Max match groups returned by grep."""
     grep_context_lines: int = 5
     """Lines of context above and below each grep match."""
-    workspace_prefix: str = "REVIEW-"
-    """Filename prefix for writable files in ``.rbtr/``.
+    notes_dir: str = str(WORKSPACE_DIR / "notes")
+    """Directory for review notes written by the ``edit`` tool.
 
-    The ``edit`` tool only allows writing files whose name starts
-    with this prefix.  Review drafts use
-    ``<prefix>DRAFT-<pr>.toml``.  The index ``include`` glob
-    should match (default ``REVIEW-*`` catches both notes and
-    drafts)."""
+    Any file under this directory is writable by the LLM.
+    Indexed by default (see ``IndexConfig.include``)."""
+    drafts_dir: str = str(WORKSPACE_DIR / "drafts")
+    """Directory for review draft YAML files.
+
+    Managed exclusively by the draft tools — not writable via
+    the ``edit`` tool."""
     max_requests_per_turn: int = 25
 
 

@@ -83,7 +83,7 @@ def test_is_path_ignored_gitignore() -> None:
 def test_is_path_ignored_extend_exclude() -> None:
     """Paths matching exclude are ignored even without repo."""
     assert is_path_ignored(".rbtr/index", None, include=[], exclude=[".rbtr/index"])
-    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None, include=[], exclude=[".rbtr/index"])
+    assert not is_path_ignored(".rbtr/notes/plan.md", None, include=[], exclude=[".rbtr/index"])
 
 
 def test_is_path_ignored_extend_exclude_glob() -> None:
@@ -102,7 +102,7 @@ def test_is_path_ignored_include_overrides_gitignore() -> None:
         (workdir / ".gitignore").write_text(".rbtr/\nnode_modules/\n")
 
         # .rbtr/ is gitignored but force-included
-        assert not is_path_ignored(".rbtr/REVIEW-plan.md", repo, include=[".rbtr/*"], exclude=[])
+        assert not is_path_ignored(".rbtr/notes/plan.md", repo, include=[".rbtr/*"], exclude=[])
         # Other gitignored paths are still excluded
         assert is_path_ignored("node_modules/foo.js", repo, include=[".rbtr/*"], exclude=[])
 
@@ -111,7 +111,7 @@ def test_is_path_ignored_include_overrides_extend_exclude() -> None:
     """Include patterns override extend_exclude."""
     # Both include and exclude match — include wins
     assert not is_path_ignored(
-        ".rbtr/REVIEW-plan.md", None, include=[".rbtr/*"], exclude=[".rbtr/*"]
+        ".rbtr/notes/plan.md", None, include=[".rbtr/*"], exclude=[".rbtr/*"]
     )
 
 
@@ -123,9 +123,9 @@ def test_is_path_ignored_no_repo_no_gitignore_check() -> None:
 
 def test_is_path_ignored_include_and_exclude_interplay() -> None:
     """Include overrides exclude for matching paths; exclude applies to the rest."""
-    inc = [".rbtr/REVIEW-*"]
+    inc = [".rbtr/notes/*"]
     exc = [".rbtr/index"]
-    assert not is_path_ignored(".rbtr/REVIEW-plan.md", None, include=inc, exclude=exc)
+    assert not is_path_ignored(".rbtr/notes/plan.md", None, include=inc, exclude=exc)
     assert is_path_ignored(".rbtr/index", None, include=inc, exclude=exc)
     # Children of .rbtr/index are also excluded (prefix matching)
     assert is_path_ignored(".rbtr/index/rbtr.duckdb", None, include=inc, exclude=exc)
@@ -183,8 +183,8 @@ def test_read_file_allows_included_despite_gitignore(
     config.index.extend_exclude = []
     monkeypatch.chdir(tmp_path)
 
-    (tmp_path / ".rbtr").mkdir()
-    (tmp_path / ".rbtr" / "REVIEW-plan.md").write_text("# Plan\nStep 1\n")
+    (tmp_path / ".rbtr" / "notes").mkdir(parents=True)
+    (tmp_path / ".rbtr" / "notes" / "plan.md").write_text("# Plan\nStep 1\n")
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
@@ -192,7 +192,7 @@ def test_read_file_allows_included_despite_gitignore(
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = read_file(ctx, ".rbtr/REVIEW-plan.md")  # type: ignore[arg-type]
+        result = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
         assert "# Plan" in result
         assert "Step 1" in result
 
@@ -270,10 +270,10 @@ def test_list_files_includes_override_gitignore(
     config.index.extend_exclude = []
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("# Plan\n")
-    (rbtr / "REVIEW-findings.md").write_text("# Findings\n")
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("# Plan\n")
+    (notes / "findings.md").write_text("# Findings\n")
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
@@ -282,8 +282,8 @@ def test_list_files_includes_override_gitignore(
 
         ctx = _FakeCtx(_state(repo))
         result = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in result
-        assert "REVIEW-findings.md" in result
+        assert "plan.md" in result
+        assert "findings.md" in result
 
 
 def test_list_files_include_overrides_extend_exclude(
@@ -396,9 +396,9 @@ def test_grep_includes_override_gitignore(
     config.index.extend_exclude = []
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("SEARCH_TARGET in plan\n")
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("SEARCH_TARGET in plan\n")
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
@@ -408,7 +408,7 @@ def test_grep_includes_override_gitignore(
         ctx = _FakeCtx(_state(repo))
         result = grep(ctx, "SEARCH_TARGET", path=".rbtr")  # type: ignore[arg-type]
         assert "SEARCH_TARGET" in result
-        assert "REVIEW-plan.md" in result
+        assert "plan.md" in result
 
 
 def test_grep_include_overrides_extend_exclude(
@@ -550,51 +550,51 @@ def test_mypy_cache_excluded_from_grep(
 def test_default_config_rbtr_included_index_excluded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
 ) -> None:
-    """With default config, .rbtr REVIEW files are accessible but .rbtr/index is not."""
+    """With default config, .rbtr/notes files are accessible but .rbtr/index is not."""
     # The config_path fixture resets config; set defaults explicitly
-    config.index.include = [".rbtr/REVIEW-*"]
+    config.index.include = [".rbtr/notes/*"]
     config.index.extend_exclude = [".rbtr/index"]
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("# Plan\n")
-    (rbtr / "index").write_text("duckdb data\n")
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("# Plan\n")
+    (tmp_path / ".rbtr" / "index").write_text("duckdb data\n")
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
 
-        # REVIEW file should be readable
-        plan = read_file(ctx, ".rbtr/REVIEW-plan.md")  # type: ignore[arg-type]
+        # Notes file should be readable
+        plan = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
         assert "# Plan" in plan
 
         # index file should be blocked
         index = read_file(ctx, ".rbtr/index")  # type: ignore[arg-type]
         assert "not found" in index.lower() or "cannot" in index.lower()
 
-        # list_files should show REVIEW but not index
+        # list_files should show notes but not index
         listing = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in listing
-        # Only REVIEW files should be listed, not the index
+        assert "plan.md" in listing
+        # Only notes files should be listed, not the index
         lines = listing.splitlines()
         file_lines = [ln.strip() for ln in lines if ln.strip().startswith(".rbtr/")]
-        assert all("REVIEW-" in ln for ln in file_lines)
+        assert all("notes" in ln for ln in file_lines)
 
 
 def test_default_config_rbtr_listed_but_index_excluded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
 ) -> None:
-    """list_files on .rbtr shows review files, omits the index database."""
-    config.index.include = [".rbtr/REVIEW-*"]
+    """list_files on .rbtr shows notes files, omits the index database."""
+    config.index.include = [".rbtr/notes/*"]
     config.index.extend_exclude = [".rbtr/index"]
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("# Plan\n")
-    (rbtr / "REVIEW-findings.md").write_text("# Findings\n")
-    index_dir = rbtr / "index"
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("# Plan\n")
+    (notes / "findings.md").write_text("# Findings\n")
+    index_dir = tmp_path / ".rbtr" / "index"
     index_dir.mkdir()
     (index_dir / "rbtr.duckdb").write_text("db\n")
 
@@ -602,8 +602,8 @@ def test_default_config_rbtr_listed_but_index_excluded(
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
         result = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in result
-        assert "REVIEW-findings.md" in result
+        assert "plan.md" in result
+        assert "findings.md" in result
         # index dir and its contents should not appear
         assert "duckdb" not in result
 
@@ -612,14 +612,14 @@ def test_default_config_grep_rbtr_excludes_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
 ) -> None:
     """grep on .rbtr/ does not search inside .rbtr/index/."""
-    config.index.include = [".rbtr/REVIEW-*"]
+    config.index.include = [".rbtr/notes/*"]
     config.index.extend_exclude = [".rbtr/index"]
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("SEARCH_ME in plan\n")
-    index_dir = rbtr / "index"
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("SEARCH_ME in plan\n")
+    index_dir = tmp_path / ".rbtr" / "index"
     index_dir.mkdir()
     (index_dir / "data.db").write_text("SEARCH_ME in db\n")
 
@@ -627,7 +627,7 @@ def test_default_config_grep_rbtr_excludes_index(
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
         result = grep(ctx, "SEARCH_ME", path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in result
+        assert "plan.md" in result
         assert "data.db" not in result
 
 
@@ -727,8 +727,8 @@ def test_matches_globs_exact_match() -> None:
 
 
 def test_matches_globs_fnmatch_wildcard() -> None:
-    assert _matches_globs(".rbtr/REVIEW-plan.md", [".rbtr/REVIEW-*"])
-    assert not _matches_globs(".rbtr/index", [".rbtr/REVIEW-*"])
+    assert _matches_globs(".rbtr/notes/plan.md", [".rbtr/notes/*"])
+    assert not _matches_globs(".rbtr/index", [".rbtr/notes/*"])
 
 
 def test_matches_globs_literal_prefix_matching() -> None:
@@ -742,16 +742,16 @@ def test_matches_globs_literal_prefix_matching() -> None:
 def test_matches_globs_trailing_slash() -> None:
     """Trailing slash on directory patterns matches children."""
     assert _matches_globs(".rbtr/index/data.db", [".rbtr/"])
-    assert _matches_globs(".rbtr/REVIEW-plan.md", [".rbtr/"])
+    assert _matches_globs(".rbtr/notes/plan.md", [".rbtr/"])
     # Exact directory name (sans trailing slash) also matches
     assert _matches_globs(".rbtr", [".rbtr/"])
 
 
 def test_matches_globs_wildcard_matches_across_slash() -> None:
     """fnmatch * matches across / — so wildcard patterns are broad."""
-    assert _matches_globs(".rbtr/REVIEW-plan.md", [".rbtr/REVIEW-*"])
+    assert _matches_globs(".rbtr/notes/plan.md", [".rbtr/notes/*"])
     # fnmatch.fnmatch * matches everything including /
-    assert _matches_globs(".rbtr/REVIEW-plan/subfile.md", [".rbtr/REVIEW-*"])
+    assert _matches_globs(".rbtr/notes/sub/file.md", [".rbtr/notes/*"])
 
 
 def test_matches_globs_empty_patterns() -> None:
@@ -761,20 +761,20 @@ def test_matches_globs_empty_patterns() -> None:
 # ── Real-world: .rbtr gitignored, REVIEW files accessible ───────────
 
 
-def test_gitignored_rbtr_review_files_accessible(
+def test_gitignored_rbtr_notes_accessible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
 ) -> None:
-    """When .rbtr/ is gitignored, REVIEW files are still accessible
-    via include = [".rbtr/REVIEW-*"]."""
-    config.index.include = [".rbtr/REVIEW-*"]
+    """When .rbtr/ is gitignored, notes files are still accessible
+    via include = [".rbtr/notes/*"]."""
+    config.index.include = [".rbtr/notes/*"]
     config.index.extend_exclude = [".rbtr/index"]
     monkeypatch.chdir(tmp_path)
 
-    rbtr = tmp_path / ".rbtr"
-    rbtr.mkdir()
-    (rbtr / "REVIEW-plan.md").write_text("# Plan\nCheck handler\n")
-    (rbtr / "REVIEW-findings.md").write_text("# Findings\nBug found\n")
-    index_dir = rbtr / "index"
+    notes = tmp_path / ".rbtr" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "plan.md").write_text("# Plan\nCheck handler\n")
+    (notes / "findings.md").write_text("# Findings\nBug found\n")
+    index_dir = tmp_path / ".rbtr" / "index"
     index_dir.mkdir()
     (index_dir / "rbtr.duckdb").write_text("db\n")
 
@@ -786,23 +786,23 @@ def test_gitignored_rbtr_review_files_accessible(
 
         ctx = _FakeCtx(_state(repo))
 
-        # read_file: REVIEW files readable
-        plan = read_file(ctx, ".rbtr/REVIEW-plan.md")  # type: ignore[arg-type]
+        # read_file: notes files readable
+        plan = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
         assert "# Plan" in plan
-        findings = read_file(ctx, ".rbtr/REVIEW-findings.md")  # type: ignore[arg-type]
+        findings = read_file(ctx, ".rbtr/notes/findings.md")  # type: ignore[arg-type]
         assert "Bug found" in findings
 
         # read_file: index blocked
         idx = read_file(ctx, ".rbtr/index/rbtr.duckdb")  # type: ignore[arg-type]
         assert "not found" in idx.lower() or "cannot" in idx.lower()
 
-        # list_files: shows REVIEW files, not index
+        # list_files: shows notes files, not index
         listing = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-plan.md" in listing
-        assert "REVIEW-findings.md" in listing
+        assert "plan.md" in listing
+        assert "findings.md" in listing
         assert "duckdb" not in listing
 
-        # grep: finds in REVIEW files, not in index
+        # grep: finds in notes files, not in index
         result = grep(ctx, "Bug found", path=".rbtr")  # type: ignore[arg-type]
-        assert "REVIEW-findings.md" in result
+        assert "findings.md" in result
         assert "duckdb" not in result

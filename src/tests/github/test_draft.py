@@ -54,9 +54,10 @@ def _synced(c: InlineComment) -> InlineComment:
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point WORKSPACE_DIR at a temp directory."""
-    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
-    return tmp_path
+    """Point drafts_dir at a temp directory."""
+    drafts = tmp_path / "drafts"
+    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(drafts))
+    return drafts
 
 
 # ── Roundtrip ────────────────────────────────────────────────────────
@@ -78,14 +79,14 @@ def test_load_nonexistent_returns_none(workspace: Path) -> None:
 
 def test_save_creates_parent_dirs(workspace: Path) -> None:
     save_draft(1, DRAFT)
-    assert (workspace / "REVIEW-DRAFT-1.toml").exists()
+    assert (workspace / "1.yaml").exists()
 
 
-def test_toml_is_human_readable(workspace: Path) -> None:
+def test_yaml_is_human_readable(workspace: Path) -> None:
     save_draft(42, DRAFT)
-    content = (workspace / "REVIEW-DRAFT-42.toml").read_text()
+    content = (workspace / "42.yaml").read_text()
     assert "src/handler.py" in content
-    assert "[[comments]]" in content
+    assert "- path:" in content
     assert "This will throw on an empty list." in content
 
 

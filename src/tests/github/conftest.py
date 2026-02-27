@@ -295,8 +295,8 @@ def make_commit(
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point WORKSPACE_DIR at a temp directory for draft persistence."""
-    monkeypatch.setattr("rbtr.github.draft.WORKSPACE_DIR", tmp_path)
+    """Point drafts_dir at a temp directory for draft persistence."""
+    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
     return tmp_path
 
 
