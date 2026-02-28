@@ -62,34 +62,32 @@ def _repair_dangling_tool_calls(
 ) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
     """Fix history left dirty by a cancelled tool-calling turn.
 
-    Part of the tool-call pairing invariant (see ``history.py`` module
-    docstring).  This is the **local per-message** check: for each
-    ``ModelResponse``, it inspects the *immediately following* message
-    to see if every ``ToolCallPart`` has a matching result.
+    Part of the tool-call pairing invariant (see `history.py` module
+    docstring).  For each `ModelResponse` with `ToolCallPart`s, checks
+    whether every call has a matching `ToolReturnPart` *anywhere* in
+    the history.  Injects a synthetic `(cancelled)` result for any
+    truly unmatched call.
 
     Called once on session load — not during normal operation.
 
-    Failure modes (both caused by Ctrl+C mid-turn):
-
-    1. **No results at all** — the next message is not a
-       ``ModelRequest`` with tool returns (e.g. cancellation
-       before any tool ran).
-    2. **Partial results** — some tools completed and their
-       results were saved, but other tool calls have no
-       matching result (cancellation mid-way through parallel
-       tool execution).
-
-    The fix: for every ``ToolCallPart`` whose ``tool_call_id``
-    has no matching ``ToolReturnPart`` in the next message,
-    inject a synthetic ``(cancelled)`` result.
-
-    Returns ``(repaired_history, tool_names, new_messages)`` where
+    Returns `(repaired_history, tool_names, new_messages)` where
     *tool_names* lists every tool that was patched (empty if no
     repair needed), and *new_messages* contains only the synthetic
-    ``ModelRequest``\\s that were injected (for persistence).
+    `ModelRequest`s that were injected (for persistence).
     """
     if not history:
         return history, [], []
+
+    # First pass: collect all tool_call_ids that already have a
+    # ToolReturnPart or RetryPromptPart anywhere in the history.
+    # This prevents false positives when a user prompt is
+    # interleaved between tool calls and their returns.
+    globally_answered: set[str | None] = set()
+    for msg in history:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, (ToolReturnPart, RetryPromptPart)):
+                    globally_answered.add(p.tool_call_id)
 
     repaired: list[ModelMessage] | None = None  # lazy copy
     all_tool_names: list[str] = []
@@ -101,24 +99,20 @@ def _repair_dangling_tool_calls(
         if isinstance(msg, ModelResponse):
             tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
             if tool_calls:
-                # Collect IDs that already have results in the next message.
-                next_msg = history[i + 1] if i + 1 < len(history) else None
-                answered_ids: set[str | None] = set()
-                if isinstance(next_msg, ModelRequest):
-                    for p in next_msg.parts:
-                        if isinstance(p, (ToolReturnPart, RetryPromptPart)):
-                            answered_ids.add(p.tool_call_id)
-
-                missing = [tc for tc in tool_calls if tc.tool_call_id not in answered_ids]
+                missing = [tc for tc in tool_calls if tc.tool_call_id not in globally_answered]
                 if missing:
                     if repaired is None:
                         repaired = list(history[:i])
                     repaired.append(msg)
 
-                    # Keep the existing partial results if present.
-                    if isinstance(next_msg, ModelRequest) and answered_ids:
+                    # Check if the immediately next message has partial
+                    # results — keep it as-is if so.
+                    next_msg = history[i + 1] if i + 1 < len(history) else None
+                    if isinstance(next_msg, ModelRequest) and any(
+                        isinstance(p, (ToolReturnPart, RetryPromptPart)) for p in next_msg.parts
+                    ):
                         repaired.append(next_msg)
-                        i += 1  # skip the next_msg, we already added it
+                        i += 1  # skip next_msg, already added
 
                     names = [tc.tool_name for tc in missing]
                     all_tool_names.extend(names)

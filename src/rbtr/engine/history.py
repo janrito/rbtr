@@ -26,8 +26,9 @@ at a different scope:
 
 * **``_repair_dangling_tool_calls``** (in ``llm.py``) — on session
   load, finds ``ModelResponse`` messages whose tool calls have no
-  results in the *next* message (caused by Ctrl+C mid-turn) and
-  injects synthetic ``(cancelled)`` results.  Local per-message check.
+  matching ``ToolReturnPart`` *anywhere* in the history (caused by
+  Ctrl+C mid-turn) and injects synthetic ``(cancelled)`` results.
+  Global scan prevents false positives from interleaved user prompts.
 """
 
 from __future__ import annotations

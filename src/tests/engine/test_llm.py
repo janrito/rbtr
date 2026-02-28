@@ -809,3 +809,176 @@ def test_repair_partial_results_mid_history() -> None:
     # Rest of history preserved.
     assert isinstance(repaired[4], ModelRequest)  # "try again"
     assert isinstance(repaired[5], ModelResponse)  # "ok"
+
+
+def test_repair_tool_returns_after_interleaved_user_prompt() -> None:
+    """Tool returns appear later in history — user prompt interleaved between call and return.
+
+    Reproduces a real scenario: the model issues tool calls, the user
+    types a prompt before returns arrive, and the tool returns end up
+    in a later message.  The repair must not inject synthetic cancelled
+    results when the real returns exist further in the history.
+    """
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        # User prompt.
+        ModelRequest(parts=[UserPromptPart(content="review this PR")]),
+        # Model responds with tool calls.
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="changed_files", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="commit_log", args={}, tool_call_id="tc2"),
+            ]
+        ),
+        # User types another prompt before tools complete.
+        ModelRequest(parts=[UserPromptPart(content="also check the tests")]),
+        # Model responds to the new prompt with its own tool call.
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="grep", args={"search": "test"}, tool_call_id="tc3"),
+            ]
+        ),
+        # Tool returns for tc1, tc2 (from first response) AND tc3 arrive together.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="changed_files", content="files", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="commit_log", content="log", tool_call_id="tc2"),
+                ToolReturnPart(tool_name="grep", content="matches", tool_call_id="tc3"),
+            ]
+        ),
+        # Model produces final text.
+        ModelResponse(parts=[TextPart(content="Here are the findings.")]),
+    ]
+    repaired, tools, new_msgs = _repair_dangling_tool_calls(history)
+
+    # No repairs needed — all tool calls have matching returns.
+    assert repaired is history
+    assert tools == []
+    assert new_msgs == []
+
+
+def test_repair_returns_scattered_across_multiple_messages() -> None:
+    """Tool returns split across several non-adjacent request messages.
+
+    Reproduces the real scenario from session 019ca5be: multiple
+    tool-calling rounds where returns for earlier calls appear in
+    later request messages, interleaved with user prompts.
+    """
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        # Round 1: 4 tool calls.
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="changed_files", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="commit_log", args={}, tool_call_id="tc2"),
+                ToolCallPart(tool_name="changed_symbols", args={}, tool_call_id="tc3"),
+                ToolCallPart(tool_name="get_pr_discussion", args={}, tool_call_id="tc4"),
+            ]
+        ),
+        # User prompt interleaved before returns.
+        ModelRequest(parts=[UserPromptPart(content="review this")]),
+        # Round 2: model makes its own call.
+        ModelResponse(parts=[ToolCallPart(tool_name="diff", args={}, tool_call_id="tc5")]),
+        # Returns for tc1-tc4 from round 1 appear here.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="changed_files", content="files", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="commit_log", content="log", tool_call_id="tc2"),
+                ToolReturnPart(tool_name="changed_symbols", content="syms", tool_call_id="tc3"),
+                ToolReturnPart(tool_name="get_pr_discussion", content="disc", tool_call_id="tc4"),
+            ]
+        ),
+        # Round 3: more calls.
+        ModelResponse(parts=[ToolCallPart(tool_name="grep", args={}, tool_call_id="tc6")]),
+        # Returns for tc5 and tc6 appear here.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="diff", content="patch", tool_call_id="tc5"),
+                ToolReturnPart(tool_name="grep", content="matches", tool_call_id="tc6"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done.")]),
+    ]
+    repaired, tools, new_msgs = _repair_dangling_tool_calls(history)
+    assert repaired is history
+    assert tools == []
+    assert new_msgs == []
+
+
+def test_repair_idempotent_with_prior_synthetics() -> None:
+    """Running repair on history that already has synthetic cancelled returns.
+
+    The old bug: repair injected (cancelled) returns, saved them, then
+    on next load re-injected more because the original calls still
+    looked "dangling" (returns were further ahead).  The fix must be
+    idempotent — existing synthetic returns count as answered.
+    """
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="tc2"),
+            ]
+        ),
+        # User prompt interleaved.
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+        # Real returns exist later.
+        ModelResponse(parts=[ToolCallPart(tool_name="diff", args={}, tool_call_id="tc3")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="content", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="grep", content="matches", tool_call_id="tc2"),
+                ToolReturnPart(tool_name="diff", content="patch", tool_call_id="tc3"),
+            ]
+        ),
+        # Synthetic cancelled returns from a prior buggy repair run.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="(cancelled)", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="grep", content="(cancelled)", tool_call_id="tc2"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done.")]),
+    ]
+    repaired, tools, new_msgs = _repair_dangling_tool_calls(history)
+    # No new repairs — both real returns and prior synthetics count.
+    assert repaired is history
+    assert tools == []
+    assert new_msgs == []
+
+
+def test_repair_mixed_matched_and_truly_missing() -> None:
+    """Some calls have returns later in history, others are truly missing."""
+    from rbtr.engine.llm import _repair_dangling_tool_calls
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="start")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="tc2"),
+                ToolCallPart(tool_name="diff", args={}, tool_call_id="tc3"),
+            ]
+        ),
+        # User prompt interleaved.
+        ModelRequest(parts=[UserPromptPart(content="continue")]),
+        # Only tc1 has a return later. tc2 and tc3 are truly missing.
+        ModelResponse(parts=[ToolCallPart(tool_name="list_files", args={}, tool_call_id="tc4")]),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="list_files", content="files", tool_call_id="tc4"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done.")]),
+    ]
+    _repaired, tools, new_msgs = _repair_dangling_tool_calls(history)
+    # Only tc2 and tc3 should be repaired — tc1 has a real return later.
+    assert sorted(tools) == ["diff", "grep"]
+    assert len(new_msgs) == 1
