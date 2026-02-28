@@ -8,15 +8,21 @@ It never imports ``github.client`` or catches ``GithubException``.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
+from rbtr.git.objects import read_blob
 from rbtr.github.draft import comment_sync_status, is_tombstone, load_draft
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewEvent
 
 from .review import clear_review_draft, post_review_draft, sync_review_draft
 
 if TYPE_CHECKING:
+    import pygit2
+
     from .core import Engine
+
+log = logging.getLogger(__name__)
 
 # Subcommands exposed for tab completion.
 SUBCOMMANDS: list[tuple[str, str]] = [
@@ -58,6 +64,37 @@ def cmd_draft(engine: Engine, args: str) -> None:
             engine._out("Usage: /draft [sync | post [event] | clear]")
 
 
+def _file_context(
+    repo: pygit2.Repository,
+    ref: str,
+    path: str,
+    line: int,
+    *,
+    radius: int = 2,
+) -> str | None:
+    """Return a few numbered lines around *line* from *path* at *ref*.
+
+    Returns ``None`` when the file can't be read (missing, binary,
+    or line out of range).  The *radius* controls how many lines
+    above and below the target line to include.
+    """
+    blob = read_blob(repo, ref, path)
+    if blob is None:
+        return None
+    data: bytes = blob.data
+    # Skip binary files.
+    if b"\x00" in data[:8192]:
+        return None
+    all_lines = data.decode(errors="replace").splitlines()
+    if line < 1 or line > len(all_lines):
+        return None
+    start = max(line - radius, 1)
+    end = min(line + radius, len(all_lines))
+    width = len(str(end))
+    numbered = "\n".join(f"  {n:{width}d}│ {all_lines[n - 1]}" for n in range(start, end + 1))
+    return numbered
+
+
 def _show_draft(engine: Engine, pr_number: int) -> None:
     """Display the current draft with rich markdown rendering.
 
@@ -75,6 +112,7 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
     if not isinstance(target, PRTarget):
         return  # unreachable — cmd_draft guards this
     head_sha = target.head_sha
+    repo = engine.state.repo
 
     # ── Comments ─────────────────────────────────────────────────
     if draft.comments:
@@ -84,6 +122,7 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
         if tombstones:
             header += f" ({tombstones} pending deletion)"
         engine._markdown(header)
+        engine._out("")
 
         # Group by file path, preserving insertion order.
         by_file: dict[str, list[tuple[int, InlineComment]]] = {}
@@ -92,8 +131,9 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
 
         for path, group in by_file.items():
             engine._markdown(f"### {path}")
+            engine._out("")
 
-            for i, comment in group:
+            for idx, (i, comment) in enumerate(group):
                 status = comment_sync_status(comment)
                 if is_tombstone(comment):
                     loc = f":{comment.line}" if comment.line > 0 else ""
@@ -107,15 +147,30 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
                 line_ref = f":{comment.line}" if comment.line > 0 else ""
                 engine._out(f"  {status} {i}. L{line_ref}{side_tag}{stale_tag}")
 
+                # Show a few lines of file context around the comment.
+                if repo and comment.line > 0:
+                    ref = comment.commit_id or head_sha or target.head_ref
+                    if comment.side is DiffSide.LEFT:
+                        ref = target.base_branch
+                    snippet = _file_context(repo, ref, comment.path, comment.line)
+                    if snippet:
+                        engine._out(snippet)
+
                 engine._markdown(comment.body)
 
                 if comment.suggestion:
                     engine._markdown(f"```suggestion\n{comment.suggestion}\n```")
+
+                # Blank line between comments within the same file.
+                if idx < len(group) - 1:
+                    engine._out("")
     else:
         engine._out("No inline comments.")
 
     # ── Summary (last — most prominent) ──────────────────────────
+    engine._out("")
     engine._markdown("## Summary")
+    engine._out("")
     if draft.summary:
         engine._markdown(draft.summary)
     else:
