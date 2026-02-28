@@ -29,6 +29,7 @@ from rbtr.engine.history import (
     build_summary_message,
     estimate_tokens,
     serialise_for_summary,
+    snap_to_safe_boundary,
     split_history,
 )
 from rbtr.events import CompactionFinished, CompactionStarted, Output, TaskFinished
@@ -543,6 +544,106 @@ def test_find_fit_count_with_tool_results() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# snap_to_safe_boundary
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_snap_noop_when_boundary_is_safe() -> None:
+    """Splitting after a user prompt or text response is always safe."""
+    messages: list[ModelMessage] = [
+        _user("hello"),
+        _assistant("hi"),
+        _user("question"),
+        _assistant("answer"),
+    ]
+    assert snap_to_safe_boundary(messages, 2) == 2
+    assert snap_to_safe_boundary(messages, 4) == 4
+
+
+def test_snap_backs_up_from_tool_call_response() -> None:
+    """Splitting right after a tool-call response would orphan its results."""
+    messages: list[ModelMessage] = [
+        _user("do stuff"),
+        _tool_call("read_file", {"path": "a.py"}, call_id="tc1"),
+        _tool_return("read_file", "contents", call_id="tc1"),
+        _assistant("done"),
+    ]
+    # count=2 → split after _tool_call → unsafe
+    assert snap_to_safe_boundary(messages, 2) == 1
+    # count=3 → split after _tool_return → safe
+    assert snap_to_safe_boundary(messages, 3) == 3
+
+
+def test_snap_backs_up_through_consecutive_tool_calls() -> None:
+    """Multiple consecutive tool-call responses before any results."""
+    messages: list[ModelMessage] = [
+        _user("q1"),
+        _assistant("a1"),
+        _tool_call("grep", call_id="tc1"),
+        _tool_return("grep", "result", call_id="tc1"),
+        _tool_call("diff", call_id="tc2"),
+        _tool_return("diff", "result", call_id="tc2"),
+        _assistant("summary"),
+    ]
+    # count=3 → after first tool_call → back up to 2
+    assert snap_to_safe_boundary(messages, 3) == 2
+    # count=5 → after second tool_call → back up to 4
+    assert snap_to_safe_boundary(messages, 5) == 4
+    # count=4 → after first tool_return → safe
+    assert snap_to_safe_boundary(messages, 4) == 4
+
+
+def test_snap_returns_zero_when_all_unsafe() -> None:
+    """When the only message is a tool-call response, returns 0."""
+    messages: list[ModelMessage] = [
+        _tool_call("read_file", call_id="tc1"),
+        _tool_return("read_file", "contents", call_id="tc1"),
+    ]
+    assert snap_to_safe_boundary(messages, 1) == 0
+
+
+def test_snap_zero_stays_zero() -> None:
+    """count=0 is always returned as-is."""
+    messages: list[ModelMessage] = [_tool_call("read_file", call_id="tc1")]
+    assert snap_to_safe_boundary(messages, 0) == 0
+
+
+def test_snap_text_response_is_safe() -> None:
+    """A ModelResponse with only text (no tool calls) is a safe boundary."""
+    messages: list[ModelMessage] = [
+        _user("hello"),
+        _assistant("thinking..."),
+        _tool_call("grep", call_id="tc1"),
+        _tool_return("grep", "found", call_id="tc1"),
+    ]
+    # count=2 → after _assistant (text only) → safe
+    assert snap_to_safe_boundary(messages, 2) == 2
+
+
+def test_snap_realistic_mid_turn() -> None:
+    """Realistic mid-turn pattern: multiple tool rounds in one turn."""
+    messages: list[ModelMessage] = [
+        _user("review PR"),  # 0
+        _tool_call("diff", call_id="tc1"),  # 1
+        _tool_return("diff", "...", call_id="tc1"),  # 2
+        _tool_call("read_file", call_id="tc2"),  # 3
+        _tool_return("read_file", "...", call_id="tc2"),  # 4
+        _tool_call("grep", call_id="tc3"),  # 5
+        _tool_return("grep", "...", call_id="tc3"),  # 6
+        _assistant("Here is the review."),  # 7
+    ]
+    # Safe boundaries: 0, 1, 3, 5, 7, 8
+    assert snap_to_safe_boundary(messages, 1) == 1  # after _user → safe
+    assert snap_to_safe_boundary(messages, 2) == 1  # after _tool_call → back to 1
+    assert snap_to_safe_boundary(messages, 3) == 3  # after _tool_return → safe
+    assert snap_to_safe_boundary(messages, 4) == 3  # after _tool_call → back to 3
+    assert snap_to_safe_boundary(messages, 5) == 5  # after _tool_return → safe
+    assert snap_to_safe_boundary(messages, 6) == 5  # after _tool_call → back to 5
+    assert snap_to_safe_boundary(messages, 7) == 7  # after _tool_return → safe
+    assert snap_to_safe_boundary(messages, 8) == 8  # after _assistant → safe
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # compact_history — integration via event contract
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -738,10 +839,18 @@ def test_compact_llm_error_leaves_history_unchanged(
 
     # DB unchanged after error — load_messages returns same count.
     assert len(engine.store.load_messages(engine.state.session_id)) == len(original)
-    # Error event emitted
+
     all_events = drain(engine.events)
+
+    # Error event emitted.
     error_outputs = [e for e in all_events if isinstance(e, Output) and "error" in e.style]
     assert any("Compaction failed" in e.text for e in error_outputs)
+
+    # CompactionStarted and CompactionFinished always paired — even on error.
+    assert has_event_type(all_events, CompactionStarted)
+    assert has_event_type(all_events, CompactionFinished)
+    finished = [e for e in all_events if isinstance(e, CompactionFinished)]
+    assert finished[0].summary_tokens == 0
 
 
 def test_compact_leaves_last_input_tokens_unchanged(
@@ -950,7 +1059,8 @@ def test_mid_turn_compaction_fires(config_path: str, mocker: object, llm_engine:
     events = drain(llm_engine.events)
 
     assert any(isinstance(e, TaskFinished) and e.success for e in events)
-    assert any("compacting" in t.lower() for t in output_texts(events))
+    assert any(isinstance(e, CompactionStarted) for e in events)
+    assert any(isinstance(e, CompactionFinished) for e in events)
 
 
 def test_mid_turn_compaction_produces_summary_in_db(

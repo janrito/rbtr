@@ -540,11 +540,14 @@ class UI:
             case CompactionFinished(summary_tokens=tokens):
                 old = self._compaction_old
                 kept = self._compaction_kept
-                line = Text(
-                    f"Context compacted — {old} messages → summary "
-                    f"(~{_format_count(tokens)} tokens) + {kept} kept",
-                    style=STYLE_DIM,
-                )
+                if tokens > 0:
+                    line = Text(
+                        f"Context compacted — {old} messages → summary "
+                        f"(~{_format_count(tokens)} tokens) + {kept} kept",
+                        style=STYLE_DIM,
+                    )
+                else:
+                    line = Text("Compaction failed", style=STYLE_DIM)
                 panel = self._history_panel("queued", line)
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)

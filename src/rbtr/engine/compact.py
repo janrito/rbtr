@@ -22,6 +22,7 @@ from .history import (
     build_summary_message,
     estimate_tokens,
     serialise_for_summary,
+    snap_to_safe_boundary,
     split_history,
 )
 
@@ -114,6 +115,9 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
 
     if estimated > available > 0:
         fit_count = find_fit_count(old, available, max_tool_chars)
+        # Never split between a ModelResponse (tool calls) and
+        # its ModelRequest (tool results).
+        fit_count = snap_to_safe_boundary(old, fit_count)
         if fit_count == 0:
             engine._warn("Cannot compact — even a single message exceeds available context.")
             return
@@ -123,13 +127,13 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
         old_ids = [mid for mid, msg in paired if id(msg) in old_set]
         serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
 
-    engine._emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))
-
     try:
         model = build_model(engine.state.model_name)
     except RbtrError as e:
         engine._warn(str(e))
         return
+
+    engine._emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))
 
     instructions = render_compact(extra_instructions)
 
@@ -137,6 +141,7 @@ async def compact_history_async(engine: Engine, extra_instructions: str = "") ->
         summary_text = await _stream_summary(engine, model, instructions, serialised)
     except (RbtrError, ModelHTTPError, OSError) as e:
         engine._error(f"Compaction failed: {e}")
+        engine._emit(CompactionFinished(summary_tokens=0))
         return
 
     summary_msg = build_summary_message(summary_text)

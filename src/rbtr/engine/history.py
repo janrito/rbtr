@@ -3,6 +3,31 @@
 Includes cross-provider compatibility (``demote_thinking``) and
 context-compaction utilities (``split_history``, ``serialise_for_summary``,
 ``build_summary_message``).
+
+Tool-call / tool-result pairing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+LLM APIs require every ``ToolCallPart`` in a ``ModelResponse`` to have
+a matching ``ToolReturnPart`` (same ``tool_call_id``) in a subsequent
+``ModelRequest``, and vice versa.  Incomplete pairs cause provider
+rejections.
+
+Three independent mechanisms maintain this invariant, each operating
+at a different scope:
+
+* **``split_history``** — after splitting by turn count, moves any
+  tool-return-only ``ModelRequest`` whose call was split into the
+  *old* partition.  Checks globally across the *kept* partition.
+
+* **``snap_to_safe_boundary``** — adjusts a compaction split point
+  so it never lands between a ``ModelResponse`` (tool calls) and
+  its immediately following ``ModelRequest`` (tool results).
+  Structural check on one message — adjacency is the invariant.
+
+* **``_repair_dangling_tool_calls``** (in ``llm.py``) — on session
+  load, finds ``ModelResponse`` messages whose tool calls have no
+  results in the *next* message (caused by Ctrl+C mid-turn) and
+  injects synthetic ``(cancelled)`` results.  Local per-message check.
 """
 
 from __future__ import annotations
@@ -71,14 +96,52 @@ _SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
 
 
 def _is_user_turn_start(msg: ModelMessage) -> bool:
-    """Check if a message starts a new user turn.
+    """True if *msg* begins a new user turn.
 
-    A turn begins with a ``ModelRequest`` that contains at least one
+    A turn starts with a ``ModelRequest`` containing at least one
     ``UserPromptPart`` (as opposed to tool-return-only requests).
     """
     if not isinstance(msg, ModelRequest):
         return False
     return any(isinstance(p, UserPromptPart) for p in msg.parts)
+
+
+def _collect_tool_call_ids(messages: list[ModelMessage]) -> set[str]:
+    """Return the set of ``tool_call_id`` values from all ``ToolCallPart``\\s.
+
+    Used by ``split_history`` to determine which tool returns in the
+    *kept* partition still have their matching call.
+    """
+    ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart) and part.tool_call_id:
+                    ids.add(part.tool_call_id)
+    return ids
+
+
+def _is_orphaned_tool_return(msg: ModelMessage, known_call_ids: set[str]) -> bool:
+    """True if *msg* is a tool-return-only request with no matching call.
+
+    A message is orphaned when:
+    1. It is a ``ModelRequest`` with no ``UserPromptPart``.
+    2. It contains only ``ToolReturnPart``\\s.
+    3. None of those return IDs appear in *known_call_ids*.
+
+    Messages with a ``UserPromptPart`` are never orphaned — they
+    carry user intent regardless of any tool returns alongside them.
+    """
+    if not isinstance(msg, ModelRequest):
+        return False
+    if any(isinstance(p, UserPromptPart) for p in msg.parts):
+        return False
+    tool_returns = [
+        p for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id is not None
+    ]
+    if not tool_returns:
+        return False
+    return all(p.tool_call_id not in known_call_ids for p in tool_returns)
 
 
 def split_history(
@@ -120,30 +183,23 @@ def split_history(
     return old, clean
 
 
-def _collect_tool_call_ids(messages: list[ModelMessage]) -> set[str]:
-    """Collect all tool_call_id values from ToolCallParts in responses."""
-    ids: set[str] = set()
-    for msg in messages:
-        if isinstance(msg, ModelResponse):
-            for part in msg.parts:
-                if isinstance(part, ToolCallPart) and part.tool_call_id:
-                    ids.add(part.tool_call_id)
-    return ids
+def snap_to_safe_boundary(messages: list[ModelMessage], count: int) -> int:
+    """Adjust *count* so a split at that index never separates a
+    ``ModelResponse`` (tool calls) from its ``ModelRequest`` (tool results).
 
+    A ``ModelResponse`` with ``ToolCallPart``\\s must stay in the same
+    partition as the immediately following ``ModelRequest``.  If
+    *count* would split them, it is reduced until the boundary is safe.
 
-def _is_orphaned_tool_return(msg: ModelMessage, known_call_ids: set[str]) -> bool:
-    """Check if a message is a tool-return-only request with no matching call."""
-    if not isinstance(msg, ModelRequest):
-        return False
-    has_user_prompt = any(isinstance(p, UserPromptPart) for p in msg.parts)
-    if has_user_prompt:
-        return False
-    tool_returns = [
-        p for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id is not None
-    ]
-    if not tool_returns:
-        return False
-    return all(p.tool_call_id not in known_call_ids for p in tool_returns)
+    Returns the adjusted count (may be 0 if no safe split exists).
+    """
+    while count > 0:
+        prev = messages[count - 1]
+        if isinstance(prev, ModelResponse) and any(isinstance(p, ToolCallPart) for p in prev.parts):
+            count -= 1
+        else:
+            break
+    return count
 
 
 def estimate_tokens(text: str) -> int:

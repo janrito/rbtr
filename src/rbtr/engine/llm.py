@@ -62,14 +62,14 @@ def _repair_dangling_tool_calls(
 ) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
     """Fix history left dirty by a cancelled tool-calling turn.
 
-    When the user cancels (Ctrl+C) mid-turn, the model's
-    ``ModelResponse`` with tool calls may already be persisted but
-    the matching tool results are not.  This leaves the history in
-    a broken state — both PydanticAI's own validation and upstream
-    provider APIs (OpenAI, Anthropic) reject conversations that
-    contain function calls without matching results.
+    Part of the tool-call pairing invariant (see ``history.py`` module
+    docstring).  This is the **local per-message** check: for each
+    ``ModelResponse``, it inspects the *immediately following* message
+    to see if every ``ToolCallPart`` has a matching result.
 
-    There are two failure modes:
+    Called once on session load — not during normal operation.
+
+    Failure modes (both caused by Ctrl+C mid-turn):
 
     1. **No results at all** — the next message is not a
        ``ModelRequest`` with tool returns (e.g. cancellation
@@ -86,7 +86,7 @@ def _repair_dangling_tool_calls(
     Returns ``(repaired_history, tool_names, new_messages)`` where
     *tool_names* lists every tool that was patched (empty if no
     repair needed), and *new_messages* contains only the synthetic
-    ``ModelRequest``\\ s that were injected (for persistence).
+    ``ModelRequest``\\s that were injected (for persistence).
     """
     if not history:
         return history, [], []
@@ -448,13 +448,11 @@ async def _stream_agent(
     if result.compact_needed:
         from .compact import compact_history_async  # deferred: avoid circular
 
-        engine._out("Context limit reached mid-turn — compacting…")
         await compact_history_async(
             engine, extra_instructions="The model is mid-turn with active tool calls."
         )
         # Reload from DB after compaction.
         history = store.load_messages(engine.state.session_id)
-        history, _, _ = _repair_dangling_tool_calls(history)
         engine.state.usage.snapshot_base()
 
         resume = await _run_with_cancel(engine, _do_stream(None, history))
@@ -500,7 +498,6 @@ async def _stream_summary(
     can only produce text — no further tool calls.
     """
     history = engine.store.load_messages(engine.state.session_id)
-    history, _, _ = _repair_dangling_tool_calls(history)
 
     summary_agent: Agent[None, str] = Agent(model)
     async with summary_agent.iter(
