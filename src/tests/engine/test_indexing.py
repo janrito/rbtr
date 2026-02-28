@@ -131,7 +131,7 @@ def test_index_warns_missing_grammars(
     tb = repo.TreeBuilder()
     tb.insert("app.swift", blob, pygit2.GIT_FILEMODE_BLOB)
     parent = repo.head.peel(pygit2.Commit)
-    repo.create_commit("refs/heads/main", sig, sig, "swift file", tb.write(), [parent])
+    repo.create_commit("refs/heads/main", sig, sig, "swift file", tb.write(), [parent.id])
 
     engine = repo_engine
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))

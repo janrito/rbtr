@@ -32,7 +32,7 @@ support.
 **What was built**:
 
 - `engine/agent.py` — PydanticAI `Agent[AgentDeps, str]` with
-  decorator-based instructions. Model provided at call time,
+  `@agent.system_prompt` decorators. Model provided at call time,
   not baked in.
 - `engine/llm.py` — Streaming handler: iterates agent graph nodes,
   emits `TextDelta` and `ToolCallStarted`/`ToolCallFinished` events.
@@ -50,7 +50,10 @@ support.
 - Conversation history preserved across model/provider switches.
   Only `/new` clears.
 - Prompt templates in `prompts/` (Jinja via minijinja):
-  `system.md`, `review.md`, `index_status.md`.
+  `system.md`, `compact.md`, `index_status.md`.
+  Supports user override (`SYSTEM.md`), append
+  (`APPEND_SYSTEM.md`), and project instructions
+  (`AGENTS.md`).
 
 ### Step 3: Repo Operations & Context Retrieval ✅
 
@@ -58,7 +61,7 @@ support.
 
 **What was built**:
 
-- `engine/tools.py` — 14 tools registered on the agent.
+- `engine/tools.py` — 21 tools registered on the agent.
   Conditionally hidden based on session state (repo, index, PR).
   Index tools, file tools, git tools, review notes, PR
   discussion, draft management.
@@ -128,11 +131,11 @@ exposed as agent tools.
 
 - `engine/draft_cmd.py` — `/draft` command with `sync`, `post`,
   `clear` subcommands.
-- Draft persistence to `.rbtr/REVIEW-DRAFT-<pr>.toml`.
+- Draft persistence to `.rbtr/drafts/<pr>.yaml`.
 - Bidirectional sync with GitHub pending reviews.
 - Atomic review posting via `create_review` API.
-- LLM tools: `add_review_comment`, `edit_review_comment`,
-  `remove_review_comment`, `set_review_summary`.
+- LLM tools: `add_draft_comment`, `edit_draft_comment`,
+  `remove_draft_comment`, `set_draft_summary`, `read_draft`.
 - GitHub suggestion blocks (`suggestion` parameter).
 - PR discussion tool (`get_pr_discussion`).
 
@@ -190,8 +193,10 @@ exposed as agent tools.
   checks `context_used_pct >= auto_compact_pct`. Breaks loop,
   compacts, reloads from DB, resumes with `prompt=None`.
   At most once per turn.
-- **TUI compaction panel**: `CompactionStarted`/`CompactionFinished`
-  produce dedicated `"queued"` variant panels flushed to scrollback.
+- **TUI compaction indicator**: `CompactionStarted` shows
+  "Compacting N messages …", `CompactionFinished` shows
+  "Compacted N messages into ~K tokens." Both as `"queued"`
+  variant panels flushed to scrollback.
 - **Binary search for large conversations**: Finds largest prefix
   that fits in context, pushes rest into kept portion.
 - **Configurable**: `auto_compact_pct`, `keep_turns`,

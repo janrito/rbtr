@@ -358,10 +358,10 @@ def test_find_references_all_edges() -> None:
 
 
 def test_find_references_filter_imports() -> None:
-    """kind='imports' returns only import edges."""
+    """kind=IMPORTS returns only import edges."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = find_references(ctx, "handle_request", kind="imports")  # type: ignore[arg-type]
+    result = find_references(ctx, "handle_request", kind=EdgeKind.IMPORTS)  # type: ignore[arg-type]
     assert "process_data" in result
     assert "[imports]" in result
     # Should NOT include test or doc edges.
@@ -371,10 +371,10 @@ def test_find_references_filter_imports() -> None:
 
 
 def test_find_references_filter_tests() -> None:
-    """kind='tests' returns only test edges."""
+    """kind=TESTS returns only test edges."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = find_references(ctx, "handle_request", kind="tests")  # type: ignore[arg-type]
+    result = find_references(ctx, "handle_request", kind=EdgeKind.TESTS)  # type: ignore[arg-type]
     assert "test_handle_request" in result
     assert "[tests]" in result
     assert "[imports]" not in result
@@ -382,10 +382,10 @@ def test_find_references_filter_tests() -> None:
 
 
 def test_find_references_filter_documents() -> None:
-    """kind='documents' returns only doc edges."""
+    """kind=DOCUMENTS returns only doc edges."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = find_references(ctx, "handle_request", kind="documents")  # type: ignore[arg-type]
+    result = find_references(ctx, "handle_request", kind=EdgeKind.DOCUMENTS)  # type: ignore[arg-type]
     assert "API Reference" in result
     assert "[documents]" in result
     assert "[tests]" not in result
@@ -396,7 +396,7 @@ def test_find_references_imports_mean() -> None:
     """calculate_standard_deviation imports calculate_mean."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = find_references(ctx, "calculate_mean", kind="imports")  # type: ignore[arg-type]
+    result = find_references(ctx, "calculate_mean", kind=EdgeKind.IMPORTS)  # type: ignore[arg-type]
     assert "calculate_standard_deviation" in result
     store.close()
 
@@ -414,7 +414,7 @@ def test_find_references_no_match_with_kind() -> None:
     """StatisticsCalculator has no test edges."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = find_references(ctx, "StatisticsCalculator", kind="tests")  # type: ignore[arg-type]
+    result = find_references(ctx, "StatisticsCalculator", kind=EdgeKind.TESTS)  # type: ignore[arg-type]
     assert "No 'tests' references" in result
     store.close()
 
@@ -424,16 +424,6 @@ def test_find_references_unknown_symbol() -> None:
     ctx = _FakeCtx(state)
     result = find_references(ctx, "zzz_nonexistent")  # type: ignore[arg-type]
     assert "not found" in result
-    store.close()
-
-
-def test_find_references_invalid_kind() -> None:
-    """Invalid kind value returns helpful error."""
-    state, store = _make_state()
-    ctx = _FakeCtx(state)
-    result = find_references(ctx, "handle_request", kind="bogus")  # type: ignore[arg-type]
-    assert "Unknown edge kind" in result
-    assert "imports" in result  # lists valid kinds
     store.close()
 
 
@@ -648,8 +638,8 @@ def test_find_references_ref_base_vs_head() -> None:
     state, store = _make_two_ref_state()
     ctx = _FakeCtx(state)
 
-    base_result = find_references(ctx, "parse_request", kind="imports", ref="base")  # type: ignore[arg-type]
-    head_result = find_references(ctx, "parse_request", kind="imports", ref="head")  # type: ignore[arg-type]
+    base_result = find_references(ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="base")  # type: ignore[arg-type]
+    head_result = find_references(ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="head")  # type: ignore[arg-type]
 
     # Base: api_client imports parse_request.
     assert "api_client" in base_result

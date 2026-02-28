@@ -1,3 +1,5 @@
+# Compact
+
 Summarise the following conversation history concisely.
 Preserve:
 

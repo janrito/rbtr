@@ -54,6 +54,9 @@ Agent rules. Short, imperative.
 - Never embed multi-line code in another language as string
   literals. Write it to its own file and load at runtime.
 - Every `# type: ignore` must have a reason on the same line.
+- **Markdown-style backticks in docs.** Use single backticks
+  (`` ` ``) in docstrings, comments, and documentation.
+  Never use rST double-backtick (``` `` ```) literals.
 - Fix the root cause first.
 
 ## Testing

@@ -176,23 +176,23 @@ and show a menu (capped at 20 suggestions).
 | Alt+Enter | Insert newline (multiline input)         |
 | Tab       | Autocomplete                             |
 | Up/Down   | Browse history or navigate multiline     |
-| Ctrl+C    | Cancel running task (double-tap to quit)  |
+| Ctrl+C    | Cancel running task (double-tap to quit) |
 | Ctrl+O    | Expand truncated shell output            |
 
 ### Cancellation recovery
 
-Ctrl+C cancels the current LLM turn immediately.  If the
+Ctrl+C cancels the current LLM turn immediately. If the
 model was mid-way through a tool-calling cycle, the model's
 response (with tool calls) is already persisted to the session
-database but some or all tool results may not be.  Both
+database but some or all tool results may not be. Both
 PydanticAI and upstream provider APIs (OpenAI, Anthropic)
 reject conversations where a tool call has no matching result.
 
-rbtr detects this on the next turn by comparing each
-`ToolCallPart` against the `ToolReturnPart`s in the following
-message.  Any tool call without a matching result gets a
-synthetic `(cancelled)` return injected.  This handles both
-cases:
+rbtr detects this on the next turn by scanning the entire
+history for each `ToolCallPart` and checking whether a
+matching `ToolReturnPart` exists anywhere. Any tool call
+without a matching result gets a synthetic `(cancelled)`
+return injected. This handles both cases:
 
 - **No results saved** — all tool calls in the response are
   patched.
@@ -202,7 +202,7 @@ cases:
 
 The synthetic results are persisted to the session database
 immediately, so the repair is permanent — it won't re-trigger
-on subsequent loads of the same session.  A one-time warning
+on subsequent loads of the same session. A one-time warning
 is shown:
 
 ```text
@@ -211,7 +211,7 @@ is shown:
 ```
 
 The model sees the `(cancelled)` results and can decide
-whether to retry the tool calls or proceed differently.  No
+whether to retry the tool calls or proceed differently. No
 manual intervention is needed.
 
 ## Usage display
@@ -277,7 +277,7 @@ A user asks "list the files" and the model responds with a tool
 call to `list_directory`, gets the result, then writes a text
 answer. This produces 4 messages and ~10 rows:
 
-```
+```text
 message row  "request"   fragment_index=0   ← user prompt metadata
   content    "user text" fragment_index=1   ← "list the files"
 
@@ -419,7 +419,7 @@ model with a summary prompt. The result:
 
 Before compaction (5 turns):
 
-```
+```text
 turn 1:  user "set up the project"     → assistant "done, created package.json"
 turn 2:  user "add authentication"     → assistant [tool calls] → "added auth middleware"
 turn 3:  user "write tests for auth"   → assistant [tool calls] → "added 12 tests"
@@ -429,7 +429,7 @@ turn 5:  user "review the PR"          → assistant [reading files...] ← in p
 
 After compaction — turns 1–3 are summarised, turns 4–5 are kept:
 
-```
+```text
 summary: "[Context summary] Set up project with package.json. Added auth
           middleware with JWT validation. Wrote 12 tests for auth module."
 turn 4:  user "fix the failing test"   → assistant [tool calls] → "fixed assertion"
@@ -444,7 +444,7 @@ parts, so it survives model switches.
 Before compaction, the fragments table has rows for all 5 turns
 (message rows + content rows, `compacted_by = NULL`):
 
-```
+```text
 id   message_id  kind              compacted_by  content
 ───  ──────────  ────              ────────────  ───────
 m1   m1          request-message   NULL          ← "set up the project"
@@ -461,7 +461,7 @@ m9   m9          response-message  NULL          ← tool calls + "fixed asserti
 After compaction, the old rows are marked and a summary is
 inserted:
 
-```
+```text
 id   message_id  kind              compacted_by  content
 ───  ──────────  ────              ────────────  ───────
 m1   m1          request-message   S1            ← marked, invisible
@@ -483,7 +483,7 @@ database until the session is deleted.
 
 ### When compaction triggers
 
-Four paths, all using the same compaction logic:
+Five paths, all using the same compaction logic:
 
 **1. Post-turn** — After a successful LLM response, if context
 usage exceeds `auto_compact_pct` (default 85%).
@@ -518,6 +518,16 @@ the compaction:
 ```text
 you: /compact reset
 Compaction reset — 42 fragments restored (26 active messages).
+```
+
+### Progress indicator
+
+When compaction runs, two panels appear in the conversation
+history:
+
+```text
+Compacting 42 messages …
+Compacted 42 messages into ~1.2k tokens.
 ```
 
 ### Large conversations
@@ -587,6 +597,106 @@ OAuth tokens (Claude, ChatGPT) are refreshed automatically when
 they expire. You never need to edit `creds.toml` by hand — use
 `/connect` instead.
 
+## Prompt customisation
+
+rbtr's system prompt controls the LLM's behaviour during reviews.
+You can customise it at three levels — user-wide preferences,
+full prompt replacement, and per-project instructions.
+
+Loading order: built-in `system.md` (or `SYSTEM.md` override) →
+`APPEND_SYSTEM.md` → project instruction files.
+
+### `APPEND_SYSTEM.md` — user-wide additions
+
+Create `~/.config/rbtr/APPEND_SYSTEM.md` to append text to the
+system prompt. Plain markdown, injected verbatim after the
+built-in content. Use this for personal review preferences,
+domain context, or house style that applies to all repos:
+
+```markdown
+## My preferences
+
+- Always check for missing error handling in HTTP handlers.
+- Flag any use of `subprocess.run` without `check=True`.
+- I prefer explicit `return None` over implicit returns.
+```
+
+### `SYSTEM.md` — full prompt replacement
+
+Create `~/.config/rbtr/SYSTEM.md` to replace the entire built-in
+system prompt. This is a Jinja template with the same variables
+available as the built-in:
+
+| Variable                | Type  | Description                     |
+| ----------------------- | ----- | ------------------------------- |
+| `date`                  | `str` | Current date (YYYY-MM-DD)       |
+| `owner`                 | `str` | Repository owner                |
+| `repo`                  | `str` | Repository name                 |
+| `target_kind`           | `str` | `"pr"`, `"branch"`, or `"none"` |
+| `base_branch`           | `str` | Base branch name                |
+| `branch`                | `str` | Head branch name                |
+| `pr_number`             | `int` | PR number (0 if not a PR)       |
+| `pr_title`              | `str` | PR title                        |
+| `pr_author`             | `str` | PR author                       |
+| `pr_body`               | `str` | PR description body             |
+| `project_instructions`  | `str` | Concatenated project files      |
+| `append_system`         | `str` | Contents of `APPEND_SYSTEM.md`  |
+| `notes_dir`             | `str` | Notes directory path            |
+| `max_lines`             | `int` | Max lines per tool response     |
+| `max_results`           | `int` | Max results per search/list     |
+| `max_grep_hits`         | `int` | Max grep match groups           |
+| `max_requests_per_turn` | `int` | Max tool calls per turn         |
+
+Minimal example:
+
+```markdown
+You are a code reviewer for {{ owner }}/{{ repo }}.
+Date: {{ date }}
+{% if target_kind == "pr" %}
+Reviewing PR #{{ pr_number }}: {{ pr_title }}
+{% endif %}
+{% if append_system %}
+{{ append_system }}
+{% endif %}
+{% if project_instructions %}
+{{ project_instructions }}
+{% endif %}
+```
+
+### Project instructions
+
+Project-specific rules are loaded from files in the repo root.
+By default rbtr reads `AGENTS.md`. Configure the file list in
+`config.toml`:
+
+```toml
+project_instructions = ["AGENTS.md"]
+```
+
+Multiple files are concatenated in list order:
+
+```toml
+project_instructions = ["AGENTS.md", "REVIEW.md", "docs/STYLE.md"]
+```
+
+Missing files are silently skipped. The concatenated content is
+injected into the system prompt under a "Project instructions"
+heading (in the built-in template) or via the
+`project_instructions` template variable (in a custom
+`SYSTEM.md`).
+
+Use project instruction files for coding standards, architecture
+rules, review focus areas, or anything specific to the repo:
+
+```markdown
+# AGENTS.md
+
+- Target Python 3.13+. Use modern features.
+- All code must be type-annotated.
+- No `Any` as a lazy type escape.
+- Run `just check` after every change.
+```
+
 ## Code index
 
 When you start a review (`/review`), rbtr builds a structural index
@@ -617,7 +727,7 @@ it.
 
 ### Tools available to the LLM
 
-rbtr gives the LLM 14 tools, conditionally hidden based on
+rbtr gives the LLM 21 tools, conditionally hidden based on
 what's available (repo only, or repo + index). Every tool that
 reads state accepts a `ref` parameter — `"head"` (default),
 `"base"`, or a raw commit SHA — so the LLM can inspect the
@@ -713,7 +823,7 @@ tests, and broken edges.
 #### Review notes (always available)
 
 **`edit(path, new_text, old_text?)`** — Edit or create
-review notes files.  Files must be under `.rbtr/notes/`
+review notes files. Files must be under `.rbtr/notes/`
 (e.g. `.rbtr/notes/plan.md`). When `old_text` is empty,
 creates the file or appends; when set, replaces the exact
 match. Review notes are readable by `read_file`, `grep`,
@@ -730,13 +840,13 @@ Cached per session — fetched once, then read from memory.
 #### Draft management (require PR)
 
 **`add_draft_comment(path, anchor, body, suggestion?, ref?)`** —
-Add an inline comment to the review draft.  The `anchor` is
+Add an inline comment to the review draft. The `anchor` is
 an exact code snippet from the file; the comment is placed on
-its last line.  Persisted to `.rbtr/drafts/<pr>.yaml`
+its last line. Persisted to `.rbtr/drafts/<pr>.yaml`
 immediately.
 
 **`edit_draft_comment(path, comment, body?, suggestion?)`** —
-Edit an existing comment.  `comment` is a body substring
+Edit an existing comment. `comment` is a body substring
 identifying which comment to edit.
 
 **`remove_draft_comment(path, comment)`** — Remove a
@@ -883,7 +993,7 @@ sync it with GitHub, and post it when ready.
 ### How the draft is stored
 
 The draft lives at `.rbtr/drafts/<pr>.yaml` — a plain YAML
-file updated atomically on every mutation.  It's
+file updated atomically on every mutation. It's
 human-readable and hand-editable:
 
 ```yaml
@@ -891,14 +1001,14 @@ summary: Good PR overall, two issues.
 github_review_id: 12345
 summary_hash: a1b2c3d4e5f6g7h8
 comments:
-- path: src/client.py
-  line: 42
-  body: '**blocker:** Retry without backoff.'
-  github_id: 98765
-  comment_hash: f9e8d7c6b5a43210
-- path: src/config.py
-  line: 8
-  body: '**nit:** Unused import.'
+  - path: src/client.py
+    line: 42
+    body: "**blocker:** Retry without backoff."
+    github_id: 98765
+    comment_hash: f9e8d7c6b5a43210
+  - path: src/config.py
+    line: 8
+    body: "**nit:** Unused import."
 ```
 
 Top-level fields:
@@ -1226,7 +1336,7 @@ automatically.
   sync detects the stale `review_id` (404) and recovers
   gracefully.
 - **Human-editable** — `.rbtr/drafts/42.yaml` is plain
-  YAML.  You can edit it by hand — add comments,
+  YAML. You can edit it by hand — add comments,
   change bodies, or clear `comment_hash` / `summary_hash`
   to force a full re-sync. Sync state uses content
   hashes (not duplicated content), so editing a comment
@@ -1248,7 +1358,7 @@ Read:   position=4, diff_hunk="@@ -169,6 +169,7 @@\n ..."  →  _position_to_lin
 `_walk_hunk(diff_hunk)` is the single source of truth. It
 yields `(position, line, side)` for each diff line by
 walking the hunk header's start-line counters and
-classifying each line by its `+`/`-`/` ` prefix:
+classifying each line by its `+`/`-`/`` prefix:
 
 - `+` line → `(new_line, "RIGHT")`, increment `new_line`
 - `-` line → `(old_line, "LEFT")`, increment `old_line`
@@ -1316,7 +1426,7 @@ drafts_dir = ".rbtr/drafts"    # directory for draft YAML files
 ```
 
 The `notes_dir` controls where the `edit` tool can create
-files (e.g. `.rbtr/notes/plan.md`).  Draft files live in
+files (e.g. `.rbtr/notes/plan.md`). Draft files live in
 `drafts_dir` and are managed exclusively by the draft tools.
 If you change `notes_dir`, update `index.include` to match:
 

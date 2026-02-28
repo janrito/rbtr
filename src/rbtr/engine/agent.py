@@ -1,7 +1,7 @@
 """Agent definition — pydantic-ai Agent with decorator-based configuration.
 
-The agent is defined once at module level.  Instructions use the
-``@agent.instructions`` decorator so they receive ``RunContext`` and
+The agent is defined once at module level.  System prompts use the
+``@agent.system_prompt`` decorator so they receive ``RunContext`` and
 can read live state.
 
 The model is provided at each call site via ``agent.iter(model=...)``,
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 
 from rbtr.engine.state import EngineState
-from rbtr.prompts import render_index_status, render_review, render_system
+from rbtr.prompts import render_index_status, render_system
 
 
 @dataclass
@@ -29,16 +29,10 @@ class AgentDeps:
 agent: Agent[AgentDeps, str] = Agent(deps_type=AgentDeps)
 
 
-@agent.instructions
+@agent.system_prompt
 def system_prompt(ctx: RunContext[AgentDeps]) -> str:
     """Render the main system prompt with live state context."""
     return render_system(ctx.deps.state)
-
-
-@agent.instructions
-def review_guidelines(ctx: RunContext[AgentDeps]) -> str:
-    """Render the review guidelines with state-aware file naming."""
-    return render_review(ctx.deps.state)
 
 
 def _index_tool_names() -> list[str]:
@@ -52,7 +46,7 @@ def _index_tool_names() -> list[str]:
     )
 
 
-@agent.instructions
+@agent.system_prompt
 def index_status(ctx: RunContext[AgentDeps]) -> str:
     """Render index status instruction from the template."""
     state = ctx.deps.state

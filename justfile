@@ -3,14 +3,18 @@ check: lint typecheck test
 fmt:
     uv run ruff check --fix .
     uv run ruff format .
-    # rumdl check --fix .
     uv run sqlfluff fix .
 
 lint:
     uv run ruff check .
     uv run ruff format --check .
-    # rumdl check .
     uv run sqlfluff lint .
+
+fmt-md:
+    rumdl check --fix .
+
+lint-md:
+    rumdl check .
 
 typecheck:
     uv run mypy

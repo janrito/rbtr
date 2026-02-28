@@ -219,6 +219,9 @@ class Config(BaseSettings):
 
     model: str | None = None
     thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
+    project_instructions: list[str] = ["AGENTS.md"]
+    """Filenames read from the repo root and injected into the
+    system prompt.  Missing files are silently skipped."""
     compaction: CompactionConfig = CompactionConfig()
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
