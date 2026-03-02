@@ -14,17 +14,17 @@ import pygit2
 import pytest
 from pydantic_ai import RunContext
 
-from rbtr.engine.agent import AgentDeps
-from rbtr.engine.state import EngineState
-from rbtr.engine.tools import (
+from rbtr.github.draft import load_draft, save_draft
+from rbtr.llm.agent import AgentDeps
+from rbtr.llm.tools import (
     add_draft_comment,
     edit_draft_comment,
     read_draft,
     remove_draft_comment,
     set_draft_summary,
 )
-from rbtr.github.draft import load_draft, save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
+from rbtr.state import EngineState
 
 # ── Repo builder (minimal copy from git/conftest) ────────────────────
 
@@ -122,7 +122,7 @@ def ctx(
     repo, _, _ = draft_repo
 
     # Clear the global diff-range cache between tests.
-    import rbtr.engine.tools as _tools_mod
+    import rbtr.llm.tools as _tools_mod
 
     monkeypatch.setattr(_tools_mod, "_cached_ranges", None)
     monkeypatch.setattr(_tools_mod, "_cached_ranges_left", None)

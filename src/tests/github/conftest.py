@@ -19,11 +19,11 @@ from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
 from rbtr.engine import Engine
-from rbtr.engine.agent import AgentDeps
-from rbtr.engine.state import EngineState
 from rbtr.github.client import GitHubCtx
+from rbtr.llm.agent import AgentDeps
 from rbtr.models import PRTarget
 from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
 
 
 class FakeUser:
@@ -366,7 +366,7 @@ def tool_ctx(
     """RunContext wired to the draft_repo — for LLM tool calls."""
     repo, _, _ = draft_repo
 
-    import rbtr.engine.tools as _m
+    import rbtr.llm.tools as _m
 
     monkeypatch.setattr(_m, "_cached_ranges", None)
     monkeypatch.setattr(_m, "_cached_ranges_left", None)

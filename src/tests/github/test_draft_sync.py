@@ -28,7 +28,6 @@ from pathlib import Path
 import pytest
 
 from rbtr.engine.review import sync_review_draft
-from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.github.client import (
     _position_to_line,
@@ -44,6 +43,7 @@ from rbtr.github.draft import (
     stamp_synced,
 )
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
+from rbtr.state import EngineState
 
 from .conftest import (
     FakeGithub,

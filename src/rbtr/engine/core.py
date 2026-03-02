@@ -12,31 +12,24 @@ import subprocess
 import sys
 import threading
 
-import pygit2
-from github import Auth, Github
-
-from rbtr.config import config
-from rbtr.creds import creds
 from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, TaskFinished, TaskStarted
-from rbtr.exceptions import RbtrError
+from rbtr.exceptions import RbtrError, TaskCancelled
+from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
 from rbtr.models import BranchTarget, PRTarget, Target
-from rbtr.oauth import oauth_is_set
-from rbtr.providers import endpoint as endpoint_provider, model_context_window
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
+from rbtr.state import EngineState
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
-from .compact import compact_history, reset_compaction
 from .connect import cmd_connect
 from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
-from .llm import handle_llm
-from .model import cmd_model, get_models
+from .model import cmd_model
 from .review import cmd_review
 from .session_cmd import cmd_session
+from .setup import run_setup
 from .shell import handle_shell
-from .state import EngineState
 from .stats_cmd import cmd_stats
-from .types import Command, TaskCancelled, TaskType
+from .types import Command, TaskType
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +120,18 @@ class Engine:
             review_target=_review_target_str(self.state.review_target),
         )
 
+    # ── LLM context ───────────────────────────────────────────────────
+
+    def _llm_context(self) -> LLMContext:
+        """Build an :class:`LLMContext` for the LLM pipeline."""
+        return LLMContext(
+            state=self.state,
+            store=self.store,
+            events=self.events,
+            cancel=self._cancel,
+            loop=self._loop,
+        )
+
     # ── Task runner ──────────────────────────────────────────────────
 
     def run_task(self, task_type: TaskType, arg: str, *, persist: bool = True) -> None:
@@ -138,7 +143,7 @@ class Engine:
         try:
             match task_type:
                 case TaskType.SETUP:
-                    self._run_setup()
+                    run_setup(self)
                 case TaskType.COMMAND:
                     if persist:
                         self._persist_input(arg, "command")
@@ -147,7 +152,7 @@ class Engine:
                     self._persist_input(f"!{arg}", "shell")
                     handle_shell(self, arg)
                 case TaskType.LLM:
-                    handle_llm(self, arg)
+                    handle_llm(self._llm_context(), arg)
         except TaskCancelled:
             success = False
             cancelled = True
@@ -158,64 +163,6 @@ class Engine:
             self._error(f"Unexpected error: {e}")
             success = False
         self._emit(TaskFinished(success=success, cancelled=cancelled))
-
-    # ── Setup ────────────────────────────────────────────────────────
-
-    def _run_setup(self) -> None:
-        # Deferred: open_repo calls pygit2.discover_repository which needs CWD set.
-        from rbtr.git import open_repo
-        from rbtr.github.client import parse_github_remote
-
-        try:
-            repo = open_repo()
-            owner, repo_name = parse_github_remote(repo)
-        except RbtrError as e:
-            self._error(str(e))
-            return
-
-        self.state.repo = repo
-        self.state.owner = owner
-        self.state.repo_name = repo_name
-        self.state.session_label = _make_session_label(owner, repo_name, repo)
-        self._out(f"Repository: {owner}/{repo_name}")
-
-        if creds.github_token:
-            gh = Github(auth=Auth.Token(creds.github_token), timeout=config.github.timeout)
-            self.state.gh = gh
-            self.state.gh_username = gh.get_user().login
-            self._out("Authenticated with GitHub.")
-        else:
-            self._out("Not authenticated. Use /connect github to authenticate.")
-
-        if oauth_is_set(creds.claude):
-            self.state.claude_connected = True
-            self._out("Connected to Anthropic.")
-
-        if oauth_is_set(creds.chatgpt):
-            self.state.chatgpt_connected = True
-            self._out("Connected to ChatGPT.")
-
-        if creds.openai_api_key:
-            self.state.openai_connected = True
-            self._out("Connected to OpenAI.")
-
-        endpoints = endpoint_provider.list_endpoints()
-        for ep in endpoints:
-            self._out(f"Endpoint: {ep.name} ({ep.base_url})")
-
-        # Pre-populate model cache so Tab completion is instant.
-        get_models(self)
-
-        if not (self.state.has_llm or endpoints):
-            self._out("No LLM connected. Use /connect claude, chatgpt, or openai.")
-
-        # Load saved model preference
-        saved_model = config.model
-        if saved_model:
-            self.state.model_name = saved_model
-            _init_context_window(self)
-
-        self._out("Type a message for the LLM, /help for commands, !cmd for shell")
 
     # ── Commands ─────────────────────────────────────────────────────
 
@@ -243,11 +190,12 @@ class Engine:
             case Command.INDEX:
                 cmd_index(self, args)
             case Command.COMPACT:
+                ctx = self._llm_context()
                 sub = args.split(maxsplit=1)[0].lower() if args else ""
                 if sub == "reset":
-                    reset_compaction(self)
+                    reset_compaction(ctx)
                 else:
-                    compact_history(self, extra_instructions=args)
+                    compact_history(ctx, extra_instructions=args)
             case Command.SESSION:
                 cmd_session(self, args)
             case Command.STATS:
@@ -299,31 +247,6 @@ class Engine:
                     check=True,
                     timeout=2,
                 )
-
-
-def _init_context_window(engine: Engine) -> None:
-    """Set the context window from model metadata at startup.
-
-    Called once when the saved model is loaded so the footer shows the
-    correct context window immediately, not just after the first LLM
-    response.  Works for both custom endpoints and built-in providers.
-    """
-    ctx = model_context_window(engine.state.model_name)
-    if ctx is not None:
-        engine.state.usage.context_window = ctx
-        engine.state.usage.context_window_known = True
-
-
-def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:
-    """Build a human-readable session label from repo context.
-
-    Format: ``owner/repo — ref`` where *ref* is the current branch
-    name or short commit hash.
-    """
-    ref = ""
-    if not repo.head_is_unborn:
-        ref = str(repo.head.target)[:8] if repo.head_is_detached else repo.head.shorthand
-    return f"{owner}/{repo_name} — {ref}" if ref else f"{owner}/{repo_name}"
 
 
 def _review_target_str(target: Target | None) -> str | None:

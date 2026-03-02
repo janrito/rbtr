@@ -14,8 +14,10 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.engine.state import EngineState
-from rbtr.engine.tools import (
+from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr.index.store import IndexStore
+from rbtr.index.tokenise import tokenise_code
+from rbtr.llm.tools import (
     changed_files,
     changed_symbols,
     commit_log,
@@ -30,10 +32,8 @@ from rbtr.engine.tools import (
     read_symbol,
     search,
 )
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 from rbtr.models import BranchTarget, InlineComment
+from rbtr.state import EngineState
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -1487,7 +1487,7 @@ def test_require_index_hides_when_no_index() -> None:
     assert state.index is None
     ctx = _FakeCtx(state)
 
-    from rbtr.engine.tools import _require_index
+    from rbtr.llm.tools import _require_index
 
     tool_def = object()  # stand-in
     result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
@@ -1503,7 +1503,7 @@ def test_require_index_hides_when_no_target() -> None:
     assert state.review_target is None
     ctx = _FakeCtx(state)
 
-    from rbtr.engine.tools import _require_index
+    from rbtr.llm.tools import _require_index
 
     tool_def = object()
     result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
@@ -1518,7 +1518,7 @@ def test_require_index_returns_tool_when_ready() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
 
-    from rbtr.engine.tools import _require_index
+    from rbtr.llm.tools import _require_index
 
     tool_def = object()
     result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
@@ -1534,7 +1534,7 @@ def test_require_repo_hides_when_no_repo() -> None:
     state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
     ctx = _FakeCtx(state)
 
-    from rbtr.engine.tools import _require_repo
+    from rbtr.llm.tools import _require_repo
 
     tool_def = object()
     result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]
@@ -1550,7 +1550,7 @@ def test_require_repo_hides_when_no_target() -> None:
         state = EngineState(repo=repo)
         ctx = _FakeCtx(state)
 
-        from rbtr.engine.tools import _require_repo
+        from rbtr.llm.tools import _require_repo
 
         tool_def = object()
         result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]

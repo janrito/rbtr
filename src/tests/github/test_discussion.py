@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from rbtr.engine.tools import _format_discussion_entry as format_discussion_entry
 from rbtr.github.client import (
     _aggregate_reactions,
     _inline_to_entry,
@@ -12,6 +11,7 @@ from rbtr.github.client import (
     _review_to_entry,
     get_pr_discussion,
 )
+from rbtr.llm.tools import _format_discussion_entry as format_discussion_entry
 from rbtr.models import DiscussionEntryKind
 
 from .conftest import (

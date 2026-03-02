@@ -33,7 +33,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
-from rbtr.engine import Command, Engine, EngineState, Service, TaskType
+from rbtr.engine import Command, Engine, Service, TaskType
 from rbtr.engine.model import get_models
 from rbtr.events import (
     CompactionFinished,
@@ -61,6 +61,7 @@ from rbtr.input import (
     query_shell_completions,
 )
 from rbtr.models import PRTarget
+from rbtr.state import EngineState
 from rbtr.styles import (
     BG_ACTIVE,
     BG_FAILED,

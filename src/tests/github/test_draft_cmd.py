@@ -22,10 +22,10 @@ from rbtr.engine.draft_cmd import (
     _resolve_event,
     cmd_draft,
 )
-from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, MarkdownOutput, Output
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
+from rbtr.state import EngineState
 
 # ── Shared test data ─────────────────────────────────────────────────
 

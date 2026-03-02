@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.engine.core import _make_session_label
+from rbtr.engine.setup import _make_session_label
 
 from .conftest import make_repo_with_file
 

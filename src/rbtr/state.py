@@ -1,4 +1,4 @@
-"""Mutable engine state — shared between engine and UI."""
+"""Mutable session state — shared between engine, LLM pipeline, and UI."""
 
 from __future__ import annotations
 

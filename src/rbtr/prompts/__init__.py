@@ -21,7 +21,7 @@ from rbtr.constants import RBTR_DIR
 from rbtr.models import BranchTarget, PRTarget
 
 if TYPE_CHECKING:
-    from rbtr.engine import EngineState
+    from rbtr.state import EngineState
 
 log = logging.getLogger(__name__)
 

@@ -23,9 +23,10 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from rbtr.engine import Engine, EngineState
+from rbtr.engine import Engine
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
 from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
 
 from .conftest import drain, has_event_type, output_texts
 
@@ -75,7 +76,7 @@ def test_multi_turn_roundtrip(mocker: MockerFixture, creds_path: Path) -> None:
 
     # TestModel with custom text output (no tool calls for simplicity).
     test_model = TestModel(custom_output_text="test response", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         prompts = ["first question", "second question", "third question"]
@@ -126,7 +127,7 @@ def test_multi_turn_with_tool_calls(mocker: MockerFixture, creds_path: Path) -> 
 
     # TestModel calls all tools on the first request, then responds with text.
     test_model = TestModel(custom_output_text="analysis complete", call_tools="all")
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         events = _run_llm_turn(engine, "analyse the code")
@@ -177,7 +178,7 @@ def test_session_listing_after_turns(mocker: MockerFixture, creds_path: Path) ->
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="reply", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         for prompt in ["q1", "q2"]:
@@ -208,7 +209,7 @@ def test_history_search_finds_user_prompts(mocker: MockerFixture, creds_path: Pa
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="ok", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         for prompt in ["review tui.py", "explain config"]:
@@ -239,7 +240,7 @@ def test_session_resume_loads_messages(mocker: MockerFixture, creds_path: Path) 
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="hello back", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         # Turn 1 in session A.
@@ -279,7 +280,7 @@ def test_compaction_reduces_history(mocker: MockerFixture, creds_path: Path) -> 
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="reply", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         # Build enough history to compact (15 turns).
@@ -292,10 +293,10 @@ def test_compaction_reduces_history(mocker: MockerFixture, creds_path: Path) -> 
 
         # Mock the summary LLM call (compaction uses its own agent).
         mocker.patch(
-            "rbtr.engine.compact._stream_summary",
+            "rbtr.llm.compact._stream_summary",
             return_value="Summary: discussed 15 questions.",
         )
-        mocker.patch("rbtr.engine.compact.build_model", return_value=test_model)
+        mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
 
         engine.state.usage.context_window = 200_000
         engine.run_task("command", "/compact")
@@ -328,7 +329,7 @@ def test_compaction_then_resume(mocker: MockerFixture, creds_path: Path) -> None
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="reply", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         # Build history and compact.
@@ -337,10 +338,10 @@ def test_compaction_then_resume(mocker: MockerFixture, creds_path: Path) -> None
             drain(engine.events)
 
         mocker.patch(
-            "rbtr.engine.compact._stream_summary",
+            "rbtr.llm.compact._stream_summary",
             return_value="Compacted summary.",
         )
-        mocker.patch("rbtr.engine.compact.build_model", return_value=test_model)
+        mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
 
         engine.state.usage.context_window = 200_000
         engine.run_task("command", "/compact")
@@ -380,7 +381,7 @@ def test_compaction_preserves_continuity(mocker: MockerFixture, creds_path: Path
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="reply", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         for i in range(15):
@@ -388,10 +389,10 @@ def test_compaction_preserves_continuity(mocker: MockerFixture, creds_path: Path
             drain(engine.events)
 
         mocker.patch(
-            "rbtr.engine.compact._stream_summary",
+            "rbtr.llm.compact._stream_summary",
             return_value="Compacted summary of earlier conversation.",
         )
-        mocker.patch("rbtr.engine.compact.build_model", return_value=test_model)
+        mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
 
         engine.state.usage.context_window = 200_000
         engine.run_task("command", "/compact")
@@ -431,7 +432,7 @@ def test_command_shell_rows_excluded_from_history(mocker: MockerFixture, creds_p
 
     engine = _make_engine()
     test_model = TestModel(custom_output_text="ok", call_tools=[])
-    mocker.patch("rbtr.engine.llm.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.stream.build_model", return_value=test_model)
 
     try:
         # LLM turn.

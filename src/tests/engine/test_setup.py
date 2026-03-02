@@ -44,7 +44,7 @@ def test_setup_detects_github_token(
 
     fake_gh = MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
-    monkeypatch.setattr("rbtr.engine.core.Github", lambda **_kw: fake_gh)
+    monkeypatch.setattr("rbtr.engine.setup.Github", lambda **_kw: fake_gh)
 
     engine = setup_engine
 

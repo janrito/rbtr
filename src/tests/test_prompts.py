@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from rbtr.engine import EngineState
 from rbtr.models import BranchTarget, PRTarget
 from rbtr.prompts import render_system
+from rbtr.state import EngineState
 
 # ── Shared test data ─────────────────────────────────────────────────
 

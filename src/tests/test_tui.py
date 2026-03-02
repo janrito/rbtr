@@ -8,7 +8,7 @@ from pytest_mock import MockerFixture
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from rbtr.engine import EngineState
+from rbtr.state import EngineState
 from rbtr.styles import THEME
 from rbtr.tui import UI, _render_lines, _tail_renderable_lines
 

@@ -9,7 +9,7 @@ from github import Auth, Github
 from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.events import LinkOutput
-from rbtr.exceptions import RbtrError
+from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.github import auth
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import (
@@ -20,7 +20,7 @@ from rbtr.providers import (
 from rbtr.styles import CODE_HIGHLIGHT, LINK_STYLE
 
 from .model import get_models
-from .types import Service, TaskCancelled
+from .types import Service
 
 if TYPE_CHECKING:
     from .core import Engine

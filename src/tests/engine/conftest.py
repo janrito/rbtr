@@ -30,10 +30,12 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.creds import OAuthCreds
-from rbtr.engine import Engine, EngineState
+from rbtr.engine import Engine
 from rbtr.events import Event, IndexReady, Output
+from rbtr.llm.context import LLMContext
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
 
 # Re-export top-level helpers so existing ``from .conftest import …``
 # lines in this package keep working without change.
@@ -167,6 +169,12 @@ def engine() -> Generator[Engine]:
     eng = Engine(state, queue.Queue(), store=SessionStore())
     yield eng
     eng.close()
+
+
+@pytest.fixture
+def llm_ctx(engine: Engine) -> LLMContext:
+    """LLMContext backed by the default engine fixture."""
+    return engine._llm_context()
 
 
 @pytest.fixture

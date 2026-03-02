@@ -67,7 +67,3 @@ class TaskType(StrEnum):
     COMMAND = "command"
     SHELL = "shell"
     LLM = "llm"
-
-
-class TaskCancelled(Exception):
-    """Raised inside a task thread when the user requests cancellation."""

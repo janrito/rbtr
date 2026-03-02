@@ -32,19 +32,18 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
-from rbtr.exceptions import RbtrError
+from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.providers import build_model, model_context_window
 
 from .agent import AgentDeps, agent
+from .compact import compact_history, compact_history_async
+from .context import LLMContext
 from .errors import is_context_overflow, is_effort_unsupported
 from .history import demote_thinking, is_history_format_error, repair_dangling_tool_calls
 from .model_settings import resolve_model_settings
-from .types import TaskCancelled
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter
-
-    from .core import Engine
 
 log = logging.getLogger(__name__)
 
@@ -68,49 +67,47 @@ _LIMIT_SUMMARY_PROMPT = (
 )
 
 
-def handle_llm(engine: Engine, message: str) -> None:
+def handle_llm(ctx: LLMContext, message: str) -> None:
     """Send a message to the active LLM, streaming the response."""
-    if not engine.state.has_llm:
-        engine._warn("No LLM connected. Use /connect claude, chatgpt, or openai.")
+    if not ctx.state.has_llm:
+        ctx.warn("No LLM connected. Use /connect claude, chatgpt, or openai.")
         return
 
     try:
-        model = build_model(engine.state.model_name)
+        model = build_model(ctx.state.model_name)
     except RbtrError as e:
-        engine._warn(str(e))
+        ctx.warn(str(e))
         return
 
     try:
-        _run_agent(engine, model, message)
+        _run_agent(ctx, model, message)
     except ModelHTTPError as exc:
         if exc.status_code == 400 and is_effort_unsupported(exc):
-            engine.state.effort_supported = False
-            engine._out("Model does not support effort — retrying without it…")
-            _run_agent(engine, model, message)
+            ctx.state.effort_supported = False
+            ctx.out("Model does not support effort — retrying without it…")
+            _run_agent(ctx, model, message)
             return
         if exc.status_code == 400 and is_history_format_error(exc):
-            engine._out("Retrying with simplified history…")
-            _run_agent(engine, model, message, simplify_history=True)
+            ctx.out("Retrying with simplified history…")
+            _run_agent(ctx, model, message, simplify_history=True)
             return
         if is_context_overflow(exc):
-            _auto_compact_on_overflow(engine, message)
+            _auto_compact_on_overflow(ctx, message)
             return
         raise
 
 
-def _auto_compact_on_overflow(engine: Engine, message: str) -> None:
+def _auto_compact_on_overflow(ctx: LLMContext, message: str) -> None:
     """Compact history and retry after a context-overflow error.
 
     ``compact_history`` handles all edge cases internally (no LLM,
     too few messages, LLM failure).  If compaction doesn't help,
     the retry raises the same overflow and the caller handles it.
     """
-    from .compact import compact_history  # deferred: avoid circular at module level
-
-    engine._out("Context limit reached — compacting history…")
-    compact_history(engine)
-    engine._out("Retrying with compacted history…")
-    handle_llm(engine, message)
+    ctx.out("Context limit reached — compacting history…")
+    compact_history(ctx)
+    ctx.out("Retrying with compacted history…")
+    handle_llm(ctx, message)
 
 
 # ── Agent run ────────────────────────────────────────────────────────
@@ -135,20 +132,18 @@ def _finish_response_writer(writer: ResponseWriter, all_msgs: list[ModelMessage]
         writer.finish()
 
 
-def _needs_mid_turn_compaction(engine: Engine, response: ModelResponse) -> bool:
+def _needs_mid_turn_compaction(ctx: LLMContext, response: ModelResponse) -> bool:
     """Check whether context usage warrants mid-turn compaction.
 
     Only triggers when the response contains tool calls (meaning more
     requests will follow).  Text-only responses end the turn naturally.
     """
     has_tool_calls = any(isinstance(p, ToolCallPart) for p in response.parts)
-    return (
-        has_tool_calls and engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct
-    )
+    return has_tool_calls and ctx.state.usage.context_used_pct >= config.compaction.auto_compact_pct
 
 
 async def _do_stream(
-    engine: Engine,
+    ctx: LLMContext,
     model: Model,
     deps: AgentDeps,
     settings: ModelSettings | None,
@@ -160,7 +155,7 @@ async def _do_stream(
     This is the single streaming loop shared by the main turn, mid-turn
     compaction resume, and the limit-hit summary.
     """
-    store = engine.store
+    store = ctx.store
     saved_count = len(msg_history)
     saved_request_count = 0
     limit_hit = False
@@ -181,8 +176,8 @@ async def _do_stream(
                     # ── Model response: stream text deltas, persist parts ──
                     case ModelRequestNode():
                         writer = store.begin_response(
-                            engine.state.session_id,
-                            model_name=engine.state.model_name,
+                            ctx.state.session_id,
+                            model_name=ctx.state.model_name,
                         )
                         last_writer = writer
 
@@ -193,7 +188,7 @@ async def _do_stream(
                                         writer.add_part(idx, part)
                                     case PartDeltaEvent(delta=delta):
                                         if isinstance(delta, TextPartDelta):
-                                            engine._emit(TextDelta(delta=delta.content_delta))
+                                            ctx.emit(TextDelta(delta=delta.content_delta))
                                     case PartEndEvent(index=idx, part=part):
                                         writer.finish_part(idx, part)
 
@@ -201,18 +196,18 @@ async def _do_stream(
 
                     # ── Tool calls: execute tools, check compaction ──
                     case CallToolsNode():
-                        _update_live_usage(engine, run.usage(), node.model_response)
+                        _update_live_usage(ctx, run.usage(), node.model_response)
 
                         async with node.stream(run.ctx) as tool_stream:
                             async for tool_event in tool_stream:
-                                _emit_tool_event(engine, tool_event)
+                                _emit_tool_event(ctx, tool_event)
 
-                        if _needs_mid_turn_compaction(engine, node.model_response):
+                        if _needs_mid_turn_compaction(ctx, node.model_response):
                             compact_needed = True
 
                 # ── Persist after every node ──
                 all_msgs = run.all_messages()
-                n = _save_new_requests(engine, all_msgs, saved_count)
+                n = _save_new_requests(ctx, all_msgs, saved_count)
                 saved_request_count += n
                 saved_count = len(all_msgs)
 
@@ -224,7 +219,7 @@ async def _do_stream(
     new = list(run.new_messages())
     requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
     if len(requests) > saved_request_count:
-        _save_messages_safe(engine, requests[saved_request_count:])
+        _save_messages_safe(ctx, requests[saved_request_count:])
 
     return _StreamResult(
         all_messages=list(run.all_messages()),
@@ -237,7 +232,7 @@ async def _do_stream(
 
 
 def _run_agent(
-    engine: Engine,
+    ctx: LLMContext,
     model: Model,
     message: str,
     *,
@@ -245,14 +240,14 @@ def _run_agent(
 ) -> None:
     """Stream an agent run, blocking until complete."""
     future = asyncio.run_coroutine_threadsafe(
-        _stream_agent(engine, model, message, simplify_history=simplify_history),
-        engine._loop,
+        _stream_agent(ctx, model, message, simplify_history=simplify_history),
+        ctx.loop,
     )
     future.result()
 
 
 def _prepare_turn(
-    engine: Engine,
+    ctx: LLMContext,
     model: Model,
     simplify_history: bool,
 ) -> tuple[list[ModelMessage], AgentDeps, ModelSettings | None]:
@@ -262,41 +257,41 @@ def _prepare_turn(
     persists synthetic repair messages, tracks ``effort_supported``,
     and snapshots the usage baseline for the upcoming run.
     """
-    store = engine.store
-    history = store.load_messages(engine.state.session_id)
+    store = ctx.store
+    history = store.load_messages(ctx.state.session_id)
     history, repaired_tools, repair_messages = repair_dangling_tool_calls(history)
     if repaired_tools:
-        _save_messages_safe(engine, repair_messages)
+        _save_messages_safe(ctx, repair_messages)
         names = ", ".join(repaired_tools)
-        engine._warn(
+        ctx.warn(
             f"Previous turn was cancelled mid-tool-call ({names}). "
             f"Those tool results are lost — the model will continue without them."
         )
     if simplify_history:
         history = demote_thinking(history)
 
-    deps = AgentDeps(state=engine.state)
+    deps = AgentDeps(state=ctx.state)
     settings = resolve_model_settings(
-        model, engine.state.model_name, effort_supported=engine.state.effort_supported
+        model, ctx.state.model_name, effort_supported=ctx.state.effort_supported
     )
     if (
         config.thinking_effort is not ThinkingEffort.NONE
-        and engine.state.effort_supported is not False
+        and ctx.state.effort_supported is not False
     ):
-        engine.state.effort_supported = settings is not None
+        ctx.state.effort_supported = settings is not None
 
-    engine.state.usage.snapshot_base()
+    ctx.state.usage.snapshot_base()
     return history, deps, settings
 
 
-def _finalize_turn(engine: Engine, result: _StreamResult) -> None:
+def _finalize_turn(ctx: LLMContext, result: _StreamResult) -> None:
     """Record usage and write cost to the last response writer.
 
     The writer's per-request tokens were already set during streaming
     (for resilience if the run crashes).  This adds cost — the only
     value that requires the full run to compute.
     """
-    run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
+    run_cost, cost_available = _record_usage(ctx, result.new_messages, result.usage)
     if result.last_writer is not None:
         last_resp = next(
             (m for m in reversed(result.new_messages) if isinstance(m, ModelResponse)),
@@ -312,63 +307,54 @@ def _finalize_turn(engine: Engine, result: _StreamResult) -> None:
 
 
 async def _stream_agent(
-    engine: Engine,
+    ctx: LLMContext,
     model: Model,
     message: str,
     *,
     simplify_history: bool = False,
 ) -> None:
     """Run the agent with cancellation support, update session state."""
-    store = engine.store
-    history, deps, settings = _prepare_turn(engine, model, simplify_history)
+    store = ctx.store
+    history, deps, settings = _prepare_turn(ctx, model, simplify_history)
 
-    result = await _run_with_cancel(
-        engine, _do_stream(engine, model, deps, settings, message, history)
-    )
+    result = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, message, history))
 
     # Mid-turn compaction: if context exceeded the threshold during
     # a tool-call cycle, compact once and resume.
     if result.compact_needed:
-        from .compact import compact_history_async  # deferred: avoid circular
-
         await compact_history_async(
-            engine, extra_instructions="The model is mid-turn with active tool calls."
+            ctx,
+            extra_instructions="The model is mid-turn with active tool calls.",
         )
         # Reload from DB after compaction.
-        history = store.load_messages(engine.state.session_id)
-        engine.state.usage.snapshot_base()
+        history = store.load_messages(ctx.state.session_id)
+        ctx.state.usage.snapshot_base()
 
-        resume = await _run_with_cancel(
-            engine, _do_stream(engine, model, deps, settings, None, history)
-        )
+        resume = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, None, history))
         result = _merge_results(result, resume)
 
-    _finalize_turn(engine, result)
+    _finalize_turn(ctx, result)
 
     if result.limit_hit:
-        history = store.load_messages(engine.state.session_id)
+        history = store.load_messages(ctx.state.session_id)
         summary = await _run_with_cancel(
-            engine, _do_stream(engine, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
+            ctx, _do_stream(ctx, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
         )
-        _save_messages_safe(
-            engine, [m for m in summary.new_messages if isinstance(m, ModelRequest)]
-        )
+        _save_messages_safe(ctx, [m for m in summary.new_messages if isinstance(m, ModelRequest)])
 
     # Post-turn compaction for turns that didn't trigger mid-turn.
     if (
         not result.compact_needed
-        and engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct
+        and ctx.state.usage.context_used_pct >= config.compaction.auto_compact_pct
     ):
-        from .compact import compact_history_async  # deferred: avoid circular at module level
-
-        await compact_history_async(engine)
+        await compact_history_async(ctx)
 
 
 # ── Persistence helpers ──────────────────────────────────────────────
 
 
 def _save_new_requests(
-    engine: Engine,
+    ctx: LLMContext,
     all_messages: list[ModelMessage],
     saved_count: int,
 ) -> int:
@@ -380,11 +366,11 @@ def _save_new_requests(
     new = all_messages[saved_count:]
     requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
     if requests:
-        _save_messages_safe(engine, requests)
+        _save_messages_safe(ctx, requests)
     return len(requests)
 
 
-def _save_messages_safe(engine: Engine, messages: list[ModelMessage]) -> None:
+def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> None:
     """Save messages to the store, logging failures instead of raising.
 
     Relies on ``engine._sync_store_context()`` having been called at
@@ -393,13 +379,13 @@ def _save_messages_safe(engine: Engine, messages: list[ModelMessage]) -> None:
     if not messages:
         return
     try:
-        engine.store.save_messages(engine.state.session_id, messages)
+        ctx.store.save_messages(ctx.state.session_id, messages)
     except OSError:
         log.warning("sessions: failed to persist messages", exc_info=True)
 
 
 async def _run_with_cancel(
-    engine: Engine,
+    ctx: LLMContext,
     coro: collections.abc.Coroutine[object, object, _StreamResult],
 ) -> _StreamResult:
     """Run *coro* with a parallel cancellation watcher.
@@ -409,7 +395,7 @@ async def _run_with_cancel(
     """
 
     async def _watch() -> None:
-        while not engine._cancel.is_set():
+        while not ctx.cancel.is_set():
             await asyncio.sleep(0.1)
         raise TaskCancelled
 
@@ -458,7 +444,7 @@ def _merge_usage(a: RunUsage, b: RunUsage) -> RunUsage:
 
 
 def _emit_tool_event(
-    engine: Engine,
+    ctx: LLMContext,
     event: HandleResponseEvent,
 ) -> None:
     """Emit a ToolCallStarted or ToolCallFinished event."""
@@ -471,7 +457,7 @@ def _emit_tool_event(
                 args_str = str(args)
             else:
                 args_str = ""
-            engine._emit(ToolCallStarted(tool_name=part.tool_name, args=args_str))
+            ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=args_str))
         case FunctionToolResultEvent(result=result):
             if isinstance(result, ToolReturnPart):
                 text = str(result.content)
@@ -481,14 +467,14 @@ def _emit_tool_event(
             else:
                 text = "(retry)"
             tool_name = getattr(result, "tool_name", None) or "?"
-            engine._emit(ToolCallFinished(tool_name=tool_name, result=text))
+            ctx.emit(ToolCallFinished(tool_name=tool_name, result=text))
 
 
 # ── Usage tracking ───────────────────────────────────────────────────
 
 
 def _update_live_usage(
-    engine: Engine,
+    ctx: LLMContext,
     run_usage: RunUsage,
     response: ModelResponse,
 ) -> None:
@@ -502,7 +488,7 @@ def _update_live_usage(
     Does **not** increment ``response_count`` or cost — the
     authoritative ``_record_usage`` at run-end handles those.
     """
-    usage = engine.state.usage
+    usage = ctx.state.usage
     base = usage.live_base
     usage.input_tokens = base.input_tokens + run_usage.input_tokens
     usage.output_tokens = base.output_tokens + run_usage.output_tokens
@@ -513,26 +499,26 @@ def _update_live_usage(
     # Set context window from model metadata so the footer shows the
     # correct value during streaming — works for both endpoints and
     # built-in providers (Anthropic, OpenAI, etc.).
-    _apply_model_context_window(engine)
+    _apply_model_context_window(ctx)
 
 
-def _apply_model_context_window(engine: Engine) -> None:
+def _apply_model_context_window(ctx: LLMContext) -> None:
     """Set the context window from model metadata if available.
 
     No-op when the context window is already known.  Checks endpoint
     metadata first, then falls back to genai-prices for built-in
     providers.
     """
-    if engine.state.usage.context_window_known:
+    if ctx.state.usage.context_window_known:
         return
-    ctx = model_context_window(engine.state.model_name)
-    if ctx is not None:
-        engine.state.usage.context_window = ctx
-        engine.state.usage.context_window_known = True
+    cw = model_context_window(ctx.state.model_name)
+    if cw is not None:
+        ctx.state.usage.context_window = cw
+        ctx.state.usage.context_window_known = True
 
 
 def _record_usage(
-    engine: Engine,
+    ctx: LLMContext,
     new_messages: list[ModelMessage],
     run_usage: RunUsage,
 ) -> tuple[float, bool]:
@@ -568,12 +554,12 @@ def _record_usage(
 
     # Prefer model metadata (endpoint config or genai-prices lookup)
     # over the value from msg.cost(), which may not know the model.
-    meta_context_window = model_context_window(engine.state.model_name)
+    meta_context_window = model_context_window(ctx.state.model_name)
     if meta_context_window is not None:
         context_window = meta_context_window
 
     response_count = sum(1 for m in new_messages if isinstance(m, ModelResponse))
-    engine.state.usage.record_run(
+    ctx.state.usage.record_run(
         input_tokens=run_usage.input_tokens,
         output_tokens=run_usage.output_tokens,
         cache_read_tokens=run_usage.cache_read_tokens,

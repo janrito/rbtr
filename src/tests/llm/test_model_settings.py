@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_mock import MockerFixture
 
-from rbtr.engine.model_settings import resolve_model_settings
+from rbtr.llm.model_settings import resolve_model_settings
 
 
 def test_resolve_model_settings_skips_effort_when_unsupported(mocker: MockerFixture) -> None:

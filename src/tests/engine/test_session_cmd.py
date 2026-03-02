@@ -180,10 +180,10 @@ def test_resume_no_args(seeded_engine: Engine) -> None:
 def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     """Resume after compaction loads only the post-compaction state."""
     mocker.patch(
-        "rbtr.engine.compact._stream_summary",
+        "rbtr.llm.compact._stream_summary",
         return_value="Summary of conversation.",
     )
-    mocker.patch("rbtr.engine.compact.build_model")
+    mocker.patch("rbtr.llm.compact.build_model")
 
     engine.state.claude_connected = True
     engine.state.model_name = "claude/sonnet"
@@ -198,9 +198,9 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     compacted_session_id = engine.state.session_id
 
     # Compact (rewrites DB).
-    from rbtr.engine.compact import compact_history
+    from rbtr.llm.compact import compact_history
 
-    compact_history(engine)
+    compact_history(engine._llm_context())
     post_compact_count = len(engine.store.load_messages(compacted_session_id))
 
     # Switch to a new session.

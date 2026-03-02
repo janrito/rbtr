@@ -9,13 +9,13 @@ from typing import Any
 import pytest
 
 from rbtr.engine.review import _partition_comments, sync_review_draft
-from rbtr.engine.state import EngineState
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges
 from rbtr.github.client import get_pending_review, parse_comment_body
 from rbtr.github.draft import _comment_hash, load_draft, save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
+from rbtr.state import EngineState
 
 from .conftest import (
     FakeGithub,

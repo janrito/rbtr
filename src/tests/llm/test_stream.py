@@ -29,13 +29,14 @@ from pytest_mock import MockerFixture
 
 from rbtr.creds import creds
 from rbtr.engine.core import Engine
-from rbtr.engine.llm import (
+from rbtr.events import ToolCallFinished, ToolCallStarted
+from rbtr.llm.context import LLMContext
+from rbtr.llm.stream import (
     _auto_compact_on_overflow,
     _emit_tool_event,
     _record_usage,
     _update_live_usage,
 )
-from rbtr.events import ToolCallFinished, ToolCallStarted
 
 from .conftest import drain
 
@@ -93,10 +94,14 @@ def _make_tool_retry_event(tool_name: str, content: str) -> FunctionToolResultEv
     ids=["dict_args", "str_args", "none_args"],
 )
 def test_emit_tool_call(
-    engine: Engine, tool_name: str, args: str | dict[str, str] | None, expected_args: str
+    engine: Engine,
+    ctx: LLMContext,
+    tool_name: str,
+    args: str | dict[str, str] | None,
+    expected_args: str,
 ) -> None:
     """Tool call events are emitted with correctly formatted args."""
-    _emit_tool_event(engine, _make_tool_call_event(tool_name, args))
+    _emit_tool_event(ctx, _make_tool_call_event(tool_name, args))
     events = drain(engine.events)
     assert len(events) == 1
     assert isinstance(events[0], ToolCallStarted)
@@ -104,29 +109,29 @@ def test_emit_tool_call(
     assert expected_args in events[0].args
 
 
-def test_emit_tool_result_normal(engine: Engine) -> None:
+def test_emit_tool_result_normal(engine: Engine, ctx: LLMContext) -> None:
     """Normal tool result emits content text."""
-    _emit_tool_event(engine, _make_tool_result_event("read_file", "file contents here"))
+    _emit_tool_event(ctx, _make_tool_result_event("read_file", "file contents here"))
     events = drain(engine.events)
     assert len(events) == 1
     assert isinstance(events[0], ToolCallFinished)
     assert events[0].result == "file contents here"
 
 
-def test_emit_tool_result_truncation(engine: Engine) -> None:
+def test_emit_tool_result_truncation(engine: Engine, ctx: LLMContext) -> None:
     """Long results are truncated at tool_max_chars."""
     from rbtr.config import config
 
     long_content = "x" * (config.tui.tool_max_chars + 100)
-    _emit_tool_event(engine, _make_tool_result_event("read_file", long_content))
+    _emit_tool_event(ctx, _make_tool_result_event("read_file", long_content))
     events = drain(engine.events)
     assert len(events[0].result) == config.tui.tool_max_chars + 1  # +1 for "…"
     assert events[0].result.endswith("…")
 
 
-def test_emit_tool_result_retry(engine: Engine) -> None:
+def test_emit_tool_result_retry(engine: Engine, ctx: LLMContext) -> None:
     """Retry prompt result emits '(retry)'."""
-    _emit_tool_event(engine, _make_tool_retry_event("read_file", "tool failed, try again"))
+    _emit_tool_event(ctx, _make_tool_retry_event("read_file", "tool failed, try again"))
     events = drain(engine.events)
     assert isinstance(events[0], ToolCallFinished)
     assert events[0].result == "(retry)"
@@ -244,6 +249,7 @@ def test_record_usage_sets_context_window(
     provider: str,
     expected_window: int,
     engine: Engine,
+    ctx: LLMContext,
 ) -> None:
     """_record_usage resolves the real context window for built-in providers."""
     engine.state.model_name = model_name
@@ -253,14 +259,14 @@ def test_record_usage_sets_context_window(
         response,
     ]
 
-    _record_usage(engine, messages, _make_run_usage(input_tokens=5000, output_tokens=200))
+    _record_usage(ctx, messages, _make_run_usage(input_tokens=5000, output_tokens=200))
 
     assert engine.state.usage.context_window == expected_window
     assert engine.state.usage.context_window_known is True
     assert engine.state.usage.last_input_tokens == 5000
 
 
-def test_record_usage_last_input_tokens_from_response(engine: Engine) -> None:
+def test_record_usage_last_input_tokens_from_response(engine: Engine, ctx: LLMContext) -> None:
     """last_input_tokens comes from the last ModelResponse.usage, not cumulative RunUsage."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     # Simulate a multi-request run (tool calls):
@@ -274,14 +280,14 @@ def test_record_usage_last_input_tokens_from_response(engine: Engine) -> None:
         response2,
     ]
     # RunUsage cumulative = 5000 + 8000 = 13000
-    _record_usage(engine, messages, _make_run_usage(input_tokens=13000, output_tokens=400))
+    _record_usage(ctx, messages, _make_run_usage(input_tokens=13000, output_tokens=400))
 
     # last_input_tokens should be the last response's value, not cumulative
     assert engine.state.usage.last_input_tokens == 8000
     assert engine.state.usage.input_tokens == 13000
 
 
-def test_record_usage_context_used_pct(engine: Engine) -> None:
+def test_record_usage_context_used_pct(engine: Engine, ctx: LLMContext) -> None:
     """context_used_pct uses the real context window, not the 128 k default."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     response = _make_provider_response(input_tokens=100_000)
@@ -290,14 +296,14 @@ def test_record_usage_context_used_pct(engine: Engine) -> None:
         response,
     ]
 
-    _record_usage(engine, messages, _make_run_usage(input_tokens=100_000))
+    _record_usage(ctx, messages, _make_run_usage(input_tokens=100_000))
 
     # 100k / 200k = 50%, NOT 100k / 128k = 78%
     assert engine.state.usage.context_window == 200_000
     assert engine.state.usage.context_used_pct == pytest.approx(50.0)
 
 
-def test_record_usage_cache_tokens(engine: Engine) -> None:
+def test_record_usage_cache_tokens(engine: Engine, ctx: LLMContext) -> None:
     """Cache tokens are tracked alongside the context window."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     response = _make_provider_response(
@@ -317,14 +323,14 @@ def test_record_usage_cache_tokens(engine: Engine) -> None:
         cache_write_tokens=1000,
     )
 
-    _record_usage(engine, messages, usage)
+    _record_usage(ctx, messages, usage)
 
     assert engine.state.usage.cache_read_tokens == 3000
     assert engine.state.usage.cache_write_tokens == 1000
     assert engine.state.usage.context_window == 200_000
 
 
-def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
+def test_record_usage_multi_turn_context_pct(engine: Engine, ctx: LLMContext) -> None:
     """Context % stays correct across multiple turns."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
@@ -334,7 +340,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
         ModelRequest(parts=[UserPromptPart(content="turn 1")]),
         resp1,
     ]
-    _record_usage(engine, msgs1, _make_run_usage(input_tokens=10_000))
+    _record_usage(ctx, msgs1, _make_run_usage(input_tokens=10_000))
 
     assert engine.state.usage.context_window == 200_000
     assert engine.state.usage.context_used_pct == pytest.approx(5.0)
@@ -347,7 +353,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
         resp2,
     ]
     new_msgs2 = msgs2[len(msgs1) :]
-    _record_usage(engine, new_msgs2, _make_run_usage(input_tokens=50_000))
+    _record_usage(ctx, new_msgs2, _make_run_usage(input_tokens=50_000))
 
     assert engine.state.usage.context_window == 200_000  # stays correct
     assert engine.state.usage.context_used_pct == pytest.approx(25.0)
@@ -356,7 +362,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine) -> None:
 # ── _update_live_usage: mid-run context tracking ─────────────────────
 
 
-def test_update_live_usage_sets_context_window(engine: Engine) -> None:
+def test_update_live_usage_sets_context_window(engine: Engine, ctx: LLMContext) -> None:
     """_update_live_usage resolves the context window during streaming."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.usage.snapshot_base()
@@ -364,7 +370,7 @@ def test_update_live_usage_sets_context_window(engine: Engine) -> None:
     response = _make_provider_response(input_tokens=10_000, output_tokens=500)
     run_usage = RunUsage(requests=1, input_tokens=10_000, output_tokens=500)
 
-    _update_live_usage(engine, run_usage, response)
+    _update_live_usage(ctx, run_usage, response)
 
     assert engine.state.usage.last_input_tokens == 10_000
     assert engine.state.usage.context_window == 200_000
@@ -373,7 +379,7 @@ def test_update_live_usage_sets_context_window(engine: Engine) -> None:
     assert engine.state.usage.context_used_pct == pytest.approx(5.0)
 
 
-def test_update_live_usage_accumulates_over_base(engine: Engine) -> None:
+def test_update_live_usage_accumulates_over_base(engine: Engine, ctx: LLMContext) -> None:
     """Live usage correctly adds to the baseline from previous runs."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
@@ -388,7 +394,7 @@ def test_update_live_usage_accumulates_over_base(engine: Engine) -> None:
     response = _make_provider_response(input_tokens=8000, output_tokens=300)
     run_usage = RunUsage(requests=1, input_tokens=8000, output_tokens=300)
 
-    _update_live_usage(engine, run_usage, response)
+    _update_live_usage(ctx, run_usage, response)
 
     # Lifetime totals: 5000 + 8000 = 13000
     assert engine.state.usage.input_tokens == 13_000
@@ -411,9 +417,10 @@ def test_handle_llm_retries_without_effort_on_rejection(
     config_path: Path,
     creds_path: Path,
     engine: Engine,
+    ctx: LLMContext,
 ) -> None:
     """handle_llm retries without effort when the model rejects it."""
-    from rbtr.engine.llm import handle_llm
+    from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
@@ -427,9 +434,9 @@ def test_handle_llm_retries_without_effort_on_rejection(
         if call_count == 1:
             raise _make_http_error(400, "This model does not support the effort parameter.")
 
-    mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
+    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
-    handle_llm(engine, "test question")
+    handle_llm(engine._llm_context(), "test question")
 
     assert call_count == 2
     assert engine.state.effort_supported is False
@@ -443,6 +450,7 @@ def test_auto_compact_on_overflow_compacts_and_retries(
     config_path: Path,
     creds_path: Path,
     engine: Engine,
+    ctx: LLMContext,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
 
@@ -450,12 +458,12 @@ def test_auto_compact_on_overflow_compacts_and_retries(
     engine.state.openai_connected = True
     engine.state.model_name = "openai/gpt-4o"
 
-    compact_mock = mocker.patch("rbtr.engine.compact.compact_history")
+    compact_mock = mocker.patch("rbtr.llm.stream.compact_history")
 
     retry_calls: list[str] = []
-    mocker.patch("rbtr.engine.llm.handle_llm", lambda eng, msg: retry_calls.append(msg))
+    mocker.patch("rbtr.llm.stream.handle_llm", lambda eng, msg: retry_calls.append(msg))
 
-    _auto_compact_on_overflow(engine, "my question")
+    _auto_compact_on_overflow(engine._llm_context(), "my question")
 
     compact_mock.assert_called_once()
     assert retry_calls == ["my question"]
@@ -469,6 +477,7 @@ def test_handle_llm_context_overflow_triggers_compact(
     config_path: Path,
     creds_path: Path,
     engine: Engine,
+    ctx: LLMContext,
 ) -> None:
     """handle_llm auto-compacts on context overflow and retries."""
 
@@ -493,14 +502,14 @@ def test_handle_llm_context_overflow_triggers_compact(
         if call_count == 1:
             raise _make_http_error(400, "maximum context length exceeded")
 
-    mocker.patch("rbtr.engine.llm._run_agent", fake_run_agent)
+    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
     # Mock compact_history (a no-op here — the retry is what matters).
-    mocker.patch("rbtr.engine.compact.compact_history")
+    mocker.patch("rbtr.llm.stream.compact_history")
 
-    from rbtr.engine.llm import handle_llm
+    from rbtr.llm.stream import handle_llm
 
-    handle_llm(engine, "test question")
+    handle_llm(engine._llm_context(), "test question")
 
     # _run_agent called twice: first fails, compact, then retry via handle_llm
     # But handle_llm calls _run_agent for the retry, so total = 2

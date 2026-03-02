@@ -22,7 +22,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
-from rbtr.engine import Engine, EngineState, TaskCancelled, TaskType
+from rbtr.engine import Engine, TaskType
 from rbtr.engine.shell import _truncate_output
 from rbtr.events import (
     Event,
@@ -37,8 +37,9 @@ from rbtr.events import (
     TaskStarted,
     TextDelta,
 )
-from rbtr.exceptions import RbtrError
+from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.models import BranchTarget, PRSummary, PRTarget
+from rbtr.state import EngineState
 
 from .conftest import (
     BRANCH_FEATURE_X,
@@ -384,13 +385,13 @@ def test_llm_streams_response(creds_path: Path, mocker: MockerFixture, engine: E
     creds.update(claude=OAuthCreds(access_token="t", refresh_token="r", expires_at=9e9))
     engine.state.claude_connected = True
 
-    async def fake_stream(eng, model, message, **kwargs):
+    async def fake_stream(ctx, model, message, **kwargs):
         from rbtr.events import TextDelta
 
-        eng._emit(TextDelta(delta="Hello "))
-        eng._emit(TextDelta(delta="world"))
+        ctx.emit(TextDelta(delta="Hello "))
+        ctx.emit(TextDelta(delta="world"))
 
-    mocker.patch("rbtr.engine.llm._stream_agent", fake_stream)
+    mocker.patch("rbtr.llm.stream._stream_agent", fake_stream)
     engine.run_task(TaskType.LLM, "explain this code")
     drained_events = drain(engine.events)
     assert drained_events[-1].success is True
@@ -406,13 +407,13 @@ def test_llm_persists_to_store(creds_path: Path, mocker: MockerFixture, engine: 
     creds.update(openai_api_key="sk-test")
     engine.state.openai_connected = True
 
-    async def fake_stream(eng, model, message, **kwargs):
-        eng.store.save_messages(
-            eng.state.session_id,
+    async def fake_stream(ctx, model, message, **kwargs):
+        ctx.store.save_messages(
+            ctx.state.session_id,
             [ModelRequest(parts=[UserPromptPart(content=message)])],
         )
 
-    mocker.patch("rbtr.engine.llm._stream_agent", fake_stream)
+    mocker.patch("rbtr.llm.stream._stream_agent", fake_stream)
     engine.run_task(TaskType.LLM, "hello")
     drain(engine.events)
     assert len(engine.store.load_messages(engine.state.session_id)) == 1

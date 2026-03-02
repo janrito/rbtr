@@ -34,6 +34,7 @@ from rbtr.github.client import get_pr_discussion as fetch_pr_discussion
 from rbtr.github.draft import load_draft, save_draft
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.store import IndexStore
+from rbtr.llm.agent import AgentDeps, agent
 from rbtr.models import (
     DiffSide,
     DiscussionEntry,
@@ -42,8 +43,6 @@ from rbtr.models import (
     PRTarget,
     ReviewDraft,
 )
-
-from .agent import AgentDeps, agent
 
 # ── Prepare functions ────────────────────────────────────────────────
 

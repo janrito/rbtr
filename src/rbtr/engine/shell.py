@@ -9,9 +9,8 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
+from rbtr.exceptions import TaskCancelled
 from rbtr.styles import STYLE_SHELL_STDERR
-
-from .types import TaskCancelled
 
 if TYPE_CHECKING:
     from .core import Engine

@@ -16,7 +16,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from rbtr.engine.history import (
+from rbtr.llm.history import (
     demote_thinking,
     is_history_format_error,
     repair_dangling_tool_calls,

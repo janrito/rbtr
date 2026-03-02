@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 
-from rbtr.engine.errors import is_context_overflow, is_effort_unsupported
+from rbtr.llm.errors import is_context_overflow, is_effort_unsupported
 
 
 def _make_http_error(status: int, body: str) -> ModelHTTPError:
