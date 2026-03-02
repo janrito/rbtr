@@ -179,7 +179,7 @@ async def _stream_summary(
     engine: Engine, model: Model, instructions: str, conversation: str
 ) -> str:
     """Stream the summary from the model, return the full text."""
-    from .llm import resolve_model_settings  # deferred: avoid circular at module level
+    from .model_settings import resolve_model_settings  # deferred: avoid circular at module level
 
     settings = resolve_model_settings(
         model, engine.state.model_name, effort_supported=engine.state.effort_supported

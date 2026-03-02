@@ -14,12 +14,8 @@ from pathlib import Path
 import pygit2
 import pytest
 from github.GithubException import GithubException
-from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelRequest,
-    ModelResponse,
-    TextPart,
-    ThinkingPart,
     UserPromptPart,
 )
 from pytest_mock import MockerFixture
@@ -27,7 +23,6 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 from rbtr.engine import Engine, EngineState, TaskCancelled, TaskType
-from rbtr.engine.history import demote_thinking, is_history_format_error
 from rbtr.engine.shell import _truncate_output
 from rbtr.events import (
     Event,
@@ -446,59 +441,6 @@ def test_llm_warns_when_not_connected(engine: Engine) -> None:
     assert drained_events[-1].success is True
     warnings = [e for e in drained_events if isinstance(e, Output) and "No LLM connected" in e.text]
     assert len(warnings) == 1
-
-
-# ── /connect openai ──────────────────────────────────────────────────
-
-
-def test_connect_openai_saves_key(creds_path: Path, engine: Engine) -> None:
-
-    engine.run_task(TaskType.COMMAND, "/connect openai sk-test-key-123")
-    drained_events = drain(engine.events)
-    assert drained_events[-1].success is True
-    assert engine.state.openai_connected is True
-    assert creds.openai_api_key == "sk-test-key-123"
-    texts = output_texts(drained_events)
-    assert any("Connected to OpenAI" in t for t in texts)
-
-
-def test_connect_openai_already_connected(creds_path: Path, engine: Engine) -> None:
-
-    creds.update(openai_api_key="sk-existing")
-    engine.run_task(TaskType.COMMAND, "/connect openai")
-    drained_events = drain(engine.events)
-    assert drained_events[-1].success is True
-    assert engine.state.openai_connected is True
-    texts = output_texts(drained_events)
-    assert any("Already connected" in t for t in texts)
-
-
-def test_connect_openai_rejects_bad_key(creds_path: Path, engine: Engine) -> None:
-    engine.run_task(TaskType.COMMAND, "/connect openai bad-key-format")
-    drained_events = drain(engine.events)
-    assert drained_events[-1].success is True
-    assert engine.state.openai_connected is False
-    texts = output_texts(drained_events)
-    assert any("Invalid" in t for t in texts)
-
-
-def test_connect_openai_no_key_shows_usage(creds_path: Path, engine: Engine) -> None:
-    engine.run_task(TaskType.COMMAND, "/connect openai")
-    drained_events = drain(engine.events)
-    texts = output_texts(drained_events)
-    assert any("Usage" in t for t in texts)
-    assert any("platform.openai.com" in t for t in texts)
-
-
-def test_connect_openai_replaces_existing_key(creds_path: Path, engine: Engine) -> None:
-    """Providing a key when one exists replaces it."""
-
-    creds.update(openai_api_key="sk-old")
-    engine.run_task(TaskType.COMMAND, "/connect openai sk-new-key")
-    drained_events = drain(engine.events)
-    assert drained_events[-1].success is True
-    assert engine.state.openai_connected is True
-    assert creds.openai_api_key == "sk-new-key"
 
 
 # ── Setup ────────────────────────────────────────────────────────────
@@ -932,108 +874,6 @@ def test_model_change_same_provider_preserves_history(config_path: Path, engine:
     assert len(engine.store.load_messages(engine.state.session_id)) == 1
 
 
-# ── History repair ───────────────────────────────────────────────────
-
-
-def test_demote_thinking_converts_to_text() -> None:
-    from pydantic_ai.messages import ModelMessage
-
-    history: list[ModelMessage] = [
-        ModelResponse(
-            parts=[
-                ThinkingPart(content="reasoning…", id="reasoning_content"),
-                TextPart(content="hello"),
-            ],
-            model_name="test",
-        ),
-    ]
-
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 1
-    response = cleaned[0]
-    assert isinstance(response, ModelResponse)
-    assert len(response.parts) == 2
-    assert isinstance(response.parts[0], TextPart)
-    assert response.parts[0].content == "<thinking>\nreasoning…\n</thinking>"
-    assert isinstance(response.parts[1], TextPart)
-    assert response.parts[1].content == "hello"
-
-
-def test_demote_thinking_drops_empty_thinking() -> None:
-    from pydantic_ai.messages import ModelMessage
-
-    history: list[ModelMessage] = [
-        ModelResponse(
-            parts=[ThinkingPart(content="", id="rs_123")],
-            model_name="test",
-        ),
-    ]
-
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 0
-
-
-def test_demote_thinking_preserves_non_responses() -> None:
-    from pydantic_ai.messages import ModelMessage
-
-    history: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content="hello")]),
-    ]
-
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 1
-
-
-def test_is_history_format_error_invalid_id() -> None:
-
-    exc = ModelHTTPError(
-        400,
-        "gpt-5.1-codex",
-        body={
-            "message": "Invalid 'input[6].id': 'reasoning_content'. "
-            "Expected an ID that begins with 'rs'.",
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_missing_reasoning() -> None:
-
-    exc = ModelHTTPError(
-        400,
-        "gpt-5-mini",
-        body={
-            "message": "Item 'fc_07f6' of type 'function_call' was "
-            "provided without its required 'reasoning' item: 'rs_07f6'.",
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_rejects_unrelated() -> None:
-
-    exc = ModelHTTPError(
-        400,
-        "gpt-4o",
-        body={"message": "maximum context length exceeded"},
-    )
-    assert not is_history_format_error(exc)
-
-
-def test_is_history_format_error_rejects_orphan_tool_return() -> None:
-    """Orphaned tool returns (from bad compaction) are not format errors."""
-    exc = ModelHTTPError(
-        400,
-        "gpt-5.3-codex",
-        body={
-            "message": "No tool call found for function call output "
-            "with call_id call_2dSruMECzg5uxFmSBi4lC893.",
-            "type": "invalid_request_error",
-        },
-    )
-    assert not is_history_format_error(exc)
-
-
 # ── EngineState.index & index events ─────────────────────────────────────
 
 
@@ -1091,50 +931,4 @@ def test_tool_call_events_serialize() -> None:
     eq.put(finished)
     assert eq.qsize() == 2
 
-
-def test_emit_tool_event_call(mocker: MockerFixture) -> None:
-    """_emit_tool_event emits ToolCallStarted for FunctionToolCallEvent."""
-    from unittest.mock import MagicMock
-
-    from pydantic_ai.messages import FunctionToolCallEvent, ToolCallPart
-
-    from rbtr.engine.llm import _emit_tool_event
-    from rbtr.events import ToolCallStarted
-
-    engine = MagicMock()
-    part = ToolCallPart(tool_name="diff", args={"ref": "main..feature"})
-    event = FunctionToolCallEvent(part=part)
-    _emit_tool_event(engine, event)
-
-    engine._emit.assert_called_once()
-    emitted = engine._emit.call_args[0][0]
-    assert isinstance(emitted, ToolCallStarted)
-    assert emitted.tool_name == "diff"
-
-
-def test_emit_tool_event_result_truncated(mocker: MockerFixture) -> None:
-    """_emit_tool_event truncates long tool results at the configured char limit."""
-    from unittest.mock import MagicMock
-
-    from pydantic_ai.messages import FunctionToolResultEvent, ToolReturnPart
-
-    from rbtr.config import config
-    from rbtr.engine.llm import _emit_tool_event
-    from rbtr.events import ToolCallFinished
-
-    max_chars = config.tui.tool_max_chars
-    engine = MagicMock()
-    long_result = "x" * (max_chars + 500)
-    result_part = ToolReturnPart(
-        tool_name="search_codebase",
-        content=long_result,
-        tool_call_id="tc_1",
-    )
-    event = FunctionToolResultEvent(result=result_part)
-    _emit_tool_event(engine, event)
-
-    engine._emit.assert_called_once()
-    emitted = engine._emit.call_args[0][0]
-    assert isinstance(emitted, ToolCallFinished)
-    assert len(emitted.result) == max_chars + 1  # truncated + "…"
-    assert emitted.result.endswith("…")
+    # Detailed _emit_tool_event tests live in test_llm.py (parametrised).

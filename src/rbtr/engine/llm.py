@@ -10,7 +10,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent
 from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
 from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -23,7 +22,6 @@ from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
-    RetryPromptPart,
     TextPartDelta,
     ToolCallPart,
     ToolReturnPart,
@@ -35,15 +33,12 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError
-from rbtr.providers import (
-    build_model,
-    build_model_settings,
-    endpoint_model_settings,
-    model_context_window,
-)
+from rbtr.providers import build_model, model_context_window
 
 from .agent import AgentDeps, agent
-from .history import demote_thinking, is_history_format_error
+from .errors import is_context_overflow, is_effort_unsupported
+from .history import demote_thinking, is_history_format_error, repair_dangling_tool_calls
+from .model_settings import resolve_model_settings
 from .types import TaskCancelled
 
 if TYPE_CHECKING:
@@ -52,95 +47,6 @@ if TYPE_CHECKING:
     from .core import Engine
 
 log = logging.getLogger(__name__)
-
-
-# ── History repair ───────────────────────────────────────────────────
-
-
-def _repair_dangling_tool_calls(
-    history: list[ModelMessage],
-) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
-    """Fix history left dirty by a cancelled tool-calling turn.
-
-    Part of the tool-call pairing invariant (see `history.py` module
-    docstring).  For each `ModelResponse` with `ToolCallPart`s, checks
-    whether every call has a matching `ToolReturnPart` *anywhere* in
-    the history.  Injects a synthetic `(cancelled)` result for any
-    truly unmatched call.
-
-    Called once on session load — not during normal operation.
-
-    Returns `(repaired_history, tool_names, new_messages)` where
-    *tool_names* lists every tool that was patched (empty if no
-    repair needed), and *new_messages* contains only the synthetic
-    `ModelRequest`s that were injected (for persistence).
-    """
-    if not history:
-        return history, [], []
-
-    # First pass: collect all tool_call_ids that already have a
-    # ToolReturnPart or RetryPromptPart anywhere in the history.
-    # This prevents false positives when a user prompt is
-    # interleaved between tool calls and their returns.
-    globally_answered: set[str | None] = set()
-    for msg in history:
-        if isinstance(msg, ModelRequest):
-            for p in msg.parts:
-                if isinstance(p, (ToolReturnPart, RetryPromptPart)):
-                    globally_answered.add(p.tool_call_id)
-
-    repaired: list[ModelMessage] | None = None  # lazy copy
-    all_tool_names: list[str] = []
-    new_messages: list[ModelMessage] = []
-
-    i = 0
-    while i < len(history):
-        msg = history[i]
-        if isinstance(msg, ModelResponse):
-            tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
-            if tool_calls:
-                missing = [tc for tc in tool_calls if tc.tool_call_id not in globally_answered]
-                if missing:
-                    if repaired is None:
-                        repaired = list(history[:i])
-                    repaired.append(msg)
-
-                    # Check if the immediately next message has partial
-                    # results — keep it as-is if so.
-                    next_msg = history[i + 1] if i + 1 < len(history) else None
-                    if isinstance(next_msg, ModelRequest) and any(
-                        isinstance(p, (ToolReturnPart, RetryPromptPart)) for p in next_msg.parts
-                    ):
-                        repaired.append(next_msg)
-                        i += 1  # skip next_msg, already added
-
-                    names = [tc.tool_name for tc in missing]
-                    all_tool_names.extend(names)
-                    log.info(
-                        "Repairing %d dangling tool call(s) from cancelled turn.",
-                        len(missing),
-                    )
-                    synthetic = ModelRequest(
-                        parts=[
-                            ToolReturnPart(
-                                tool_name=tc.tool_name,
-                                content="(cancelled)",
-                                tool_call_id=tc.tool_call_id,
-                            )
-                            for tc in missing
-                        ],
-                    )
-                    repaired.append(synthetic)
-                    new_messages.append(synthetic)
-                    i += 1
-                    continue
-        if repaired is not None:
-            repaired.append(msg)
-        i += 1
-
-    if repaired is not None:
-        return repaired, all_tool_names, new_messages
-    return history, [], []
 
 
 @dataclass(slots=True)
@@ -153,79 +59,6 @@ class _StreamResult:
     limit_hit: bool
     last_writer: ResponseWriter | None
     compact_needed: bool = False
-
-
-def resolve_model_settings(
-    model: Model,
-    model_name: str | None,
-    *,
-    effort_supported: bool | None = None,
-) -> ModelSettings | None:
-    """Build merged model settings (thinking effort + endpoint overrides).
-
-    Used by both the main agent run and compaction summaries to avoid
-    duplicating settings-construction logic.
-
-    When *effort_supported* is ``False``, the effort parameter is
-    omitted even if ``config.thinking_effort`` is set — this avoids
-    re-sending a parameter the model already rejected.
-    """
-    effort = config.thinking_effort
-    if effort is not ThinkingEffort.NONE and effort_supported is not False:
-        settings: ModelSettings | None = build_model_settings(model, effort)
-    else:
-        settings = None
-
-    ep_settings = endpoint_model_settings(model_name)
-    if ep_settings is not None:
-        settings = {**(settings or {}), **ep_settings}
-
-    return settings
-
-
-_CONTEXT_OVERFLOW_HINT = "Try /compact to free context space, then re-send your message."
-
-# Keywords in API error messages that indicate a context-length issue.
-_OVERFLOW_KEYWORDS = (
-    "context length",
-    "context window",
-    "maximum context",
-    "token limit",
-    "too many tokens",
-    "too long",
-    "max_tokens",
-    "prompt is too long",
-    "input is too long",
-    "request too large",
-    "content_too_large",
-)
-
-# Keywords paired with "effort" that signal the parameter was rejected.
-_EFFORT_REJECTION_KEYWORDS = (
-    "not support",
-    "unsupported",
-    "not available",
-    "not allowed",
-    "unknown parameter",
-    "invalid parameter",
-    "unrecognized",
-)
-
-
-def _is_effort_unsupported(exc: ModelHTTPError) -> bool:
-    """Does the API error indicate that the model doesn't support the effort parameter?"""
-    msg = str(exc).lower()
-    return "effort" in msg and any(kw in msg for kw in _EFFORT_REJECTION_KEYWORDS)
-
-
-def _is_context_overflow(exc: ModelHTTPError) -> bool:
-    """Heuristic: does the API error indicate a context-length problem?"""
-    if exc.status_code == 413:
-        return True
-    if exc.status_code == 400:
-        msg = str(exc).lower()
-        return any(kw in msg for kw in _OVERFLOW_KEYWORDS)
-    return False
 
 
 _LIMIT_SUMMARY_PROMPT = (
@@ -250,7 +83,7 @@ def handle_llm(engine: Engine, message: str) -> None:
     try:
         _run_agent(engine, model, message)
     except ModelHTTPError as exc:
-        if exc.status_code == 400 and _is_effort_unsupported(exc):
+        if exc.status_code == 400 and is_effort_unsupported(exc):
             engine.state.effort_supported = False
             engine._out("Model does not support effort — retrying without it…")
             _run_agent(engine, model, message)
@@ -259,7 +92,7 @@ def handle_llm(engine: Engine, message: str) -> None:
             engine._out("Retrying with simplified history…")
             _run_agent(engine, model, message, simplify_history=True)
             return
-        if _is_context_overflow(exc):
+        if is_context_overflow(exc):
             _auto_compact_on_overflow(engine, message)
             return
         raise
@@ -283,79 +116,70 @@ def _auto_compact_on_overflow(engine: Engine, message: str) -> None:
 # ── Agent run ────────────────────────────────────────────────────────
 
 
-def _run_agent(
-    engine: Engine,
-    model: Model,
-    message: str,
-    *,
-    simplify_history: bool = False,
-) -> None:
-    """Stream an agent run, blocking until complete."""
-    future = asyncio.run_coroutine_threadsafe(
-        _stream_agent(engine, model, message, simplify_history=simplify_history),
-        engine._loop,
-    )
-    future.result()
+def _finish_response_writer(writer: ResponseWriter, all_msgs: list[ModelMessage]) -> None:
+    """Close a response writer with per-request token counts.
 
-
-async def _stream_agent(
-    engine: Engine,
-    model: Model,
-    message: str,
-    *,
-    simplify_history: bool = False,
-) -> None:
-    """Run the agent with cancellation support, update session state."""
-    # Load history from DB — the source of truth.
-    store = engine.store
-    history = store.load_messages(engine.state.session_id)
-    history, repaired_tools, repair_messages = _repair_dangling_tool_calls(history)
-    if repaired_tools:
-        # Persist the synthetic results so the repair is permanent.
-        _save_messages_safe(engine, repair_messages)
-        names = ", ".join(repaired_tools)
-        engine._warn(
-            f"Previous turn was cancelled mid-tool-call ({names}). "
-            f"Those tool results are lost — the model will continue without them."
+    Extracts usage from the last ``ModelResponse`` (the one just
+    streamed) for resilience — the final cost is added later by
+    ``_finalize_turn``.
+    """
+    last = all_msgs[-1] if all_msgs else None
+    if isinstance(last, ModelResponse):
+        writer.finish(
+            input_tokens=last.usage.input_tokens,
+            output_tokens=last.usage.output_tokens,
+            cache_read_tokens=last.usage.cache_read_tokens or None,
+            cache_write_tokens=last.usage.cache_write_tokens or None,
         )
-    if simplify_history:
-        history = demote_thinking(history)
-    deps = AgentDeps(state=engine.state)
+    else:
+        writer.finish()
 
-    settings = resolve_model_settings(
-        model, engine.state.model_name, effort_supported=engine.state.effort_supported
+
+def _needs_mid_turn_compaction(engine: Engine, response: ModelResponse) -> bool:
+    """Check whether context usage warrants mid-turn compaction.
+
+    Only triggers when the response contains tool calls (meaning more
+    requests will follow).  Text-only responses end the turn naturally.
+    """
+    has_tool_calls = any(isinstance(p, ToolCallPart) for p in response.parts)
+    return (
+        has_tool_calls and engine.state.usage.context_used_pct >= config.compaction.auto_compact_pct
     )
-    if (
-        config.thinking_effort is not ThinkingEffort.NONE
-        and engine.state.effort_supported is not False
-    ):
-        engine.state.effort_supported = settings is not None
 
-    engine.state.usage.snapshot_base()
 
-    # ── inner helper: one agent.iter() pass ──────────────────────
+async def _do_stream(
+    engine: Engine,
+    model: Model,
+    deps: AgentDeps,
+    settings: ModelSettings | None,
+    prompt: str | None,
+    msg_history: list[ModelMessage],
+) -> _StreamResult:
+    """Execute one ``agent.iter()`` pass — stream model output and tool calls.
 
-    async def _do_stream(
-        prompt: str | None,
-        msg_history: list[ModelMessage],
-    ) -> _StreamResult:
-        saved_count = len(msg_history)
-        saved_request_count = 0
-        limit_hit = False
-        compact_needed = False
-        last_writer: ResponseWriter | None = None
+    This is the single streaming loop shared by the main turn, mid-turn
+    compaction resume, and the limit-hit summary.
+    """
+    store = engine.store
+    saved_count = len(msg_history)
+    saved_request_count = 0
+    limit_hit = False
+    compact_needed = False
+    last_writer: ResponseWriter | None = None
 
-        async with agent.iter(
-            prompt,
-            model=model,
-            deps=deps,
-            message_history=msg_history or None,
-            model_settings=settings,
-            usage_limits=UsageLimits(request_limit=config.tools.max_requests_per_turn),
-        ) as run:
-            try:
-                async for node in run:
-                    if isinstance(node, ModelRequestNode):
+    async with agent.iter(
+        prompt,
+        model=model,
+        deps=deps,
+        message_history=msg_history or None,
+        model_settings=settings,
+        usage_limits=UsageLimits(request_limit=config.tools.max_requests_per_turn),
+    ) as run:
+        try:
+            async for node in run:
+                match node:
+                    # ── Model response: stream text deltas, persist parts ──
+                    case ModelRequestNode():
                         writer = store.begin_response(
                             engine.state.session_id,
                             model_name=engine.state.model_name,
@@ -373,69 +197,134 @@ async def _stream_agent(
                                     case PartEndEvent(index=idx, part=part):
                                         writer.finish_part(idx, part)
 
-                        all_msgs = run.all_messages()
+                        _finish_response_writer(writer, run.all_messages())
 
-                        # Extract per-request token counts from the
-                        # ModelResponse that was just streamed.
-                        last_resp = all_msgs[-1] if all_msgs else None
-                        if isinstance(last_resp, ModelResponse):
-                            writer.finish(
-                                input_tokens=last_resp.usage.input_tokens,
-                                output_tokens=last_resp.usage.output_tokens,
-                                cache_read_tokens=last_resp.usage.cache_read_tokens or None,
-                                cache_write_tokens=last_resp.usage.cache_write_tokens or None,
-                            )
-                        else:
-                            writer.finish()
-
-                        n = _save_new_requests(engine, all_msgs, saved_count)
-                        saved_request_count += n
-                        saved_count = len(all_msgs)
-
-                    elif isinstance(node, CallToolsNode):
+                    # ── Tool calls: execute tools, check compaction ──
+                    case CallToolsNode():
                         _update_live_usage(engine, run.usage(), node.model_response)
-                        has_tool_calls = any(
-                            isinstance(p, ToolCallPart) for p in node.model_response.parts
-                        )
+
                         async with node.stream(run.ctx) as tool_stream:
                             async for tool_event in tool_stream:
                                 _emit_tool_event(engine, tool_event)
 
-                        all_msgs = run.all_messages()
-                        n = _save_new_requests(engine, all_msgs, saved_count)
-                        saved_request_count += n
-                        saved_count = len(all_msgs)
-
-                        # Mid-turn compaction: only when the model made
-                        # tool calls (more requests will follow).  When
-                        # there are no tool calls the turn ends naturally.
-                        if (
-                            has_tool_calls
-                            and engine.state.usage.context_used_pct
-                            >= config.compaction.auto_compact_pct
-                        ):
+                        if _needs_mid_turn_compaction(engine, node.model_response):
                             compact_needed = True
-                            break
-            except UsageLimitExceeded:
-                limit_hit = True
 
-        new = list(run.new_messages())
-        requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
-        if len(requests) > saved_request_count:
-            _save_messages_safe(engine, requests[saved_request_count:])
+                # ── Persist after every node ──
+                all_msgs = run.all_messages()
+                n = _save_new_requests(engine, all_msgs, saved_count)
+                saved_request_count += n
+                saved_count = len(all_msgs)
 
-        return _StreamResult(
-            all_messages=list(run.all_messages()),
-            new_messages=new,
-            usage=run.usage(),
-            limit_hit=limit_hit,
-            last_writer=last_writer,
-            compact_needed=compact_needed,
+                if compact_needed:
+                    break
+        except UsageLimitExceeded:
+            limit_hit = True
+
+    new = list(run.new_messages())
+    requests: list[ModelMessage] = [m for m in new if isinstance(m, ModelRequest)]
+    if len(requests) > saved_request_count:
+        _save_messages_safe(engine, requests[saved_request_count:])
+
+    return _StreamResult(
+        all_messages=list(run.all_messages()),
+        new_messages=new,
+        usage=run.usage(),
+        limit_hit=limit_hit,
+        last_writer=last_writer,
+        compact_needed=compact_needed,
+    )
+
+
+def _run_agent(
+    engine: Engine,
+    model: Model,
+    message: str,
+    *,
+    simplify_history: bool = False,
+) -> None:
+    """Stream an agent run, blocking until complete."""
+    future = asyncio.run_coroutine_threadsafe(
+        _stream_agent(engine, model, message, simplify_history=simplify_history),
+        engine._loop,
+    )
+    future.result()
+
+
+def _prepare_turn(
+    engine: Engine,
+    model: Model,
+    simplify_history: bool,
+) -> tuple[list[ModelMessage], AgentDeps, ModelSettings | None]:
+    """Load history, repair dangling tool calls, resolve settings.
+
+    Mutates engine state: emits warnings for repaired tool calls,
+    persists synthetic repair messages, tracks ``effort_supported``,
+    and snapshots the usage baseline for the upcoming run.
+    """
+    store = engine.store
+    history = store.load_messages(engine.state.session_id)
+    history, repaired_tools, repair_messages = repair_dangling_tool_calls(history)
+    if repaired_tools:
+        _save_messages_safe(engine, repair_messages)
+        names = ", ".join(repaired_tools)
+        engine._warn(
+            f"Previous turn was cancelled mid-tool-call ({names}). "
+            f"Those tool results are lost — the model will continue without them."
+        )
+    if simplify_history:
+        history = demote_thinking(history)
+
+    deps = AgentDeps(state=engine.state)
+    settings = resolve_model_settings(
+        model, engine.state.model_name, effort_supported=engine.state.effort_supported
+    )
+    if (
+        config.thinking_effort is not ThinkingEffort.NONE
+        and engine.state.effort_supported is not False
+    ):
+        engine.state.effort_supported = settings is not None
+
+    engine.state.usage.snapshot_base()
+    return history, deps, settings
+
+
+def _finalize_turn(engine: Engine, result: _StreamResult) -> None:
+    """Record usage and write cost to the last response writer.
+
+    The writer's per-request tokens were already set during streaming
+    (for resilience if the run crashes).  This adds cost — the only
+    value that requires the full run to compute.
+    """
+    run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
+    if result.last_writer is not None:
+        last_resp = next(
+            (m for m in reversed(result.new_messages) if isinstance(m, ModelResponse)),
+            None,
+        )
+        result.last_writer.finish(
+            cost=run_cost if cost_available else None,
+            input_tokens=last_resp.usage.input_tokens if last_resp else None,
+            output_tokens=last_resp.usage.output_tokens if last_resp else None,
+            cache_read_tokens=(last_resp.usage.cache_read_tokens or None) if last_resp else None,
+            cache_write_tokens=(last_resp.usage.cache_write_tokens or None) if last_resp else None,
         )
 
-    # ── run with cancellation ────────────────────────────────────
 
-    result = await _run_with_cancel(engine, _do_stream(message, history))
+async def _stream_agent(
+    engine: Engine,
+    model: Model,
+    message: str,
+    *,
+    simplify_history: bool = False,
+) -> None:
+    """Run the agent with cancellation support, update session state."""
+    store = engine.store
+    history, deps, settings = _prepare_turn(engine, model, simplify_history)
+
+    result = await _run_with_cancel(
+        engine, _do_stream(engine, model, deps, settings, message, history)
+    )
 
     # Mid-turn compaction: if context exceeded the threshold during
     # a tool-call cycle, compact once and resume.
@@ -449,27 +338,21 @@ async def _stream_agent(
         history = store.load_messages(engine.state.session_id)
         engine.state.usage.snapshot_base()
 
-        resume = await _run_with_cancel(engine, _do_stream(None, history))
+        resume = await _run_with_cancel(
+            engine, _do_stream(engine, model, deps, settings, None, history)
+        )
         result = _merge_results(result, resume)
 
-    # Record usage and set cost on the last response.
-    run_cost, cost_available = _record_usage(engine, result.new_messages, result.usage)
-    if result.last_writer is not None:
-        # Find the last ModelResponse to get per-request token counts.
-        last_resp = next(
-            (m for m in reversed(result.new_messages) if isinstance(m, ModelResponse)),
-            None,
-        )
-        result.last_writer.finish(
-            cost=run_cost if cost_available else None,
-            input_tokens=last_resp.usage.input_tokens if last_resp else None,
-            output_tokens=last_resp.usage.output_tokens if last_resp else None,
-            cache_read_tokens=(last_resp.usage.cache_read_tokens or None) if last_resp else None,
-            cache_write_tokens=(last_resp.usage.cache_write_tokens or None) if last_resp else None,
-        )
+    _finalize_turn(engine, result)
 
     if result.limit_hit:
-        await _stream_summary(engine, model, settings)
+        history = store.load_messages(engine.state.session_id)
+        summary = await _run_with_cancel(
+            engine, _do_stream(engine, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
+        )
+        _save_messages_safe(
+            engine, [m for m in summary.new_messages if isinstance(m, ModelRequest)]
+        )
 
     # Post-turn compaction for turns that didn't trigger mid-turn.
     if (
@@ -479,38 +362,6 @@ async def _stream_agent(
         from .compact import compact_history_async  # deferred: avoid circular at module level
 
         await compact_history_async(engine)
-
-
-async def _stream_summary(
-    engine: Engine,
-    model: Model,
-    settings: ModelSettings | None,
-) -> None:
-    """Ask the model to summarize progress after hitting the tool-call limit.
-
-    Uses a plain agent (no tools) with a single request so the model
-    can only produce text — no further tool calls.
-    """
-    history = engine.store.load_messages(engine.state.session_id)
-
-    summary_agent: Agent[None, str] = Agent(model)
-    async with summary_agent.iter(
-        _LIMIT_SUMMARY_PROMPT,
-        model=model,
-        message_history=history or None,
-        model_settings=settings,
-        usage_limits=UsageLimits(request_limit=1),
-    ) as run:
-        async for node in run:
-            if isinstance(node, ModelRequestNode):
-                async with node.stream(run.ctx) as stream:
-                    async for delta in stream.stream_text(delta=True):
-                        engine._emit(TextDelta(delta=delta))
-
-    new_summary = list(run.new_messages())
-
-    # Persist summary messages.
-    _save_messages_safe(engine, new_summary)
 
 
 # ── Persistence helpers ──────────────────────────────────────────────

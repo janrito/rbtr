@@ -29,7 +29,7 @@ class AgentDeps:
 agent: Agent[AgentDeps, str] = Agent(deps_type=AgentDeps)
 
 
-@agent.system_prompt
+@agent.instructions
 def system_prompt(ctx: RunContext[AgentDeps]) -> str:
     """Render the main system prompt with live state context."""
     return render_system(ctx.deps.state)
@@ -46,7 +46,7 @@ def _index_tool_names() -> list[str]:
     )
 
 
-@agent.system_prompt
+@agent.instructions
 def index_status(ctx: RunContext[AgentDeps]) -> str:
     """Render index status instruction from the template."""
     state = ctx.deps.state

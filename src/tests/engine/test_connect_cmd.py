@@ -1,9 +1,4 @@
-"""Tests for /connect — Claude, ChatGPT, and endpoint auth flows.
-
-OpenAI and GitHub /connect paths are already covered in test_engine.py.
-This file covers the remaining untested flows: Claude two-phase OAuth,
-ChatGPT auto + manual fallback, and endpoint persistence.
-"""
+"""Tests for /connect — OpenAI, Claude, ChatGPT, and endpoint auth flows."""
 
 from __future__ import annotations
 
@@ -25,6 +20,56 @@ from .conftest import (
     has_event_type,
     output_texts,
 )
+
+# ── /connect openai ───────────────────────────────────────────────────
+
+
+def test_connect_openai_saves_key(creds_path: Path, engine: Engine) -> None:
+    engine.run_task(TaskType.COMMAND, "/connect openai sk-test-key-123")
+    drained_events = drain(engine.events)
+    assert drained_events[-1].success is True
+    assert engine.state.openai_connected is True
+    assert creds.openai_api_key == "sk-test-key-123"
+    texts = output_texts(drained_events)
+    assert any("Connected to OpenAI" in t for t in texts)
+
+
+def test_connect_openai_already_connected(creds_path: Path, engine: Engine) -> None:
+    creds.update(openai_api_key="sk-existing")
+    engine.run_task(TaskType.COMMAND, "/connect openai")
+    drained_events = drain(engine.events)
+    assert drained_events[-1].success is True
+    assert engine.state.openai_connected is True
+    texts = output_texts(drained_events)
+    assert any("Already connected" in t for t in texts)
+
+
+def test_connect_openai_rejects_bad_key(creds_path: Path, engine: Engine) -> None:
+    engine.run_task(TaskType.COMMAND, "/connect openai bad-key-format")
+    drained_events = drain(engine.events)
+    assert drained_events[-1].success is True
+    assert engine.state.openai_connected is False
+    texts = output_texts(drained_events)
+    assert any("Invalid" in t for t in texts)
+
+
+def test_connect_openai_no_key_shows_usage(creds_path: Path, engine: Engine) -> None:
+    engine.run_task(TaskType.COMMAND, "/connect openai")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("Usage" in t for t in texts)
+    assert any("platform.openai.com" in t for t in texts)
+
+
+def test_connect_openai_replaces_existing_key(creds_path: Path, engine: Engine) -> None:
+    """Providing a key when one exists replaces it."""
+    creds.update(openai_api_key="sk-old")
+    engine.run_task(TaskType.COMMAND, "/connect openai sk-new-key")
+    drained_events = drain(engine.events)
+    assert drained_events[-1].success is True
+    assert engine.state.openai_connected is True
+    assert creds.openai_api_key == "sk-new-key"
+
 
 # ── /connect dispatch ────────────────────────────────────────────────
 

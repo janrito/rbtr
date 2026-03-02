@@ -24,28 +24,32 @@ at a different scope:
   its immediately following ``ModelRequest`` (tool results).
   Structural check on one message — adjacency is the invariant.
 
-* **``_repair_dangling_tool_calls``** (in ``llm.py``) — on session
-  load, finds ``ModelResponse`` messages whose tool calls have no
-  matching ``ToolReturnPart`` *anywhere* in the history (caused by
-  Ctrl+C mid-turn) and injects synthetic ``(cancelled)`` results.
-  Global scan prevents false positives from interleaved user prompts.
+* **``_repair_dangling_tool_calls``** — on session load, finds
+  ``ModelResponse`` messages whose tool calls have no matching
+  ``ToolReturnPart`` *anywhere* in the history (caused by Ctrl+C
+  mid-turn) and injects synthetic ``(cancelled)`` results.  Global
+  scan prevents false positives from interleaved user prompts.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import replace
 
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
+
+log = logging.getLogger(__name__)
 
 
 def is_history_format_error(exc: Exception) -> bool:
@@ -89,6 +93,95 @@ def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
         else:
             cleaned.append(msg)
     return cleaned
+
+
+# ── Dangling tool-call repair ────────────────────────────────────────
+
+
+def repair_dangling_tool_calls(
+    history: list[ModelMessage],
+) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
+    """Fix history left dirty by a cancelled tool-calling turn.
+
+    Part of the tool-call pairing invariant (see module docstring).
+    For each ``ModelResponse`` with ``ToolCallPart``\\s, checks whether
+    every call has a matching ``ToolReturnPart`` *anywhere* in the
+    history.  Injects a synthetic ``(cancelled)`` result for any
+    truly unmatched call.
+
+    Called once on session load — not during normal operation.
+
+    Returns ``(repaired_history, tool_names, new_messages)`` where
+    *tool_names* lists every tool that was patched (empty if no
+    repair needed), and *new_messages* contains only the synthetic
+    ``ModelRequest``\\s that were injected (for persistence).
+    """
+    if not history:
+        return history, [], []
+
+    # First pass: collect all tool_call_ids that already have a
+    # ToolReturnPart or RetryPromptPart anywhere in the history.
+    # This prevents false positives when a user prompt is
+    # interleaved between tool calls and their returns.
+    globally_answered: set[str | None] = set()
+    for msg in history:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, (ToolReturnPart, RetryPromptPart)):
+                    globally_answered.add(p.tool_call_id)
+
+    repaired: list[ModelMessage] | None = None  # lazy copy
+    all_tool_names: list[str] = []
+    new_messages: list[ModelMessage] = []
+
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        if isinstance(msg, ModelResponse):
+            tool_calls = [p for p in msg.parts if isinstance(p, ToolCallPart)]
+            if tool_calls:
+                missing = [tc for tc in tool_calls if tc.tool_call_id not in globally_answered]
+                if missing:
+                    if repaired is None:
+                        repaired = list(history[:i])
+                    repaired.append(msg)
+
+                    # Check if the immediately next message has partial
+                    # results — keep it as-is if so.
+                    next_msg = history[i + 1] if i + 1 < len(history) else None
+                    if isinstance(next_msg, ModelRequest) and any(
+                        isinstance(p, (ToolReturnPart, RetryPromptPart)) for p in next_msg.parts
+                    ):
+                        repaired.append(next_msg)
+                        i += 1  # skip next_msg, already added
+
+                    names = [tc.tool_name for tc in missing]
+                    all_tool_names.extend(names)
+                    log.info(
+                        "Repairing %d dangling tool call(s) from cancelled turn.",
+                        len(missing),
+                    )
+                    synthetic = ModelRequest(
+                        parts=[
+                            ToolReturnPart(
+                                tool_name=tc.tool_name,
+                                content="(cancelled)",
+                                tool_call_id=tc.tool_call_id,
+                            )
+                            for tc in missing
+                        ],
+                    )
+                    repaired.append(synthetic)
+                    new_messages.append(synthetic)
+                    i += 1
+                    continue
+        if repaired is not None:
+            repaired.append(msg)
+        i += 1
+
+    if repaired is not None:
+        return repaired, all_tool_names, new_messages
+    return history, [], []
 
 
 # ── Compaction helpers ───────────────────────────────────────────────
