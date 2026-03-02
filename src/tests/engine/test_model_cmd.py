@@ -119,7 +119,7 @@ def test_model_set_unknown_model_lists_available(
 
     # Mock the API call so refresh returns the same list
     mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         return_value=["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
     )
 
@@ -140,7 +140,7 @@ def test_model_set_cache_hit_applies_without_refresh(
 
     # If this fires, it's a bug — we should use the cache.
     spy = mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         side_effect=AssertionError("should not be called"),
     )
 
@@ -170,13 +170,13 @@ def test_get_models_returns_cached_when_fresh(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models returns cached data when TTL hasn't expired."""
-    from rbtr.engine.model import get_models
+    from rbtr.engine.model_cmd import get_models
 
     expected = [("claude", list(_CLAUDE_MODELS))]
     _seed_cache(engine, providers=expected)
 
     spy = mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         side_effect=AssertionError("should not refresh"),
     )
 
@@ -189,13 +189,13 @@ def test_get_models_force_refreshes(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models(force=True) refreshes even with a fresh cache."""
-    from rbtr.engine.model import get_models
+    from rbtr.engine.model_cmd import get_models
 
     engine.state.claude_connected = True
     _seed_cache(engine, providers=[("claude", ["claude/old-model"])])
 
     mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         return_value=["claude-sonnet-4-20250514"],
     )
 
@@ -207,14 +207,14 @@ def test_get_models_stale_cache_refreshes(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models refreshes when the cache TTL has expired."""
-    from rbtr.engine.model import get_models
+    from rbtr.engine.model_cmd import get_models
 
     engine.state.claude_connected = True
     engine.state.cached_models = [("claude", ["claude/old-model"])]
     engine.state.models_fetched_at = time.time() - 600  # 10 min ago (TTL = 5 min)
 
     mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         return_value=["claude-sonnet-4-20250514"],
     )
 
@@ -226,14 +226,14 @@ def test_fetch_provider_models_error_warns(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """API error during model listing warns and returns empty."""
-    from rbtr.engine.model import get_models
+    from rbtr.engine.model_cmd import get_models
 
     engine.state.claude_connected = True
     engine.state.cached_models = []
     engine.state.models_fetched_at = 0
 
     mocker.patch(
-        "rbtr.engine.model.claude_provider.list_models",
+        "rbtr.engine.model_cmd.claude_provider.list_models",
         side_effect=RbtrError("network down"),
     )
 
@@ -267,11 +267,11 @@ def test_connected_providers(
     engine: Engine,
 ) -> None:
     """_connected_providers returns names of connected providers."""
-    from rbtr.engine.model import _connected_providers
+    from rbtr.engine.model_cmd import _connected_providers
 
     for key, value in flags.items():
         setattr(engine.state, key, value)
-    mocker.patch("rbtr.engine.model.endpoint_provider.list_endpoints", return_value=[])
+    mocker.patch("rbtr.engine.model_cmd.endpoint_provider.list_endpoints", return_value=[])
 
     result = _connected_providers(engine)
     assert result == expected_providers

@@ -13,7 +13,7 @@ from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
 from rbtr.providers import endpoint as endpoint_provider, model_context_window
 
-from .model import get_models
+from .model_cmd import get_models
 
 if TYPE_CHECKING:
     from .core import Engine

@@ -3,7 +3,7 @@
 Tests are organised around a shared dataset (``PR``, ``DRAFT``,
 ``DRAFT_WITH_SUGGESTION``) and a ``FakeEngine`` that captures events.
 The command layer is tested via ``cmd_draft`` — GitHub API interaction
-is always behind ``engine.review`` and mocked at that boundary.
+is always behind ``engine.publish`` and mocked at that boundary.
 """
 
 from __future__ import annotations

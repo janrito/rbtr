@@ -34,7 +34,7 @@ from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
 from rbtr.engine import Command, Engine, Service, TaskType
-from rbtr.engine.model import get_models
+from rbtr.engine.model_cmd import get_models
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,

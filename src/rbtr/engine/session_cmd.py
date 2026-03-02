@@ -210,7 +210,7 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
 
     # Restore the review target (re-fetches PR metadata / rebuilds index).
     if target.review_target:
-        from .review import cmd_review
+        from .review_cmd import cmd_review
 
         engine._out(f"Restoring review target: /review {target.review_target}")
         cmd_review(engine, target.review_target)

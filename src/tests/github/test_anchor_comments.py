@@ -17,7 +17,7 @@ from pydantic_ai import RunContext
 
 from rbtr.engine import Engine
 from rbtr.engine.draft_cmd import _show_draft
-from rbtr.engine.review import post_review_draft, sync_review_draft
+from rbtr.engine.publish import post_review_draft, sync_review_draft
 from rbtr.exceptions import RbtrError
 from rbtr.github.client import get_pending_review, post_review
 from rbtr.github.draft import load_draft, save_draft

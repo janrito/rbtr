@@ -19,7 +19,7 @@ from rbtr.providers import (
 )
 from rbtr.styles import CODE_HIGHLIGHT, LINK_STYLE
 
-from .model import get_models
+from .model_cmd import get_models
 from .types import Service
 
 if TYPE_CHECKING:

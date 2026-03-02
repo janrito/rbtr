@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.engine.review import sync_review_draft
+from rbtr.engine.publish import sync_review_draft
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.github.client import (
     _position_to_line,

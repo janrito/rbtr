@@ -20,11 +20,11 @@ from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.state import EngineState
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
-from .connect import cmd_connect
+from .connect_cmd import cmd_connect
 from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
-from .model import cmd_model
-from .review import cmd_review
+from .model_cmd import cmd_model
+from .review_cmd import cmd_review
 from .session_cmd import cmd_session
 from .setup import run_setup
 from .shell import handle_shell

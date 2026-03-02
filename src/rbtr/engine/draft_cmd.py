@@ -2,7 +2,7 @@
 
 This module is a thin command dispatcher.  It parses subcommands
 and arguments, validates local state (draft exists, event type
-valid), and delegates GitHub interaction to ``engine.review``.
+valid), and delegates GitHub interaction to ``engine.publish``.
 It never imports ``github.client`` or catches ``GithubException``.
 """
 
@@ -15,7 +15,7 @@ from rbtr.git.objects import read_blob
 from rbtr.github.draft import comment_sync_status, is_tombstone, load_draft
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewEvent
 
-from .review import clear_review_draft, post_review_draft, sync_review_draft
+from .publish import clear_review_draft, post_review_draft, sync_review_draft
 
 if TYPE_CHECKING:
     import pygit2

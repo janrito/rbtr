@@ -100,7 +100,7 @@ def test_connect_claude_phase1_emits_link(
 ) -> None:
     """Phase 1: begin_login → stores pending, emits link."""
     mocker.patch(
-        "rbtr.engine.connect.claude_provider.begin_login",
+        "rbtr.engine.connect_cmd.claude_provider.begin_login",
         return_value=(_AUTHORIZE_URL, _CLAUDE_PENDING),
     )
 
@@ -120,14 +120,14 @@ def test_connect_claude_phase2_completes_login(
     engine.state.claude_pending_login = _CLAUDE_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect.claude_provider.parse_auth_code",
+        "rbtr.engine.connect_cmd.claude_provider.parse_auth_code",
         return_value=("auth-code", "state-value"),
     )
     mocker.patch(
-        "rbtr.engine.connect.claude_provider.complete_login",
+        "rbtr.engine.connect_cmd.claude_provider.complete_login",
         return_value=CLAUDE_OAUTH,
     )
-    mocker.patch("rbtr.engine.connect.get_models")
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect claude auth-code#state-value")
     drained_events = drain(engine.events)
@@ -156,7 +156,7 @@ def test_connect_claude_phase2_failure_clears_pending(
     engine.state.claude_pending_login = _CLAUDE_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect.claude_provider.parse_auth_code",
+        "rbtr.engine.connect_cmd.claude_provider.parse_auth_code",
         side_effect=ValueError("bad code"),
     )
 
@@ -188,10 +188,10 @@ def test_connect_chatgpt_auto_flow(creds_path: Path, mocker: MockerFixture, engi
     """Automatic localhost callback flow → sets connected."""
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.authenticate",
+        "rbtr.engine.connect_cmd.codex_provider.authenticate",
         return_value=CHATGPT_OAUTH,
     )
-    mocker.patch("rbtr.engine.connect.get_models")
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt")
     drained_events = drain(engine.events)
@@ -208,11 +208,11 @@ def test_connect_chatgpt_port_busy_fallback(
     """Port-busy error falls back to manual paste flow."""
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.authenticate",
+        "rbtr.engine.connect_cmd.codex_provider.authenticate",
         side_effect=RbtrError("Port 1455 is busy"),
     )
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.begin_login",
+        "rbtr.engine.connect_cmd.codex_provider.begin_login",
         return_value=(_CHATGPT_AUTH_URL, _CHATGPT_PENDING),
     )
 
@@ -231,7 +231,7 @@ def test_connect_chatgpt_non_port_error_warns(
     """Non-port RbtrError warns without fallback."""
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.authenticate",
+        "rbtr.engine.connect_cmd.codex_provider.authenticate",
         side_effect=RbtrError("token exchange failed"),
     )
 
@@ -248,7 +248,7 @@ def test_connect_chatgpt_generic_error_warns(
     """Generic exception warns without fallback."""
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.authenticate",
+        "rbtr.engine.connect_cmd.codex_provider.authenticate",
         side_effect=RuntimeError("unexpected"),
     )
 
@@ -266,10 +266,10 @@ def test_connect_chatgpt_phase2_completes_login(
     engine.state.chatgpt_pending_login = _CHATGPT_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.complete_login",
+        "rbtr.engine.connect_cmd.codex_provider.complete_login",
         return_value=CHATGPT_OAUTH,
     )
-    mocker.patch("rbtr.engine.connect.get_models")
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt http://localhost:1455/callback?code=x")
     drained_events = drain(engine.events)
@@ -296,7 +296,7 @@ def test_connect_chatgpt_phase2_failure_clears_pending(
     engine.state.chatgpt_pending_login = _CHATGPT_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect.codex_provider.complete_login",
+        "rbtr.engine.connect_cmd.codex_provider.complete_login",
         side_effect=ValueError("bad redirect URL"),
     )
 
@@ -336,7 +336,7 @@ def test_connect_endpoint_saves_and_confirms(
     config_path: Path, creds_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """/connect endpoint name url key saves the endpoint."""
-    mocker.patch("rbtr.engine.connect.get_models")
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
     engine.run_task(
         TaskType.COMMAND,
         "/connect endpoint myendpoint http://localhost:11434/v1 sk-test",

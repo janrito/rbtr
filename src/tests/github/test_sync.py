@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from rbtr.engine.review import _partition_comments, sync_review_draft
+from rbtr.engine.publish import _partition_comments, sync_review_draft
 from rbtr.events import Event, FlushPanel, Output
 from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges
@@ -417,7 +417,7 @@ def test_sync_skips_stale_comments(
     """Comments targeting lines not in the diff are skipped during push."""
     # Restrict the diff to only a.py:10.
     monkeypatch.setattr(
-        "rbtr.engine.review._get_diff_ranges",
+        "rbtr.engine.publish._get_diff_ranges",
         lambda _engine: {"a.py": {10}},
     )
 
@@ -463,7 +463,7 @@ def test_sync_all_comments_stale_still_pushes_summary(
 ) -> None:
     """When all comments are stale, the summary-only draft is still pushed."""
     monkeypatch.setattr(
-        "rbtr.engine.review._get_diff_ranges",
+        "rbtr.engine.publish._get_diff_ranges",
         lambda _engine: {"a.py": {10}},
     )
 

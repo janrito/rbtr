@@ -83,9 +83,9 @@ def test_list_with_github_prs(mocker: MockerFixture, engine: Engine) -> None:
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
     mocker.patch(
-        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
     )
     engine.run_task(TaskType.COMMAND, "/review")
 
@@ -118,8 +118,8 @@ def test_list_no_prs_no_branches(mocker: MockerFixture, engine: Engine) -> None:
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[])
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[])
+    mocker.patch("rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
 
     drained_events = drain(engine.events)
@@ -135,9 +135,9 @@ def test_list_caches_review_targets_github(mocker: MockerFixture, engine: Engine
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
     mocker.patch(
-        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
     )
     engine.run_task(TaskType.COMMAND, "/review")
     drain(engine.events)
@@ -177,8 +177,8 @@ def test_list_always_refetches(mocker: MockerFixture, engine: Engine) -> None:
         ),
     ]
 
-    mock_list = mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=prs_v1)
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
+    mock_list = mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=prs_v1)
+    mocker.patch("rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
     drain(engine.events)
     assert engine.state.cached_review_targets[0][1] == "1"
@@ -210,11 +210,11 @@ def test_list_caches_review_targets_local(repo_engine: Engine) -> None:
 
 
 def test_review_pr_by_number(mocker: MockerFixture, engine: Engine) -> None:
-    mocker.patch("rbtr.engine.review.run_index")
+    mocker.patch("rbtr.engine.review_cmd.run_index")
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_ADD_FEATURE)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_ADD_FEATURE)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
     drained_events = drain(engine.events)
@@ -244,7 +244,7 @@ def test_review_pr_without_auth_warns(engine: Engine) -> None:
 
 
 def test_review_branch_by_name(mocker: MockerFixture, repo_engine: Engine) -> None:
-    mocker.patch("rbtr.engine.review.run_index")
+    mocker.patch("rbtr.engine.review_cmd.run_index")
     engine = repo_engine
     repo = engine.state.repo
     assert repo is not None
@@ -271,7 +271,7 @@ def test_review_nonexistent_branch_warns(repo_engine: Engine) -> None:
 
 def test_review_branch_two_args(mocker: MockerFixture, repo_engine: Engine) -> None:
     """/review base target sets both branches explicitly."""
-    mocker.patch("rbtr.engine.review.run_index")
+    mocker.patch("rbtr.engine.review_cmd.run_index")
     engine = repo_engine
     repo = engine.state.repo
     assert repo is not None
@@ -316,7 +316,7 @@ def test_review_pr_has_base_branch(mocker: MockerFixture, engine: Engine) -> Non
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_REFACTOR)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_REFACTOR)
     engine.run_task(TaskType.COMMAND, "/review 10")
 
     drained_events = drain(engine.events)
@@ -530,14 +530,14 @@ def test_connect_github_success(creds_path: Path, mocker: MockerFixture, engine:
         "interval": "0",
     }
 
-    mocker.patch("rbtr.engine.connect.auth.request_device_code", return_value=device_resp)
-    mocker.patch("rbtr.engine.connect.auth.poll_for_token", return_value="ghp_newtoken")
+    mocker.patch("rbtr.engine.connect_cmd.auth.request_device_code", return_value=device_resp)
+    mocker.patch("rbtr.engine.connect_cmd.auth.poll_for_token", return_value="ghp_newtoken")
     mocker.patch.object(Engine, "_copy_to_clipboard")
 
     # Mock Github so get_user().login succeeds without a real API call.
     fake_gh = mocker.MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
-    mocker.patch("rbtr.engine.connect.Github", return_value=fake_gh)
+    mocker.patch("rbtr.engine.connect_cmd.Github", return_value=fake_gh)
 
     engine.run_task(TaskType.COMMAND, "/connect github")
 
@@ -559,7 +559,7 @@ def test_connect_github_success(creds_path: Path, mocker: MockerFixture, engine:
 def test_connect_github_failure(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
 
     mocker.patch(
-        "rbtr.engine.connect.auth.request_device_code",
+        "rbtr.engine.connect_cmd.auth.request_device_code",
         side_effect=RbtrError("network error"),
     )
     engine.run_task(TaskType.COMMAND, "/connect github")
@@ -582,7 +582,7 @@ def test_403_falls_back_to_local_branches(mocker: MockerFixture, repo_engine: En
     engine.state.gh = mocker.MagicMock()
 
     exc = GithubException(403, {"message": "Resource not accessible"}, None)
-    mocker.patch("rbtr.engine.review.client.list_open_prs", side_effect=exc)
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", side_effect=exc)
     engine.run_task(TaskType.COMMAND, "/review")
 
     drained_events = drain(engine.events)
@@ -602,7 +602,7 @@ def test_500_falls_back_to_local_branches(mocker: MockerFixture, repo_engine: En
     engine.state.gh = mocker.MagicMock()
 
     exc = GithubException(500, {"message": "Internal error"}, None)
-    mocker.patch("rbtr.engine.review.client.list_open_prs", side_effect=exc)
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", side_effect=exc)
     engine.run_task(TaskType.COMMAND, "/review")
 
     drained_events = drain(engine.events)
@@ -727,8 +727,8 @@ def test_list_clears_fetching_message(mocker: MockerFixture, engine: Engine) -> 
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
-    mocker.patch("rbtr.engine.review.client.list_unmerged_branches", return_value=[])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
 
     drained_events = drain(engine.events)
@@ -741,9 +741,9 @@ def test_list_flushes_between_tables(mocker: MockerFixture, engine: Engine) -> N
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
     mocker.patch(
-        "rbtr.engine.review.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
     )
     engine.run_task(TaskType.COMMAND, "/review")
 
@@ -764,7 +764,7 @@ def test_review_pr_clears_fetching_message(mocker: MockerFixture, engine: Engine
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review.client.validate_pr_number", return_value=PR_ADD_FEATURE)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_ADD_FEATURE)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
     drained_events = drain(engine.events)
@@ -786,13 +786,13 @@ def test_connect_github_flushes_link_panel(
         "interval": "0",
     }
 
-    mocker.patch("rbtr.engine.connect.auth.request_device_code", return_value=device_resp)
-    mocker.patch("rbtr.engine.connect.auth.poll_for_token", return_value="ghp_tok")
+    mocker.patch("rbtr.engine.connect_cmd.auth.request_device_code", return_value=device_resp)
+    mocker.patch("rbtr.engine.connect_cmd.auth.poll_for_token", return_value="ghp_tok")
     mocker.patch.object(engine, "_copy_to_clipboard")
 
     fake_gh = mocker.MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
-    mocker.patch("rbtr.engine.connect.Github", return_value=fake_gh)
+    mocker.patch("rbtr.engine.connect_cmd.Github", return_value=fake_gh)
 
     engine.run_task(TaskType.COMMAND, "/connect github")
 
