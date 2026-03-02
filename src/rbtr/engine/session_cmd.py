@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from rbtr.sessions.store import SessionSummary
 from rbtr.styles import STYLE_DIM
 
+from .review_cmd import cmd_review
+
 if TYPE_CHECKING:
     from .core import Engine
 
@@ -210,8 +212,6 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
 
     # Restore the review target (re-fetches PR metadata / rebuilds index).
     if target.review_target:
-        from .review_cmd import cmd_review
-
         engine._out(f"Restoring review target: /review {target.review_target}")
         cmd_review(engine, target.review_target)
 

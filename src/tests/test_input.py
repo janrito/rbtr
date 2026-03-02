@@ -6,7 +6,7 @@ Buffer editing — pure state manipulation, no threads or I/O.
 
 import pytest
 
-from rbtr.input import InputState
+from rbtr.tui.input import InputState
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -295,7 +295,7 @@ def test_history_append_bounds_at_max():
 
 def _make_reader(history: list[str]):
     """Create a bare InputReader with just enough state for history tests."""
-    from rbtr.input import InputReader
+    from rbtr.tui.input import InputReader
 
     state = InputState()
     state.history = list(history)
@@ -368,7 +368,7 @@ def test_history_prefix_locked_on_first_up():
 
 def _make_reader_with_provider(provider_data: list[str]):
     """Create a reader with a history provider."""
-    from rbtr.input import InputReader
+    from rbtr.tui.input import InputReader
 
     # Provider returns most-recent-first (like search_history).
     def provider(prefix: str | None, limit: int) -> list[str]:
@@ -403,7 +403,7 @@ def test_provider_empty_leaves_history_empty():
 
 def test_no_provider_leaves_history_empty():
     """Without a provider, history stays empty (no legacy fallback)."""
-    from rbtr.input import InputReader
+    from rbtr.tui.input import InputReader
 
     state = InputState()
     reader = object.__new__(InputReader)

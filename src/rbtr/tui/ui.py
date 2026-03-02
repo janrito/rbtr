@@ -55,11 +55,6 @@ from rbtr.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from rbtr.input import (
-    InputReader,
-    InputState,
-    query_shell_completions,
-)
 from rbtr.models import PRTarget
 from rbtr.state import EngineState
 from rbtr.styles import (
@@ -90,6 +85,11 @@ from rbtr.styles import (
     USAGE_OK,
     USAGE_UNCERTAIN,
     USAGE_WARNING,
+)
+from rbtr.tui.input import (
+    InputReader,
+    InputState,
+    query_shell_completions,
 )
 from rbtr.usage import (
     MessageCountStatus,

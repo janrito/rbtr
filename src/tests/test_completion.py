@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from rbtr.input import (
+from rbtr.tui.input import (
     InputState,
     complete_bash,
     complete_executables,
@@ -24,7 +24,7 @@ from rbtr.input import (
     replace_shell_word,
     shell_context_word,
 )
-from rbtr.tui import UI
+from rbtr.tui.ui import UI
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -214,7 +214,7 @@ def test_shell_single_match_trailing_slash_no_double():
 
 
 def test_query_bash_is_preferred(mocker):
-    mocker.patch("rbtr.input.complete_bash", return_value=[("status", ""), ("stash", "")])
+    mocker.patch("rbtr.tui.input.complete_bash", return_value=[("status", ""), ("stash", "")])
     results = query_shell_completions("git sta")
     assert results == [("status", ""), ("stash", "")]
 
@@ -222,15 +222,15 @@ def test_query_bash_is_preferred(mocker):
 def test_query_path_fallback_for_later_word(tmp_path, monkeypatch, mocker):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "api").mkdir()
-    mocker.patch("rbtr.input.complete_bash", return_value=[])
+    mocker.patch("rbtr.tui.input.complete_bash", return_value=[])
     results = query_shell_completions("ls ap")
     assert len(results) == 1
     assert results[0][0] == "api/"
 
 
 def test_query_executable_fallback_for_first_word(mocker):
-    mocker.patch("rbtr.input.complete_bash", return_value=[])
-    mocker.patch("rbtr.input.complete_executables", return_value=[("git", ""), ("gist", "")])
+    mocker.patch("rbtr.tui.input.complete_bash", return_value=[])
+    mocker.patch("rbtr.tui.input.complete_executables", return_value=[("git", ""), ("gist", "")])
     results = query_shell_completions("gi")
     assert results == [("git", ""), ("gist", "")]
 
@@ -241,7 +241,7 @@ def test_query_empty_returns_empty():
 
 def test_query_max_results_caps_output(mocker):
     many = [(f"cmd{i}", "") for i in range(50)]
-    mocker.patch("rbtr.input.complete_bash", return_value=many)
+    mocker.patch("rbtr.tui.input.complete_bash", return_value=many)
     results = query_shell_completions("x ", max_results=10)
     assert len(results) == 10
 
@@ -250,8 +250,8 @@ def test_query_no_path_fallback_for_first_word(tmp_path, monkeypatch, mocker):
     """First word uses executables, not filesystem paths."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "src").mkdir()
-    mocker.patch("rbtr.input.complete_bash", return_value=[])
-    mocker.patch("rbtr.input.complete_executables", return_value=[])
+    mocker.patch("rbtr.tui.input.complete_bash", return_value=[])
+    mocker.patch("rbtr.tui.input.complete_executables", return_value=[])
     results = query_shell_completions("sr")
     assert results == []
 
@@ -271,7 +271,9 @@ def _wait_for_completion(ui, timeout=2.0):
 
 def test_complete_shell_applies_results(mocker):
     ui = _make_ui("!git sta")
-    mocker.patch("rbtr.tui.query_shell_completions", return_value=[("status", ""), ("stash", "")])
+    mocker.patch(
+        "rbtr.tui.ui.query_shell_completions", return_value=[("status", ""), ("stash", "")]
+    )
     ui._complete_shell()
     _wait_for_completion(ui)
     assert ui.inp.completions == [("status", ""), ("stash", "")]
@@ -280,7 +282,7 @@ def test_complete_shell_applies_results(mocker):
 def test_complete_shell_does_not_block(mocker):
     ui = _make_ui("!git sta")
     mocker.patch(
-        "rbtr.tui.query_shell_completions",
+        "rbtr.tui.ui.query_shell_completions",
         side_effect=lambda *a, **kw: time.sleep(5) or [],
     )
     start = time.monotonic()
@@ -296,7 +298,7 @@ def test_complete_shell_discards_stale_results(mocker):
         time.sleep(0.1)
         return [("status", "")]
 
-    mocker.patch("rbtr.tui.query_shell_completions", side_effect=slow_query)
+    mocker.patch("rbtr.tui.ui.query_shell_completions", side_effect=slow_query)
     ui._complete_shell()
     ui.inp.set_text("!git status --short")
     time.sleep(0.3)

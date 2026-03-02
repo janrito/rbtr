@@ -10,7 +10,7 @@ from rich.text import Text
 
 from rbtr.state import EngineState
 from rbtr.styles import THEME
-from rbtr.tui import UI, _render_lines, _tail_renderable_lines
+from rbtr.tui.ui import UI, _render_lines, _tail_renderable_lines
 
 
 def _plain_lines(console: Console, renderable: RenderableType) -> list[str]:

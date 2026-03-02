@@ -475,7 +475,7 @@ def test_help_lists_index_command(repo_engine: Engine) -> None:
 
 
 def test_format_count() -> None:
-    from rbtr.tui import _format_count
+    from rbtr.tui.ui import _format_count
 
     assert _format_count(42) == "42"
     assert _format_count(1_200) == "1.2k"

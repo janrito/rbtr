@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rbtr.config import WORKSPACE_DIR, config
-from rbtr.tui import run
+from rbtr.tui.ui import run
 
 LOG_PATH = WORKSPACE_DIR / "rbtr.log"
 
