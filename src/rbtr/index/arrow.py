@@ -26,6 +26,10 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
     Builds all columns in a single pass.  The ``embedding`` column is
     omitted — embeddings are always ``NULL`` on initial insert and set
     later via :func:`IndexStore.update_embedding`.
+
+    The ``content_tokens`` and ``name_tokens`` columns must be
+    pre-populated on each :class:`Chunk` via :func:`tokenise_code`
+    before calling this function.
     """
     ids: list[str] = []
     blob_shas: list[str] = []
@@ -34,6 +38,8 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
     names: list[str] = []
     scopes: list[str] = []
     contents: list[str] = []
+    content_tokens_col: list[str] = []
+    name_tokens_col: list[str] = []
     line_starts: list[int] = []
     line_ends: list[int] = []
     metadatas: list[str] = []
@@ -46,6 +52,8 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
         names.append(c.name)
         scopes.append(c.scope)
         contents.append(c.content)
+        content_tokens_col.append(c.content_tokens)
+        name_tokens_col.append(c.name_tokens)
         line_starts.append(c.line_start)
         line_ends.append(c.line_end)
         metadatas.append(json.dumps(c.metadata))
@@ -59,6 +67,8 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
             "name": pa.array(names, type=pa.string()),
             "scope": pa.array(scopes, type=pa.string()),
             "content": pa.array(contents, type=pa.string()),
+            "content_tokens": pa.array(content_tokens_col, type=pa.string()),
+            "name_tokens": pa.array(name_tokens_col, type=pa.string()),
             "line_start": pa.array(line_starts, type=pa.int32()),
             "line_end": pa.array(line_ends, type=pa.int32()),
             "metadata": pa.array(metadatas, type=pa.string()),

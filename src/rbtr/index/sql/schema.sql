@@ -1,3 +1,8 @@
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS file_snapshots (
   commit_sha TEXT NOT NULL,
   file_path TEXT NOT NULL,
@@ -13,6 +18,8 @@ CREATE TABLE IF NOT EXISTS chunks (
   name TEXT NOT NULL,
   scope TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,
+  content_tokens TEXT NOT NULL DEFAULT '',
+  name_tokens TEXT NOT NULL DEFAULT '',
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
   metadata TEXT NOT NULL DEFAULT '{}',

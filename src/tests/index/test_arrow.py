@@ -64,6 +64,8 @@ def test_chunks_to_table_schema() -> None:
         "name",
         "scope",
         "content",
+        "content_tokens",
+        "name_tokens",
         "line_start",
         "line_end",
         "metadata",

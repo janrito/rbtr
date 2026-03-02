@@ -32,6 +32,18 @@ build:
 bench *ARGS:
     uv run scripts/bench_index.py {{ ARGS }}
 
+# Evaluate search quality against curated queries (rbtr repo only).
+
+# Usage: just eval-search [ref]
+eval-search *ARGS:
+    uv run scripts/eval_search.py {{ ARGS }}
+
+# Tune search fusion weights via grid search (rbtr repo only).
+
+# Usage: just tune-search [--step 0.05]
+tune-search *ARGS:
+    uv run scripts/tune_search.py {{ ARGS }}
+
 # Run bench_index.py under scalene (line-level CPU + memory).
 
 # Usage: just bench-scalene [repo-path] [base-ref] [head-ref]

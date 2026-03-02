@@ -22,6 +22,8 @@ class _Sub(StrEnum):
     REBUILD = "rebuild"
     PRUNE = "prune"
     MODEL = "model"
+    SEARCH = "search"
+    SEARCH_DIAG = "search-diag"
 
 
 def cmd_index(engine: Engine, args: str) -> None:
@@ -41,10 +43,15 @@ def cmd_index(engine: Engine, args: str) -> None:
             _prune(engine)
         case _Sub.MODEL:
             _model(engine, rest)
+        case _Sub.SEARCH:
+            _search(engine, rest)
+        case _Sub.SEARCH_DIAG:
+            _search_diag(engine, rest)
         case _:
             engine._warn(f"Unknown subcommand: {sub}")
             engine._out(
-                "Usage: /index [status | clear | rebuild | prune | model <id>]",
+                "Usage: /index [status | clear | rebuild | prune"
+                " | model <id> | search <query> | search-diag <query>]",
                 style=STYLE_DIM,
             )
 
@@ -223,6 +230,120 @@ def _model(engine: Engine, model_id: str) -> None:
         store.close()
         engine.state.index = None
         run_index(engine)
+
+
+def _search(engine: Engine, query: str) -> None:
+    """Run a search query and display the ranked results."""
+    if not query:
+        engine._out("Usage: /index search <query>", style=STYLE_DIM)
+        return
+
+    store = engine.state.index
+    if store is None:
+        engine._out("No index loaded. Use /review to start indexing.")
+        return
+
+    target = engine.state.review_target
+    if target is None:
+        engine._out("No review target selected.")
+        return
+
+    results = store.search(target.head_ref, query, top_k=20)
+    if not results:
+        engine._out(f"No results for '{query}'.")
+        return
+
+    rows: list[list[str]] = []
+    for r in results:
+        c = r.chunk
+        scope = f"{c.scope}." if c.scope else ""
+        rows.append(
+            [
+                f"{r.score:.3f}",
+                c.kind.value,
+                f"{scope}{c.name}",
+                f"{c.file_path}:{c.line_start}",
+            ]
+        )
+
+    engine._emit(
+        TableOutput(
+            title=f"Search: {query}",
+            columns=[
+                ColumnDef(header="Score", width=7),
+                ColumnDef(header="Kind", width=14),
+                ColumnDef(header="Name", width=35),
+                ColumnDef(header="Location", width=40),
+            ],
+            rows=rows,
+        )
+    )
+
+
+def _search_diag(engine: Engine, query: str) -> None:
+    """Run a search query and display the full signal breakdown."""
+    if not query:
+        engine._out("Usage: /index search-diag <query>", style=STYLE_DIM)
+        return
+
+    store = engine.state.index
+    if store is None:
+        engine._out("No index loaded. Use /review to start indexing.")
+        return
+
+    target = engine.state.review_target
+    if target is None:
+        engine._out("No review target selected.")
+        return
+
+    from rbtr.index.search import classify_query, weights_for_query
+
+    kind = classify_query(query)
+    alpha, beta, gamma = weights_for_query(query)
+    engine._out(
+        f"Query: {query!r}  class={kind.value}"
+        f"  weights: a(sem)={alpha:.2f} b(lex)={beta:.2f} g(name)={gamma:.2f}"
+    )
+
+    results = store.search(target.head_ref, query, top_k=20)
+    if not results:
+        engine._out(f"No results for '{query}'.")
+        return
+
+    rows: list[list[str]] = []
+    for r in results:
+        c = r.chunk
+        rows.append(
+            [
+                f"{r.score:.3f}",
+                f"{r.lexical:.2f}",
+                f"{r.semantic:.2f}",
+                f"{r.name:.2f}",
+                f"{r.kind_boost:.1f}",
+                f"{r.file_penalty:.1f}",
+                f"{r.importance:.2f}",
+                f"{r.proximity:.1f}",
+                f"{c.file_path}:{c.name}",
+            ]
+        )
+
+    engine._emit(
+        TableOutput(
+            title=f"Diagnostics: {query}",
+            columns=[
+                ColumnDef(header="Score", width=7),
+                ColumnDef(header="Lex", width=5),
+                ColumnDef(header="Sem", width=5),
+                ColumnDef(header="Name", width=5),
+                ColumnDef(header="Kind", width=5),
+                ColumnDef(header="File", width=5),
+                ColumnDef(header="Imp", width=5),
+                ColumnDef(header="Prox", width=5),
+                ColumnDef(header="Chunk", width=45),
+            ],
+            rows=rows,
+        )
+    )
 
 
 def _prune(engine: Engine) -> None:

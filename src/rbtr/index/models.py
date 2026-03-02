@@ -86,6 +86,8 @@ class Chunk(BaseModel):
     name: str
     scope: str = ""
     content: str
+    content_tokens: str = ""
+    name_tokens: str = ""
     line_start: int
     line_end: int
     metadata: ImportMeta = {}

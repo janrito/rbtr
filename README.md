@@ -134,7 +134,7 @@ saved automatically to the session database (see Sessions below).
 | `/connect <service>`   | Authenticate with a service                |
 | `/model`               | List available models from all providers   |
 | `/model <provider/id>` | Set the active model                       |
-| `/index`               | Show index status, clear, rebuild          |
+| `/index`               | Index status, search, diagnostics, rebuild |
 | `/compact`             | Summarise older context to free space      |
 | `/compact reset`       | Undo last compaction (before new messages) |
 | `/session`             | List, inspect, or delete sessions          |
@@ -771,18 +771,20 @@ Starting point for review.
 Available once the code index finishes building. Always
 search the head snapshot.
 
-**`search_symbols(name, offset?, max_results?)`** — Find
-functions, classes, and methods by name substring
-(case-insensitive). Returns kind, scope, file path, and line
-number. Use short names — `MQ` not `lib.mq.MQ`.
+**`search(query, offset?, max_results?)`** — Unified code
+search. Finds symbols by name, keywords, or concepts.
+Fuses three signals internally — name matching, BM25
+keyword search, and semantic similarity — into a single
+ranked result list. Works for exact identifiers
+(`IndexStore`), keyword queries (`retry timeout`), and
+natural-language concepts (`how does auth work`).
 
-**`search_codebase(query, offset?, max_results?)`** —
-Full-text keyword search (BM25) across symbol names and
-source content. Results ranked by relevance.
-
-**`search_similar(query, offset?, max_results?)`** —
-Semantic similarity search using embeddings. Finds
-conceptually related code even without shared keywords.
+The query is automatically classified as an identifier,
+concept, or pattern, and fusion weights are adjusted
+accordingly. Identifier queries favour name matching;
+concept queries favour BM25 and semantic similarity.
+Results include kind-boost (classes rank above imports)
+and file-category penalty (source ranks above tests).
 
 #### Index read tools (require index)
 
@@ -919,12 +921,14 @@ indexing to finish.
 
 | Subcommand          | Description                              |
 | ------------------- | ---------------------------------------- |
-| `/index`            | Show index status (chunks, edges, size)  |
-| `/index clear`      | Delete the index database                |
-| `/index rebuild`    | Clear and re-index from scratch          |
-| `/index prune`      | Remove orphan chunks not in any snapshot |
-| `/index model`      | Show current embedding model             |
-| `/index model <id>` | Switch embedding model and re-embed      |
+| `/index`                      | Show index status (chunks, edges, size)  |
+| `/index clear`                | Delete the index database                |
+| `/index rebuild`              | Clear and re-index from scratch          |
+| `/index prune`                | Remove orphan chunks not in any snapshot |
+| `/index model`                | Show current embedding model             |
+| `/index model <id>`           | Switch embedding model and re-embed      |
+| `/index search <query>`       | Search the index and show ranked results |
+| `/index search-diag <query>`  | Search with full signal breakdown table  |
 
 ### Index configuration
 
@@ -956,7 +960,8 @@ repo skip unchanged files (keyed by git blob SHA).
 - **No grammar installed** for a language → falls back to
   line-based plaintext chunking.
 - **No embedding model** (missing GGUF, GPU init failure) →
-  structural index works, only `search_similar` is degraded.
+  structural index works, semantic search signal is skipped
+  (weight redistributed to name and keyword channels).
 - **Slow indexing** → review starts immediately, index catches
   up in a background thread.
 
@@ -1560,6 +1565,8 @@ index/
 ├── edges.py         import, test, and doc edge inference
 ├── embeddings.py    GGUF embedding via llama-cpp-python
 ├── store.py         DuckDB storage (IndexStore)
+├── search.py        score fusion, query classification, ranking
+├── tokenise.py      code-aware tokenisation (camelCase, snake_case)
 ├── orchestrator.py  build_index, update_index, compute_diff
 ├── models.py        Chunk, Edge, IndexStats, enums
 ├── arrow.py         PyArrow table builders for bulk insert
@@ -1607,6 +1614,58 @@ just scalene-view                     # view last scalene profile
 ```
 
 Detailed results and optimization notes are in `PROFILING.md`.
+
+### Search quality
+
+The unified search system fuses three signals — name matching,
+BM25 keyword search, and semantic (embedding) similarity — with
+post-fusion adjustments for chunk kind and file category. Two
+scripts measure and tune search quality:
+
+```bash
+just eval-search                      # evaluate against curated queries
+just tune-search                      # grid-search fusion weights
+just tune-search -- --step 0.05       # finer resolution (400 combos)
+```
+
+**`scripts/eval_search.py`** — Runs 24+ curated queries against
+the rbtr repo, measuring recall@1, recall@5, and MRR across
+three backends (name, BM25, unified). Queries are grouped by
+the technique they test (tokenisation, IDF, kind scoring, file
+category, name matching, query understanding, structural
+signals). Results are tracked in `TODO-search.md`.
+
+**`scripts/tune_search.py`** — Grid-searches over fusion weight
+combinations for each query kind (identifier / concept).
+Precomputes all channel scores once, then sweeps in-memory —
+runs in ~1s. Reports the top 10 weight combos and the current
+settings for comparison.
+
+Both scripts are rbtr-specific — they validate the repo identity
+via `pyproject.toml` before running.
+
+#### Search architecture
+
+Search ranking is implemented in `src/rbtr/index/search.py`
+(pure scoring functions) and orchestrated by
+`IndexStore.search()` in `store.py`:
+
+1. **Query classification** — `classify_query()` routes each
+   query to identifier, concept, or pattern weights.
+2. **Three channels** — BM25 on pre-tokenised content, cosine
+   similarity on embeddings (when available), and name matching
+   with token-level support.
+3. **Score fusion** — min-max normalisation per channel, then
+   weighted combination. Post-fusion multipliers for chunk kind
+   (class=1.5×, import=0.3×) and file category (source=1.0×,
+   test=0.5×).
+4. **Code-aware tokenisation** — `tokenise_code()` splits
+   camelCase/snake_case identifiers and emits both compound and
+   parts. Applied at index time and query time.
+
+All scoring helpers are pure functions tested in isolation (99
+tests in `test_search.py`). The tokeniser has 140+ tests across
+10 language conventions and keyword preservation.
 
 ## License
 

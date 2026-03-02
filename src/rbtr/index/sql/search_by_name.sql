@@ -6,6 +6,8 @@ SELECT
   c.name,
   c.scope,
   c.content,
+  c.content_tokens,
+  c.name_tokens,
   c.line_start,
   c.line_end,
   c.metadata,

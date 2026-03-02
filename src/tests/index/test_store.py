@@ -5,10 +5,14 @@ code chunks and verify that queries return correct results with
 proper ranking.
 """
 
+from pathlib import Path
+
+import duckdb
 import pytest
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import IndexStore
+from rbtr.index.store import SCHEMA_VERSION, IndexStore
+from rbtr.index.tokenise import tokenise_code
 
 
 @pytest.fixture
@@ -100,6 +104,9 @@ ALL_CHUNKS = [_MATH_FUNC, _HTTP_FUNC, _STRING_FUNC, _MATH_CLASS]
 
 def _seed_store(store: IndexStore, *, embed: bool = False) -> None:
     """Insert all test chunks and snapshots into *store*."""
+    for c in ALL_CHUNKS:
+        c.content_tokens = tokenise_code(c.content)
+        c.name_tokens = tokenise_code(c.name)
     store.insert_chunks(ALL_CHUNKS)
     for c in ALL_CHUNKS:
         store.insert_snapshot("head", c.file_path, c.blob_sha)
@@ -509,6 +516,8 @@ def test_fulltext_auto_rebuilds_after_new_chunks(store: IndexStore) -> None:
         name="brand_new_function",
         scope="",
         content="def brand_new_function(): pass",
+        content_tokens=tokenise_code("def brand_new_function(): pass"),
+        name_tokens=tokenise_code("brand_new_function"),
         line_start=1,
         line_end=1,
     )
@@ -718,6 +727,9 @@ def test_prune_orphans_noop_when_clean(store: IndexStore) -> None:
 
 def test_prune_marks_fts_dirty(store: IndexStore) -> None:
     """After pruning chunks, FTS index is rebuilt on next search."""
+    for c in [_MATH_FUNC, _HTTP_FUNC]:
+        c.content_tokens = tokenise_code(c.content)
+        c.name_tokens = tokenise_code(c.name)
     store.insert_chunks([_MATH_FUNC, _HTTP_FUNC])
     store.insert_snapshots([("sha1", "src/math_utils.py", "blob_math")])
     store.rebuild_fts_index()
@@ -775,3 +787,142 @@ def test_prune_after_file_change(store: IndexStore) -> None:
     remaining = store.get_chunks("head")
     assert len(remaining) == 1
     assert remaining[0].id == "math_v2"
+
+
+# ── Schema versioning ───────────────────────────────────────────────
+
+
+def test_schema_version_mismatch_deletes_db(tmp_path: Path) -> None:
+    """Opening a DB with a stale schema version deletes the file."""
+    db_path = tmp_path / "test.duckdb"
+
+    # Create a store at the current version.
+    s1 = IndexStore(db_path)
+    s1.close()
+    assert db_path.exists()
+
+    # Simulate a version bump by writing a stale version to meta.
+    con = duckdb.connect(str(db_path))
+    con.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+    con.close()
+
+    # Re-opening should detect the mismatch, delete, and recreate.
+    s2 = IndexStore(db_path)
+    # The DB was nuked and recreated — meta should have the current version.
+    rows = s2._cur().execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchall()
+    assert rows[0][0] == str(SCHEMA_VERSION)
+    s2.close()
+
+
+def test_schema_version_missing_meta_table_deletes_db(tmp_path: Path) -> None:
+    """A DB without a meta table (old schema) is deleted on open."""
+    db_path = tmp_path / "old.duckdb"
+
+    # Create a bare DuckDB file without our schema.
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE dummy (x INT)")
+    con.close()
+    assert db_path.exists()
+
+    # Opening as IndexStore should nuke it.
+    s = IndexStore(db_path)
+    # Verify it's a fresh DB with the meta table.
+    rows = s._cur().execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchall()
+    assert rows[0][0] == str(SCHEMA_VERSION)
+    s.close()
+
+
+def test_schema_version_correct_keeps_data(tmp_path: Path) -> None:
+    """When version matches, existing data is preserved."""
+    db_path = tmp_path / "ok.duckdb"
+
+    s1 = IndexStore(db_path)
+    s1.insert_chunks([_MATH_FUNC])
+    s1.insert_snapshot("head", _MATH_FUNC.file_path, _MATH_FUNC.blob_sha)
+    s1.close()
+
+    s2 = IndexStore(db_path)
+    chunks = s2.get_chunks("head")
+    assert len(chunks) == 1
+    assert chunks[0].id == "math_1"
+    s2.close()
+
+
+# ── IDF neutralisation ──────────────────────────────────────────────
+
+
+def test_idf_neutralised_after_fts_rebuild(store: IndexStore) -> None:
+    """After rebuild_fts_index(), all terms have df=1."""
+    _seed_store(store)
+    store.rebuild_fts_index()
+
+    df_values = store._cur().execute("SELECT DISTINCT df FROM fts_main_chunks.dict").fetchall()
+    # Every term should have df=1 — only one distinct value.
+    assert df_values == [(1,)]
+
+
+# ── Code-aware FTS ───────────────────────────────────────────────────
+
+
+def test_fts_finds_camelcase_by_parts(store: IndexStore) -> None:
+    """Searching for split parts of a camelCase name returns the chunk."""
+    chunk = Chunk(
+        id="camel_1",
+        blob_sha="b_camel",
+        file_path="src/lib.py",
+        kind=ChunkKind.CLASS,
+        name="AgentDeps",
+        content="class AgentDeps: pass",
+        content_tokens=tokenise_code("class AgentDeps: pass"),
+        name_tokens=tokenise_code("AgentDeps"),
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk])
+    store.insert_snapshot("head", chunk.file_path, chunk.blob_sha)
+    store.rebuild_fts_index()
+
+    # The tokeniser splits AgentDeps → agentdeps agent deps.
+    # Searching for "agent deps" (two words) should find it.
+    results = store.search_fulltext("head", "agent deps", top_k=5)
+    assert len(results) >= 1
+    assert results[0][0].id == "camel_1"
+
+    # The compound form should also work.
+    results = store.search_fulltext("head", "AgentDeps", top_k=5)
+    assert len(results) >= 1
+    assert results[0][0].id == "camel_1"
+
+
+def test_fts_finds_snake_case_by_parts(store: IndexStore) -> None:
+    """Searching for individual parts of a snake_case identifier works."""
+    chunk = Chunk(
+        id="snake_1",
+        blob_sha="b_snake",
+        file_path="src/lib.py",
+        kind=ChunkKind.FUNCTION,
+        name="build_index",
+        content="def build_index(repo): pass",
+        content_tokens=tokenise_code("def build_index(repo): pass"),
+        name_tokens=tokenise_code("build_index"),
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk])
+    store.insert_snapshot("head", chunk.file_path, chunk.blob_sha)
+
+    # Should find via individual parts.
+    results = store.search_fulltext("head", "build index", top_k=5)
+    assert len(results) >= 1
+    assert results[0][0].id == "snake_1"
+
+
+def test_fts_content_tokens_roundtrip(store: IndexStore) -> None:
+    """Chunks with content_tokens populated survive insert → get."""
+    _seed_store(store)
+    chunks = store.get_chunks("head")
+    math = next(c for c in chunks if c.id == "math_1")
+    # content_tokens should contain tokenised content.
+    assert "calculate" in math.content_tokens
+    assert "standard" in math.content_tokens
+    assert "deviation" in math.content_tokens

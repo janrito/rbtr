@@ -319,6 +319,136 @@ def test_index_model_no_index(config_path: Path, repo_engine: Engine) -> None:
     assert cfg.index.embedding_model == new_model
 
 
+# ── /index search ─────────────────────────────────────────────────────
+
+
+def test_index_search_shows_results(indexed_engine: Engine) -> None:
+    """/index search returns a table of ranked results."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search hello")
+    drained_events = drain(engine.events)
+    tables = [e for e in drained_events if isinstance(e, TableOutput)]
+    assert any("Search:" in t.title for t in tables)
+    search_table = next(t for t in tables if "Search:" in t.title)
+    assert len(search_table.rows) >= 1
+    # First column is score, second is kind.
+    assert search_table.columns[0].header == "Score"
+    assert search_table.columns[1].header == "Kind"
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_no_results(indexed_engine: Engine) -> None:
+    """/index search with gibberish returns a 'no results' message."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search zzz_nonexistent_xyz_999")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("No results" in t for t in texts)
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_no_query(indexed_engine: Engine) -> None:
+    """/index search with no query shows usage."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("Usage:" in t for t in texts)
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_no_index(repo_engine: Engine) -> None:
+    """/index search without an index tells the user."""
+    engine = repo_engine
+    engine.run_task(TaskType.COMMAND, "/index search hello")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("No index loaded" in t for t in texts)
+
+
+# ── /index search-diag ───────────────────────────────────────────────
+
+
+def test_index_search_diag_shows_breakdown(indexed_engine: Engine) -> None:
+    """/index search-diag returns a table with all signal columns."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search-diag hello")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    tables = [e for e in drained_events if isinstance(e, TableOutput)]
+
+    # Should print the query classification header.
+    assert any("class=" in t for t in texts)
+    assert any("weights:" in t for t in texts)
+
+    assert any("Diagnostics:" in t.title for t in tables)
+    diag_table = next(t for t in tables if "Diagnostics:" in t.title)
+    headers = [c.header for c in diag_table.columns]
+    assert "Lex" in headers
+    assert "Sem" in headers
+    assert "Name" in headers
+    assert "Kind" in headers
+    assert "File" in headers
+    assert "Imp" in headers
+    assert "Prox" in headers
+    assert "Chunk" in headers
+    assert len(diag_table.rows) >= 1
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_diag_no_results(indexed_engine: Engine) -> None:
+    """/index search-diag with gibberish returns 'no results'."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search-diag zzz_nonexistent_xyz_999")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("No results" in t for t in texts)
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_diag_no_query(indexed_engine: Engine) -> None:
+    """/index search-diag with no query shows usage."""
+    engine = indexed_engine
+    drain(engine.events)
+
+    engine.run_task(TaskType.COMMAND, "/index search-diag")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("Usage:" in t for t in texts)
+
+    if engine.state.index is not None:
+        engine.state.index.close()
+
+
+def test_index_search_diag_no_index(repo_engine: Engine) -> None:
+    """/index search-diag without an index tells the user."""
+    engine = repo_engine
+    engine.run_task(TaskType.COMMAND, "/index search-diag hello")
+    drained_events = drain(engine.events)
+    texts = output_texts(drained_events)
+    assert any("No index loaded" in t for t in texts)
+
+
 # ── /index unknown ───────────────────────────────────────────────────
 
 

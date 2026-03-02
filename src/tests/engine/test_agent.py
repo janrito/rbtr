@@ -40,9 +40,7 @@ def test_index_ready_mentions_tools() -> None:
     ctx = _make_ctx(review_target=target, index_ready=True)
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "ready" in result.lower()
-    assert "search_symbols" in result
-    assert "search_codebase" in result
-    assert "search_similar" in result
+    assert "search" in result
 
 
 def test_index_not_ready_warns() -> None:
@@ -52,7 +50,7 @@ def test_index_not_ready_warns() -> None:
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "still building" in result.lower()
     assert "wait" in result.lower()
-    assert "search_symbols" in result
+    assert "search" in result
     assert "changed_symbols" in result
 
 
@@ -60,7 +58,7 @@ def test_index_tool_names_matches_registered_tools() -> None:
     """Introspected tool list includes all tools guarded by _require_index."""
     names = _index_tool_names()
     assert len(names) >= 5, f"expected ≥5 index tools, got {names}"
-    assert "search_symbols" in names
+    assert "search" in names
     assert "read_symbol" in names
     assert "changed_symbols" in names
     # Git-only tools should NOT appear.

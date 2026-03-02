@@ -28,12 +28,11 @@ from rbtr.engine.tools import (
     list_symbols,
     read_file,
     read_symbol,
-    search_codebase,
-    search_similar,
-    search_symbols,
+    search,
 )
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
+from rbtr.index.tokenise import tokenise_code
 from rbtr.models import BranchTarget, InlineComment
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -49,6 +48,14 @@ class _FakeCtx:
 class _FakeDeps:
     def __init__(self, state: EngineState) -> None:
         self.state = state
+
+
+def _tokenise_and_insert(store: IndexStore, chunks: list[Chunk]) -> None:
+    """Populate token fields and insert chunks into the store."""
+    for c in chunks:
+        c.content_tokens = tokenise_code(c.content)
+        c.name_tokens = tokenise_code(c.name)
+    store.insert_chunks(chunks)
 
 
 # ── Shared test data ─────────────────────────────────────────────────
@@ -219,7 +226,7 @@ def _make_state(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
         updated_at=0,
     )
 
-    store.insert_chunks(ALL_CHUNKS)
+    _tokenise_and_insert(store, ALL_CHUNKS)
     for c in ALL_CHUNKS:
         store.insert_snapshot("feature", c.file_path, c.blob_sha)
     store.insert_edges(ALL_EDGES, "feature")
@@ -244,7 +251,7 @@ def _make_state(*, embed: bool = False) -> tuple[EngineState, IndexStore]:
 def test_search_symbols_finds_exact_name() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_symbols(ctx, "handle_request")  # type: ignore[arg-type]
+    result = search(ctx, "handle_request")  # type: ignore[arg-type]
     assert "handle_request" in result
     assert "src/api/handler.py:10" in result
     store.close()
@@ -253,7 +260,7 @@ def test_search_symbols_finds_exact_name() -> None:
 def test_search_symbols_finds_partial_name() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_symbols(ctx, "calculate")  # type: ignore[arg-type]
+    result = search(ctx, "calculate")  # type: ignore[arg-type]
     # Should find both math functions.
     assert "calculate_mean" in result
     assert "calculate_standard_deviation" in result
@@ -263,8 +270,8 @@ def test_search_symbols_finds_partial_name() -> None:
 def test_search_symbols_no_match() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_symbols(ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
-    assert "No symbols" in result
+    result = search(ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
+    assert "No results" in result
     store.close()
 
 
@@ -275,7 +282,7 @@ def test_search_codebase_ranks_by_relevance() -> None:
     """Searching 'variance' should rank math_stddev highest."""
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_codebase(ctx, "variance")  # type: ignore[arg-type]
+    result = search(ctx, "variance")  # type: ignore[arg-type]
     lines = result.strip().split("\n")
     # First result should be the stddev function (contains "variance").
     assert "calculate_standard_deviation" in lines[0]
@@ -285,7 +292,7 @@ def test_search_codebase_ranks_by_relevance() -> None:
 def test_search_codebase_finds_http_content() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_codebase(ctx, "Response status")  # type: ignore[arg-type]
+    result = search(ctx, "Response status")  # type: ignore[arg-type]
     assert "handle_request" in result
     store.close()
 
@@ -293,7 +300,7 @@ def test_search_codebase_finds_http_content() -> None:
 def test_search_codebase_no_match() -> None:
     state, store = _make_state()
     ctx = _FakeCtx(state)
-    result = search_codebase(ctx, "zzz_gibberish_xyz_999")  # type: ignore[arg-type]
+    result = search(ctx, "zzz_gibberish_xyz_999")  # type: ignore[arg-type]
     assert "No results" in result
     store.close()
 
@@ -306,7 +313,7 @@ def test_search_similar_ranks_math_first(mocker: MockerFixture) -> None:
     state, store = _make_state(embed=True)
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
     ctx = _FakeCtx(state)
-    result = search_similar(ctx, "statistics calculations")  # type: ignore[arg-type]
+    result = search(ctx, "statistics calculations")  # type: ignore[arg-type]
 
     lines = result.strip().split("\n")
     # First results should be math-related (mean, stddev, StatisticsCalculator).
@@ -322,7 +329,7 @@ def test_search_similar_ranks_http_first(mocker: MockerFixture) -> None:
     state, store = _make_state(embed=True)
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
     ctx = _FakeCtx(state)
-    result = search_similar(ctx, "web request handling")  # type: ignore[arg-type]
+    result = search(ctx, "web request handling")  # type: ignore[arg-type]
 
     lines = result.strip().split("\n")
     top_two = " ".join(lines[:2])
@@ -331,12 +338,13 @@ def test_search_similar_ranks_http_first(mocker: MockerFixture) -> None:
 
 
 def test_search_similar_no_embeddings(mocker: MockerFixture) -> None:
-    """Store with no embeddings returns no results."""
+    """Unified search still returns results when embeddings are unavailable."""
     state, store = _make_state(embed=False)
-    mocker.patch("rbtr.index.embeddings.embed_text", return_value=[1.0, 0.0, 0.0])
+    mocker.patch("rbtr.index.embeddings.embed_text", side_effect=RuntimeError("no model"))
     ctx = _FakeCtx(state)
-    result = search_similar(ctx, "anything")  # type: ignore[arg-type]
-    assert "No similar" in result
+    # Without embeddings, search falls back to BM25 + name match.
+    result = search(ctx, "handle_request")  # type: ignore[arg-type]
+    assert "handle_request" in result
     store.close()
 
 
@@ -513,7 +521,7 @@ def api_client(endpoint: str, payload: bytes) -> dict:
         line_end=3,
     )
 
-    store.insert_chunks([base_parse, base_format, base_test, base_client])
+    _tokenise_and_insert(store, [base_parse, base_format, base_test, base_client])
     store.insert_snapshots(
         [
             ("main", "src/api/handler.py", "handler_v1"),
@@ -605,14 +613,15 @@ def auth_middleware(request: Request) -> Request:
         line_end=5,
     )
 
-    store.insert_chunks(
+    _tokenise_and_insert(
+        store,
         [
             head_parse,
             head_format,
             head_validate,
             head_test,
             head_middleware,
-        ]
+        ],
     )
     store.insert_snapshots(
         [
@@ -668,7 +677,7 @@ def test_ref_scoping_search_symbols_base_excludes_head_only() -> None:
     state, store = _make_two_ref_state()
     # search_symbols always uses head — verify it finds head-only symbols.
     ctx = _FakeCtx(state)
-    result = search_symbols(ctx, "validate_schema")  # type: ignore[arg-type]
+    result = search(ctx, "validate_schema")  # type: ignore[arg-type]
     assert "validate_schema" in result
     # Now verify via read_symbol that validate_schema is invisible at base.
     base_result = read_symbol(ctx, "validate_schema", ref="base")  # type: ignore[arg-type]
@@ -779,12 +788,12 @@ def test_ref_scoping_search_symbols_only_returns_head() -> None:
     ctx = _FakeCtx(state)
 
     # validate_schema only exists at head — search_symbols must find it.
-    result = search_symbols(ctx, "validate_schema")  # type: ignore[arg-type]
+    result = search(ctx, "validate_schema")  # type: ignore[arg-type]
     assert "validate_schema" in result
 
-    # api_client only exists at base — search_symbols must NOT find it.
-    result = search_symbols(ctx, "api_client")  # type: ignore[arg-type]
-    assert "No symbols" in result
+    # api_client only exists at base — search must NOT find it.
+    result = search(ctx, "api_client")  # type: ignore[arg-type]
+    assert "No results" in result
     store.close()
 
 
@@ -795,11 +804,11 @@ def test_ref_scoping_search_codebase_only_returns_head() -> None:
     ctx = _FakeCtx(state)
 
     # "missing key" only appears in validate_schema (head-only).
-    result = search_codebase(ctx, "missing key")  # type: ignore[arg-type]
+    result = search(ctx, "missing key")  # type: ignore[arg-type]
     assert "validate_schema" in result
 
     # "send_to" only appears in api_client (base-only) — must not be found.
-    result = search_codebase(ctx, "send_to")  # type: ignore[arg-type]
+    result = search(ctx, "send_to")  # type: ignore[arg-type]
     assert "No results" in result
     store.close()
 
@@ -948,14 +957,14 @@ def handle_request(req):
 
     ctx = _FakeCtx(state)
 
-    # search_symbols (always head) must not find stale symbols.
-    sym_result = search_symbols(ctx, "generate_invoice")  # type: ignore[arg-type]
-    assert "No symbols" in sym_result
+    # search (always head) must not find stale symbols.
+    sym_result = search(ctx, "generate_invoice")  # type: ignore[arg-type]
+    assert "No results" in sym_result
 
-    sym_result = search_symbols(ctx, "monthly_report")  # type: ignore[arg-type]
-    assert "No symbols" in sym_result
+    sym_result = search(ctx, "monthly_report")  # type: ignore[arg-type]
+    assert "No results" in sym_result
 
-    sym_result = search_symbols(ctx, "handle_request")  # type: ignore[arg-type]
+    sym_result = search(ctx, "handle_request")  # type: ignore[arg-type]
     assert "handle_request" in sym_result
 
     # read_symbol at both refs must not find stale symbols.
@@ -1552,15 +1561,16 @@ def test_require_repo_hides_when_no_target() -> None:
 
 
 def test_search_similar_embedding_error(mocker: MockerFixture) -> None:
-    """Embedding model failure returns a helpful fallback message."""
+    """Embedding model failure gracefully falls back to BM25 + name."""
     state, store = _make_state()
     mocker.patch(
         "rbtr.index.store.IndexStore.search_by_text",
         side_effect=RuntimeError("model not loaded"),
     )
     ctx = _FakeCtx(state)
-    result = search_similar(ctx, "anything")  # type: ignore[arg-type]
-    assert "Semantic search unavailable" in result
+    # Unified search falls back to BM25 + name match without crashing.
+    result = search(ctx, "handle_request")  # type: ignore[arg-type]
+    assert "handle_request" in result
     store.close()
 
 

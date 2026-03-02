@@ -21,6 +21,7 @@ from rbtr.index.chunks import chunk_plaintext
 from rbtr.index.edges import infer_doc_edges, infer_import_edges, infer_test_edges
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, IndexStats
 from rbtr.index.store import IndexStore
+from rbtr.index.tokenise import tokenise_code
 from rbtr.plugins.manager import get_manager
 
 log = logging.getLogger(__name__)
@@ -82,6 +83,17 @@ def _extract_file(entry: FileEntry) -> list[Chunk]:
 
     # Fallback: plaintext line-based chunks.
     return chunk_plaintext(path, entry.blob_sha, text)
+
+
+def _tokenise_chunks(chunks: list[Chunk]) -> None:
+    """Populate ``content_tokens`` and ``name_tokens`` on each chunk.
+
+    Mutates the chunks in-place.  Called before ``insert_chunks``
+    so the pre-tokenised text is stored alongside the raw content.
+    """
+    for c in chunks:
+        c.content_tokens = tokenise_code(c.content)
+        c.name_tokens = tokenise_code(c.name)
 
 
 # ── Full index ───────────────────────────────────────────────────────
@@ -149,6 +161,9 @@ def build_index(
 
         if on_progress is not None:
             on_progress(i + 1, total)
+
+    # Pre-tokenise for code-aware FTS.
+    _tokenise_chunks(all_chunks)
 
     # Batch insert all chunks and snapshots in one call each.
     store.insert_chunks(all_chunks)
@@ -279,6 +294,9 @@ def update_index(
 
         if on_progress is not None:
             on_progress(i + 1, total)
+
+    # Pre-tokenise for code-aware FTS.
+    _tokenise_chunks(new_chunks)
 
     # Batch insert new chunks.
     store.insert_chunks(new_chunks)
@@ -462,7 +480,7 @@ def _embed_missing(
     Embedding is best-effort: if the model cannot be loaded (missing
     GGUF, llama-cpp not installed, GPU init failure, etc.) the error
     is logged and the structural index remains usable — only
-    ``search_similar`` will be degraded.
+    semantic search will be degraded.
     """
     missing = [c for c in chunks if not c.embedding]
     if not missing:

@@ -603,73 +603,34 @@ def read_draft(
 
 
 @agent.tool(prepare=_require_index)
-def search_symbols(
+def search(
     ctx: RunContext[AgentDeps],
-    name: str,
+    query: str,
     offset: int = 0,
     max_results: int | None = None,
 ) -> str:
-    """Search for functions, classes, and methods by name substring.
+    """Search the codebase — finds symbols by name, keywords, or concepts.
+
+    Fuses name matching, keyword search (BM25), and semantic
+    similarity into a single ranked result list.  Works for exact
+    identifiers (``IndexStore``), keyword queries (``retry timeout``),
+    and natural-language concepts (``how does auth work``).
 
     Args:
-        name: Short substring to match against symbol names
-            (e.g. `parse`, `Client`, `MQ`).  Case-insensitive.
-            Use short names, not fully-qualified paths — `MQ`
-            not `lib.mq.MQ`.
+        query: What to search for — an identifier name, keywords,
+            or a natural-language description.
         offset: Number of results to skip (default 0).  Use to
             fetch the next page when a previous call was limited.
         max_results: Maximum results to return per call
             (defaults to `tools.max_results` config value).
     """
     store = _store(ctx)
-    chunks = store.search_by_name(_head_ref(ctx), name)
-    if not chunks:
-        return f"No symbols matching '{name}'. Try a shorter or different substring."
-    total = len(chunks)
     limit = (
         min(max_results, config.tools.max_results)
         if max_results is not None
         else config.tools.max_results
     )
-    page = chunks[offset : offset + limit]
-    if not page:
-        return f"Offset {offset} exceeds {total} results."
-    lines: list[str] = []
-    for c in page:
-        scope = f"{c.scope}." if c.scope else ""
-        lines.append(f"{c.kind} {scope}{c.name}  ({c.file_path}:{c.line_start})")
-    result = "\n".join(lines)
-    shown = offset + len(page)
-    if shown < total:
-        result += _limited(shown, total, hint=f"offset={shown} to continue")
-    return result
-
-
-@agent.tool(prepare=_require_index)
-def search_codebase(
-    ctx: RunContext[AgentDeps],
-    query: str,
-    offset: int = 0,
-    max_results: int | None = None,
-) -> str:
-    """Full-text keyword search across the indexed codebase using BM25 ranking.
-
-    Args:
-        query: Keywords to search for (e.g. `retry timeout`,
-            `database connection`).  Multiple words are treated
-            as a combined query.
-        offset: Number of results to skip (default 0).
-        max_results: Maximum results to return per call
-            (defaults to `tools.max_results` config value).
-    """
-    store = _store(ctx)
-    limit = (
-        min(max_results, config.tools.max_results)
-        if max_results is not None
-        else config.tools.max_results
-    )
-    # Fetch extra to detect if more exist beyond the page.
-    results = store.search_fulltext(_head_ref(ctx), query, top_k=offset + limit + 1)
+    results = store.search(_head_ref(ctx), query, top_k=offset + limit + 1)
     if not results:
         return f"No results for '{query}'."
     total = len(results)
@@ -677,62 +638,10 @@ def search_codebase(
     if not page:
         return f"Offset {offset} exceeds {total} results."
     lines: list[str] = []
-    for chunk, score in page:
-        scope = f"{chunk.scope}." if chunk.scope else ""
-        lines.append(
-            f"[{score:.2f}] {chunk.kind} {scope}{chunk.name}"
-            f"  ({chunk.file_path}:{chunk.line_start})"
-        )
-    result = "\n".join(lines)
-    shown = offset + len(page)
-    if shown < total:
-        result += _limited(shown, total, hint=f"offset={shown} to continue")
-    return result
-
-
-@agent.tool(prepare=_require_index)
-def search_similar(
-    ctx: RunContext[AgentDeps],
-    query: str,
-    offset: int = 0,
-    max_results: int | None = None,
-) -> str:
-    """Semantic similarity search — find code conceptually related to a query.
-
-    Args:
-        query: Natural-language description of what you're
-            looking for (e.g. `"rate limiting logic"`,
-            `"database connection pooling"`).
-        offset: Number of results to skip (default 0).
-        max_results: Maximum results to return per call
-            (defaults to `tools.max_results` config value).
-    """
-    store = _store(ctx)
-    limit = (
-        min(max_results, config.tools.max_results)
-        if max_results is not None
-        else config.tools.max_results
-    )
-    try:
-        results = store.search_by_text(_head_ref(ctx), query, top_k=offset + limit + 1)
-    except Exception:
-        return (
-            "Semantic search unavailable (embedding model not loaded). "
-            "Use search_codebase (keyword search) or search_symbols instead."
-        )
-    if not results:
-        return f"No similar symbols for '{query}'."
-    total = len(results)
-    page = results[offset : offset + limit]
-    if not page:
-        return f"Offset {offset} exceeds {total} results."
-    lines: list[str] = []
-    for chunk, score in page:
-        scope = f"{chunk.scope}." if chunk.scope else ""
-        lines.append(
-            f"[{score:.3f}] {chunk.kind} {scope}{chunk.name}"
-            f"  ({chunk.file_path}:{chunk.line_start})"
-        )
+    for r in page:
+        c = r.chunk
+        scope = f"{c.scope}." if c.scope else ""
+        lines.append(f"[{r.score:.3f}] {c.kind} {scope}{c.name}  ({c.file_path}:{c.line_start})")
     result = "\n".join(lines)
     shown = offset + len(page)
     if shown < total:
@@ -768,7 +677,7 @@ def read_symbol(
     symbols = [c for c in matches if c.kind in code_kinds]
 
     if not symbols:
-        return f"No symbol matching '{name}'. Use search_symbols with a shorter substring."
+        return f"No symbol matching '{name}'. Use search with a shorter substring."
 
     sym = symbols[0]
     header = f"# {sym.kind} {sym.scope + '.' if sym.scope else ''}{sym.name}"
