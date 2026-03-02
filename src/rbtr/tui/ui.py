@@ -55,7 +55,6 @@ from rbtr.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from rbtr.models import PRTarget
 from rbtr.state import EngineState
 from rbtr.styles import (
     BG_ACTIVE,
@@ -70,7 +69,6 @@ from rbtr.styles import (
     CURSOR,
     DIM,
     ERROR,
-    FOOTER,
     INPUT_TEXT,
     MUTED,
     PROMPT,
@@ -80,36 +78,17 @@ from rbtr.styles import (
     STYLE_SHELL_STDERR,
     STYLE_WARNING,
     THEME,
-    USAGE_CRITICAL,
-    USAGE_MESSAGES,
-    USAGE_OK,
-    USAGE_UNCERTAIN,
-    USAGE_WARNING,
 )
+from rbtr.tui.footer import _format_count, render_footer
 from rbtr.tui.input import (
     InputReader,
     InputState,
     query_shell_completions,
 )
-from rbtr.usage import (
-    MessageCountStatus,
-    ThresholdStatus,
-    format_cost,
-    format_tokens,
-)
 
 _SPINNER = SPINNERS["dots8"]
 _SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # rich Spinner dict has untyped values
 _SPINNER_INTERVAL: float = _SPINNER["interval"] / 1000  # type: ignore[operator]  # rich Spinner dict has untyped values
-
-
-def _format_count(n: int) -> str:
-    """Format a count with k/M suffix for the footer."""
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}k"
-    return str(n)
 
 
 type _SegmentLine = list[Segment]
@@ -692,140 +671,16 @@ class UI:
         return _SPINNER_FRAMES[int(time.time() / _SPINNER_INTERVAL) % len(_SPINNER_FRAMES)]
 
     def _render_footer(self) -> Group:
-        width = self.console.width
-
-        # ── Left side ────────────────────────────────────────────────
-        repo = f" {self.state.owner}/{self.state.repo_name}" if self.state.owner else " rbtr"
-
-        target = self.state.review_target
-        match target:
-            case PRTarget(number=n, base_branch=base, head_branch=head):
-                review = f" PR #{n} · {base} → {head}"
-            case _ if target is not None:
-                review = f" {target.base_branch} → {target.head_branch}"
-            case _:
-                review = ""
-        if not self.state.gh and not review:
-            review = " ✗ not authenticated"
-
-        # Index status — appended to the review target on line 2.
-        if self._index_ready:
-            index_status = f" · ● {_format_count(self._index_chunks)}"
-        elif self._index_total > 0:
-            label = self._index_phase or "indexing"
-            index_status = (
-                f" · {self._spinner_frame()} {label} {self._index_indexed}/{self._index_total}"
-            )
-        else:
-            index_status = ""
-        if review and index_status:
-            review += index_status
-
-        # ── Right side ───────────────────────────────────────────────
-        model = self.state.model_name or ""
-        usage = self.state.usage
-        has_usage = usage.input_tokens > 0 or usage.output_tokens > 0
-
-        # Line 1: repo left, model + thinking effort right.
-        # effort_supported is None until the first LLM call determines it.
-        effort = config.thinking_effort
-        supported = self.state.effort_supported
-        if model and effort is not ThinkingEffort.NONE:
-            # Show effort level; red "off" when model doesn't support it.
-            if supported is False:
-                effort_label = "off"
-                effort_style: str | None = ERROR
-            else:
-                effort_label = effort
-                effort_style = None
-            model_right = f"{model} ∴ {effort_label} "
-            line1 = Text(style=FOOTER)
-            line1.append(repo)
-            pad = width - len(repo) - len(model_right)
-            line1.append(" " * max(pad, 2))
-            line1.append(f"{model} ∴ ")
-            line1.append(effort_label, style=effort_style)
-            line1.append(" ")
-        elif model:
-            line1 = self._footer_line(repo, f"{model} ", width)
-        else:
-            line1 = self._footer_line(repo, "", width)
-
-        # Single-line footer when there's nothing for line 2
-        if not review and not has_usage:
-            return Group(line1)
-
-        # Line 2: review target left, usage stats right
-        ctx = ""
-        msgs = ""
-        token_parts: list[str] = []
-        if has_usage:
-            msgs = f"|{usage.turn_count}:{usage.response_count}|"
-            ctx_pct = f"{usage.context_used_pct:.0f}%"
-            ctx_size = format_tokens(usage.context_window)
-            ctx = f"{ctx_pct} of {ctx_size}"
-            token_parts.append(f"↑ {format_tokens(usage.input_tokens)}")
-            token_parts.append(f"↓ {format_tokens(usage.output_tokens)}")
-            if usage.cache_read_tokens:
-                token_parts.append(f"↯ {format_tokens(usage.cache_read_tokens)}")
-            token_parts.append(format_cost(usage.total_cost))
-
-        # Measure total width of the right side (unstyled).
-        right2 = ("  ".join([msgs, ctx, *token_parts]) + " ") if has_usage else ""
-        left2 = review or " "
-
-        # Build line 2 with styled context percentage
-        line2 = Text(style=FOOTER)
-        line2.append(left2)
-        pad = width - len(left2) - len(right2)
-        line2.append(" " * max(pad, 2))
-
-        if has_usage:
-            # Message count — gray normally, yellow >25, red >50.
-            match usage.message_count_status:
-                case MessageCountStatus.OK:
-                    msgs_style = USAGE_MESSAGES
-                case MessageCountStatus.WARNING:
-                    msgs_style = USAGE_WARNING
-                case MessageCountStatus.CRITICAL:
-                    msgs_style = USAGE_CRITICAL
-            line2.append(msgs, style=msgs_style)
-            line2.append("  ")
-
-            match usage.threshold_status:
-                case ThresholdStatus.OK:
-                    pct_style = USAGE_OK
-                case ThresholdStatus.WARNING:
-                    pct_style = USAGE_WARNING
-                case ThresholdStatus.CRITICAL:
-                    pct_style = USAGE_CRITICAL
-            # Percentage colored by threshold; total in footer color
-            # (or dimmed when context window is assumed, not reported).
-            line2.append(ctx_pct, style=pct_style)
-            line2.append(" of ")
-            total_style = USAGE_UNCERTAIN if not usage.context_window_known else None
-            line2.append(format_tokens(usage.context_window), style=total_style)
-            if token_parts:
-                # Cost is always the last part — dimmed when unavailable.
-                rest, cost = token_parts[:-1], token_parts[-1]
-                if rest:
-                    line2.append("  " + "  ".join(rest))
-                line2.append("  ")
-                cost_style = USAGE_UNCERTAIN if not usage.cost_available else None
-                line2.append(cost, style=cost_style)
-            line2.append(" ")
-        return Group(line1, line2)
-
-    @staticmethod
-    def _footer_line(left: str, right: str, width: int) -> Text:
-        """Build a single footer line with left/right alignment."""
-        t = Text(style=FOOTER)
-        t.append(left)
-        pad = width - len(left) - len(right)
-        t.append(" " * max(pad, 2))
-        if right:
-            t.append(right)
-        return t
+        return render_footer(
+            self.state,
+            self.console.width,
+            index_ready=self._index_ready,
+            index_chunks=self._index_chunks,
+            index_phase=self._index_phase,
+            index_indexed=self._index_indexed,
+            index_total=self._index_total,
+            spinner_frame=self._spinner_frame(),
+        )
 
     def _history_panel(
         self,
