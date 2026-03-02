@@ -366,7 +366,7 @@ def tool_ctx(
     """RunContext wired to the draft_repo — for LLM tool calls."""
     repo, _, _ = draft_repo
 
-    import rbtr.llm.tools as _m
+    import rbtr.llm.tools.draft as _m
 
     monkeypatch.setattr(_m, "_cached_ranges", None)
     monkeypatch.setattr(_m, "_cached_ranges_left", None)

@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from rbtr.llm.agent import AgentDeps, _index_tool_names, index_status
+from rbtr.llm.agent import AgentDeps, index_status
+from rbtr.llm.tools.common import _index_tool_names
 from rbtr.models import BranchTarget
 from rbtr.state import EngineState
 

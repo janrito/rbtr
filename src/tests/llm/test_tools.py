@@ -17,21 +17,11 @@ from pytest_mock import MockerFixture
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
-from rbtr.llm.tools import (
-    changed_files,
-    changed_symbols,
-    commit_log,
-    diff,
-    edit,
-    find_comment,
-    find_references,
-    grep,
-    list_files,
-    list_symbols,
-    read_file,
-    read_symbol,
-    search,
-)
+from rbtr.llm.tools.draft import find_comment
+from rbtr.llm.tools.file import grep, list_files, read_file
+from rbtr.llm.tools.git import changed_files, commit_log, diff
+from rbtr.llm.tools.index import changed_symbols, find_references, list_symbols, read_symbol, search
+from rbtr.llm.tools.notes import edit
 from rbtr.models import BranchTarget, InlineComment
 from rbtr.state import EngineState
 
@@ -1478,8 +1468,8 @@ def test_changed_symbols_no_changes() -> None:
 # ── Prepare functions (tool hiding) ──────────────────────────────────
 
 
-def test_require_index_hides_when_no_index() -> None:
-    """_require_index returns None when no index is loaded."""
+def testrequire_index_hides_when_no_index() -> None:
+    """require_index returns None when no index is loaded."""
     import asyncio
 
     state = EngineState()
@@ -1487,15 +1477,15 @@ def test_require_index_hides_when_no_index() -> None:
     assert state.index is None
     ctx = _FakeCtx(state)
 
-    from rbtr.llm.tools import _require_index
+    from rbtr.llm.tools.common import require_index
 
     tool_def = object()  # stand-in
-    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    result = asyncio.run(require_index(ctx, tool_def))  # type: ignore[arg-type]
     assert result is None
 
 
-def test_require_index_hides_when_no_target() -> None:
-    """_require_index returns None when no review target is set."""
+def testrequire_index_hides_when_no_target() -> None:
+    """require_index returns None when no review target is set."""
     import asyncio
 
     state = EngineState()
@@ -1503,46 +1493,46 @@ def test_require_index_hides_when_no_target() -> None:
     assert state.review_target is None
     ctx = _FakeCtx(state)
 
-    from rbtr.llm.tools import _require_index
+    from rbtr.llm.tools.common import require_index
 
     tool_def = object()
-    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    result = asyncio.run(require_index(ctx, tool_def))  # type: ignore[arg-type]
     assert result is None
     state.index.close()
 
 
-def test_require_index_returns_tool_when_ready() -> None:
-    """_require_index returns the tool definition when both index and target exist."""
+def testrequire_index_returns_tool_when_ready() -> None:
+    """require_index returns the tool definition when both index and target exist."""
     import asyncio
 
     state, store = _make_state()
     ctx = _FakeCtx(state)
 
-    from rbtr.llm.tools import _require_index
+    from rbtr.llm.tools.common import require_index
 
     tool_def = object()
-    result = asyncio.run(_require_index(ctx, tool_def))  # type: ignore[arg-type]
+    result = asyncio.run(require_index(ctx, tool_def))  # type: ignore[arg-type]
     assert result is tool_def
     store.close()
 
 
-def test_require_repo_hides_when_no_repo() -> None:
-    """_require_repo returns None when no repo is loaded."""
+def testrequire_repo_hides_when_no_repo() -> None:
+    """require_repo returns None when no repo is loaded."""
     import asyncio
 
     state = EngineState()
     state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
     ctx = _FakeCtx(state)
 
-    from rbtr.llm.tools import _require_repo
+    from rbtr.llm.tools.common import require_repo
 
     tool_def = object()
-    result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]
+    result = asyncio.run(require_repo(ctx, tool_def))  # type: ignore[arg-type]
     assert result is None
 
 
-def test_require_repo_hides_when_no_target() -> None:
-    """_require_repo returns None when no review target is set."""
+def testrequire_repo_hides_when_no_target() -> None:
+    """require_repo returns None when no review target is set."""
     import asyncio
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -1550,10 +1540,10 @@ def test_require_repo_hides_when_no_target() -> None:
         state = EngineState(repo=repo)
         ctx = _FakeCtx(state)
 
-        from rbtr.llm.tools import _require_repo
+        from rbtr.llm.tools.common import require_repo
 
         tool_def = object()
-        result = asyncio.run(_require_repo(ctx, tool_def))  # type: ignore[arg-type]
+        result = asyncio.run(require_repo(ctx, tool_def))  # type: ignore[arg-type]
         assert result is None
 
 

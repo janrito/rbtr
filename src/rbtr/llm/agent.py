@@ -35,15 +35,9 @@ def system_prompt(ctx: RunContext[AgentDeps]) -> str:
     return render_system(ctx.deps.state)
 
 
-def _index_tool_names() -> list[str]:
-    """Return names of tools that require the index, via introspection."""
-    from rbtr.llm.tools import _require_index  # deferred: circular at import time
-
-    return sorted(
-        name
-        for name, tool in agent._function_toolset.tools.items()
-        if tool.prepare is _require_index
-    )
+# Import tools so @agent.tool decorators execute and register.
+import rbtr.llm.tools  # noqa: E402, F401
+from rbtr.llm.tools.common import _index_tool_names  # noqa: E402
 
 
 @agent.instructions
@@ -54,7 +48,3 @@ def index_status(ctx: RunContext[AgentDeps]) -> str:
         return ""
     status = "ready" if state.index_ready else "building"
     return render_index_status(status=status, tool_names=_index_tool_names())
-
-
-# Import tools so @agent.tool decorators execute and register.
-import rbtr.llm.tools as _tools  # noqa: E402, F401  # side-effect import for tool registration

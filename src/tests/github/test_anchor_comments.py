@@ -22,7 +22,7 @@ from rbtr.exceptions import RbtrError
 from rbtr.github.client import get_pending_review, post_review
 from rbtr.github.draft import load_draft, save_draft
 from rbtr.llm.agent import AgentDeps
-from rbtr.llm.tools import (
+from rbtr.llm.tools.draft import (
     add_draft_comment,
     edit_draft_comment,
     remove_draft_comment,
