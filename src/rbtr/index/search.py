@@ -1,4 +1,4 @@
-"""Unified search with score fusion.
+"""Unified search scoring and fusion.
 
 Combines lexical (BM25), semantic (cosine), and name-match signals
 into a single ranked result list.  Each signal is normalised to
@@ -7,7 +7,7 @@ Post-fusion multipliers for chunk kind and file category adjust
 the final score.
 
 All scoring helpers are pure functions — easy to test in isolation.
-The ``search()`` function orchestrates the full pipeline.
+Orchestration lives in :meth:`IndexStore.search` (``store.py``).
 """
 
 from __future__ import annotations

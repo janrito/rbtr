@@ -32,6 +32,11 @@ build:
 bench *ARGS:
     uv run scripts/bench_index.py {{ ARGS }}
 
+# Mine real search queries from session history and replay them.
+# Usage: just bench-search [path/to/sessions.db]
+bench-search *ARGS:
+    uv run scripts/bench_search.py {{ ARGS }}
+
 # Evaluate search quality against curated queries (rbtr repo only).
 
 # Usage: just eval-search [ref]

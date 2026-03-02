@@ -487,7 +487,7 @@ def _embed_missing(
         return
 
     try:
-        from rbtr.index.embeddings import embed_texts  # deferred: heavy native lib
+        from rbtr.index.embeddings import embed_texts, embedding_text  # deferred: heavy native lib
     except Exception:
         log.warning("Embedding model unavailable — skipping embeddings", exc_info=True)
         return
@@ -498,7 +498,7 @@ def _embed_missing(
     done = 0
     for i in range(0, total, batch_size):
         batch = missing[i : i + batch_size]
-        texts = [f"{c.name}\n{c.content}" for c in batch]
+        texts = [embedding_text(c.name, c.content) for c in batch]
         try:
             vectors = embed_texts(texts)
         except Exception:

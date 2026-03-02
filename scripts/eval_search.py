@@ -200,9 +200,23 @@ EVAL_QUERIES: list[EvalQuery] = [
         expected=["index/store.py:search_fulltext"],
         technique=Technique.T4_FILE_CATEGORY,
     ),
-    # T5 — Hybrid fusion
+    # T5 — Hybrid fusion / semantic + lexical
+    #
+    # Each target has 3 paraphrases (short / medium / long) to
+    # distinguish "hard target" (all phrasings fail) from "hard
+    # phrasing" (some work, some don't).  IDs use the format
+    # <group>.<variant> — e.g. 16a/16b/16c target the same code.
+    #
+    # ── handle_llm / render_system ───────────────────────────
     EvalQuery(
-        id="16",
+        id="16a",
+        query="send messages to the LLM",
+        expected=["engine/llm.py:handle_llm"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="16b",
         query="how does the review context get sent to the llm",
         expected=[
             "engine/llm.py:handle_llm",
@@ -212,25 +226,69 @@ EVAL_QUERIES: list[EvalQuery] = [
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="17",
+        id="16c",
+        query="stream a user message through the active model and collect the response",
+        expected=["engine/llm.py:handle_llm"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── SessionStore ─────────────────────────────────────────
+    EvalQuery(
+        id="17a",
+        query="session persistence",
+        expected=["sessions/store.py:SessionStore"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="17b",
         query="database storage for sessions",
         expected=["sessions/store.py:SessionStore"],
         technique=Technique.T5_HYBRID_FUSION,
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="18",
+        id="17c",
+        query="where is the conversation history stored between runs",
+        expected=["sessions/store.py:SessionStore"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── save_draft ───────────────────────────────────────────
+    EvalQuery(
+        id="18a",
+        query="persist draft to disk",
+        expected=["github/draft.py:save_draft"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="18b",
         query="where are draft comments saved",
         expected=["github/draft.py:save_draft"],
         technique=Technique.T5_HYBRID_FUSION,
         needs_embeddings=True,
     ),
-    # T5 continued — paraphrased natural-language descriptions.
-    # Each query describes a function's behaviour without sharing
-    # keywords with its name.  The semantic channel should bridge
-    # the vocabulary gap.
     EvalQuery(
-        id="31",
+        id="18c",
+        query="write the current review draft as yaml to the local filesystem",
+        expected=["github/draft.py:save_draft"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── compact_history / _auto_compact_on_overflow ──────────
+    EvalQuery(
+        id="31a",
+        query="summarise old messages",
+        expected=[
+            "engine/compact.py:compact_history",
+            "engine/compact.py:compact_history_async",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="31b",
         query="shorten the conversation when it gets too long",
         expected=[
             "engine/compact.py:compact_history",
@@ -240,34 +298,47 @@ EVAL_QUERIES: list[EvalQuery] = [
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="32",
+        id="31c",
+        query="reduce context usage by compressing earlier turns into a summary",
+        expected=[
+            "engine/compact.py:compact_history",
+            "engine/compact.py:compact_history_async",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── estimate_tokens ──────────────────────────────────────
+    EvalQuery(
+        id="32a",
+        query="token count",
+        expected=["engine/history.py:estimate_tokens"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="32b",
         query="count how many tokens a message uses",
         expected=["engine/history.py:estimate_tokens"],
         technique=Technique.T5_HYBRID_FUSION,
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="33",
-        query="parse source files into chunks",
-        expected=[
-            "index/orchestrator.py:build_index",
-            "index/chunks.py:chunk_markdown",
-        ],
+        id="32c",
+        query="approximate the number of tokens in a list of chat messages",
+        expected=["engine/history.py:estimate_tokens"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── changed_files ────────────────────────────────────────
+    EvalQuery(
+        id="35a",
+        query="modified files in the diff",
+        expected=["engine/tools.py:changed_files"],
         technique=Technique.T5_HYBRID_FUSION,
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="34",
-        query="authenticate with github",
-        expected=[
-            "engine/connect.py:_connect_github",
-            "engine/connect.py:cmd_connect",
-        ],
-        technique=Technique.T5_HYBRID_FUSION,
-        needs_embeddings=True,
-    ),
-    EvalQuery(
-        id="35",
+        id="35b",
         query="figure out which files were modified in the PR",
         expected=[
             "engine/tools.py:changed_files",
@@ -277,12 +348,259 @@ EVAL_QUERIES: list[EvalQuery] = [
         needs_embeddings=True,
     ),
     EvalQuery(
-        id="36",
+        id="35c",
+        query="list every file path that has changes between the base and head commits",
+        expected=[
+            "engine/tools.py:changed_files",
+            "git/objects.py:changed_files",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── post_review_draft / sync_review_draft ────────────────
+    EvalQuery(
+        id="36a",
+        query="post review to github",
+        expected=[
+            "engine/review.py:post_review_draft",
+            "github/client.py:post_review",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="36b",
         query="submit review comments to github",
         expected=[
             "engine/review.py:post_review_draft",
             "engine/review.py:sync_review_draft",
         ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="36c",
+        query="push the locally drafted review comments to the remote pull request",
+        expected=[
+            "engine/review.py:post_review_draft",
+            "engine/review.py:sync_review_draft",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── system_prompt / render_system ────────────────────────
+    EvalQuery(
+        id="37a",
+        query="build the system prompt",
+        expected=[
+            "engine/agent.py:system_prompt",
+            "prompts/__init__.py:render_system",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="37b",
+        query="render the system message for the LLM",
+        expected=[
+            "engine/agent.py:system_prompt",
+            "prompts/__init__.py:render_system",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="37c",
+        query="assemble the instructions that go at the start of every conversation",
+        expected=[
+            "engine/agent.py:system_prompt",
+            "prompts/__init__.py:render_system",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── _repair_dangling_tool_calls ──────────────────────────
+    EvalQuery(
+        id="43a",
+        query="fix orphaned tool calls",
+        expected=["engine/llm.py:_repair_dangling_tool_calls"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="43b",
+        query="fix broken tool call history after cancellation",
+        expected=["engine/llm.py:_repair_dangling_tool_calls"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="43c",
+        query="clean up the message list when a tool-calling turn was interrupted",
+        expected=["engine/llm.py:_repair_dangling_tool_calls"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── serialise_for_summary ────────────────────────────────
+    EvalQuery(
+        id="44a",
+        query="format messages as text",
+        expected=["engine/history.py:serialise_for_summary"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="44b",
+        query="convert messages to readable text for summarisation",
+        expected=["engine/history.py:serialise_for_summary"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="44c",
+        query="turn the structured chat history into a plain-text transcript for the compaction prompt",
+        expected=["engine/history.py:serialise_for_summary"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── _deep_merge ──────────────────────────────────────────
+    EvalQuery(
+        id="45a",
+        query="merge nested dicts",
+        expected=["config.py:_deep_merge"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="45b",
+        query="recursively merge two config dictionaries",
+        expected=["config.py:_deep_merge"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="45c",
+        query="combine user settings with workspace overrides by walking nested keys",
+        expected=["config.py:_deep_merge"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── split_history ────────────────────────────────────────
+    EvalQuery(
+        id="48a",
+        query="partition conversation messages",
+        expected=["engine/history.py:split_history"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="48b",
+        query="divide history into old and recent messages",
+        expected=["engine/history.py:split_history"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="48c",
+        query="separate the message list into a prefix to be summarised and a suffix to keep",
+        expected=["engine/history.py:split_history"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── demote_thinking ──────────────────────────────────────
+    EvalQuery(
+        id="49a",
+        query="strip thinking from responses",
+        expected=["engine/history.py:demote_thinking"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="49b",
+        query="remove thinking blocks from model output",
+        expected=["engine/history.py:demote_thinking"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="49c",
+        query="convert ThinkingParts in the history into plain TextParts so older turns are cheaper",
+        expected=["engine/history.py:demote_thinking"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── run_index / _build_index ─────────────────────────────
+    EvalQuery(
+        id="47a",
+        query="kick off indexing",
+        expected=[
+            "engine/indexing.py:run_index",
+            "engine/indexing.py:_build_index",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="47b",
+        query="start background indexing for a repository",
+        expected=[
+            "engine/indexing.py:run_index",
+            "engine/indexing.py:_build_index",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="47c",
+        query="launch the daemon thread that builds the code index for the current review target",
+        expected=[
+            "engine/indexing.py:run_index",
+            "engine/indexing.py:_build_index",
+        ],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── tokenise_code ────────────────────────────────────────
+    EvalQuery(
+        id="40a",
+        query="break apart identifiers",
+        expected=["index/tokenise.py:tokenise_code"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="40b",
+        query="split camelCase identifiers for search",
+        expected=["index/tokenise.py:tokenise_code"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="40c",
+        query="expand compound names like getUserById into individual words for the FTS index",
+        expected=["index/tokenise.py:tokenise_code"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    # ── load_draft ───────────────────────────────────────────
+    EvalQuery(
+        id="50a",
+        query="read draft from disk",
+        expected=["github/draft.py:load_draft"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="50b",
+        query="load a saved review from the filesystem",
+        expected=["github/draft.py:load_draft"],
+        technique=Technique.T5_HYBRID_FUSION,
+        needs_embeddings=True,
+    ),
+    EvalQuery(
+        id="50c",
+        query="deserialise the yaml review draft file and return the ReviewDraft object",
+        expected=["github/draft.py:load_draft"],
         technique=Technique.T5_HYBRID_FUSION,
         needs_embeddings=True,
     ),
@@ -357,6 +675,7 @@ EVAL_QUERIES += [
         id="28",
         query="search",
         expected=[
+            "index/store.py:search",
             "index/store.py:search_fulltext",
             "index/store.py:search_by_name",
             "index/store.py:search_similar",

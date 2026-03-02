@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 
+from rbtr.config import config
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
 
@@ -35,6 +36,16 @@ log = logging.getLogger(__name__)
 # Bump this when the schema changes.  On open, if the stored version
 # doesn't match, the DB file is deleted and rebuilt from scratch.
 SCHEMA_VERSION = 2
+
+# Bump this when the embedding text format changes.  On open, if the
+# stored version doesn't match, all embeddings are cleared so
+# _embed_missing() re-computes them on the next index build.
+EMBEDDING_VERSION = 1
+
+# Import and doc_section chunks have short, keyword-dense content
+# that produces misleadingly high cosine scores.  Filtering them
+# from the semantic pool lets real function/class definitions surface.
+_SEMANTIC_EXCLUDE = frozenset({ChunkKind.IMPORT, ChunkKind.DOC_SECTION})
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -188,7 +199,45 @@ class IndexStore:
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
             [str(SCHEMA_VERSION)],
         )
+        # Check embedding version — clear embeddings if the text format
+        # changed, so _embed_missing() re-computes them on next build.
+        self._check_embedding_version()
         self._fts_dirty = True
+
+    def _check_embedding_version(self) -> None:
+        """Clear embeddings if the text format or model changed."""
+        rows = self._con.execute(
+            "SELECT key, value FROM meta WHERE key IN ('embedding_version', 'embedding_model')"
+        ).fetchall()
+        stored = dict(rows)
+        stored_version = int(stored.get("embedding_version", "0"))
+        stored_model = stored.get("embedding_model", "")
+        current_model = config.index.embedding_model
+
+        version_changed = stored_version != EMBEDDING_VERSION
+        model_changed = stored_model != current_model
+
+        if version_changed or model_changed:
+            n = self._con.execute(
+                "SELECT count(*) FROM chunks WHERE embedding IS NOT NULL"
+            ).fetchone()
+            count = n[0] if n else 0
+            if count > 0:
+                if version_changed:
+                    reason = f"format v{stored_version}→v{EMBEDDING_VERSION}"
+                else:
+                    reason = f"model {stored_model!r}→{current_model!r}"
+                log.warning(
+                    "Embedding config changed (%s), clearing %d embeddings.",
+                    reason,
+                    count,
+                )
+                self._con.execute(_CLEAR_EMBEDDINGS_SQL)
+            self._con.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES "
+                "('embedding_version', ?), ('embedding_model', ?)",
+                [str(EMBEDDING_VERSION), current_model],
+            )
 
     def _cur(self) -> duckdb.DuckDBPyConnection:
         """Return a thread-local cursor — safe to call from any thread.
@@ -557,7 +606,7 @@ class IndexStore:
 
         # ── Channel 1: BM25 lexical ─────────────────────────────
         # Fetch more than top_k so fusion has a good candidate pool.
-        pool_size = top_k * 3
+        pool_size = top_k * 5
         lexical_results = self.search_fulltext(commit_sha, query, top_k=pool_size)
         lexical_scores: dict[str, float] = {}
         candidates: dict[str, Chunk] = {}
@@ -568,11 +617,16 @@ class IndexStore:
         # ── Channel 2: semantic (embedding cosine) ───────────────
         semantic_scores: dict[str, float] = {}
         try:
-            semantic_results = self.search_by_text(commit_sha, query, top_k=pool_size)
+            sem_fetch = pool_size * 2  # over-fetch to compensate
+            semantic_results = self.search_by_text(commit_sha, query, top_k=sem_fetch)
             for chunk, score in semantic_results:
+                if chunk.kind in _SEMANTIC_EXCLUDE:
+                    continue
                 semantic_scores[chunk.id] = score
                 if chunk.id not in candidates:
                     candidates[chunk.id] = chunk
+                if len(semantic_scores) >= pool_size:
+                    break
         except Exception:
             # Embeddings unavailable — redistribute weight.
             if a > 0:

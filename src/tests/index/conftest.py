@@ -136,6 +136,12 @@ ALL_CHUNKS: list[Chunk] = [
     DOC_SECTION,
 ]
 
+# Pre-tokenise once at import — deterministic and avoids mutation
+# inside the fixture.
+for _c in ALL_CHUNKS:
+    _c.content_tokens = tokenise_code(_c.content)
+    _c.name_tokens = tokenise_code(_c.name)
+
 
 # ── Edges ────────────────────────────────────────────────────────────
 #
@@ -167,16 +173,9 @@ def seeded_store() -> IndexStore:
     and edges are inserted.  No embeddings.
     """
     store = IndexStore()
-
-    # Tokenise before inserting.
-    for c in ALL_CHUNKS:
-        c.content_tokens = tokenise_code(c.content)
-        c.name_tokens = tokenise_code(c.name)
-
     store.insert_chunks(ALL_CHUNKS)
     for c in ALL_CHUNKS:
         store.insert_snapshot(COMMIT, c.file_path, c.blob_sha)
     store.insert_edges(ALL_EDGES, COMMIT)
     store.rebuild_fts_index()
-
     return store

@@ -9,9 +9,10 @@ from pathlib import Path
 
 import duckdb
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import SCHEMA_VERSION, IndexStore
+from rbtr.index.store import EMBEDDING_VERSION, SCHEMA_VERSION, IndexStore
 from rbtr.index.tokenise import tokenise_code
 
 
@@ -845,6 +846,73 @@ def test_schema_version_correct_keeps_data(tmp_path: Path) -> None:
     chunks = s2.get_chunks("head")
     assert len(chunks) == 1
     assert chunks[0].id == "math_1"
+    s2.close()
+
+
+# ── Embedding version ────────────────────────────────────────────────
+
+
+def test_embedding_version_mismatch_clears_embeddings(tmp_path: Path) -> None:
+    """Stale embedding version clears embeddings without nuking the DB."""
+    db_path = tmp_path / "emb.duckdb"
+    s1 = IndexStore(db_path)
+    s1.insert_chunks([_MATH_FUNC])
+    s1.insert_snapshot("head", _MATH_FUNC.file_path, _MATH_FUNC.blob_sha)
+    s1.update_embeddings([_MATH_FUNC.id], [[0.1, 0.2, 0.3]])
+    s1.close()
+
+    # Simulate a stale embedding version.
+    con = duckdb.connect(str(db_path))
+    con.execute("UPDATE meta SET value = '0' WHERE key = 'embedding_version'")
+    con.close()
+
+    s2 = IndexStore(db_path)
+    # Chunks should still exist.
+    chunks = s2.get_chunks("head")
+    assert len(chunks) == 1
+    # But embeddings should be cleared.
+    assert not chunks[0].embedding
+    # Version should be stamped.
+    rows = s2._cur().execute("SELECT value FROM meta WHERE key = 'embedding_version'").fetchall()
+    assert rows[0][0] == str(EMBEDDING_VERSION)
+    s2.close()
+
+
+def test_embedding_version_correct_keeps_embeddings(tmp_path: Path) -> None:
+    """When embedding version matches, embeddings are preserved."""
+    db_path = tmp_path / "emb_ok.duckdb"
+    s1 = IndexStore(db_path)
+    s1.insert_chunks([_MATH_FUNC])
+    s1.insert_snapshot("head", _MATH_FUNC.file_path, _MATH_FUNC.blob_sha)
+    s1.update_embeddings([_MATH_FUNC.id], [[0.1, 0.2, 0.3]])
+    s1.close()
+
+    s2 = IndexStore(db_path)
+    chunks = s2.get_chunks("head")
+    assert len(chunks) == 1
+    assert chunks[0].embedding  # truthy — embedding preserved
+    s2.close()
+
+
+def test_embedding_model_change_clears_embeddings(tmp_path: Path, mocker: MockerFixture) -> None:
+    """Changing the configured embedding model clears embeddings."""
+    db_path = tmp_path / "emb_model.duckdb"
+    s1 = IndexStore(db_path)
+    s1.insert_chunks([_MATH_FUNC])
+    s1.insert_snapshot("head", _MATH_FUNC.file_path, _MATH_FUNC.blob_sha)
+    s1.update_embeddings([_MATH_FUNC.id], [[0.1, 0.2, 0.3]])
+    s1.close()
+
+    # Simulate a config change to a different model.
+    mocker.patch("rbtr.index.store.config.index.embedding_model", "other/model.gguf")
+
+    s2 = IndexStore(db_path)
+    chunks = s2.get_chunks("head")
+    assert len(chunks) == 1
+    assert not chunks[0].embedding  # cleared
+    # Model should be stamped.
+    rows = s2._cur().execute("SELECT value FROM meta WHERE key = 'embedding_model'").fetchall()
+    assert rows[0][0] == "other/model.gguf"
     s2.close()
 
 

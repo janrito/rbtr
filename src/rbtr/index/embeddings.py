@@ -148,6 +148,21 @@ def reset_model() -> None:
     get_model.cache_clear()
 
 
+# ── Embedding text construction ───────────────────────────────────────
+
+
+def embedding_text(name: str, content: str) -> str:
+    """Build the text sent to the embedding model for a chunk.
+
+    Returns ``name + newline + content``.  Richer formats were
+    tested (header with kind/path, prepended docstring) and both
+    produced net-negative results — the docstring is already in
+    the content, so prepending it doubles its token weight and
+    shifts cosine similarities unpredictably.
+    """
+    return f"{name}\n{content}"
+
+
 # ── Encoding ─────────────────────────────────────────────────────────
 
 

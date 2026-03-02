@@ -1626,6 +1626,8 @@ scripts measure and tune search quality:
 just eval-search                      # evaluate against curated queries
 just tune-search                      # grid-search fusion weights
 just tune-search -- --step 0.05       # finer resolution (400 combos)
+just bench-search                     # replay real queries (current dir)
+just bench-search -- /path/to/repo    # replay for a specific repo
 ```
 
 **`scripts/eval_search.py`** — Runs 24+ curated queries against
@@ -1641,8 +1643,18 @@ Precomputes all channel scores once, then sweeps in-memory —
 runs in ~1s. Reports the top 10 weight combos and the current
 settings for comparison.
 
-Both scripts are rbtr-specific — they validate the repo identity
-via `pyproject.toml` before running.
+**`scripts/bench_search.py`** — Mines real search queries from
+the session history database (`~/.config/rbtr/sessions.db`).
+Pass a repo path (defaults to current directory), and the
+script filters to events matching that repo by remote URL.
+Extracts search→read pairs (search followed by `read_symbol`),
+detects retry chains, classifies queries, and replays paired
+queries through the current search pipeline. Reports R@1, R@5,
+MRR, and per-query signal breakdowns for misranked results.
+
+`eval_search` and `tune_search` are rbtr-specific — they
+validate the repo identity via `pyproject.toml` before running.
+`bench_search` works with any repo that has session history.
 
 #### Search architecture
 
