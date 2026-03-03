@@ -33,16 +33,19 @@ The corrupt part is saved with ``complete=1`` because
 ``_part_ta.dump_json`` faithfully serialises any string.
 
 ``reconstruct_message`` calls ``_validate_tool_call_args`` after
-Pydantic validation to detect this eagerly.  The ``ValueError``
-is caught by the existing corruption guard in
-``_load_messages_paired``, which logs a warning and skips the
-message.  A secondary fallback in ``handle_llm`` catches any
-remaining ``ValueError`` and retries with simplified history
+Pydantic validation.  Rather than raising (which would skip the
+entire message and orphan its matching ``ToolReturnPart``\\s),
+it **repairs** corrupt args to ``{}`` in-place.  The message
+stays in the history so tool-call / tool-return pairing is
+preserved and the provider adapter never rejects the history.
+A secondary fallback in ``handle_llm`` catches any remaining
+``ValueError`` and retries with simplified history
 (``flatten_tool_exchanges`` converts tool calls to plain text,
 bypassing ``args_as_dict()`` entirely).
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -66,6 +69,8 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+
+log = logging.getLogger(__name__)
 
 # ── Types ────────────────────────────────────────────────────────────
 
@@ -340,12 +345,9 @@ def reconstruct_message(
 
     After reconstruction, validates that all ``ToolCallPart`` args
     are parseable JSON.  Malformed args (e.g. from a model producing
-    invalid JSON during streaming) would otherwise surface as an
-    unrecoverable ``ValueError`` when the provider adapter calls
-    ``args_as_dict()`` — long after loading.
-
-    Raises ``ValueError`` for any corrupt part so the caller can
-    skip the message.
+    invalid JSON during streaming) are repaired to ``{}`` in-place
+    so the message stays in the history and tool-call / tool-return
+    pairing is preserved.
     """
     data: dict[str, Any] = json.loads(header_json)
     data["parts"] = [json.loads(pj) for pj in part_jsons]
@@ -364,13 +366,22 @@ def _validate_tool_call_args(msg: ModelMessage) -> None:
     streaming (e.g. mixed XML/JSON), the error surfaces far from
     the source.
 
-    Calling ``args_as_dict()`` eagerly here converts a late,
-    unrecoverable failure into an early skip handled by the
-    existing corruption guard in ``_load_messages_paired``.
+    Rather than raising (which would skip the entire message and
+    orphan its matching ``ToolReturnPart``\\s in subsequent
+    ``ModelRequest``\\s), corrupt args are **repaired to ``{}``**
+    in-place.  This preserves tool-call / tool-return pairing so
+    the provider adapter never rejects the history on account of
+    orphaned returns.
     """
     match msg:
         case ModelResponse(parts=parts):
             for part in parts:
                 if isinstance(part, ToolCallPart):
-                    # Triggers pydantic_core.from_json when args is a string.
-                    part.args_as_dict()
+                    try:
+                        part.args_as_dict()
+                    except ValueError:
+                        log.warning(
+                            "sessions: repairing corrupt args for tool call %s",
+                            part.tool_name,
+                        )
+                        part.args = {}

@@ -239,6 +239,24 @@ def test_is_history_format_error_orphan_tool_return() -> None:
     assert is_history_format_error(exc)
 
 
+def test_is_history_format_error_required_field() -> None:
+    """Provider rejects messages with a missing required field.
+
+    Some OpenAI-compatible endpoints require fields that PydanticAI
+    omits (e.g. ``content`` on assistant messages containing only
+    tool calls).  The pattern is kept general — ``required`` +
+    ``field`` — to cover varying error formats across endpoints.
+    """
+    exc = ModelHTTPError(
+        400,
+        "some-model",
+        body={
+            "message": "The content field is a required field.",
+        },
+    )
+    assert is_history_format_error(exc)
+
+
 # ── repair_dangling_tool_calls ───────────────────────────────────────
 
 

@@ -559,3 +559,44 @@ def test_handle_llm_retries_on_corrupt_tool_args(
     handle_llm(engine._llm_context(), "show my notes")
 
     assert call_count == 2
+
+
+def test_handle_llm_retries_on_type_error(
+    mocker: MockerFixture,
+    config_path: Path,
+    creds_path: Path,
+    engine: Engine,
+    llm_ctx: LLMContext,
+) -> None:
+    """handle_llm retries with simplified history on TypeError.
+
+    Some OpenAI-compatible providers crash in the request builder
+    (e.g. ``'NoneType' object is not subscriptable``) when the
+    history contains structures they can't handle.  Retrying with
+    simplified history flattens tool exchanges, avoiding the crash.
+    """
+    from rbtr.llm.stream import handle_llm
+
+    creds.update(openai_api_key="sk-test")
+    engine.state.openai_connected = True
+    engine.state.model_name = "openai/gpt-4o"
+
+    call_count = 0
+
+    def fake_run_agent(
+        eng: object,
+        model: object,
+        msg: str,
+        *,
+        simplify_history: bool = False,
+    ) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise TypeError("'NoneType' object is not subscriptable")
+
+    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+
+    handle_llm(engine._llm_context(), "hello")
+
+    assert call_count == 2

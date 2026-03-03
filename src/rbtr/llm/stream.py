@@ -106,6 +106,10 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             _run_agent(ctx, model, message, simplify_history=True)
             return
         raise
+    except TypeError:
+        log.info("TypeError during agent run — retrying with simplified history", exc_info=True)
+        ctx.out("Retrying with simplified history…")
+        _run_agent(ctx, model, message, simplify_history=True)
 
 
 def _is_tool_args_error(exc: ValueError) -> bool:

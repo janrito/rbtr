@@ -170,19 +170,19 @@ and show a menu (capped at 20 suggestions).
 
 ## Key bindings
 
-| Key        | Action                                   |
-| ---------- | ---------------------------------------- |
-| Enter      | Submit input                             |
-| Alt+Enter  | Insert newline (multiline input)         |
-| Tab        | Autocomplete                             |
-| Shift+Tab  | Cycle thinking effort level              |
-| Up/Down    | Browse history or navigate multiline     |
-| Ctrl+C     | Cancel running task (double-tap to quit) |
-| Ctrl+O     | Expand truncated shell output            |
-| Ctrl+W     | Delete word backward                     |
-| Ctrl+U     | Kill to start of line                    |
-| Ctrl+K     | Kill to end of line                      |
-| Ctrl+\_    | Undo                                     |
+| Key       | Action                                   |
+| --------- | ---------------------------------------- |
+| Enter     | Submit input                             |
+| Alt+Enter | Insert newline (multiline input)         |
+| Tab       | Autocomplete                             |
+| Shift+Tab | Cycle thinking effort level              |
+| Up/Down   | Browse history or navigate multiline     |
+| Ctrl+C    | Cancel running task (double-tap to quit) |
+| Ctrl+O    | Expand truncated shell output            |
+| Ctrl+W    | Delete word backward                     |
+| Ctrl+U    | Kill to start of line                    |
+| Ctrl+K    | Kill to end of line                      |
+| Ctrl+\_   | Undo                                     |
 
 ### Pasting
 
@@ -197,16 +197,16 @@ line stays readable:
 > review this: [pasted 42 lines]
 ```
 
-The marker is displayed in dim italic.  The real content is
+The marker is displayed in dim italic. The real content is
 stored internally and expanded back when you press Enter —
 the LLM receives the full pasted text, not the marker.
 
 **Thresholds** (configurable in `config.toml` under `[tui]`):
 
-| Setting               | Default | Triggers marker when…                |
-| --------------------- | ------- | ------------------------------------ |
-| `paste_collapse_lines`| 4       | Paste has ≥ 4 lines                  |
-| `paste_collapse_chars`| 200     | Single-line paste exceeds 200 chars  |
+| Setting                | Default | Triggers marker when…               |
+| ---------------------- | ------- | ----------------------------------- |
+| `paste_collapse_lines` | 4       | Paste has ≥ 4 lines                 |
+| `paste_collapse_chars` | 200     | Single-line paste exceeds 200 chars |
 
 Below the threshold, pasted text appears inline as-is.
 
@@ -222,7 +222,7 @@ Below the threshold, pasted text appears inline as-is.
   preserves the others.
 
 Marker format: `[pasted 42 lines]` for multiline,
-`[pasted 523 chars]` for long single-line.  Duplicate counts
+`[pasted 523 chars]` for long single-line. Duplicate counts
 are disambiguated: `[pasted 42 lines #2]`.
 
 ### Cancellation recovery
@@ -369,12 +369,97 @@ Claude and one from GPT-4o have the same structure (text parts,
 tool calls, etc.). History is preserved across `/model`
 switches — only `/new` clears it.
 
-One exception: thinking parts carry provider-specific IDs that
-some providers reject. When this causes an API error, rbtr
-converts thinking parts to plain text (wrapped in `<thinking>`
-tags) and retries. The conversion is read-time only — the
-original parts stay in the database, so switching back to a
-thinking-capable model recovers them.
+Providers differ in how they encode tool exchanges, reasoning
+metadata, and required message fields. PydanticAI translates
+between formats, but edge cases in long or cross-provider
+histories can produce structures that a provider rejects. rbtr
+adds several repair layers on top of PydanticAI to keep sessions
+usable across provider switches.
+
+### History repair
+
+LLM APIs require every tool call to have a matching tool result
+(and vice versa), and require tool-call arguments to be valid
+JSON. Providers also differ in wire format — tool-call ID
+schemes, required fields, reasoning metadata — so history
+produced by one provider can be structurally invalid for another.
+
+PydanticAI's internal message format is provider-agnostic, but
+providers embed provider-specific metadata that other providers
+reject. rbtr adds repair layers on top to preserve cross-provider
+session continuity.
+
+rbtr repairs history at three stages: on load, on retry, and on
+compaction.
+
+#### On load
+
+When a session is resumed, structural damage is repaired before
+the first API call.
+
+**Corrupt tool-call args.** A model can produce invalid JSON for
+tool arguments during streaming (e.g. mixed XML/JSON fragments).
+PydanticAI accepts any string at validation time, so the corrupt
+data is saved to the database. The error only surfaces when the
+provider adapter tries to parse the args. rbtr sets corrupt args
+to `{}` in memory on every load — the message stays in history so
+its matching tool results are not orphaned.
+
+**Dangling tool calls.** Ctrl+C or a crash during tool execution
+leaves tool calls with no matching result. Every provider rejects
+unpaired tool calls. rbtr injects a synthetic tool result with
+content `(cancelled)` for each unmatched call and persists it to
+the database so the repair is permanent.
+
+#### On retry
+
+When the first API call fails with a provider rejection, rbtr
+retries once with simplified history. Both transforms below are
+applied together.
+
+**Thinking-part metadata.** Providers embed reasoning IDs in
+thinking parts (`rs_*`, `reasoning_content`). A different
+provider rejects them. rbtr converts thinking parts to plain text
+wrapped in `<thinking>` tags — content preserved, metadata
+stripped.
+
+**Incompatible tool-exchange structure.** Each provider encodes
+tool calls and results differently. Complex histories —
+multi-turn chains, compaction boundaries, cross-provider
+tool-call ID formats — can produce structures the target adapter
+rejects. Some OpenAI-compatible endpoints also reject null
+content on assistant messages that contain only tool calls, or
+crash in the adapter on unexpected null values. rbtr converts
+tool calls and results to plain text: `[called tool_name(args)]`
+and `[tool_name result]\n…`. All content survives as readable
+text; only the machine-level pairing is removed.
+
+The retry triggers on HTTP 400 errors matching format-rejection
+patterns (unpaired tool calls, orphaned tool returns, missing
+required fields, reasoning-ID mismatches), on `ValueError` from
+malformed tool-call args that survived load-time repair, and on
+`TypeError` from adapter crashes on unexpected null values.
+
+Simplified history is not persisted — the original messages
+remain in the database. The next turn with a compatible provider
+uses the original history. The retry is visible as a brief
+"Retrying with simplified history…" message.
+
+#### On compaction
+
+When history is split for context compaction (see
+[Context compaction](#context-compaction)), two mechanisms prevent
+the split from creating orphaned tool parts.
+
+**Orphaned tool returns.** A tool result can end up in the kept
+partition while its matching tool call was compacted away. rbtr
+scans the kept partition for tool-result-only messages whose
+tool-call ID has no match and moves them into the old partition.
+
+**Split between call and result.** The split point can land
+between a tool-call message and its immediately following
+tool-result message. rbtr decrements the split index until the
+boundary no longer separates a call/result pair.
 
 ### `/new` — starting fresh
 
@@ -965,16 +1050,16 @@ indexing to finish.
 
 ### `/index` command
 
-| Subcommand          | Description                              |
-| ------------------- | ---------------------------------------- |
-| `/index`                      | Show index status (chunks, edges, size)  |
-| `/index clear`                | Delete the index database                |
-| `/index rebuild`              | Clear and re-index from scratch          |
-| `/index prune`                | Remove orphan chunks not in any snapshot |
-| `/index model`                | Show current embedding model             |
-| `/index model <id>`           | Switch embedding model and re-embed      |
-| `/index search <query>`       | Search the index and show ranked results |
-| `/index search-diag <query>`  | Search with full signal breakdown table  |
+| Subcommand                   | Description                              |
+| ---------------------------- | ---------------------------------------- |
+| `/index`                     | Show index status (chunks, edges, size)  |
+| `/index clear`               | Delete the index database                |
+| `/index rebuild`             | Clear and re-index from scratch          |
+| `/index prune`               | Remove orphan chunks not in any snapshot |
+| `/index model`               | Show current embedding model             |
+| `/index model <id>`          | Switch embedding model and re-embed      |
+| `/index search <query>`      | Search the index and show ranked results |
+| `/index search-diag <query>` | Search with full signal breakdown table  |
 
 ### Index configuration
 
@@ -1488,15 +1573,6 @@ include = [".rbtr/my-notes/*"]
 [tools]
 notes_dir = ".rbtr/my-notes"
 ```
-
-## Known issues
-
-- **Cross-provider reasoning history:** PydanticAI stores
-  provider-specific reasoning IDs (e.g. `rs_*`) in conversation
-  history. Switching models can cause 400 errors when the new provider
-  rejects those IDs. rbtr works around this by demoting thinking parts
-  to plain text wrapped in `<thinking>` tags and retrying — revisit
-  once PydanticAI fixes upstream.
 
 ## Development
 

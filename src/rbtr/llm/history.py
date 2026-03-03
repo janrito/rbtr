@@ -1,60 +1,43 @@
 """History repair and compaction helpers.
 
-Includes cross-provider compatibility (``demote_thinking``,
-``flatten_tool_exchanges``) and context-compaction utilities
-(``split_history``, ``serialise_for_summary``,
+Cross-provider compatibility (``demote_thinking``,
+``flatten_tool_exchanges``), structural repair
+(``repair_dangling_tool_calls``), and context-compaction
+utilities (``split_history``, ``serialise_for_summary``,
 ``build_summary_message``).
 
-Tool-call integrity
-~~~~~~~~~~~~~~~~~~~~
+History rewrites
+~~~~~~~~~~~~~~~~
 
-LLM APIs require every ``ToolCallPart`` in a ``ModelResponse`` to have
-a matching ``ToolReturnPart`` (same ``tool_call_id``) in a subsequent
-``ModelRequest``, and vice versa.  Incomplete pairs cause provider
-rejections.  A separate but related invariant is that
-``ToolCallPart.args`` must be parseable JSON — provider adapters call
-``args_as_dict()`` when building the wire request.
+LLM APIs require every ``ToolCallPart`` to have a matching
+``ToolReturnPart`` (same ``tool_call_id``) and vice versa, and
+require ``ToolCallPart.args`` to be valid JSON.  Providers also
+encode tool exchanges in incompatible wire formats and reject
+history containing metadata from other providers.
 
-Five independent mechanisms maintain these invariants, each operating
-at a different scope:
+Seven mechanisms enforce these invariants at three stages.  See
+the *History repair* section in the README for user-facing
+documentation.
 
-* **``split_history``** — after splitting by turn count, moves any
-  tool-return-only ``ModelRequest`` whose call was split into the
-  *old* partition.  Checks globally across the *kept* partition.
+On load (before the first API call):
 
-* **``snap_to_safe_boundary``** — adjusts a compaction split point
-  so it never lands between a ``ModelResponse`` (tool calls) and
-  its immediately following ``ModelRequest`` (tool results).
-  Structural check on one message — adjacency is the invariant.
+- ``_validate_tool_call_args`` (``serialise.py``) -- sets
+  unparseable ``ToolCallPart.args`` to ``{}``.
+- ``repair_dangling_tool_calls`` -- injects synthetic
+  ``(cancelled)`` results for unmatched tool calls.
 
-* **``_repair_dangling_tool_calls``** — on session load, finds
-  ``ModelResponse`` messages whose tool calls have no matching
-  ``ToolReturnPart`` *anywhere* in the history (caused by Ctrl+C
-  mid-turn) and injects synthetic ``(cancelled)`` results.  Global
-  scan prevents false positives from interleaved user prompts.
+On retry (after a provider rejection):
 
-* **``_validate_tool_call_args``** (in ``serialise.py``) — on
-  session load, eagerly calls ``args_as_dict()`` on every
-  ``ToolCallPart``.  A model can produce malformed JSON for tool
-  arguments during streaming (e.g. mixed XML/JSON when it
-  hallucinates the format).  PydanticAI accepts any string for
-  ``args`` at validation time, so the corrupt part survives
-  Pydantic reconstruction.  Eager validation converts the late
-  ``ValueError`` into an early skip by the existing corruption
-  guard in ``_load_messages_paired``.
+- ``demote_thinking`` -- converts ``ThinkingPart`` to
+  ``TextPart`` wrapped in ``<thinking>`` tags.
+- ``flatten_tool_exchanges`` -- converts ``ToolCallPart`` /
+  ``ToolReturnPart`` to plain text, removing structural pairing.
 
-* **``flatten_tool_exchanges``** — last-resort cross-provider
-  fallback.  Converts ``ToolCallPart``\\s to ``TextPart``\\s and
-  ``ToolReturnPart``\\s to ``UserPromptPart``\\s, preserving all
-  content as readable text while removing the structural pairing
-  that different providers encode differently.  Only runs on retry
-  after the API has already rejected the history — the normal path
-  (``repair_dangling_tool_calls`` + PydanticAI's
-  ``_clean_message_history``) handles all reproducible cases.
-  Also serves as the final fallback for corrupt tool-call args:
-  ``handle_llm`` catches ``ValueError`` from ``args_as_dict()``
-  and retries with ``simplify_history=True``, which routes
-  through this function and bypasses ``args_as_dict()`` entirely.
+On compaction (when splitting history):
+
+- ``split_history`` -- moves orphaned tool returns into *old*.
+- ``snap_to_safe_boundary`` -- adjusts split point to avoid
+  separating tool-call / tool-result pairs.
 """
 
 from __future__ import annotations
@@ -84,34 +67,35 @@ log = logging.getLogger(__name__)
 def is_history_format_error(exc: Exception) -> bool:
     """Check if an API error is caused by malformed history items.
 
-    Two classes of cross-provider incompatibility:
+    Providers reject history for two broad reasons:
 
-    * **Reasoning IDs** — PydanticAI stores provider-specific
-      reasoning IDs (``rs_*``, ``reasoning_content``) in
-      ``ThinkingPart``.  A different provider may reject these.
-      Fixed on retry by ``demote_thinking``.
+    * **Provider-specific metadata** -- reasoning IDs, thinking
+      part formats, etc. that another provider doesn't recognise.
+    * **Tool-call structure** -- pairing, ordering, or required
+      fields that differ between wire formats.
 
-    * **Tool-call pairing** — each provider encodes tool-use /
-      tool-result exchanges in its own wire format.  Complex
-      histories (multi-turn chains, compaction, partial saves)
-      can produce structures the *target* provider rejects, even
-      when ``repair_dangling_tool_calls`` found no issues in the
-      internal representation.
-      Fixed on retry by ``flatten_tool_exchanges``.
+    The patterns below are intentionally general (``tool_use`` +
+    ``tool_result``, ``required`` + ``field``, etc.) rather than
+    matching specific model error strings, so they cover
+    OpenAI-compatible endpoints that relay upstream errors in
+    varying formats.
     """
     msg = str(exc).lower()
-    # "Invalid 'input[6].id': 'reasoning_content'" — wrong ID format.
-    # Match the specific pattern: "invalid" + "'input[" or ".id'"
+    # Reasoning ID rejected: "'input[6].id': 'reasoning_content'"
     if "invalid" in msg and ("'input[" in msg or ".id'" in msg):
         return True
-    # "Item 'fc_...' was provided without its required 'reasoning' item"
+    # Missing reasoning item: "provided without its required 'reasoning' item"
     if "provided without" in msg and "reasoning" in msg:
         return True
-    # Claude: "tool_use ids were found without tool_result blocks"
+    # Unpaired tool calls: "tool_use ids ... without tool_result blocks"
     if "tool_use" in msg and "tool_result" in msg:
         return True
-    # OpenAI: "No tool call found for function call output"
-    return "no tool call found" in msg and "function call output" in msg
+    # Orphaned tool return: "No tool call found for function call output"
+    if "no tool call found" in msg and "function call output" in msg:
+        return True
+    # Required field missing from a message (e.g. null content on an
+    # assistant message that contains only tool calls).
+    return "required" in msg and "field" in msg
 
 
 def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:

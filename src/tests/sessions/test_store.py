@@ -1390,21 +1390,18 @@ def test_streaming_two_responses_in_sequence() -> None:
     assert loaded[3].parts[0].content == "a2"  # type: ignore[union-attr]
 
 
-def test_corrupt_tool_call_args_skipped_on_load() -> None:
-    """A tool-call with malformed JSON args is skipped, not fatal.
+def test_corrupt_tool_call_args_repaired_on_load() -> None:
+    """A tool-call with malformed JSON args is repaired, not fatal.
 
     When a model produces invalid JSON for tool arguments during
     streaming (e.g. mixed XML/JSON), the corrupt part is saved
-    with ``complete=1``.  On reload, ``load_messages`` must skip
-    the corrupt message rather than raising when the provider
-    adapter later calls ``args_as_dict()``.
+    with ``complete=1``.  On reload, ``load_messages`` must repair
+    the args to ``{}`` so the message stays in the history and
+    tool-call / tool-return pairing is preserved.
     """
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello")])
-
-        # Save a valid response first.
-        store.save_messages("s1", [_assistant("ok")])
 
         # Directly inject a corrupt tool-call fragment — args is
         # a string but NOT valid JSON (model produced mixed
@@ -1422,16 +1419,32 @@ def test_corrupt_tool_call_args_skipped_on_load() -> None:
         )
         store.save_messages("s1", [corrupt_response])
 
-        # Save another valid message after the corrupt one.
-        store.save_messages("s1", [_user("follow-up")])
+        # Save a tool-return that matches the corrupt call.
+        store.save_messages(
+            "s1",
+            [
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="read_file",
+                            content="(cancelled)",
+                            tool_call_id="tc_corrupt",
+                        )
+                    ]
+                )
+            ],
+        )
 
         loaded = store.load_messages("s1")
 
-    # The corrupt response is skipped; other messages survive.
+    # All three messages survive — the corrupt response has repaired args.
     assert len(loaded) == 3
-    kinds = [(type(m).__name__, m.parts[0].content) for m in loaded]  # type: ignore[union-attr]
-    assert kinds == [
-        ("ModelRequest", "hello"),
-        ("ModelResponse", "ok"),
-        ("ModelRequest", "follow-up"),
-    ]
+    assert isinstance(loaded[1], ModelResponse)
+    repaired = loaded[1].parts[0]
+    assert isinstance(repaired, ToolCallPart)
+    assert repaired.args == {}
+    assert repaired.tool_name == "read_file"
+    # The matching tool-return is preserved — no orphan.
+    assert isinstance(loaded[2], ModelRequest)
+    assert isinstance(loaded[2].parts[0], ToolReturnPart)
+    assert loaded[2].parts[0].tool_call_id == "tc_corrupt"
