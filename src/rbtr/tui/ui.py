@@ -236,6 +236,10 @@ class UI:
                         ("status", "Show index stats"),
                         ("clear", "Delete index"),
                         ("rebuild", "Clear and rebuild index"),
+                        ("prune", "Remove stale entries"),
+                        ("model", "Set embedding model"),
+                        ("search", "Search the index"),
+                        ("search-diag", "Search with diagnostics"),
                     ]
                     matches = [
                         (f"/index {name}", desc) for name, desc in subs if name.startswith(arg)
@@ -248,6 +252,8 @@ class UI:
                                 ("/compact reset", "Undo last compaction"),
                             ]
                         )
+                case Command.STATS:
+                    self._complete_stats(arg)
                 case Command.SESSION:
                     self._complete_session(arg)
             return
@@ -363,6 +369,20 @@ class UI:
             ("purge", "Delete sessions older than duration"),
         ]
         matches = [(f"/session {name}", desc) for name, desc in subs if name.startswith(arg)]
+        self.inp.apply_completions(matches)
+
+    def _complete_stats(self, arg: str) -> None:
+        """Complete /stats arguments: ``--all`` or a session ID prefix."""
+        matches: list[tuple[str, str]] = []
+        if "--all".startswith(arg):
+            matches.append(("/stats --all", "Stats across all sessions"))
+        if not arg.startswith("-"):
+            sessions = self._engine.store.list_sessions(limit=50)
+            matches.extend(
+                (f"/stats {s.session_id[:12]}", s.session_label or s.session_id[:8])
+                for s in sessions
+                if s.session_id[:12].startswith(arg)
+            )
         self.inp.apply_completions(matches)
 
     def _complete_shell(self) -> None:
