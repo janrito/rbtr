@@ -11,7 +11,7 @@ from rbtr.git.objects import (
     diff_line_ranges_left,
     resolve_anchor,
 )
-from rbtr.github.draft import draft_path, load_draft, save_draft
+from rbtr.github.draft import draft_path, draft_transaction, load_draft, save_draft
 from rbtr.llm.agent import AgentDeps, agent
 from rbtr.llm.tools.common import limited, require_pr_target
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
@@ -195,8 +195,6 @@ def add_draft_comment(
             "Comment on code that was changed or is near a change."
         )
 
-    draft = _load_or_create_draft(pr)
-
     comment = InlineComment(
         path=path,
         line=line,
@@ -205,8 +203,10 @@ def add_draft_comment(
         body=body,
         suggestion=suggestion,
     )
-    draft = draft.model_copy(update={"comments": [*draft.comments, comment]})
-    save_draft(pr, draft)
+    with draft_transaction():
+        draft = _load_or_create_draft(pr)
+        draft = draft.model_copy(update={"comments": [*draft.comments, comment]})
+        save_draft(pr, draft)
 
     return f"Comment added ({path}:{line}). Draft has {len(draft.comments)} comment(s)."
 
@@ -233,30 +233,31 @@ def edit_draft_comment(
     """
 
     pr = _pr_number(ctx)
-    draft = _load_or_create_draft(pr)
+    with draft_transaction():
+        draft = _load_or_create_draft(pr)
 
-    if not draft.comments:
-        return "Draft has no comments to edit."
+        if not draft.comments:
+            return "Draft has no comments to edit."
 
-    result = find_comment(draft.comments, path, comment)
-    if isinstance(result, str):
-        return f"Cannot edit comment: {result}"
+        result = find_comment(draft.comments, path, comment)
+        if isinstance(result, str):
+            return f"Cannot edit comment: {result}"
 
-    index, matched = result
-    updates: dict[str, str] = {}
+        index, matched = result
+        updates: dict[str, str] = {}
 
-    if body:
-        updates["body"] = body
-    if suggestion is not None:
-        updates["suggestion"] = suggestion
+        if body:
+            updates["body"] = body
+        if suggestion is not None:
+            updates["suggestion"] = suggestion
 
-    updated = matched.model_copy(update=updates)
-    new_comments = list(draft.comments)
-    new_comments[index] = updated
-    draft = draft.model_copy(update={"comments": new_comments})
-    save_draft(pr, draft)
+        updated = matched.model_copy(update=updates)
+        new_comments = list(draft.comments)
+        new_comments[index] = updated
+        draft = draft.model_copy(update={"comments": new_comments})
+        save_draft(pr, draft)
 
-    return f"Comment updated ({updated.path}:{updated.line})."
+        return f"Comment updated ({updated.path}:{updated.line})."
 
 
 @agent.tool(prepare=require_pr_target)
@@ -278,34 +279,35 @@ def remove_draft_comment(
     """
 
     pr = _pr_number(ctx)
-    draft = _load_or_create_draft(pr)
+    with draft_transaction():
+        draft = _load_or_create_draft(pr)
 
-    if not draft.comments:
-        return "Draft has no comments to remove."
+        if not draft.comments:
+            return "Draft has no comments to remove."
 
-    result = find_comment(draft.comments, path, comment)
-    if isinstance(result, str):
-        return f"Cannot remove comment: {result}"
+        result = find_comment(draft.comments, path, comment)
+        if isinstance(result, str):
+            return f"Cannot remove comment: {result}"
 
-    index, removed = result
+        index, removed = result
 
-    if removed.github_id is not None:
-        # Synced comment — tombstone it so the next push excludes
-        # it and the remote copy is not re-imported on pull.
-        tombstoned = removed.model_copy(update={"body": "", "suggestion": ""})
-        new_comments = list(draft.comments)
-        new_comments[index] = tombstoned
-    else:
-        # Never synced — safe to drop entirely.
-        new_comments = [c for i, c in enumerate(draft.comments) if i != index]
+        if removed.github_id is not None:
+            # Synced comment — tombstone it so the next push excludes
+            # it and the remote copy is not re-imported on pull.
+            tombstoned = removed.model_copy(update={"body": "", "suggestion": ""})
+            new_comments = list(draft.comments)
+            new_comments[index] = tombstoned
+        else:
+            # Never synced — safe to drop entirely.
+            new_comments = [c for i, c in enumerate(draft.comments) if i != index]
 
-    draft = draft.model_copy(update={"comments": new_comments})
-    save_draft(pr, draft)
+        draft = draft.model_copy(update={"comments": new_comments})
+        save_draft(pr, draft)
 
-    return (
-        f"Removed comment ({removed.path}:{removed.line}). "
-        f"Draft has {len(new_comments)} comment(s)."
-    )
+        return (
+            f"Removed comment ({removed.path}:{removed.line}). "
+            f"Draft has {len(new_comments)} comment(s)."
+        )
 
 
 @agent.tool(prepare=require_pr_target)
@@ -323,9 +325,10 @@ def set_draft_summary(
     """
 
     pr = _pr_number(ctx)
-    draft = _load_or_create_draft(pr)
-    draft = draft.model_copy(update={"summary": summary})
-    save_draft(pr, draft)
+    with draft_transaction():
+        draft = _load_or_create_draft(pr)
+        draft = draft.model_copy(update={"summary": summary})
+        save_draft(pr, draft)
 
     return f"Review summary updated ({len(summary)} chars)."
 

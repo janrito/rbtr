@@ -45,8 +45,14 @@ are removed immediately — no tombstone needed.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
+import os
+import tempfile
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
@@ -84,6 +90,23 @@ def _comment_hash(c: InlineComment) -> str:
 def _summary_hash(summary: str) -> str:
     """Deterministic hash of the review summary."""
     return hashlib.sha256(summary.encode()).hexdigest()[:16]
+
+
+# ── Draft lock ────────────────────────────────────────────────────────
+
+_draft_lock = threading.Lock()
+
+
+@contextmanager
+def draft_transaction() -> Iterator[None]:
+    """Serialize draft file access.
+
+    Wrap the full load → modify → save cycle to prevent
+    concurrent tool calls from corrupting the file or
+    losing edits.
+    """
+    with _draft_lock:
+        yield
 
 
 # ── Persistence ──────────────────────────────────────────────────────
@@ -143,8 +166,9 @@ def save_draft(pr_number: int, draft: ReviewDraft) -> None:
 
     All non-``None`` fields are serialised explicitly — no
     ``exclude_defaults`` or ``exclude_unset``, which are fragile
-    under ``model_copy`` roundtrips.  After writing, the file is
-    read back and validated to catch serialisation bugs early.
+    under ``model_copy`` roundtrips.  Validates the serialised
+    YAML before writing and uses an atomic temp-file-plus-rename
+    so concurrent readers never see a partial write.
     """
     path = draft_path(pr_number)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,8 +177,7 @@ def save_draft(pr_number: int, draft: ReviewDraft) -> None:
     buf = StringIO()
     _yaml().dump(payload, buf)
     text = buf.getvalue()
-    path.write_text(text)
-    # Roundtrip validation — catch corruption at the source.
+    # Validate before touching the file.
     try:
         data = _yaml().load(text)
         ReviewDraft.model_validate(data)
@@ -164,6 +187,16 @@ def save_draft(pr_number: int, draft: ReviewDraft) -> None:
             f"Draft serialisation produced invalid YAML ({path.name}): {exc}\n"
             f"This is a bug — please report it."
         ) from exc
+    # Atomic write: temp file in same directory + rename.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, str(path))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def delete_draft(pr_number: int) -> bool:
