@@ -152,6 +152,10 @@ class TuiConfig(BaseModel):
     max_completions: int = 20
     max_history: int = 500
     """Max input history entries kept in memory for Up/Down navigation."""
+    paste_collapse_lines: int = 4
+    """Pastes with at least this many lines are collapsed to a marker."""
+    paste_collapse_chars: int = 200
+    """Single-line pastes longer than this are collapsed to a marker."""
     shell_completion_timeout: float = 2.0
     double_ctrl_c_window: float = 0.5
     poll_interval: float = 1 / 30

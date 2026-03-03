@@ -71,6 +71,7 @@ from rbtr.styles import (
     ERROR,
     INPUT_TEXT,
     MUTED,
+    PASTE_MARKER,
     PROMPT,
     RULE,
     STYLE_DIM,
@@ -599,12 +600,40 @@ class UI:
         t.append("> ", style=PROMPT)
         buf = self.inp.text
         pos = self.inp.cursor
-        t.append(buf[:pos])
-        # Block cursor: reverse-video the character under the cursor,
-        # same as a real terminal block cursor.
-        char = buf[pos] if pos < len(buf) else " "
-        t.append(char, style=CURSOR)
-        t.append(buf[pos + 1 :])
+
+        # Build a sorted list of marker spans for styled rendering.
+        spans = self.inp.marker_spans()
+        spans.sort(key=lambda s: s[0])
+
+        # Walk through the buffer, emitting styled segments.
+        i = 0
+        span_idx = 0
+        while i < len(buf):
+            # Check if we're at a marker start.
+            if span_idx < len(spans) and i == spans[span_idx][0]:
+                m_start, m_end, _ = spans[span_idx]
+                marker_text = buf[m_start:m_end]
+                if pos == m_start:
+                    # Cursor is at the marker — highlight the leading '['.
+                    t.append(marker_text[0], style=CURSOR)
+                    t.append(marker_text[1:], style=PASTE_MARKER)
+                else:
+                    t.append(marker_text, style=PASTE_MARKER)
+                i = m_end
+                span_idx += 1
+                continue
+
+            # Regular character — apply cursor highlight if needed.
+            if i == pos:
+                t.append(buf[i], style=CURSOR)
+            else:
+                t.append(buf[i])
+            i += 1
+
+        # If cursor is at end-of-buffer, show the block cursor.
+        if pos >= len(buf):
+            t.append(" ", style=CURSOR)
+
         return t
 
     def _render_view(self) -> Group:

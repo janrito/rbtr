@@ -76,6 +76,8 @@ THEME = Theme(
         # ── Inline markup ────────────────────────────────────────────
         "rbtr.link": "bold #5CCFE6",
         "rbtr.code": "bold #FFCD66",
+        # ── Paste marker ────────────────────────────────────────────
+        "rbtr.paste_marker": "italic #707A8C",
         # ── Usage / context ───────────────────────────────────────────
         "rbtr.usage.ok": "dim #D5FF80",
         "rbtr.usage.warning": "dim #FFCD66",
@@ -114,6 +116,7 @@ COLUMN_BRANCH = "rbtr.column.branch"
 
 LINK_STYLE = "rbtr.link"
 CODE_HIGHLIGHT = "rbtr.code"
+PASTE_MARKER = "rbtr.paste_marker"
 
 BG_INPUT = "rbtr.bg.input"
 BG_ACTIVE = "rbtr.bg.active"

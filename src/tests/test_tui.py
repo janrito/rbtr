@@ -10,6 +10,7 @@ from rich.text import Text
 
 from rbtr.state import EngineState
 from rbtr.styles import THEME
+from rbtr.tui.input import PasteRegion
 from rbtr.tui.ui import UI, _render_lines, _tail_renderable_lines
 
 
@@ -58,3 +59,55 @@ def test_render_view_keeps_input_visible_with_tall_pending_panel(mocker: MockerF
 
     assert any(line.startswith("> ") for line in lines)
     assert any("pending 59" in line for line in lines)
+
+
+# ── Paste marker rendering ───────────────────────────────────────────
+
+
+def _make_ui(mocker: MockerFixture) -> UI:
+    """Build a UI wired to a mock engine for rendering tests."""
+    console = Console(width=80, height=10, force_terminal=True, theme=THEME)
+    state = EngineState()
+    engine = mocker.MagicMock()
+    engine._last_shell_full_output = None
+    return UI(console, state, queue.Queue(), engine)
+
+
+def test_render_input_line_styles_paste_marker(mocker: MockerFixture) -> None:
+    """Paste markers are rendered with the PASTE_MARKER style."""
+    ui = _make_ui(mocker)
+
+    ui.inp.set_text("hello [pasted 5 lines] world", cursor=0)
+    ui.inp.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+
+    rendered = ui._render_input_line()
+
+    assert "[pasted 5 lines]" in rendered.plain
+    # Walk rendered segments — the marker must have the italic style
+    # from PASTE_MARKER, while surrounding text must not.
+    segments = list(rendered.render(ui.console))
+    marker_segments = [s for s in segments if "[pasted" in s.text or "lines]" in s.text]
+    assert marker_segments, "Marker text should appear in rendered segments"
+    assert all("italic" in str(s.style) for s in marker_segments)
+
+
+def test_render_cursor_on_paste_marker(mocker: MockerFixture) -> None:
+    """When cursor is at a marker, the leading '[' gets cursor style."""
+    ui = _make_ui(mocker)
+    marker = "[pasted 5 lines]"
+    # Place cursor exactly at the marker start.
+    ui.inp.set_text(f"hello {marker} world", cursor=6)
+    ui.inp.paste_regions.append(PasteRegion(marker=marker, content="..."))
+
+    rendered = ui._render_input_line()
+    segments = list(rendered.render(ui.console))
+
+    # Find the segment containing the leading '['.
+    bracket_seg = [s for s in segments if s.text == "["]
+    assert bracket_seg, "Leading '[' should be its own segment"
+    assert "reverse" in str(bracket_seg[0].style), "Leading '[' should have cursor style"
+
+    # The rest of the marker should have italic (paste marker) style.
+    rest_segs = [s for s in segments if "pasted 5 lines]" in s.text]
+    assert rest_segs
+    assert all("italic" in str(s.style) for s in rest_segs)

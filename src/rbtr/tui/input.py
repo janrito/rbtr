@@ -259,6 +259,38 @@ def completion_suffix(value: str, context_word: str = "") -> str:
     return " "
 
 
+# ── Paste markers ────────────────────────────────────────────────────
+
+
+@dataclass
+class PasteRegion:
+    """A collapsed paste: the buffer holds *marker*, the real text is *content*."""
+
+    marker: str
+    content: str
+
+
+# (start_offset, end_offset_exclusive, owning_region)
+type MarkerSpan = tuple[int, int, PasteRegion]
+
+
+def make_paste_marker(content: str, existing: list[PasteRegion]) -> str:
+    """Build a unique marker string for *content*.
+
+    Uses line count for multiline, char count otherwise.
+    Appends ``#N`` when an identical marker already exists.
+    """
+    lines = content.count("\n") + 1
+    base = f"[pasted {lines} lines]" if "\n" in content else f"[pasted {len(content)} chars]"
+    marker = base
+    seq = 2
+    existing_markers = {r.marker for r in existing}
+    while marker in existing_markers:
+        marker = f"{base[:-1]} #{seq}]"
+        seq += 1
+    return marker
+
+
 # ── InputState — shared between reader thread and UI main loop ───────
 
 
@@ -290,6 +322,8 @@ class InputState:
     # session DB).  Called once on startup by InputReader._load_history.
     # Signature: (prefix, limit) -> list[str], most recent first.
     history_provider: typing.Callable[[str | None, int], list[str]] | None = None
+    # Collapsed paste regions — marker text in buffer, real content here.
+    paste_regions: list[PasteRegion] = field(default_factory=list)
 
     # ── Convenience accessors ────────────────────────────────────────
 
@@ -304,8 +338,9 @@ class InputState:
         return self.buffer.cursor_position
 
     def reset(self) -> None:
-        """Clear the buffer and move cursor to position 0."""
+        """Clear the buffer, paste regions, and move cursor to 0."""
         self.buffer.set_document(Document(), bypass_readonly=True)
+        self.paste_regions.clear()
 
     def set_text(self, text: str, cursor: int | None = None) -> None:
         """Replace buffer contents and optionally set cursor position."""
@@ -325,6 +360,64 @@ class InputState:
     def clear_completions(self) -> None:
         self.completions = []
         self.completion_index = -1
+
+    # ── Paste marker helpers ─────────────────────────────────────────
+
+    def expand_markers(self, text: str) -> str:
+        """Replace every paste marker in *text* with its real content."""
+        for region in self.paste_regions:
+            text = text.replace(region.marker, region.content)
+        return text
+
+    def marker_span_at(self, pos: int) -> MarkerSpan | None:
+        """Return the marker span containing *pos*, or ``None``.
+
+        A :data:`MarkerSpan` is ``(start, end, region)`` where *start*
+        is inclusive and *end* exclusive.
+        """
+        for span in self.marker_spans():
+            start, end, _ = span
+            if start <= pos < end:
+                return span
+        return None
+
+    def marker_spans(self) -> list[MarkerSpan]:
+        """Return every marker span currently in the buffer."""
+        text = self.buffer.text
+        spans: list[MarkerSpan] = []
+        for region in self.paste_regions:
+            idx = text.find(region.marker)
+            if idx != -1:
+                spans.append((idx, idx + len(region.marker), region))
+        return spans
+
+    def remove_marker(self, region: PasteRegion) -> None:
+        """Delete *region*'s marker text from the buffer and drop the entry.
+
+        Cursor is placed at the marker's former start position when it
+        was at or past the marker start; left unchanged otherwise.
+        """
+        text = self.buffer.text
+        idx = text.find(region.marker)
+        if idx != -1:
+            marker_end = idx + len(region.marker)
+            new = text[:idx] + text[marker_end:]
+            old_cursor = self.buffer.cursor_position
+            if old_cursor >= marker_end:
+                # Cursor was past the marker — shift left by marker length.
+                cursor = old_cursor - len(region.marker)
+            elif old_cursor > idx:
+                # Cursor was inside the marker — collapse to start.
+                cursor = idx
+            else:
+                cursor = old_cursor
+            self.set_text(new, cursor=cursor)
+        self.paste_regions = [r for r in self.paste_regions if r is not region]
+
+    def prune_orphaned_regions(self) -> None:
+        """Remove paste regions whose marker no longer appears in the buffer."""
+        text = self.buffer.text
+        self.paste_regions = [r for r in self.paste_regions if r.marker in text]
 
     def accept_completion(self, value: str, *, with_suffix: bool = False) -> None:
         """Replace the appropriate part of the buffer with *value*."""
@@ -546,7 +639,7 @@ class InputReader:
                 selected = state.completions[state.completion_index][0]
                 state.accept_completion(selected)
                 state.clear_completions()
-            text = buf.text.strip()
+            text = state.expand_markers(buf.text.strip())
             state.reset()
             state.clear_completions()
             self._history_index = -1
@@ -573,7 +666,16 @@ class InputReader:
         # ── Bracketed paste ──────────────────────────────────────────
 
         if key == Keys.BracketedPaste:
-            buf.insert_text(data)
+            line_count = data.count("\n") + 1
+            collapse = line_count >= config.tui.paste_collapse_lines or (
+                "\n" not in data and len(data) > config.tui.paste_collapse_chars
+            )
+            if collapse:
+                marker = make_paste_marker(data, state.paste_regions)
+                state.paste_regions.append(PasteRegion(marker=marker, content=data))
+                buf.insert_text(marker)
+            else:
+                buf.insert_text(data)
             state.clear_completions()
             return
 
@@ -581,15 +683,18 @@ class InputReader:
 
         if key == Keys.Left:
             buf.cursor_left()
+            self._snap_cursor_out_of_marker(state, direction="left")
             return
 
         if key == Keys.Right:
             buf.cursor_right()
+            self._snap_cursor_out_of_marker(state, direction="right")
             return
 
         if key == Keys.Up:
             if buf.document.cursor_position_row > 0:
                 buf.cursor_up()
+                self._snap_cursor_out_of_marker(state, direction="left")
             else:
                 self._history_up()
             return
@@ -597,61 +702,73 @@ class InputReader:
         if key == Keys.Down:
             if buf.document.cursor_position_row < buf.document.line_count - 1:
                 buf.cursor_down()
+                self._snap_cursor_out_of_marker(state, direction="right")
             else:
                 self._history_down()
             return
 
         if key in (Keys.Home, Keys.ControlA):
             buf.cursor_position += buf.document.get_start_of_line_position()
+            self._snap_cursor_out_of_marker(state, direction="left")
             return
 
         if key in (Keys.End, Keys.ControlE):
             buf.cursor_position += buf.document.get_end_of_line_position()
+            self._snap_cursor_out_of_marker(state, direction="right")
             return
 
         if key == Keys.ControlLeft:
             self._word_left(buf)
+            self._snap_cursor_out_of_marker(state, direction="left")
             return
 
         if key == Keys.ControlRight:
             self._word_right(buf)
+            self._snap_cursor_out_of_marker(state, direction="right")
             return
 
         # ── Editing ──────────────────────────────────────────────────
 
         if key in (Keys.Backspace, Keys.ControlH):
+            # Cursor is right after (or inside) a marker → remove whole marker.
+            span = state.marker_span_at(buf.cursor_position - 1)
+            if span is not None:
+                state.remove_marker(span[2])
+                state.clear_completions()
+                return
             buf.delete_before_cursor()
             state.clear_completions()
             return
 
         if key == Keys.Delete:
+            # Cursor is at the start of (or inside) a marker → remove it.
+            span = state.marker_span_at(buf.cursor_position)
+            if span is not None:
+                state.remove_marker(span[2])
+                state.clear_completions()
+                return
             buf.delete()
             state.clear_completions()
             return
 
         if key == Keys.ControlW:
-            pos = buf.document.find_previous_word_beginning()
-            if pos:
-                buf.delete_before_cursor(-pos)
+            self._delete_with_markers(state, buf, self._ctrl_w_range)
             state.clear_completions()
             return
 
         if key == Keys.ControlU:
-            col = buf.document.cursor_position_col
-            if col > 0:
-                buf.delete_before_cursor(col)
+            self._delete_with_markers(state, buf, self._ctrl_u_range)
             state.clear_completions()
             return
 
         if key == Keys.ControlK:
-            end_pos = buf.document.get_end_of_line_position()
-            if end_pos > 0:
-                buf.delete(end_pos)
+            self._delete_with_markers(state, buf, self._ctrl_k_range)
             state.clear_completions()
             return
 
         if key == Keys.ControlUnderscore:
             buf.undo()
+            state.prune_orphaned_regions()
             return
 
         # ── Printable characters ─────────────────────────────────────
@@ -661,7 +778,7 @@ class InputReader:
             state.clear_completions()
             return
 
-    # ── Word navigation helpers ──────────────────────────────────────
+    # ── Navigation helpers ────────────────────────────────────────────
 
     @staticmethod
     def _word_left(buf: Buffer) -> None:
@@ -674,6 +791,70 @@ class InputReader:
         pos = buf.document.find_next_word_ending()
         if pos:
             buf.cursor_position += pos
+
+    @staticmethod
+    def _snap_cursor_out_of_marker(
+        state: InputState,
+        *,
+        direction: typing.Literal["left", "right"],
+    ) -> None:
+        """If the cursor landed inside a paste marker, snap to the nearest edge."""
+        span = state.marker_span_at(state.buffer.cursor_position)
+        if span is None:
+            return
+        start, end, _ = span
+        state.buffer.cursor_position = start if direction == "left" else end
+
+    # ── Marker-aware deletion helpers ────────────────────────────────
+    #
+    # Range functions return (delete_start, delete_end) for a kill
+    # operation.  They are pure — no buffer mutations.
+
+    @staticmethod
+    def _ctrl_w_range(buf: Buffer) -> tuple[int, int] | None:
+        pos = buf.document.find_previous_word_beginning()
+        return (buf.cursor_position + pos, buf.cursor_position) if pos else None
+
+    @staticmethod
+    def _ctrl_u_range(buf: Buffer) -> tuple[int, int] | None:
+        col = buf.document.cursor_position_col
+        return (buf.cursor_position - col, buf.cursor_position) if col > 0 else None
+
+    @staticmethod
+    def _ctrl_k_range(buf: Buffer) -> tuple[int, int] | None:
+        end_pos = buf.document.get_end_of_line_position()
+        return (buf.cursor_position, buf.cursor_position + end_pos) if end_pos > 0 else None
+
+    @staticmethod
+    def _alt_d_range(buf: Buffer) -> tuple[int, int] | None:
+        pos = buf.document.find_next_word_ending()
+        return (buf.cursor_position, buf.cursor_position + pos) if pos else None
+
+    @staticmethod
+    def _delete_with_markers(
+        state: InputState,
+        buf: Buffer,
+        range_fn: typing.Callable[[Buffer], tuple[int, int] | None],
+    ) -> None:
+        """Delete a range, extending it to cover any overlapping markers."""
+        rng = range_fn(buf)
+        if rng is None:
+            return
+        del_start, del_end = rng
+
+        # Extend the range to fully include any overlapping markers.
+        to_remove: set[str] = set()
+        for m_start, m_end, region in state.marker_spans():
+            if m_start < del_end and m_end > del_start:
+                del_start = min(del_start, m_start)
+                del_end = max(del_end, m_end)
+                to_remove.add(region.marker)
+
+        text = buf.text
+        new = text[:del_start] + text[del_end:]
+        state.set_text(new, cursor=min(del_start, len(new)))
+        if to_remove:
+            state.paste_regions = [r for r in state.paste_regions if r.marker not in to_remove]
 
     # ── Alt+key handler ──────────────────────────────────────────────
 
@@ -693,18 +874,18 @@ class InputReader:
         # Alt+B / Alt+Left → word left
         if key in ("b", Keys.Left):
             self._word_left(buf)
+            self._snap_cursor_out_of_marker(state, direction="left")
             return True
 
         # Alt+F / Alt+Right → word right
         if key in ("f", Keys.Right):
             self._word_right(buf)
+            self._snap_cursor_out_of_marker(state, direction="right")
             return True
 
         # Alt+D → delete word forward
         if key == "d":
-            pos = buf.document.find_next_word_ending()
-            if pos:
-                buf.delete(pos)
+            self._delete_with_markers(state, buf, self._alt_d_range)
             state.clear_completions()
             return True
 
@@ -727,6 +908,8 @@ class InputReader:
             if hist[i].startswith(self._search_prefix):
                 self._history_index = i
                 self._state.set_text(hist[i])
+                # History entries were expanded at submit time.
+                self._state.paste_regions.clear()
                 return
 
     def _history_down(self) -> None:
@@ -738,7 +921,9 @@ class InputReader:
             if hist[i].startswith(self._search_prefix):
                 self._history_index = i
                 self._state.set_text(hist[i])
+                self._state.paste_regions.clear()
                 return
         # No more matches — restore saved text.
         self._history_index = -1
         self._state.set_text(self._saved_text)
+        self._state.paste_regions.clear()

@@ -170,14 +170,60 @@ and show a menu (capped at 20 suggestions).
 
 ## Key bindings
 
-| Key       | Action                                   |
-| --------- | ---------------------------------------- |
-| Enter     | Submit input                             |
-| Alt+Enter | Insert newline (multiline input)         |
-| Tab       | Autocomplete                             |
-| Up/Down   | Browse history or navigate multiline     |
-| Ctrl+C    | Cancel running task (double-tap to quit) |
-| Ctrl+O    | Expand truncated shell output            |
+| Key        | Action                                   |
+| ---------- | ---------------------------------------- |
+| Enter      | Submit input                             |
+| Alt+Enter  | Insert newline (multiline input)         |
+| Tab        | Autocomplete                             |
+| Shift+Tab  | Cycle thinking effort level              |
+| Up/Down    | Browse history or navigate multiline     |
+| Ctrl+C     | Cancel running task (double-tap to quit) |
+| Ctrl+O     | Expand truncated shell output            |
+| Ctrl+W     | Delete word backward                     |
+| Ctrl+U     | Kill to start of line                    |
+| Ctrl+K     | Kill to end of line                      |
+| Ctrl+\_    | Undo                                     |
+
+### Pasting
+
+rbtr enables **bracketed paste** on the terminal, so pasted
+content is never interpreted as keystrokes — newlines in pasted
+text insert newlines into the prompt instead of submitting.
+
+Large pastes are collapsed into an atomic marker so the input
+line stays readable:
+
+```text
+> review this: [pasted 42 lines]
+```
+
+The marker is displayed in dim italic.  The real content is
+stored internally and expanded back when you press Enter —
+the LLM receives the full pasted text, not the marker.
+
+**Thresholds** (configurable in `config.toml` under `[tui]`):
+
+| Setting               | Default | Triggers marker when…                |
+| --------------------- | ------- | ------------------------------------ |
+| `paste_collapse_lines`| 4       | Paste has ≥ 4 lines                  |
+| `paste_collapse_chars`| 200     | Single-line paste exceeds 200 chars  |
+
+Below the threshold, pasted text appears inline as-is.
+
+**Markers are atomic:**
+
+- Cursor skips over them — Left/Right arrows jump from one
+  edge to the other.
+- Backspace or Delete at a marker edge removes the entire
+  marker and its content.
+- Kill commands (Ctrl+W, Ctrl+U, Ctrl+K) that overlap a
+  marker remove it whole.
+- Multiple pastes produce independent markers; deleting one
+  preserves the others.
+
+Marker format: `[pasted 42 lines]` for multiline,
+`[pasted 523 chars]` for long single-line.  Duplicate counts
+are disambiguated: `[pasted 42 lines #2]`.
 
 ### Cancellation recovery
 

@@ -5,8 +5,10 @@ Buffer editing — pure state manipulation, no threads or I/O.
 """
 
 import pytest
+from prompt_toolkit.key_binding import KeyPress
+from prompt_toolkit.keys import Keys
 
-from rbtr.tui.input import InputState
+from rbtr.tui.input import InputReader, InputState, PasteRegion, make_paste_marker
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -413,3 +415,296 @@ def test_no_provider_leaves_history_empty():
     reader._search_prefix = ""
     reader._load_history()
     assert state.history == []
+
+
+# ── Paste markers ────────────────────────────────────────────────────
+
+
+def _make_key_reader(state: InputState | None = None) -> tuple[InputReader, InputState]:
+    """Create a bare InputReader wired to *state* for key dispatch tests."""
+    if state is None:
+        state = InputState()
+    reader = object.__new__(InputReader)
+    reader._state = state
+    reader._escape_next = False
+    reader._history_index = -1
+    reader._saved_text = ""
+    reader._search_prefix = ""
+    return reader, state
+
+
+def _send(reader: InputReader, key: Keys | str, data: str = "") -> None:
+    """Feed a single key press through the reader's dispatch."""
+    reader._on_key(KeyPress(key, data))
+
+
+# ── make_paste_marker ────────────────────────────────────────────────
+
+
+def test_make_marker_multiline():
+    assert make_paste_marker("a\nb\nc\nd\n", []) == "[pasted 5 lines]"
+
+
+def test_make_marker_single_line():
+    assert make_paste_marker("x" * 300, []) == "[pasted 300 chars]"
+
+
+def test_make_marker_disambiguates_duplicates():
+    existing = [PasteRegion(marker="[pasted 5 lines]", content="a\nb\nc\nd\ne")]
+    assert make_paste_marker("1\n2\n3\n4\n5", existing) == "[pasted 5 lines #2]"
+
+
+def test_make_marker_triple_duplicate():
+    existing = [
+        PasteRegion(marker="[pasted 5 lines]", content="a"),
+        PasteRegion(marker="[pasted 5 lines #2]", content="b"),
+    ]
+    assert make_paste_marker("1\n2\n3\n4\n5", existing) == "[pasted 5 lines #3]"
+
+
+# ── Paste via key dispatch ───────────────────────────────────────────
+
+
+def test_paste_below_threshold_inserts_inline():
+    """Short paste (< 4 lines) inserts text directly, no marker."""
+    reader, state = _make_key_reader()
+    _send(reader, Keys.BracketedPaste, "line1\nline2")
+    assert state.text == "line1\nline2"
+    assert state.paste_regions == []
+
+
+def test_paste_above_line_threshold_creates_marker():
+    """Paste with ≥ 4 lines collapses to a marker in the buffer."""
+    reader, state = _make_key_reader()
+    content = "line1\nline2\nline3\nline4"
+    _send(reader, Keys.BracketedPaste, content)
+    assert state.text == "[pasted 4 lines]"
+    assert len(state.paste_regions) == 1
+    assert state.paste_regions[0].content == content
+
+
+def test_paste_above_char_threshold_creates_marker():
+    """Long single-line paste (> 200 chars) collapses to a char marker."""
+    reader, state = _make_key_reader()
+    content = "x" * 250
+    _send(reader, Keys.BracketedPaste, content)
+    assert state.text == "[pasted 250 chars]"
+    assert state.paste_regions[0].content == content
+
+
+def test_paste_at_cursor_position():
+    """Marker is inserted at cursor position, not appended."""
+    reader, state = _make_key_reader()
+    state.set_text("hello  world", cursor=6)
+    _send(reader, Keys.BracketedPaste, "a\nb\nc\nd")
+    assert state.text == "hello [pasted 4 lines] world"
+
+
+# ── Submit expands markers ───────────────────────────────────────────
+
+
+def test_submit_expands_markers():
+    """Enter submits the real pasted content, not the marker text."""
+    reader, state = _make_key_reader()
+    content = "line1\nline2\nline3\nline4"
+    _send(reader, Keys.BracketedPaste, content)
+    _send(reader, Keys.Enter, "\r")
+    submitted = state.submitted.get_nowait()
+    assert submitted == content
+
+
+def test_submit_expands_mixed_text_and_markers():
+    """Text typed around a marker is preserved in the submitted string."""
+    reader, state = _make_key_reader()
+    state.set_text("review this: ")
+    content = "a\nb\nc\nd"
+    _send(reader, Keys.BracketedPaste, content)
+    _send(reader, Keys.Enter, "\r")
+    submitted = state.submitted.get_nowait()
+    assert submitted == f"review this: {content}"
+
+
+# ── expand_markers / marker_span_at (pure helpers) ───────────────────
+
+
+def test_expand_markers_no_regions():
+    s = _inp("no markers here")
+    assert s.expand_markers(s.text) == "no markers here"
+
+
+def test_expand_markers_multiple_regions():
+    s = _inp("[pasted 4 lines] and [pasted 200 chars]")
+    s.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
+    s.paste_regions.append(PasteRegion(marker="[pasted 200 chars]", content="z" * 200))
+    assert s.expand_markers(s.text) == "a\nb\nc\nd and " + "z" * 200
+
+
+def test_marker_span_at_inside_returns_span_and_region():
+    s = _inp("abc[pasted 5 lines]xyz")
+    region = PasteRegion(marker="[pasted 5 lines]", content="...")
+    s.paste_regions.append(region)
+    span = s.marker_span_at(3)
+    assert span is not None
+    assert span[:2] == (3, 19)
+    assert span[2] is region
+    # Last char inside marker (pos 18, exclusive end 19).
+    assert s.marker_span_at(18) is not None
+
+
+def test_marker_span_at_outside_returns_none():
+    s = _inp("abc[pasted 5 lines]xyz")
+    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    assert s.marker_span_at(2) is None
+    assert s.marker_span_at(19) is None
+
+
+# ── remove_marker ────────────────────────────────────────────────────
+
+
+def test_remove_marker_deletes_text_and_region():
+    s = _inp("abc[pasted 5 lines]xyz")
+    region = PasteRegion(marker="[pasted 5 lines]", content="real")
+    s.paste_regions.append(region)
+    s.remove_marker(region)
+    assert s.text == "abcxyz"
+    assert s.paste_regions == []
+
+
+def test_remove_marker_cursor_after_marker_shifts_left():
+    s = _inp("abc[pasted 5 lines]xyz", cursor=19)
+    region = PasteRegion(marker="[pasted 5 lines]", content="real")
+    s.paste_regions.append(region)
+    s.remove_marker(region)
+    assert s.cursor == 3
+
+
+def test_remove_marker_cursor_inside_marker_snaps_to_start():
+    """Cursor inside marker (defensive) collapses to marker start."""
+    s = _inp("abc[pasted 5 lines]xyz", cursor=10)
+    region = PasteRegion(marker="[pasted 5 lines]", content="real")
+    s.paste_regions.append(region)
+    s.remove_marker(region)
+    assert s.text == "abcxyz"
+    assert s.cursor == 3
+
+
+def test_remove_marker_cursor_before_marker_unchanged():
+    s = _inp("abc[pasted 5 lines]xyz", cursor=1)
+    region = PasteRegion(marker="[pasted 5 lines]", content="real")
+    s.paste_regions.append(region)
+    s.remove_marker(region)
+    assert s.cursor == 1
+
+
+# ── prune_orphaned_regions ───────────────────────────────────────────
+
+
+def test_prune_removes_orphaned_regions():
+    s = _inp("only [pasted 5 lines] remains")
+    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
+    s.paste_regions.append(PasteRegion(marker="[pasted 3 lines]", content="b"))
+    s.prune_orphaned_regions()
+    assert len(s.paste_regions) == 1
+    assert s.paste_regions[0].marker == "[pasted 5 lines]"
+
+
+# ── reset clears regions ─────────────────────────────────────────────
+
+
+def test_reset_clears_paste_regions():
+    s = _inp("[pasted 5 lines]")
+    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
+    s.reset()
+    assert s.text == ""
+    assert s.paste_regions == []
+
+
+# ── Atomic cursor navigation via key dispatch ────────────────────────
+
+
+def test_key_left_snaps_past_marker():
+    """Left arrow one step into a marker snaps cursor to marker start."""
+    state = _inp("abc[pasted 5 lines]xyz", cursor=19)
+    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.Left, "")
+    assert state.cursor == 3
+
+
+def test_key_right_snaps_past_marker():
+    """Right arrow at marker start snaps cursor to marker end."""
+    state = _inp("abc[pasted 5 lines]xyz", cursor=3)
+    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.Right, "")
+    assert state.cursor == 19
+
+
+# ── Atomic deletion via key dispatch ─────────────────────────────────
+
+
+def test_key_backspace_at_marker_end_removes_marker():
+    """Backspace right after a marker removes the entire marker + region."""
+    state = _inp("abc[pasted 5 lines]xyz", cursor=19)
+    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.Backspace, "\x7f")
+    assert state.text == "abcxyz"
+    assert state.paste_regions == []
+    assert state.cursor == 3
+
+
+def test_key_delete_at_marker_start_removes_marker():
+    """Delete key at marker start removes the entire marker + region."""
+    state = _inp("abc[pasted 5 lines]xyz", cursor=3)
+    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.Delete, "")
+    assert state.text == "abcxyz"
+    assert state.paste_regions == []
+
+
+def test_key_ctrl_w_removes_overlapping_marker():
+    """Ctrl+W with cursor after marker removes the marker atomically."""
+    state = _inp("hello [pasted 4 lines]", cursor=22)
+    state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.ControlW, "")
+    # Ctrl+W kills back to word boundary; the marker overlaps → whole marker gone.
+    assert "[pasted" not in state.text
+    assert state.paste_regions == []
+
+
+def test_key_ctrl_u_removes_overlapping_marker():
+    """Ctrl+U kills to line start, removing any marker in the range."""
+    state = _inp("abc[pasted 4 lines]xyz", cursor=22)
+    state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="data"))
+    reader, _ = _make_key_reader(state)
+    _send(reader, Keys.ControlU, "")
+    assert state.paste_regions == []
+
+
+# ── Multiple pastes ──────────────────────────────────────────────────
+
+
+def test_multiple_pastes_expand_independently():
+    """Two pastes produce two markers; expand replaces both."""
+    reader, state = _make_key_reader()
+    _send(reader, Keys.BracketedPaste, "a\nb\nc\nd")
+    state.buffer.insert_text(" ")
+    _send(reader, Keys.BracketedPaste, "e\nf\ng\nh")
+    assert len(state.paste_regions) == 2
+    expanded = state.expand_markers(state.text)
+    assert expanded == "a\nb\nc\nd e\nf\ng\nh"
+
+
+def test_multiple_pastes_delete_one_preserves_other():
+    """Deleting one marker preserves the other."""
+    state = _inp("[pasted 4 lines] [pasted 4 lines #2]")
+    r1 = PasteRegion(marker="[pasted 4 lines]", content="first")
+    r2 = PasteRegion(marker="[pasted 4 lines #2]", content="second")
+    state.paste_regions.extend([r1, r2])
+    state.remove_marker(r1)
+    assert "[pasted 4 lines #2]" in state.text
+    assert len(state.paste_regions) == 1
+    assert state.paste_regions[0].content == "second"
