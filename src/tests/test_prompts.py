@@ -123,7 +123,7 @@ def test_render_system_contains_key_sections() -> None:
     """Core sections are present in the system prompt."""
     state = _make_engine_state()
     text = render_system(state)
-    for section in ("Principles", "Severity", "Two audiences", "Format"):
+    for section in ("Principles", "Severity", "Two voices", "Format"):
         assert f"## {section}" in text
 
 
