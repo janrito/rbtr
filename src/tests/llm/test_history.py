@@ -99,6 +99,7 @@ def test_flatten_tool_exchanges_converts_to_text() -> None:
     assert isinstance(resp1.parts[0], TextPart)
     assert resp1.parts[0].content == "Let me check…"
     assert isinstance(resp1.parts[1], TextPart)
+    assert resp1.parts[1].content.startswith("[Repaired historical tool call -- ")
     assert "read_file" in resp1.parts[1].content
 
     # ToolReturnPart → UserPromptPart with output preserved.
@@ -106,6 +107,7 @@ def test_flatten_tool_exchanges_converts_to_text() -> None:
     assert isinstance(req, ModelRequest)
     assert len(req.parts) == 1
     assert isinstance(req.parts[0], UserPromptPart)
+    assert req.parts[0].content.startswith("[Repaired historical tool result -- read_file]")  # type: ignore[operator]
     assert "file contents" in req.parts[0].content  # type: ignore[operator]
 
 
@@ -132,6 +134,7 @@ def test_flatten_tool_exchanges_preserves_all_messages() -> None:
     resp = cleaned[1]
     assert isinstance(resp, ModelResponse)
     assert isinstance(resp.parts[0], TextPart)
+    assert resp.parts[0].content.startswith("[Repaired historical tool call -- ")
     assert "grep" in resp.parts[0].content
 
     # Tool return content preserved in user prompt.

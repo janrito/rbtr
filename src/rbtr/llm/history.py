@@ -141,8 +141,8 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> list[ModelMessage]:
     This function eliminates the structural pairing entirely by
     converting the parts to plain text:
 
-    * ``ToolCallPart``  -> ``TextPart("[called tool_name(args)]")``
-    * ``ToolReturnPart`` -> ``UserPromptPart("[tool_name result]\\n...")``
+    * ``ToolCallPart``  -> ``TextPart("[Repaired historical tool call -- tool_name(args)]")``
+    * ``ToolReturnPart`` -> ``UserPromptPart("[Repaired historical tool result -- tool_name]\\n...")``
     * ``RetryPromptPart`` — dropped (only meaningful to the original
       provider).
 
@@ -197,7 +197,7 @@ def _flatten_response_part(part: ModelResponsePart) -> ModelResponsePart:
         args_str = str(args)
     else:
         args_str = ""
-    return TextPart(content=f"[called {part.tool_name}({args_str})]")
+    return TextPart(content=f"[Repaired historical tool call -- {part.tool_name}({args_str})]")
 
 
 def _flatten_request_parts(
@@ -214,7 +214,7 @@ def _flatten_request_parts(
     out: list[ModelRequestPart] = []
     for p in parts:
         if isinstance(p, ToolReturnPart):
-            text = f"[{p.tool_name} result]\n{p.content}"
+            text = f"[Repaired historical tool result -- {p.tool_name}]\n{p.content}"
             out.append(UserPromptPart(content=text))
         elif isinstance(p, RetryPromptPart):
             continue

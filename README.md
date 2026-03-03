@@ -430,7 +430,8 @@ tool-call ID formats — can produce structures the target adapter
 rejects. Some OpenAI-compatible endpoints also reject null
 content on assistant messages that contain only tool calls, or
 crash in the adapter on unexpected null values. rbtr converts
-tool calls and results to plain text: `[called tool_name(args)]`
+tool calls and results to plain text:
+`[Repaired historical tool call -- tool_name(args)]`
 and `[tool_name result]\n…`. All content survives as readable
 text; only the machine-level pairing is removed.
 
