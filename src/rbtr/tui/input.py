@@ -414,6 +414,12 @@ class InputReader:
         mode[6][termios.VMIN] = 1
         mode[6][termios.VTIME] = 0
         termios.tcsetattr(self._fd, termios.TCSANOW, mode)
+        # Enable bracketed paste so pasted text arrives as a single
+        # BracketedPaste event instead of individual key presses.
+        # Without this, newlines in pasted content trigger the Enter
+        # handler and submit the first line immediately.
+        sys.stdout.write("\x1b[?2004h")
+        sys.stdout.flush()
         # Safety net: if SIGINT arrives despite ISIG being off, treat
         # it as a cancel request instead of crashing with KeyboardInterrupt.
         self._old_sigint = signal.getsignal(signal.SIGINT)
@@ -424,6 +430,9 @@ class InputReader:
         return self
 
     def __exit__(self, *args: object) -> None:
+        # Disable bracketed paste before restoring the terminal.
+        sys.stdout.write("\x1b[?2004l")
+        sys.stdout.flush()
         signal.signal(signal.SIGINT, self._old_sigint)  # type: ignore[arg-type]  # restoring saved handler
         if self._old_settings is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_settings)
