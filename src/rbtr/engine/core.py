@@ -233,6 +233,10 @@ class Engine:
 
     def close(self) -> None:
         """Release resources — call on shutdown."""
+        with contextlib.suppress(ImportError, OSError):
+            from rbtr.index.embeddings import reset_model
+
+            reset_model()
         self.store.close()
 
     # ── Utilities ────────────────────────────────────────────────────

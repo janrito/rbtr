@@ -106,6 +106,17 @@ def test_reset_model_clears_singleton(mocker: pytest.MockerFixture) -> None:
     assert load.call_count == 2
 
 
+def test_reset_model_closes_loaded_model(mocker: pytest.MockerFixture) -> None:
+    mock = _make_mock_model()
+    mock.close = mocker.MagicMock()
+    mocker.patch.object(embeddings, "_load_model", return_value=mock)
+
+    embeddings.get_model()
+    embeddings.reset_model()
+
+    mock.close.assert_called_once_with()
+
+
 # ── _resolve_model_path ─────────────────────────────────────────────
 
 

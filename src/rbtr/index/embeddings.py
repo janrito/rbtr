@@ -8,6 +8,7 @@ via ``huggingface_hub`` and stored at ``config.index.model_cache_dir``
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import functools
 import logging
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 # We keep a strong reference to prevent GC of the ctypes callback.
 
 _llama_log_cb_ref: object = None  # prevent GC of ctypes callback
+_model_ref: Llama | None = None
 
 
 def _install_llama_log_callback() -> None:
@@ -138,14 +140,35 @@ def _load_model() -> Llama:
 
 
 @functools.lru_cache(maxsize=1)
+def _get_model_cached() -> Llama:
+    """Return the cached model instance, loading on first call."""
+    return _load_model()
+
+
 def get_model() -> Llama:
     """Return the model instance, loading on first call."""
-    return _load_model()
+    global _model_ref
+    model = _get_model_cached()
+    _model_ref = model
+    return model
+
+
+def _close_model(model: Llama) -> None:
+    """Close a loaded llama model, suppressing teardown-time errors."""
+    close_fn = getattr(model, "close", None)
+    if not callable(close_fn):
+        return
+    with contextlib.suppress(Exception):
+        close_fn()
 
 
 def reset_model() -> None:
     """Release the loaded model (useful for tests and cleanup)."""
-    get_model.cache_clear()
+    global _model_ref
+    if _model_ref is not None:
+        _close_model(_model_ref)
+        _model_ref = None
+    _get_model_cached.cache_clear()
 
 
 # ── Embedding text construction ───────────────────────────────────────
