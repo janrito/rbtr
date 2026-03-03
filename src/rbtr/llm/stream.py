@@ -100,6 +100,28 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             _auto_compact_on_overflow(ctx, message)
             return
         raise
+    except ValueError as exc:
+        if _is_tool_args_error(exc):
+            ctx.out("Retrying with simplified history…")
+            _run_agent(ctx, model, message, simplify_history=True)
+            return
+        raise
+
+
+def _is_tool_args_error(exc: ValueError) -> bool:
+    """Check if a ValueError is from malformed tool-call args.
+
+    Provider adapters call ``ToolCallPart.args_as_dict()`` which
+    uses ``pydantic_core.from_json``.  If the model produced
+    invalid JSON for tool arguments during streaming (e.g. mixed
+    XML/JSON), the error surfaces here as a ``ValueError``.
+
+    Normally ``_validate_tool_call_args`` in the deserialisation
+    layer catches these at load time.  This handler is a fallback
+    for edge cases (e.g. args corrupted after loading).
+    """
+    msg = str(exc).lower()
+    return "key must be a string" in msg or "eof while parsing" in msg
 
 
 def _auto_compact_on_overflow(ctx: LLMContext, message: str) -> None:

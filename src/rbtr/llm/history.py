@@ -5,15 +5,17 @@ Includes cross-provider compatibility (``demote_thinking``,
 (``split_history``, ``serialise_for_summary``,
 ``build_summary_message``).
 
-Tool-call / tool-result pairing
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Tool-call integrity
+~~~~~~~~~~~~~~~~~~~~
 
 LLM APIs require every ``ToolCallPart`` in a ``ModelResponse`` to have
 a matching ``ToolReturnPart`` (same ``tool_call_id``) in a subsequent
 ``ModelRequest``, and vice versa.  Incomplete pairs cause provider
-rejections.
+rejections.  A separate but related invariant is that
+``ToolCallPart.args`` must be parseable JSON — provider adapters call
+``args_as_dict()`` when building the wire request.
 
-Four independent mechanisms maintain this invariant, each operating
+Five independent mechanisms maintain these invariants, each operating
 at a different scope:
 
 * **``split_history``** — after splitting by turn count, moves any
@@ -31,6 +33,16 @@ at a different scope:
   mid-turn) and injects synthetic ``(cancelled)`` results.  Global
   scan prevents false positives from interleaved user prompts.
 
+* **``_validate_tool_call_args``** (in ``serialise.py``) — on
+  session load, eagerly calls ``args_as_dict()`` on every
+  ``ToolCallPart``.  A model can produce malformed JSON for tool
+  arguments during streaming (e.g. mixed XML/JSON when it
+  hallucinates the format).  PydanticAI accepts any string for
+  ``args`` at validation time, so the corrupt part survives
+  Pydantic reconstruction.  Eager validation converts the late
+  ``ValueError`` into an early skip by the existing corruption
+  guard in ``_load_messages_paired``.
+
 * **``flatten_tool_exchanges``** — last-resort cross-provider
   fallback.  Converts ``ToolCallPart``\\s to ``TextPart``\\s and
   ``ToolReturnPart``\\s to ``UserPromptPart``\\s, preserving all
@@ -39,6 +51,10 @@ at a different scope:
   after the API has already rejected the history — the normal path
   (``repair_dangling_tool_calls`` + PydanticAI's
   ``_clean_message_history``) handles all reproducible cases.
+  Also serves as the final fallback for corrupt tool-call args:
+  ``handle_llm`` catches ``ValueError`` from ``args_as_dict()``
+  and retries with ``simplify_history=True``, which routes
+  through this function and bypasses ``args_as_dict()`` entirely.
 """
 
 from __future__ import annotations

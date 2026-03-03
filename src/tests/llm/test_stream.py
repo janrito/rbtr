@@ -514,3 +514,48 @@ def test_handle_llm_context_overflow_triggers_compact(
     # _run_agent called twice: first fails, compact, then retry via handle_llm
     # But handle_llm calls _run_agent for the retry, so total = 2
     assert call_count == 2
+
+
+# ── ValueError from corrupt tool-call args ───────────────────────────
+
+
+def test_handle_llm_retries_on_corrupt_tool_args(
+    mocker: MockerFixture,
+    config_path: Path,
+    creds_path: Path,
+    engine: Engine,
+    llm_ctx: LLMContext,
+) -> None:
+    """handle_llm retries with simplified history on corrupt tool-call args.
+
+    When the provider adapter calls ``args_as_dict()`` on a
+    ``ToolCallPart`` with malformed JSON args, a ``ValueError``
+    is raised.  ``handle_llm`` should catch it and retry with
+    ``simplify_history=True`` (which flattens tool exchanges
+    to plain text).
+    """
+    from rbtr.llm.stream import handle_llm
+
+    creds.update(openai_api_key="sk-test")
+    engine.state.openai_connected = True
+    engine.state.model_name = "openai/gpt-4o"
+
+    call_count = 0
+
+    def fake_run_agent(
+        eng: object,
+        model: object,
+        msg: str,
+        *,
+        simplify_history: bool = False,
+    ) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ValueError("key must be a string at line 2 column 1")
+
+    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+
+    handle_llm(engine._llm_context(), "show my notes")
+
+    assert call_count == 2

@@ -1388,3 +1388,50 @@ def test_streaming_two_responses_in_sequence() -> None:
     assert loaded[1].parts[0].content == "a1"  # type: ignore[union-attr]
     assert isinstance(loaded[3], ModelResponse)
     assert loaded[3].parts[0].content == "a2"  # type: ignore[union-attr]
+
+
+def test_corrupt_tool_call_args_skipped_on_load() -> None:
+    """A tool-call with malformed JSON args is skipped, not fatal.
+
+    When a model produces invalid JSON for tool arguments during
+    streaming (e.g. mixed XML/JSON), the corrupt part is saved
+    with ``complete=1``.  On reload, ``load_messages`` must skip
+    the corrupt message rather than raising when the provider
+    adapter later calls ``args_as_dict()``.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+
+        # Save a valid response first.
+        store.save_messages("s1", [_assistant("ok")])
+
+        # Directly inject a corrupt tool-call fragment — args is
+        # a string but NOT valid JSON (model produced mixed
+        # XML/JSON during streaming).
+        corrupt_args = '{"path": "schemas.py", "offset": 174,\n<parameter name="max_lines": 35}'
+        corrupt_part = ToolCallPart(
+            tool_name="read_file",
+            args=corrupt_args,
+            tool_call_id="tc_corrupt",
+        )
+        corrupt_response = ModelResponse(
+            parts=[corrupt_part],
+            usage=_USAGE,
+            model_name="test-model",
+        )
+        store.save_messages("s1", [corrupt_response])
+
+        # Save another valid message after the corrupt one.
+        store.save_messages("s1", [_user("follow-up")])
+
+        loaded = store.load_messages("s1")
+
+    # The corrupt response is skipped; other messages survive.
+    assert len(loaded) == 3
+    kinds = [(type(m).__name__, m.parts[0].content) for m in loaded]  # type: ignore[union-attr]
+    assert kinds == [
+        ("ModelRequest", "hello"),
+        ("ModelResponse", "ok"),
+        ("ModelRequest", "follow-up"),
+    ]
