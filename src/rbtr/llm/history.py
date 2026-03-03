@@ -1,7 +1,8 @@
 """History repair and compaction helpers.
 
-Includes cross-provider compatibility (``demote_thinking``) and
-context-compaction utilities (``split_history``, ``serialise_for_summary``,
+Includes cross-provider compatibility (``demote_thinking``,
+``flatten_tool_exchanges``) and context-compaction utilities
+(``split_history``, ``serialise_for_summary``,
 ``build_summary_message``).
 
 Tool-call / tool-result pairing
@@ -12,7 +13,7 @@ a matching ``ToolReturnPart`` (same ``tool_call_id``) in a subsequent
 ``ModelRequest``, and vice versa.  Incomplete pairs cause provider
 rejections.
 
-Three independent mechanisms maintain this invariant, each operating
+Four independent mechanisms maintain this invariant, each operating
 at a different scope:
 
 * **``split_history``** — after splitting by turn count, moves any
@@ -29,18 +30,30 @@ at a different scope:
   ``ToolReturnPart`` *anywhere* in the history (caused by Ctrl+C
   mid-turn) and injects synthetic ``(cancelled)`` results.  Global
   scan prevents false positives from interleaved user prompts.
+
+* **``flatten_tool_exchanges``** — last-resort cross-provider
+  fallback.  Converts ``ToolCallPart``\\s to ``TextPart``\\s and
+  ``ToolReturnPart``\\s to ``UserPromptPart``\\s, preserving all
+  content as readable text while removing the structural pairing
+  that different providers encode differently.  Only runs on retry
+  after the API has already rejected the history — the normal path
+  (``repair_dangling_tool_calls`` + PydanticAI's
+  ``_clean_message_history``) handles all reproducible cases.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import replace
 
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    ModelResponsePart,
     RetryPromptPart,
     TextPart,
     ThinkingPart,
@@ -55,12 +68,20 @@ log = logging.getLogger(__name__)
 def is_history_format_error(exc: Exception) -> bool:
     """Check if an API error is caused by malformed history items.
 
-    PydanticAI stores provider-specific reasoning IDs in message history.
-    When history is replayed to a different provider (or API variant),
-    these IDs may be rejected (e.g. OpenAI Responses API expects ``rs_*``).
+    Two classes of cross-provider incompatibility:
 
-    Must be narrow — other 400 errors (orphaned tool returns, missing
-    tool calls) are NOT format errors and should not trigger retry.
+    * **Reasoning IDs** — PydanticAI stores provider-specific
+      reasoning IDs (``rs_*``, ``reasoning_content``) in
+      ``ThinkingPart``.  A different provider may reject these.
+      Fixed on retry by ``demote_thinking``.
+
+    * **Tool-call pairing** — each provider encodes tool-use /
+      tool-result exchanges in its own wire format.  Complex
+      histories (multi-turn chains, compaction, partial saves)
+      can produce structures the *target* provider rejects, even
+      when ``repair_dangling_tool_calls`` found no issues in the
+      internal representation.
+      Fixed on retry by ``flatten_tool_exchanges``.
     """
     msg = str(exc).lower()
     # "Invalid 'input[6].id': 'reasoning_content'" — wrong ID format.
@@ -68,7 +89,13 @@ def is_history_format_error(exc: Exception) -> bool:
     if "invalid" in msg and ("'input[" in msg or ".id'" in msg):
         return True
     # "Item 'fc_...' was provided without its required 'reasoning' item"
-    return "provided without" in msg and "reasoning" in msg
+    if "provided without" in msg and "reasoning" in msg:
+        return True
+    # Claude: "tool_use ids were found without tool_result blocks"
+    if "tool_use" in msg and "tool_result" in msg:
+        return True
+    # OpenAI: "No tool call found for function call output"
+    return "no tool call found" in msg and "function call output" in msg
 
 
 def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
@@ -93,6 +120,107 @@ def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
         else:
             cleaned.append(msg)
     return cleaned
+
+
+def flatten_tool_exchanges(history: list[ModelMessage]) -> list[ModelMessage]:
+    """Convert tool-call exchanges into plain text.
+
+    Cross-provider last resort
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Each provider encodes tool-call / tool-result exchanges in its own
+    wire format (Anthropic ``tool_use`` / ``tool_result`` blocks, OpenAI
+    ``function_call`` items, etc.).  PydanticAI translates between them,
+    but edge cases in complex histories (multi-turn tool-call chains,
+    compaction boundaries, partial streaming saves) can produce
+    structures that the *target* provider's adapter rejects — even
+    though ``repair_dangling_tool_calls`` already ensured every
+    ``ToolCallPart`` has a matching ``ToolReturnPart`` in the internal
+    representation.
+
+    This function eliminates the structural pairing entirely by
+    converting the parts to plain text:
+
+    * ``ToolCallPart``  -> ``TextPart("[called tool_name(args)]")``
+    * ``ToolReturnPart`` -> ``UserPromptPart("[tool_name result]\\n...")``
+    * ``RetryPromptPart`` — dropped (only meaningful to the original
+      provider).
+
+    All content survives — file contents, grep output, diff patches
+    etc. remain in the history as readable text.  Only the machine-
+    level call/result pairing is removed.
+
+    When it runs
+    ~~~~~~~~~~~~
+
+    Never on the first attempt.  The normal path is:
+
+    1. ``repair_dangling_tool_calls`` fixes orphaned tool calls
+       (Ctrl+C mid-turn).
+    2. PydanticAI's ``_clean_message_history`` merges consecutive
+       same-role messages so the provider adapter sees alternating
+       ``user`` / ``assistant`` turns.
+    3. The provider adapter converts the internal messages.
+
+    If step 3 still produces a 400 error that
+    ``is_history_format_error`` matches, ``handle_llm`` retries once
+    with ``simplify_history=True``, which calls *this* function
+    (alongside ``demote_thinking``).
+    """
+    cleaned: list[ModelMessage] = []
+    for msg in history:
+        if isinstance(msg, ModelResponse):
+            resp_parts = [_flatten_response_part(p) for p in msg.parts]
+            cleaned.append(ModelResponse(parts=resp_parts, model_name=msg.model_name))
+        elif isinstance(msg, ModelRequest):
+            req_parts = _flatten_request_parts(msg.parts)
+            if req_parts:
+                cleaned.append(ModelRequest(parts=req_parts))
+        else:
+            cleaned.append(msg)
+    return cleaned
+
+
+def _flatten_response_part(part: ModelResponsePart) -> ModelResponsePart:
+    """Convert a single response part for ``flatten_tool_exchanges``.
+
+    ``ToolCallPart`` → ``TextPart`` with a bracketed summary that
+    preserves the tool name and arguments.  All other part types
+    (``TextPart``, ``ThinkingPart``, etc.) pass through unchanged.
+    """
+    if not isinstance(part, ToolCallPart):
+        return part
+    args = part.args
+    if isinstance(args, dict):
+        args_str = json.dumps(args, ensure_ascii=False)
+    elif args is not None:
+        args_str = str(args)
+    else:
+        args_str = ""
+    return TextPart(content=f"[called {part.tool_name}({args_str})]")
+
+
+def _flatten_request_parts(
+    parts: Sequence[ModelRequestPart],
+) -> list[ModelRequestPart]:
+    """Convert request parts for ``flatten_tool_exchanges``.
+
+    ``ToolReturnPart`` → ``UserPromptPart`` with the tool output
+    prefixed by the tool name.  ``RetryPromptPart`` is dropped
+    (retries are provider-internal and meaningless after a model
+    switch).  All other parts (``UserPromptPart``,
+    ``SystemPromptPart``) pass through unchanged.
+    """
+    out: list[ModelRequestPart] = []
+    for p in parts:
+        if isinstance(p, ToolReturnPart):
+            text = f"[{p.tool_name} result]\n{p.content}"
+            out.append(UserPromptPart(content=text))
+        elif isinstance(p, RetryPromptPart):
+            continue
+        else:
+            out.append(p)
+    return out
 
 
 # ── Dangling tool-call repair ────────────────────────────────────────

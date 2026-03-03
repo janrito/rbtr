@@ -39,7 +39,12 @@ from .agent import AgentDeps, agent
 from .compact import compact_history, compact_history_async
 from .context import LLMContext
 from .errors import is_context_overflow, is_effort_unsupported
-from .history import demote_thinking, is_history_format_error, repair_dangling_tool_calls
+from .history import (
+    demote_thinking,
+    flatten_tool_exchanges,
+    is_history_format_error,
+    repair_dangling_tool_calls,
+)
 from .model_settings import resolve_model_settings
 
 if TYPE_CHECKING:
@@ -269,6 +274,7 @@ def _prepare_turn(
         )
     if simplify_history:
         history = demote_thinking(history)
+        history = flatten_tool_exchanges(history)
 
     deps = AgentDeps(state=ctx.state)
     settings = resolve_model_settings(

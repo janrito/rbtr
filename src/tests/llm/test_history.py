@@ -18,6 +18,7 @@ from pydantic_ai.messages import (
 
 from rbtr.llm.history import (
     demote_thinking,
+    flatten_tool_exchanges,
     is_history_format_error,
     repair_dangling_tool_calls,
 )
@@ -68,6 +69,101 @@ def test_demote_thinking_preserves_non_responses() -> None:
     assert len(cleaned) == 1
 
 
+# ── flatten_tool_exchanges ────────────────────────────────────────────
+
+
+def test_flatten_tool_exchanges_converts_to_text() -> None:
+    """Tool calls become text summaries; tool returns become user prompts."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                TextPart(content="Let me check…"),
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="file contents", tool_call_id="tc1"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Here are the results.")]),
+    ]
+    cleaned = flatten_tool_exchanges(history)
+    assert len(cleaned) == 4
+
+    # ToolCallPart → TextPart with tool name.
+    resp1 = cleaned[1]
+    assert isinstance(resp1, ModelResponse)
+    assert len(resp1.parts) == 2
+    assert isinstance(resp1.parts[0], TextPart)
+    assert resp1.parts[0].content == "Let me check…"
+    assert isinstance(resp1.parts[1], TextPart)
+    assert "read_file" in resp1.parts[1].content
+
+    # ToolReturnPart → UserPromptPart with output preserved.
+    req = cleaned[2]
+    assert isinstance(req, ModelRequest)
+    assert len(req.parts) == 1
+    assert isinstance(req.parts[0], UserPromptPart)
+    assert "file contents" in req.parts[0].content  # type: ignore[operator]
+
+
+def test_flatten_tool_exchanges_preserves_all_messages() -> None:
+    """No messages are dropped — tool-only messages become text messages."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="grep", args={"search": "TODO"}, tool_call_id="tc1"),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="grep", content="line 42: TODO fix", tool_call_id="tc1"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    cleaned = flatten_tool_exchanges(history)
+    assert len(cleaned) == 4
+
+    # Tool-only response now has a TextPart.
+    resp = cleaned[1]
+    assert isinstance(resp, ModelResponse)
+    assert isinstance(resp.parts[0], TextPart)
+    assert "grep" in resp.parts[0].content
+
+    # Tool return content preserved in user prompt.
+    req = cleaned[2]
+    assert isinstance(req, ModelRequest)
+    assert isinstance(req.parts[0], UserPromptPart)
+    assert "TODO fix" in req.parts[0].content  # type: ignore[operator]
+
+
+def test_flatten_tool_exchanges_keeps_user_prompts_in_mixed_requests() -> None:
+    """UserPromptParts in mixed requests are preserved alongside converted returns."""
+    history: list[ModelMessage] = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1"),
+                UserPromptPart(content="continue"),
+            ]
+        ),
+    ]
+    cleaned = flatten_tool_exchanges(history)
+    assert len(cleaned) == 1
+    req = cleaned[0]
+    assert isinstance(req, ModelRequest)
+    assert len(req.parts) == 2
+    # Converted tool return.
+    assert isinstance(req.parts[0], UserPromptPart)
+    assert "read_file" in req.parts[0].content  # type: ignore[operator]
+    # Original user prompt.
+    assert isinstance(req.parts[1], UserPromptPart)
+    assert req.parts[1].content == "continue"
+
+
 # ── is_history_format_error ──────────────────────────────────────────
 
 
@@ -104,8 +200,33 @@ def test_is_history_format_error_rejects_unrelated() -> None:
     assert not is_history_format_error(exc)
 
 
-def test_is_history_format_error_rejects_orphan_tool_return() -> None:
-    """Orphaned tool returns (from bad compaction) are not format errors."""
+def test_is_history_format_error_claude_tool_pairing() -> None:
+    """Claude: tool_use IDs without matching tool_result blocks."""
+    exc = ModelHTTPError(
+        400,
+        "claude-sonnet-4-6",
+        body={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "messages.2: `tool_use` ids were found without "
+                "`tool_result` blocks immediately after: "
+                "call_XFAPJJDTOhbn3UngXP8OLS9b, call_f0SgvtE4qOFKr5UD61keJKyy. "
+                "Each `tool_use` block must have a corresponding "
+                "`tool_result` block in the next message.",
+            },
+        },
+    )
+    assert is_history_format_error(exc)
+
+
+def test_is_history_format_error_orphan_tool_return() -> None:
+    """Orphaned tool returns (from bad compaction) are format errors.
+
+    These can occur when history from one provider is replayed to
+    another.  The retry with simplified history strips all tool
+    exchanges, which resolves the issue.
+    """
     exc = ModelHTTPError(
         400,
         "gpt-5.3-codex",
@@ -115,7 +236,7 @@ def test_is_history_format_error_rejects_orphan_tool_return() -> None:
             "type": "invalid_request_error",
         },
     )
-    assert not is_history_format_error(exc)
+    assert is_history_format_error(exc)
 
 
 # ── repair_dangling_tool_calls ───────────────────────────────────────
