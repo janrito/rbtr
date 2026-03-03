@@ -9,6 +9,7 @@ SELECT
 FROM fragments AS p
 WHERE
   p.fragment_kind IN ('request-message', 'response-message')
+  AND p.status = 'complete'
   AND (? IS NULL OR p.repo_owner = ?)
   AND (? IS NULL OR p.repo_name = ?)
 GROUP BY p.session_id

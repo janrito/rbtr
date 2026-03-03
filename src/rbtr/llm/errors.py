@@ -6,6 +6,8 @@ error is a context overflow, unsupported-effort rejection, etc.
 
 from __future__ import annotations
 
+from http import HTTPStatus
+
 from pydantic_ai.exceptions import ModelHTTPError
 
 # Keywords in API error messages that indicate a context-length issue.
@@ -43,9 +45,9 @@ def is_effort_unsupported(exc: ModelHTTPError) -> bool:
 
 def is_context_overflow(exc: ModelHTTPError) -> bool:
     """Heuristic: does the API error indicate a context-length problem?"""
-    if exc.status_code == 413:
+    if exc.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE:
         return True
-    if exc.status_code == 400:
+    if exc.status_code == HTTPStatus.BAD_REQUEST:
         msg = str(exc).lower()
         return any(kw in msg for kw in _OVERFLOW_KEYWORDS)
     return False

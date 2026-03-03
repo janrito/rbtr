@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -62,6 +62,27 @@ from pydantic_ai.messages import (
 )
 
 log = logging.getLogger(__name__)
+
+
+# ── Result types ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class DemoteResult:
+    """Result of ``demote_thinking``."""
+
+    history: list[ModelMessage]
+    parts_demoted: int
+
+
+@dataclass(frozen=True, slots=True)
+class FlattenResult:
+    """Result of ``flatten_tool_exchanges``."""
+
+    history: list[ModelMessage]
+    tool_calls_flattened: int
+    tool_returns_flattened: int
+    retry_prompts_dropped: int
 
 
 def is_history_format_error(exc: Exception) -> bool:
@@ -98,7 +119,7 @@ def is_history_format_error(exc: Exception) -> bool:
     return "required" in msg and "field" in msg
 
 
-def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
+def demote_thinking(history: list[ModelMessage]) -> DemoteResult:
     """Return history with ThinkingParts converted to plain TextParts.
 
     Wraps thinking content in ``<thinking>`` tags so the model can
@@ -106,23 +127,26 @@ def demote_thinking(history: list[ModelMessage]) -> list[ModelMessage]:
     that cause cross-provider errors.
     """
     cleaned: list[ModelMessage] = []
+    parts_demoted = 0
     for msg in history:
         if isinstance(msg, ModelResponse):
-            parts = [
-                TextPart(content=f"<thinking>\n{p.content}\n</thinking>")
-                if isinstance(p, ThinkingPart) and p.content
-                else p
-                for p in msg.parts
-                if not isinstance(p, ThinkingPart) or p.content
-            ]
-            if parts:
-                cleaned.append(replace(msg, parts=parts))
+            new_parts: list[ModelResponsePart] = []
+            for p in msg.parts:
+                if isinstance(p, ThinkingPart):
+                    if p.content:
+                        new_parts.append(TextPart(content=f"<thinking>\n{p.content}\n</thinking>"))
+                        parts_demoted += 1
+                    # Empty thinking parts are dropped (no increment).
+                else:
+                    new_parts.append(p)
+            if new_parts:
+                cleaned.append(replace(msg, parts=new_parts))
         else:
             cleaned.append(msg)
-    return cleaned
+    return DemoteResult(history=cleaned, parts_demoted=parts_demoted)
 
 
-def flatten_tool_exchanges(history: list[ModelMessage]) -> list[ModelMessage]:
+def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
     """Convert tool-call exchanges into plain text.
 
     Cross-provider last resort
@@ -168,17 +192,36 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> list[ModelMessage]:
     (alongside ``demote_thinking``).
     """
     cleaned: list[ModelMessage] = []
+    tool_calls_flattened = 0
+    tool_returns_flattened = 0
+    retry_prompts_dropped = 0
     for msg in history:
         if isinstance(msg, ModelResponse):
-            resp_parts = [_flatten_response_part(p) for p in msg.parts]
+            resp_parts: list[ModelResponsePart] = []
+            for rp in msg.parts:
+                if isinstance(rp, ToolCallPart):
+                    tool_calls_flattened += 1
+                    resp_parts.append(_flatten_response_part(rp))
+                else:
+                    resp_parts.append(rp)
             cleaned.append(ModelResponse(parts=resp_parts, model_name=msg.model_name))
         elif isinstance(msg, ModelRequest):
+            for qp in msg.parts:
+                if isinstance(qp, ToolReturnPart):
+                    tool_returns_flattened += 1
+                elif isinstance(qp, RetryPromptPart):
+                    retry_prompts_dropped += 1
             req_parts = _flatten_request_parts(msg.parts)
             if req_parts:
                 cleaned.append(ModelRequest(parts=req_parts))
         else:
             cleaned.append(msg)
-    return cleaned
+    return FlattenResult(
+        history=cleaned,
+        tool_calls_flattened=tool_calls_flattened,
+        tool_returns_flattened=tool_returns_flattened,
+        retry_prompts_dropped=retry_prompts_dropped,
+    )
 
 
 def _flatten_response_part(part: ModelResponsePart) -> ModelResponsePart:

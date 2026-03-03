@@ -3,7 +3,7 @@ INSERT INTO fragments (
   session_label, repo_owner, repo_name, model_name, review_target,
   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost,
   data_json, user_text, tool_name,
-  compacted_by, complete
+  compacted_by, status
 ) VALUES (
   ?, ?, ?, ?, ?, ?,
   ?, ?, ?, ?, ?,

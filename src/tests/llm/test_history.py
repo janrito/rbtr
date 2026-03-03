@@ -37,9 +37,10 @@ def test_demote_thinking_converts_to_text() -> None:
         ),
     ]
 
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 1
-    response = cleaned[0]
+    result = demote_thinking(history)
+    assert result.parts_demoted == 1
+    assert len(result.history) == 1
+    response = result.history[0]
     assert isinstance(response, ModelResponse)
     assert len(response.parts) == 2
     assert isinstance(response.parts[0], TextPart)
@@ -56,8 +57,9 @@ def test_demote_thinking_drops_empty_thinking() -> None:
         ),
     ]
 
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 0
+    result = demote_thinking(history)
+    assert result.parts_demoted == 0
+    assert len(result.history) == 0
 
 
 def test_demote_thinking_preserves_non_responses() -> None:
@@ -65,8 +67,9 @@ def test_demote_thinking_preserves_non_responses() -> None:
         ModelRequest(parts=[UserPromptPart(content="hello")]),
     ]
 
-    cleaned = demote_thinking(history)
-    assert len(cleaned) == 1
+    result = demote_thinking(history)
+    assert result.parts_demoted == 0
+    assert len(result.history) == 1
 
 
 # ── flatten_tool_exchanges ────────────────────────────────────────────
@@ -89,11 +92,14 @@ def test_flatten_tool_exchanges_converts_to_text() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Here are the results.")]),
     ]
-    cleaned = flatten_tool_exchanges(history)
-    assert len(cleaned) == 4
+    result = flatten_tool_exchanges(history)
+    assert result.tool_calls_flattened == 1
+    assert result.tool_returns_flattened == 1
+    assert result.retry_prompts_dropped == 0
+    assert len(result.history) == 4
 
     # ToolCallPart → TextPart with tool name.
-    resp1 = cleaned[1]
+    resp1 = result.history[1]
     assert isinstance(resp1, ModelResponse)
     assert len(resp1.parts) == 2
     assert isinstance(resp1.parts[0], TextPart)
@@ -103,7 +109,7 @@ def test_flatten_tool_exchanges_converts_to_text() -> None:
     assert "read_file" in resp1.parts[1].content
 
     # ToolReturnPart → UserPromptPart with output preserved.
-    req = cleaned[2]
+    req = result.history[2]
     assert isinstance(req, ModelRequest)
     assert len(req.parts) == 1
     assert isinstance(req.parts[0], UserPromptPart)
@@ -127,18 +133,20 @@ def test_flatten_tool_exchanges_preserves_all_messages() -> None:
         ),
         ModelResponse(parts=[TextPart(content="done")]),
     ]
-    cleaned = flatten_tool_exchanges(history)
-    assert len(cleaned) == 4
+    result = flatten_tool_exchanges(history)
+    assert result.tool_calls_flattened == 1
+    assert result.tool_returns_flattened == 1
+    assert len(result.history) == 4
 
     # Tool-only response now has a TextPart.
-    resp = cleaned[1]
+    resp = result.history[1]
     assert isinstance(resp, ModelResponse)
     assert isinstance(resp.parts[0], TextPart)
     assert resp.parts[0].content.startswith("[Repaired historical tool call -- ")
     assert "grep" in resp.parts[0].content
 
     # Tool return content preserved in user prompt.
-    req = cleaned[2]
+    req = result.history[2]
     assert isinstance(req, ModelRequest)
     assert isinstance(req.parts[0], UserPromptPart)
     assert "TODO fix" in req.parts[0].content  # type: ignore[operator]
@@ -154,9 +162,10 @@ def test_flatten_tool_exchanges_keeps_user_prompts_in_mixed_requests() -> None:
             ]
         ),
     ]
-    cleaned = flatten_tool_exchanges(history)
-    assert len(cleaned) == 1
-    req = cleaned[0]
+    result = flatten_tool_exchanges(history)
+    assert result.tool_returns_flattened == 1
+    assert len(result.history) == 1
+    req = result.history[0]
     assert isinstance(req, ModelRequest)
     assert len(req.parts) == 2
     # Converted tool return.

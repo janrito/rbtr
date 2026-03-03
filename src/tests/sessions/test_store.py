@@ -43,6 +43,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from uuid_utils import uuid7
 
+from rbtr.sessions.serialise import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -226,9 +227,9 @@ def test_corrupt_json_skipped() -> None:
         store.save_messages("s1", [_user("good")])
         store._con.execute(
             "INSERT INTO fragments (id, session_id, message_id, fragment_index, fragment_kind, "
-            "created_at, data_json, complete) "
+            "created_at, data_json, status) "
             "VALUES ('bad', 's1', 'bad', 0, 'response-message', "
-            "'2099-01-01T00:00:00', '{corrupt}', 1)"
+            "'2099-01-01T00:00:00', '{corrupt}', 'complete')"
         )
         store._con.commit()
         loaded = store.load_messages("s1")
@@ -648,6 +649,20 @@ def test_newer_version_warns(tmp_path: Path) -> None:
 
     with SessionStore(db_path) as store:
         assert store._user_version() == _SCHEMA_VERSION + 99
+
+
+def test_old_version_wiped_and_recreated(tmp_path: Path) -> None:
+    """Databases with an older schema version are wiped and recreated."""
+    db_path = tmp_path / "old.db"
+
+    with SessionStore(db_path) as store:
+        store.save_messages("s1", [_user("hello")])
+        store._set_user_version(4)
+
+    with SessionStore(db_path) as store:
+        assert store._user_version() == _SCHEMA_VERSION
+        # Old data is gone — wiped on open.
+        assert store.load_messages("s1") == []
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1395,7 +1410,7 @@ def test_corrupt_tool_call_args_repaired_on_load() -> None:
 
     When a model produces invalid JSON for tool arguments during
     streaming (e.g. mixed XML/JSON), the corrupt part is saved
-    with ``complete=1``.  On reload, ``load_messages`` must repair
+    with ``status = 'complete'``.  On reload, ``load_messages`` must repair
     the args to ``{}`` so the message stays in the history and
     tool-call / tool-return pairing is preserved.
     """
@@ -1448,3 +1463,475 @@ def test_corrupt_tool_call_args_repaired_on_load() -> None:
     assert isinstance(loaded[2], ModelRequest)
     assert isinstance(loaded[2].parts[0], ToolReturnPart)
     assert loaded[2].parts[0].tool_call_id == "tc_corrupt"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Failure incidents — status filtering and incident kind exclusion
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _insert_incident_row(
+    store: SessionStore,
+    *,
+    session_id: str,
+    kind: FragmentKind,
+    data_json: str | None = None,
+) -> str:
+    """Insert a self-referencing incident row directly."""
+    from datetime import UTC, datetime
+
+    row_id = store.new_id()
+    now = datetime.now(UTC).isoformat()
+    store._con.execute(
+        "INSERT INTO fragments "
+        "(id, session_id, message_id, fragment_index, fragment_kind, "
+        "created_at, data_json, status) "
+        "VALUES (?, ?, ?, 0, ?, ?, ?, 'complete')",
+        [row_id, session_id, row_id, kind.value, now, data_json],
+    )
+    store._con.commit()
+    return row_id
+
+
+def _mark_message_failed(store: SessionStore, message_id: str) -> None:
+    """Set ``status = 'failed'`` on a message and all its fragments."""
+    store._con.execute(
+        "UPDATE fragments SET status = ? WHERE message_id = ?",
+        [FragmentStatus.FAILED.value, message_id],
+    )
+    store._con.commit()
+
+
+def test_failed_messages_excluded_from_load() -> None:
+    """Messages with ``status = 'failed'`` are not returned by ``load_messages``."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("good"), _assistant("reply")])
+        store.save_messages("s1", [_user("failed attempt")])
+
+        # Mark the last message as failed.
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+
+        loaded = store.load_messages("s1")
+
+    # Only the successful pair is loaded.
+    assert len(loaded) == 2
+
+
+def test_failed_messages_excluded_from_load_with_ids() -> None:
+    """``load_messages_with_ids`` also excludes failed messages."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("good"), _assistant("reply")])
+        store.save_messages("s1", [_user("failed attempt")])
+
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+
+        paired = store.load_messages_with_ids("s1")
+
+    assert len(paired) == 2
+
+
+def test_incident_kinds_excluded_from_load() -> None:
+    """Incident fragment kinds are never returned by ``load_messages``."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello"), _assistant("hi")])
+
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json='{"failure_kind": "history_format"}',
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy": "repair_dangling"}',
+        )
+
+        loaded = store.load_messages("s1")
+
+    # Only the real messages, not incident rows.
+    assert len(loaded) == 2
+
+
+def test_mixed_stream_load_order() -> None:
+    """A session with normal, failed, and incident rows loads correctly.
+
+    ``load_messages`` returns only ``status = 'complete'`` message
+    rows in chronological order. Failed messages and incident
+    rows are excluded.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        # Turn 1: succeeds.
+        store.save_messages("s1", [_user("q1"), _assistant("a1")])
+        # Turn 2: will be marked failed.
+        store.save_messages("s1", [_user("q2-failed")])
+        ids_after_t2 = store.load_message_ids("s1")
+        _mark_message_failed(store, ids_after_t2[-1])
+        # Incident record for the failure.
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json='{"failure_kind": "overflow"}',
+        )
+        # Turn 3: succeeds.
+        store.save_messages("s1", [_user("q3"), _assistant("a3")])
+
+        loaded = store.load_messages("s1")
+
+    # Turns 1 and 3 only.
+    assert len(loaded) == 4
+    assert isinstance(loaded[0], ModelRequest)
+    assert loaded[0].parts[0].content == "q1"  # type: ignore[union-attr]
+    assert isinstance(loaded[2], ModelRequest)
+    assert loaded[2].parts[0].content == "q3"  # type: ignore[union-attr]
+
+
+def test_compaction_ignores_failed_and_incidents() -> None:
+    """Compaction does not mark failed messages or incident rows."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        # 3 turns of Q/A.
+        for i in range(3):
+            store.save_messages("s1", [_user(f"q{i}"), _assistant(f"a{i}")])
+        # A failed message and an incident row.
+        store.save_messages("s1", [_user("failed")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+        incident_id = _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json='{"failure_kind": "history_format"}',
+        )
+
+        # Compact the first 2 turns (4 messages).
+        compact_ids = store.load_message_ids("s1")[:4]
+        store.compact_session("s1", summary=_user("[summary]"), compact_ids=compact_ids)
+
+        # Failed message: still status='failed', no compacted_by.
+        failed_row = store._con.execute(
+            "SELECT status, compacted_by FROM fragments WHERE message_id = ? AND fragment_index = 0",
+            [ids[-1]],
+        ).fetchone()
+        assert failed_row["status"] == "failed"
+        assert failed_row["compacted_by"] is None
+
+        # Incident row: no compacted_by.
+        telem_row = store._con.execute(
+            "SELECT compacted_by FROM fragments WHERE id = ?",
+            [incident_id],
+        ).fetchone()
+        assert telem_row["compacted_by"] is None
+
+
+def test_delete_session_removes_failed_and_incidents() -> None:
+    """``delete_session`` removes all rows including failed and incident."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello"), _assistant("hi")])
+        store.save_messages("s1", [_user("failed")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+        _insert_incident_row(store, session_id="s1", kind=FragmentKind.LLM_ATTEMPT_FAILED)
+        _insert_incident_row(store, session_id="s1", kind=FragmentKind.LLM_HISTORY_REPAIR)
+
+        store.delete_session("s1")
+
+        count = store._con.execute(
+            "SELECT COUNT(*) AS cnt FROM fragments WHERE session_id = 's1'"
+        ).fetchone()
+        assert count["cnt"] == 0
+
+
+def test_search_history_includes_failed_prompts() -> None:
+    """``search_history`` returns ``user_text`` from failed messages.
+
+    Failed prompts must appear in up-arrow/search so the user
+    can retry them with a minor edit.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        # A normal turn and a failed turn.
+        store.save_messages("s1", [_user("good prompt")])
+        store.save_messages("s1", [_user("failed prompt")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+
+        results = store.search_history()
+
+    texts = set(results)
+    assert "good prompt" in texts
+    assert "failed prompt" in texts
+
+
+def test_streaming_status_lifecycle() -> None:
+    """``begin_response`` creates ``in_progress`` rows;
+    ``finish`` transitions to ``complete``.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+
+        writer = store.begin_response("s1", model_name="m")
+        writer.add_part(0, TextPart(content="partial"))
+
+        # Before finish: message and part are in_progress.
+        rows = store._con.execute(
+            "SELECT status FROM fragments WHERE message_id = ?",
+            [writer.message_id],
+        ).fetchall()
+        assert all(r["status"] == "in_progress" for r in rows)
+        # Not visible to load_messages.
+        assert len(store.load_messages("s1")) == 1
+
+        writer.finish_part(0, TextPart(content="done"))
+        writer.finish()
+
+        # After finish: message is complete and visible.
+        rows = store._con.execute(
+            "SELECT status FROM fragments WHERE id = ?",
+            [writer.message_id],
+        ).fetchall()
+        assert rows[0]["status"] == "complete"
+        assert len(store.load_messages("s1")) == 2
+
+
+def test_session_resume_with_failed_and_incidents() -> None:
+    """A session with failed messages and incident rows resumes normally.
+
+    ``load_messages`` returns only the successful turns, forming a
+    valid conversation that can be passed to the LLM as history.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        # Turn 1: user + assistant.
+        store.save_messages("s1", [_user("explain X"), _assistant("X is …")])
+        # Failed attempt: user message only, marked failed.
+        store.save_messages("s1", [_user("now do Y")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+        # Incident records.
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json='{"failure_kind": "overflow", "strategy": "compact_then_retry"}',
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy": "demote_thinking", "parts_demoted": 3}',
+        )
+        # Turn 2: user retried successfully.
+        store.save_messages("s1", [_user("now do Y"), _assistant("Y done")])
+
+        loaded = store.load_messages("s1")
+
+    # Two complete turns, valid alternating structure.
+    assert len(loaded) == 4
+    assert isinstance(loaded[0], ModelRequest)
+    assert isinstance(loaded[1], ModelResponse)
+    assert isinstance(loaded[2], ModelRequest)
+    assert isinstance(loaded[3], ModelResponse)
+
+
+def test_list_sessions_excludes_failed_from_count() -> None:
+    """``list_sessions`` message count should not include failed messages."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("q1"), _assistant("a1")])
+        store.save_messages("s1", [_user("failed")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+
+        sessions = store.list_sessions()
+
+    assert len(sessions) == 1
+    # Only the 2 successful messages should be counted.
+    assert sessions[0].message_count == 2
+
+
+def test_token_stats_excludes_failed_turns() -> None:
+    """``token_stats`` turn count should not include failed messages."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("q1"), _assistant("a1")])
+        store.save_messages("s1", [_user("failed")])
+        ids = store.load_message_ids("s1")
+        _mark_message_failed(store, ids[-1])
+
+        ts = store.token_stats("s1")
+
+    # Only 1 successful turn.
+    assert ts.total_turns == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Incident stats
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_incident_stats_empty_session() -> None:
+    """``incident_stats`` returns empty lists for an unknown session."""
+    with SessionStore() as store:
+        stats = store.incident_stats("nonexistent")
+    assert stats.failures == []
+    assert stats.repairs == []
+    assert not stats.has_incidents
+
+
+def test_incident_stats_failures() -> None:
+    """``incident_stats`` groups failures by kind with outcome counts."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+        # Two overflow failures: one recovered, one failed.
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t1","failure_kind":"overflow",'
+                '"strategy":"compact_then_retry","outcome":"recovered"}'
+            ),
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t2","failure_kind":"overflow",'
+                '"strategy":"compact_then_retry","outcome":"failed"}'
+            ),
+        )
+        # One history_format failure, recovered.
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t3","failure_kind":"history_format",'
+                '"strategy":"simplify_history","outcome":"recovered"}'
+            ),
+        )
+
+        stats = store.incident_stats("s1")
+
+    assert stats.has_incidents
+    assert stats.total_failures == 3
+    assert stats.total_recovered == 2
+
+    by_kind = {f.failure_kind: f for f in stats.failures}
+    assert by_kind["overflow"].total_count == 2
+    assert by_kind["overflow"].recovered_count == 1
+    assert by_kind["overflow"].failed_count == 1
+    assert by_kind["history_format"].total_count == 1
+    assert by_kind["history_format"].recovered_count == 1
+    assert by_kind["history_format"].failed_count == 0
+
+
+def test_incident_stats_repairs() -> None:
+    """``incident_stats`` groups repairs by strategy with reason."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy":"repair_dangling","reason":"cancelled_mid_tool_call"}',
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy":"demote_thinking","reason":"cross_provider_retry"}',
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy":"demote_thinking","reason":"cross_provider_retry"}',
+        )
+
+        stats = store.incident_stats("s1")
+
+    assert stats.has_incidents
+    assert len(stats.repairs) == 2  # grouped by strategy+reason
+
+    by_strat = {r.strategy: r for r in stats.repairs}
+    assert by_strat["demote_thinking"].total_count == 2
+    assert by_strat["demote_thinking"].reason == "cross_provider_retry"
+    assert by_strat["repair_dangling"].total_count == 1
+    assert by_strat["repair_dangling"].reason == "cancelled_mid_tool_call"
+
+
+def test_incident_stats_mixed() -> None:
+    """``incident_stats`` returns both failures and repairs together."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        store.save_messages("s1", [_user("hello")])
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t1","failure_kind":"tool_args",'
+                '"strategy":"simplify_history","outcome":"recovered"}'
+            ),
+        )
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json='{"strategy":"flatten_tool_exchanges","reason":"cross_provider_retry"}',
+        )
+
+        stats = store.incident_stats("s1")
+
+    assert stats.has_incidents
+    assert len(stats.failures) == 1
+    assert len(stats.repairs) == 1
+    assert stats.total_failures == 1
+    assert stats.total_recovered == 1
+
+
+def test_incident_stats_sessions_isolated() -> None:
+    """``incident_stats`` only returns incidents for the given session."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t1","failure_kind":"overflow",'
+                '"strategy":"compact_then_retry","outcome":"recovered"}'
+            ),
+        )
+        _insert_incident_row(
+            store,
+            session_id="s2",
+            kind=FragmentKind.LLM_ATTEMPT_FAILED,
+            data_json=(
+                '{"turn_id":"t2","failure_kind":"type_error",'
+                '"strategy":"simplify_history","outcome":"failed"}'
+            ),
+        )
+
+        s1 = store.incident_stats("s1")
+        s2 = store.incident_stats("s2")
+
+    assert s1.total_failures == 1
+    assert s1.failures[0].failure_kind == "overflow"
+    assert s2.total_failures == 1
+    assert s2.failures[0].failure_kind == "type_error"

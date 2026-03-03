@@ -8,4 +8,6 @@ SELECT
   SUM(COALESCE(cache_read_tokens, 0)) AS total_cache_read_tokens,
   SUM(COALESCE(cache_write_tokens, 0)) AS total_cache_write_tokens
 FROM fragments
-WHERE fragment_kind IN ('request-message', 'response-message')
+WHERE
+  fragment_kind IN ('request-message', 'response-message')
+  AND status = 'complete'

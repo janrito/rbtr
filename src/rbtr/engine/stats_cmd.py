@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from rbtr.sessions.stats import TokenStats, ToolStat
+from rbtr.sessions.stats import IncidentStats, TokenStats, ToolStat
 from rbtr.styles import STYLE_DIM
 from rbtr.usage import format_cost, format_tokens
 
@@ -33,10 +33,11 @@ def _cmd_current(engine: Engine) -> None:
     sid = engine.state.session_id
     ts = engine.store.token_stats(sid)
     tools = engine.store.tool_stats(sid)
+    incidents = engine.store.incident_stats(sid)
 
     _out(engine, f"Session ({_elapsed(engine)})")
     _out(engine, _row("Model", engine.state.model_name or "—"))
-    _render_body(engine, ts, tools, show_context=True)
+    _render_body(engine, ts, tools, incidents, show_context=True)
 
 
 # ── /stats <session_id> ─────────────────────────────────────────────
@@ -59,12 +60,13 @@ def _cmd_historical(engine: Engine, prefix: str) -> None:
     sid = target.session_id
     ts = engine.store.token_stats(sid)
     tools = engine.store.tool_stats(sid)
+    incidents = engine.store.incident_stats(sid)
 
     _out(engine, f"Session {target.session_label or sid[:8]}")
     _out(engine, _row("ID", sid[:8]))
     if target.model_name:
         _out(engine, _row("Model", target.model_name))
-    _render_body(engine, ts, tools)
+    _render_body(engine, ts, tools, incidents)
 
 
 # ── /stats --all ─────────────────────────────────────────────────────
@@ -134,6 +136,7 @@ def _render_body(
     engine: Engine,
     ts: TokenStats,
     tools: list[ToolStat],
+    incidents: IncidentStats,
     *,
     show_context: bool = False,
 ) -> None:
@@ -146,6 +149,8 @@ def _render_body(
     _render_tokens(engine, ts, compact, show_context=show_context)
     _render_cost(engine, ts, compact)
     _render_tools(engine, tools, compact)
+    if incidents.has_incidents:
+        _render_incidents(engine, incidents)
 
 
 def _render_messages(engine: Engine, ts: TokenStats, compact: bool) -> None:
@@ -239,3 +244,34 @@ def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:
         act = str(t.active_call_count) if compact else ""
         fail = f"  ({t.failure_count} failed)" if t.failure_count else ""
         _out(engine, _row(f"  {t.tool_name}", str(t.call_count), act) + fail)
+
+
+def _render_incidents(engine: Engine, incidents: IncidentStats) -> None:
+    if incidents.failures:
+        total = incidents.total_failures
+        _out(engine, "")
+        _out(engine, f"  Failures ({total})")
+        for f in incidents.failures:
+            parts: list[str] = []
+            if f.recovered_count:
+                parts.append(f"recovered: {f.recovered_count}")
+            if f.failed_count:
+                parts.append(f"failed: {f.failed_count}")
+            suffix = f"   {', '.join(parts)}" if parts else ""
+            _out(engine, f"    {f.failure_kind:<24}{f.total_count:>{_COL}}{suffix}")
+
+    if incidents.repairs:
+        total = sum(r.total_count for r in incidents.repairs)
+        _out(engine, "")
+        _out(engine, f"  History repairs ({total})")
+        for r in incidents.repairs:
+            reason = f"   ({r.reason})" if r.reason else ""
+            _out(engine, f"    {r.strategy:<24}{r.total_count:>{_COL}}{reason}")
+
+    if incidents.failures:
+        total = incidents.total_failures
+        recovered = incidents.total_recovered
+        if total > 0:
+            pct = recovered / total * 100
+            _out(engine, "")
+            _out(engine, f"  Recovery rate       {pct:5.0f}%   {recovered}/{total}")

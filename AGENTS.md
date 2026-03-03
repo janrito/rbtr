@@ -26,6 +26,12 @@ Agent rules. Short, imperative.
   Never hide background work.
 - Configuration lives in a central, transparent location.
   No hidden state scattered across the codebase.
+- **Persisted history is immutable.** Never modify or inject
+  messages into saved conversation history. Repairs and
+  adaptations (tool-call pairing, thinking demotion,
+  tool-exchange flattening) are applied transiently in memory
+  at load time. Record what was changed as incidents — never
+  as fake messages.
 - Styling is defined centrally. No ad-hoc formatting.
 
 ## Style

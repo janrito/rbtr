@@ -6,7 +6,7 @@ SELECT COUNT(*) AS new_count
 FROM fragments
 WHERE
   session_id = ?
-  AND complete = 1
+  AND status = 'complete'
   AND id = message_id
   AND fragment_kind IN ('request-message', 'response-message')
   AND id > ?;

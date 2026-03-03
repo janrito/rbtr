@@ -389,13 +389,34 @@ providers embed provider-specific metadata that other providers
 reject. rbtr adds repair layers on top to preserve cross-provider
 session continuity.
 
-rbtr repairs history at three stages: on load, on retry, and on
-compaction.
+#### Immutable history principle
+
+Persisted messages are immutable. rbtr never modifies, deletes,
+or injects messages into saved conversation history. All repairs
+and adaptations are applied **transiently in memory** at load
+time. The database always retains the original conversation
+exactly as it happened.
+
+This means:
+
+- Switching to a provider that rejects thinking parts does not
+  destroy the original thinking data. The next turn with a
+  compatible provider uses the original `ThinkingPart`s.
+- A session interrupted mid-tool-call retains the original
+  dangling state. The synthetic `(cancelled)` tool returns
+  exist only in the in-memory history passed to the provider.
+- Any history transformation can be reviewed after the fact
+  via incident records that describe what was changed and why.
+
+When a repair or adaptation is applied, rbtr persists a
+structured incident record (`LLM_HISTORY_REPAIR`) alongside
+the conversation. Incident records are invisible to replay
+(`load_messages` excludes them) but queryable for diagnostics.
 
 #### On load
 
-When a session is resumed, structural damage is repaired before
-the first API call.
+When a session is resumed, structural damage is repaired in
+memory before the first API call. The database is not modified.
 
 **Corrupt tool-call args.** A model can produce invalid JSON for
 tool arguments during streaming (e.g. mixed XML/JSON fragments).
@@ -408,14 +429,17 @@ its matching tool results are not orphaned.
 **Dangling tool calls.** Ctrl+C or a crash during tool execution
 leaves tool calls with no matching result. Every provider rejects
 unpaired tool calls. rbtr injects a synthetic tool result with
-content `(cancelled)` for each unmatched call and persists it to
-the database so the repair is permanent.
+content `(cancelled)` for each unmatched call in memory. The
+repair runs on every load and produces the same result — the
+database retains the original dangling state.
 
 #### On retry
 
 When the first API call fails with a provider rejection, rbtr
 retries once with simplified history. Both transforms below are
-applied together.
+applied together in memory — the original messages remain in the
+database unchanged. The next turn with a compatible provider uses
+the original history.
 
 **Thinking-part metadata.** Providers embed reasoning IDs in
 thinking parts (`rs_*`, `reasoning_content`). A different
@@ -440,11 +464,6 @@ patterns (unpaired tool calls, orphaned tool returns, missing
 required fields, reasoning-ID mismatches), on `ValueError` from
 malformed tool-call args that survived load-time repair, and on
 `TypeError` from adapter crashes on unexpected null values.
-
-Simplified history is not persisted — the original messages
-remain in the database. The next turn with a compatible provider
-uses the original history. The retry is visible as a brief
-"Retrying with simplified history…" message.
 
 #### On compaction
 
@@ -515,6 +534,49 @@ Sessions accumulate over time. Use `/session purge` to clean up:
 Duration suffixes: `d` (days), `w` (weeks), `h` (hours). The
 active session is never deleted. To remove a specific session,
 use `/session delete <id>`.
+
+### `/stats` command
+
+```text
+/stats                Current session statistics
+/stats <id>           Stats for a specific session (prefix match)
+/stats --all          Aggregate stats across all sessions
+```
+
+Shows token usage (input, output, cache), cost, tool call
+frequency, and — when the session has incidents — failure and
+repair summaries.
+
+#### Incident reporting
+
+When an LLM call fails and rbtr auto-recovers, or when history
+is manipulated to satisfy provider constraints, the event is
+recorded as an **incident** in the session database (see
+[History repair](#history-repair)). `/stats` surfaces these
+when they exist:
+
+```
+  Failures (3)
+    history_format                 2   recovered: 2
+    overflow                       1   recovered: 1
+
+  History repairs (5)
+    repair_dangling                1   (cancelled_mid_tool_call)
+    demote_thinking                2   (cross_provider_retry)
+    flatten_tool_exchanges         2   (cross_provider_retry)
+
+  Recovery rate       100%   3/3
+```
+
+**Failures** are grouped by kind (`history_format`, `overflow`,
+`tool_args`, `type_error`, `effort_unsupported`) with
+recovered/failed sub-counts. **History repairs** are grouped by
+strategy with the reason that triggered them. The **recovery
+rate** shows what percentage of failures were automatically
+resolved.
+
+Sessions with no incidents show no extra sections — the output
+is identical to before.
 
 ## Context compaction
 

@@ -63,6 +63,7 @@ SELECT
     WHERE
       t.session_id = ?
       AND t.fragment_kind = 'user-prompt'
+      AND t.status = 'complete'
   ) AS total_turns,
   (
     SELECT COUNT(DISTINCT a.message_id)
@@ -70,6 +71,7 @@ SELECT
     WHERE
       a.session_id = ?
       AND a.fragment_kind = 'user-prompt'
+      AND a.status = 'complete'
       AND a.compacted_by IS NULL
   ) AS active_turns,
   COUNT(DISTINCT f.compacted_by) AS compaction_count
@@ -77,3 +79,4 @@ FROM fragments AS f
 WHERE
   f.session_id = ?
   AND f.fragment_kind IN ('request-message', 'response-message')
+  AND f.status = 'complete'

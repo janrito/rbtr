@@ -8,5 +8,5 @@ FROM fragments
 WHERE
   session_id = ?
   AND compacted_by IS NULL
-  AND complete = 1
+  AND status = 'complete'
 ORDER BY created_at, message_id, fragment_index;

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS fragments (
   user_text TEXT,
   tool_name TEXT,
   compacted_by TEXT REFERENCES fragments (id) ON DELETE CASCADE,
-  complete INTEGER NOT NULL DEFAULT 0
+  status TEXT NOT NULL DEFAULT 'in_progress'
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fragments_message_fragment

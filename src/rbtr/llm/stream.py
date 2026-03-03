@@ -7,7 +7,9 @@ import collections.abc
 import contextlib
 import json
 import logging
+import traceback
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
@@ -25,6 +27,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
@@ -34,6 +37,16 @@ from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.providers import build_model, model_context_window
+from rbtr.sessions.scrub import scrub_secrets
+from rbtr.sessions.serialise import (
+    FailedAttempt,
+    FailureKind,
+    FragmentKind,
+    FragmentStatus,
+    HistoryRepair,
+    IncidentOutcome,
+    RecoveryStrategy,
+)
 
 from .agent import AgentDeps, agent
 from .compact import compact_history, compact_history_async
@@ -72,6 +85,100 @@ _LIMIT_SUMMARY_PROMPT = (
 )
 
 
+# ── Incident persistence ────────────────────────────────────────────────
+
+
+def _persist_failed_request(ctx: LLMContext, message: str) -> str:
+    """Persist the user's prompt as a failed ``REQUEST_MESSAGE``.
+
+    Returns the message ID (used as ``turn_id`` in incident rows).
+    """
+    request = ModelRequest(parts=[UserPromptPart(content=message)])
+    ids = ctx.store.save_messages(
+        ctx.state.session_id,
+        [request],
+        status=FragmentStatus.FAILED,
+    )
+    return ids[0]
+
+
+def _persist_failure(
+    ctx: LLMContext,
+    *,
+    turn_id: str,
+    failure_kind: FailureKind,
+    strategy: RecoveryStrategy,
+    exc: BaseException,
+    history_len: int | None = None,
+) -> str:
+    """Persist an ``LLM_ATTEMPT_FAILED`` incident row.
+
+    Returns the incident row ID.
+    """
+    payload = FailedAttempt(
+        turn_id=turn_id,
+        failure_kind=failure_kind,
+        strategy=strategy,
+        diagnostic=scrub_secrets("".join(traceback.format_exception(exc))),
+        error_text=scrub_secrets(str(exc)[:500]),
+        model_name=ctx.state.model_name,
+        history_message_count=history_len,
+        status_code=exc.status_code if isinstance(exc, ModelHTTPError) else None,
+    )
+    return ctx.store.save_incident(
+        ctx.state.session_id,
+        FragmentKind.LLM_ATTEMPT_FAILED,
+        payload,
+    )
+
+
+def _persist_history_repair(
+    ctx: LLMContext,
+    payload: HistoryRepair,
+) -> str:
+    """Persist an ``LLM_HISTORY_REPAIR`` incident row.
+
+    Returns the incident row ID.
+    """
+    return ctx.store.save_incident(
+        ctx.state.session_id,
+        FragmentKind.LLM_HISTORY_REPAIR,
+        payload,
+    )
+
+
+def _retry_with_incidents(
+    ctx: LLMContext,
+    message: str,
+    exc: BaseException,
+    *,
+    failure_kind: FailureKind,
+    strategy: RecoveryStrategy,
+    retry: collections.abc.Callable[[], None],
+) -> None:
+    """Persist incident records, run *retry*, and record the outcome.
+
+    1. Persist the user's prompt as a failed ``REQUEST_MESSAGE``.
+    2. Persist an ``LLM_ATTEMPT_FAILED`` incident row.
+    3. Call *retry*.  On success → ``outcome = 'recovered'``.
+       On exception → ``outcome = 'failed'``, then re-raise.
+    """
+    turn_id = _persist_failed_request(ctx, message)
+    incident_id = _persist_failure(
+        ctx,
+        turn_id=turn_id,
+        failure_kind=failure_kind,
+        strategy=strategy,
+        exc=exc,
+    )
+    try:
+        retry()
+    except Exception:
+        ctx.store.update_incident_json(incident_id, "outcome", IncidentOutcome.FAILED)
+        raise
+    ctx.store.update_incident_json(incident_id, "outcome", IncidentOutcome.RECOVERED)
+
+
 def handle_llm(ctx: LLMContext, message: str) -> None:
     """Send a message to the active LLM, streaming the response."""
     if not ctx.state.has_llm:
@@ -87,29 +194,64 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
     try:
         _run_agent(ctx, model, message)
     except ModelHTTPError as exc:
-        if exc.status_code == 400 and is_effort_unsupported(exc):
+        if exc.status_code == HTTPStatus.BAD_REQUEST and is_effort_unsupported(exc):
             ctx.state.effort_supported = False
             ctx.out("Model does not support effort — retrying without it…")
-            _run_agent(ctx, model, message)
+            _retry_with_incidents(
+                ctx,
+                message,
+                exc,
+                failure_kind=FailureKind.EFFORT_UNSUPPORTED,
+                strategy=RecoveryStrategy.EFFORT_OFF,
+                retry=lambda: _run_agent(ctx, model, message),
+            )
             return
-        if exc.status_code == 400 and is_history_format_error(exc):
+        if exc.status_code == HTTPStatus.BAD_REQUEST and is_history_format_error(exc):
             ctx.out("Retrying with simplified history…")
-            _run_agent(ctx, model, message, simplify_history=True)
+            _retry_with_incidents(
+                ctx,
+                message,
+                exc,
+                failure_kind=FailureKind.HISTORY_FORMAT,
+                strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
+                retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+            )
             return
         if is_context_overflow(exc):
-            _auto_compact_on_overflow(ctx, message)
+            _retry_with_incidents(
+                ctx,
+                message,
+                exc,
+                failure_kind=FailureKind.OVERFLOW,
+                strategy=RecoveryStrategy.COMPACT_THEN_RETRY,
+                retry=lambda: _auto_compact_on_overflow(ctx, message),
+            )
             return
         raise
     except ValueError as exc:
         if _is_tool_args_error(exc):
             ctx.out("Retrying with simplified history…")
-            _run_agent(ctx, model, message, simplify_history=True)
+            _retry_with_incidents(
+                ctx,
+                message,
+                exc,
+                failure_kind=FailureKind.TOOL_ARGS,
+                strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
+                retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+            )
             return
         raise
-    except TypeError:
+    except TypeError as exc:
         log.info("TypeError during agent run — retrying with simplified history", exc_info=True)
         ctx.out("Retrying with simplified history…")
-        _run_agent(ctx, model, message, simplify_history=True)
+        _retry_with_incidents(
+            ctx,
+            message,
+            exc,
+            failure_kind=FailureKind.TYPE_ERROR,
+            strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
+            retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+        )
 
 
 def _is_tool_args_error(exc: ValueError) -> bool:
@@ -284,23 +426,58 @@ def _prepare_turn(
 ) -> tuple[list[ModelMessage], AgentDeps, ModelSettings | None]:
     """Load history, repair dangling tool calls, resolve settings.
 
+    Repairs are transient — applied in memory only.  The DB retains
+    the original conversation.  Each manipulation is recorded as an
+    ``LLM_HISTORY_REPAIR`` incident row.
+
     Mutates engine state: emits warnings for repaired tool calls,
-    persists synthetic repair messages, tracks ``effort_supported``,
-    and snapshots the usage baseline for the upcoming run.
+    tracks ``effort_supported``, and snapshots the usage baseline
+    for the upcoming run.
     """
     store = ctx.store
     history = store.load_messages(ctx.state.session_id)
-    history, repaired_tools, repair_messages = repair_dangling_tool_calls(history)
+    history, repaired_tools, _repair_messages = repair_dangling_tool_calls(history)
     if repaired_tools:
-        _save_messages_safe(ctx, repair_messages)
         names = ", ".join(repaired_tools)
         ctx.warn(
             f"Previous turn was cancelled mid-tool-call ({names}). "
             f"Those tool results are lost — the model will continue without them."
         )
+        _persist_history_repair(
+            ctx,
+            HistoryRepair(
+                strategy=RecoveryStrategy.REPAIR_DANGLING,
+                tool_names=repaired_tools,
+                call_count=len(repaired_tools),
+                reason="cancelled_mid_tool_call",
+            ),
+        )
     if simplify_history:
-        history = demote_thinking(history)
-        history = flatten_tool_exchanges(history)
+        demote = demote_thinking(history)
+        history = demote.history
+        if demote.parts_demoted:
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.DEMOTE_THINKING,
+                    parts_demoted=demote.parts_demoted,
+                    reason="cross_provider_retry",
+                ),
+            )
+
+        flatten = flatten_tool_exchanges(history)
+        history = flatten.history
+        if flatten.tool_calls_flattened or flatten.tool_returns_flattened:
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.FLATTEN_TOOL_EXCHANGES,
+                    tool_calls_flattened=flatten.tool_calls_flattened,
+                    tool_returns_flattened=flatten.tool_returns_flattened,
+                    retry_prompts_dropped=flatten.retry_prompts_dropped,
+                    reason="cross_provider_retry",
+                ),
+            )
 
     deps = AgentDeps(state=ctx.state)
     settings = resolve_model_settings(
@@ -402,18 +579,21 @@ def _save_new_requests(
     return len(requests)
 
 
-def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> None:
+def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[str]:
     """Save messages to the store, logging failures instead of raising.
 
     Relies on ``engine._sync_store_context()`` having been called at
     task start — metadata is inherited from the stored context.
+
+    Returns the list of message-level row IDs, or ``[]`` on failure.
     """
     if not messages:
-        return
+        return []
     try:
-        ctx.store.save_messages(ctx.state.session_id, messages)
+        return ctx.store.save_messages(ctx.state.session_id, messages)
     except OSError:
         log.warning("sessions: failed to persist messages", exc_info=True)
+        return []
 
 
 async def _run_with_cancel(

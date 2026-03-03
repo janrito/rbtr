@@ -3,7 +3,7 @@
 --         cache_write_tokens, message_id.
 UPDATE fragments
 SET
-  complete = 1,
+  status = 'complete',
   cost = ?,
   input_tokens = ?,
   output_tokens = ?,

@@ -29,5 +29,6 @@ WHERE
   session_id = ?
   AND fragment_kind IN ('tool-call', 'retry-prompt')
   AND tool_name IS NOT NULL
+  AND status = 'complete'
 GROUP BY tool_name
 ORDER BY call_count DESC

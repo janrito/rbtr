@@ -10,5 +10,6 @@ FROM fragments
 WHERE
   fragment_kind IN ('request-message', 'response-message')
   AND model_name IS NOT NULL
+  AND status = 'complete'
 GROUP BY model_name
 ORDER BY total_cost DESC
