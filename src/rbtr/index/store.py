@@ -152,6 +152,11 @@ def _check_schema_version(db_path: Path) -> None:
             # No meta table at all → old schema.
             rows = []
         con.close()
+    except duckdb.ConnectionException:
+        # Already open in this process with a different config
+        # (e.g. read-write).  The existing connection validated
+        # the schema on creation — safe to skip.
+        return
     except duckdb.IOException:
         # Corrupt or locked — nuke it.
         rows = []

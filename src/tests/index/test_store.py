@@ -994,3 +994,22 @@ def test_fts_content_tokens_roundtrip(store: IndexStore) -> None:
     assert "calculate" in math.content_tokens
     assert "standard" in math.content_tokens
     assert "deviation" in math.content_tokens
+
+
+# ── Schema version check with existing connection ────────────────────
+
+
+def test_schema_check_skips_when_db_already_open(tmp_path: Path) -> None:
+    """_check_schema_version returns without error when the DB is already
+    open with a read-write connection (different config than read_only=True)."""
+    from rbtr.index.store import _check_schema_version
+
+    db_path = tmp_path / "index.duckdb"
+    # First store opens a read-write connection.
+    store = IndexStore(db_path)
+    # Second schema check must not crash — the DB is already open.
+    _check_schema_version(db_path)
+    # Creating a second store on the same file also succeeds.
+    store2 = IndexStore(db_path)
+    store2.close()
+    store.close()
