@@ -1,9 +1,18 @@
 """Prompt rendering — loads markdown templates and fills placeholders.
 
-The system prompt is the only LLM-facing template.  Project-level
-instructions (``AGENTS.md`` etc.) and user-level extensions
-(``APPEND_SYSTEM.md``) are injected as plain text via template
-variables — they are not themselves templates.
+Three templates, two concerns:
+
+- **System** (``system.md``) — identity, language, project
+  instructions.  Shared by the main agent and the compaction
+  agent.  No runtime state needed.
+- **Review task** (``review.md``) — review context, principles,
+  strategy, two voices, format.  Main agent only.
+- **Compaction task** (``compact.md``) — what to preserve and
+  drop when summarising history.  Compaction agent only.
+
+Project-level instructions (``AGENTS.md`` etc.) and user-level
+extensions (``APPEND_SYSTEM.md``) are injected as plain text
+via template variables — they are not themselves templates.
 """
 
 from __future__ import annotations
@@ -29,15 +38,6 @@ log = logging.getLogger(__name__)
 def _load_template(name: str) -> str:
     """Read a .md template from the prompts package."""
     return resources.files(__package__).joinpath(name).read_text(encoding="utf-8")  # type: ignore[union-attr]  # Traversable always has read_text when joinpath succeeds
-
-
-def _build_env() -> minijinja.Environment:
-    """Create a MiniJinja environment with all prompt templates."""
-    env = minijinja.Environment()
-    env.add_template("system", _load_template("system.md"))
-    env.add_template("index_status", _load_template("index_status.md"))
-    env.add_template("compact", _load_template("compact.md"))
-    return env
 
 
 def _read_optional(path: Path) -> str:
@@ -70,12 +70,44 @@ def _load_append_system() -> str:
 
 
 def _load_system_override() -> str:
-    """Read ``SYSTEM.md`` from ``~/.config/rbtr/`` if present."""
+    """Read ``SYSTEM.md`` from ``~/.config/rbtr/`` if present.
+
+    When present, replaces the built-in persona template
+    (``system.md``).  Review and compaction instructions are
+    unaffected.
+    """
     return _read_optional(RBTR_DIR / "SYSTEM.md")
 
 
-def _context(state: EngineState) -> dict[str, Any]:
-    """Build template context from live state."""
+def _render(template: str, **ctx: Any) -> str:
+    """Render a minijinja template string with the given context."""
+    env = minijinja.Environment()
+    env.add_template("t", template)
+    return env.render_template("t", **ctx)
+
+
+# ── System ───────────────────────────────────────────────────────────
+
+
+def render_system() -> str:
+    """Render the system prompt (identity, language, project rules).
+
+    If ``~/.config/rbtr/SYSTEM.md`` exists, it replaces the
+    built-in template.  The same template variables are available.
+    """
+    template = _load_system_override() or _load_template("system.md")
+    return _render(
+        template,
+        project_instructions=_load_project_instructions(),
+        append_system=_load_append_system(),
+    )
+
+
+# ── Review task ──────────────────────────────────────────────────────
+
+
+def _review_context(state: EngineState) -> dict[str, Any]:
+    """Build template context for the review instructions."""
     ctx: dict[str, Any] = {
         "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
         "owner": state.owner or "unknown",
@@ -87,14 +119,7 @@ def _context(state: EngineState) -> dict[str, Any]:
         "pr_title": "",
         "pr_author": "",
         "pr_body": "",
-        "project_instructions": _load_project_instructions(),
-        "append_system": _load_append_system(),
-        # Tool config metadata — helps the LLM understand output limits.
         "editable_globs": config.tools.editable_include,
-        "max_lines": config.tools.max_lines,
-        "max_results": config.tools.max_results,
-        "max_grep_hits": config.tools.max_grep_hits,
-        "max_requests_per_turn": config.tools.max_requests_per_turn,
     }
 
     match state.review_target:
@@ -125,20 +150,12 @@ def _context(state: EngineState) -> dict[str, Any]:
     return ctx
 
 
-def render_system(state: EngineState) -> str:
-    """Render the system prompt with live state data.
+def render_review(state: EngineState) -> str:
+    """Render the review task instructions with live state data."""
+    return _render(_load_template("review.md"), **_review_context(state))
 
-    If ``~/.config/rbtr/SYSTEM.md`` exists, it replaces the
-    built-in template (same Jinja variables are available).
-    Otherwise the built-in ``system.md`` is used.
-    """
-    env = minijinja.Environment()
-    override = _load_system_override()
-    if override:
-        env.add_template("system", override)
-    else:
-        env.add_template("system", _load_template("system.md"))
-    return env.render_template("system", **_context(state))
+
+# ── Index status ─────────────────────────────────────────────────────
 
 
 def render_index_status(*, status: str, tool_names: list[str]) -> str:
@@ -150,15 +167,13 @@ def render_index_status(*, status: str, tool_names: list[str]) -> str:
     """
     if not status:
         return ""
-    env = _build_env()
     tool_list = ", ".join(f"`{n}`" for n in tool_names)
-    return env.render_template("index_status", status=status, tool_list=tool_list)
+    return _render(_load_template("index_status.md"), status=status, tool_list=tool_list)
 
 
-def render_compact(extra_instructions: str = "") -> str:
-    """Render the compaction system instructions."""
-    env = _build_env()
-    return env.render_template(
-        "compact",
-        extra_instructions=extra_instructions,
-    )
+# ── Compaction task ──────────────────────────────────────────────────
+
+
+def render_compact() -> str:
+    """Render the compaction task instructions."""
+    return _load_template("compact.md").strip()

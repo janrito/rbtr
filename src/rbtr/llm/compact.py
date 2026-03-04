@@ -14,7 +14,7 @@ from pydantic_ai.usage import UsageLimits
 from rbtr.config import config
 from rbtr.events import CompactionFinished, CompactionStarted
 from rbtr.exceptions import RbtrError
-from rbtr.prompts import render_compact
+from rbtr.prompts import render_compact, render_system
 from rbtr.providers import build_model
 
 from .context import LLMContext
@@ -30,6 +30,25 @@ from .model_settings import resolve_model_settings
 # Minimum number of turns to keep — always preserve the most recent
 # turn so the model has immediate context.
 _MIN_KEEP_TURNS = 1
+
+# ── Compaction agent ─────────────────────────────────────────────────
+
+compact_agent: Agent[None, str] = Agent()
+
+
+@compact_agent.instructions
+def _system() -> str:
+    """Shared system prompt — same identity and language rules as the main agent."""
+    return render_system()
+
+
+@compact_agent.instructions
+def _compact_task() -> str:
+    """Compaction task — what to preserve and drop when summarising."""
+    return render_compact()
+
+
+# ── Public API ───────────────────────────────────────────────────────
 
 
 def compact_history(ctx: LLMContext, extra_instructions: str = "") -> None:
@@ -134,10 +153,8 @@ async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -
 
     ctx.emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))
 
-    instructions = render_compact(extra_instructions)
-
     try:
-        summary_text = await _stream_summary(ctx, model, instructions, serialised)
+        summary_text = await _stream_summary(ctx, model, extra_instructions, serialised)
     except (RbtrError, ModelHTTPError, OSError) as e:
         ctx.error(f"Compaction failed: {e}")
         ctx.emit(CompactionFinished(summary_tokens=0))
@@ -175,21 +192,27 @@ def find_fit_count(
 
 
 async def _stream_summary(
-    ctx: LLMContext, model: Model, instructions: str, conversation: str
+    ctx: LLMContext, model: Model, extra_instructions: str, conversation: str
 ) -> str:
-    """Stream the summary from the model, return the full text."""
+    """Stream the compaction summary from the model, return the full text.
+
+    The module-level ``compact_agent`` provides persona and compaction
+    instructions via its ``@instructions`` decorators.
+    ``extra_instructions`` (e.g. "mid-turn with active tool calls")
+    is passed at call time so it appends to the base instructions.
+    """
     settings = resolve_model_settings(
         model, ctx.state.model_name, effort_supported=ctx.state.effort_supported
     )
 
-    summary_agent: Agent[None, str] = Agent(model, instructions=instructions)
     text_parts: list[str] = []
 
-    async with summary_agent.iter(
+    async with compact_agent.iter(
         conversation,
         model=model,
         model_settings=settings,
         usage_limits=UsageLimits(request_limit=1),
+        instructions=extra_instructions or None,
     ) as run:
         async for node in run:
             if isinstance(node, ModelRequestNode):

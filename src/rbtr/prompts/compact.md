@@ -1,5 +1,3 @@
-# Compact
-
 Summarise the following conversation history concisely.
 Preserve:
 
@@ -12,7 +10,3 @@ Preserve:
 Do NOT include pleasantries, redundant context, or raw file
 contents. Focus on what a future assistant turn would need to
 continue the work effectively.
-{% if extra_instructions %}
-
-Additional instructions: {{ extra_instructions }}
-{% endif %}

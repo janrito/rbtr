@@ -791,21 +791,37 @@ OAuth tokens (Claude, ChatGPT) are refreshed automatically when
 they expire. You never need to edit `creds.toml` by hand — use
 `/connect` instead.
 
-## Prompt customisation
+## Prompt architecture
 
-rbtr's system prompt controls the LLM's behaviour during reviews.
-You can customise it at three levels — user-wide preferences,
-full prompt replacement, and per-project instructions.
+rbtr's instructions to the LLM are split into three templates,
+each with a single responsibility:
 
-Loading order: built-in `system.md` (or `SYSTEM.md` override) →
-`APPEND_SYSTEM.md` → project instruction files.
+| Template      | Scope           | Description                                    |
+| ------------- | --------------- | ---------------------------------------------- |
+| `system.md`   | Both agents     | Identity, authority, language style             |
+| `review.md`   | Main agent only | Review context, principles, strategy, format    |
+| `compact.md`  | Compact agent   | What to preserve/drop when summarising history  |
+
+The main agent receives `system.md` + `review.md` on every
+turn. The compaction agent (a separate, tool-less instance
+that summarises older history) receives `system.md` +
+`compact.md`. Both share the same identity and language rules.
+
+### Customisation
+
+You can customise the system prompt at three levels — user-wide
+preferences, full replacement, and per-project instructions.
+
+Loading order: built-in `system.md` (or `SYSTEM.md` override)
+→ `APPEND_SYSTEM.md` → project instruction files.
 
 ### `APPEND_SYSTEM.md` — user-wide additions
 
-Create `~/.config/rbtr/APPEND_SYSTEM.md` to append text to the
-system prompt. Plain markdown, injected verbatim after the
-built-in content. Use this for personal review preferences,
-domain context, or house style that applies to all repos:
+Create `~/.config/rbtr/APPEND_SYSTEM.md` to append text to
+the system prompt. Plain markdown, injected verbatim after the
+built-in content. Applies to both the main and compaction
+agents. Use this for personal review preferences, domain
+context, or house style that applies to all repos:
 
 ```markdown
 ## My preferences
@@ -815,40 +831,25 @@ domain context, or house style that applies to all repos:
 - I prefer explicit `return None` over implicit returns.
 ```
 
-### `SYSTEM.md` — full prompt replacement
+### `SYSTEM.md` — system prompt replacement
 
-Create `~/.config/rbtr/SYSTEM.md` to replace the entire built-in
-system prompt. This is a Jinja template with the same variables
-available as the built-in:
+Create `~/.config/rbtr/SYSTEM.md` to replace the built-in
+`system.md` template. This replaces only the system prompt
+(identity, authority, language) — review instructions
+(`review.md`) and compaction instructions (`compact.md`) are
+unaffected.
 
-| Variable                | Type  | Description                     |
-| ----------------------- | ----- | ------------------------------- |
-| `date`                  | `str` | Current date (YYYY-MM-DD)       |
-| `owner`                 | `str` | Repository owner                |
-| `repo`                  | `str` | Repository name                 |
-| `target_kind`           | `str` | `"pr"`, `"branch"`, or `"none"` |
-| `base_branch`           | `str` | Base branch name                |
-| `branch`                | `str` | Head branch name                |
-| `pr_number`             | `int` | PR number (0 if not a PR)       |
-| `pr_title`              | `str` | PR title                        |
-| `pr_author`             | `str` | PR author                       |
-| `pr_body`               | `str` | PR description body             |
-| `project_instructions`  | `str` | Concatenated project files      |
-| `append_system`         | `str` | Contents of `APPEND_SYSTEM.md`  |
-| `notes_dir`             | `str` | Notes directory path            |
-| `max_lines`             | `int` | Max lines per tool response     |
-| `max_results`           | `int` | Max results per search/list     |
-| `max_grep_hits`         | `int` | Max grep match groups           |
-| `max_requests_per_turn` | `int` | Max tool calls per turn         |
+This is a Jinja template with the following variables:
+
+| Variable               | Type  | Description                    |
+| ---------------------- | ----- | ------------------------------ |
+| `project_instructions` | `str` | Concatenated project files     |
+| `append_system`        | `str` | Contents of `APPEND_SYSTEM.md` |
 
 Minimal example:
 
 ```markdown
-You are a code reviewer for {{ owner }}/{{ repo }}.
-Date: {{ date }}
-{% if target_kind == "pr" %}
-Reviewing PR #{{ pr_number }}: {{ pr_title }}
-{% endif %}
+You are a code reviewer. Be direct.
 {% if append_system %}
 {{ append_system }}
 {% endif %}
@@ -877,7 +878,8 @@ Missing files are silently skipped. The concatenated content is
 injected into the system prompt under a "Project instructions"
 heading (in the built-in template) or via the
 `project_instructions` template variable (in a custom
-`SYSTEM.md`).
+`SYSTEM.md`). Because the system prompt is shared, project
+instructions apply to both the main and compaction agents.
 
 Use project instruction files for coding standards, architecture
 rules, review focus areas, or anything specific to the repo:
@@ -1016,14 +1018,15 @@ changed between base and head using the code index. Shows
 added, removed, modified symbols plus stale docs, missing
 tests, and broken edges.
 
-#### Review notes (always available)
+#### Edit (always available)
 
-**`edit(path, new_text, old_text?)`** — Edit or create
-review notes files. Files must be under `.rbtr/notes/`
-(e.g. `.rbtr/notes/plan.md`). When `old_text` is empty,
-creates the file or appends; when set, replaces the exact
-match. Review notes are readable by `read_file`, `grep`,
-and `list_files` via the filesystem fallback.
+**`edit(path, new_text, old_text?)`** — Create or modify
+files matching the `editable_include` glob patterns
+(default: `.rbtr/notes/*`, `.rbtr/AGENTS.md`). When
+`old_text` is empty, creates the file or appends; when
+set, replaces the exact match. Editable files are readable
+by `read_file`, `grep`, and `list_files` via the
+filesystem fallback.
 
 #### PR discussion (require PR)
 
@@ -1619,22 +1622,27 @@ The limit is configurable in `config.toml`:
 
 ```toml
 [tools]
-max_requests_per_turn = 25     # default
-notes_dir = ".rbtr/notes"      # directory for review notes (edit tool)
-drafts_dir = ".rbtr/drafts"    # directory for draft YAML files
+max_requests_per_turn = 25                                # default
+notes_dir = ".rbtr/notes"                                 # hint for prompts
+drafts_dir = ".rbtr/drafts"                               # draft YAML files
+editable_include = [".rbtr/notes/*", ".rbtr/AGENTS.md"]   # edit tool globs
 ```
 
-The `notes_dir` controls where the `edit` tool can create
-files (e.g. `.rbtr/notes/plan.md`). Draft files live in
-`drafts_dir` and are managed exclusively by the draft tools.
-If you change `notes_dir`, update `index.include` to match:
+The `edit` tool can create and modify files matching the
+`editable_include` glob patterns. `notes_dir` is a hint
+used in prompts — editability is controlled solely by
+`editable_include`. Draft files live in `drafts_dir` and
+are managed exclusively by the draft tools.
+
+If you change `editable_include`, update `index.include` to
+match so the new paths are indexed:
 
 ```toml
 [index]
 include = [".rbtr/my-notes/*"]
 
 [tools]
-notes_dir = ".rbtr/my-notes"
+editable_include = [".rbtr/my-notes/*"]
 ```
 
 ## Development
