@@ -104,18 +104,18 @@ def test_edit_replace_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "does not exist" in result
 
 
-def test_edit_rejects_path_outside_notes() -> None:
-    """Paths not inside .rbtr/notes/ are rejected."""
+def test_edit_rejects_path_outside_editable() -> None:
+    """Paths not matching any editable_include pattern are rejected."""
     ctx = _edit_ctx()
     result = edit(ctx, "src/main.py", "content")  # type: ignore[arg-type]
-    assert "must be inside" in result
+    assert "editable_include" in result
 
 
 def test_edit_rejects_drafts_dir() -> None:
     """Paths inside .rbtr/drafts/ are rejected — use draft tools."""
     ctx = _edit_ctx()
     result = edit(ctx, ".rbtr/drafts/42.yaml", "content")  # type: ignore[arg-type]
-    assert "must be inside" in result
+    assert "editable_include" in result
 
 
 def test_edit_rejects_path_traversal() -> None:
@@ -123,6 +123,40 @@ def test_edit_rejects_path_traversal() -> None:
     ctx = _edit_ctx()
     result = edit(ctx, ".rbtr/notes/../escape.md", "content")  # type: ignore[arg-type]
     assert "not allowed" in result
+
+
+def test_edit_allows_editable_include(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Paths matching `editable_include` patterns are writable."""
+    monkeypatch.chdir(tmp_path)
+    ctx = _edit_ctx()
+    result = edit(ctx, ".rbtr/AGENTS.md", "# Agent rules\n")  # type: ignore[arg-type]
+    assert "Created" in result
+    content = (tmp_path / ".rbtr" / "AGENTS.md").read_text()
+    assert content == "# Agent rules\n"
+
+
+def test_edit_replace_editable_include(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replacing text in an editable_include file works."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".rbtr").mkdir(parents=True)
+    (tmp_path / ".rbtr" / "AGENTS.md").write_text("# Old title\n")
+    ctx = _edit_ctx()
+    result = edit(
+        ctx,  # type: ignore[arg-type]
+        ".rbtr/AGENTS.md",
+        "# New title\n",
+        old_text="# Old title\n",
+    )
+    assert "Replaced" in result
+    content = (tmp_path / ".rbtr" / "AGENTS.md").read_text()
+    assert "# New title" in content
+
+
+def test_edit_rejects_editable_include_mismatch() -> None:
+    """Paths that don't match any editable_include pattern are rejected."""
+    ctx = _edit_ctx()
+    result = edit(ctx, ".rbtr/config.toml", "content")  # type: ignore[arg-type]
+    assert "editable_include" in result
 
 
 def test_edit_creates_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

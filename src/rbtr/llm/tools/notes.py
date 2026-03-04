@@ -1,4 +1,4 @@
-"""Review notes tool — create and edit files in the notes directory."""
+"""Edit tool — create and edit files matching ``editable_include`` globs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,17 @@ from pathlib import Path, PurePosixPath
 from pydantic_ai import RunContext
 
 from rbtr.config import config
+from rbtr.git.filters import _matches_globs
 from rbtr.llm.agent import AgentDeps, agent
+
+
+def _is_editable(path: str) -> bool:
+    """Check whether *path* is writable by the ``edit`` tool.
+
+    A path is editable when it matches any pattern in
+    ``tools.editable_include``.
+    """
+    return _matches_globs(path, config.tools.editable_include)
 
 
 @agent.tool
@@ -17,26 +27,24 @@ def edit(
     new_text: str,
     old_text: str = "",
 ) -> str:
-    """Edit or create a review notes file.
+    """Edit or create a file.
 
     Args:
         path: File path relative to the repo root
-            (e.g. `.rbtr/notes/plan.md`).  Must be inside the
-            notes directory.
+            (e.g. `.rbtr/notes/plan.md`, `.rbtr/AGENTS.md`).
+            Must match an `editable_include` pattern.
         new_text: Content to write or insert.
         old_text: Exact text to find and replace.  Empty string
             (default) creates the file or appends to it.
     """
-    notes_dir = Path(config.tools.notes_dir)
     # Validate path.
     p = PurePosixPath(path)
     if ".." in p.parts:
         return f"Path '{path}' contains '..' — not allowed."
+    if not _is_editable(path):
+        return f"Path '{path}' is not in `editable_include` — cannot edit."
+
     resolved = Path(p)
-    try:
-        resolved.resolve().relative_to(notes_dir.resolve())
-    except ValueError:
-        return f"Path must be inside {notes_dir}/ — got '{path}'."
 
     if not old_text:
         # Create or append.

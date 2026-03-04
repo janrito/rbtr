@@ -90,7 +90,7 @@ def _context(state: EngineState) -> dict[str, Any]:
         "project_instructions": _load_project_instructions(),
         "append_system": _load_append_system(),
         # Tool config metadata — helps the LLM understand output limits.
-        "notes_dir": config.tools.notes_dir,
+        "editable_globs": config.tools.editable_include,
         "max_lines": config.tools.max_lines,
         "max_results": config.tools.max_results,
         "max_grep_hits": config.tools.max_grep_hits,

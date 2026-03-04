@@ -94,7 +94,7 @@ class IndexConfig(BaseModel):
     db_dir: str = str(WORKSPACE_DIR / "index")
     model_cache_dir: str = str(RBTR_DIR / "models")
     max_file_size: int = 512 * 1024  # 512 KiB
-    include: list[str] = [".rbtr/notes/*"]
+    include: list[str] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
     extend_exclude: list[str] = [".rbtr/"]
     chunk_lines: int = 50
     chunk_overlap: int = 5
@@ -127,10 +127,16 @@ class ToolsConfig(BaseModel):
     grep_context_lines: int = 5
     """Lines of context above and below each grep match."""
     notes_dir: str = str(WORKSPACE_DIR / "notes")
-    """Directory for review notes written by the ``edit`` tool.
+    """Default directory for review notes.
 
-    Any file under this directory is writable by the LLM.
-    Indexed by default (see ``IndexConfig.include``)."""
+    Referenced in prompts so the LLM knows where to create notes.
+    The directory itself is editable because ``editable_include``
+    contains a matching glob by default."""
+    editable_include: list[str] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
+    """Glob patterns for files the ``edit`` tool may write.
+
+    Uses the same glob syntax as ``IndexConfig.include``
+    (``fnmatch`` + directory-prefix semantics)."""
     drafts_dir: str = str(WORKSPACE_DIR / "drafts")
     """Directory for review draft YAML files.
 

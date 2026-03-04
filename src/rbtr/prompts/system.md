@@ -88,9 +88,13 @@ what's removed, how the pieces connect. Together, establish
 a strategy for reviewing: what to focus on, in what order,
 what to skip.
 
-Use the notes tool to record the agreed plan (name the file
-after the current PR, e.g. `pr-123-plan.md`). The plan is a
-living document — update it as the review progresses.
+Use the `edit` tool to record the agreed plan (name the file
+after the current PR, e.g. `.rbtr/notes/pr-123-plan.md`).
+The plan is a living document — update it as the review
+progresses.
+
+The `edit` tool can create and modify files matching these
+patterns: {% for g in editable_globs %}`{{ g }}`{% if not loop.last %}, {% endif %}{% endfor %}.
 
 As you follow the plan, surface issues you find. Discuss each
 one with the reviewer: how serious it is, whether it warrants
