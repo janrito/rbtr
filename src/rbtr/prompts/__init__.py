@@ -65,18 +65,23 @@ def _load_project_instructions() -> str:
 
 
 def _load_append_system() -> str:
-    """Read ``APPEND_SYSTEM.md`` from ``~/.config/rbtr/`` if present."""
-    return _read_optional(RBTR_DIR / "APPEND_SYSTEM.md")
+    """Read the append-system file from ``~/.config/rbtr/`` if configured."""
+    name = config.append_system
+    if not name:
+        return ""
+    return _read_optional(RBTR_DIR / name)
 
 
 def _load_system_override() -> str:
-    """Read ``SYSTEM.md`` from ``~/.config/rbtr/`` if present.
+    """Read the system prompt override from ``~/.config/rbtr/`` if configured.
 
-    When present, replaces the built-in persona template
-    (``system.md``).  Review and compaction instructions are
-    unaffected.
+    When present, replaces the built-in system template.
+    Review and compaction instructions are unaffected.
     """
-    return _read_optional(RBTR_DIR / "SYSTEM.md")
+    name = config.system_prompt_override
+    if not name:
+        return ""
+    return _read_optional(RBTR_DIR / name)
 
 
 def _render(template: str, **ctx: Any) -> str:

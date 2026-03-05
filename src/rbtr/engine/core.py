@@ -24,6 +24,7 @@ from .connect_cmd import cmd_connect
 from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
 from .model_cmd import cmd_model
+from .reload_cmd import cmd_reload
 from .review_cmd import cmd_review
 from .session_cmd import cmd_session
 from .setup import run_setup
@@ -200,6 +201,8 @@ class Engine:
                 cmd_session(self, args)
             case Command.STATS:
                 cmd_stats(self, args)
+            case Command.RELOAD:
+                cmd_reload(self)
             case Command.NEW:
                 self._cmd_new()
             case Command.QUIT:

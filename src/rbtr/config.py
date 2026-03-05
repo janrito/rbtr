@@ -229,9 +229,15 @@ class Config(BaseSettings):
 
     model: str | None = None
     thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
-    project_instructions: list[str] = ["AGENTS.md"]
-    """Filenames read from the repo root and injected into the
-    system prompt.  Missing files are silently skipped."""
+    system_prompt_override: str = "SYSTEM.md"
+    """Filename in ``~/.config/rbtr/`` that replaces the built-in
+    system prompt.  Empty string disables the override."""
+    append_system: str = "APPEND_SYSTEM.md"
+    """Filename in ``~/.config/rbtr/`` whose content is appended to
+    the system prompt.  Empty string disables."""
+    project_instructions: list[str] = ["AGENTS.md", ".rbtr/AGENTS.md"]
+    """Filenames read relative to the repo root and injected into
+    the system prompt.  Missing files are silently skipped."""
     compaction: CompactionConfig = CompactionConfig()
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
