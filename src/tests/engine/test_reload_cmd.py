@@ -131,9 +131,7 @@ def test_no_project_instructions_configured(
     engine: Engine,
 ) -> None:
     """When project_instructions is empty, /reload says none configured."""
-    monkeypatch.setattr(
-        "rbtr.engine.reload_cmd.config.project_instructions", []
-    )
+    monkeypatch.setattr("rbtr.engine.reload_cmd.config.project_instructions", [])
     engine.run_task(TaskType.COMMAND, "/reload")
     texts = output_texts(drain(engine.events))
     assert any("none configured" in t for t in texts)
