@@ -45,6 +45,17 @@ class MarkdownOutput(BaseModel):
     text: str
 
 
+class ErrorDetail(BaseModel):
+    """An error with expandable diagnostic detail.
+
+    ``summary`` is the short message shown inline (styled as an error).
+    ``detail`` is the full scrubbed diagnostic available via Ctrl+O.
+    """
+
+    summary: str
+    detail: str
+
+
 class TextDelta(BaseModel):
     """A streaming text chunk from an LLM response.
 
@@ -163,6 +174,7 @@ class ReviewPosted(BaseModel):
 Event = (
     TaskStarted
     | Output
+    | ErrorDetail
     | TableOutput
     | MarkdownOutput
     | TextDelta

@@ -39,25 +39,32 @@ Fetching PR #42…
 rbtr connects to LLMs through multiple providers. Use `/connect`
 to authenticate:
 
-| Provider | Auth               | Command                                |
-| -------- | ------------------ | -------------------------------------- |
-| Claude   | OAuth (Pro/Max)    | `/connect claude`                      |
-| ChatGPT  | OAuth (Plus/Pro)   | `/connect chatgpt`                     |
-| OpenAI   | API key            | `/connect openai sk-...`               |
-| Endpoint | URL + optional key | `/connect endpoint <name> <url> [key]` |
+| Provider   | Auth               | Command                                |
+| ---------- | ------------------ | -------------------------------------- |
+| Claude     | OAuth (Pro/Max)    | `/connect claude`                      |
+| ChatGPT    | OAuth (Plus/Pro)   | `/connect chatgpt`                     |
+| Google     | OAuth (free)       | `/connect google`                      |
+| OpenAI     | API key            | `/connect openai sk-...`               |
+| Fireworks  | API key            | `/connect fireworks fw-...`            |
+| OpenRouter | API key            | `/connect openrouter sk-or-...`        |
+| Endpoint   | URL + optional key | `/connect endpoint <name> <url> [key]` |
 
 Multiple providers can be connected at the same time. Tab on
 `/connect` autocompletes provider names.
 
 ### Endpoints
 
-Any OpenAI-compatible API can be used as a provider:
+Any OpenAI-compatible API can be used as a custom endpoint:
 
 ```text
 you: /connect endpoint deepinfra https://api.deepinfra.com/v1/openai di-...
 you: /connect endpoint ollama http://localhost:11434/v1
 you: /model deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct
 ```
+
+Endpoints are first-class providers — they appear in `/model`
+listings, support tab completion, and participate in the same
+dispatch pipeline as builtin providers.
 
 ### GitHub
 
@@ -1653,28 +1660,33 @@ just check     # Lint + typecheck + test
 just fmt       # Auto-fix and format
 ```
 
-### Adding a new provider
+### Provider architecture
 
-Each provider lives in its own module under `src/rbtr/providers/`.
-A provider needs:
+rbtr's provider layer handles authentication, credential
+persistence, model construction, effort mapping, and
+pricing — everything needed so that `/connect` + `/model`
+is all it takes to use any supported service. The actual LLM
+communication (streaming, tool calling, message formatting)
+is [PydanticAI](https://ai.pydantic.dev/).
 
-1. **Auth flow** — implement authentication (OAuth, API key, etc.)
-   and store credentials via `creds.update()`.
+Each provider is a thin wrapper that knows how to
+authenticate with its service and build the right PydanticAI
+model instance. Every provider satisfies the same `Provider`
+protocol — `is_connected`, `list_models`, `build_model`,
+`model_settings`, `context_window` — so the engine never
+deals with provider-specific logic. Custom endpoints
+(`/connect endpoint`) satisfy the same protocol, so they
+work identically to builtin providers.
 
-2. **`build_model(model_id)`** — return a pydantic-ai `Model`
-   instance. Use the provider's async client and wrap it in the
-   appropriate pydantic-ai model class (e.g. `AnthropicModel`,
-   `OpenAIChatModel`). Any OpenAI-compatible API can reuse
-   `OpenAIModel` with a custom `AsyncOpenAI` client — see
-   `providers/endpoint.py` for an example.
+**API-key providers** (OpenAI, Fireworks, OpenRouter) store
+keys in `~/.config/rbtr/creds.toml`. Keys can also be set
+via environment variables (`OPENAI_API_KEY`,
+`FIREWORKS_API_KEY`, `OPENROUTER_API_KEY`) — pydantic-settings
+picks them up automatically.
 
-3. **`list_models()`** — optional. Return available model IDs so
-   `/model` and Tab completion work.
-
-4. **Register in `providers/__init__.py`** — add the provider prefix
-   to `BuiltinProvider` and wire up `_build_model_by_name()`.
-
-Model IDs always use `<provider>/<model-id>` format everywhere.
+**OAuth providers** (Claude, ChatGPT, Google) use PKCE with
+a localhost callback. Tokens are stored in `creds.toml` and
+refreshed automatically when they expire.
 
 ### Thinking effort
 
@@ -1682,25 +1694,19 @@ rbtr exposes a unified `thinking_effort` config (`low`/`medium`/
 `high`/`max`) that maps to provider-specific settings. Users cycle
 it with Shift+Tab; the footer shows the current level.
 
-All provider-specific dispatch lives in `providers/__init__.py`.
-Model construction (`build_model`) and settings construction
-(`build_model_settings`) are siblings — `engine/llm.py` calls
-both without importing any provider module directly.
+Each provider implements `model_settings(model_id, model, effort)`
+from the `Provider` protocol. This returns a `ModelSettings`
+subclass with the provider-specific effort parameter (e.g.
+`AnthropicModelSettings(thinking=...)`,
+`OpenAIModelSettings(reasoning=...)`) or `None` if the model
+doesn't support thinking.
 
-**To wire up effort for a new model type**, add a branch in
-`build_model_settings()` (`providers/__init__.py`):
-
-```python
-from pydantic_ai.models.foo import FooModel
-
-if isinstance(model, FooModel):
-    from pydantic_ai.models.foo import FooModelSettings
-    return FooModelSettings(foo_effort=effort)
-```
-
-The caller (`engine/llm.py`) sets `session.effort_supported`
-based on whether `build_model_settings` returned settings or
-`None`. If no branch matches, the footer shows `∴ off` in red.
+The engine calls `providers.model_settings(model_name, model,
+effort)` — dispatch is handled by `_resolve`, same as
+`build_model`. The caller (`engine/llm.py`) sets
+`session.effort_supported` based on whether the provider
+returned settings or `None`. If the model doesn't support
+thinking, the footer shows `∴ off` in red.
 
 ### Token usage and pricing
 

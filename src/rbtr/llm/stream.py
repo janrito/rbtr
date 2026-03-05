@@ -13,7 +13,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
-from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -36,7 +36,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError, TaskCancelled
-from rbtr.providers import build_model, model_context_window
+from rbtr.providers import build_model, model_context_window, model_settings
 from rbtr.sessions.scrub import scrub_secrets
 from rbtr.sessions.serialise import (
     FailedAttempt,
@@ -58,7 +58,6 @@ from .history import (
     is_history_format_error,
     repair_dangling_tool_calls,
 )
-from .model_settings import resolve_model_settings
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter
@@ -181,7 +180,7 @@ def _retry_with_incidents(
 
 def handle_llm(ctx: LLMContext, message: str) -> None:
     """Send a message to the active LLM, streaming the response."""
-    if not ctx.state.has_llm:
+    if not ctx.state.has_llm or not ctx.state.model_name:
         ctx.warn("No LLM connected. Use /connect claude, chatgpt, or openai.")
         return
 
@@ -227,7 +226,17 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
                 retry=lambda: _auto_compact_on_overflow(ctx, message),
             )
             return
-        raise
+        if exc.status_code == HTTPStatus.NOT_FOUND:
+            ctx.error_with_detail(
+                f"Model not found: {ctx.state.model_name}. Check the model name with /model.",
+                scrub_secrets(_format_http_error(exc)),
+            )
+            return
+        ctx.error_with_detail(
+            f"LLM request failed ({exc.status_code}): {_short_message(exc)}",
+            scrub_secrets(_format_http_error(exc)),
+        )
+        return
     except ValueError as exc:
         if _is_tool_args_error(exc):
             ctx.out("Retrying with simplified history…")
@@ -241,6 +250,13 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             )
             return
         raise
+    except UnexpectedModelBehavior as exc:
+        log.info("UnexpectedModelBehavior during agent run", exc_info=True)
+        ctx.error_with_detail(
+            "Model returned an unusable response (e.g. only thinking, no text or tool calls). "
+            "Try a different model or retry.",
+            scrub_secrets("".join(traceback.format_exception(exc))),
+        )
     except TypeError as exc:
         log.info("TypeError during agent run — retrying with simplified history", exc_info=True)
         ctx.out("Retrying with simplified history…")
@@ -252,6 +268,29 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
             retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
         )
+
+
+def _short_message(exc: ModelHTTPError) -> str:
+    """Extract a short human-readable message from an HTTP error."""
+    body = str(exc.body) if exc.body else str(exc)
+    # Trim to a reasonable length for the summary line.
+    return body[:200] + "…" if len(body) > 200 else body
+
+
+def _format_http_error(exc: ModelHTTPError) -> str:
+    """Format a ``ModelHTTPError`` with full detail for expansion."""
+    parts = [
+        f"Status: {exc.status_code}",
+        f"Model:  {exc.model_name}",
+    ]
+    if exc.body:
+        try:
+            body_str = json.dumps(exc.body, indent=2)
+        except (TypeError, ValueError):
+            body_str = str(exc.body)
+        parts.append(f"Body:\n{body_str}")
+    parts.append(f"\n{''.join(traceback.format_exception(exc))}")
+    return "\n".join(parts)
 
 
 def _is_tool_args_error(exc: ValueError) -> bool:
@@ -480,13 +519,9 @@ def _prepare_turn(
             )
 
     deps = AgentDeps(state=ctx.state)
-    settings = resolve_model_settings(
-        model, ctx.state.model_name, effort_supported=ctx.state.effort_supported
-    )
-    if (
-        config.thinking_effort is not ThinkingEffort.NONE
-        and ctx.state.effort_supported is not False
-    ):
+    effort = ThinkingEffort.NONE if ctx.state.effort_supported is False else config.thinking_effort
+    settings = model_settings(ctx.state.model_name, model, effort)
+    if effort is not ThinkingEffort.NONE:
         ctx.state.effort_supported = settings is not None
 
     ctx.state.usage.snapshot_base()

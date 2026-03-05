@@ -45,13 +45,13 @@ class _ServiceMixin:
 
 
 class Service(_ServiceMixin, Enum):
-    """Services accepted by /connect."""
+    """Non-provider services accepted by /connect.
+
+    LLM providers (builtins and endpoints) are handled separately
+    by the connect command.
+    """
 
     GITHUB = "github", "Authenticate with GitHub"
-    CLAUDE = "claude", "Sign in with Claude Pro/Max"
-    CHATGPT = "chatgpt", "Sign in with ChatGPT Plus/Pro"
-    OPENAI = "openai", "Connect with an OpenAI API key"
-    ENDPOINT = "endpoint", "OpenAI-compatible endpoint"
 
     @classmethod
     def _missing_(cls, value: object) -> Service | None:

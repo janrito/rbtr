@@ -11,8 +11,7 @@ from github import Auth, Github
 from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.exceptions import RbtrError
-from rbtr.oauth import oauth_is_set
-from rbtr.providers import endpoint as endpoint_provider
+from rbtr.providers import PROVIDERS, endpoint as endpoint_provider
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -46,24 +45,17 @@ def run_setup(engine: Engine) -> None:
     else:
         engine._out("Not authenticated. Use /connect github to authenticate.")
 
-    if oauth_is_set(creds.claude):
-        engine.state.claude_connected = True
-        engine._out("Connected to Anthropic.")
+    for provider, prov in PROVIDERS.items():
+        if prov.is_connected():
+            engine.state.connected_providers.add(provider)
+            engine._out(f"Connected to {prov.LABEL}.")
 
-    if oauth_is_set(creds.chatgpt):
-        engine.state.chatgpt_connected = True
-        engine._out("Connected to ChatGPT.")
-
-    if creds.openai_api_key:
-        engine.state.openai_connected = True
-        engine._out("Connected to OpenAI.")
-
-    endpoints = endpoint_provider.list_endpoints()
-    for ep in endpoints:
+    for ep in endpoint_provider.list_endpoints():
+        engine.state.connected_providers.add(ep.name)
         engine._out(f"Endpoint: {ep.name} ({ep.base_url})")
 
-    if not (engine.state.has_llm or endpoints):
-        engine._out("No LLM connected. Use /connect claude, chatgpt, or openai.")
+    if not engine.state.has_llm:
+        engine._out("No LLM connected. Use /connect to add a provider.")
 
     # Load saved model preference (context window resolves lazily
     # when the model cache is first populated).

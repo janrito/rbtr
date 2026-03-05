@@ -114,6 +114,11 @@ def is_history_format_error(exc: Exception) -> bool:
     # Orphaned tool return: "No tool call found for function call output"
     if "no tool call found" in msg and "function call output" in msg:
         return True
+    # Extra provider-specific fields rejected by a different provider
+    # (e.g. OpenAI Responses API reasoning IDs sent to Fireworks):
+    # "Extra inputs are not permitted, field: 'messages[1].rs_...'"
+    if "extra inputs are not permitted" in msg:
+        return True
     # Required field missing from a message (e.g. null content on an
     # assistant message that contains only tool calls).
     return "required" in msg and "field" in msg

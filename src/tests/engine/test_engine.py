@@ -39,6 +39,7 @@ from rbtr.events import (
 )
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.models import BranchTarget, PRSummary, PRTarget
+from rbtr.providers import BuiltinProvider
 from rbtr.state import EngineState
 
 from .conftest import (
@@ -383,7 +384,8 @@ def test_llm_streams_response(creds_path: Path, mocker: MockerFixture, engine: E
     """LLM messages build a model and stream via the agent."""
 
     creds.update(claude=OAuthCreds(access_token="t", refresh_token="r", expires_at=9e9))
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
     async def fake_stream(ctx, model, message, **kwargs):
         from rbtr.events import TextDelta
@@ -405,7 +407,8 @@ def test_llm_persists_to_store(creds_path: Path, mocker: MockerFixture, engine: 
     """After an LLM call, messages are persisted to the store."""
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
+    engine.state.model_name = "openai/gpt-4o"
 
     async def fake_stream(ctx, model, message, **kwargs):
         ctx.store.save_messages(
@@ -530,8 +533,10 @@ def test_connect_github_success(creds_path: Path, mocker: MockerFixture, engine:
         "interval": "0",
     }
 
-    mocker.patch("rbtr.engine.connect_cmd.auth.request_device_code", return_value=device_resp)
-    mocker.patch("rbtr.engine.connect_cmd.auth.poll_for_token", return_value="ghp_newtoken")
+    mocker.patch(
+        "rbtr.engine.connect_cmd.github_auth.request_device_code", return_value=device_resp
+    )
+    mocker.patch("rbtr.engine.connect_cmd.github_auth.poll_for_token", return_value="ghp_newtoken")
     mocker.patch.object(Engine, "_copy_to_clipboard")
 
     # Mock Github so get_user().login succeeds without a real API call.
@@ -559,7 +564,7 @@ def test_connect_github_success(creds_path: Path, mocker: MockerFixture, engine:
 def test_connect_github_failure(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.auth.request_device_code",
+        "rbtr.engine.connect_cmd.github_auth.request_device_code",
         side_effect=RbtrError("network error"),
     )
     engine.run_task(TaskType.COMMAND, "/connect github")
@@ -786,8 +791,10 @@ def test_connect_github_flushes_link_panel(
         "interval": "0",
     }
 
-    mocker.patch("rbtr.engine.connect_cmd.auth.request_device_code", return_value=device_resp)
-    mocker.patch("rbtr.engine.connect_cmd.auth.poll_for_token", return_value="ghp_tok")
+    mocker.patch(
+        "rbtr.engine.connect_cmd.github_auth.request_device_code", return_value=device_resp
+    )
+    mocker.patch("rbtr.engine.connect_cmd.github_auth.poll_for_token", return_value="ghp_tok")
     mocker.patch.object(engine, "_copy_to_clipboard")
 
     fake_gh = mocker.MagicMock()

@@ -11,7 +11,8 @@ from github import Github
 
 from rbtr.github.client import GitHubCtx
 from rbtr.models import DiscussionEntry, Target
-from rbtr.providers import claude as claude_provider, openai_codex as codex_provider
+from rbtr.oauth import PendingLogin
+from rbtr.providers import BuiltinProvider
 from rbtr.usage import SessionUsage
 
 if TYPE_CHECKING:
@@ -37,11 +38,8 @@ class EngineState:
     # Whether background indexing has completed.  Set True by the
     # indexing thread on IndexReady, False on new /review.
     index_ready: bool = False
-    claude_connected: bool = False
-    claude_pending_login: claude_provider.PendingLogin | None = None
-    openai_connected: bool = False
-    chatgpt_connected: bool = False
-    chatgpt_pending_login: codex_provider.PendingLogin | None = None
+    connected_providers: set[str] = field(default_factory=set)
+    pending_logins: dict[BuiltinProvider, PendingLogin] = field(default_factory=dict)
     model_name: str | None = None
     # Whether the active model supports thinking effort settings.
     # None = unknown (no message sent yet), True/False after first LLM call.
@@ -70,4 +68,4 @@ class EngineState:
     @property
     def has_llm(self) -> bool:
         """Whether any LLM provider is connected."""
-        return self.claude_connected or self.chatgpt_connected or self.openai_connected
+        return bool(self.connected_providers)

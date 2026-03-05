@@ -11,11 +11,11 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
-from rbtr.config import config
+from rbtr.config import ThinkingEffort, config
 from rbtr.events import CompactionFinished, CompactionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.prompts import render_compact, render_system
-from rbtr.providers import build_model
+from rbtr.providers import build_model, model_settings
 
 from .context import LLMContext
 from .history import (
@@ -25,7 +25,6 @@ from .history import (
     snap_to_safe_boundary,
     split_history,
 )
-from .model_settings import resolve_model_settings
 
 # Minimum number of turns to keep — always preserve the most recent
 # turn so the model has immediate context.
@@ -99,7 +98,7 @@ async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -
     coroutines already running on ``ctx.loop`` (mid-turn and
     post-turn compaction inside ``_stream_agent``).
     """
-    if not ctx.state.has_llm:
+    if not ctx.state.has_llm or not ctx.state.model_name:
         ctx.warn("No LLM connected — cannot compact.")
         return
 
@@ -201,9 +200,8 @@ async def _stream_summary(
     ``extra_instructions`` (e.g. "mid-turn with active tool calls")
     is passed at call time so it appends to the base instructions.
     """
-    settings = resolve_model_settings(
-        model, ctx.state.model_name, effort_supported=ctx.state.effort_supported
-    )
+    effort = ThinkingEffort.NONE if ctx.state.effort_supported is False else config.thinking_effort
+    settings = model_settings(ctx.state.model_name, model, effort)
 
     text_parts: list[str] = []
 

@@ -35,6 +35,7 @@ class OAuthCreds(BaseModel):
     refresh_token: str = ""
     expires_at: float | None = None
     account_id: str = ""
+    project_id: str = ""
 
 
 class Creds(BaseSettings):
@@ -44,6 +45,9 @@ class Creds(BaseSettings):
     claude: OAuthCreds = OAuthCreds()
     chatgpt: OAuthCreds = OAuthCreds()
     openai_api_key: str = ""
+    fireworks_api_key: str = ""
+    openrouter_api_key: str = ""
+    google: OAuthCreds = OAuthCreds()
     endpoint_keys: dict[str, str] = {}
 
     @classmethod
@@ -55,7 +59,8 @@ class Creds(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (TomlConfigSettingsSource(settings_cls),)
+        # TOML first (persisted), then env vars as fallback.
+        return (TomlConfigSettingsSource(settings_cls), env_settings)
 
     def update(self, **kwargs: Any) -> None:
         """Set fields, persist to disk (0600), and reload in place."""

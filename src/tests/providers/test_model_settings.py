@@ -1,17 +1,12 @@
-"""Tests for build_model_settings — provider-specific effort mapping."""
+"""Tests for provider model_settings — provider-specific effort mapping."""
 
 from __future__ import annotations
 
 import pytest
 
 from rbtr.config import ThinkingEffort
-from rbtr.providers import (
-    build_model_settings,
-    endpoint_context_window,
-    endpoint_model_settings,
-    model_context_window,
-)
-from rbtr.providers.endpoint import ModelMetadata
+from rbtr.providers import model_context_window
+from rbtr.providers.endpoint import EndpointProvider, ModelMetadata
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -26,9 +21,9 @@ def _claude_model(mocker):
             expires_at=9999999999,
         ),
     )
-    from rbtr.providers.claude import build_model
+    from rbtr.providers.claude import provider as claude_prov
 
-    return build_model()
+    return claude_prov.build_model("claude-sonnet-4-20250514")
 
 
 def _openai_model(creds_path):
@@ -36,9 +31,9 @@ def _openai_model(creds_path):
     from rbtr.creds import creds
 
     creds.update(openai_api_key="sk-test-key")
-    from rbtr.providers.openai import build_model
+    from rbtr.providers.openai import provider as openai_prov
 
-    return build_model()
+    return openai_prov.build_model("gpt-4o")
 
 
 # ── Anthropic effort mapping ─────────────────────────────────────────
@@ -55,16 +50,20 @@ def _openai_model(creds_path):
 )
 def test_anthropic_effort_levels(mocker, effort, expected_value) -> None:
     """Each effort level maps to the correct anthropic_effort value."""
+    from rbtr.providers.claude import provider as claude_prov
+
     model = _claude_model(mocker)
-    settings = build_model_settings(model, effort)
+    settings = claude_prov.model_settings("claude-sonnet-4-20250514", model, effort)
     assert settings is not None
     assert settings.get("anthropic_effort") == expected_value
 
 
 def test_anthropic_none_returns_none(mocker) -> None:
     """NONE effort → no settings (caller should not pass model_settings)."""
+    from rbtr.providers.claude import provider as claude_prov
+
     model = _claude_model(mocker)
-    settings = build_model_settings(model, ThinkingEffort.NONE)
+    settings = claude_prov.model_settings("claude-sonnet-4-20250514", model, ThinkingEffort.NONE)
     assert settings is None
 
 
@@ -82,15 +81,19 @@ def test_anthropic_none_returns_none(mocker) -> None:
 )
 def test_openai_effort_levels(creds_path, effort, expected_value) -> None:
     """Each effort level maps to the correct openai_reasoning_effort value."""
+    from rbtr.providers.openai import provider as openai_prov
+
     model = _openai_model(creds_path)
-    settings = build_model_settings(model, effort)
+    settings = openai_prov.model_settings("gpt-4o", model, effort)
     assert settings is not None
     assert settings.get("openai_reasoning_effort") == expected_value
 
 
 def test_openai_none_returns_none(creds_path) -> None:
+    from rbtr.providers.openai import provider as openai_prov
+
     model = _openai_model(creds_path)
-    settings = build_model_settings(model, ThinkingEffort.NONE)
+    settings = openai_prov.model_settings("gpt-4o", model, ThinkingEffort.NONE)
     assert settings is None
 
 
@@ -101,9 +104,11 @@ def test_unsupported_model_returns_none() -> None:
     """A model type we don't recognise → None for all effort levels."""
     from unittest.mock import MagicMock
 
+    from rbtr.providers.google import provider as google_prov
+
     fake_model = MagicMock()
     for effort in ThinkingEffort:
-        assert build_model_settings(fake_model, effort) is None
+        assert google_prov.model_settings("gemini-2.5-pro", fake_model, effort) is None
 
 
 # ── Endpoint model settings (auto-fetched metadata) ──────────────────
@@ -111,67 +116,41 @@ def test_unsupported_model_returns_none() -> None:
 
 def test_endpoint_model_settings_from_metadata(mocker) -> None:
     """Auto-fetched context_window → max_tokens = context_window // 2."""
+    from unittest.mock import MagicMock
+
     mocker.patch(
         "rbtr.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=196608),
     )
-    settings = endpoint_model_settings("myep/some-model")
+    prov = EndpointProvider("myep")
+    settings = prov.model_settings("some-model", MagicMock(), ThinkingEffort.NONE)
     assert settings is not None
     assert settings["max_tokens"] == 98304  # 196608 // 2
 
 
 def test_endpoint_model_settings_caps_at_131072(mocker) -> None:
     """For very large context windows, max_tokens is capped at 128 k."""
+    from unittest.mock import MagicMock
+
     mocker.patch(
         "rbtr.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=1_000_000),
     )
-    settings = endpoint_model_settings("myep/big-model")
+    prov = EndpointProvider("myep")
+    settings = prov.model_settings("big-model", MagicMock(), ThinkingEffort.NONE)
     assert settings is not None
     assert settings["max_tokens"] == 131_072
 
 
 def test_endpoint_model_settings_none_when_no_metadata(mocker) -> None:
+    from unittest.mock import MagicMock
+
     mocker.patch(
         "rbtr.providers.endpoint.fetch_model_metadata",
         return_value=None,
     )
-    assert endpoint_model_settings("myep/some-model") is None
-
-
-def test_endpoint_model_settings_none_for_builtin() -> None:
-    """Built-in providers (claude, openai, chatgpt) → None."""
-    assert endpoint_model_settings("claude/claude-sonnet-4-20250514") is None
-    assert endpoint_model_settings("openai/gpt-4o") is None
-    assert endpoint_model_settings("chatgpt/gpt-4o") is None
-
-
-def test_endpoint_model_settings_none_for_no_model() -> None:
-    assert endpoint_model_settings(None) is None
-    assert endpoint_model_settings("") is None
-
-
-# ── Endpoint context window (auto-fetched metadata) ──────────────────
-
-
-def test_endpoint_context_window_from_metadata(mocker) -> None:
-    mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
-        return_value=ModelMetadata(context_window=196608),
-    )
-    assert endpoint_context_window("myep/some-model") == 196608
-
-
-def test_endpoint_context_window_none_when_no_metadata(mocker) -> None:
-    mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
-        return_value=None,
-    )
-    assert endpoint_context_window("myep/some-model") is None
-
-
-def test_endpoint_context_window_none_for_builtin() -> None:
-    assert endpoint_context_window("claude/claude-sonnet-4-20250514") is None
+    prov = EndpointProvider("myep")
+    assert prov.model_settings("some-model", MagicMock(), ThinkingEffort.NONE) is None
 
 
 # ── model_context_window (generic lookup) ─────────────────────────────
@@ -193,6 +172,12 @@ def test_model_context_window_builtin(model_name: str, expected_window: int) -> 
 
 def test_model_context_window_endpoint(mocker) -> None:
     """model_context_window prefers endpoint metadata over genai-prices."""
+    from rbtr.providers.endpoint import Endpoint
+
+    mocker.patch(
+        "rbtr.providers.endpoint.load_endpoint",
+        return_value=Endpoint(name="myep", base_url="http://localhost:11434/v1", api_key=""),
+    )
     mocker.patch(
         "rbtr.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=327_680),

@@ -38,6 +38,7 @@ from rbtr.engine.model_cmd import get_models
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
+    ErrorDetail,
     Event,
     FlushPanel,
     IndexCleared,
@@ -55,6 +56,7 @@ from rbtr.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
+from rbtr.providers import PROVIDERS
 from rbtr.state import EngineState
 from rbtr.styles import (
     BG_ACTIVE,
@@ -133,6 +135,7 @@ class _ExpandKind(StrEnum):
 
     SHELL = "shell"
     TOOL = "tool"
+    ERROR = "error"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -181,6 +184,7 @@ class UI:
         self._tool_full_result: str = ""  # full result for tool expand
         self._tool_header: str = ""  # "⚙ name(args)" for tool expand
         self._tool_preamble: list[RenderableType] = []  # LLM text before tool call
+        self._error_detail: str = ""  # full diagnostic for error expand
         self._pending_tool_name: str = ""  # tool name from last ToolCallStarted
         self._pending_tool_args: str = ""  # tool args from last ToolCallStarted
         # Last finished panel — stays in Live until finalized by next input.
@@ -220,10 +224,17 @@ class UI:
             match cmd:
                 case Command.CONNECT:
                     matches = [
+                        (f"/connect {p.value}", prov.LABEL)
+                        for p, prov in PROVIDERS.items()
+                        if p.value.startswith(arg)
+                    ]
+                    if "endpoint".startswith(arg):
+                        matches.append(("/connect endpoint", "OpenAI-compatible endpoint"))
+                    matches.extend(
                         (f"/connect {s.key}", s.description)
                         for s in Service
                         if s.key.startswith(arg)
-                    ]
+                    )
                     self.inp.apply_completions(matches)
                 case Command.MODEL:
                     self._complete_model(arg)
@@ -430,6 +441,7 @@ class UI:
                 self._active_task = True
                 self._streaming_text = ""
                 self._streaming_md = None
+                self._error_detail = ""
             case Output(text=text, style=style):
                 if "error" in style:
                     self._active_had_error = True
@@ -439,6 +451,13 @@ class UI:
                     self._active_lines.append(t)
                 else:
                     self._active_lines.append(Text(text, style=style))
+            case ErrorDetail(summary=summary, detail=detail):
+                self._active_had_error = True
+                t = Text()
+                t.append("Error: ", style=ERROR)
+                t.append(summary)
+                self._active_lines.append(t)
+                self._error_detail = detail
             case TableOutput() as te:
                 table = Table(title=te.title, show_lines=False, style=te.style)
                 for col in te.columns:
@@ -585,6 +604,13 @@ class UI:
                         self._expandable = True
                         self._expand_hidden = info[3]
                         self._expand_kind = _ExpandKind.SHELL
+                        self._pending_lines = self._active_lines
+                        self._pending_variant = variant
+                    elif self._error_detail:
+                        detail_lines = self._error_detail.count("\n") + 1
+                        self._expandable = True
+                        self._expand_hidden = detail_lines
+                        self._expand_kind = _ExpandKind.ERROR
                         self._pending_lines = self._active_lines
                         self._pending_variant = variant
                     else:
@@ -803,6 +829,8 @@ class UI:
                 self._expand_shell()
             case _ExpandKind.TOOL:
                 self._expand_tool()
+            case _ExpandKind.ERROR:
+                self._expand_error()
 
     def _expand_shell(self) -> None:
         """Expand a truncated shell output panel."""
@@ -846,6 +874,18 @@ class UI:
         self._tool_full_result = ""
         self._tool_header = ""
         self._tool_preamble = []
+        self._finalize_pending()
+
+    def _expand_error(self) -> None:
+        """Expand an error panel with full diagnostic detail."""
+        if not self._error_detail:
+            return
+        self._expandable = False
+        self._expand_kind = None
+        lines: list[RenderableType] = list(self._pending_lines or [])
+        lines.append(Text(self._error_detail, style=STYLE_DIM))
+        self._pending_lines = lines
+        self._error_detail = ""
         self._finalize_pending()
 
     # ── Effort rotation ─────────────────────────────────────────────

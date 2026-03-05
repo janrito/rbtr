@@ -8,8 +8,14 @@ from typing import TypedDict
 
 import httpx
 
-from rbtr.config import config
 from rbtr.exceptions import RbtrError
+from rbtr.oauth import deobfuscate
+
+# ── Constants ────────────────────────────────────────────────────────
+
+_CLIENT_ID = deobfuscate("T3YyM2xpNE9UQ1l5bzJZTndBdWs=")
+_DEVICE_CODE_URL = "https://github.com/login/device/code"
+_OAUTH_URL = "https://github.com/login/oauth/access_token"
 
 
 class DeviceCodeResponse(TypedDict):
@@ -24,8 +30,8 @@ class DeviceCodeResponse(TypedDict):
 def request_device_code() -> DeviceCodeResponse:
     """Start the device flow."""
     resp = httpx.post(
-        config.providers.github.device_code_url,
-        data={"client_id": config.providers.github.client_id, "scope": "repo read:org"},
+        _DEVICE_CODE_URL,
+        data={"client_id": _CLIENT_ID, "scope": "repo read:org"},
         headers={"Accept": "application/json"},
         timeout=30,
     )
@@ -48,9 +54,9 @@ def poll_for_token(device_code: str, interval: int, cancel: threading.Event | No
                 time.sleep(interval)
 
             resp = client.post(
-                config.providers.github.oauth_url,
+                _OAUTH_URL,
                 data={
-                    "client_id": config.providers.github.client_id,
+                    "client_id": _CLIENT_ID,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },

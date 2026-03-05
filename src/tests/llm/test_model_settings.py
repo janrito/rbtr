@@ -1,24 +1,28 @@
-"""Tests for engine/model_settings.py — model settings resolution."""
+"""Tests for model_settings dispatch — effort skipped for NONE."""
 
 from __future__ import annotations
 
 from pytest_mock import MockerFixture
 
-from rbtr.llm.model_settings import resolve_model_settings
+from rbtr.config import ThinkingEffort
+from rbtr.providers import model_settings
 
 
-def test_resolve_model_settings_skips_effort_when_unsupported(mocker: MockerFixture) -> None:
-    """When effort_supported=False, effort settings are omitted."""
+def test_model_settings_returns_effort(mocker: MockerFixture) -> None:
+    """A known provider + non-NONE effort → settings returned."""
     from pydantic_ai.models.anthropic import AnthropicModel
 
     mock_model = mocker.MagicMock(spec=AnthropicModel)
-
-    settings = resolve_model_settings(mock_model, "claude/claude-sonnet-4-5-20250929")
-    # Default effort is MEDIUM → should produce settings
+    settings = model_settings(
+        "claude/claude-sonnet-4-5-20250929", mock_model, ThinkingEffort.MEDIUM
+    )
     assert settings is not None
 
-    # With effort_supported=False → no effort settings
-    settings_no = resolve_model_settings(
-        mock_model, "claude/claude-sonnet-4-5-20250929", effort_supported=False
-    )
-    assert settings_no is None
+
+def test_model_settings_none_for_none_effort(mocker: MockerFixture) -> None:
+    """NONE effort → provider returns None (no effort applied)."""
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    mock_model = mocker.MagicMock(spec=AnthropicModel)
+    settings = model_settings("claude/claude-sonnet-4-5-20250929", mock_model, ThinkingEffort.NONE)
+    assert settings is None

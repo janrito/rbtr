@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
 from rbtr.exceptions import RbtrError
 from rbtr.providers import (
+    PROVIDERS,
     BuiltinProvider,
-    claude as claude_provider,
     endpoint as endpoint_provider,
     model_context_window,
-    openai as openai_provider,
-    openai_codex as codex_provider,
 )
 
 if TYPE_CHECKING:
     from .core import Engine
-
-type _ModelLister = Callable[[], list[str]]
 
 _MODEL_CACHE_TTL = 300  # 5 minutes
 
@@ -74,20 +69,17 @@ def _set_model(engine: Engine, model_id: str) -> None:
         return
 
     # Identify the provider and refresh only its model list.
-    if not _is_known_provider(engine, provider):
+    if provider not in engine.state.connected_providers:
         engine._warn(f"Unknown provider: {provider}. Use /connect to add a provider first.")
         return
 
     _refresh_provider(engine, provider)
 
-    # Validate after refresh. Providers with empty lists accept any ID.
+    # Model list is for display/completion, not gatekeeping.
+    # Accept any model — the API will reject invalid ones at call time.
     cached = _cached_models_for(engine, provider)
-    if cached is not None and model_id not in cached:
-        engine._warn(f"Unknown model: {model_id}")
-        engine._out("Available models:")
-        for m in cached:
-            engine._out(f"    {m}")
-        return
+    if cached and model_id not in cached:
+        engine._warn(f"Model {model_id} is not in the known list — setting anyway.")
 
     _apply_model(engine, model_id)
 
@@ -122,7 +114,7 @@ def get_models(engine: Engine, *, force: bool = False) -> list[tuple[str, list[s
         return engine.state.cached_models
 
     result: list[tuple[str, list[str]]] = []
-    for provider in _connected_providers(engine):
+    for provider in engine.state.connected_providers:
         models = _fetch_provider_models(engine, provider)
         result.append((provider, models))
 
@@ -143,49 +135,33 @@ def get_models(engine: Engine, *, force: bool = False) -> list[tuple[str, list[s
 
 
 def _refresh_provider(engine: Engine, provider: str) -> None:
-    """Refresh the model list for a single provider."""
+    """Refresh the model list for a single provider.
+
+    Does *not* update ``models_fetched_at`` — this is a partial
+    refresh so ``get_models`` will still do a full refresh on the
+    next ``/model`` call.
+    """
     models = _fetch_provider_models(engine, provider)
 
     # Replace or append this provider's entry in the cache.
     updated = [(name, ms) for name, ms in engine.state.cached_models if name != provider]
     updated.append((provider, models))
     engine.state.cached_models = updated
-    engine.state.models_fetched_at = datetime.now(UTC).timestamp()
 
 
 def _fetch_provider_models(engine: Engine, provider: str) -> list[str]:
     """Fetch models for a single provider from its API."""
-    builtin_listers: dict[str, _ModelLister] = {
-        BuiltinProvider.CLAUDE: claude_provider.list_models,
-        BuiltinProvider.CHATGPT: codex_provider.list_models,
-        BuiltinProvider.OPENAI: openai_provider.list_models,
-    }
     try:
-        if provider in builtin_listers:
-            return [f"{provider}/{m}" for m in builtin_listers[provider]()]
+        prov = PROVIDERS.get(BuiltinProvider(provider)) if provider in BuiltinProvider else None
+    except ValueError:
+        prov = None
+    try:
+        if prov is not None:
+            return [f"{provider}/{m}" for m in prov.list_models()]
         return [f"{provider}/{m}" for m in endpoint_provider.list_models(provider)]
     except RbtrError as e:
         engine._warn(f"Could not list {provider} models: {e}")
         return []
-
-
-def _connected_providers(engine: Engine) -> list[str]:
-    """Return names of all connected providers."""
-    state = engine.state
-    providers: list[str] = []
-    if state.claude_connected:
-        providers.append(BuiltinProvider.CLAUDE)
-    if state.chatgpt_connected:
-        providers.append(BuiltinProvider.CHATGPT)
-    if state.openai_connected:
-        providers.append(BuiltinProvider.OPENAI)
-    providers.extend(ep.name for ep in endpoint_provider.list_endpoints())
-    return providers
-
-
-def _is_known_provider(engine: Engine, provider: str) -> bool:
-    """Check if *provider* is connected or a known endpoint."""
-    return provider in _connected_providers(engine)
 
 
 def _model_in_cache(engine: Engine, model_id: str) -> bool:

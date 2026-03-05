@@ -251,6 +251,27 @@ def test_is_history_format_error_orphan_tool_return() -> None:
     assert is_history_format_error(exc)
 
 
+def test_is_history_format_error_extra_inputs() -> None:
+    """Provider rejects extra fields from another provider's metadata.
+
+    When OpenAI Responses API reasoning IDs (``rs_...``) are replayed
+    to a different endpoint (e.g. Fireworks), they appear as extra
+    top-level fields on the message dict and are rejected.
+    """
+    exc = ModelHTTPError(
+        400,
+        "accounts/fireworks/models/kimi-k2p5",
+        body={
+            "object": "error",
+            "type": "invalid_request_error",
+            "message": "18 request validation errors: Extra inputs are not permitted, "
+            "field: 'messages[1].rs_0cae3ab1ca0a8b850169a9760634e48191bf83b85f9824079b', "
+            "value: ''",
+        },
+    )
+    assert is_history_format_error(exc)
+
+
 def test_is_history_format_error_required_field() -> None:
     """Provider rejects messages with a missing required field.
 

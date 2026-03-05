@@ -20,6 +20,8 @@ _SCRUB_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(sk-ant-)\S+"), r"\1[REDACTED]"),
     # OpenAI: sk-... (but not sk-ant-)
     (re.compile(r"(sk-(?!ant-))\S+"), r"\1[REDACTED]"),
+    # Fireworks: fw-...
+    (re.compile(r"(fw-)\S+"), r"\1[REDACTED]"),
     # Generic key=value in URLs/headers: api_key=abc123
     (
         re.compile(r"(?i)((?:api[_-]?key|token|secret|password|authorization)\s*[=:]\s*)\S+"),

@@ -34,6 +34,7 @@ from rbtr.llm.history import (
     snap_to_safe_boundary,
     split_history,
 )
+from rbtr.providers import BuiltinProvider
 
 from .conftest import (
     _USAGE,
@@ -666,7 +667,8 @@ def test_compact_no_llm(config_path: str, engine: Engine, ctx: LLMContext) -> No
 
 def test_compact_single_turn(config_path: str, engine: Engine, ctx: LLMContext) -> None:
     """Single-turn history has nothing to compact."""
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(1))
 
     compact_history(ctx)
@@ -686,7 +688,8 @@ def test_compact_fewer_turns_than_keep_falls_back(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(2))
     engine.state.usage.context_window = 200_000
 
@@ -709,7 +712,8 @@ def test_compact_replaces_history(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, list(REALISTIC_HISTORY))
     engine.state.usage.context_window = 200_000
 
@@ -746,7 +750,8 @@ def test_compact_emits_both_events(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
@@ -769,7 +774,8 @@ def test_compact_extra_instructions_in_prompt(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
@@ -789,7 +795,8 @@ def test_compact_over_limit_shrinks_old(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     # 10 turns with large user messages (each ~2500 tokens after 4-char heuristic)
     big_history: list[ModelRequest | ModelResponse] = []
     for i in range(10):
@@ -816,7 +823,8 @@ def test_compact_single_message_exceeds_context(
     config_path: str, engine: Engine, ctx: LLMContext
 ) -> None:
     """When even one message exceeds available context, warns gracefully."""
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(
         engine,
         [
@@ -846,7 +854,8 @@ def test_compact_llm_error_leaves_history_unchanged(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     original = list(_turns(15))
     _seed(engine, original)
     engine.state.usage.context_window = 200_000
@@ -879,7 +888,8 @@ def test_compact_leaves_last_input_tokens_unchanged(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
     engine.state.usage.last_input_tokens = 150_000  # simulate high usage
@@ -906,7 +916,8 @@ def test_compact_with_command_inputs(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.model_name = "claude/sonnet"
     engine.state.usage.context_window = 200_000
 
@@ -1021,7 +1032,8 @@ def llm_engine(creds_path: str) -> Generator[Engine]:
 
     creds.update(openai_api_key="sk-test")
     state = EngineState(owner="testowner", repo_name="testrepo")
-    state.openai_connected = True
+    state.connected_providers.add(BuiltinProvider.OPENAI)
+    state.model_name = "openai/gpt-4o"
     state.model_name = "openai/gpt-4o"
     eng = Engine(state, queue.Queue(), store=SessionStore())
     yield eng
@@ -1218,7 +1230,8 @@ def test_compact_reset_restores_messages(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     original = _turns(8)
     _seed(engine, original)
     engine.state.usage.context_window = 200_000
@@ -1254,7 +1267,8 @@ def test_compact_reset_no_existing_compaction(
 ) -> None:
     """``/compact reset`` with no prior compaction says nothing to reset."""
     _seed(engine, _turns(3))
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
     reset_compaction(ctx)
     events = drain(engine.events)
@@ -1273,7 +1287,8 @@ def test_compact_reset_only_latest(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.usage.context_window = 200_000
 
     # Build history with many turns so two compactions can stack.
@@ -1325,7 +1340,8 @@ def test_compact_reset_blocked_after_new_messages(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(8))
     engine.state.usage.context_window = 200_000
 
@@ -1364,7 +1380,8 @@ def test_compact_reset_allowed_immediately_after_compaction(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(8))
     engine.state.usage.context_window = 200_000
 
@@ -1509,7 +1526,8 @@ def test_compaction_across_tool_boundaries_no_orphans(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.usage.context_window = 200_000
 
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
@@ -1531,7 +1549,8 @@ def test_compact_reset_restores_original_messages_without_summary(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.usage.context_window = 200_000
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
 
@@ -1583,7 +1602,8 @@ def test_compaction_reset_and_recompact_no_orphans(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.model_name = "claude/claude-sonnet-4-20250514"
     engine.state.usage.context_window = 200_000
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
 

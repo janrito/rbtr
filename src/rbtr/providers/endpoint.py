@@ -1,6 +1,10 @@
 """Custom OpenAI-compatible endpoint provider.
 
 Models are referenced as ``<endpoint-name>/<model-id>``.
+
+Storage functions (``save_endpoint``, ``load_endpoint``, etc.) manage
+the persisted connection details.  ``EndpointProvider`` wraps a stored
+endpoint as a ``Provider`` for uniform dispatch.
 """
 
 from __future__ import annotations
@@ -11,15 +15,22 @@ from dataclasses import dataclass
 
 import httpx
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
-from rbtr.config import EndpointConfig, config
+from rbtr.config import EndpointConfig, ThinkingEffort, config
 from rbtr.creds import creds
 from rbtr.exceptions import RbtrError
 
 log = logging.getLogger(__name__)
 
+# ── Constants ────────────────────────────────────────────────────────
+
 # Endpoint names must be simple identifiers (lowercase, digits, hyphens).
 _NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+# Max completion tokens when the server's default might be too
+# aggressive.  Set to half the context window, capped at 128 k.
+_MAX_TOKENS_CAP = 131_072
 
 
 # ── Types ────────────────────────────────────────────────────────────
@@ -41,7 +52,7 @@ class ModelMetadata:
     context_window: int
 
 
-# ── Persistence ──────────────────────────────────────────────────────
+# ── Storage ──────────────────────────────────────────────────────────
 
 
 def validate_name(name: str) -> None:
@@ -57,15 +68,13 @@ def save_endpoint(name: str, base_url: str, api_key: str) -> None:
     """Persist an endpoint connection (URL in config, key in creds)."""
     validate_name(name)
     base_url = base_url.rstrip("/")
-
     config.update(endpoints={**config.endpoints, name: EndpointConfig(base_url=base_url)})
-
     if api_key:
         creds.update(endpoint_keys={**creds.endpoint_keys, name: api_key})
 
 
 def load_endpoint(name: str) -> Endpoint | None:
-    """Load a single endpoint by name.  Returns None if not found."""
+    """Load a single endpoint by name.  Returns ``None`` if not found."""
     ep_cfg = config.endpoints.get(name)
     if ep_cfg is None or not ep_cfg.base_url:
         return None
@@ -74,6 +83,14 @@ def load_endpoint(name: str) -> Endpoint | None:
         base_url=ep_cfg.base_url,
         api_key=creds.endpoint_keys.get(name, ""),
     )
+
+
+def _require_endpoint(name: str) -> Endpoint:
+    """Load an endpoint or raise."""
+    ep = load_endpoint(name)
+    if ep is None:
+        raise RbtrError(f"Endpoint {name!r} not found.")
+    return ep
 
 
 def list_endpoints() -> list[Endpoint]:
@@ -98,50 +115,14 @@ def remove_endpoint(name: str) -> None:
     creds.update(endpoint_keys={k: v for k, v in creds.endpoint_keys.items() if k != name})
 
 
-# ── Model listing ────────────────────────────────────────────────────
+# ── Model metadata cache ────────────────────────────────────────────
 
-
-def list_models(endpoint_name: str) -> list[str]:
-    """Fetch available models from a custom endpoint.
-
-    Uses the OpenAI ``GET /models`` endpoint.  Also populates
-    :data:`_metadata_cache` for every model that exposes
-    ``context_length`` in its metadata, so :func:`fetch_model_metadata`
-    can return instantly for any model the endpoint offers.
-
-    Returns an empty list if the endpoint doesn't support model listing.
-    """
-    # Deferred: openai SDK is heavy; only load when this provider is used.
-    from openai import OpenAI, OpenAIError
-
-    ep = load_endpoint(endpoint_name)
-    if ep is None:
-        raise RbtrError(f"Endpoint {endpoint_name!r} not found.")
-
-    client = OpenAI(base_url=ep.base_url, api_key=ep.api_key or "unused")
-    try:
-        page = client.models.list()
-        ids: list[str] = []
-        for m in page.data:
-            ids.append(m.id)
-            _cache_model_metadata(endpoint_name, m)
-        return sorted(ids)
-    except (OpenAIError, httpx.HTTPError):
-        return []
-
-
-# ── Model metadata ────────────────────────────────────────────────────
-
-# Process-lifetime cache: "endpoint_name/model_id" → metadata.
+# Process-lifetime cache: ``"endpoint_name/model_id"`` → metadata.
 _metadata_cache: dict[str, ModelMetadata | None] = {}
 
 
 def _cache_model_metadata(endpoint_name: str, model: object) -> None:
-    """Extract and cache metadata from an OpenAI SDK ``Model`` object.
-
-    Called from :func:`list_models` to piggyback on the ``GET /models``
-    response that's already being fetched for Tab completion.
-    """
+    """Extract and cache metadata from an OpenAI SDK ``Model`` object."""
     model_id: str = getattr(model, "id", "")
     if not model_id:
         return
@@ -160,49 +141,117 @@ def _cache_model_metadata(endpoint_name: str, model: object) -> None:
 def fetch_model_metadata(endpoint_name: str, model_id: str) -> ModelMetadata | None:
     """Return cached metadata for an endpoint model.
 
-    If the cache is empty for this model (e.g. :func:`list_models`
-    hasn't run yet), falls back to a ``GET /models`` call and caches
-    all results.
-
-    Returns ``None`` when the endpoint doesn't expose metadata or
-    the model is not found.
+    On cache miss, falls back to a ``GET /models`` call that
+    populates the cache for all models the endpoint offers.
     """
     cache_key = f"{endpoint_name}/{model_id}"
     if cache_key in _metadata_cache:
         return _metadata_cache[cache_key]
-
-    # Cache miss — do a full list (populates cache for all models).
     try:
         list_models(endpoint_name)
     except RbtrError:
         _metadata_cache[cache_key] = None
         return None
-
-    # list_models populated the cache; return whatever it found.
     return _metadata_cache.get(cache_key)
 
 
-# ── Model construction ───────────────────────────────────────────────
+# ── Model listing & construction ─────────────────────────────────────
+
+
+def list_models(endpoint_name: str) -> list[str]:
+    """Fetch available models from a custom endpoint.
+
+    Also populates :data:`_metadata_cache` for every model that
+    exposes ``context_length``, so :func:`fetch_model_metadata`
+    can return instantly afterwards.
+    """
+    # Deferred: openai SDK is heavy; only load when this provider is used.
+    from openai import OpenAI, OpenAIError
+
+    ep = _require_endpoint(endpoint_name)
+    client = OpenAI(base_url=ep.base_url, api_key=ep.api_key or "unused")
+    try:
+        page = client.models.list()
+        ids: list[str] = []
+        for m in page.data:
+            ids.append(m.id)
+            _cache_model_metadata(endpoint_name, m)
+        return sorted(ids)
+    except (OpenAIError, httpx.HTTPError):
+        return []
 
 
 def build_model(endpoint_name: str, model_id: str) -> Model:
-    """Build a pydantic-ai Model for a custom endpoint.
+    """Build a pydantic-ai ``Model`` for a custom endpoint.
 
     Uses the Chat Completions API (not Responses) since most
-    OpenAI-compatible endpoints only implement /chat/completions.
+    OpenAI-compatible endpoints only implement ``/chat/completions``.
+
+    The provider subclass overrides ``name`` so PydanticAI treats
+    thinking parts from this endpoint as distinct from OpenAI's own
+    Responses API — preventing cross-provider reasoning IDs from
+    leaking as extra fields.
     """
-    # Deferred: openai SDK is heavy; only load when this provider is used.
+    # Deferred: openai SDK is heavy; only load when endpoints are used.
     from openai import AsyncOpenAI
-    from pydantic_ai.models.openai import OpenAIModel
+    from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    ep = load_endpoint(endpoint_name)
-    if ep is None:
-        raise RbtrError(
-            f"Endpoint {endpoint_name!r} not found. "
-            "Use /connect endpoint <name> <base_url> <api_key>."
-        )
+    ep = _require_endpoint(endpoint_name)
+
+    # Defined inside build_model to keep the openai SDK import deferred.
+    class _NamedProvider(OpenAIProvider):
+        """``OpenAIProvider`` whose ``name`` is the endpoint name."""
+
+        @property
+        def name(self) -> str:
+            return endpoint_name
 
     client = AsyncOpenAI(base_url=ep.base_url, api_key=ep.api_key or "unused")
-    provider = OpenAIProvider(openai_client=client)
-    return OpenAIModel(model_id, provider=provider)
+    prov = _NamedProvider(openai_client=client)
+    return OpenAIChatModel(model_id, provider=prov)
+
+
+# ── Provider protocol implementation ─────────────────────────────────
+
+
+class EndpointProvider:
+    """Wraps a stored endpoint as a ``Provider`` for uniform dispatch."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self.GENAI_ID = name
+        self.LABEL = name
+
+    def is_connected(self) -> bool:
+        return load_endpoint(self._name) is not None
+
+    def list_models(self) -> list[str]:
+        return list_models(self._name)
+
+    def build_model(self, model_id: str) -> Model:
+        return build_model(self._name, model_id)
+
+    def model_settings(
+        self, model_id: str, model: Model, effort: ThinkingEffort
+    ) -> ModelSettings | None:
+        """Effort settings + ``max_tokens`` from endpoint metadata."""
+        from rbtr.providers.shared import openai_chat_model_settings
+
+        settings = openai_chat_model_settings(model, effort)
+        meta = fetch_model_metadata(self._name, model_id)
+        if meta is not None:
+            max_tokens = min(meta.context_window // 2, _MAX_TOKENS_CAP)
+            settings = {**(settings or {}), "max_tokens": max_tokens}
+        return settings
+
+    def context_window(self, model_id: str) -> int | None:
+        meta = fetch_model_metadata(self._name, model_id)
+        return meta.context_window if meta else None
+
+
+def resolve(name: str) -> EndpointProvider | None:
+    """Return an ``EndpointProvider`` if *name* is a stored endpoint."""
+    if load_endpoint(name) is None:
+        return None
+    return EndpointProvider(name)

@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
 
 from rbtr.engine import Engine
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
+from rbtr.providers import BuiltinProvider
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 def _make_engine(*, store: SessionStore | None = None) -> Engine:
     """Build an engine wired to TestModel with an in-memory store."""
     state = EngineState(owner="testowner", repo_name="testrepo")
-    state.openai_connected = True
+    state.connected_providers.add(BuiltinProvider.OPENAI)
     state.model_name = "openai/gpt-4o"
     eng = Engine(state, queue.Queue(), store=store or SessionStore())
     return eng

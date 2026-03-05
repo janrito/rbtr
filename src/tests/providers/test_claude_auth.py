@@ -12,6 +12,8 @@ from rbtr.creds import OAuthCreds, creds
 from rbtr.exceptions import RbtrError
 from rbtr.oauth import make_challenge, make_verifier, oauth_is_set
 from rbtr.providers.claude import (
+    _AUTHORIZE_URL,
+    _CLIENT_ID,
     begin_login,
     ensure_credentials,
     parse_auth_code,
@@ -43,17 +45,17 @@ def test_challenge_is_s256() -> None:
 
 
 def test_begin_login_returns_url_and_pending(mocker) -> None:
-    mocker.patch("rbtr.providers.claude.webbrowser.open")
+    mocker.patch("rbtr.oauth.webbrowser.open")
     url, pending = begin_login()
-    assert url.startswith(config.providers.claude.authorize_url)
-    assert config.providers.claude.client_id in url
+    assert url.startswith(_AUTHORIZE_URL)
+    assert _CLIENT_ID in url
     assert "code_challenge_method=S256" in url
     assert "response_type=code" in url
     assert pending.code_verifier
 
 
 def test_begin_login_opens_browser(mocker) -> None:
-    mock_open = mocker.patch("rbtr.providers.claude.webbrowser.open")
+    mock_open = mocker.patch("rbtr.oauth.webbrowser.open")
     url, _ = begin_login()
     import time
 
@@ -181,5 +183,5 @@ def test_ensure_raises_when_no_credentials(creds_path: Path) -> None:
 
 def test_ensure_raises_when_expired_no_refresh_token(creds_path: Path) -> None:
     _store_oauth(creds_path, refresh_token="", expires_at=time.time() - 100)
-    with pytest.raises(RbtrError, match="expired"):
+    with pytest.raises(RbtrError, match="Not connected"):
         ensure_credentials()

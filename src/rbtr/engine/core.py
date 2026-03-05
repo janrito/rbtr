@@ -11,11 +11,21 @@ import signal
 import subprocess
 import sys
 import threading
+import traceback
 
-from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, TaskFinished, TaskStarted
+from rbtr.events import (
+    ErrorDetail,
+    Event,
+    FlushPanel,
+    MarkdownOutput,
+    Output,
+    TaskFinished,
+    TaskStarted,
+)
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
 from rbtr.models import BranchTarget, PRTarget, Target
+from rbtr.sessions.scrub import scrub_secrets
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.state import EngineState
 from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
@@ -161,7 +171,12 @@ class Engine:
             self._error(str(e))
             success = False
         except Exception as e:
-            self._error(f"Unexpected error: {e}")
+            self._emit(
+                ErrorDetail(
+                    summary=f"Unexpected error: {e}",
+                    detail=scrub_secrets("".join(traceback.format_exception(e))),
+                )
+            )
             success = False
         self._emit(TaskFinished(success=success, cancelled=cancelled))
 

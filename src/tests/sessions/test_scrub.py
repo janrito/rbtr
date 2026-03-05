@@ -35,6 +35,11 @@ from rbtr.sessions.scrub import scrub_secrets
             "API-Key: xai-abcdef123456",
             "API-Key: [REDACTED]",
         ),
+        # Fireworks key
+        (
+            "Error from Fireworks API with fw-abc123def456ghi789jkl",
+            "Error from Fireworks API with fw-[REDACTED]",
+        ),
         # No secrets — unchanged
         (
             "TypeError: 'NoneType' object is not subscriptable",
@@ -57,6 +62,7 @@ from rbtr.sessions.scrub import scrub_secrets
         "bearer_token",
         "url_api_key",
         "mixed_case_header",
+        "fireworks_key",
         "no_secrets",
         "multiple_keys",
         "password",

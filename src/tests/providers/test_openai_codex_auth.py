@@ -8,19 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 from rbtr.exceptions import RbtrError
-from rbtr.oauth import make_challenge, make_verifier, oauth_is_set
+from rbtr.oauth import PendingLogin, make_challenge, make_verifier, oauth_is_set, parse_callback_url
 from rbtr.providers.openai_codex import (
-    PendingLogin,
+    _AUTHORIZE_URL,
+    _CLIENT_ID,
     _read_account_id,
     begin_login,
     complete_login,
     ensure_credentials,
     fetch_model_metadata,
-    list_models,
-    parse_callback_url,
+    provider,
 )
 
 # ── PKCE ─────────────────────────────────────────────────────────────
@@ -71,15 +70,15 @@ def test_read_account_id_not_a_jwt() -> None:
 
 def test_parse_callback_full_url() -> None:
     url = "http://localhost:1455/auth/callback?code=abc123&state=xyz"
-    assert parse_callback_url(url) == "abc123"
+    assert parse_callback_url(url) == ("abc123", "xyz")
 
 
 def test_parse_callback_bare_code() -> None:
-    assert parse_callback_url("abc123") == "abc123"
+    assert parse_callback_url("abc123") == ("abc123", "")
 
 
 def test_parse_callback_strips_whitespace() -> None:
-    assert parse_callback_url("  abc123  \n") == "abc123"
+    assert parse_callback_url("  abc123  \n") == ("abc123", "")
 
 
 def test_parse_callback_empty_raises() -> None:
@@ -88,17 +87,17 @@ def test_parse_callback_empty_raises() -> None:
 
 
 def test_parse_callback_query_string() -> None:
-    assert parse_callback_url("code=abc&state=xyz") == "abc"
+    assert parse_callback_url("code=abc&state=xyz") == ("abc", "xyz")
 
 
 # ── begin_login ──────────────────────────────────────────────────────
 
 
 def test_begin_login_returns_url_and_pending(mocker) -> None:
-    mocker.patch("rbtr.providers.openai_codex.webbrowser.open")
+    mocker.patch("rbtr.oauth.webbrowser.open")
     url, pending = begin_login()
-    assert url.startswith(config.providers.chatgpt.authorize_url)
-    assert config.providers.chatgpt.client_id in url
+    assert url.startswith(_AUTHORIZE_URL)
+    assert _CLIENT_ID in url
     assert "code_challenge_method=S256" in url
     assert pending.code_verifier
     assert pending.state
@@ -190,7 +189,7 @@ def test_ensure_raises_when_no_credentials(creds_path: Path) -> None:
 
 def test_ensure_raises_when_expired_no_refresh(creds_path: Path) -> None:
     _store_oauth(creds_path, refresh_token="", expires_at=time.time() - 100)
-    with pytest.raises(RbtrError, match="expired"):
+    with pytest.raises(RbtrError, match="Not connected"):
         ensure_credentials()
 
 
@@ -216,7 +215,7 @@ def test_list_models_caches_context_window(mocker) -> None:
     }
     mocker.patch("rbtr.providers.openai_codex.httpx.get", return_value=response)
 
-    ids = list_models()
+    ids = provider.list_models()
 
     assert ids == ["o3-pro"]
     meta = fetch_model_metadata("o3-pro")
@@ -225,16 +224,17 @@ def test_list_models_caches_context_window(mocker) -> None:
 
 
 def test_fetch_model_metadata_refetches_on_cache_miss(mocker) -> None:
-    from rbtr.providers import openai_codex as codex_provider
+    from rbtr.providers import openai_codex as codex_mod
 
     mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
 
     def _fake_list_models() -> list[str]:
-        codex_provider._metadata_cache["gpt-5.2-codex"] = None
+        codex_mod._metadata_cache["gpt-5.2-codex"] = None
         return ["gpt-5.2-codex"]
 
-    list_mock = mocker.patch(
-        "rbtr.providers.openai_codex.list_models",
+    list_mock = mocker.patch.object(
+        provider,
+        "list_models",
         side_effect=_fake_list_models,
     )
 

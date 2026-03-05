@@ -6,41 +6,55 @@ browser, copies the ``code#state`` string, and pastes it back into rbtr.
 
 from __future__ import annotations
 
-import threading
 import time
-import webbrowser
-from dataclasses import dataclass
-from http import HTTPStatus
-from urllib.parse import urlencode
 
 import httpx
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
-from rbtr.config import config
+from rbtr.config import ThinkingEffort
 from rbtr.creds import OAuthCreds, creds
 from rbtr.exceptions import RbtrError
-from rbtr.oauth import make_challenge, make_verifier, oauth_expired, oauth_is_set
+from rbtr.oauth import (
+    PendingLogin,
+    build_login_url,
+    deobfuscate,
+    ensure_credentials as _ensure_credentials,
+    make_challenge,
+    make_verifier,
+    oauth_is_set,
+    token_request,
+)
 
-# ── Data ─────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────
 
-
-@dataclass
-class PendingLogin:
-    """State kept between the two phases of the copy-paste flow."""
-
-    code_verifier: str
+_CLIENT_ID = deobfuscate("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl")
+_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"  # noqa: S105
+_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
+_SCOPES = "org:create_api_key user:profile user:inference"
+_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20"
+_OAUTH_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
 
 # ── Two-phase login flow ─────────────────────────────────────────────
 
 
-def _make_oauth(data: dict) -> OAuthCreds:
-    """Build ``OAuthCreds`` from a token endpoint response."""
+def _make_oauth(
+    data: dict[str, str | int],
+    *,
+    existing_refresh_token: str = "",
+) -> OAuthCreds:
+    """Build ``OAuthCreds`` from a token endpoint response.
+
+    *existing_refresh_token* is preserved when the response doesn't
+    include a new refresh token.
+    """
     expires_in = data.get("expires_in")
     return OAuthCreds(
-        access_token=data["access_token"],
-        refresh_token=data.get("refresh_token", ""),
-        expires_at=time.time() + expires_in if expires_in else None,
+        access_token=str(data["access_token"]),
+        refresh_token=str(data.get("refresh_token", "")) or existing_refresh_token,
+        expires_at=time.time() + int(expires_in) if expires_in else None,
     )
 
 
@@ -50,25 +64,21 @@ def begin_login() -> tuple[str, PendingLogin]:
     Returns ``(authorize_url, pending)`` where *pending* must be kept
     until the user pastes the callback code.
     """
-    pc = config.providers.claude
     verifier = make_verifier()
     challenge = make_challenge(verifier)
 
     params = {
         "code": "true",
-        "client_id": pc.client_id,
+        "client_id": _CLIENT_ID,
         "response_type": "code",
-        "redirect_uri": pc.redirect_uri,
-        "scope": pc.scopes,
+        "redirect_uri": _REDIRECT_URI,
+        "scope": _SCOPES,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
         "state": verifier,
     }
-    authorize_url = f"{pc.authorize_url}?{urlencode(params)}"
-
-    threading.Thread(target=webbrowser.open, args=(authorize_url,), daemon=True).start()
-
-    return authorize_url, PendingLogin(code_verifier=verifier)
+    url = build_login_url(_AUTHORIZE_URL, params)
+    return url, PendingLogin(code_verifier=verifier)
 
 
 def parse_auth_code(raw: str) -> tuple[str, str]:
@@ -96,117 +106,127 @@ def complete_login(code: str, state: str, pending: PendingLogin) -> OAuthCreds:
 
     *state* from the callback is validated against the PKCE verifier.
     """
-    pc = config.providers.claude
     if state != pending.code_verifier:
         raise RbtrError("OAuth state mismatch — possible CSRF attack.")
 
-    resp = httpx.post(
-        pc.token_url,
-        json={
+    data = token_request(
+        _TOKEN_URL,
+        {
             "grant_type": "authorization_code",
-            "client_id": pc.client_id,
+            "client_id": _CLIENT_ID,
             "code": code,
             "state": state,
-            "redirect_uri": pc.redirect_uri,
+            "redirect_uri": _REDIRECT_URI,
             "code_verifier": pending.code_verifier,
         },
-        headers={"Content-Type": "application/json"},
-        timeout=30,
+        as_json=True,
     )
-    if resp.status_code != HTTPStatus.OK:
-        raise RbtrError(f"Token exchange failed ({resp.status_code}): {resp.text}")
-    return _make_oauth(resp.json())
+    return _make_oauth(data)
 
 
 def _refresh(oauth: OAuthCreds) -> OAuthCreds:
     """Use the refresh token to get a new access token."""
-    pc = config.providers.claude
-    resp = httpx.post(
-        pc.token_url,
-        json={
+    data = token_request(
+        _TOKEN_URL,
+        {
             "grant_type": "refresh_token",
-            "client_id": pc.client_id,
+            "client_id": _CLIENT_ID,
             "refresh_token": oauth.refresh_token,
         },
-        headers={"Content-Type": "application/json"},
-        timeout=30,
+        as_json=True,
     )
-    if resp.status_code != HTTPStatus.OK:
-        raise RbtrError(f"Token refresh failed ({resp.status_code}): {resp.text}")
-    return _make_oauth(resp.json())
+    return _make_oauth(data, existing_refresh_token=oauth.refresh_token)
 
 
 # ── Credential persistence ───────────────────────────────────────────
 
 
 def ensure_credentials() -> OAuthCreds:
-    """Return valid credentials, refreshing if expired.
-
-    Raises ``RbtrError`` if not connected or refresh fails.
-    """
-    if not oauth_is_set(creds.claude):
-        raise RbtrError("Not connected to Anthropic. Use /connect claude.")
-
-    if not oauth_expired(creds.claude):
-        return creds.claude
-
-    if not creds.claude.refresh_token:
-        raise RbtrError("Access token expired and no refresh token. Use /connect claude.")
-
-    refreshed = _refresh(creds.claude)
-    creds.update(claude=refreshed)
-    return refreshed
+    """Return valid credentials, refreshing if expired."""
+    return _ensure_credentials("claude", _refresh)
 
 
-# ── Model listing ────────────────────────────────────────────────────
+# ── Provider ─────────────────────────────────────────────────────────
 
 
-def list_models() -> list[str]:
-    """Fetch available models from the Anthropic API."""
-    # Deferred: anthropic SDK is heavy; only load when this provider is used.
-    from anthropic import Anthropic, AnthropicError
+class ClaudeProvider:
+    """Claude OAuth provider — satisfies the ``Provider`` protocol."""
 
-    pc = config.providers.claude
-    oauth = ensure_credentials()
-    client = Anthropic(
-        auth_token=oauth.access_token,
-        default_headers={
-            "anthropic-beta": pc.oauth_beta,
-            "user-agent": pc.oauth_user_agent,
-            "x-app": "cli",
-        },
-    )
-    try:
-        page = client.models.list(limit=100)
-        return sorted(m.id for m in page.data)
-    except (AnthropicError, httpx.HTTPError) as e:
-        raise RbtrError(f"Failed to list Claude models ({client.base_url}): {e}") from e
+    GENAI_ID = "anthropic"
+    LABEL = "Anthropic"
+
+    def is_connected(self) -> bool:
+        """Whether Claude OAuth credentials are available."""
+        return oauth_is_set(creds.claude)
+
+    def list_models(self) -> list[str]:
+        """Fetch available models from the Anthropic API."""
+        # Deferred: anthropic SDK is heavy; only load when this provider is used.
+        from anthropic import Anthropic, AnthropicError
+
+        oauth = ensure_credentials()
+        client = Anthropic(
+            auth_token=oauth.access_token,
+            default_headers={
+                "anthropic-beta": _OAUTH_BETA,
+                "user-agent": _OAUTH_USER_AGENT,
+                "x-app": "cli",
+            },
+        )
+        try:
+            page = client.models.list(limit=100)
+            return sorted(m.id for m in page.data)
+        except (AnthropicError, httpx.HTTPError) as e:
+            raise RbtrError(f"Failed to list Claude models ({client.base_url}): {e}") from e
+
+    def build_model(self, model_name: str) -> Model:
+        """Build an Anthropic model using stored OAuth credentials.
+
+        The token is sent as ``Authorization: Bearer <token>`` via the
+        Anthropic SDK's ``auth_token`` parameter.  The beta and user-agent
+        headers are required for OAuth bearer auth.
+        """
+        # Deferred: anthropic SDK is heavy; only load when this provider is used.
+        from anthropic import AsyncAnthropic
+        from pydantic_ai.models.anthropic import AnthropicModel
+        from pydantic_ai.providers.anthropic import AnthropicProvider
+
+        oauth = ensure_credentials()
+        client = AsyncAnthropic(
+            auth_token=oauth.access_token,
+            default_headers={
+                "anthropic-beta": _OAUTH_BETA,
+                "user-agent": _OAUTH_USER_AGENT,
+                "x-app": "cli",
+            },
+        )
+        provider = AnthropicProvider(anthropic_client=client)
+        return AnthropicModel(model_name, provider=provider)
+
+    def model_settings(
+        self, model_id: str, model: Model, effort: ThinkingEffort
+    ) -> ModelSettings | None:
+        """Build Anthropic thinking-effort settings."""
+        from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
+
+        if not isinstance(model, AnthropicModel):
+            return None
+        match effort:
+            case ThinkingEffort.LOW:
+                return AnthropicModelSettings(anthropic_effort="low")
+            case ThinkingEffort.MEDIUM:
+                return AnthropicModelSettings(anthropic_effort="medium")
+            case ThinkingEffort.HIGH:
+                return AnthropicModelSettings(anthropic_effort="high")
+            case ThinkingEffort.MAX:
+                return AnthropicModelSettings(anthropic_effort="max")
+        return None
+
+    def context_window(self, model_id: str) -> int | None:
+        """Look up context window from ``genai-prices``."""
+        from rbtr.providers.shared import genai_prices_context_window
+
+        return genai_prices_context_window(self.GENAI_ID, model_id)
 
 
-# ── Model construction ───────────────────────────────────────────────
-
-
-def build_model(model_name: str | None = None) -> Model:
-    """Build an Anthropic model using stored OAuth credentials.
-
-    The token is sent as ``Authorization: Bearer <token>`` via the
-    Anthropic SDK's ``auth_token`` parameter.  The beta and user-agent
-    headers are required for OAuth bearer auth.
-    """
-    # Deferred: anthropic SDK is heavy; only load when this provider is used.
-    from anthropic import AsyncAnthropic
-    from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
-
-    pc = config.providers.claude
-    oauth = ensure_credentials()
-    client = AsyncAnthropic(
-        auth_token=oauth.access_token,
-        default_headers={
-            "anthropic-beta": pc.oauth_beta,
-            "user-agent": pc.oauth_user_agent,
-            "x-app": "cli",
-        },
-    )
-    provider = AnthropicProvider(anthropic_client=client)
-    return AnthropicModel(model_name or pc.default_model, provider=provider)
+provider = ClaudeProvider()

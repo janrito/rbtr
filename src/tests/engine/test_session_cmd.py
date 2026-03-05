@@ -10,6 +10,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.engine import Engine
 from rbtr.engine.session_cmd import _format_age, _parse_duration
+from rbtr.providers import BuiltinProvider
 
 from .conftest import _assistant, _seed, _user, drain, output_texts
 
@@ -185,7 +186,7 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     )
     mocker.patch("rbtr.llm.compact.build_model")
 
-    engine.state.claude_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.model_name = "claude/sonnet"
     engine.state.session_label = "test/repo — main"
     engine.state.usage.context_window = 200_000

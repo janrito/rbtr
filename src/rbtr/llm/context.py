@@ -7,7 +7,7 @@ import queue
 import threading
 from dataclasses import dataclass
 
-from rbtr.events import Event, Output
+from rbtr.events import ErrorDetail, Event, Output
 from rbtr.exceptions import TaskCancelled
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
@@ -48,3 +48,9 @@ class LLMContext:
     def error(self, text: str) -> None:
         """Emit an error.  Always emitted — no cancellation check."""
         self.events.put(Output(text=text, style=STYLE_ERROR))
+
+    def error_with_detail(self, summary: str, detail: str) -> None:
+        """Emit an error with expandable diagnostic detail."""
+        if self.cancel.is_set():
+            raise TaskCancelled
+        self.events.put(ErrorDetail(summary=summary, detail=detail))

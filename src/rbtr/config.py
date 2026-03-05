@@ -18,13 +18,12 @@ import is safe — identity never changes::
 
 from __future__ import annotations
 
-import base64
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 import tomli_w
-from pydantic import BaseModel, BeforeValidator, PlainSerializer
+from pydantic import BaseModel
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -56,25 +55,6 @@ class ThinkingEffort(StrEnum):
     HIGH = "high"
     MAX = "max"
     NONE = "none"
-
-
-# ── Obfuscated type ─────────────────────────────────────────────────
-
-
-def _deobfuscate(v: str) -> str:
-    """Decode a base64-encoded string, or pass through if already decoded."""
-    decoded = base64.b64decode(v).decode()
-    if base64.b64encode(decoded.encode()).decode() == v:
-        return decoded
-    return v
-
-
-def _obfuscate(v: str) -> str:
-    """Re-encode a string to base64 for serialization."""
-    return base64.b64encode(v.encode()).decode()
-
-
-Obfuscated = Annotated[str, BeforeValidator(_deobfuscate), PlainSerializer(_obfuscate)]
 
 
 # ── Section models ───────────────────────────────────────────────────
@@ -172,48 +152,6 @@ class OAuthConfig(BaseModel):
     refresh_buffer_seconds: int = 300
 
 
-class ClaudeProviderConfig(BaseModel):
-    client_id: Obfuscated = _deobfuscate("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl")
-    authorize_url: str = "https://claude.ai/oauth/authorize"
-    token_url: str = "https://console.anthropic.com/v1/oauth/token"  # noqa: S105
-    redirect_uri: str = "https://console.anthropic.com/oauth/code/callback"
-    scopes: str = "org:create_api_key user:profile user:inference"
-    default_model: str = "claude-sonnet-4-20250514"
-    oauth_beta: str = "claude-code-20250219,oauth-2025-04-20"
-    oauth_user_agent: str = "claude-cli/2.1.2 (external, cli)"
-
-
-class ChatgptProviderConfig(BaseModel):
-    client_id: Obfuscated = _deobfuscate("YXBwX0VNb2FtRUVaNzNmMENrWGFYcDdocmFubg==")
-    authorize_url: str = "https://auth.openai.com/oauth/authorize"
-    token_url: str = "https://auth.openai.com/oauth/token"  # noqa: S105
-    redirect_uri: str = "http://localhost:1455/auth/callback"
-    redirect_port: int = 1455
-    scopes: str = "openid profile email offline_access"
-    codex_base_url: str = "https://chatgpt.com/backend-api/codex"
-    codex_client_version: str = "0.101.0"
-    default_model: str = "gpt-4o"
-    callback_timeout_seconds: int = 120
-    jwt_claim_path: str = "https://api.openai.com/auth"
-
-
-class OpenaiProviderConfig(BaseModel):
-    default_model: str = "gpt-4o"
-
-
-class GithubProviderConfig(BaseModel):
-    client_id: Obfuscated = _deobfuscate("T3YyM2xpNE9UQ1l5bzJZTndBdWs=")
-    device_code_url: str = "https://github.com/login/device/code"
-    oauth_url: str = "https://github.com/login/oauth/access_token"
-
-
-class ProvidersConfig(BaseModel):
-    claude: ClaudeProviderConfig = ClaudeProviderConfig()
-    chatgpt: ChatgptProviderConfig = ChatgptProviderConfig()
-    openai: OpenaiProviderConfig = OpenaiProviderConfig()
-    github: GithubProviderConfig = GithubProviderConfig()
-
-
 # ── Config schema ────────────────────────────────────────────────────
 
 
@@ -245,7 +183,6 @@ class Config(BaseSettings):
     sessions: SessionsConfig = SessionsConfig()
     log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()
-    providers: ProvidersConfig = ProvidersConfig()
     tools: ToolsConfig = ToolsConfig()
     tui: TuiConfig = TuiConfig()
 

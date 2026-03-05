@@ -39,6 +39,7 @@ from rbtr.llm.stream import (
     _record_usage,
     _update_live_usage,
 )
+from rbtr.providers import BuiltinProvider
 from rbtr.sessions.serialise import (
     FailedAttempt,
     FailureKind,
@@ -459,7 +460,7 @@ def test_handle_llm_retries_without_effort_on_rejection(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -505,7 +506,7 @@ def test_auto_compact_on_overflow_compacts_and_retries(
     """Overflow handler compacts history then retries via handle_llm."""
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
 
     compact_mock = mocker.patch("rbtr.llm.stream.compact_history")
@@ -532,7 +533,7 @@ def test_handle_llm_context_overflow_triggers_compact(
     """handle_llm auto-compacts on context overflow and retries."""
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="analyse the codebase")]),
@@ -594,7 +595,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -643,7 +644,7 @@ def test_handle_llm_retries_on_type_error(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -694,7 +695,7 @@ def test_handle_llm_retries_on_history_format_error(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -749,7 +750,7 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -796,7 +797,7 @@ def test_dangling_tool_repair_is_transient(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
@@ -865,7 +866,7 @@ def test_simplify_history_persists_incidents(
     from rbtr.llm.stream import handle_llm
 
     creds.update(openai_api_key="sk-test")
-    engine.state.openai_connected = True
+    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 

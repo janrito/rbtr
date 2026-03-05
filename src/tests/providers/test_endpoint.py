@@ -9,6 +9,7 @@ from rbtr.exceptions import RbtrError
 from rbtr.providers.endpoint import (
     ModelMetadata,
     _metadata_cache,
+    build_model,
     fetch_model_metadata,
     list_endpoints,
     load_endpoint,
@@ -192,3 +193,22 @@ def test_list_models_populates_metadata_cache(
     assert fetch_model_metadata("myep", "model-a") == ModelMetadata(context_window=32000)
     assert fetch_model_metadata("myep", "model-b") == ModelMetadata(context_window=128000)
     mock_cls.assert_called_once()
+
+
+# ── Endpoint provider name ───────────────────────────────────────────
+
+
+def test_build_model_provider_uses_endpoint_name(
+    creds_path: Path,
+    config_path: Path,
+) -> None:
+    """Endpoint provider ``name`` is the endpoint name, not ``'openai'``.
+
+    PydanticAI uses ``provider.name`` to decide whether thinking parts
+    from history belong to the same provider.  Endpoints must not
+    claim ``'openai'`` or cross-provider reasoning IDs leak through.
+    """
+    save_endpoint("fireworks", "https://api.fireworks.ai/inference/v1", "test-key")
+    model = build_model("fireworks", "accounts/fireworks/models/llama-v3-70b")
+
+    assert model._provider.name == "fireworks"  # not "openai"

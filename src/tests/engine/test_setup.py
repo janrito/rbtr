@@ -15,6 +15,7 @@ import pytest
 from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.engine import Engine, TaskType
+from rbtr.providers import BuiltinProvider
 
 from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, output_texts
 
@@ -78,8 +79,8 @@ def test_setup_detects_claude_oauth(
     engine.run_task(TaskType.SETUP, "")
     texts = output_texts(drain(engine.events))
 
-    assert engine.state.claude_connected is True
-    assert any("Connected to Anthropic" in t for t in texts)
+    assert BuiltinProvider.CLAUDE in engine.state.connected_providers
+    assert any("Anthropic" in t for t in texts)
 
 
 def test_setup_detects_chatgpt_oauth(
@@ -92,8 +93,8 @@ def test_setup_detects_chatgpt_oauth(
     engine.run_task(TaskType.SETUP, "")
     texts = output_texts(drain(engine.events))
 
-    assert engine.state.chatgpt_connected is True
-    assert any("Connected to ChatGPT" in t for t in texts)
+    assert BuiltinProvider.CHATGPT in engine.state.connected_providers
+    assert any("ChatGPT" in t for t in texts)
 
 
 def test_setup_detects_openai_key(
@@ -106,8 +107,8 @@ def test_setup_detects_openai_key(
     engine.run_task(TaskType.SETUP, "")
     texts = output_texts(drain(engine.events))
 
-    assert engine.state.openai_connected is True
-    assert any("Connected to OpenAI" in t for t in texts)
+    assert BuiltinProvider.OPENAI in engine.state.connected_providers
+    assert any("OpenAI" in t for t in texts)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -125,6 +126,8 @@ def test_setup_lists_endpoints(creds_path: Path, config_path: Path, setup_engine
     texts = output_texts(drain(engine.events))
 
     assert any("ollama" in t and "localhost:11434" in t for t in texts)
+    assert "ollama" in engine.state.connected_providers
+    assert engine.state.has_llm
     assert not any("No LLM connected" in t for t in texts)
 
 
