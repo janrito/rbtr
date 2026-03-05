@@ -100,7 +100,7 @@ Providers that don't expose a model listing show a hint instead:
     /model ollama/<model-id>
 ```
 
-The model list is cached at startup and refreshed on every `/connect`.
+The model list is fetched lazily on first Tab completion or `/model` command, and refreshed on every `/connect`.
 
 ### Switching models mid-conversation
 

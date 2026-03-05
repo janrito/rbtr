@@ -28,6 +28,8 @@ from rbtr.github.draft import (
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
 from rbtr.styles import LINK_STYLE
 
+from .setup import ensure_gh_username
+
 if TYPE_CHECKING:
     from .core import Engine
 
@@ -39,11 +41,12 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
     local draft.  For bidirectional sync, use ``sync_review_draft``.
     """
     ctx = engine.state.gh_ctx
-    if ctx is None or not engine.state.gh_username:
+    gh_user = ensure_gh_username(engine)
+    if ctx is None or not gh_user:
         return
 
     try:
-        pending = client.get_pending_review(ctx, pr_number, engine.state.gh_username)
+        pending = client.get_pending_review(ctx, pr_number, gh_user)
     except UnknownObjectException:
         # No pending review on this PR — not an error.
         return
@@ -170,7 +173,8 @@ def post_review_draft(
     :class:`~rbtr.exceptions.RbtrError` on failure.
     """
     ctx = engine.state.gh_ctx
-    if ctx is None or not engine.state.gh_username:
+    gh_user = ensure_gh_username(engine)
+    if ctx is None or not gh_user:
         raise RbtrError("Not authenticated. Run /connect github first.")
 
     # Guard: check for unsynced remote comments.
@@ -179,7 +183,7 @@ def post_review_draft(
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.state.gh_username,
+            gh_user,
         )
     except GithubException as exc:
         engine._clear()
@@ -284,7 +288,8 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     on failure so the command is marked as failed.
     """
     ctx = engine.state.gh_ctx
-    if ctx is None or not engine.state.gh_username:
+    gh_user = ensure_gh_username(engine)
+    if ctx is None or not gh_user:
         raise RbtrError("Not authenticated. Run /connect github first.")
 
     # 1. Pull: fetch remote pending review.
@@ -293,7 +298,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.state.gh_username,
+            gh_user,
         )
     except GithubException as exc:
         engine._clear()
@@ -313,7 +318,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
             summary = pending.summary
         local = local.model_copy(update={"summary": summary, "comments": result.comments})
     else:
-        engine._out(f"No pending review found for '{engine.state.gh_username}'.")
+        engine._out(f"No pending review found for '{gh_user}'.")
 
     if not local.summary and not local.comments:
         engine._out("Nothing to sync — no local or remote draft.")
@@ -365,7 +370,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
 
     # 6. Re-fetch to learn new github_ids.
     try:
-        pushed = client.get_pending_review(ctx, pr_number, engine.state.gh_username)
+        pushed = client.get_pending_review(ctx, pr_number, gh_user)
     except GithubException:
         pushed = None
 
@@ -402,14 +407,15 @@ def clear_review_draft(engine: Engine, pr_number: int) -> None:
         engine._out("No local draft to delete.")
 
     ctx = engine.state.gh_ctx
-    if ctx is None or not engine.state.gh_username:
+    gh_user = ensure_gh_username(engine)
+    if ctx is None or not gh_user:
         return
 
     try:
         pending = client.get_pending_review(
             ctx,
             pr_number,
-            engine.state.gh_username,
+            gh_user,
         )
     except GithubException:
         return

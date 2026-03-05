@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import pygit2
@@ -11,12 +12,12 @@ from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.exceptions import RbtrError
 from rbtr.oauth import oauth_is_set
-from rbtr.providers import endpoint as endpoint_provider, model_context_window
-
-from .model_cmd import get_models
+from rbtr.providers import endpoint as endpoint_provider
 
 if TYPE_CHECKING:
     from .core import Engine
+
+log = logging.getLogger(__name__)
 
 
 def run_setup(engine: Engine) -> None:
@@ -41,8 +42,7 @@ def run_setup(engine: Engine) -> None:
     if creds.github_token:
         gh = Github(auth=Auth.Token(creds.github_token), timeout=config.github.timeout)
         engine.state.gh = gh
-        engine.state.gh_username = gh.get_user().login
-        engine._out("Authenticated with GitHub.")
+        engine._out("GitHub token loaded.")
     else:
         engine._out("Not authenticated. Use /connect github to authenticate.")
 
@@ -62,32 +62,36 @@ def run_setup(engine: Engine) -> None:
     for ep in endpoints:
         engine._out(f"Endpoint: {ep.name} ({ep.base_url})")
 
-    # Pre-populate model cache so Tab completion is instant.
-    get_models(engine)
-
     if not (engine.state.has_llm or endpoints):
         engine._out("No LLM connected. Use /connect claude, chatgpt, or openai.")
 
-    # Load saved model preference
+    # Load saved model preference (context window resolves lazily
+    # when the model cache is first populated).
     saved_model = config.model
     if saved_model:
         engine.state.model_name = saved_model
-        _init_context_window(engine)
 
     engine._out("Type a message for the LLM, /help for commands, !cmd for shell")
 
 
-def _init_context_window(engine: Engine) -> None:
-    """Set the context window from model metadata at startup.
+def ensure_gh_username(engine: Engine) -> str:
+    """Return the GitHub username, fetching lazily on first call.
 
-    Called once when the saved model is loaded so the footer shows the
-    correct context window immediately, not just after the first LLM
-    response.  Works for both custom endpoints and built-in providers.
+    Creates the API call only when the username is actually needed
+    (e.g. draft sync, review posting) rather than at startup.
+    Returns an empty string if no GitHub connection is available.
     """
-    ctx = model_context_window(engine.state.model_name)
-    if ctx is not None:
-        engine.state.usage.context_window = ctx
-        engine.state.usage.context_window_known = True
+    if engine.state.gh_username:
+        return engine.state.gh_username
+    if engine.state.gh is None:
+        return ""
+    try:
+        username = engine.state.gh.get_user().login
+        engine.state.gh_username = username
+        return username
+    except Exception:
+        log.warning("Failed to fetch GitHub username", exc_info=True)
+        return ""
 
 
 def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:

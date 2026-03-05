@@ -37,7 +37,10 @@ def setup_engine(monkeypatch: pytest.MonkeyPatch, repo_engine: Engine) -> Engine
 def test_setup_detects_github_token(
     monkeypatch: pytest.MonkeyPatch, creds_path: Path, config_path: Path, setup_engine: Engine
 ) -> None:
-    """Setup with a stored GitHub token authenticates automatically."""
+    """Setup with a stored GitHub token creates a client without a network call.
+
+    The username is resolved lazily by `ensure_gh_username` on first need.
+    """
     creds.update(github_token="ghp_test123")
 
     from unittest.mock import MagicMock
@@ -52,8 +55,17 @@ def test_setup_detects_github_token(
     texts = output_texts(drain(engine.events))
 
     assert engine.state.gh is not None
+    # Username is deferred — not fetched until first need.
+    assert engine.state.gh_username == ""
+    fake_gh.get_user.assert_not_called()
+    assert any("GitHub token loaded" in t for t in texts)
+
+    # Lazy resolution fetches on demand.
+    from rbtr.engine.setup import ensure_gh_username
+
+    assert ensure_gh_username(engine) == "testuser"
     assert engine.state.gh_username == "testuser"
-    assert any("Authenticated with GitHub" in t for t in texts)
+    fake_gh.get_user.assert_called_once()
 
 
 def test_setup_detects_claude_oauth(

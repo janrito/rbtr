@@ -128,6 +128,17 @@ def get_models(engine: Engine, *, force: bool = False) -> list[tuple[str, list[s
 
     engine.state.cached_models = result
     engine.state.models_fetched_at = now
+
+    # Populate context window from the now-warm metadata caches.
+    # Deferred from startup to avoid network calls before the user
+    # interacts.  Only runs when the model is set but the context
+    # window hasn't been resolved yet.
+    if engine.state.model_name and not engine.state.usage.context_window_known:
+        ctx = model_context_window(engine.state.model_name)
+        if ctx is not None:
+            engine.state.usage.context_window = ctx
+            engine.state.usage.context_window_known = True
+
     return result
 
 
