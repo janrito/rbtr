@@ -24,6 +24,7 @@ from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    TextPart,
     TextPartDelta,
     ToolCallPart,
     ToolReturnPart,
@@ -55,6 +56,7 @@ from .errors import is_context_overflow, is_effort_unsupported
 from .history import (
     demote_thinking,
     flatten_tool_exchanges,
+    format_tool_args,
     is_history_format_error,
     repair_dangling_tool_calls,
 )
@@ -108,7 +110,6 @@ def _persist_failure(
     failure_kind: FailureKind,
     strategy: RecoveryStrategy,
     exc: BaseException,
-    history_len: int | None = None,
 ) -> str:
     """Persist an ``LLM_ATTEMPT_FAILED`` incident row.
 
@@ -121,7 +122,6 @@ def _persist_failure(
         diagnostic=scrub_secrets("".join(traceback.format_exception(exc))),
         error_text=scrub_secrets(str(exc)[:500]),
         model_name=ctx.state.model_name,
-        history_message_count=history_len,
         status_code=exc.status_code if isinstance(exc, ModelHTTPError) else None,
     )
     return ctx.store.save_incident(
@@ -367,7 +367,6 @@ async def _do_stream(
     This is the single streaming loop shared by the main turn, mid-turn
     compaction resume, and the limit-hit summary.
     """
-    store = ctx.store
     saved_count = len(msg_history)
     saved_request_count = 0
     limit_hit = False
@@ -387,7 +386,7 @@ async def _do_stream(
                 match node:
                     # ── Model response: stream text deltas, persist parts ──
                     case ModelRequestNode():
-                        writer = store.begin_response(
+                        writer = ctx.store.begin_response(
                             ctx.state.session_id,
                             model_name=ctx.state.model_name,
                         )
@@ -398,6 +397,8 @@ async def _do_stream(
                                 match event:
                                     case PartStartEvent(index=idx, part=part):
                                         writer.add_part(idx, part)
+                                        if isinstance(part, TextPart) and part.content:
+                                            ctx.emit(TextDelta(delta=part.content))
                                     case PartDeltaEvent(delta=delta):
                                         if isinstance(delta, TextPartDelta):
                                             ctx.emit(TextDelta(delta=delta.content_delta))
@@ -473,8 +474,7 @@ def _prepare_turn(
     tracks ``effort_supported``, and snapshots the usage baseline
     for the upcoming run.
     """
-    store = ctx.store
-    history = store.load_messages(ctx.state.session_id)
+    history = ctx.store.load_messages(ctx.state.session_id)
     history, repaired_tools, _repair_messages = repair_dangling_tool_calls(history)
     if repaired_tools:
         names = ", ".join(repaired_tools)
@@ -558,7 +558,6 @@ async def _stream_agent(
     simplify_history: bool = False,
 ) -> None:
     """Run the agent with cancellation support, update session state."""
-    store = ctx.store
     history, deps, settings = _prepare_turn(ctx, model, simplify_history)
 
     result = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, message, history))
@@ -571,7 +570,7 @@ async def _stream_agent(
             extra_instructions="The model is mid-turn with active tool calls.",
         )
         # Reload from DB after compaction.
-        history = store.load_messages(ctx.state.session_id)
+        history = ctx.store.load_messages(ctx.state.session_id)
         ctx.state.usage.snapshot_base()
 
         resume = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, None, history))
@@ -580,7 +579,7 @@ async def _stream_agent(
     _finalize_turn(ctx, result)
 
     if result.limit_hit:
-        history = store.load_messages(ctx.state.session_id)
+        history = ctx.store.load_messages(ctx.state.session_id)
         summary = await _run_with_cancel(
             ctx, _do_stream(ctx, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
         )
@@ -697,14 +696,7 @@ def _emit_tool_event(
     """Emit a ToolCallStarted or ToolCallFinished event."""
     match event:
         case FunctionToolCallEvent(part=part):
-            args = part.args
-            if isinstance(args, dict):
-                args_str = json.dumps(args, ensure_ascii=False)
-            elif args is not None:
-                args_str = str(args)
-            else:
-                args_str = ""
-            ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=args_str))
+            ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=format_tool_args(part.args)))
         case FunctionToolResultEvent(result=result):
             if isinstance(result, ToolReturnPart):
                 text = str(result.content)

@@ -64,6 +64,21 @@ from pydantic_ai.messages import (
 log = logging.getLogger(__name__)
 
 
+# ── Shared helpers ───────────────────────────────────────────────────
+
+
+def format_tool_args(args: object) -> str:
+    """Serialise ``ToolCallPart.args`` to a display string.
+
+    ``dict`` → compact JSON, other truthy values → ``str()``, ``None`` → ``""``.
+    """
+    if isinstance(args, dict):
+        return json.dumps(args, ensure_ascii=False)
+    if args is not None:
+        return str(args)
+    return ""
+
+
 # ── Result types ─────────────────────────────────────────────────────
 
 
@@ -238,14 +253,9 @@ def _flatten_response_part(part: ModelResponsePart) -> ModelResponsePart:
     """
     if not isinstance(part, ToolCallPart):
         return part
-    args = part.args
-    if isinstance(args, dict):
-        args_str = json.dumps(args, ensure_ascii=False)
-    elif args is not None:
-        args_str = str(args)
-    else:
-        args_str = ""
-    return TextPart(content=f"[Repaired historical tool call -- {part.tool_name}({args_str})]")
+    return TextPart(
+        content=f"[Repaired historical tool call -- {part.tool_name}({format_tool_args(part.args)})]"
+    )
 
 
 def _flatten_request_parts(
@@ -507,13 +517,7 @@ def serialise_for_summary(
                         case TextPart(content=content):
                             sections.append(f"## Assistant\n{content}")
                         case ToolCallPart(tool_name=name, args=args):
-                            if isinstance(args, dict):
-                                args_str = json.dumps(args, ensure_ascii=False)
-                            elif args is not None:
-                                args_str = str(args)
-                            else:
-                                args_str = ""
-                            sections.append(f"## Tool call: {name}({args_str})")
+                            sections.append(f"## Tool call: {name}({format_tool_args(args)})")
                         # ThinkingPart — omit from summary input
 
     return "\n\n".join(sections)
