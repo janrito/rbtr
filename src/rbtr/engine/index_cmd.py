@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +15,8 @@ from rbtr.styles import STYLE_DIM
 
 if TYPE_CHECKING:
     from .core import Engine
+
+log = logging.getLogger(__name__)
 
 
 class _Sub(StrEnum):
@@ -56,8 +59,12 @@ def cmd_index(engine: Engine, args: str) -> None:
             )
 
 
+_MAX_COMMIT_ROWS = 20
+"""Maximum commits to show in per-commit breakdown."""
+
+
 def _status(engine: Engine) -> None:
-    """Show index stats with per-kind breakdowns."""
+    """Show index stats with snapshot comparison and per-commit breakdown."""
     store = engine.state.index
     if store is None:
         engine._out("No index loaded. Use /review to start indexing.")
@@ -71,19 +78,10 @@ def _status(engine: Engine) -> None:
     base_ref = target.base_commit
     head_ref = target.head_commit
 
-    # Query head first; fall back to base if head isn't indexed yet
-    # (build_index finishes the base before update_index starts the head).
-    chunks = store.get_chunks(head_ref)
-    edges = store.get_edges(head_ref)
-    showing_ref = head_ref
-
-    if not chunks:
-        base_chunks = store.get_chunks(base_ref)
-        base_edges = store.get_edges(base_ref)
-        if base_chunks:
-            chunks = base_chunks
-            edges = base_edges
-            showing_ref = base_ref
+    base_chunks = store.get_chunks(base_ref)
+    head_chunks = store.get_chunks(head_ref)
+    base_edges = store.get_edges(base_ref)
+    head_edges = store.get_edges(head_ref)
 
     # DB file size.
     db_path = Path(config.index.db_dir) / "index.duckdb"
@@ -96,17 +94,149 @@ def _status(engine: Engine) -> None:
     orphans = store.count_orphan_chunks()
 
     engine._out(f"Target: {target.base_branch} → {target.head_branch}")
-    if showing_ref != head_ref:
-        engine._out(f"Showing: {showing_ref} (head not indexed yet)", style=STYLE_DIM)
+    if not head_chunks and base_chunks:
+        engine._out(f"Showing: {base_ref} (head not indexed yet)", style=STYLE_DIM)
     engine._out(f"DB size: {size_str}")
     if orphans > 0:
         engine._out(f"Orphaned chunks: {orphans} (will be pruned on next index)")
 
-    # Chunk breakdown by kind.
-    _emit_chunk_table(engine, chunks)
+    # ── Snapshot comparison ──────────────────────────────────────
+    _emit_snapshot_table(engine, base_chunks, head_chunks, base_edges, head_edges)
 
-    # Edge breakdown by kind.
-    _emit_edge_table(engine, edges)
+    # ── Per-kind breakdown (head, or base if head not indexed) ──
+    display_chunks = head_chunks if head_chunks else base_chunks
+    display_edges = head_edges if head_chunks else base_edges
+    if not display_chunks:
+        engine._out("No chunks indexed yet.", style=STYLE_DIM)
+        return
+    _emit_chunk_table(engine, display_chunks)
+    _emit_edge_table(engine, display_edges)
+
+    # ── Per-commit breakdown ─────────────────────────────────────
+    if head_chunks:
+        _emit_commit_table(engine, head_chunks, base_ref, head_ref)
+
+
+def _emit_snapshot_table(
+    engine: Engine,
+    base_chunks: list[Chunk],
+    head_chunks: list[Chunk],
+    base_edges: list[Edge],
+    head_edges: list[Edge],
+) -> None:
+    """Emit a side-by-side comparison of base and head snapshots."""
+
+    def _stats(chunks: list[Chunk], edges: list[Edge]) -> tuple[str, str, str]:
+        if not chunks:
+            return ("-", "-", "-")
+        files = len({c.file_path for c in chunks})
+        return (str(files), str(len(chunks)), str(len(edges)))
+
+    b_files, b_chunks, b_edges = _stats(base_chunks, base_edges)
+    h_files, h_chunks, h_edges = _stats(head_chunks, head_edges)
+
+    engine._emit(
+        TableOutput(
+            title="Snapshots",
+            columns=[
+                ColumnDef(header="", width=10),
+                ColumnDef(header="Files", width=10),
+                ColumnDef(header="Symbols", width=10),
+                ColumnDef(header="Edges", width=10),
+            ],
+            rows=[
+                ["base", b_files, b_chunks, b_edges],
+                ["head", h_files, h_chunks, h_edges],
+            ],
+        )
+    )
+
+
+def _emit_commit_table(
+    engine: Engine,
+    head_chunks: list[Chunk],
+    base_ref: str,
+    head_ref: str,
+) -> None:
+    """Emit per-commit file and symbol counts for the review range.
+
+    For each commit between base and head, diffs against its parent
+    to find changed files, then counts how many head-snapshot symbols
+    live in those files.
+    """
+    import pygit2
+
+    from rbtr.git.objects import commit_log_between, resolve_commit
+
+    repo = engine.state.repo
+    if repo is None:
+        return
+
+    try:
+        entries = commit_log_between(repo, base_ref, head_ref)
+    except KeyError:
+        return
+
+    if not entries:
+        return
+
+    # Build file → chunk count map from head snapshot.
+    file_symbol_counts: Counter[str] = Counter()
+    for c in head_chunks:
+        file_symbol_counts[c.file_path] += 1
+
+    rows: list[list[str]] = []
+    for entry in entries[:_MAX_COMMIT_ROWS]:
+        try:
+            commit = resolve_commit(repo, entry.sha)
+        except KeyError:
+            continue
+        if not commit.parent_ids:
+            continue
+        parent = repo.get(commit.parent_ids[0])
+        if parent is None:
+            continue
+        parent_commit = parent.peel(pygit2.Commit)
+        d = repo.diff(parent_commit, commit)
+
+        files: set[str] = set()
+        for patch in d:
+            if patch is None:
+                continue
+            delta = patch.delta
+            if delta.new_file.path:
+                files.add(delta.new_file.path)
+            if delta.old_file.path:
+                files.add(delta.old_file.path)
+
+        n_files = len(files)
+        n_symbols = sum(file_symbol_counts.get(f, 0) for f in files)
+        rows.append(
+            [
+                entry.sha[:8],
+                entry.message[:50],
+                str(n_files),
+                str(n_symbols),
+            ]
+        )
+
+    total = len(entries)
+    title = f"Review ({total} commits)"
+    if total > _MAX_COMMIT_ROWS:
+        title += f" — showing first {_MAX_COMMIT_ROWS}"
+
+    engine._emit(
+        TableOutput(
+            title=title,
+            columns=[
+                ColumnDef(header="SHA", width=10),
+                ColumnDef(header="Message", width=50),
+                ColumnDef(header="Files", width=7),
+                ColumnDef(header="Symbols", width=9),
+            ],
+            rows=rows,
+        )
+    )
 
 
 def _emit_chunk_table(engine: Engine, chunks: list[Chunk]) -> None:
