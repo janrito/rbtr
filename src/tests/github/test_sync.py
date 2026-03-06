@@ -163,6 +163,8 @@ class _FakeEngine:
             author="alice",
             base_branch="main",
             head_branch="feature",
+            base_commit="main",
+            head_commit="feature",
             updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         )
         self.state.gh = gh

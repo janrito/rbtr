@@ -14,17 +14,27 @@ class ReviewTarget(BaseModel):
     """Common fields for anything rbtr can review."""
 
     base_branch: str
+    """Human-readable branch name (for display)."""
+
     head_branch: str
+    """Human-readable branch name (for display)."""
+
+    base_commit: str
+    """Git-resolvable ref for the base commit.
+
+    For PRs this is the exact SHA from the GitHub API (immune
+    to stale local branches).  For local branch reviews it
+    equals ``base_branch``.
+    """
+
+    head_commit: str
+    """Git-resolvable ref for the head commit.
+
+    For PRs this is the exact SHA from the GitHub API.
+    For local branch reviews it equals ``head_branch``.
+    """
+
     updated_at: datetime
-
-    @property
-    def head_ref(self) -> str:
-        """Git ref to use for resolving the head commit.
-
-        Subclasses may override to return a more precise ref
-        (e.g. the exact SHA from the GitHub API).
-        """
-        return self.head_branch
 
 
 class PRTarget(ReviewTarget):
@@ -36,17 +46,11 @@ class PRTarget(ReviewTarget):
     body: str = ""
     head_sha: str = ""
     """Commit SHA of the PR head (from the GitHub API).
-    Used to resolve the head commit directly when the branch
-    name isn't available as a local or remote ref."""
 
-    @property
-    def head_ref(self) -> str:
-        """Prefer the exact SHA from the GitHub API.
-
-        After ``fetch_pr_head`` has fetched ``refs/pull/<n>/head``,
-        the SHA is resolvable in the local object store.
-        """
-        return self.head_sha if self.head_sha else self.head_branch
+    Kept separately from ``head_commit`` because the GitHub
+    review API requires the exact SHA as ``commit_id`` when
+    posting reviews and inline comments.
+    """
 
 
 class BranchTarget(ReviewTarget):
@@ -69,6 +73,7 @@ class PRSummary(BaseModel):
     body: str = ""
     base_branch: str
     head_branch: str
+    base_sha: str = ""
     head_sha: str = ""
     updated_at: datetime
 

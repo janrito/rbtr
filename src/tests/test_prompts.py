@@ -24,6 +24,8 @@ _PR_FIX_BUG = PRTarget(
     author="alice",
     base_branch="main",
     head_branch="fix-bug",
+    base_commit="main",
+    head_commit="fix-bug",
     updated_at=datetime(2025, 1, 1, tzinfo=UTC),
 )
 
@@ -34,6 +36,8 @@ _PR_WITH_BODY = PRTarget(
     body="This PR adds the frobnicator.\n\n## Changes\n- New module",
     base_branch="main",
     head_branch="add-feature",
+    base_commit="main",
+    head_commit="add-feature",
     updated_at=datetime(2025, 1, 1, tzinfo=UTC),
 )
 
@@ -44,12 +48,16 @@ _PR_EMPTY_BODY = PRTarget(
     body="",
     base_branch="main",
     head_branch="quick-fix",
+    base_commit="main",
+    head_commit="quick-fix",
     updated_at=datetime(2025, 1, 1, tzinfo=UTC),
 )
 
 _BRANCH_TARGET = BranchTarget(
     base_branch="main",
     head_branch="feature-x",
+    base_commit="main",
+    head_commit="feature-x",
     updated_at=datetime(2025, 1, 1, tzinfo=UTC),
 )
 

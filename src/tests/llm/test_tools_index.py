@@ -308,6 +308,8 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
 
@@ -418,6 +420,8 @@ def monthly_report():
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
 
@@ -594,6 +598,8 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
 
@@ -719,6 +725,8 @@ def test_changed_symbols_no_changes() -> None:
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
 
@@ -779,7 +787,13 @@ def test_changed_symbols_detects_removed_symbol() -> None:
     store = IndexStore()
     state = EngineState()
     state.index = store
-    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state.review_target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=0,
+    )
 
     # Base has two functions; head has only one.
     base_a = Chunk(
@@ -830,7 +844,13 @@ def test_changed_symbols_detects_stale_docs() -> None:
     store = IndexStore()
     state = EngineState()
     state.index = store
-    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state.review_target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=0,
+    )
 
     # Base: handler v1 + doc
     base_handler = Chunk(
@@ -890,7 +910,13 @@ def test_changed_symbols_detects_broken_edges() -> None:
     store = IndexStore()
     state = EngineState()
     state.index = store
-    state.review_target = BranchTarget(base_branch="main", head_branch="feature", updated_at=0)
+    state.review_target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=0,
+    )
 
     # Base: two modules that import each other
     base_a = Chunk(

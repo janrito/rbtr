@@ -98,7 +98,7 @@ def _get_diff_ranges(engine: Engine) -> DiffLineRanges:
     if target is None or repo is None:
         return {}
     try:
-        return diff_line_ranges(repo, target.base_branch, target.head_ref)
+        return diff_line_ranges(repo, target.base_commit, target.head_commit)
     except KeyError:
         return {}
 

@@ -510,8 +510,9 @@ def commit_log_between(
 ) -> list[LogEntry]:
     """Return commits on *head_ref* not reachable from *base_ref*.
 
-    Commits are in reverse chronological order.  Returns an empty
-    list when the branches are identical.
+    Uses ``walker.hide()`` to exclude the base — equivalent to
+    ``git log base..head``.  Commits are in reverse chronological
+    order.  Returns an empty list when the branches are identical.
 
     Raises:
         KeyError: If either ref cannot be resolved.
@@ -519,13 +520,11 @@ def commit_log_between(
     head_commit = resolve_commit(repo, head_ref)
     base_commit = resolve_commit(repo, base_ref)
 
-    merge_base = repo.merge_base(head_commit.id, base_commit.id)
-    stop_at = merge_base if merge_base else None
+    walker = repo.walk(head_commit.id, SortMode.TOPOLOGICAL)
+    walker.hide(base_commit.id)
 
     entries: list[LogEntry] = []
-    for commit in repo.walk(head_commit.id, SortMode.TOPOLOGICAL):
-        if stop_at and commit.id == stop_at:
-            break
+    for commit in walker:
         entries.append(
             LogEntry(
                 sha=str(commit.id),

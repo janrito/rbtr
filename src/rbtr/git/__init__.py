@@ -23,7 +23,7 @@ from rbtr.git.objects import (
 )
 from rbtr.git.repo import (
     default_branch,
-    fetch_pr_head,
+    fetch_pr_refs,
     list_local_branches,
     open_repo,
 )
@@ -32,7 +32,7 @@ __all__ = [
     "FileEntry",
     "changed_files",
     "default_branch",
-    "fetch_pr_head",
+    "fetch_pr_refs",
     "is_binary",
     "is_path_ignored",
     "list_files",

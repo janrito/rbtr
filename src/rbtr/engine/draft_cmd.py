@@ -149,9 +149,9 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
 
                 # Show a few lines of file context around the comment.
                 if repo and comment.line > 0:
-                    ref = comment.commit_id or head_sha or target.head_ref
+                    ref = comment.commit_id or head_sha or target.head_commit
                     if comment.side is DiffSide.LEFT:
-                        ref = target.base_branch
+                        ref = target.base_commit
                     snippet = _file_context(repo, ref, comment.path, comment.line)
                     if snippet:
                         engine._out(snippet)

@@ -1,8 +1,12 @@
 """Shared fixtures and helpers for git tests.
 
-Provides a realistic multi-commit repository (``sample_repo``) that
-tests can query without building their own from scratch.  The repo
-has the following structure:
+Provides realistic multi-commit repositories that tests can query
+without building their own from scratch.
+
+``sample_repo`` — linear history
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
 
     base  (main)        — initial commit with 3 files
       └─ mid            — modifies handler.py, adds config.yaml
@@ -29,6 +33,33 @@ This gives tests:
 - Commit log walking (3 commits between base and head)
 - Blob reads (existing, missing, binary)
 - Branch resolution (main, feature, remote-only)
+
+``merge_repo`` — non-linear history with merge commit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+    A ─── B ─── C  (base)
+           \\
+            D ─── E ── F  (head, merge of E + C)
+
+The head branch has 3 exclusive commits (D, E, F) and one
+merge parent (C) that is reachable from base.  This catches
+bugs where commit-graph walks follow all parent chains instead
+of excluding base-reachable history.
+
+Files at *base* (C)::
+
+    app.py     — "x = 1"
+    shared.py  — "s = 0"
+
+Files at *head* (F)::
+
+    app.py     — "x = 1"  (unchanged — from C via merge)
+    shared.py  — "s = 0"  (unchanged)
+    feature.py — "f = 1"  (added on side branch)
+
+Changed files base→head: ``feature.py`` only.
 """
 
 from __future__ import annotations
@@ -108,12 +139,35 @@ BINARY_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
 
 @dataclass
 class SampleRepo:
-    """Holds the repo and key commit OIDs for the shared dataset."""
+    """Holds the repo and key commit OIDs for the linear dataset."""
 
     repo: pygit2.Repository
     base: pygit2.Oid
     mid: pygit2.Oid
     head: pygit2.Oid
+
+
+@dataclass
+class MergeRepo:
+    """Holds the repo and key commit OIDs for the merge dataset.
+
+    Commit graph::
+
+        A ─── B ─── C  (base)
+               \\
+                D ─── E ── F  (head, merge of E + C)
+
+    ``base`` is the branch ref pointing at C.
+    ``head`` is the branch ref pointing at F.
+    ``exclusive`` lists commits only reachable from head (D, E, F).
+    ``shared`` lists commits reachable from both (A, B, C).
+    """
+
+    repo: pygit2.Repository
+    base: pygit2.Oid
+    head: pygit2.Oid
+    exclusive: list[pygit2.Oid]
+    shared: list[pygit2.Oid]
 
 
 @pytest.fixture
@@ -175,3 +229,88 @@ def sample_repo(tmp_path: Path) -> SampleRepo:
     repo.references.create("refs/heads/main", base, force=True)
 
     return SampleRepo(repo=repo, base=base, mid=mid, head=head)
+
+
+# ── Merge dataset ────────────────────────────────────────────────────
+
+APP_V1 = b"x = 1\n"
+SHARED_PY = b"s = 0\n"
+FEATURE_PY = b"f = 1\n"
+
+
+@pytest.fixture
+def merge_repo(tmp_path: Path) -> MergeRepo:
+    """A repo with a merge commit in the head branch.
+
+    Commit graph::
+
+        A ─── B ─── C  (base)
+               \\
+                D ─── E ── F  (head, merge of E + C)
+
+    The head branch merges C back in, so C (and its ancestors)
+    are reachable from *both* branches.  Only D, E, F are
+    exclusive to head.
+    """
+    repo = pygit2.init_repository(str(tmp_path / "merge_repo"))
+
+    # Shared trunk: A → B → C
+    a = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        message="A",
+        author="X",
+    )
+    b = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        message="B",
+        parents=[a],
+        author="X",
+    )
+    c = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        message="C",
+        parents=[b],
+        author="X",
+    )
+
+    # Side branch from B: D → E
+    d = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        message="D",
+        parents=[b],
+        ref="refs/heads/side",
+        author="Y",
+    )
+    e = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        message="E",
+        parents=[d],
+        ref="refs/heads/side",
+        author="Y",
+    )
+
+    # Merge commit: F merges E + C
+    f = make_commit(
+        repo,
+        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        message="F",
+        parents=[e, c],
+        ref="refs/heads/side",
+        author="Y",
+    )
+
+    repo.references.create("refs/heads/base", c, force=True)
+    repo.references.create("refs/heads/head", f, force=True)
+
+    return MergeRepo(
+        repo=repo,
+        base=c,
+        head=f,
+        exclusive=[d, e, f],
+        shared=[a, b, c],
+    )

@@ -35,6 +35,8 @@ PR = PRTarget(
     author="alice",
     base_branch="main",
     head_branch="feature/retry",
+    base_commit="main",
+    head_commit="feature/retry",
     updated_at=datetime(2025, 6, 15, tzinfo=UTC),
 )
 

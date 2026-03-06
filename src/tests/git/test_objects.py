@@ -43,6 +43,7 @@ from .conftest import (
     HANDLER_V1,
     README,
     UTILS,
+    MergeRepo,
     SampleRepo,
     make_commit,
 )
@@ -325,6 +326,53 @@ def test_commit_log_identical_refs(sample_repo: SampleRepo) -> None:
 def test_commit_log_bad_ref_raises(sample_repo: SampleRepo) -> None:
     with pytest.raises(KeyError, match="Cannot resolve ref"):
         commit_log_between(sample_repo.repo, "main", "nonexistent")
+
+
+# ── Merge topology — all two-ref functions ───────────────────────────
+#
+# The merge_repo fixture (see conftest) has this graph:
+#
+#     A ─── B ─── C  (base)
+#            \
+#             D ─── E ── F  (head, merge of E + C)
+#
+# These tests verify that every function operating on a
+# (base, head) pair produces correct results when the head
+# branch contains merge commits.  The commit_log_between
+# regression (manual-break walk) was caught by this suite.
+
+
+def test_merge_commit_log_excludes_base_history(merge_repo: MergeRepo) -> None:
+    """commit_log base..head returns only D, E, F — not A, B, C."""
+    entries = commit_log_between(merge_repo.repo, "base", "head")
+    shas = {e.sha for e in entries}
+    messages = {e.message for e in entries}
+
+    assert len(entries) == 3
+    assert messages == {"D", "E", "F"}
+    for shared_oid in merge_repo.shared:
+        assert str(shared_oid) not in shas
+
+
+def test_merge_changed_files_only_pr_changes(merge_repo: MergeRepo) -> None:
+    """changed_files base..head returns only `feature.py`."""
+    paths = changed_files(merge_repo.repo, "base", "head")
+    assert paths == {"feature.py"}
+
+
+def test_merge_diff_refs_only_pr_changes(merge_repo: MergeRepo) -> None:
+    """diff_refs base..head shows only the added `feature.py`."""
+    result = diff_refs(merge_repo.repo, "base", "head")
+    assert result.stats.files_changed == 1
+    patch = "\n".join(result.patch_lines)
+    assert "feature.py" in patch
+
+
+def test_merge_diff_refs_path_unchanged_file(merge_repo: MergeRepo) -> None:
+    """Diffing a file that exists on both sides but is identical."""
+    result = diff_refs(merge_repo.repo, "base", "head", path="app.py")
+    assert result.stats.files_changed == 0
+    assert result.patch_lines == []
 
 
 # ── list_files ───────────────────────────────────────────────────────

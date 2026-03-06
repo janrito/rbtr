@@ -37,7 +37,13 @@ def test_no_review_target_empty() -> None:
 
 def test_index_ready_mentions_tools() -> None:
     """When the index is ready, the prompt encourages tool use."""
-    target = BranchTarget(base_branch="main", head_branch="feature", updated_at=_NOW)
+    target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=_NOW,
+    )
     ctx = _make_ctx(review_target=target, index_ready=True)
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "ready" in result.lower()
@@ -46,7 +52,13 @@ def test_index_ready_mentions_tools() -> None:
 
 def test_index_not_ready_warns() -> None:
     """When the index is still building, the prompt warns about unavailable tools."""
-    target = BranchTarget(base_branch="main", head_branch="feature", updated_at=_NOW)
+    target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=_NOW,
+    )
     ctx = _make_ctx(review_target=target, index_ready=False)
     result = index_status(ctx)  # type: ignore[arg-type]
     assert "still building" in result.lower()
@@ -69,7 +81,13 @@ def test_index_tool_names_matches_registered_tools() -> None:
 
 def test_all_index_tools_appear_in_prompt() -> None:
     """Every introspected index tool name appears in both ready and not-ready prompts."""
-    target = BranchTarget(base_branch="main", head_branch="feature", updated_at=_NOW)
+    target = BranchTarget(
+        base_branch="main",
+        head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
+        updated_at=_NOW,
+    )
     names = _index_tool_names()
 
     ready = index_status(_make_ctx(review_target=target, index_ready=True))  # type: ignore[arg-type]

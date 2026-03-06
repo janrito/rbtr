@@ -42,6 +42,8 @@ def _git_state(repo: pygit2.Repository) -> EngineState:
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
     return state
@@ -328,6 +330,8 @@ def test_commit_log_bad_refs() -> None:
         state.review_target = BranchTarget(
             base_branch="main",
             head_branch="nonexistent",
+            base_commit="main",
+            head_commit="nonexistent",
             updated_at=0,
         )
         ctx = FakeCtx(state)

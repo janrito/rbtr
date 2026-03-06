@@ -20,7 +20,9 @@ def testrequire_index_hides_when_no_index() -> None:
     import asyncio
 
     state = EngineState()
-    state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    state.review_target = BranchTarget(
+        base_branch="main", head_branch="f", base_commit="main", head_commit="f", updated_at=0
+    )
     assert state.index is None
     ctx = FakeCtx(state)
 
@@ -64,7 +66,9 @@ def testrequire_repo_hides_when_no_repo() -> None:
     import asyncio
 
     state = EngineState()
-    state.review_target = BranchTarget(base_branch="main", head_branch="f", updated_at=0)
+    state.review_target = BranchTarget(
+        base_branch="main", head_branch="f", base_commit="main", head_commit="f", updated_at=0
+    )
     ctx = FakeCtx(state)
 
     from rbtr.llm.tools.common import require_repo

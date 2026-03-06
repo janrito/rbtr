@@ -193,6 +193,8 @@ def _file_state(repo: pygit2.Repository) -> EngineState:
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=0,
     )
     return state

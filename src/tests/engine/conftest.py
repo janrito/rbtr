@@ -86,12 +86,16 @@ TARGET_PR_42 = PRTarget(
     author="bob",
     base_branch="main",
     head_branch="add-feature",
+    base_commit="main",
+    head_commit="add-feature",
     updated_at=datetime(2025, 6, 1, tzinfo=UTC),
 )
 
 TARGET_BRANCH = BranchTarget(
     base_branch="main",
     head_branch="feature-x",
+    base_commit="main",
+    head_commit="feature-x",
     updated_at=datetime(2025, 1, 1, tzinfo=UTC),
 )
 

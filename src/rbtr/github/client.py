@@ -123,6 +123,7 @@ def list_open_prs(ctx: GitHubCtx) -> list[PRSummary]:
                 body=pr.body or "",
                 base_branch=pr.base.ref,
                 head_branch=pr.head.ref,
+                base_sha=pr.base.sha or "",
                 head_sha=pr.head.sha or "",
                 updated_at=pr.updated_at or datetime.now(tz=UTC),
             )
@@ -184,6 +185,7 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
         body=pr.body or "",
         base_branch=pr.base.ref,
         head_branch=pr.head.ref,
+        base_sha=pr.base.sha or "",
         head_sha=pr.head.sha or "",
         updated_at=pr.updated_at or datetime.now(tz=UTC),
     )

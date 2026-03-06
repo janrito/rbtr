@@ -43,8 +43,8 @@ def _build_index(engine: Engine) -> None:
     if not config.index.enabled:
         return
 
-    base_ref = target.base_branch
-    head_ref = target.head_ref
+    base_ref = target.base_commit
+    head_ref = target.head_commit
 
     # Open (or reuse) the DuckDB store.
     db_path = Path(config.index.db_dir) / "index.duckdb"

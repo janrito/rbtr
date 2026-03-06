@@ -10,7 +10,7 @@ from rbtr.index.orchestrator import compute_diff
 from rbtr.llm.agent import AgentDeps, agent
 from rbtr.llm.tools.common import (
     get_store,
-    head_ref,
+    head_commit,
     limited,
     require_index,
     resolve_tool_ref,
@@ -46,7 +46,7 @@ def search(
         if max_results is not None
         else config.tools.max_results
     )
-    results = store.search(head_ref(ctx), query, top_k=offset + limit + 1)
+    results = store.search(head_commit(ctx), query, top_k=offset + limit + 1)
     if not results:
         return f"No results for '{query}'."
     total = len(results)
@@ -248,7 +248,7 @@ def changed_symbols(
     if target is None:
         return "No review target selected."
 
-    sd = compute_diff(target.base_branch, target.head_ref, store)
+    sd = compute_diff(target.base_commit, target.head_commit, store)
     sections: list[str] = []
 
     if sd.added:

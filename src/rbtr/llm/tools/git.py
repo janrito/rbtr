@@ -36,7 +36,7 @@ def changed_files(
         return "No review target selected."
 
     try:
-        paths = _changed_files(repo, target.base_branch, target.head_ref)
+        paths = _changed_files(repo, target.base_commit, target.head_commit)
     except KeyError as exc:
         return f"Could not resolve refs: {exc}"
 
@@ -94,7 +94,7 @@ def diff(
         if not ref:
             if target is None:
                 return "No review target selected."
-            result = diff_refs(repo, target.base_branch, target.head_ref, path=path)
+            result = diff_refs(repo, target.base_commit, target.head_commit, path=path)
         elif ".." in ref:
             parts = ref.split("..", 1)
             result = diff_refs(repo, parts[0], parts[1], path=path)
@@ -142,7 +142,7 @@ def commit_log(
         return "No review target selected."
 
     try:
-        entries = commit_log_between(repo, target.base_branch, target.head_ref)
+        entries = commit_log_between(repo, target.base_commit, target.head_commit)
     except KeyError as exc:
         return exc.args[0] if exc.args else str(exc)
 

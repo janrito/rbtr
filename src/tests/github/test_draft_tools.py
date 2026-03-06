@@ -107,6 +107,8 @@ def pr_target(draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid]) -> P
         author="alice",
         base_branch=str(base),
         head_branch="feature",
+        base_commit=str(base),
+        head_commit=str(head),
         head_sha=str(head),
         updated_at=datetime(2025, 1, 1, tzinfo=UTC),
     )

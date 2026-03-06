@@ -10,7 +10,7 @@ from github.GithubException import GithubException
 
 from rbtr.events import ColumnDef, TableOutput
 from rbtr.exceptions import RbtrError
-from rbtr.git import default_branch, fetch_pr_head, list_local_branches
+from rbtr.git import default_branch, fetch_pr_refs, list_local_branches, resolve_commit
 from rbtr.github import client
 from rbtr.models import BranchTarget, PRTarget
 from rbtr.styles import COLUMN_BRANCH
@@ -168,15 +168,24 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
             body=pr.body,
             base_branch=pr.base_branch,
             head_branch=pr.head_branch,
+            base_commit=pr.base_sha or pr.base_branch,
+            head_commit=pr.head_sha or pr.head_branch,
             head_sha=pr.head_sha,
             updated_at=pr.updated_at,
         )
         engine.state.discussion_cache = None
 
-        # Fetch the PR head commit so it's available locally for
-        # indexing and tools (works for forks and unfetched branches).
+        # Fetch the PR head commit and base branch so they're
+        # available locally for indexing and tools.  Without the
+        # base branch fetch, a stale remote-tracking ref causes
+        # diffs and commit logs to include unrelated history.
         if engine.state.repo is not None:
-            fetch_pr_head(engine.state.repo, pr.number)
+            fetch_pr_refs(engine.state.repo, pr.number, pr.base_branch)
+            _check_refs(
+                engine,
+                pr.base_sha or pr.base_branch,
+                pr.head_sha or pr.head_branch,
+            )
 
         _print_review_target(engine)
         _sync_pending_draft(engine, pr.number)
@@ -211,10 +220,36 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
     engine.state.review_target = BranchTarget(
         base_branch=resolved_base,
         head_branch=target,
+        base_commit=resolved_base,
+        head_commit=target,
         updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
     )
     _print_review_target(engine)
     run_index(engine)
+
+
+def _check_refs(engine: Engine, base_ref: str, head_ref: str) -> None:
+    """Warn if either review ref cannot be resolved locally.
+
+    Called after ``fetch_pr_refs`` so that network-reachable refs
+    are already fetched.  If a ref still can't be resolved, the
+    user sees a clear warning instead of silently wrong diffs
+    and commit logs.
+    """
+    repo = engine.state.repo
+    if repo is None:
+        return
+    missing: list[str] = []
+    for label, ref in [("base", base_ref), ("head", head_ref)]:
+        try:
+            resolve_commit(repo, ref)
+        except KeyError:
+            missing.append(f"{label} ref `{ref}`")
+    if missing:
+        engine._warn(
+            f"Cannot resolve {' and '.join(missing)} locally. "
+            f"Try `git fetch origin` and re-run /review."
+        )
 
 
 def _print_review_target(engine: Engine) -> None:

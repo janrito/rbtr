@@ -68,8 +68,8 @@ def _status(engine: Engine) -> None:
         engine._out("No review target selected.")
         return
 
-    base_ref = target.base_branch
-    head_ref = target.head_ref
+    base_ref = target.base_commit
+    head_ref = target.head_commit
 
     # Query head first; fall back to base if head isn't indexed yet
     # (build_index finishes the base before update_index starts the head).
@@ -248,7 +248,7 @@ def _search(engine: Engine, query: str) -> None:
         engine._out("No review target selected.")
         return
 
-    results = store.search(target.head_ref, query, top_k=20)
+    results = store.search(target.head_commit, query, top_k=20)
     if not results:
         engine._out(f"No results for '{query}'.")
         return
@@ -305,7 +305,7 @@ def _search_diag(engine: Engine, query: str) -> None:
         f"  weights: a(sem)={alpha:.2f} b(lex)={beta:.2f} g(name)={gamma:.2f}"
     )
 
-    results = store.search(target.head_ref, query, top_k=20)
+    results = store.search(target.head_commit, query, top_k=20)
     if not results:
         engine._out(f"No results for '{query}'.")
         return

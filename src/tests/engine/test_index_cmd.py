@@ -35,6 +35,8 @@ def indexed_engine(repo_engine: Engine) -> Engine:
     engine.state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
+        base_commit="main",
+        head_commit="feature",
         updated_at=repo.head.peel(pygit2.Commit).commit_time,
     )
     _build_index(engine)
@@ -89,6 +91,8 @@ def test_index_status_falls_back_to_base_ref(repo_engine: Engine) -> None:
     engine.state.review_target = BranchTarget(
         base_branch="main",
         head_branch="nonexistent-head",
+        base_commit="main",
+        head_commit="nonexistent-head",
         updated_at=datetime.now(tz=UTC),
     )
     drain(engine.events)

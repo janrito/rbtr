@@ -54,7 +54,7 @@ def _get_diff_ranges(
     repo = state.repo
     if target is None or repo is None:
         return {}
-    key = (target.base_branch, target.head_ref)
+    key = (target.base_commit, target.head_commit)
     if _cached_ranges_key != key:
         _cached_ranges = None
         _cached_ranges_left = None
@@ -63,14 +63,14 @@ def _get_diff_ranges(
         if _cached_ranges_left is None:
             try:
                 _cached_ranges_left = diff_line_ranges_left(
-                    repo, target.base_branch, target.head_ref
+                    repo, target.base_commit, target.head_commit
                 )
             except KeyError:
                 _cached_ranges_left = {}
         return _cached_ranges_left
     if _cached_ranges is None:
         try:
-            _cached_ranges = diff_line_ranges(repo, target.base_branch, target.head_ref)
+            _cached_ranges = diff_line_ranges(repo, target.base_commit, target.head_commit)
         except KeyError:
             _cached_ranges = {}
     return _cached_ranges
@@ -175,10 +175,10 @@ def add_draft_comment(
     # Determine side and resolve ref.
     if ref == "head":
         side = DiffSide.RIGHT
-        resolved_ref = target.head_ref
+        resolved_ref = target.head_commit
     else:
         side = DiffSide.LEFT
-        resolved_ref = target.base_branch
+        resolved_ref = target.base_commit
 
     # Resolve anchor → line number.
     result = resolve_anchor(repo, resolved_ref, path, anchor)

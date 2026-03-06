@@ -67,13 +67,13 @@ async def require_pr_target(
 # ── Accessor helpers ─────────────────────────────────────────────────
 
 
-def head_ref(ctx: RunContext[AgentDeps]) -> str:
-    """Return the git-resolvable head ref from the review target."""
+def head_commit(ctx: RunContext[AgentDeps]) -> str:
+    """Return the git-resolvable head commit from the review target."""
     target = ctx.deps.state.review_target
     if target is None:  # pragma: no cover — guarded by prepare
         msg = "no review target"
         raise RuntimeError(msg)
-    return target.head_ref
+    return target.head_commit
 
 
 def get_store(ctx: RunContext[AgentDeps]) -> IndexStore:
@@ -105,12 +105,12 @@ def resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
             if target is None:  # pragma: no cover — guarded by prepare
                 msg = "no review target"
                 raise RuntimeError(msg)
-            return target.head_ref
+            return target.head_commit
         case "base":
             if target is None:  # pragma: no cover — guarded by prepare
                 msg = "no review target"
                 raise RuntimeError(msg)
-            return target.base_branch
+            return target.base_commit
         case _:
             return ref
 

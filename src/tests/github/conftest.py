@@ -351,6 +351,8 @@ def pr_target(
         author="alice",
         base_branch=str(base),
         head_branch="feature",
+        base_commit=str(base),
+        head_commit=str(head),
         head_sha=str(head),
         updated_at=datetime(2025, 6, 1, tzinfo=UTC),
     )

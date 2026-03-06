@@ -42,13 +42,24 @@ def require_clean(repo: pygit2.Repository) -> None:
         )
 
 
-def fetch_pr_head(repo: pygit2.Repository, pr_number: int) -> None:
-    """Fetch a PR's head ref from origin so it's available locally.
+def fetch_pr_refs(
+    repo: pygit2.Repository,
+    pr_number: int,
+    base_branch: str,
+) -> None:
+    """Fetch a PR's head ref and its base branch from origin.
 
-    Uses GitHub's canonical ``refs/pull/<number>/head`` ref, which
-    works regardless of whether the PR comes from a fork or the
-    same repository.  The fetched commit is stored under
-    ``refs/pull/<number>/head`` in the local ref namespace.
+    Fetches both in a single call:
+
+    - ``refs/pull/<number>/head`` — the PR head commit (works for
+      forks and same-repo PRs).
+    - ``refs/heads/<base_branch>`` → ``refs/remotes/origin/<base_branch>``
+      — keeps the remote-tracking ref for the base branch current so
+      that diffs, commit logs, and changed-file lists reflect the
+      real PR scope.
+
+    Non-destructive: local branches and the working tree are never
+    modified.
 
     Silently succeeds if the fetch fails (e.g. no network, auth
     error) — callers handle missing refs downstream.
@@ -61,12 +72,15 @@ def fetch_pr_head(repo: pygit2.Repository, pr_number: int) -> None:
     if url is None:
         return
     pr_ref = f"refs/pull/{pr_number}/head"
-    refspec = f"+{pr_ref}:{pr_ref}"
+    refspecs = [
+        f"+{pr_ref}:{pr_ref}",
+        f"+refs/heads/{base_branch}:refs/remotes/origin/{base_branch}",
+    ]
     callbacks = _make_fetch_callbacks(url)
     try:
-        remote.fetch([refspec], callbacks=callbacks)
+        remote.fetch(refspecs, callbacks=callbacks)
     except pygit2.GitError as exc:
-        log.debug("fetch_pr_head(#%d) failed: %s", pr_number, exc)
+        log.debug("fetch_pr_refs(#%d, %s) failed: %s", pr_number, base_branch, exc)
 
 
 def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
