@@ -221,7 +221,7 @@ def _emit_commit_table(
         )
 
     total = len(entries)
-    title = f"Review ({total} commits)"
+    title = f"Commits ({total})"
     if total > _MAX_COMMIT_ROWS:
         title += f" — showing first {_MAX_COMMIT_ROWS}"
 

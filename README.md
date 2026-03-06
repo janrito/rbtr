@@ -1134,6 +1134,25 @@ indexing to finish.
 | `/index search <query>`      | Search the index and show ranked results |
 | `/index search-diag <query>` | Search with full signal breakdown table  |
 
+#### `/index status`
+
+`/index status` (or just `/index`) shows four sections:
+
+1. **Snapshots** — side-by-side comparison of base and head:
+   file count, symbol count, and edge count per snapshot.
+   Shows `-` for a snapshot that hasn't been indexed yet.
+2. **Chunks** — per-kind breakdown (function, class, method,
+   import, doc, etc.) of the head snapshot, with embedding
+   coverage. Falls back to base when head isn't indexed yet.
+3. **Edges** — per-kind breakdown (imports, tests, docs) of
+   the same snapshot.
+4. **Commits** — for each commit in `base..head`, the number
+   of files it changed and how many indexed symbols live in
+   those files at head. Helps identify high-impact commits vs
+   trivial ones. Uses `commit_log_between` for the commit
+   list, then diffs each commit against its first parent.
+   Capped at 20 commits.
+
 ### Index configuration
 
 Settings in `config.toml` under `[index]`:
@@ -1789,6 +1808,26 @@ daemon thread, communicating via events (`IndexStarted`,
 `IndexProgress`, `IndexReady`). `engine/tools.py` exposes index
 data to the LLM via tool calls, conditionally hidden when no
 index is loaded.
+
+### Git reference handling
+
+rbtr never modifies your working tree or local branches.
+All reads go through the git object store.
+
+When you select a PR, rbtr fetches the PR head and the
+base branch from origin so that diffs, commit logs, and
+changed-file lists reflect the actual PR scope — not stale
+local refs. For PRs, the exact base and head SHAs come from
+the GitHub API, so a local `main` that is behind
+`origin/main` cannot pollute the results. For local branch
+reviews, branch names are used directly.
+
+Commit logs use `git log base..head` semantics — only
+commits reachable from head but not from base. This is
+correct even with merge histories (e.g. merging `main` into
+a feature branch). Review comment validation diffs from the
+merge base of the two refs, matching GitHub's three-dot
+diff.
 
 ### Adding a language
 
