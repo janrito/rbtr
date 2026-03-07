@@ -145,6 +145,8 @@ saved automatically to the session database (see Sessions below).
 | `/compact`             | Summarise older context to free space      |
 | `/compact reset`       | Undo last compaction (before new messages) |
 | `/session`             | List, inspect, or delete sessions          |
+| `/stats`               | Show session token and cost statistics     |
+| `/reload`              | Show active prompt sources                 |
 | `/new`                 | Start a new conversation                   |
 | `/quit`                | Exit (also `/q`)                           |
 
@@ -253,10 +255,9 @@ return injected. This handles both cases:
   in-flight when Ctrl+C fired are patched; completed results
   are preserved.
 
-The synthetic results are persisted to the session database
-immediately, so the repair is permanent — it won't re-trigger
-on subsequent loads of the same session. A one-time warning
-is shown:
+The synthetic results are applied in memory — not persisted.
+The repair runs on every session load and produces the same
+result. A one-time warning is shown:
 
 ```text
 ⚠ Previous turn was cancelled mid-tool-call (read_file, grep).
@@ -353,14 +354,14 @@ efficient queries without joins.
 Model responses are persisted **as they stream in**, not
 batch-saved after the turn:
 
-1. An incomplete message row is inserted (`complete = 0`).
-2. Each part is inserted as it starts streaming (`complete = 0`).
+1. A message row is inserted with `status = 'in_progress'`.
+2. Each part is inserted as it starts streaming.
 3. Each part is updated with the final data when it finishes.
-4. The message row is marked `complete = 1` and cost is set.
+4. The message row is set to `status = 'complete'` with cost.
 
-Only complete rows (`complete = 1`) are returned by
-`load_messages()`, so partially streamed responses are invisible.
-User prompts and tool results are inserted complete immediately.
+Only complete rows are returned by `load_messages()`, so
+partially streamed responses are invisible. User prompts
+and tool results are inserted complete immediately.
 
 ### Loading and reconstruction
 
@@ -825,19 +826,21 @@ they expire. You never need to edit `creds.toml` by hand — use
 
 ## Prompt architecture
 
-rbtr's instructions to the LLM are split into three templates,
+rbtr's instructions to the LLM are split into four templates,
 each with a single responsibility:
 
-| Template      | Scope           | Description                                    |
-| ------------- | --------------- | ---------------------------------------------- |
-| `system.md`   | Both agents     | Identity, authority, language style             |
-| `review.md`   | Main agent only | Review context, principles, strategy, format    |
-| `compact.md`  | Compact agent   | What to preserve/drop when summarising history  |
+| Template           | Scope           | Description                                    |
+| ------------------ | --------------- | ---------------------------------------------- |
+| `system.md`        | Both agents     | Identity, authority, language style             |
+| `review.md`        | Main agent only | Review context, principles, strategy, format    |
+| `compact.md`       | Compact agent   | What to preserve/drop when summarising history  |
+| `index_status.md`  | Main agent only | Index availability and tool readiness           |
 
-The main agent receives `system.md` + `review.md` on every
-turn. The compaction agent (a separate, tool-less instance
-that summarises older history) receives `system.md` +
-`compact.md`. Both share the same identity and language rules.
+The main agent receives `system.md` + `review.md` +
+`index_status.md` on every turn. The compaction agent (a
+separate, tool-less instance that summarises older history)
+receives `system.md` + `compact.md`. Both share the same
+identity and language rules.
 
 ### Customisation
 
@@ -955,7 +958,7 @@ it.
 
 ### Tools available to the LLM
 
-rbtr gives the LLM 21 tools, conditionally hidden based on
+rbtr gives the LLM 18 tools, conditionally hidden based on
 what's available (repo only, or repo + index). Every tool that
 reads state accepts a `ref` parameter — `"head"` (default),
 `"base"`, or a raw commit SHA — so the LLM can inspect the
@@ -1285,113 +1288,50 @@ Each comment has:
   frozen at last sync. Only updated when syncing, never
   on local edits. Absent for new comments.
 
-Hashes are short (16-char hex) SHA-256 digests. Comment
-hashes cover `path`, `line`, `body`, and `suggestion`.
-Because hashes are only written during sync — never when
-the LLM or you edit a comment — any change to the content
-makes the live hash diverge from the stored one, which is
-how rbtr detects local modifications.
+Editing a comment body is automatically detected as a
+local change — no manual marking needed.
 
 ### Sync with GitHub
 
 `/draft sync` performs a bidirectional sync between the local
 draft and the user's pending review on GitHub.
 
-#### GitHub API constraints
+Because GitHub does not allow editing individual pending
+review comments, every push deletes the old pending review
+and recreates it. Comment IDs change on each cycle — this
+is normal. rbtr re-establishes them automatically after
+each push.
 
-Two hard API limitations shape the entire sync design:
+#### Matching
 
-**1. No individual pending-comment updates.** You cannot
-PATCH a single pending review comment — the endpoint
-returns 404. You CAN individually DELETE a pending
-comment, but the only way to _modify_ a pending review is
-to delete the entire review and recreate it.
+Comments are matched between local and remote in two tiers:
 
-rbtr works within this constraint: every push deletes the
-old pending review and creates a new one. To track changes
-across this delete-and-recreate cycle, each comment's
-`github_id` is recorded locally and re-established after
-each push by re-fetching the new review's comments.
+- **By ID** — if a local comment has a `github_id` from a
+  previous sync, it matches the remote comment with the
+  same ID.
+- **By content** — for new local comments (never synced),
+  rbtr matches by exact `(path, line, body)` against
+  unmatched remote comments.
 
-**2. No modern line data on the per-review endpoint.**
-When writing reviews, rbtr sends the modern `line` + `side`
-parameters (e.g. `line: 163, side: "RIGHT"`). GitHub
-accepts these correctly.
-
-However, the endpoint that reads review comments back
-(`GET /repos/{o}/{r}/pulls/{n}/reviews/{id}/comments`)
-returns `line: null`, `side: null`, and `subject_type: null`
-for ALL review comments — pending AND submitted. The only
-line-related data returned is the deprecated `position`
-field (a 1-based offset into the diff hunk) and the
-`diff_hunk` string (the hunk header through the commented
-line).
-
-The per-PR endpoint (`GET /pulls/{n}/comments`) does return
-modern fields, but excludes pending comments entirely. The
-individual comment endpoint (`GET /pulls/comments/{id}`)
-returns 404 for pending comments.
-
-rbtr works around this by walking the `diff_hunk` to
-recover `(line, side)` from the deprecated `position`. The
-conversion is deterministic — the same `diff_hunk` always
-maps to the same file line number. This logic lives in
-`_walk_hunk` / `_position_to_line` / `_line_to_position`
-in `client.py`.
-
-> **Verified 2026-02-27** with direct `httpx` calls using
-> `Accept: application/vnd.github+json` and
-> `X-GitHub-Api-Version: 2022-11-28`. Both pending and
-> submitted reviews show `line: null` on the per-review
-> endpoint. If GitHub fixes this, the `data.get("line")`
-> path in `get_pending_review` already takes priority — the
-> hunk-walking fallback only fires when `line` is null.
-
-#### Matching: how local and remote comments are paired
-
-When remote comments are fetched from GitHub, rbtr needs to
-figure out which remote comment corresponds to which local
-comment. This is done in two tiers:
-
-**Tier 1 — `github_id` (exact match).** If a local
-comment has a `github_id` from a previous sync, and a
-remote comment has the same ID, they're the same comment.
-This is the primary matching mechanism and handles edits,
-deletions, and unchanged comments reliably.
-
-**Tier 2 — `(path, line, formatted_body)` (content match).**
-For local comments without a `github_id` (newly created by
-the LLM, never synced), rbtr matches by exact content
-against unmatched remote comments. This pairs them 1:1 —
-if multiple remotes have identical content, none are
-matched (ambiguity is not guessed at).
-
-After both tiers:
+After matching:
 
 - **Unmatched remote comments** are imported as new local
-  comments. You'll see a warning:
+  comments. You'll see:
   `"New remote comment imported: path:line"`.
-- **Local comments with a stale `github_id`** (present in
-  the sync snapshot but absent from the remote) were deleted
-  on GitHub. They're removed locally with a warning:
-  `"Comment on path:line was deleted on GitHub."`.
-- **Local comments without a `github_id` and no content
-  match** are kept as-is — they're new comments that will
-  be included in the next push.
-- **Tombstoned comments** (synced comments whose body was
-  cleared locally via `remove_draft_comment`) are excluded
-  from the push and dropped from the draft after sync.
-  This prevents a deleted comment from being re-imported
-  on the next pull. `/draft` shows them with a `✗`
-  indicator and a note that they'll be deleted on next
-  sync.
+- **Locally deleted on GitHub** — local comments whose
+  `github_id` is absent from the remote were deleted on
+  GitHub. They're removed locally with a warning.
+- **New local comments** (no ID, no content match) are
+  kept and included in the next push.
+- **Tombstoned comments** (synced comments removed via
+  `remove_draft_comment`) are excluded from the push and
+  dropped from the draft after sync. `/draft` shows them
+  with a `✗` indicator.
 
-#### Three-way merge: detecting edits and conflicts
+#### Three-way merge
 
-After matching, rbtr uses the synced content hash as a
-common ancestor to detect what changed on each side since
-the last sync. Each comment's current content is hashed
-and compared to the stored hash:
+After matching, rbtr detects what changed on each side
+since the last sync:
 
 | Synced | Local | Remote | Outcome                                |
 | ------ | ----- | ------ | -------------------------------------- |
@@ -1401,125 +1341,67 @@ and compared to the stored hash:
 | A      | B     | B      | Both changed identically → no conflict |
 | A      | B     | C      | **Conflict** → keep local, warn user   |
 
-Conflicts always resolve in favour of the local draft — the
-user chose to edit locally, so that takes priority. The
+Conflicts always resolve in favour of the local draft. The
 warning includes a preview of the remote body so you can
 decide whether to incorporate it manually.
 
-The same logic applies to the review summary (tracked via
-`summary_hash` on the draft).
-
-#### Sync protocol (step by step)
-
-**Pull** (also runs automatically on `/review <n>`):
-
-1. Fetch the user's PENDING review and its comments.
-   Remote comments arrive with `line: null` — recover
-   `(line, side)` from `diff_hunk` via `_position_to_line`.
-2. Match remote comments to local using tiers 1 and 2.
-3. Reconcile each matched pair (accept remote edits,
-   detect conflicts).
-4. Import unmatched remote comments, remove remote
-   deletions.
-5. Stamp `comment_hash` on each comment and `summary_hash`
-   on the draft.
-
-**Push** (runs as part of `/draft sync`):
-
-1. Translate stale comments — if a comment's `commit_id`
-   differs from the current PR head, translate its line
-   number using diff hunk arithmetic. Comments targeting
-   deleted lines are skipped with a warning.
-2. Validate all comments against the current diff — skip
-   comments whose `(path, line)` is no longer in a diff
-   hunk.
-3. Delete the existing PENDING review (if any).
-4. Create a new PENDING review with valid comments, sending
-   `line` + `side` + `commit_id` per the modern API.
-5. Re-fetch the new review's comments to learn their
-   `github_id`s (they change on every recreate). Again
-   recover `(line, side)` from `diff_hunk`.
-6. Match the returned comments to local by content
-   (tier 2 — we just wrote them, so content is exact).
-7. Store the new `github_id`s on local comments.
-8. Merge pushed and skipped-stale comments back into the
-   local draft.
-9. Stamp `comment_hash` on each comment, set
-   `github_review_id` and `summary_hash` on the draft.
-10. Save the draft to disk.
+The same logic applies to the review summary.
 
 #### Example: sync with a remote edit
 
 ```text
 # Initial state: local and GitHub are in sync.
-# Local comment (github_id=100, comment_hash=abc): "Fix the null check."
+# Local comment: "Fix the null check."
 
-# Someone edits the comment on GitHub to "Fix the null check (line 42)."
-# Meanwhile, local is unchanged (body still matches comment_hash).
+# Someone edits the comment on GitHub to
+# "Fix the null check (line 42)."
+# Meanwhile, local is unchanged.
 
 you: /draft sync
 Pulling remote pending review…
 Pushing draft (1 comment)…
 Draft synced (1 comment).
 
-# Result: local body updated to "Fix the null check (line 42)."
-# comment_hash updated to match the new content.
+# Result: local body updated to
+# "Fix the null check (line 42)."
 ```
 
 #### Example: conflict
 
 ```text
-# comment_hash represents "Original text."
 # Local body was edited to: "Better explanation."
 # Remote body was edited to: "Different rewrite."
 
 you: /draft sync
-⚠ Conflict on src/client.py:42 — keeping local. Remote was: Different rewrite.
+⚠ Conflict on src/client.py:42 — keeping local.
+  Remote was: Different rewrite.
 Pushing draft (1 comment)…
 Draft synced (1 comment).
 
-# Result: local "Better explanation." is pushed to GitHub.
+# Result: local "Better explanation." is pushed.
 ```
 
-#### Deleting synced comments locally
-
-Simply removing a synced comment from the draft would cause
-the next pull to re-import it from GitHub (it still exists
-in the remote pending review). rbtr solves this with
-_tombstones_.
+#### Deleting synced comments
 
 When you ask the LLM to remove a comment that has already
-been synced (`github_id` is set), `remove_draft_comment`
-does not delete the comment outright. Instead it clears
-the `body` and `suggestion` fields while keeping the
-`github_id` and `comment_hash`. The comment stays in the
-draft as a tombstone.
+been synced, `remove_draft_comment` marks it for deletion
+rather than removing it outright. This prevents the next
+pull from re-importing it from GitHub.
 
-`/draft` shows tombstoned comments with a `✗` indicator:
+`/draft` shows these with a `✗` indicator:
 
 ```text
 you: /draft
 Summary: Good PR overall.
 2 comments (1 pending deletion):
-  ✓ 1. src/client.py:42 — **blocker:** Retry without backoff.
+  ✓ 1. src/client.py:42 — **blocker:** Retry without …
   ✗ 2. src/config.py:8 — (will be deleted on next sync)
 ```
 
-On the next `/draft sync`:
-
-1. **Pull** — the tombstone matches the remote comment by
-   `github_id` (tier 1). Three-way merge sees the local
-   side as dirty (body changed from the original to empty)
-   and keeps the tombstone.
-2. **Push** — tombstones are excluded from the pushed
-   comments. The new pending review is created without
-   the deleted comment.
-3. **Save** — tombstones are dropped from the saved draft.
-   The comment is gone from both local and remote.
-
-Comments that have never been synced (no `github_id`) are
-removed immediately — no tombstone needed since there is
-nothing to re-import.
+On the next `/draft sync`, the marked comment is excluded
+from the push and dropped from the local draft. Comments
+that have never been synced are removed immediately — no
+marking needed.
 
 ### Sync status indicators
 
@@ -1582,7 +1464,7 @@ automatically.
   `/draft sync` first.
 - **Atomic posting** — all comments are submitted in a
   single `create_review` API call. No partial reviews.
-- **Crash-safe** — the draft is a TOML file on disk,
+- **Crash-safe** — the draft is a YAML file on disk,
   updated on every mutation. If rbtr crashes, the draft
   survives. If the crash happens mid-sync (after deleting
   the old review but before creating the new one), the next
@@ -1596,38 +1478,6 @@ automatically.
   body is automatically detected as a local change.
 - **Draft cleanup** — after a successful post, the local
   file is deleted automatically.
-
-### Position ↔ line round-trip (GitHub API workaround)
-
-The write path sends `line` + `side` (modern API). The
-read path receives `position` + `diff_hunk` (deprecated
-API). The conversion between them is deterministic:
-
-```text
-Write:  line=172, side=RIGHT  →  GitHub stores the comment
-Read:   position=4, diff_hunk="@@ -169,6 +169,7 @@\n ..."  →  _position_to_line → (172, RIGHT)
-```
-
-`_walk_hunk(diff_hunk)` is the single source of truth. It
-yields `(position, line, side)` for each diff line by
-walking the hunk header's start-line counters and
-classifying each line by its `+`/`-`/`` prefix:
-
-- `+` line → `(new_line, "RIGHT")`, increment `new_line`
-- `-` line → `(old_line, "LEFT")`, increment `old_line`
-- context → `(new_line, "RIGHT")`, increment both
-- `\` (no newline marker) → skip
-
-`_position_to_line(diff_hunk)` returns the last yielded
-triple (the commented line is always last in the hunk
-GitHub returns). `_line_to_position(diff_hunk, line, side)`
-finds the first matching triple and returns its position.
-
-The content hash (`_comment_hash`) includes `line` because
-the conversion is deterministic — the same `position`
-always maps to the same `line`. `side` and `commit_id` are
-excluded from the hash (resolution metadata not visible in
-the GitHub UI).
 
 ### GitHub suggestions
 
@@ -1704,135 +1554,11 @@ just check     # Lint + typecheck + test
 just fmt       # Auto-fix and format
 ```
 
-### Provider architecture
+### Architecture reference
 
-rbtr's provider layer handles authentication, credential
-persistence, model construction, effort mapping, and
-pricing — everything needed so that `/connect` + `/model`
-is all it takes to use any supported service. The actual LLM
-communication (streaming, tool calling, message formatting)
-is [PydanticAI](https://ai.pydantic.dev/).
-
-Each provider is a thin wrapper that knows how to
-authenticate with its service and build the right PydanticAI
-model instance. Every provider satisfies the same `Provider`
-protocol — `is_connected`, `list_models`, `build_model`,
-`model_settings`, `context_window` — so the engine never
-deals with provider-specific logic. Custom endpoints
-(`/connect endpoint`) satisfy the same protocol, so they
-work identically to builtin providers.
-
-**API-key providers** (OpenAI, Fireworks, OpenRouter) store
-keys in `~/.config/rbtr/creds.toml`. Keys can also be set
-via environment variables (`OPENAI_API_KEY`,
-`FIREWORKS_API_KEY`, `OPENROUTER_API_KEY`) — pydantic-settings
-picks them up automatically.
-
-**OAuth providers** (Claude, ChatGPT, Google) use PKCE with
-a localhost callback. Tokens are stored in `creds.toml` and
-refreshed automatically when they expire.
-
-### Thinking effort
-
-rbtr exposes a unified `thinking_effort` config (`low`/`medium`/
-`high`/`max`) that maps to provider-specific settings. Users cycle
-it with Shift+Tab; the footer shows the current level.
-
-Each provider implements `model_settings(model_id, model, effort)`
-from the `Provider` protocol. This returns a `ModelSettings`
-subclass with the provider-specific effort parameter (e.g.
-`AnthropicModelSettings(thinking=...)`,
-`OpenAIModelSettings(reasoning=...)`) or `None` if the model
-doesn't support thinking.
-
-The engine calls `providers.model_settings(model_name, model,
-effort)` — dispatch is handled by `_resolve`, same as
-`build_model`. The caller (`engine/llm.py`) sets
-`session.effort_supported` based on whether the provider
-returned settings or `None`. If the model doesn't support
-thinking, the footer shows `∴ off` in red.
-
-### Token usage and pricing
-
-Usage tracking lives in `engine/llm.py` → `_record_usage()`. After
-each agent run it extracts:
-
-- **Token counts** from pydantic-ai's `RunUsage` (input, output,
-  cache read/write). These work for all providers automatically.
-
-- **Cost and context window** from `ModelResponse.cost()`, which
-  calls the `genai-prices` library internally. This works out of
-  the box for models in the `genai-prices` database. Custom
-  endpoints typically don't report pricing — the footer dims the
-  cost and shows a fallback context window.
-
-No rbtr code needs to change for new models to get usage tracking.
-If `genai-prices` knows the model, cost appears automatically. If
-not, tokens still display but cost shows as `$0.0000` (dimmed).
-
-### Tool registration
-
-Agent tools are defined in `engine/tools.py` using `@agent.tool`
-decorators. Each tool receives `RunContext[AgentDeps]` and reads
-session state (repo, index, review target). Tools are conditionally
-hidden via `prepare` functions when their prerequisites aren't met
-(e.g. index tools hidden when no index is loaded).
-
-Tool call results appear in independent purple panels in the TUI.
-Output is truncated to `tui.tool_max_lines` (default 15) with
-Ctrl+O to expand.
-
-Each turn is limited to `tools.max_requests_per_turn` model
-requests (default 25). When the limit is hit, `_stream_agent`
-catches `UsageLimitExceeded`, preserves accumulated messages,
-and fires `_stream_summary` — a tool-free single-request
-followup that asks the model to summarize progress so the user
-can decide whether to continue.
-
-### Language support
-
-rbtr is language-agnostic. Language-specific analysis (tree-sitter
-grammars, scope queries, import extraction) is provided by plugins
-under `src/rbtr/plugins/`. Adding a language means adding a plugin
-file — see `AGENTS.md` for the plugin contract.
-
-### Index architecture
-
-The code index lives in `src/rbtr/index/`:
-
-```text
-index/
-├── git.py           file listing + diffing via pygit2
-├── treesitter.py    language-agnostic tree-sitter extraction
-├── chunks.py        plaintext and markdown chunking
-├── edges.py         import, test, and doc edge inference
-├── embeddings.py    GGUF embedding via llama-cpp-python
-├── store.py         DuckDB storage (IndexStore)
-├── search.py        score fusion, query classification, ranking
-├── tokenise.py      code-aware tokenisation (camelCase, snake_case)
-├── orchestrator.py  build_index, update_index, compute_diff
-├── models.py        Chunk, Edge, IndexStats, enums
-├── arrow.py         PyArrow table builders for bulk insert
-├── languages.py     thin delegation to plugin manager
-└── sql/             19 SQL files (sqlfluff-linted, DuckDB dialect)
-```
-
-**Data flow:** `git.py` lists files → `treesitter.py` or
-`chunks.py` extracts chunks → `store.py` bulk-inserts via PyArrow
-→ `edges.py` infers cross-file edges → `embeddings.py` computes
-vectors → `store.py` batch-updates embeddings.
-
-**Storage:** One DuckDB file per repo (`.rbtr/index/`). Three
-tables: `file_snapshots` (commit→file→blob mapping), `chunks`
-(extracted symbols with optional embeddings), `edges` (cross-file
-relationships). All SQL is in separate `.sql` files — no inline
-queries.
-
-**Engine integration:** `engine/indexing.py` runs indexing in a
-daemon thread, communicating via events (`IndexStarted`,
-`IndexProgress`, `IndexReady`). `engine/tools.py` exposes index
-data to the LLM via tool calls, conditionally hidden when no
-index is loaded.
+For details on how providers, tools, the index, language
+plugins, session persistence, history repair, and GitHub sync
+work internally, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Git reference handling
 
@@ -1848,23 +1574,9 @@ the GitHub API, so a local `main` that is behind
 reviews, branch names are used directly.
 
 Commit logs use `git log base..head` semantics — only
-commits reachable from head but not from base. This is
-correct even with merge histories (e.g. merging `main` into
-a feature branch). Review comment validation diffs from the
-merge base of the two refs, matching GitHub's three-dot
-diff.
-
-### Adding a language
-
-1. Create `src/rbtr/plugins/<language>.py`.
-2. Implement the plugin hooks: `detect_language`, `get_grammar`,
-   `get_query`, optionally `get_import_extractor` and
-   `get_scope_types`.
-3. Register via the `rbtr.languages` pluggy entry point.
-
-See existing plugins (e.g. `plugins/python.py`, `plugins/go.py`)
-for examples. The `defaults.py` module registers grammar-only and
-detection-only languages in bulk.
+commits reachable from head but not from base. Review
+comment validation diffs from the merge base of the two
+refs, matching GitHub's three-dot diff.
 
 ### Benchmarking
 
@@ -1919,28 +1631,8 @@ MRR, and per-query signal breakdowns for misranked results.
 validate the repo identity via `pyproject.toml` before running.
 `bench_search` works with any repo that has session history.
 
-#### Search architecture
-
-Search ranking is implemented in `src/rbtr/index/search.py`
-(pure scoring functions) and orchestrated by
-`IndexStore.search()` in `store.py`:
-
-1. **Query classification** — `classify_query()` routes each
-   query to identifier, concept, or pattern weights.
-2. **Three channels** — BM25 on pre-tokenised content, cosine
-   similarity on embeddings (when available), and name matching
-   with token-level support.
-3. **Score fusion** — min-max normalisation per channel, then
-   weighted combination. Post-fusion multipliers for chunk kind
-   (class=1.5×, import=0.3×) and file category (source=1.0×,
-   test=0.5×).
-4. **Code-aware tokenisation** — `tokenise_code()` splits
-   camelCase/snake_case identifiers and emits both compound and
-   parts. Applied at index time and query time.
-
-All scoring helpers are pure functions tested in isolation (99
-tests in `test_search.py`). The tokeniser has 140+ tests across
-10 language conventions and keyword preservation.
+For search internals (fusion algorithm, scoring functions,
+tokenisation), see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## License
 

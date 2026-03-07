@@ -10,11 +10,11 @@ lint:
     uv run ruff format --check .
     uv run sqlfluff lint .
 
-fmt-md:
-    rumdl check --fix .
+fmt-md *FILES='README.md ARCHITECTURE.md':
+    rumdl check --fix {{ FILES }}
 
-lint-md:
-    rumdl check .
+lint-md *FILES='README.md ARCHITECTURE.md':
+    rumdl check {{ FILES }}
 
 typecheck:
     uv run mypy
