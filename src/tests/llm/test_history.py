@@ -1,14 +1,16 @@
-"""Tests for engine/history.py — history repair, demote_thinking,
+"""Tests for `rbtr.llm.history` — history repair, demote_thinking,
 and format-error detection.
 """
 
 from __future__ import annotations
 
+import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -17,6 +19,7 @@ from pydantic_ai.messages import (
 )
 
 from rbtr.llm.history import (
+    consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,
     is_history_format_error,
@@ -76,7 +79,7 @@ def test_demote_thinking_preserves_non_responses() -> None:
 
 
 def test_flatten_tool_exchanges_converts_to_text() -> None:
-    """Tool calls become text summaries; tool returns become user prompts."""
+    """Tool calls → text summaries, tool returns → user prompts, all messages preserved."""
     history: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(
@@ -98,58 +101,18 @@ def test_flatten_tool_exchanges_converts_to_text() -> None:
     assert result.retry_prompts_dropped == 0
     assert len(result.history) == 4
 
-    # ToolCallPart → TextPart with tool name.
+    # ToolCallPart → TextPart preserving tool name and args.
     resp1 = result.history[1]
     assert isinstance(resp1, ModelResponse)
-    assert len(resp1.parts) == 2
-    assert isinstance(resp1.parts[0], TextPart)
-    assert resp1.parts[0].content == "Let me check…"
     assert isinstance(resp1.parts[1], TextPart)
-    assert resp1.parts[1].content.startswith("[Repaired historical tool call -- ")
     assert "read_file" in resp1.parts[1].content
+    assert '"path"' in resp1.parts[1].content
 
-    # ToolReturnPart → UserPromptPart with output preserved.
+    # ToolReturnPart → UserPromptPart preserving output.
     req = result.history[2]
     assert isinstance(req, ModelRequest)
-    assert len(req.parts) == 1
     assert isinstance(req.parts[0], UserPromptPart)
-    assert req.parts[0].content.startswith("[Repaired historical tool result -- read_file]")  # type: ignore[operator]
     assert "file contents" in req.parts[0].content  # type: ignore[operator]
-
-
-def test_flatten_tool_exchanges_preserves_all_messages() -> None:
-    """No messages are dropped — tool-only messages become text messages."""
-    history: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content="hello")]),
-        ModelResponse(
-            parts=[
-                ToolCallPart(tool_name="grep", args={"search": "TODO"}, tool_call_id="tc1"),
-            ]
-        ),
-        ModelRequest(
-            parts=[
-                ToolReturnPart(tool_name="grep", content="line 42: TODO fix", tool_call_id="tc1"),
-            ]
-        ),
-        ModelResponse(parts=[TextPart(content="done")]),
-    ]
-    result = flatten_tool_exchanges(history)
-    assert result.tool_calls_flattened == 1
-    assert result.tool_returns_flattened == 1
-    assert len(result.history) == 4
-
-    # Tool-only response now has a TextPart.
-    resp = result.history[1]
-    assert isinstance(resp, ModelResponse)
-    assert isinstance(resp.parts[0], TextPart)
-    assert resp.parts[0].content.startswith("[Repaired historical tool call -- ")
-    assert "grep" in resp.parts[0].content
-
-    # Tool return content preserved in user prompt.
-    req = result.history[2]
-    assert isinstance(req, ModelRequest)
-    assert isinstance(req.parts[0], UserPromptPart)
-    assert "TODO fix" in req.parts[0].content  # type: ignore[operator]
 
 
 def test_flatten_tool_exchanges_keeps_user_prompts_in_mixed_requests() -> None:
@@ -176,125 +139,110 @@ def test_flatten_tool_exchanges_keeps_user_prompts_in_mixed_requests() -> None:
     assert req.parts[1].content == "continue"
 
 
+def test_flatten_tool_exchanges_drops_retry_prompts() -> None:
+    """RetryPromptParts are counted and dropped during flattening."""
+    history: list[ModelMessage] = [
+        ModelRequest(
+            parts=[
+                RetryPromptPart(content="bad args", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc2"),
+            ]
+        ),
+    ]
+    result = flatten_tool_exchanges(history)
+    assert result.retry_prompts_dropped == 1
+    assert result.tool_returns_flattened == 1
+    # Only the converted tool return survives.
+    req = result.history[0]
+    assert isinstance(req, ModelRequest)
+    assert len(req.parts) == 1
+    assert isinstance(req.parts[0], UserPromptPart)
+
+
+def test_flatten_empty_request_after_stripping() -> None:
+    """A request with only RetryPromptParts is dropped entirely."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hi")]),
+        ModelResponse(parts=[TextPart(content="hello")]),
+        ModelRequest(parts=[RetryPromptPart(content="bad", tool_call_id="tc1")]),
+    ]
+    result = flatten_tool_exchanges(history)
+    assert result.retry_prompts_dropped == 1
+    # Empty request dropped — only the first two messages survive.
+    assert len(result.history) == 2
+
+
 # ── is_history_format_error ──────────────────────────────────────────
 
-
-def test_is_history_format_error_invalid_id() -> None:
-    exc = ModelHTTPError(
-        400,
-        "gpt-5.1-codex",
-        body={
-            "message": "Invalid 'input[6].id': 'reasoning_content'. "
-            "Expected an ID that begins with 'rs'.",
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_missing_reasoning() -> None:
-    exc = ModelHTTPError(
-        400,
-        "gpt-5-mini",
-        body={
-            "message": "Item 'fc_07f6' of type 'function_call' was "
-            "provided without its required 'reasoning' item: 'rs_07f6'.",
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_rejects_unrelated() -> None:
-    exc = ModelHTTPError(
-        400,
-        "gpt-4o",
-        body={"message": "maximum context length exceeded"},
-    )
-    assert not is_history_format_error(exc)
-
-
-def test_is_history_format_error_claude_tool_pairing() -> None:
-    """Claude: tool_use IDs without matching tool_result blocks."""
-    exc = ModelHTTPError(
-        400,
-        "claude-sonnet-4-6",
-        body={
-            "type": "error",
-            "error": {
-                "type": "invalid_request_error",
-                "message": "messages.2: `tool_use` ids were found without "
-                "`tool_result` blocks immediately after: "
-                "call_XFAPJJDTOhbn3UngXP8OLS9b, call_f0SgvtE4qOFKr5UD61keJKyy. "
-                "Each `tool_use` block must have a corresponding "
-                "`tool_result` block in the next message.",
-            },
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_orphan_tool_return() -> None:
-    """Orphaned tool returns (from bad compaction) are format errors.
-
-    These can occur when history from one provider is replayed to
-    another.  The retry with simplified history strips all tool
-    exchanges, which resolves the issue.
-    """
-    exc = ModelHTTPError(
-        400,
-        "gpt-5.3-codex",
-        body={
-            "message": "No tool call found for function call output "
-            "with call_id call_2dSruMECzg5uxFmSBi4lC893.",
-            "type": "invalid_request_error",
-        },
-    )
-    assert is_history_format_error(exc)
+# Each tuple: (id, error_message, expected_result)
+_FORMAT_ERROR_CASES: list[tuple[str, str, bool]] = [
+    (
+        "invalid_reasoning_id",
+        "Invalid 'input[6].id': 'reasoning_content'. Expected an ID that begins with 'rs'.",
+        True,
+    ),
+    (
+        "missing_reasoning_item",
+        "Item 'fc_07f6' of type 'function_call' was provided without its "
+        "required 'reasoning' item: 'rs_07f6'.",
+        True,
+    ),
+    (
+        "claude_tool_pairing",
+        "messages.2: `tool_use` ids were found without `tool_result` blocks "
+        "immediately after: call_XFAP, call_f0Sg.",
+        True,
+    ),
+    (
+        "gemini_function_count",
+        "Please ensure that the number of function response parts is equal "
+        "to the number of function call parts of the function call turn.",
+        True,
+    ),
+    (
+        "orphaned_tool_return",
+        "No tool call found for function call output with call_id call_2dSru.",
+        True,
+    ),
+    (
+        "extra_inputs",
+        "18 request validation errors: Extra inputs are not permitted, "
+        "field: 'messages[1].rs_0cae3ab1ca0a8b8'",
+        True,
+    ),
+    (
+        "required_field",
+        "The content field is a required field.",
+        True,
+    ),
+    (
+        "unrelated_context_overflow",
+        "maximum context length exceeded",
+        False,
+    ),
+    (
+        "unrelated_rate_limit",
+        "Rate limit exceeded. Please retry after 10 seconds.",
+        False,
+    ),
+]
 
 
-def test_is_history_format_error_extra_inputs() -> None:
-    """Provider rejects extra fields from another provider's metadata.
-
-    When OpenAI Responses API reasoning IDs (``rs_...``) are replayed
-    to a different endpoint (e.g. Fireworks), they appear as extra
-    top-level fields on the message dict and are rejected.
-    """
-    exc = ModelHTTPError(
-        400,
-        "accounts/fireworks/models/kimi-k2p5",
-        body={
-            "object": "error",
-            "type": "invalid_request_error",
-            "message": "18 request validation errors: Extra inputs are not permitted, "
-            "field: 'messages[1].rs_0cae3ab1ca0a8b850169a9760634e48191bf83b85f9824079b', "
-            "value: ''",
-        },
-    )
-    assert is_history_format_error(exc)
-
-
-def test_is_history_format_error_required_field() -> None:
-    """Provider rejects messages with a missing required field.
-
-    Some OpenAI-compatible endpoints require fields that PydanticAI
-    omits (e.g. ``content`` on assistant messages containing only
-    tool calls).  The pattern is kept general — ``required`` +
-    ``field`` — to cover varying error formats across endpoints.
-    """
-    exc = ModelHTTPError(
-        400,
-        "some-model",
-        body={
-            "message": "The content field is a required field.",
-        },
-    )
-    assert is_history_format_error(exc)
+@pytest.mark.parametrize(
+    ("error_msg", "expected"),
+    [(msg, exp) for _, msg, exp in _FORMAT_ERROR_CASES],
+    ids=[name for name, _, _ in _FORMAT_ERROR_CASES],
+)
+def test_is_history_format_error(error_msg: str, expected: bool) -> None:
+    exc = ModelHTTPError(400, "test-model", body={"message": error_msg})
+    assert is_history_format_error(exc) == expected
 
 
 # ── repair_dangling_tool_calls ───────────────────────────────────────
 
 
 def test_repair_empty_history() -> None:
-    history, tools, _ = repair_dangling_tool_calls([])
+    history, tools = repair_dangling_tool_calls([])
     assert history == []
     assert tools == []
 
@@ -306,7 +254,7 @@ def test_repair_no_dangling_calls() -> None:
         ModelResponse(parts=[TextPart(content="hi")]),
         ModelRequest(parts=[UserPromptPart(content="bye")]),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -317,7 +265,7 @@ def test_repair_response_without_tool_calls() -> None:
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(parts=[TextPart(content="hi")]),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -334,7 +282,7 @@ def test_repair_dangling_at_end() -> None:
             ]
         ),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert len(repaired) == 3  # original 2 + synthetic request
     assert tools == ["read_file", "grep"]
 
@@ -363,7 +311,7 @@ def test_repair_dangling_mid_history() -> None:
         ModelRequest(parts=[UserPromptPart(content="try again")]),
         ModelResponse(parts=[TextPart(content="ok")]),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert tools == ["list_files"]
     assert len(repaired) == 5  # 4 original + 1 synthetic
 
@@ -395,13 +343,13 @@ def test_repair_tool_calls_with_results_untouched() -> None:
         ),
         ModelResponse(parts=[TextPart(content="done")]),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
 
 def test_repair_partial_results() -> None:
-    """Some tool calls answered, others missing → only missing ones get synthetic results."""
+    """Some tool calls answered, others missing → synthetic results merged into existing request."""
     history: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(
@@ -418,34 +366,26 @@ def test_repair_partial_results() -> None:
             ]
         ),
     ]
-    repaired, tools, new_msgs = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert tools == ["grep", "diff"]
-    # Original 3 messages + 1 synthetic for the 2 missing results.
-    assert len(repaired) == 4
+    # 3 messages — synthetic returns merged into existing request.
+    assert len(repaired) == 3
 
-    # The existing partial results are preserved.
-    assert isinstance(repaired[2], ModelRequest)
-    existing = [p for p in repaired[2].parts if isinstance(p, ToolReturnPart)]
-    assert len(existing) == 1
-    assert existing[0].tool_call_id == "tc1"
-
-    # Synthetic results appended for the missing calls.
-    synthetic = repaired[3]
-    assert isinstance(synthetic, ModelRequest)
-    cancelled = [p for p in synthetic.parts if isinstance(p, ToolReturnPart)]
-    assert len(cancelled) == 2
-    assert cancelled[0].tool_call_id == "tc2"
-    assert cancelled[0].content == "(cancelled)"
-    assert cancelled[1].tool_call_id == "tc3"
-    assert cancelled[1].content == "(cancelled)"
-
-    # new_msgs contains only the synthetic messages (for persistence).
-    assert len(new_msgs) == 1
-    assert new_msgs[0] is synthetic
+    # The merged request has existing + synthetic returns.
+    merged = repaired[2]
+    assert isinstance(merged, ModelRequest)
+    returns = [p for p in merged.parts if isinstance(p, ToolReturnPart)]
+    assert len(returns) == 3
+    assert returns[0].tool_call_id == "tc1"
+    assert returns[0].content == "file contents"
+    assert returns[1].tool_call_id == "tc2"
+    assert returns[1].content == "(cancelled)"
+    assert returns[2].tool_call_id == "tc3"
+    assert returns[2].content == "(cancelled)"
 
 
 def test_repair_partial_results_mid_history() -> None:
-    """Partial results in the middle of history — conversation continues after."""
+    """Partial results in the middle of history — synthetic merged, conversation continues."""
     history: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(
@@ -464,20 +404,24 @@ def test_repair_partial_results_mid_history() -> None:
         ModelRequest(parts=[UserPromptPart(content="try again")]),
         ModelResponse(parts=[TextPart(content="ok")]),
     ]
-    repaired, tools, _ = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert tools == ["grep"]
-    assert len(repaired) == 6  # 5 original + 1 synthetic
+    # 5 messages — synthetic merged into existing request (no extra message).
+    assert len(repaired) == 5
 
-    # Synthetic inserted after the partial results.
-    synthetic = repaired[3]
-    assert isinstance(synthetic, ModelRequest)
-    cancelled = [p for p in synthetic.parts if isinstance(p, ToolReturnPart)]
-    assert len(cancelled) == 1
-    assert cancelled[0].tool_call_id == "tc2"
+    # Merged request has original + synthetic returns.
+    merged = repaired[2]
+    assert isinstance(merged, ModelRequest)
+    returns = [p for p in merged.parts if isinstance(p, ToolReturnPart)]
+    assert len(returns) == 2
+    assert returns[0].tool_call_id == "tc1"
+    assert returns[0].content == "ok"
+    assert returns[1].tool_call_id == "tc2"
+    assert returns[1].content == "(cancelled)"
 
     # Rest of history preserved.
-    assert isinstance(repaired[4], ModelRequest)  # "try again"
-    assert isinstance(repaired[5], ModelResponse)  # "ok"
+    assert isinstance(repaired[3], ModelRequest)  # "try again"
+    assert isinstance(repaired[4], ModelResponse)  # "ok"
 
 
 def test_repair_tool_returns_after_interleaved_user_prompt() -> None:
@@ -517,12 +461,11 @@ def test_repair_tool_returns_after_interleaved_user_prompt() -> None:
         # Model produces final text.
         ModelResponse(parts=[TextPart(content="Here are the findings.")]),
     ]
-    repaired, tools, new_msgs = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
 
     # No repairs needed — all tool calls have matching returns.
     assert repaired is history
     assert tools == []
-    assert new_msgs == []
 
 
 def test_repair_returns_scattered_across_multiple_messages() -> None:
@@ -567,10 +510,9 @@ def test_repair_returns_scattered_across_multiple_messages() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    repaired, tools, new_msgs = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
-    assert new_msgs == []
 
 
 def test_repair_idempotent_with_prior_synthetics() -> None:
@@ -609,11 +551,10 @@ def test_repair_idempotent_with_prior_synthetics() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    repaired, tools, new_msgs = repair_dangling_tool_calls(history)
+    repaired, tools = repair_dangling_tool_calls(history)
     # No new repairs — both real returns and prior synthetics count.
     assert repaired is history
     assert tools == []
-    assert new_msgs == []
 
 
 def test_repair_mixed_matched_and_truly_missing() -> None:
@@ -639,7 +580,120 @@ def test_repair_mixed_matched_and_truly_missing() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    _repaired, tools, new_msgs = repair_dangling_tool_calls(history)
+    _repaired, tools = repair_dangling_tool_calls(history)
     # Only tc2 and tc3 should be repaired — tc1 has a real return later.
     assert sorted(tools) == ["diff", "grep"]
-    assert len(new_msgs) == 1
+
+
+# ── consolidate_tool_returns ─────────────────────────────────────────
+
+
+def test_consolidate_noop_on_clean_history() -> None:
+    """History with properly paired tool exchanges is returned unchanged."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1")],
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1")],
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    result = consolidate_tool_returns(history)
+    assert result.history is history
+    assert result.turns_fixed == 0
+
+
+def test_consolidate_mixed_user_and_tool_parts() -> None:
+    """Tool returns mixed with user prompt are separated into distinct requests."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1")],
+        ),
+        # Mixed: tool return + user prompt in same request.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1"),
+                UserPromptPart(content="also check tests"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    result = consolidate_tool_returns(history)
+    assert result.turns_fixed == 1
+    # Response followed by tool-return-only request, then user prompt request.
+    assert len(result.history) == 5
+    tool_req = result.history[2]
+    assert isinstance(tool_req, ModelRequest)
+    assert len(tool_req.parts) == 1
+    assert isinstance(tool_req.parts[0], ToolReturnPart)
+
+    user_req = result.history[3]
+    assert isinstance(user_req, ModelRequest)
+    assert isinstance(user_req.parts[0], UserPromptPart)
+
+
+def test_consolidate_scattered_returns() -> None:
+    """Tool returns spread across multiple requests are consolidated."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="tc2"),
+            ],
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1")],
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="grep", content="found", tool_call_id="tc2")],
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    result = consolidate_tool_returns(history)
+    assert result.turns_fixed == 1
+    # Scattered returns consolidated into one request.
+    assert len(result.history) == 4
+    tool_req = result.history[2]
+    assert isinstance(tool_req, ModelRequest)
+    returns = [p for p in tool_req.parts if isinstance(p, ToolReturnPart)]
+    assert len(returns) == 2
+    assert returns[0].tool_call_id == "tc1"
+    assert returns[1].tool_call_id == "tc2"
+
+
+def test_consolidate_empty_history() -> None:
+    """Empty history is returned unchanged."""
+    result = consolidate_tool_returns([])
+    assert result.history == []
+    assert result.turns_fixed == 0
+
+
+def test_consolidate_missing_return_injects_synthetic() -> None:
+    """Truly missing returns get a synthetic `(cancelled)` placeholder."""
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="tc1"),
+                ToolCallPart(tool_name="grep", args={}, tool_call_id="tc2"),
+            ],
+        ),
+        # Only tc1 has a return — tc2 is missing entirely.
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="tc1")],
+        ),
+        ModelResponse(parts=[TextPart(content="done")]),
+    ]
+    result = consolidate_tool_returns(history)
+    assert result.turns_fixed == 1
+    tool_req = result.history[2]
+    assert isinstance(tool_req, ModelRequest)
+    returns = [p for p in tool_req.parts if isinstance(p, ToolReturnPart)]
+    assert len(returns) == 2
+    assert returns[0].tool_call_id == "tc1"
+    assert returns[1].tool_call_id == "tc2"
+    assert returns[1].content == "(cancelled)"

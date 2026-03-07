@@ -54,6 +54,7 @@ from .compact import compact_history, compact_history_async
 from .context import LLMContext
 from .errors import is_context_overflow, is_effort_unsupported
 from .history import (
+    consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,
     format_tool_args,
@@ -190,6 +191,7 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
         ctx.warn(str(e))
         return
 
+    history_repair_level = 0
     try:
         _run_agent(ctx, model, message)
     except ModelHTTPError as exc:
@@ -206,14 +208,25 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             )
             return
         if exc.status_code == HTTPStatus.BAD_REQUEST and is_history_format_error(exc):
-            ctx.out("Retrying with simplified history…")
+            next_level = history_repair_level + 1
+            if next_level == 1:
+                ctx.out("Retrying with consolidated tool returns…")
+                strategy = RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS
+            else:
+                ctx.out("Retrying with simplified history…")
+                strategy = RecoveryStrategy.SIMPLIFY_HISTORY
             _retry_with_incidents(
                 ctx,
                 message,
                 exc,
                 failure_kind=FailureKind.HISTORY_FORMAT,
-                strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
-                retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+                strategy=strategy,
+                retry=lambda: _run_agent(
+                    ctx,
+                    model,
+                    message,
+                    history_repair_level=next_level,
+                ),
             )
             return
         if is_context_overflow(exc):
@@ -246,7 +259,7 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
                 exc,
                 failure_kind=FailureKind.TOOL_ARGS,
                 strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
-                retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+                retry=lambda: _run_agent(ctx, model, message, history_repair_level=2),
             )
             return
         raise
@@ -266,7 +279,7 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             exc,
             failure_kind=FailureKind.TYPE_ERROR,
             strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
-            retry=lambda: _run_agent(ctx, model, message, simplify_history=True),
+            retry=lambda: _run_agent(ctx, model, message, history_repair_level=2),
         )
 
 
@@ -449,11 +462,11 @@ def _run_agent(
     model: Model,
     message: str,
     *,
-    simplify_history: bool = False,
+    history_repair_level: int = 0,
 ) -> None:
     """Stream an agent run, blocking until complete."""
     future = asyncio.run_coroutine_threadsafe(
-        _stream_agent(ctx, model, message, simplify_history=simplify_history),
+        _stream_agent(ctx, model, message, history_repair_level=history_repair_level),
         ctx.loop,
     )
     future.result()
@@ -462,9 +475,13 @@ def _run_agent(
 def _prepare_turn(
     ctx: LLMContext,
     model: Model,
-    simplify_history: bool,
+    history_repair_level: int,
 ) -> tuple[list[ModelMessage], AgentDeps, ModelSettings | None]:
     """Load history, repair dangling tool calls, resolve settings.
+
+    *history_repair_level* controls how aggressively the history is
+    adapted: 0 = repair only, 1 = consolidate tool returns,
+    2 = demote thinking + flatten tool exchanges.
 
     Repairs are transient — applied in memory only.  The DB retains
     the original conversation.  Each manipulation is recorded as an
@@ -475,8 +492,8 @@ def _prepare_turn(
     for the upcoming run.
     """
     history = ctx.store.load_messages(ctx.state.session_id)
-    history, repaired_tools, _repair_messages = repair_dangling_tool_calls(history)
-    if repaired_tools:
+    history, repaired_tools = repair_dangling_tool_calls(history)
+    if repaired_tools and history_repair_level == 0:
         names = ", ".join(repaired_tools)
         ctx.warn(
             f"Previous turn was cancelled mid-tool-call ({names}). "
@@ -491,7 +508,20 @@ def _prepare_turn(
                 reason="cancelled_mid_tool_call",
             ),
         )
-    if simplify_history:
+    if history_repair_level >= 1:
+        consolidated = consolidate_tool_returns(history)
+        history = consolidated.history
+        if consolidated.turns_fixed:
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS,
+                    turns_fixed=consolidated.turns_fixed,
+                    reason="cross_provider_retry",
+                ),
+            )
+
+    if history_repair_level >= 2:
         demote = demote_thinking(history)
         history = demote.history
         if demote.parts_demoted:
@@ -555,10 +585,10 @@ async def _stream_agent(
     model: Model,
     message: str,
     *,
-    simplify_history: bool = False,
+    history_repair_level: int = 0,
 ) -> None:
     """Run the agent with cancellation support, update session state."""
-    history, deps, settings = _prepare_turn(ctx, model, simplify_history)
+    history, deps, settings = _prepare_turn(ctx, model, history_repair_level)
 
     result = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, message, history))
 

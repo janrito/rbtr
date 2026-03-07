@@ -1,8 +1,8 @@
 """History repair and compaction helpers.
 
-Cross-provider compatibility (``demote_thinking``,
-``flatten_tool_exchanges``), structural repair
-(``repair_dangling_tool_calls``), and context-compaction
+Cross-provider compatibility (``consolidate_tool_returns``,
+``demote_thinking``, ``flatten_tool_exchanges``), structural
+repair (``repair_dangling_tool_calls``), and context-compaction
 utilities (``split_history``, ``serialise_for_summary``,
 ``build_summary_message``).
 
@@ -15,23 +15,33 @@ require ``ToolCallPart.args`` to be valid JSON.  Providers also
 encode tool exchanges in incompatible wire formats and reject
 history containing metadata from other providers.
 
-Seven mechanisms enforce these invariants at three stages.  See
-the *History repair* section in the README for user-facing
-documentation.
+Eight mechanisms enforce these invariants at three stages.  All
+repairs are **transient** — applied in memory on each load.
+The persisted history is never modified.  See the *History
+repair* section in the README for user-facing documentation.
 
 On load (before the first API call):
 
 - ``_validate_tool_call_args`` (``serialise.py``) -- sets
   unparseable ``ToolCallPart.args`` to ``{}``.
 - ``repair_dangling_tool_calls`` -- injects synthetic
-  ``(cancelled)`` results for unmatched tool calls.
+  ``(cancelled)`` results for unmatched tool calls.  When
+  partial returns already exist, synthetic results are merged
+  into the same ``ModelRequest`` so every provider sees exactly
+  one request with all returns per response.
 
-On retry (after a provider rejection):
+On retry (after a provider rejection, two levels):
 
-- ``demote_thinking`` -- converts ``ThinkingPart`` to
-  ``TextPart`` wrapped in ``<thinking>`` tags.
-- ``flatten_tool_exchanges`` -- converts ``ToolCallPart`` /
-  ``ToolReturnPart`` to plain text, removing structural pairing.
+- ``consolidate_tool_returns`` (level 1) -- restructures tool
+  returns so each response's returns are in one request.
+  Handles cross-provider pairing mismatches without destroying
+  content.  Recorded as ``consolidate_tool_returns`` strategy.
+- ``demote_thinking`` (level 2) -- converts ``ThinkingPart``
+  to ``TextPart`` wrapped in ``<thinking>`` tags.
+- ``flatten_tool_exchanges`` (level 2, last resort) -- converts
+  ``ToolCallPart`` / ``ToolReturnPart`` to plain text,
+  removing structural pairing entirely.  Recorded as
+  ``simplify_history`` strategy.
 
 On compaction (when splitting history):
 
@@ -44,7 +54,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from pydantic_ai.messages import (
@@ -126,6 +135,10 @@ def is_history_format_error(exc: Exception) -> bool:
     # Unpaired tool calls: "tool_use ids ... without tool_result blocks"
     if "tool_use" in msg and "tool_result" in msg:
         return True
+    # Gemini: "number of function response parts is equal to the number
+    # of function call parts"
+    if "function call" in msg and "function response" in msg:
+        return True
     # Orphaned tool return: "No tool call found for function call output"
     if "no tool call found" in msg and "function call output" in msg:
         return True
@@ -166,6 +179,121 @@ def demote_thinking(history: list[ModelMessage]) -> DemoteResult:
     return DemoteResult(history=cleaned, parts_demoted=parts_demoted)
 
 
+def _is_exact_tool_return(request: ModelRequest, expected_ids: set[str]) -> bool:
+    """True if *request* contains only tool returns matching *expected_ids*."""
+    returns = [p for p in request.parts if isinstance(p, (ToolReturnPart, RetryPromptPart))]
+    return len(returns) == len(request.parts) and {p.tool_call_id for p in returns} == expected_ids
+
+
+@dataclass(frozen=True, slots=True)
+class ConsolidateResult:
+    """Result of ``consolidate_tool_returns``."""
+
+    history: list[ModelMessage]
+    turns_fixed: int
+
+
+def consolidate_tool_returns(history: list[ModelMessage]) -> ConsolidateResult:
+    """Restructure tool returns so each response's returns are in one request.
+
+    Providers require that a model turn with N tool calls is followed
+    by exactly one user turn with N tool results.  Valid histories can
+    violate this when:
+
+    * Tool returns are scattered across multiple ``ModelRequest``\\s
+      (e.g. after compaction or mid-turn cancellation).
+    * A ``ModelRequest`` mixes ``ToolReturnPart``\\s with
+      ``UserPromptPart``\\s — some adapters split these into separate
+      content objects, breaking the count.
+
+    This function consolidates: for each ``ModelResponse`` with tool
+    calls, it collects all matching ``ToolReturnPart``\\s and
+    ``RetryPromptPart``\\s (by ``tool_call_id``) from subsequent
+    requests, places them in a single ``ModelRequest`` immediately
+    after the response, and moves non-tool parts to a separate
+    request.  All content is preserved — only the grouping changes.
+
+    Lighter than ``flatten_tool_exchanges`` (which destroys
+    structural pairing).  Used on the first retry; flatten is the
+    last resort.
+    """
+    if not history:
+        return ConsolidateResult(history=history, turns_fixed=0)
+
+    # Index: tool_call_id → part, for all tool returns in the history.
+    return_index: dict[str | None, ToolReturnPart | RetryPromptPart] = {
+        p.tool_call_id: p
+        for msg in history
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+        if isinstance(p, (ToolReturnPart, RetryPromptPart)) and p.tool_call_id
+    }
+
+    rebuilt: list[ModelMessage] = []
+    consumed_ids: set[str | None] = set()  # tool_call_ids placed by consolidation
+    turns_fixed = 0
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        if isinstance(msg, ModelResponse):
+            call_ids = [p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)]
+            if call_ids:
+                # Skip if next request already has exactly the right
+                # returns and nothing else.
+                next_msg = history[i + 1] if i + 1 < len(history) else None
+                expected = set(call_ids)
+                if isinstance(next_msg, ModelRequest) and _is_exact_tool_return(next_msg, expected):
+                    rebuilt.append(msg)
+                    rebuilt.append(next_msg)
+                    consumed_ids.update(call_ids)
+                    i += 2
+                    continue
+
+                # Collect returns for these calls from anywhere in
+                # the history.
+                returns: list[ModelRequestPart] = []
+                for cid in call_ids:
+                    ret = return_index.get(cid)
+                    if ret is not None:
+                        returns.append(ret)
+                        consumed_ids.add(cid)
+                    else:
+                        returns.append(
+                            ToolReturnPart(
+                                tool_name="unknown",
+                                content="(cancelled)",
+                                tool_call_id=cid,
+                            )
+                        )
+
+                rebuilt.append(msg)
+                rebuilt.append(ModelRequest(parts=returns))
+                turns_fixed += 1
+                i += 1
+                continue
+
+        # For ModelRequests, strip out parts that were already consumed
+        # by consolidation and keep the rest.
+        if isinstance(msg, ModelRequest):
+            remaining = [
+                p
+                for p in msg.parts
+                if not (
+                    isinstance(p, (ToolReturnPart, RetryPromptPart))
+                    and p.tool_call_id in consumed_ids
+                )
+            ]
+            if remaining:
+                rebuilt.append(replace(msg, parts=remaining))
+        else:
+            rebuilt.append(msg)
+        i += 1
+
+    if turns_fixed:
+        return ConsolidateResult(history=rebuilt, turns_fixed=turns_fixed)
+    return ConsolidateResult(history=history, turns_fixed=0)
+
+
 def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
     """Convert tool-call exchanges into plain text.
 
@@ -197,19 +325,14 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
     When it runs
     ~~~~~~~~~~~~
 
-    Never on the first attempt.  The normal path is:
+    Never on the first attempt.  The retry path is:
 
-    1. ``repair_dangling_tool_calls`` fixes orphaned tool calls
-       (Ctrl+C mid-turn).
-    2. PydanticAI's ``_clean_message_history`` merges consecutive
-       same-role messages so the provider adapter sees alternating
-       ``user`` / ``assistant`` turns.
-    3. The provider adapter converts the internal messages.
+    1. Level 0: ``repair_dangling_tool_calls`` on load.
+    2. Level 1: ``consolidate_tool_returns`` (restructure only).
+    3. Level 2: ``demote_thinking`` + *this function* (last resort).
 
-    If step 3 still produces a 400 error that
-    ``is_history_format_error`` matches, ``handle_llm`` retries once
-    with ``simplify_history=True``, which calls *this* function
-    (alongside ``demote_thinking``).
+    This function only runs at level 2 — after consolidation
+    failed to satisfy the provider.
     """
     cleaned: list[ModelMessage] = []
     tool_calls_flattened = 0
@@ -221,17 +344,22 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
             for rp in msg.parts:
                 if isinstance(rp, ToolCallPart):
                     tool_calls_flattened += 1
-                    resp_parts.append(_flatten_response_part(rp))
+                    label = f"[Repaired historical tool call -- {rp.tool_name}({format_tool_args(rp.args)})]"
+                    resp_parts.append(TextPart(content=label))
                 else:
                     resp_parts.append(rp)
             cleaned.append(ModelResponse(parts=resp_parts, model_name=msg.model_name))
         elif isinstance(msg, ModelRequest):
+            req_parts: list[ModelRequestPart] = []
             for qp in msg.parts:
                 if isinstance(qp, ToolReturnPart):
                     tool_returns_flattened += 1
+                    text = f"[Repaired historical tool result -- {qp.tool_name}]\n{qp.content}"
+                    req_parts.append(UserPromptPart(content=text))
                 elif isinstance(qp, RetryPromptPart):
                     retry_prompts_dropped += 1
-            req_parts = _flatten_request_parts(msg.parts)
+                else:
+                    req_parts.append(qp)
             if req_parts:
                 cleaned.append(ModelRequest(parts=req_parts))
         else:
@@ -244,81 +372,44 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
     )
 
 
-def _flatten_response_part(part: ModelResponsePart) -> ModelResponsePart:
-    """Convert a single response part for ``flatten_tool_exchanges``.
-
-    ``ToolCallPart`` → ``TextPart`` with a bracketed summary that
-    preserves the tool name and arguments.  All other part types
-    (``TextPart``, ``ThinkingPart``, etc.) pass through unchanged.
-    """
-    if not isinstance(part, ToolCallPart):
-        return part
-    return TextPart(
-        content=f"[Repaired historical tool call -- {part.tool_name}({format_tool_args(part.args)})]"
-    )
-
-
-def _flatten_request_parts(
-    parts: Sequence[ModelRequestPart],
-) -> list[ModelRequestPart]:
-    """Convert request parts for ``flatten_tool_exchanges``.
-
-    ``ToolReturnPart`` → ``UserPromptPart`` with the tool output
-    prefixed by the tool name.  ``RetryPromptPart`` is dropped
-    (retries are provider-internal and meaningless after a model
-    switch).  All other parts (``UserPromptPart``,
-    ``SystemPromptPart``) pass through unchanged.
-    """
-    out: list[ModelRequestPart] = []
-    for p in parts:
-        if isinstance(p, ToolReturnPart):
-            text = f"[Repaired historical tool result -- {p.tool_name}]\n{p.content}"
-            out.append(UserPromptPart(content=text))
-        elif isinstance(p, RetryPromptPart):
-            continue
-        else:
-            out.append(p)
-    return out
-
-
 # ── Dangling tool-call repair ────────────────────────────────────────
 
 
 def repair_dangling_tool_calls(
     history: list[ModelMessage],
-) -> tuple[list[ModelMessage], list[str], list[ModelMessage]]:
+) -> tuple[list[ModelMessage], list[str]]:
     """Fix history left dirty by a cancelled tool-calling turn.
 
     Part of the tool-call pairing invariant (see module docstring).
     For each ``ModelResponse`` with ``ToolCallPart``\\s, checks whether
     every call has a matching ``ToolReturnPart`` *anywhere* in the
     history.  Injects a synthetic ``(cancelled)`` result for any
-    truly unmatched call.
+    truly unmatched call.  When partial results already exist in the
+    next ``ModelRequest``, synthetic returns are merged into it so
+    every provider sees exactly one request with all returns.
 
-    Called once on session load — not during normal operation.
+    Applied transiently on each session load — the persisted history
+    is never modified.
 
-    Returns ``(repaired_history, tool_names, new_messages)`` where
-    *tool_names* lists every tool that was patched (empty if no
-    repair needed), and *new_messages* contains only the synthetic
-    ``ModelRequest``\\s that were injected (for persistence).
+    Returns ``(repaired_history, tool_names)`` where *tool_names*
+    lists every tool that was patched (empty if no repair needed).
     """
     if not history:
-        return history, [], []
+        return history, []
 
-    # First pass: collect all tool_call_ids that already have a
-    # ToolReturnPart or RetryPromptPart anywhere in the history.
-    # This prevents false positives when a user prompt is
-    # interleaved between tool calls and their returns.
-    globally_answered: set[str | None] = set()
-    for msg in history:
-        if isinstance(msg, ModelRequest):
-            for p in msg.parts:
-                if isinstance(p, (ToolReturnPart, RetryPromptPart)):
-                    globally_answered.add(p.tool_call_id)
+    # Collect all tool_call_ids that already have a matching return
+    # anywhere in the history — prevents false positives when a user
+    # prompt is interleaved between calls and returns.
+    globally_answered: set[str | None] = {
+        p.tool_call_id
+        for msg in history
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+        if isinstance(p, (ToolReturnPart, RetryPromptPart))
+    }
 
     repaired: list[ModelMessage] | None = None  # lazy copy
     all_tool_names: list[str] = []
-    new_messages: list[ModelMessage] = []
 
     i = 0
     while i < len(history):
@@ -332,33 +423,37 @@ def repair_dangling_tool_calls(
                         repaired = list(history[:i])
                     repaired.append(msg)
 
-                    # Check if the immediately next message has partial
-                    # results — keep it as-is if so.
-                    next_msg = history[i + 1] if i + 1 < len(history) else None
-                    if isinstance(next_msg, ModelRequest) and any(
-                        isinstance(p, (ToolReturnPart, RetryPromptPart)) for p in next_msg.parts
-                    ):
-                        repaired.append(next_msg)
-                        i += 1  # skip next_msg, already added
-
                     names = [tc.tool_name for tc in missing]
                     all_tool_names.extend(names)
                     log.info(
                         "Repairing %d dangling tool call(s) from cancelled turn.",
                         len(missing),
                     )
-                    synthetic = ModelRequest(
-                        parts=[
-                            ToolReturnPart(
-                                tool_name=tc.tool_name,
-                                content="(cancelled)",
-                                tool_call_id=tc.tool_call_id,
-                            )
-                            for tc in missing
-                        ],
-                    )
-                    repaired.append(synthetic)
-                    new_messages.append(synthetic)
+                    synthetic_parts: list[ModelRequestPart] = [
+                        ToolReturnPart(
+                            tool_name=tc.tool_name,
+                            content="(cancelled)",
+                            tool_call_id=tc.tool_call_id,
+                        )
+                        for tc in missing
+                    ]
+
+                    # Merge synthetic returns into the existing request
+                    # so the provider sees one request with ALL returns
+                    # for this response.  Gemini (and others) require
+                    # the count to match exactly.
+                    next_msg = history[i + 1] if i + 1 < len(history) else None
+                    if isinstance(next_msg, ModelRequest) and any(
+                        isinstance(p, (ToolReturnPart, RetryPromptPart)) for p in next_msg.parts
+                    ):
+                        merged = replace(
+                            next_msg,
+                            parts=list(next_msg.parts) + synthetic_parts,
+                        )
+                        repaired.append(merged)
+                        i += 1  # skip next_msg, replaced by merged
+                    else:
+                        repaired.append(ModelRequest(parts=synthetic_parts))
                     i += 1
                     continue
         if repaired is not None:
@@ -366,8 +461,8 @@ def repair_dangling_tool_calls(
         i += 1
 
     if repaired is not None:
-        return repaired, all_tool_names, new_messages
-    return history, [], []
+        return repaired, all_tool_names
+    return history, []
 
 
 # ── Compaction helpers ───────────────────────────────────────────────
@@ -375,53 +470,9 @@ def repair_dangling_tool_calls(
 _SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
 
 
-def _is_user_turn_start(msg: ModelMessage) -> bool:
-    """True if *msg* begins a new user turn.
-
-    A turn starts with a ``ModelRequest`` containing at least one
-    ``UserPromptPart`` (as opposed to tool-return-only requests).
-    """
-    if not isinstance(msg, ModelRequest):
-        return False
-    return any(isinstance(p, UserPromptPart) for p in msg.parts)
-
-
-def _collect_tool_call_ids(messages: list[ModelMessage]) -> set[str]:
-    """Return the set of ``tool_call_id`` values from all ``ToolCallPart``\\s.
-
-    Used by ``split_history`` to determine which tool returns in the
-    *kept* partition still have their matching call.
-    """
-    ids: set[str] = set()
-    for msg in messages:
-        if isinstance(msg, ModelResponse):
-            for part in msg.parts:
-                if isinstance(part, ToolCallPart) and part.tool_call_id:
-                    ids.add(part.tool_call_id)
-    return ids
-
-
-def _is_orphaned_tool_return(msg: ModelMessage, known_call_ids: set[str]) -> bool:
-    """True if *msg* is a tool-return-only request with no matching call.
-
-    A message is orphaned when:
-    1. It is a ``ModelRequest`` with no ``UserPromptPart``.
-    2. It contains only ``ToolReturnPart``\\s.
-    3. None of those return IDs appear in *known_call_ids*.
-
-    Messages with a ``UserPromptPart`` are never orphaned — they
-    carry user intent regardless of any tool returns alongside them.
-    """
-    if not isinstance(msg, ModelRequest):
-        return False
-    if any(isinstance(p, UserPromptPart) for p in msg.parts):
-        return False
-    tool_returns = [
-        p for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id is not None
-    ]
-    if not tool_returns:
-        return False
-    return all(p.tool_call_id not in known_call_ids for p in tool_returns)
+def _has_user_prompt(msg: ModelMessage) -> bool:
+    """True if *msg* is a ``ModelRequest`` containing a ``UserPromptPart``."""
+    return isinstance(msg, ModelRequest) and any(isinstance(p, UserPromptPart) for p in msg.parts)
 
 
 def split_history(
@@ -441,21 +492,32 @@ def split_history(
     ``kept`` whose ``tool_call_id`` has no matching ``ToolCallPart``
     in ``kept`` are moved to ``old`` to prevent orphaned tool returns.
     """
-    # Find indices where each user turn starts.
-    turn_starts: list[int] = [i for i, msg in enumerate(history) if _is_user_turn_start(msg)]
+    turn_starts = [i for i, msg in enumerate(history) if _has_user_prompt(msg)]
 
     if len(turn_starts) <= keep_turns:
         return [], list(history)
 
-    # The cut point is where the kept turns begin.
     cut = turn_starts[-keep_turns]
     old, kept = list(history[:cut]), list(history[cut:])
 
-    # Move orphaned tool-return requests into old.
-    kept_call_ids = _collect_tool_call_ids(kept)
+    # Collect tool-call IDs present in the kept partition.
+    kept_call_ids = {
+        part.tool_call_id
+        for msg in kept
+        if isinstance(msg, ModelResponse)
+        for part in msg.parts
+        if isinstance(part, ToolCallPart) and part.tool_call_id
+    }
+
+    # Move orphaned tool-return-only requests to old.
     clean: list[ModelMessage] = []
     for msg in kept:
-        if _is_orphaned_tool_return(msg, kept_call_ids):
+        return_ids = (
+            {p.tool_call_id for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id}
+            if isinstance(msg, ModelRequest) and not _has_user_prompt(msg)
+            else set()
+        )
+        if return_ids and return_ids.isdisjoint(kept_call_ids):
             old.append(msg)
         else:
             clean.append(msg)

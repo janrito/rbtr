@@ -589,7 +589,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
     When the provider adapter calls ``args_as_dict()`` on a
     ``ToolCallPart`` with malformed JSON args, a ``ValueError``
     is raised.  ``handle_llm`` should catch it and retry with
-    ``simplify_history=True`` (which flattens tool exchanges
+    ``history_repair_level=1`` (which flattens tool exchanges
     to plain text).
     """
     from rbtr.llm.stream import handle_llm
@@ -606,7 +606,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
         model: object,
         msg: str,
         *,
-        simplify_history: bool = False,
+        history_repair_level: int = 0,
     ) -> None:
         nonlocal call_count
         call_count += 1
@@ -619,7 +619,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 
     assert call_count == 2
 
-    # Incident: tool_args failure with simplify_history strategy.
+    # Incident: tool_args failure with simplified-history strategy.
     incidents = _failure_incidents(engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TOOL_ARGS
@@ -655,7 +655,7 @@ def test_handle_llm_retries_on_type_error(
         model: object,
         msg: str,
         *,
-        simplify_history: bool = False,
+        history_repair_level: int = 0,
     ) -> None:
         nonlocal call_count
         call_count += 1
@@ -668,7 +668,7 @@ def test_handle_llm_retries_on_type_error(
 
     assert call_count == 2
 
-    # Incident: type_error failure with simplify_history strategy.
+    # Incident: type_error failure with simplified-history strategy.
     incidents = _failure_incidents(engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TYPE_ERROR
@@ -690,7 +690,7 @@ def test_handle_llm_retries_on_history_format_error(
 
     When the provider rejects history due to reasoning IDs, unpaired
     tool calls, or other provider-specific metadata, ``handle_llm``
-    retries with ``simplify_history=True``.
+    retries with ``history_repair_level=1``.
     """
     from rbtr.llm.stream import handle_llm
 
@@ -706,7 +706,7 @@ def test_handle_llm_retries_on_history_format_error(
         model: object,
         msg: str,
         *,
-        simplify_history: bool = False,
+        history_repair_level: int = 0,
     ) -> None:
         nonlocal call_count
         call_count += 1
@@ -722,14 +722,14 @@ def test_handle_llm_retries_on_history_format_error(
 
     assert call_count == 2
 
-    # Incident: history_format failure with simplify_history strategy.
+    # Incident: history_format failure → first retry uses consolidation.
     failed = _failed_request_rows(engine)
     assert len(failed) == 1
 
     incidents = _failure_incidents(engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.HISTORY_FORMAT
-    assert incidents[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
+    assert incidents[0].strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
     assert incidents[0].status_code == HTTPStatus.BAD_REQUEST
 
@@ -759,9 +759,9 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
         model: object,
         msg: str,
         *,
-        simplify_history: bool = False,
+        history_repair_level: int = 0,
     ) -> None:
-        if not simplify_history:
+        if history_repair_level == 0:
             raise TypeError("'NoneType' object is not subscriptable")
         # Retry also fails with a different error.
         raise TypeError("unexpected null in message builder")
@@ -870,7 +870,8 @@ def test_simplify_history_persists_incidents(
     engine.state.model_name = "openai/gpt-4o"
     engine._sync_store_context()
 
-    # Seed history with thinking parts and tool exchanges.
+    # Seed history with a mixed request (tool return + user prompt)
+    # that consolidation will split, plus thinking parts.
     history: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="review this")]),
         ModelResponse(
@@ -881,9 +882,11 @@ def test_simplify_history_persists_incidents(
             ],
             model_name="test",
         ),
+        # Mixed: tool return + user prompt triggers consolidation.
         ModelRequest(
             parts=[
                 ToolReturnPart(tool_name="read_file", content="file contents", tool_call_id="tc1"),
+                UserPromptPart(content="also check tests"),
             ]
         ),
         ModelResponse(
@@ -930,13 +933,8 @@ def test_simplify_history_persists_incidents(
     assert failures[0].failure_kind == FailureKind.HISTORY_FORMAT
     assert failures[0].outcome == IncidentOutcome.RECOVERED
 
-    # Incident: LLM_HISTORY_REPAIR rows for demote + flatten.
+    # Incident: LLM_HISTORY_REPAIR for consolidation (level 1 retry).
     repairs = _repair_incidents(engine)
-    demote = [r for r in repairs if r.strategy == RecoveryStrategy.DEMOTE_THINKING]
-    assert len(demote) == 1
-    assert demote[0].parts_demoted == 2  # 2 ThinkingParts
-
-    flatten = [r for r in repairs if r.strategy == RecoveryStrategy.FLATTEN_TOOL_EXCHANGES]
-    assert len(flatten) == 1
-    assert flatten[0].tool_calls_flattened == 1
-    assert flatten[0].tool_returns_flattened == 1
+    consolidate = [r for r in repairs if r.strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS]
+    assert len(consolidate) == 1
+    assert consolidate[0].turns_fixed == 1

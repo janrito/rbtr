@@ -215,7 +215,7 @@ class RecoveryStrategy(StrEnum):
     """
 
     SIMPLIFY_HISTORY = "simplify_history"
-    """``demote_thinking`` + ``flatten_tool_exchanges``, then retry."""
+    """Level 2: ``demote_thinking`` + ``flatten_tool_exchanges``, then retry."""
 
     COMPACT_THEN_RETRY = "compact_then_retry"
     """``compact_history``, then retry with compacted context."""
@@ -229,8 +229,11 @@ class RecoveryStrategy(StrEnum):
     DEMOTE_THINKING = "demote_thinking"
     """Convert ``ThinkingPart`` to ``TextPart`` with ``<thinking>`` tags."""
 
+    CONSOLIDATE_TOOL_RETURNS = "consolidate_tool_returns"
+    """Restructure tool returns so each response's returns are in one request."""
+
     FLATTEN_TOOL_EXCHANGES = "flatten_tool_exchanges"
-    """Convert tool-call/result pairs to plain text."""
+    """Convert tool-call/result pairs to plain text (last resort)."""
 
     NONE = "none"
     """No recovery attempted (unrecoverable failure)."""
@@ -374,6 +377,11 @@ class HistoryRepair(BaseModel, extra="ignore"):
 
     call_count: int | None = None
     """Number of tool calls patched."""
+
+    # ── CONSOLIDATE_TOOL_RETURNS detail ────────────────────────────
+
+    turns_fixed: int | None = None
+    """Number of tool-call turns whose returns were restructured."""
 
     # ── DEMOTE_THINKING detail ───────────────────────────────────
 

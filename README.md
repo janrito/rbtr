@@ -436,41 +436,52 @@ its matching tool results are not orphaned.
 **Dangling tool calls.** Ctrl+C or a crash during tool execution
 leaves tool calls with no matching result. Every provider rejects
 unpaired tool calls. rbtr injects a synthetic tool result with
-content `(cancelled)` for each unmatched call in memory. The
-repair runs on every load and produces the same result — the
+content `(cancelled)` for each unmatched call in memory. When
+partial results already exist (some tools completed before
+cancellation), the synthetic returns are merged into the same
+request so the provider sees exactly one response with all
+returns — providers like Gemini enforce strict count matching.
+The repair runs on every load and produces the same result — the
 database retains the original dangling state.
 
 #### On retry
 
 When the first API call fails with a provider rejection, rbtr
-retries once with simplified history. Both transforms below are
-applied together in memory — the original messages remain in the
+retries with escalating history simplification.  All transforms
+are applied in memory — the original messages remain in the
 database unchanged. The next turn with a compatible provider uses
 the original history.
 
-**Thinking-part metadata.** Providers embed reasoning IDs in
-thinking parts (`rs_*`, `reasoning_content`). A different
-provider rejects them. rbtr converts thinking parts to plain text
-wrapped in `<thinking>` tags — content preserved, metadata
-stripped.
+**Level 1 — consolidate tool returns.** Restructures tool
+call/return grouping without destroying content.  Each model
+response's matching tool returns are collected into a single
+request immediately after it — even when they were scattered
+across multiple requests or mixed with user prompts.  This
+handles the most common cross-provider issue: switching to a
+provider with stricter pairing rules (e.g. Gemini requiring
+exact function-response counts per turn).
 
-**Incompatible tool-exchange structure.** Each provider encodes
-tool calls and results differently. Complex histories —
-multi-turn chains, compaction boundaries, cross-provider
-tool-call ID formats — can produce structures the target adapter
-rejects. Some OpenAI-compatible endpoints also reject null
-content on assistant messages that contain only tool calls, or
-crash in the adapter on unexpected null values. rbtr converts
-tool calls and results to plain text:
-`[Repaired historical tool call -- tool_name(args)]`
-and `[tool_name result]\n…`. All content survives as readable
-text; only the machine-level pairing is removed.
+**Level 2 — demote thinking + flatten tool exchanges.** If
+consolidation still fails, rbtr retries with heavier transforms:
+
+- *Thinking-part metadata.*  Providers embed reasoning IDs in
+  thinking parts (`rs_*`, `reasoning_content`). A different
+  provider rejects them. rbtr converts thinking parts to plain
+  text wrapped in `<thinking>` tags — content preserved,
+  metadata stripped.
+
+- *Flatten tool exchanges (last resort).* Converts tool calls
+  and results to plain text:
+  `[Repaired historical tool call -- tool_name(args)]`
+  and `[tool_name result]\n…`. All content survives as readable
+  text; only the machine-level pairing is removed.
 
 The retry triggers on HTTP 400 errors matching format-rejection
 patterns (unpaired tool calls, orphaned tool returns, missing
-required fields, reasoning-ID mismatches), on `ValueError` from
-malformed tool-call args that survived load-time repair, and on
-`TypeError` from adapter crashes on unexpected null values.
+required fields, reasoning-ID mismatches, function-call count
+mismatches), on `ValueError` from malformed tool-call args that
+survived load-time repair, and on `TypeError` from adapter
+crashes on unexpected null values.
 
 #### On compaction
 
@@ -580,10 +591,11 @@ when they exist:
     history_format                 2   recovered: 2
     overflow                       1   recovered: 1
 
-  History repairs (5)
+  History repairs (6)
     repair_dangling                1   (cancelled_mid_tool_call)
+    consolidate_tool_returns       2   (cross_provider_retry)
     demote_thinking                2   (cross_provider_retry)
-    flatten_tool_exchanges         2   (cross_provider_retry)
+    flatten_tool_exchanges         1   (cross_provider_retry)
 
   Recovery rate       100%   3/3
 ```
