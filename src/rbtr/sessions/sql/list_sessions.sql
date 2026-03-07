@@ -5,7 +5,9 @@ SELECT
   COUNT(DISTINCT p.message_id) AS message_count,
   SUM(COALESCE(p.cost, 0)) AS total_cost,
   MAX(p.model_name) AS model_name,
-  MAX(p.review_target) AS review_target
+  MAX(p.review_target) AS review_target,
+  MAX(p.repo_owner) AS repo_owner,
+  MAX(p.repo_name) AS repo_name
 FROM fragments AS p
 WHERE
   p.fragment_kind IN ('request-message', 'response-message')

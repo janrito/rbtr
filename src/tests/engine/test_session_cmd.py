@@ -36,10 +36,12 @@ def double_seeded_engine(seeded_engine: Engine) -> Engine:
     first_id = engine.state.session_id
 
     engine.state.session_id = engine.store.new_id()
+    engine.state.session_label = "auth review"
     _seed(engine, [_user("second"), _assistant("reply")], cost=0.02)
 
     # Switch back to first.
     engine.state.session_id = first_id
+    engine.state.session_label = seeded_engine.state.session_label
 
     drain(engine.events)
     return engine
@@ -134,6 +136,53 @@ def test_info_shows_session_details(seeded_engine: Engine) -> None:
     assert "testowner/testrepo" in combined
 
 
+# ── /session rename ──────────────────────────────────────────────────
+
+
+def test_rename_updates_label(seeded_engine: Engine) -> None:
+    """Rename updates both engine state and persisted fragments."""
+    engine = seeded_engine
+    engine.run_task("command", "/session rename my review")
+    texts = output_texts(drain(engine.events))
+    assert any("my review" in t for t in texts)
+    assert engine.state.session_label == "my review"
+
+    # Verify the label is persisted.
+    sessions = engine.store.list_sessions()
+    current = next(s for s in sessions if s.session_id == engine.state.session_id)
+    assert current.session_label == "my review"
+
+
+def test_rename_no_args(seeded_engine: Engine) -> None:
+    engine = seeded_engine
+    engine.run_task("command", "/session rename")
+    texts = output_texts(drain(engine.events))
+    assert any("Usage" in t for t in texts)
+
+
+# ── /session history ──────────────────────────────────────────────────
+
+
+def test_history_shows_inputs(seeded_engine: Engine) -> None:
+    """History lists user inputs oldest-first."""
+    engine = seeded_engine
+    engine.run_task("command", "/session history")
+    texts = output_texts(drain(engine.events))
+    # The seeded session has at least one user message ("hello").
+    numbered = [t for t in texts if t.strip().startswith("1.")]
+    assert numbered
+
+
+def test_history_empty_session(engine: Engine) -> None:
+    """History on a session with no messages shows a friendly message."""
+    engine.run_task("command", "/session history")
+    drain(engine.events)
+    # Run again to capture output (first run may have setup noise).
+    engine.run_task("command", "/session history")
+    texts = output_texts(drain(engine.events))
+    assert any("No inputs" in t for t in texts)
+
+
 # ── /session resume ──────────────────────────────────────────────────
 
 
@@ -154,6 +203,41 @@ def test_resume_loads_messages(double_seeded_engine: Engine) -> None:
     assert engine.state.usage.turn_count == ts.total_turns
     assert engine.state.usage.response_count == ts.total_responses
     assert engine.state.usage.total_cost == ts.total_cost
+
+
+def test_resume_by_label(double_seeded_engine: Engine) -> None:
+    """Resume finds a session by label substring."""
+    engine = double_seeded_engine
+    second_id = _other_session_id(engine)
+
+    engine.run_task("command", "/session resume auth")
+    texts = output_texts(drain(engine.events))
+    assert any("Resumed" in t for t in texts)
+    assert engine.state.session_id == second_id
+
+
+def test_resume_cross_repo_skips_review_target(seeded_engine: Engine) -> None:
+    """Resuming a session from a different repo skips its review target."""
+    engine = seeded_engine
+    other_id = engine.store.new_id()
+    # Seed a session belonging to a different repo with a review target.
+    # Use set_context + save_input so review_target propagates to the row.
+    engine.store.set_context(
+        session_id=other_id,
+        session_label="other/lib — main → fix",
+        repo_owner="other",
+        repo_name="lib",
+        review_target="fix",
+    )
+    engine.store.save_messages(other_id, [_user("cross-repo")])
+    engine.store.save_input(other_id, "/review fix", "command")
+
+    engine.run_task("command", f"/session resume {other_id}")
+    texts = output_texts(drain(engine.events))
+    assert any("Resumed" in t for t in texts)
+    # Review target from other/lib should be skipped, not restored.
+    assert any("skipped" in t.lower() for t in texts)
+    assert engine.state.review_target is None
 
 
 def test_resume_already_active(seeded_engine: Engine) -> None:

@@ -501,10 +501,21 @@ resumed with `/session resume`.
 /session              List recent sessions (current repo)
 /session all          List sessions across all repos
 /session info         Show current session details
-/session resume <id>  Resume a previous session (prefix match)
-/session delete <id>  Delete a session by ID (prefix match)
+/session rename <n>   Rename the current session
+/session resume <q>   Resume a session (ID prefix or label)
+/session delete <id>  Delete a session by ID prefix
 /session purge 7d     Delete sessions older than 7 days
 ```
+
+**`/session rename`** changes the label on the current session.
+Labels are set automatically when a review target is selected
+(e.g. `acme/app — main → feature-x`), but you can override
+them with any name.
+
+**`/session resume`** accepts an ID prefix or a label substring
+(case-insensitive).  ID prefix is tried first; if no match,
+the label is searched.  When several sessions share a label the
+most recent one is picked.
 
 **`/session resume`** loads the target session's messages from the
 database and switches the active session ID. The conversation
@@ -514,15 +525,17 @@ automatically restored — rbtr re-runs `/review` to fetch fresh
 metadata and rebuild the code index.
 You can resume sessions from different repos or different models.
 
-**`/session delete`** removes all fragments for a session
-(cascading via foreign keys). You cannot delete the active
-session — use `/new` first.
+**`/session delete`** requires an exact ID prefix — no label
+matching, to prevent accidental deletion.  Removes all fragments
+for the session (cascading via foreign keys). You cannot delete
+the active session — use `/new` first.
 
 ### Automatic behaviour
 
 - **New session on startup.** Each `rbtr` invocation starts a fresh
-  session, labelled with the current repo and branch
-  (e.g. `acme/app — main`).
+  session, labelled with the current repo and branch. When you
+  select a review target, the label updates to show the base and
+  head branches (e.g. `acme/app — main → feature-x`).
 - **Streaming persistence.** Parts are saved to the database as
   they arrive from the model, not batched after the turn.
 - **Input history from the database.** Up/Down arrow browses input

@@ -96,6 +96,7 @@ _DELETE_SESSION_SQL = _load_sql("delete_session.sql")
 _DELETE_OLD_SESSIONS_SQL = _load_sql("delete_old_sessions.sql")
 _DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
+_SESSION_HISTORY_SQL = _load_sql("session_history.sql")
 _GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
 _COMPLETE_MESSAGE_SQL = _load_sql("complete_message.sql")
 _FIND_LATEST_SUMMARY_SQL = _load_sql("find_latest_summary.sql")
@@ -119,6 +120,8 @@ class SessionSummary:
     total_cost: float
     model_name: str | None
     review_target: str | None
+    repo_owner: str | None
+    repo_name: str | None
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────
@@ -362,6 +365,7 @@ class SessionStore:
             repo_owner=repo_owner or self._ctx.repo_owner,
             repo_name=repo_name or self._ctx.repo_name,
             model_name=model_name or self._ctx.model_name,
+            review_target=self._ctx.review_target,
         )
         rows: list[Fragment] = []
         message_ids: list[str] = []
@@ -686,9 +690,19 @@ class SessionStore:
                 total_cost=float(row["total_cost"]),
                 model_name=row["model_name"],
                 review_target=row["review_target"],
+                repo_owner=row["repo_owner"],
+                repo_name=row["repo_name"],
             )
             for row in rows
         ]
+
+    def session_history(self, session_id: str, limit: int = 10) -> list[str]:
+        """Return the most recent user inputs for a session (newest first)."""
+        rows = self._con.execute(
+            _SESSION_HISTORY_SQL,
+            [session_id, limit],
+        ).fetchall()
+        return [row["user_text"] for row in rows]
 
     def search_history(
         self,
@@ -734,6 +748,18 @@ class SessionStore:
     def global_incident_stats(self) -> IncidentStats:
         """Return failure and repair incident stats across all sessions."""
         return _global_incident_stats(self._con)
+
+    def update_session_label(self, session_id: str, label: str) -> int:
+        """Update the label on all fragments for a session.
+
+        Returns the number of rows updated.
+        """
+        with self._lock, self._con:
+            cur = self._con.execute(
+                "UPDATE fragments SET session_label = ? WHERE session_id = ?",
+                [label, session_id],
+            )
+            return cur.rowcount
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

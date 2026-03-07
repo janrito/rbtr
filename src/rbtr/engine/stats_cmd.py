@@ -43,20 +43,12 @@ def _cmd_current(engine: Engine) -> None:
 # ── /stats <session_id> ─────────────────────────────────────────────
 
 
-def _cmd_historical(engine: Engine, prefix: str) -> None:
-    sessions = engine.store.list_sessions(limit=200)
-    matches = [s for s in sessions if s.session_id.startswith(prefix)]
+def _cmd_historical(engine: Engine, query: str) -> None:
+    from rbtr.engine.session_cmd import _find_session
 
-    if not matches:
-        engine._warn(f"No session matching '{prefix}'.")
+    target = _find_session(engine, query)
+    if target is None:
         return
-    if len(matches) > 1:
-        engine._warn(f"Ambiguous prefix '{prefix}' — matches {len(matches)} sessions.")
-        for s in matches[:5]:
-            _out(engine, f"  {s.session_id[:12]}  {s.session_label or '—'}")
-        return
-
-    target = matches[0]
     sid = target.session_id
     ts = engine.store.token_stats(sid)
     tools = engine.store.tool_stats(sid)

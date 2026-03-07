@@ -349,32 +349,44 @@ class UI:
         self.inp.apply_completions(matches)
 
     def _complete_session(self, arg: str) -> None:
-        """Complete /session subcommands and session IDs for resume/delete."""
+        """Complete /session subcommands and session IDs/labels for resume/delete."""
         sub_parts = arg.split(None, 1)
         subcmd = sub_parts[0] if sub_parts else arg
 
-        # Second-level: complete session ID after "resume" or "delete".
+        # Second-level: complete after "resume" or "delete".
         if subcmd in ("resume", "delete") and (
             len(sub_parts) == 2 or (len(sub_parts) == 1 and arg.endswith(" "))
         ):
-            partial_id = sub_parts[1] if len(sub_parts) == 2 else ""
+            partial = sub_parts[1] if len(sub_parts) == 2 else ""
             sessions = self._engine.store.list_sessions(limit=50)
             current = self._engine.state.session_id
-            matches = [
-                (
-                    f"/session {subcmd} {s.session_id[:12]}",
-                    s.session_label or s.session_id[:8],
-                )
-                for s in sessions
-                if s.session_id != current and s.session_id[:12].startswith(partial_id)
-            ]
+            lower = partial.lower()
+            matches: list[tuple[str, str]] = []
+            for s in sessions:
+                if s.session_id == current:
+                    continue
+                short_id = s.session_id[:12]
+                label = s.session_label or ""
+                if subcmd == "delete":
+                    # Delete requires exact ID prefix.
+                    if short_id.startswith(partial):
+                        matches.append((f"/session delete {short_id}", label or short_id[:8]))
+                elif short_id.startswith(partial):
+                    # ID prefix match — complete with the ID.
+                    matches.append((f"/session resume {short_id}", label or short_id[:8]))
+                elif label and lower in label.lower():
+                    # Label substring match — complete with the label
+                    # so common-prefix extension stays in label space.
+                    matches.append((f"/session resume {label}", short_id))
             self.inp.apply_completions(matches)
             return
 
         # First-level: complete subcommand name.
         subs = [
             ("all", "Sessions across all repos"),
+            ("history", "Last 10 inputs in this session"),
             ("info", "Current session details"),
+            ("rename", "Rename the current session"),
             ("resume", "Resume a previous session"),
             ("delete", "Delete a session by ID"),
             ("purge", "Delete sessions older than duration"),
@@ -383,17 +395,19 @@ class UI:
         self.inp.apply_completions(matches)
 
     def _complete_stats(self, arg: str) -> None:
-        """Complete /stats arguments: ``all`` or a session ID prefix."""
+        """Complete /stats arguments: ``all`` or session ID/label."""
         matches: list[tuple[str, str]] = []
         if "all".startswith(arg):
             matches.append(("/stats all", "Stats across all sessions"))
-        if not arg.startswith("-"):
-            sessions = self._engine.store.list_sessions(limit=50)
-            matches.extend(
-                (f"/stats {s.session_id[:12]}", s.session_label or s.session_id[:8])
-                for s in sessions
-                if s.session_id[:12].startswith(arg)
-            )
+        lower = arg.lower()
+        sessions = self._engine.store.list_sessions(limit=50)
+        for s in sessions:
+            short_id = s.session_id[:12]
+            label = s.session_label or ""
+            if short_id.startswith(arg):
+                matches.append((f"/stats {short_id}", label or short_id[:8]))
+            elif label and lower in label.lower():
+                matches.append((f"/stats {label}", short_id))
         self.inp.apply_completions(matches)
 
     def _complete_shell(self) -> None:

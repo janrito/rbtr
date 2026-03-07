@@ -45,8 +45,10 @@ _HELP = """\
   /session             List recent sessions (current repo)
   /session all         List sessions across all repos
   /session info        Show current session details
-  /session resume <id> Resume a previous session (prefix match)
-  /session delete <id> Delete a session by ID (prefix match)
+  /session rename <n>  Rename the current session
+  /session history     Show the last 10 inputs in this session
+  /session resume <q>  Resume a session (ID prefix or label)
+  /session delete <id> Delete a session by ID prefix
   /session purge <dur> Delete sessions older than duration (e.g. 7d, 2w)\
 """
 
@@ -64,10 +66,14 @@ def cmd_session(engine: Engine, args: str) -> None:
             _cmd_all(engine)
         case "info":
             _cmd_info(engine)
+        case "rename":
+            _cmd_rename(engine, rest)
         case "resume":
             _cmd_resume(engine, rest)
         case "resume-last":
             _cmd_resume_last(engine)
+        case "history":
+            _cmd_history(engine)
         case "delete":
             _cmd_delete(engine, rest)
         case "purge":
@@ -94,10 +100,15 @@ def _cmd_list(engine: Engine) -> None:
 def _cmd_all(engine: Engine) -> None:
     """List sessions across all repos."""
     sessions = engine.store.list_sessions()
-    _render_session_list(engine, sessions)
+    _render_session_list(engine, sessions, show_repo=True)
 
 
-def _render_session_list(engine: Engine, sessions: list[SessionSummary]) -> None:
+def _render_session_list(
+    engine: Engine,
+    sessions: list[SessionSummary],
+    *,
+    show_repo: bool = False,
+) -> None:
     """Render a session listing."""
     if not sessions:
         engine._out("No sessions found.")
@@ -110,8 +121,11 @@ def _render_session_list(engine: Engine, sessions: list[SessionSummary]) -> None
         cost = f"${s.total_cost:.4f}" if s.total_cost else "—"
         marker = " ◂" if s.session_id == current_id else ""
         age = _format_age(s.last_active)
+        repo = ""
+        if show_repo and s.repo_owner and s.repo_name:
+            repo = f"  {s.repo_owner}/{s.repo_name}"
         engine._out(
-            f"  {short_id}  {age:>6}  {s.message_count:>4} msgs  {cost:>10}  {label}{marker}",
+            f"  {short_id}  {age:>6}  {s.message_count:>4} msgs  {cost:>10}{repo}  {label}{marker}",
             style=STYLE_DIM,
         )
 
@@ -157,29 +171,92 @@ def _cmd_info(engine: Engine) -> None:
     engine._out(f"  Responses     {ts.active_responses}", style=STYLE_DIM)
 
 
+# ── history ──────────────────────────────────────────────────────────
+
+_HISTORY_LIMIT = 10
+
+
+def _cmd_history(engine: Engine) -> None:
+    """Show the last user inputs in the current session."""
+    # Fetch one extra — the most recent entry is this command itself.
+    entries = engine.store.session_history(engine.state.session_id, _HISTORY_LIMIT + 1)
+    entries = [e for e in entries if e != "/session history"]
+    if not entries:
+        engine._out("No inputs in this session yet.")
+        return
+    # Entries are newest-first from the query; display oldest-first.
+    for i, text in enumerate(reversed(entries), 1):
+        # Truncate long inputs to a single line for readability.
+        preview = text.replace("\n", " ")
+        if len(preview) > 120:
+            preview = preview[:117] + "…"
+        engine._out(f"  {i:>2}. {preview}", style=STYLE_DIM)
+
+
+# ── rename ───────────────────────────────────────────────────────────
+
+
+def _cmd_rename(engine: Engine, args: list[str]) -> None:
+    """Rename the current session."""
+    if not args:
+        engine._warn("Usage: /session rename <name>")
+        return
+
+    label = " ".join(args)
+    engine.state.session_label = label
+    engine.store.update_session_label(engine.state.session_id, label)
+    engine._out(f"Session renamed to '{label}'.")
+
+
+# ── Session lookup ───────────────────────────────────────────────────
+
+
+def _find_session(engine: Engine, query: str) -> SessionSummary | None:
+    """Find a session by ID prefix or label substring.
+
+    Tries ID prefix first.  Falls back to case-insensitive label
+    substring — when several sessions share a label the most
+    recent one wins (``list_sessions`` returns newest first).
+    Returns ``None`` (with a user-facing warning) on zero or
+    ambiguous ID-prefix matches.
+    """
+    sessions = engine.store.list_sessions(limit=200)
+
+    # Try ID prefix first — must be unambiguous.
+    by_id = [s for s in sessions if s.session_id.startswith(query)]
+    if len(by_id) == 1:
+        return by_id[0]
+    if len(by_id) > 1:
+        engine._warn(f"Ambiguous ID prefix '{query}' — matches {len(by_id)} sessions.")
+        for s in by_id[:5]:
+            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}", style=STYLE_DIM)
+        return None
+
+    # Fall back to label substring (case-insensitive).
+    # Most recent match wins — no ambiguity error for duplicate labels.
+    lower = query.lower()
+    for s in sessions:
+        if s.session_label and lower in s.session_label.lower():
+            return s
+
+    engine._warn(f"No session matching '{query}'.")
+    return None
+
+
 # ── resume ───────────────────────────────────────────────────────────
 
 
 def _cmd_resume(engine: Engine, args: list[str]) -> None:
-    """Resume a previous session by ID prefix."""
+    """Resume a previous session by ID prefix or label substring."""
     if not args:
-        engine._warn("Usage: /session resume <id>")
+        engine._warn("Usage: /session resume <id or label>")
         return
 
-    prefix = args[0]
-    sessions = engine.store.list_sessions(limit=200)
-    matches = [s for s in sessions if s.session_id.startswith(prefix)]
-
-    if not matches:
-        engine._warn(f"No session matching '{prefix}'.")
-        return
-    if len(matches) > 1:
-        engine._warn(f"Ambiguous prefix '{prefix}' — matches {len(matches)} sessions.")
-        for s in matches[:5]:
-            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}", style=STYLE_DIM)
+    query = " ".join(args)
+    target = _find_session(engine, query)
+    if target is None:
         return
 
-    target = matches[0]
     if target.session_id == engine.state.session_id:
         engine._warn("Already in this session.")
         return
@@ -191,7 +268,7 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
 
     # Switch session and restore usage counters from DB.
     engine.state.session_id = target.session_id
-    engine.state.session_label = target.session_label or engine.state.session_label
+    engine.state.session_label = target.session_label or ""
 
     # Restore session start time from the earliest message.
     started = engine.store.session_started_at(target.session_id)
@@ -211,9 +288,20 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
     engine._out(f"Resumed session '{label}' ({ts.active_turns} turns).")
 
     # Restore the review target (re-fetches PR metadata / rebuilds index).
+    # Skip when the session belongs to a different repo — the target
+    # (PR number or branch name) would be meaningless here.
     if target.review_target:
-        engine._out(f"Restoring review target: /review {target.review_target}")
-        cmd_review(engine, target.review_target)
+        same_repo = (
+            target.repo_owner == engine.state.owner and target.repo_name == engine.state.repo_name
+        )
+        if same_repo:
+            engine._out(f"Restoring review target: /review {target.review_target}")
+            cmd_review(engine, target.review_target)
+        else:
+            engine._warn(
+                f"Review target '{target.review_target}' belongs to"
+                f" {target.repo_owner}/{target.repo_name} — skipped."
+            )
 
 
 def _cmd_resume_last(engine: Engine) -> None:

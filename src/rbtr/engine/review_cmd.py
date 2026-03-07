@@ -187,6 +187,7 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
                 pr.head_sha or pr.head_branch,
             )
 
+        _update_session_label(engine)
         _print_review_target(engine)
         _sync_pending_draft(engine, pr.number)
         run_index(engine)
@@ -224,8 +225,29 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
         head_commit=target,
         updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
     )
+    _update_session_label(engine)
     _print_review_target(engine)
     run_index(engine)
+
+
+def _update_session_label(engine: Engine) -> None:
+    """Auto-name the session after the review target, once only.
+
+    Only fires when ``session_label`` is empty — meaning no
+    previous ``/review`` or ``/session rename`` has set it.
+    The empty string is the persistent sentinel: it survives
+    in the DB across restarts, so ``/session resume`` followed
+    by ``/review`` does the right thing without extra state.
+    """
+    if engine.state.session_label:
+        return
+    target = engine.state.review_target
+    if target is None:
+        return
+    prefix = ""
+    if engine.state.owner and engine.state.repo_name:
+        prefix = f"{engine.state.owner}/{engine.state.repo_name} — "
+    engine.state.session_label = f"{prefix}{target.base_branch} → {target.head_branch}"
 
 
 def _check_refs(engine: Engine, base_ref: str, head_ref: str) -> None:

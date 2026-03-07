@@ -35,7 +35,6 @@ def run_setup(engine: Engine) -> None:
     engine.state.repo = repo
     engine.state.owner = owner
     engine.state.repo_name = repo_name
-    engine.state.session_label = _make_session_label(owner, repo_name, repo)
     engine._out(f"Repository: {owner}/{repo_name}")
 
     if creds.github_token:
