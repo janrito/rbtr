@@ -208,6 +208,7 @@ class IndexStore:
         # changed, so _embed_missing() re-computes them on next build.
         self._check_embedding_version()
         self._fts_dirty = True
+        self._fts_lock = threading.Lock()
 
     def _check_embedding_version(self) -> None:
         """Clear embeddings if the text format or model changed."""
@@ -536,9 +537,18 @@ class IndexStore:
         DuckDB's FTS index is in-memory and not persisted to disk,
         so it must be rebuilt after opening an existing database or
         after inserting new chunks.
+
+        Serialised with a lock because the DDL statements
+        (``drop_fts_index`` / ``create_fts_index``) trigger
+        catalog writes that conflict under DuckDB's MVCC when
+        executed concurrently from different cursors.
         """
         if self._fts_dirty:
-            self.rebuild_fts_index()
+            with self._fts_lock:
+                # Double-check: another thread may have rebuilt while
+                # we waited for the lock.
+                if self._fts_dirty:
+                    self.rebuild_fts_index()
 
     def search_fulltext(
         self,
