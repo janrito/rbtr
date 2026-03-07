@@ -59,6 +59,7 @@ from rbtr.sessions.stats import (
     IncidentStats,
     TokenStats,
     ToolStat,
+    global_incident_stats as _global_incident_stats,
     global_stats as _global_stats,
     incident_stats as _incident_stats,
     token_stats as _token_stats,
@@ -729,6 +730,10 @@ class SessionStore:
     def global_stats(self) -> GlobalStats:
         """Return aggregate statistics across all persisted sessions."""
         return _global_stats(self._con)
+
+    def global_incident_stats(self) -> IncidentStats:
+        """Return failure and repair incident stats across all sessions."""
+        return _global_incident_stats(self._con)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

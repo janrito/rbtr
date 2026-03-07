@@ -18,7 +18,7 @@ _COL = 10  # column width for numeric values
 def cmd_stats(engine: Engine, args: str) -> None:
     """Dispatch /stats subcommands."""
     arg = args.strip()
-    if arg == "--all":
+    if arg in ("all", "--all"):
         _cmd_global(engine)
     elif arg:
         _cmd_historical(engine, arg)
@@ -69,7 +69,7 @@ def _cmd_historical(engine: Engine, prefix: str) -> None:
     _render_body(engine, ts, tools, incidents)
 
 
-# ── /stats --all ─────────────────────────────────────────────────────
+# ── /stats all ───────────────────────────────────────────────────────
 
 
 def _cmd_global(engine: Engine) -> None:
@@ -77,6 +77,8 @@ def _cmd_global(engine: Engine) -> None:
     if gs.session_count == 0:
         engine._out("No sessions found.")
         return
+
+    incidents = engine.store.global_incident_stats()
 
     _out(engine, f"All sessions ({gs.session_count})")
     _out(engine, _row("Total cost", format_cost(gs.total_cost) if gs.total_cost else "—"))
@@ -97,6 +99,9 @@ def _cmd_global(engine: Engine) -> None:
             _out(engine, f"    {m.model_name or '?':<30}{cost:>10}   ({m.session_count} sessions)")
 
     _render_tools(engine, gs.tools, compact=False)
+
+    if incidents.has_incidents:
+        _render_incidents(engine, incidents)
 
 
 # ── Shared rendering ────────────────────────────────────────────────

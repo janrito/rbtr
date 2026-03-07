@@ -28,6 +28,8 @@ _GLOBAL_MODEL_STATS_SQL = _load_sql("global_model_stats.sql")
 _GLOBAL_TOOL_STATS_SQL = _load_sql("global_tool_stats.sql")
 _INCIDENT_FAILURE_STATS_SQL = _load_sql("incident_failure_stats.sql")
 _INCIDENT_REPAIR_STATS_SQL = _load_sql("incident_repair_stats.sql")
+_GLOBAL_INCIDENT_FAILURE_STATS_SQL = _load_sql("global_incident_failure_stats.sql")
+_GLOBAL_INCIDENT_REPAIR_STATS_SQL = _load_sql("global_incident_repair_stats.sql")
 
 
 # ── Result types ─────────────────────────────────────────────────────
@@ -184,6 +186,34 @@ def incident_stats(con: sqlite3.Connection, session_id: str) -> IncidentStats:
     """Return failure and repair incident stats for a session."""
     failure_rows = con.execute(_INCIDENT_FAILURE_STATS_SQL, [session_id]).fetchall()
     repair_rows = con.execute(_INCIDENT_REPAIR_STATS_SQL, [session_id]).fetchall()
+
+    if not failure_rows and not repair_rows:
+        return _EMPTY_INCIDENT_STATS
+
+    failures = [
+        FailureStat(
+            failure_kind=r["failure_kind"],
+            total_count=int(r["total_count"]),
+            recovered_count=int(r["recovered_count"]),
+            failed_count=int(r["failed_count"]),
+        )
+        for r in failure_rows
+    ]
+    repairs = [
+        RepairStat(
+            strategy=r["strategy"],
+            total_count=int(r["total_count"]),
+            reason=r["reason"],
+        )
+        for r in repair_rows
+    ]
+    return IncidentStats(failures=failures, repairs=repairs)
+
+
+def global_incident_stats(con: sqlite3.Connection) -> IncidentStats:
+    """Return failure and repair incident stats across all sessions."""
+    failure_rows = con.execute(_GLOBAL_INCIDENT_FAILURE_STATS_SQL).fetchall()
+    repair_rows = con.execute(_GLOBAL_INCIDENT_REPAIR_STATS_SQL).fetchall()
 
     if not failure_rows and not repair_rows:
         return _EMPTY_INCIDENT_STATS

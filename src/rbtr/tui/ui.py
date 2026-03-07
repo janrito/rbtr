@@ -383,10 +383,10 @@ class UI:
         self.inp.apply_completions(matches)
 
     def _complete_stats(self, arg: str) -> None:
-        """Complete /stats arguments: ``--all`` or a session ID prefix."""
+        """Complete /stats arguments: ``all`` or a session ID prefix."""
         matches: list[tuple[str, str]] = []
-        if "--all".startswith(arg):
-            matches.append(("/stats --all", "Stats across all sessions"))
+        if "all".startswith(arg):
+            matches.append(("/stats all", "Stats across all sessions"))
         if not arg.startswith("-"):
             sessions = self._engine.store.list_sessions(limit=50)
             matches.extend(

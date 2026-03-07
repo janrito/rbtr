@@ -20,6 +20,14 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.engine import Engine
+from rbtr.sessions.serialise import (
+    FailedAttempt,
+    FailureKind,
+    FragmentKind,
+    HistoryRepair,
+    IncidentOutcome,
+    RecoveryStrategy,
+)
 
 from .conftest import _user, drain, output_texts
 
@@ -98,6 +106,26 @@ def _seed_sessions(engine: Engine) -> None:
         model_name="openai/gpt-4o",
         session_label="testowner/testrepo — feature",
         cost=0.005,
+    )
+
+    # Seed incidents into the current session.
+    engine.store.save_incident(
+        engine.state.session_id,
+        FragmentKind.LLM_ATTEMPT_FAILED,
+        FailedAttempt(
+            turn_id="t-fail-1",
+            failure_kind=FailureKind.HISTORY_FORMAT,
+            strategy=RecoveryStrategy.DEMOTE_THINKING,
+            outcome=IncidentOutcome.RECOVERED,
+        ),
+    )
+    engine.store.save_incident(
+        engine.state.session_id,
+        FragmentKind.LLM_HISTORY_REPAIR,
+        HistoryRepair(
+            strategy=RecoveryStrategy.DEMOTE_THINKING,
+            reason="cross_provider_retry",
+        ),
     )
 
 
@@ -181,7 +209,7 @@ def test_historical_unknown_prefix(stats_engine: Engine) -> None:
 
 def test_global_stats(stats_engine: Engine) -> None:
     """Global stats aggregates both sessions — both models, all tools."""
-    stats_engine.run_task("command", "/stats --all")
+    stats_engine.run_task("command", "/stats all")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -191,6 +219,33 @@ def test_global_stats(stats_engine: Engine) -> None:
     assert "$" in combined
     assert "read_file" in combined
     assert "grep" in combined
+
+
+def test_current_session_incidents(stats_engine: Engine) -> None:
+    """/stats shows failures and repairs for the current session."""
+    stats_engine.run_task("command", "/stats")
+    texts = output_texts(drain(stats_engine.events))
+    combined = " ".join(texts)
+
+    assert "Failures" in combined
+    assert "history_format" in combined
+    assert "recovered" in combined
+    assert "History repairs" in combined
+    assert "demote_thinking" in combined
+    assert "Recovery rate" in combined
+
+
+def test_global_stats_incidents(stats_engine: Engine) -> None:
+    """/stats all shows aggregated incident stats across all sessions."""
+    stats_engine.run_task("command", "/stats all")
+    texts = output_texts(drain(stats_engine.events))
+    combined = " ".join(texts)
+
+    assert "Failures" in combined
+    assert "history_format" in combined
+    assert "History repairs" in combined
+    assert "demote_thinking" in combined
+    assert "Recovery rate" in combined
 
 
 def test_empty_session(engine: Engine) -> None:
@@ -212,6 +267,6 @@ def test_empty_session(engine: Engine) -> None:
 def test_global_empty(engine: Engine) -> None:
     """Global stats with no sessions shows a message."""
     drain(engine.events)
-    engine.run_task("command", "/stats --all")
+    engine.run_task("command", "/stats all")
     texts = output_texts(drain(engine.events))
     assert any("No sessions" in t for t in texts)

@@ -547,7 +547,7 @@ use `/session delete <id>`.
 ```text
 /stats                Current session statistics
 /stats <id>           Stats for a specific session (prefix match)
-/stats --all          Aggregate stats across all sessions
+/stats all            Aggregate stats across all sessions
 ```
 
 Shows token usage (input, output, cache), cost, tool call
