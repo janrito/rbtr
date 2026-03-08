@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from rbtr.sessions.store import SessionSummary
-from rbtr.styles import STYLE_DIM
 
 from .review_cmd import cmd_review
 
@@ -79,10 +78,10 @@ def cmd_session(engine: Engine, args: str) -> None:
         case "purge":
             _cmd_purge(engine, rest)
         case "help":
-            engine._out(_HELP, style=STYLE_DIM)
+            engine._out(_HELP)
         case _:
             engine._warn(f"Unknown subcommand: {subcmd}")
-            engine._out(_HELP, style=STYLE_DIM)
+            engine._out(_HELP)
 
 
 # ── list / all ───────────────────────────────────────────────────────
@@ -126,7 +125,6 @@ def _render_session_list(
             repo = f"  {s.repo_owner}/{s.repo_name}"
         engine._out(
             f"  {short_id}  {age:>6}  {s.message_count:>4} msgs  {cost:>10}{repo}  {label}{marker}",
-            style=STYLE_DIM,
         )
 
 
@@ -162,13 +160,13 @@ def _cmd_info(engine: Engine) -> None:
     """Show current session details."""
     s = engine.state
     repo = f"{s.owner}/{s.repo_name}" if s.owner else "—"
-    engine._out(f"  Session ID    {s.session_id[:8]}", style=STYLE_DIM)
-    engine._out(f"  Label         {s.session_label or '—'}", style=STYLE_DIM)
-    engine._out(f"  Repo          {repo}", style=STYLE_DIM)
-    engine._out(f"  Model         {s.model_name or '—'}", style=STYLE_DIM)
+    engine._out(f"  Session ID    {s.session_id[:8]}")
+    engine._out(f"  Label         {s.session_label or '—'}")
+    engine._out(f"  Repo          {repo}")
+    engine._out(f"  Model         {s.model_name or '—'}")
     ts = engine.store.token_stats(s.session_id)
-    engine._out(f"  Turns         {ts.active_turns}", style=STYLE_DIM)
-    engine._out(f"  Responses     {ts.active_responses}", style=STYLE_DIM)
+    engine._out(f"  Turns         {ts.active_turns}")
+    engine._out(f"  Responses     {ts.active_responses}")
 
 
 # ── history ──────────────────────────────────────────────────────────
@@ -190,7 +188,7 @@ def _cmd_history(engine: Engine) -> None:
         preview = text.replace("\n", " ")
         if len(preview) > 120:
             preview = preview[:117] + "…"
-        engine._out(f"  {i:>2}. {preview}", style=STYLE_DIM)
+        engine._out(f"  {i:>2}. {preview}")
 
 
 # ── rename ───────────────────────────────────────────────────────────
@@ -229,7 +227,7 @@ def _find_session(engine: Engine, query: str) -> SessionSummary | None:
     if len(by_id) > 1:
         engine._warn(f"Ambiguous ID prefix '{query}' — matches {len(by_id)} sessions.")
         for s in by_id[:5]:
-            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}", style=STYLE_DIM)
+            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}")
         return None
 
     # Fall back to label substring (case-insensitive).
@@ -340,7 +338,7 @@ def _cmd_delete(engine: Engine, args: list[str]) -> None:
     if len(matches) > 1:
         engine._warn(f"Ambiguous prefix '{prefix}' — matches {len(matches)} sessions.")
         for s in matches[:5]:
-            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}", style=STYLE_DIM)
+            engine._out(f"  {s.session_id[:12]}  {s.session_label or '—'}")
         return
 
     target = matches[0]

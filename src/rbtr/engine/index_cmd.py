@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 from rbtr.config import config
 from rbtr.events import ColumnDef, IndexCleared, TableOutput
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.styles import STYLE_DIM
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -55,7 +54,6 @@ def cmd_index(engine: Engine, args: str) -> None:
             engine._out(
                 "Usage: /index [status | clear | rebuild | prune"
                 " | model <id> | search <query> | search-diag <query>]",
-                style=STYLE_DIM,
             )
 
 
@@ -95,7 +93,7 @@ def _status(engine: Engine) -> None:
 
     engine._out(f"Target: {target.base_branch} → {target.head_branch}")
     if not head_chunks and base_chunks:
-        engine._out(f"Showing: {base_ref} (head not indexed yet)", style=STYLE_DIM)
+        engine._out(f"Showing: {base_ref} (head not indexed yet)")
     engine._out(f"DB size: {size_str}")
     if orphans > 0:
         engine._out(f"Orphaned chunks: {orphans} (will be pruned on next index)")
@@ -107,7 +105,7 @@ def _status(engine: Engine) -> None:
     display_chunks = head_chunks if head_chunks else base_chunks
     display_edges = head_edges if head_chunks else base_edges
     if not display_chunks:
-        engine._out("No chunks indexed yet.", style=STYLE_DIM)
+        engine._out("No chunks indexed yet.")
         return
     _emit_chunk_table(engine, display_chunks)
     _emit_edge_table(engine, display_edges)
@@ -321,7 +319,7 @@ def _model(engine: Engine, model_id: str) -> None:
     """Show or change the embedding model."""
     if not model_id:
         engine._out(f"Embedding model: {config.index.embedding_model}")
-        engine._out("Usage: /index model <org/repo/file.gguf>", style=STYLE_DIM)
+        engine._out("Usage: /index model <org/repo/file.gguf>")
         return
 
     old_model = config.index.embedding_model
@@ -365,7 +363,7 @@ def _model(engine: Engine, model_id: str) -> None:
 def _search(engine: Engine, query: str) -> None:
     """Run a search query and display the ranked results."""
     if not query:
-        engine._out("Usage: /index search <query>", style=STYLE_DIM)
+        engine._out("Usage: /index search <query>")
         return
 
     store = engine.state.index
@@ -413,7 +411,7 @@ def _search(engine: Engine, query: str) -> None:
 def _search_diag(engine: Engine, query: str) -> None:
     """Run a search query and display the full signal breakdown."""
     if not query:
-        engine._out("Usage: /index search-diag <query>", style=STYLE_DIM)
+        engine._out("Usage: /index search-diag <query>")
         return
 
     store = engine.state.index

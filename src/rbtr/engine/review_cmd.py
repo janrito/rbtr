@@ -13,7 +13,6 @@ from rbtr.exceptions import RbtrError
 from rbtr.git import default_branch, fetch_pr_refs, list_local_branches, resolve_commit
 from rbtr.github import client
 from rbtr.models import BranchTarget, PRTarget
-from rbtr.styles import COLUMN_BRANCH
 
 from .indexing import run_index
 from .publish import _sync_pending_draft, _warn_access
@@ -74,7 +73,7 @@ def _list(engine: Engine) -> None:
                             ColumnDef(header="PR", width=8),
                             ColumnDef(header="Title"),
                             ColumnDef(header="Author", width=16),
-                            ColumnDef(header="Branch", style=COLUMN_BRANCH),
+                            ColumnDef(header="Branch", highlight=True),
                         ],
                         rows=[[f"#{pr.number}", pr.title, pr.author, pr.head_branch] for pr in prs],
                     )
@@ -88,7 +87,7 @@ def _list(engine: Engine) -> None:
                     TableOutput(
                         title="Unmerged Branches",
                         columns=[
-                            ColumnDef(header="Branch", style=COLUMN_BRANCH),
+                            ColumnDef(header="Branch", highlight=True),
                             ColumnDef(header="Last Commit"),
                             ColumnDef(header="Updated"),
                         ],
@@ -132,7 +131,7 @@ def _list(engine: Engine) -> None:
         TableOutput(
             title="Local Branches",
             columns=[
-                ColumnDef(header="Branch", style=COLUMN_BRANCH),
+                ColumnDef(header="Branch", highlight=True),
                 ColumnDef(header="Last Commit"),
                 ColumnDef(header="Updated"),
             ],

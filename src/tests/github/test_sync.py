@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from rbtr.engine.publish import _partition_comments, sync_review_draft
-from rbtr.events import Event, FlushPanel, Output
+from rbtr.events import Event, FlushPanel, Output, OutputLevel
 from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges
 from rbtr.github.client import get_pending_review, parse_comment_body
@@ -176,11 +176,11 @@ class _FakeEngine:
     def _emit(self, event: Event) -> None:
         self._events.put(event)
 
-    def _out(self, text: str, style: str = "") -> None:
-        self._emit(Output(text=text, style=style))
+    def _out(self, text: str) -> None:
+        self._emit(Output(text=text))
 
     def _warn(self, text: str) -> None:
-        self._emit(Output(text=text, style="rbtr.out.warning"))
+        self._emit(Output(text=text, level=OutputLevel.WARNING))
 
     def _clear(self) -> None:
         self._emit(FlushPanel(discard=True))

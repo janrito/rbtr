@@ -6,20 +6,35 @@ All shared state flows through these models.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel
+
+
+class OutputLevel(StrEnum):
+    """Semantic level for `Output` events.
+
+    The engine sets the level; the TUI maps it to a theme key.
+    """
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    SHELL_STDERR = "shell_stderr"
 
 
 class TaskStarted(BaseModel):
     """A new task has begun execution."""
 
-    task_id: str
+    task_type: str
 
 
 class Output(BaseModel):
     """A line of output from a running task."""
 
     text: str
-    style: str = "dim"
+    level: OutputLevel = OutputLevel.INFO
+    detail: str | None = None
 
 
 class TableOutput(BaseModel):
@@ -28,7 +43,6 @@ class TableOutput(BaseModel):
     title: str = ""
     columns: list[ColumnDef]
     rows: list[list[str]]
-    style: str = "dim"
 
 
 class ColumnDef(BaseModel):
@@ -36,24 +50,13 @@ class ColumnDef(BaseModel):
 
     header: str
     width: int | None = None
-    style: str = ""
+    highlight: bool = False
 
 
 class MarkdownOutput(BaseModel):
     """Markdown content to render."""
 
     text: str
-
-
-class ErrorDetail(BaseModel):
-    """An error with expandable diagnostic detail.
-
-    ``summary`` is the short message shown inline (styled as an error).
-    ``detail`` is the full scrubbed diagnostic available via Ctrl+O.
-    """
-
-    summary: str
-    detail: str
 
 
 class TextDelta(BaseModel):
@@ -66,9 +69,10 @@ class TextDelta(BaseModel):
 
 
 class LinkOutput(BaseModel):
-    """A message containing a Rich markup link."""
+    """A link to display. The TUI builds the Rich markup."""
 
-    markup: str
+    url: str
+    label: str = ""
 
 
 class FlushPanel(BaseModel):
@@ -105,10 +109,14 @@ class ToolCallFinished(BaseModel):
     ``result`` contains the full tool output (up to a generous char
     limit).  The UI is responsible for line-based truncation when
     rendering.
+
+    When ``error`` is set the tool call failed — ``result`` is empty
+    and ``error`` contains the error message.
     """
 
     tool_name: str
     result: str
+    error: str | None = None
 
 
 # ── Index events ─────────────────────────────────────────────────────
@@ -174,7 +182,6 @@ class ReviewPosted(BaseModel):
 Event = (
     TaskStarted
     | Output
-    | ErrorDetail
     | TableOutput
     | MarkdownOutput
     | TextDelta

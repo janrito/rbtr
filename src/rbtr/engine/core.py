@@ -14,11 +14,11 @@ import threading
 import traceback
 
 from rbtr.events import (
-    ErrorDetail,
     Event,
     FlushPanel,
     MarkdownOutput,
     Output,
+    OutputLevel,
     TaskFinished,
     TaskStarted,
 )
@@ -28,7 +28,6 @@ from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.sessions.scrub import scrub_secrets
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.state import EngineState
-from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
 from .connect_cmd import cmd_connect
 from .draft_cmd import cmd_draft
@@ -94,15 +93,15 @@ class Engine:
     def _emit(self, event: Event) -> None:
         self.events.put(event)
 
-    def _out(self, text: str, style: str = STYLE_DIM) -> None:
+    def _out(self, text: str, level: OutputLevel = OutputLevel.INFO) -> None:
         self._check_cancel()
-        self._emit(Output(text=text, style=style))
+        self._emit(Output(text=text, level=level))
 
     def _warn(self, text: str) -> None:
-        self._out(text, style=STYLE_WARNING)
+        self._out(text, level=OutputLevel.WARNING)
 
     def _error(self, text: str) -> None:
-        self._out(text, style=STYLE_ERROR)
+        self._out(text, level=OutputLevel.ERROR)
 
     def _markdown(self, text: str) -> None:
         self._check_cancel()
@@ -147,7 +146,7 @@ class Engine:
 
     def run_task(self, task_type: TaskType, arg: str, *, persist: bool = True) -> None:
         """Run a task synchronously (called from a daemon thread)."""
-        self._emit(TaskStarted(task_id=f"{task_type}:{arg}"))
+        self._emit(TaskStarted(task_type=str(task_type)))
         self._sync_store_context()
         success = True
         cancelled = False
@@ -172,8 +171,9 @@ class Engine:
             success = False
         except Exception as e:
             self._emit(
-                ErrorDetail(
-                    summary=f"Unexpected error: {e}",
+                Output(
+                    text=f"Unexpected error: {e}",
+                    level=OutputLevel.ERROR,
                     detail=scrub_secrets("".join(traceback.format_exception(e))),
                 )
             )
@@ -225,12 +225,7 @@ class Engine:
 
     def _cmd_help(self) -> None:
         for c in Command:
-            self._emit(
-                Output(
-                    text=f"  {c.slash:<12}{c.description}",
-                    style=STYLE_DIM,
-                )
-            )
+            self._out(f"  {c.slash:<12}{c.description}")
 
     def _cmd_new(self) -> None:
         import time

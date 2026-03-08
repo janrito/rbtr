@@ -78,6 +78,16 @@ current active panel and input chrome. Completed panels are
 flushed to scrollback so they become part of the terminal's
 own scroll history rather than an in-process buffer.
 
+Each panel gets a background colour by variant: `response`
+(transparent — LLM markdown text), `succeeded` (green —
+command/shell output), `failed` (red — errors and failed tool
+calls), `toolcall` (purple — successful tool results),
+`input` (grey — user input echo), `queued` (slate — pending
+commands). LLM text and tool results are always separate
+panels — a multi-tool-call turn produces alternating
+`response` and `toolcall` panels. Failed tool calls show a
+`✗` icon and the `failed` background.
+
 **`tui/footer.py`** renders the status bar. Pure functions, no
 UI state. The footer shows the model name, token usage
 (input/output/cache), context window percentage, message count,
@@ -517,29 +527,33 @@ matches on the `Event` union type.
 
 #### Lifecycle
 
-| Event          | Description                      |
-| -------------- | -------------------------------- |
-| `TaskStarted`  | A new task has begun execution   |
-| `TaskFinished` | A task has completed             |
+| Event          | Description                                |
+| -------------- | ------------------------------------------ |
+| `TaskStarted`  | A new task has begun (carries `task_type`)  |
+| `TaskFinished` | A task has completed                       |
 
 #### Output
 
-| Event            | Description                                     |
-| ---------------- | ----------------------------------------------- |
-| `Output`         | A line of text with a style key                 |
-| `TableOutput`    | A table (columns and rows as plain strings)     |
-| `MarkdownOutput` | Markdown content to render                      |
-| `ErrorDetail`    | Error with expandable diagnostic (via Ctrl+O)   |
-| `LinkOutput`     | A message containing a Rich markup link         |
-| `FlushPanel`     | Flush active lines to scrollback or discard them |
+| Event            | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `Output`         | A line of text with a semantic `OutputLevel`           |
+| `TableOutput`    | A table (columns and rows as plain strings)            |
+| `MarkdownOutput` | Markdown content to render                             |
+| `LinkOutput`     | A link with URL and optional label                     |
+| `FlushPanel`     | Flush active lines to scrollback or discard them       |
+
+`Output.level` is an `OutputLevel` enum (`INFO`, `WARNING`,
+`ERROR`, `SHELL_STDERR`). The TUI maps each level to a theme
+key for rendering. `Output.detail` optionally carries
+expandable diagnostic text (shown via Ctrl+O on errors).
 
 #### LLM streaming
 
-| Event              | Description                        |
-| ------------------ | ---------------------------------- |
-| `TextDelta`        | A streaming text chunk             |
-| `ToolCallStarted`  | The LLM is calling a tool          |
-| `ToolCallFinished` | A tool call has completed          |
+| Event              | Description                                            |
+| ------------------ | ------------------------------------------------------ |
+| `TextDelta`        | A streaming text chunk                                 |
+| `ToolCallStarted`  | The LLM is calling a tool                              |
+| `ToolCallFinished` | A tool call has completed (carries optional `error`)   |
 
 #### Index
 
@@ -947,17 +961,12 @@ palette.
 ### Theme structure
 
 Code references semantic style keys — never inline hex colours
-or ad-hoc style strings. Two mechanisms make this work across
-the thread boundary:
+or ad-hoc style strings. Only the TUI imports `styles.py`.
 
-**TUI side** (Rich available): imports `THEME` directly and
-applies it to the Rich console. Components use key names like
-`"rbtr.prompt"`, `"rbtr.bg.active"`, `"rbtr.usage.ok"`.
-
-**Engine side** (no Rich imports): uses plain-string constants
-exported from `styles.py` (`STYLE_DIM`, `STYLE_WARNING`,
-`BG_SUCCEEDED`, etc.). These strings travel through `Output`
-events and are resolved by the TUI when rendering.
+Events carry semantic data, not style strings. `Output` events
+use an `OutputLevel` enum (`INFO`, `WARNING`, `ERROR`,
+`SHELL_STDERR`). The TUI maps each level to a theme key when
+rendering. No engine or LLM module imports from `styles.py`.
 
 ### Style groups
 
@@ -965,12 +974,12 @@ events and are resolved by the TUI when rendering.
 | ---------- | ---------------------- | ------------------------- |
 | Prompt     | `rbtr.prompt`, `.input` | Input area               |
 | Panels     | `rbtr.bg.*` (6 keys)  | Panel background by state |
-| Text       | `rbtr.dim/muted/warning/error/success` | Semantic colours |
+| Text       | `rbtr.dim/muted/warning/error` | Semantic colours   |
 | Chrome     | `rbtr.rule`, `.footer` | Separators, status bar   |
 | Completion | `rbtr.completion.*`   | Tab-completion menu       |
 | Usage      | `rbtr.usage.*`        | Context-window indicator  |
-| Output     | `rbtr.out.*` (5 keys) | Engine-side event styles  |
-| Inline     | `rbtr.link`, `.code`  | Links, code highlights    |
+| Output     | `rbtr.out.*` (5 keys) | TUI-internal level styles |
+| Inline     | `rbtr.link`           | Links                     |
 
 ---
 

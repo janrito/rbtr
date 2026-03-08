@@ -22,7 +22,7 @@ from rbtr.engine.draft_cmd import (
     _resolve_event,
     cmd_draft,
 )
-from rbtr.events import Event, FlushPanel, MarkdownOutput, Output
+from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, OutputLevel
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
 from rbtr.state import EngineState
@@ -81,14 +81,14 @@ class FakeEngine:
     def _emit(self, event: Event) -> None:
         self._events.put(event)
 
-    def _out(self, text: str, style: str = "") -> None:
-        self._emit(Output(text=text, style=style))
+    def _out(self, text: str) -> None:
+        self._emit(Output(text=text))
 
     def _warn(self, text: str) -> None:
-        self._emit(Output(text=text, style="rbtr.out.warning"))
+        self._emit(Output(text=text, level=OutputLevel.WARNING))
 
     def _error(self, text: str) -> None:
-        self._emit(Output(text=text, style="rbtr.out.error"))
+        self._emit(Output(text=text, level=OutputLevel.ERROR))
 
     def _markdown(self, text: str) -> None:
         self._emit(MarkdownOutput(text=text))

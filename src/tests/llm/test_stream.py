@@ -141,11 +141,20 @@ def test_emit_tool_result_truncation(engine: Engine, llm_ctx: LLMContext) -> Non
 
 
 def test_emit_tool_result_retry(engine: Engine, llm_ctx: LLMContext) -> None:
-    """Retry prompt result emits '(retry)'."""
+    """Retry prompt result emits error with the failure message."""
     _emit_tool_event(llm_ctx, _make_tool_retry_event("read_file", "tool failed, try again"))
     events = drain(engine.events)
     assert isinstance(events[0], ToolCallFinished)
-    assert events[0].result == "(retry)"
+    assert events[0].result == ""
+    assert events[0].error == "tool failed, try again"
+
+
+def test_emit_tool_result_success_has_no_error(engine: Engine, llm_ctx: LLMContext) -> None:
+    """Successful tool result has no error field set."""
+    _emit_tool_event(llm_ctx, _make_tool_result_event("read_file", "file contents"))
+    events = drain(engine.events)
+    assert isinstance(events[0], ToolCallFinished)
+    assert events[0].error is None
 
 
 # ── _record_usage ────────────────────────────────────────────────────

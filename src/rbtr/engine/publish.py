@@ -26,7 +26,6 @@ from rbtr.github.draft import (
     stamp_synced,
 )
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
-from rbtr.styles import LINK_STYLE
 
 from .setup import ensure_gh_username
 
@@ -260,9 +259,7 @@ def post_review_draft(
 
     engine._clear()
     engine._emit(ReviewPosted(url=url))
-    engine._emit(
-        LinkOutput(markup=(f"Review posted: [link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"))
-    )
+    engine._emit(LinkOutput(url=url, label="Review posted"))
 
     # Clean up local draft.
     delete_draft(pr_number)

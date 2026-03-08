@@ -38,7 +38,6 @@ from rbtr.engine.model_cmd import get_models
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
-    ErrorDetail,
     Event,
     FlushPanel,
     IndexCleared,
@@ -48,6 +47,7 @@ from rbtr.events import (
     LinkOutput,
     MarkdownOutput,
     Output,
+    OutputLevel,
     ReviewPosted,
     TableOutput,
     TaskFinished,
@@ -65,6 +65,7 @@ from rbtr.styles import (
     BG_QUEUED,
     BG_SUCCEEDED,
     BG_TOOLCALL,
+    COLUMN_BRANCH,
     COMPLETION_DESC,
     COMPLETION_NAME,
     COMPLETION_SELECTED,
@@ -72,12 +73,14 @@ from rbtr.styles import (
     DIM,
     ERROR,
     INPUT_TEXT,
+    LINK_STYLE,
     MUTED,
     PASTE_MARKER,
     PROMPT,
     RULE,
     STYLE_DIM,
     STYLE_DIM_ITALIC,
+    STYLE_ERROR,
     STYLE_SHELL_STDERR,
     STYLE_WARNING,
     THEME,
@@ -92,6 +95,13 @@ from rbtr.tui.input import (
 _SPINNER = SPINNERS["dots8"]
 _SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # rich Spinner dict has untyped values
 _SPINNER_INTERVAL: float = _SPINNER["interval"] / 1000  # type: ignore[operator]  # rich Spinner dict has untyped values
+
+_OUTPUT_LEVEL_STYLES: dict[OutputLevel, str] = {
+    OutputLevel.INFO: STYLE_DIM,
+    OutputLevel.WARNING: STYLE_WARNING,
+    OutputLevel.ERROR: STYLE_ERROR,
+    OutputLevel.SHELL_STDERR: STYLE_SHELL_STDERR,
+}
 
 
 type _SegmentLine = list[Segment]
@@ -149,6 +159,7 @@ class UI:
     _HISTORY_STYLES: ClassVar[dict[str, str]] = {
         "input": BG_INPUT,
         "active": BG_ACTIVE,
+        "response": "",
         "succeeded": BG_SUCCEEDED,
         "failed": BG_FAILED,
         "queued": BG_QUEUED,
@@ -183,13 +194,13 @@ class UI:
         self._expand_kind: _ExpandKind | None = None  # what to expand
         self._tool_full_result: str = ""  # full result for tool expand
         self._tool_header: str = ""  # "⚙ name(args)" for tool expand
-        self._tool_preamble: list[RenderableType] = []  # LLM text before tool call
         self._error_detail: str = ""  # full diagnostic for error expand
         self._pending_tool_name: str = ""  # tool name from last ToolCallStarted
         self._pending_tool_args: str = ""  # tool args from last ToolCallStarted
+        self._current_task_type: str = ""  # set from TaskStarted.task_type
         # Last finished panel — stays in Live until finalized by next input.
         self._pending_lines: list[RenderableType] | None = None
-        self._pending_variant: Literal["succeeded", "failed", "toolcall"] = "succeeded"
+        self._pending_variant: Literal["response", "succeeded", "failed", "toolcall"] = "succeeded"
         self._pending_commands: list[str] = []
         # Startup commands (e.g. /review <n>, /session resume-last) —
         # dispatched after setup, not echoed or persisted to history.
@@ -448,7 +459,7 @@ class UI:
     def _handle_event(self, event: Event) -> None:
         """Process a single engine event."""
         match event:
-            case TaskStarted():
+            case TaskStarted(task_type=task_type):
                 self._expandable = False
                 self._active_lines.clear()
                 self._active_had_error = False
@@ -456,29 +467,25 @@ class UI:
                 self._streaming_text = ""
                 self._streaming_md = None
                 self._error_detail = ""
-            case Output(text=text, style=style):
-                if "error" in style:
+                self._current_task_type = task_type
+            case Output(text=text, level=level, detail=detail):
+                if level == OutputLevel.ERROR:
                     self._active_had_error = True
                     t = Text()
                     t.append("Error: ", style=ERROR)
                     t.append(text)
                     self._active_lines.append(t)
+                    if detail:
+                        self._error_detail = detail
                 else:
-                    self._active_lines.append(Text(text, style=style))
-            case ErrorDetail(summary=summary, detail=detail):
-                self._active_had_error = True
-                t = Text()
-                t.append("Error: ", style=ERROR)
-                t.append(summary)
-                self._active_lines.append(t)
-                self._error_detail = detail
+                    self._active_lines.append(Text(text, style=_OUTPUT_LEVEL_STYLES[level]))
             case TableOutput() as te:
-                table = Table(title=te.title, show_lines=False, style=te.style)
+                table = Table(title=te.title, show_lines=False, style=STYLE_DIM)
                 for col in te.columns:
                     table.add_column(
                         col.header,
                         width=col.width if col.width is not None else None,
-                        style=col.style or "",
+                        style=COLUMN_BRANCH if col.highlight else "",
                     )
                 for row in te.rows:
                     table.add_row(*row)
@@ -494,7 +501,11 @@ class UI:
                 else:
                     self._active_lines.append(Markdown(self._streaming_text))
                 self._streaming_md = self._active_lines[-1]
-            case LinkOutput(markup=markup):
+            case LinkOutput(url=url, label=label):
+                if label:
+                    markup = f"{label}: [link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
+                else:
+                    markup = f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
                 self._active_lines.append(Text.from_markup(markup))
             case FlushPanel(discard=discard):
                 if not discard and self._active_lines:
@@ -509,45 +520,52 @@ class UI:
                 self._active_lines = []
                 self._active_had_error = False
             case ToolCallStarted(tool_name=name, args=args):
-                # Don't flush — any preceding LLM explanation will be
-                # merged into the same panel as the tool result.
-                if self._streaming_text:
-                    self._streaming_md = None
+                # Flush any preceding LLM text as its own panel.
+                if self._active_lines:
+                    self._finalize_pending()
+                    preamble = Group(*self._active_lines)
+                    panel = self._history_panel("response", preamble)
+                    if self._live:
+                        self._live.update(self._render_view(), refresh=True)
+                    self._print_to_scrollback(panel)
+                    self._active_lines = []
+                    self._active_had_error = False
+                self._streaming_text = ""
+                self._streaming_md = None
                 self._pending_tool_name = name
                 self._pending_tool_args = args
-            case ToolCallFinished(tool_name=_name, result=result):
+            case ToolCallFinished(tool_name=_name, result=result, error=error):
                 # Finalize any previous pending panel (e.g. prior tool call).
                 self._finalize_pending()
-                # Build panel: preamble (LLM explanation) + header + result.
-                preamble = list(self._active_lines)
                 self._active_lines = []
                 self._streaming_text = ""
                 self._streaming_md = None
                 args = self._pending_tool_args
                 args_short = args[:80] + "…" if len(args) > 80 else args
-                header_text = f"⚙ {self._pending_tool_name}({args_short})"
-                header = Text(header_text, style=MUTED)
-                tool_lines: list[RenderableType] = [*preamble, header]
+                failed = error is not None
+                icon = "✗" if failed else "⚙"
+                body = error or result
+                body_style = STYLE_ERROR if failed else STYLE_DIM
+                header_text = f"{icon} {self._pending_tool_name}({args_short})"
+                tool_lines: list[RenderableType] = [Text(header_text, style=MUTED)]
                 hidden = 0
-                if result:
-                    result_split = result.splitlines()
+                if body:
+                    body_split = body.splitlines()
                     max_lines = config.tui.tool_max_lines
-                    if len(result_split) > max_lines:
-                        shown = "\n".join(result_split[:max_lines])
-                        hidden = len(result_split) - max_lines
-                        tool_lines.append(Text(shown, style=STYLE_DIM))
+                    if len(body_split) > max_lines:
+                        shown = "\n".join(body_split[:max_lines])
+                        hidden = len(body_split) - max_lines
+                        tool_lines.append(Text(shown, style=body_style))
                     else:
-                        tool_lines.append(Text(result, style=STYLE_DIM))
-                # Keep as pending so Ctrl+O can expand if truncated.
+                        tool_lines.append(Text(body, style=body_style))
                 self._pending_lines = tool_lines
-                self._pending_variant = "toolcall"
+                self._pending_variant = "failed" if failed else "toolcall"
                 if hidden:
                     self._expandable = True
                     self._expand_hidden = hidden
                     self._expand_kind = _ExpandKind.TOOL
-                    self._tool_full_result = result
+                    self._tool_full_result = body
                     self._tool_header = header_text
-                    self._tool_preamble = preamble
                 else:
                     self._expandable = False
             case IndexStarted(total_files=total):
@@ -604,8 +622,17 @@ class UI:
                     self._active_lines.append(Text("Cancelled.", style=STYLE_WARNING))
                     self._pending_commands.clear()
                 self._active_task = False
-                variant: Literal["succeeded", "failed"] = (
-                    "failed" if self._active_had_error else "succeeded"
+                # LLM tasks with streaming markdown get transparent
+                # background; all other tasks get succeeded/failed.
+                is_llm_response = (
+                    self._current_task_type == "llm"
+                    and self._streaming_text
+                    and not self._active_had_error
+                )
+                variant: Literal["response", "succeeded", "failed"] = (
+                    "response"
+                    if is_llm_response
+                    else ("failed" if self._active_had_error else "succeeded")
                 )
                 has_active = bool(self._active_lines)
                 if has_active:
@@ -773,7 +800,9 @@ class UI:
 
     def _history_panel(
         self,
-        variant: Literal["input", "active", "succeeded", "failed", "queued", "toolcall"],
+        variant: Literal[
+            "input", "active", "response", "succeeded", "failed", "queued", "toolcall"
+        ],
         content: RenderableType,
         *,
         bottom_pad: int = 1,
@@ -880,14 +909,14 @@ class UI:
             return
         self._expandable = False
         self._expand_kind = None
+        # Determine style based on current pending variant (failed = error style).
+        text_style = STYLE_ERROR if self._pending_variant == "failed" else STYLE_DIM
         self._pending_lines = [
-            *self._tool_preamble,
             Text(self._tool_header, style=MUTED),
-            Text(self._tool_full_result, style=STYLE_DIM),
+            Text(self._tool_full_result, style=text_style),
         ]
         self._tool_full_result = ""
         self._tool_header = ""
-        self._tool_preamble = []
         self._finalize_pending()
 
     def _expand_error(self) -> None:

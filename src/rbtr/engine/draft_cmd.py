@@ -129,7 +129,9 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
         for i, comment in enumerate(draft.comments, 1):
             by_file.setdefault(comment.path, []).append((i, comment))
 
-        for path, group in by_file.items():
+        for file_idx, (path, group) in enumerate(by_file.items()):
+            if file_idx > 0:
+                engine._out("")
             engine._markdown(f"### {path}")
             engine._out("")
 

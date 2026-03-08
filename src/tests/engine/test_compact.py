@@ -23,7 +23,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
 from rbtr.engine import Engine
-from rbtr.events import CompactionFinished, CompactionStarted, Output, TaskFinished
+from rbtr.events import CompactionFinished, CompactionStarted, Output, OutputLevel, TaskFinished
 from rbtr.llm.compact import compact_history, find_fit_count, reset_compaction
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import (
@@ -868,7 +868,9 @@ def test_compact_llm_error_leaves_history_unchanged(
     all_events = drain(engine.events)
 
     # Error event emitted.
-    error_outputs = [e for e in all_events if isinstance(e, Output) and "error" in e.style]
+    error_outputs = [
+        e for e in all_events if isinstance(e, Output) and e.level == OutputLevel.ERROR
+    ]
     assert any("Compaction failed" in e.text for e in error_outputs)
 
     # CompactionStarted and CompactionFinished always paired — even on error.

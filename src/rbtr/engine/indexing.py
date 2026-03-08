@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
-from rbtr.events import IndexProgress, IndexReady, IndexStarted, Output
+from rbtr.events import IndexProgress, IndexReady, IndexStarted, Output, OutputLevel
 from rbtr.git import FileEntry, list_files
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
 from rbtr.plugins.manager import get_manager
-from rbtr.styles import STYLE_DIM, STYLE_WARNING
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -103,20 +102,19 @@ def _build_index(engine: Engine) -> None:
                     f"{result.stats.total_edges} edges, "
                     f"{result.stats.elapsed_seconds:.1f}s"
                 ),
-                style=STYLE_DIM,
             )
         )
 
         if result.errors:
             for err in result.errors:
-                engine._emit(Output(text=err, style=STYLE_WARNING))
+                engine._emit(Output(text=err, level=OutputLevel.WARNING))
 
     except Exception as exc:
         log.exception("Indexing failed")
         engine._emit(
             Output(
                 text=f"Indexing failed: {exc!r}\nReview continues without index.",
-                style=STYLE_WARNING,
+                level=OutputLevel.WARNING,
             )
         )
         engine.state.index = None
@@ -138,6 +136,6 @@ def _warn_missing_grammars(engine: Engine, files: list[FileEntry]) -> None:
         engine._emit(
             Output(
                 text=f"Missing grammars (falling back to plaintext): {names}",
-                style=STYLE_WARNING,
+                level=OutputLevel.WARNING,
             )
         )

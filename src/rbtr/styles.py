@@ -4,8 +4,9 @@ All visual styling lives in the ``THEME`` object.  Code that renders
 must reference the semantic keys defined here — never use inline hex
 colours or ad-hoc style strings.
 
-Engine code (which must not import Rich) uses the plain-string
-constants exported below so that style names travel through events.
+Only TUI modules import this file.  Engine and LLM code communicate
+styling intent through the ``OutputLevel`` enum in ``events.py``;
+the TUI maps levels to theme keys at render time.
 
 Colour palette derived from Ayu (https://github.com/ayu-theme/ayu-colors):
 
@@ -63,7 +64,6 @@ THEME = Theme(
         "rbtr.muted": "#565E6B",
         "rbtr.warning": "#FFCD66",
         "rbtr.error": "bold #F28779",
-        "rbtr.success": "#D5FF80",
         # ── Chrome ───────────────────────────────────────────────────
         "rbtr.rule": "#282E3B",
         "rbtr.footer": "#565E6B",
@@ -75,7 +75,6 @@ THEME = Theme(
         "rbtr.column.branch": "#5CCFE6",
         # ── Inline markup ────────────────────────────────────────────
         "rbtr.link": "bold #5CCFE6",
-        "rbtr.code": "bold #FFCD66",
         # ── Paste marker ────────────────────────────────────────────
         "rbtr.paste_marker": "italic #707A8C",
         # ── Usage / context ───────────────────────────────────────────
@@ -84,7 +83,7 @@ THEME = Theme(
         "rbtr.usage.critical": "dim #F28779",
         "rbtr.usage.uncertain": "#282E3B",
         "rbtr.usage.messages": "dim #707A8C",
-        # ── Output styles (travel through events) ────────────────────
+        # ── Output level styles (TUI-internal) ────────────────────────
         "rbtr.out.dim": "#707A8C",
         "rbtr.out.dim_italic": "italic #707A8C",
         "rbtr.out.warning": "#FFCD66",
@@ -93,8 +92,7 @@ THEME = Theme(
     }
 )
 
-# ── String constants for Engine (no Rich imports needed) ─────────────
-# These are the theme key names that travel through Output events.
+# ── String constants (theme key names) ───────────────────────────────
 
 PROMPT = "rbtr.prompt"
 INPUT_TEXT = "rbtr.input"
@@ -103,7 +101,6 @@ DIM = "rbtr.dim"
 MUTED = "rbtr.muted"
 WARNING = "rbtr.warning"
 ERROR = "rbtr.error"
-SUCCESS = "rbtr.success"
 
 RULE = "rbtr.rule"
 FOOTER = "rbtr.footer"
@@ -115,7 +112,6 @@ COMPLETION_DESC = "rbtr.completion.desc"
 COLUMN_BRANCH = "rbtr.column.branch"
 
 LINK_STYLE = "rbtr.link"
-CODE_HIGHLIGHT = "rbtr.code"
 PASTE_MARKER = "rbtr.paste_marker"
 
 BG_INPUT = "rbtr.bg.input"

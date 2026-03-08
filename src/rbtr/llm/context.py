@@ -7,11 +7,10 @@ import queue
 import threading
 from dataclasses import dataclass
 
-from rbtr.events import ErrorDetail, Event, Output
+from rbtr.events import Event, Output, OutputLevel
 from rbtr.exceptions import TaskCancelled
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
-from rbtr.styles import STYLE_DIM, STYLE_ERROR, STYLE_WARNING
 
 
 @dataclass
@@ -37,20 +36,20 @@ class LLMContext:
         """Emit an informational message.  Checks cancellation first."""
         if self.cancel.is_set():
             raise TaskCancelled
-        self.events.put(Output(text=text, style=STYLE_DIM))
+        self.events.put(Output(text=text))
 
     def warn(self, text: str) -> None:
         """Emit a warning.  Checks cancellation first."""
         if self.cancel.is_set():
             raise TaskCancelled
-        self.events.put(Output(text=text, style=STYLE_WARNING))
+        self.events.put(Output(text=text, level=OutputLevel.WARNING))
 
     def error(self, text: str) -> None:
         """Emit an error.  Always emitted — no cancellation check."""
-        self.events.put(Output(text=text, style=STYLE_ERROR))
+        self.events.put(Output(text=text, level=OutputLevel.ERROR))
 
     def error_with_detail(self, summary: str, detail: str) -> None:
         """Emit an error with expandable diagnostic detail."""
         if self.cancel.is_set():
             raise TaskCancelled
-        self.events.put(ErrorDetail(summary=summary, detail=detail))
+        self.events.put(Output(text=summary, level=OutputLevel.ERROR, detail=detail))

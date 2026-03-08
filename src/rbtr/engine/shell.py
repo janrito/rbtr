@@ -9,8 +9,8 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
+from rbtr.events import OutputLevel
 from rbtr.exceptions import TaskCancelled
-from rbtr.styles import STYLE_SHELL_STDERR
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -76,7 +76,7 @@ def handle_shell(engine: Engine, cmd: str) -> None:
         total_hidden += hidden
     if stderr_full:
         shown, hidden = _truncate_output(stderr_full, config.tui.shell_max_lines)
-        engine._out(shown, style=STYLE_SHELL_STDERR)
+        engine._out(shown, level=OutputLevel.SHELL_STDERR)
         total_hidden += hidden
     had_error = proc.returncode != 0
     if had_error and not engine._cancel.is_set():

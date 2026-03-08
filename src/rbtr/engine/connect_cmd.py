@@ -21,7 +21,6 @@ from rbtr.providers import (
     google as google_provider,
     openai_codex as codex_provider,
 )
-from rbtr.styles import CODE_HIGHLIGHT, LINK_STYLE
 
 from .model_cmd import get_models
 from .types import Service
@@ -213,15 +212,8 @@ def _connect_auto_oauth(
         engine._clear()
         url, pending = begin_login()
         engine.state.pending_logins[provider] = pending
-        engine._emit(
-            LinkOutput(
-                markup=(
-                    f"Callback port is busy. Opening browser manually…\n"
-                    f"If the browser didn't open, visit: "
-                    f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
-                )
-            )
-        )
+        engine._out("Callback port is busy. Opening browser manually…")
+        engine._emit(LinkOutput(url=url, label="If the browser didn't open, visit"))
         engine._out("")
         engine._out("After authorizing, paste the redirect URL from your browser:")
         engine._out(f"  /connect {provider.value} <url>")
@@ -271,15 +263,8 @@ def _connect_claude(engine: Engine, auth_code: str) -> None:
     url, pending = claude_provider.begin_login()
     engine.state.pending_logins[prov] = pending
 
-    engine._emit(
-        LinkOutput(
-            markup=(
-                f"Opening browser to sign in with your {label} account…\n"
-                f"If the browser didn't open, visit: "
-                f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
-            )
-        )
-    )
+    engine._out(f"Opening browser to sign in with your {label} account…")
+    engine._emit(LinkOutput(url=url, label="If the browser didn't open, visit"))
     engine._out("")
     engine._out("After authorizing, paste the code shown in the browser:")
     engine._out(f"  /connect {prov.value} <code>")
@@ -297,15 +282,8 @@ def _connect_github(engine: Engine) -> None:
         device_code = device["device_code"]
         interval = int(device["interval"])
 
-        engine._emit(
-            LinkOutput(
-                markup=(
-                    f"Open [link={verification_uri}][{LINK_STYLE}]{verification_uri}"
-                    f"[/{LINK_STYLE}][/link] and enter code: "
-                    f"[{CODE_HIGHLIGHT}]{user_code}[/{CODE_HIGHLIGHT}]"
-                )
-            )
-        )
+        engine._emit(LinkOutput(url=verification_uri, label="Open"))
+        engine._out(f"Enter code: {user_code}")
         engine._copy_to_clipboard(user_code)
         engine._out("Code copied to clipboard.")
         engine._flush()

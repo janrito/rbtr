@@ -6,7 +6,6 @@ import time
 from typing import TYPE_CHECKING
 
 from rbtr.sessions.stats import IncidentStats, TokenStats, ToolStat
-from rbtr.styles import STYLE_DIM
 from rbtr.usage import format_cost, format_tokens
 
 if TYPE_CHECKING:
@@ -100,7 +99,7 @@ def _cmd_global(engine: Engine) -> None:
 
 
 def _out(engine: Engine, text: str) -> None:
-    engine._out(text, style=STYLE_DIM)
+    engine._out(text)
 
 
 def _elapsed(engine: Engine) -> str:

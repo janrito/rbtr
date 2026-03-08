@@ -728,15 +728,21 @@ def _emit_tool_event(
         case FunctionToolCallEvent(part=part):
             ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=format_tool_args(part.args)))
         case FunctionToolResultEvent(result=result):
+            tool_name = getattr(result, "tool_name", None) or "?"
             if isinstance(result, ToolReturnPart):
                 text = str(result.content)
                 max_chars = config.tui.tool_max_chars
                 if len(text) > max_chars:
                     text = text[:max_chars] + "…"
+                ctx.emit(ToolCallFinished(tool_name=tool_name, result=text))
             else:
-                text = "(retry)"
-            tool_name = getattr(result, "tool_name", None) or "?"
-            ctx.emit(ToolCallFinished(tool_name=tool_name, result=text))
+                ctx.emit(
+                    ToolCallFinished(
+                        tool_name=tool_name,
+                        result="",
+                        error=str(result.content),
+                    )
+                )
 
 
 # ── Usage tracking ───────────────────────────────────────────────────

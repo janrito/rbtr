@@ -554,10 +554,10 @@ def test_connect_github_success(creds_path: Path, mocker: MockerFixture, engine:
 
     links = [e for e in drained_events if isinstance(e, LinkOutput)]
     assert len(links) == 1
-    assert "ABCD-1234" in links[0].markup
-    assert "github.com/login/device" in links[0].markup
+    assert "github.com/login/device" in links[0].url
 
     texts = output_texts(drained_events)
+    assert any("ABCD-1234" in t for t in texts)
     assert any("Authenticated" in t for t in texts)
 
 
