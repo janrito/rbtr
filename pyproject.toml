@@ -61,7 +61,15 @@ rbtr = "rbtr.cli:main"
 
 [dependency-groups]
 debug = ["ipython>=9.10.0", "scalene>=2.1"]
-dev = ["mypy", "pytest", "pytest-cov", "pytest-mock", "ruff", "sqlfluff>=4.0.4"]
+dev = [
+  "mypy",
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "ruff",
+  "rumdl>=0.1.43",
+  "sqlfluff>=4.0.4",
+]
 
 # -- ruff --
 
@@ -116,7 +124,7 @@ max-complexity = 12
 
 [tool.rumdl]
 respect_gitignore = true
-exclude = ["cov-append.md"]
+exclude = ["cov-append.md", "TODO-*"]
 
 [tool.rumdl.MD013]
 line_length = 88

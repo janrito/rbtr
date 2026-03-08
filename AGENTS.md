@@ -89,3 +89,10 @@ Agent rules. Short, imperative.
 - Never change linter, formatter, or tool settings in
   `pyproject.toml` without explicit instructions.
   Fix the code, not the rules.
+- **Use `just` recipes for formatting and linting.**
+  `just fmt` / `just lint` for everything, or scope by
+  language: `fmt-py`, `fmt-sql`, `fmt-md` (and `lint-*`).
+  `fmt-md` / `lint-md` accept optional file args
+  (default: all). Never run `ruff`, `sqlfluff`, `rumdl`,
+  or other tools directly — the recipes carry the correct
+  flags and file selections.

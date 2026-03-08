@@ -1,20 +1,28 @@
 check: lint typecheck test
 
-fmt:
+fmt: fmt-py fmt-sql fmt-md
+
+lint: lint-py lint-sql lint-md
+
+fmt-py:
     uv run ruff check --fix .
     uv run ruff format .
-    uv run sqlfluff fix .
 
-lint:
+lint-py:
     uv run ruff check .
     uv run ruff format --check .
+
+fmt-sql:
+    uv run sqlfluff fix .
+
+lint-sql:
     uv run sqlfluff lint .
 
-fmt-md *FILES='README.md ARCHITECTURE.md':
-    rumdl check --fix {{ FILES }}
+fmt-md *FILES:
+    rumdl check --fix {{ if FILES == "" { "." } else { FILES } }}
 
-lint-md *FILES='README.md ARCHITECTURE.md':
-    rumdl check {{ FILES }}
+lint-md *FILES:
+    rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
 typecheck:
     uv run mypy

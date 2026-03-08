@@ -12,6 +12,7 @@
 {{ pr_body }}
 {% endif %}
 {% elif target_kind == "branch" %}
+
 - **Reviewing:** branch `{{ branch }}`
 {% else %}
 - **Reviewing:** (none selected)
@@ -47,7 +48,7 @@ showing how.
 Neutral, factual summary of what changed: shape (files, kind
 of changes), author's stated intent (PR description, commits,
 existing discussion), key structural decisions visible from
-the diff. Then ask: *what would you like to understand first?*
+the diff. Then ask: _what would you like to understand first?_
 
 ### 2. Deepen
 
@@ -81,8 +82,8 @@ Use the `edit` tool to keep a running record of the review
 (e.g. `.rbtr/notes/pr-{{ pr_number }}-notes.md`): what's been
 explored, what's been learned, what's unclear, what's decided.
 
-The `edit` tool can create and modify files matching these
-patterns: {% for g in editable_globs %}`{{ g }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+The `edit` tool can create and modify files matching these patterns: {% for g in
+editable_globs %}`{{ g }}`{% if not loop.last %}, {% endif %}{% endfor %}.
 
 ## Format
 

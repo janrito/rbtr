@@ -107,7 +107,8 @@ Providers that don't expose a model listing show a hint instead:
     /model ollama/<model-id>
 ```
 
-The model list is fetched lazily on first Tab completion or `/model` command, and refreshed on every `/connect`.
+The model list is fetched lazily on first Tab completion or
+`/model` command, and refreshed on every `/connect`.
 
 ### Switching models mid-conversation
 
@@ -448,16 +449,16 @@ database retains the original dangling state.
 #### On retry
 
 When the first API call fails with a provider rejection, rbtr
-retries with escalating history simplification.  All transforms
+retries with escalating history simplification. All transforms
 are applied in memory — the original messages remain in the
 database unchanged. The next turn with a compatible provider uses
 the original history.
 
 **Level 1 — consolidate tool returns.** Restructures tool
-call/return grouping without destroying content.  Each model
+call/return grouping without destroying content. Each model
 response's matching tool returns are collected into a single
 request immediately after it — even when they were scattered
-across multiple requests or mixed with user prompts.  This
+across multiple requests or mixed with user prompts. This
 handles the most common cross-provider issue: switching to a
 provider with stricter pairing rules (e.g. Gemini requiring
 exact function-response counts per turn).
@@ -465,13 +466,13 @@ exact function-response counts per turn).
 **Level 2 — demote thinking + flatten tool exchanges.** If
 consolidation still fails, rbtr retries with heavier transforms:
 
-- *Thinking-part metadata.*  Providers embed reasoning IDs in
+- _Thinking-part metadata._ Providers embed reasoning IDs in
   thinking parts (`rs_*`, `reasoning_content`). A different
   provider rejects them. rbtr converts thinking parts to plain
   text wrapped in `<thinking>` tags — content preserved,
   metadata stripped.
 
-- *Flatten tool exchanges (last resort).* Converts tool calls
+- _Flatten tool exchanges (last resort)._ Converts tool calls
   and results to plain text:
   `[Repaired historical tool call -- tool_name(args)]`
   and `[tool_name result]\n…`. All content survives as readable
@@ -525,8 +526,8 @@ Labels are set automatically when a review target is selected
 them with any name.
 
 **`/session resume`** accepts an ID prefix or a label substring
-(case-insensitive).  ID prefix is tried first; if no match,
-the label is searched.  When several sessions share a label the
+(case-insensitive). ID prefix is tried first; if no match,
+the label is searched. When several sessions share a label the
 most recent one is picked.
 
 **`/session resume`** loads the target session's messages from the
@@ -538,7 +539,7 @@ metadata and rebuild the code index.
 You can resume sessions from different repos or different models.
 
 **`/session delete`** requires an exact ID prefix — no label
-matching, to prevent accidental deletion.  Removes all fragments
+matching, to prevent accidental deletion. Removes all fragments
 for the session (cascading via foreign keys). You cannot delete
 the active session — use `/new` first.
 
@@ -587,7 +588,7 @@ recorded as an **incident** in the session database (see
 [History repair](#history-repair)). `/stats` surfaces these
 when they exist:
 
-```
+```text
   Failures (3)
     history_format                 2   recovered: 2
     overflow                       1   recovered: 1
@@ -747,7 +748,7 @@ you: /compact reset
 Compaction reset — 42 fragments restored (26 active messages).
 ```
 
-### Progress indicator
+### Compaction progress
 
 When compaction runs, two panels appear in the conversation
 history:
@@ -829,12 +830,12 @@ they expire. You never need to edit `creds.toml` by hand — use
 rbtr's instructions to the LLM are split into four templates,
 each with a single responsibility:
 
-| Template           | Scope           | Description                                    |
-| ------------------ | --------------- | ---------------------------------------------- |
-| `system.md`        | Both agents     | Identity, authority, language style             |
-| `review.md`        | Main agent only | Review context, principles, strategy, format    |
-| `compact.md`       | Compact agent   | What to preserve/drop when summarising history  |
-| `index_status.md`  | Main agent only | Index availability and tool readiness           |
+| Template          | Scope           | Description                                    |
+| ----------------- | --------------- | ---------------------------------------------- |
+| `system.md`       | Both agents     | Identity, authority, language style            |
+| `review.md`       | Main agent only | Review context, principles, strategy, format   |
+| `compact.md`      | Compact agent   | What to preserve/drop when summarising history |
+| `index_status.md` | Main agent only | Index availability and tool readiness          |
 
 The main agent receives `system.md` + `review.md` +
 `index_status.md` on every turn. The compaction agent (a
