@@ -2705,6 +2705,7 @@ name = "rbtr"
 version = "2026.2.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "duckdb" },
     { name = "httpx" },
     { name = "huggingface-hub" },
@@ -2766,6 +2767,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.0" },
     { name = "duckdb", specifier = ">=1.0" },
     { name = "httpx" },
     { name = "huggingface-hub" },

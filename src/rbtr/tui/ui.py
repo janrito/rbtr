@@ -1089,8 +1089,7 @@ def run(
     console = Console(markup=True, highlight=False, theme=theme)
     state = EngineState()
     events: queue.Queue[Event] = queue.Queue()
-    engine = Engine(state, events)
-    try:
+    with Engine(state, events) as engine:
         ui = UI(
             console,
             state,
@@ -1100,5 +1099,3 @@ def run(
             continue_session=continue_session,
         )
         ui.run()
-    finally:
-        engine.close()

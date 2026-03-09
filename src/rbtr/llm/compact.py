@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from pydantic_ai import Agent
 from pydantic_ai._agent_graph import ModelRequestNode
 from pydantic_ai.exceptions import ModelHTTPError
@@ -53,17 +51,13 @@ def _compact_task() -> str:
 def compact_history(ctx: LLMContext, extra_instructions: str = "") -> None:
     """Synchronous entry point — for daemon-thread callers.
 
-    Schedules :func:`compact_history_async` on the context's event loop
-    and blocks until it completes.  Safe to call from any thread
-    **except** the event-loop thread itself (that would deadlock).
+    Schedules :func:`compact_history_async` on the portal and blocks
+    until it completes.  Safe to call from any thread **except** the
+    portal's async task (that would deadlock).
 
     Used by ``/compact`` command and ``_auto_compact_on_overflow``.
     """
-    future = asyncio.run_coroutine_threadsafe(
-        compact_history_async(ctx, extra_instructions),
-        ctx.loop,
-    )
-    future.result()
+    ctx.portal.call(lambda: compact_history_async(ctx, extra_instructions))
 
 
 def reset_compaction(ctx: LLMContext) -> None:
@@ -95,8 +89,8 @@ async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -
     summarised — the rest is pushed into the kept portion.
 
     This is an async function so it can be ``await``-ed from
-    coroutines already running on ``ctx.loop`` (mid-turn and
-    post-turn compaction inside ``_stream_agent``).
+    coroutines already running on the portal (mid-turn and post-turn
+    compaction inside ``_stream_agent``).
     """
     if not ctx.state.has_llm or not ctx.state.model_name:
         ctx.warn("No LLM connected — cannot compact.")

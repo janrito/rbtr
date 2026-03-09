@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import collections.abc
-import contextlib
 import json
 import logging
 import traceback
@@ -12,6 +10,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
+import anyio
 from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -281,6 +280,13 @@ def handle_llm(ctx: LLMContext, message: str) -> None:
             strategy=RecoveryStrategy.SIMPLIFY_HISTORY,
             retry=lambda: _run_agent(ctx, model, message, history_repair_level=2),
         )
+    except TimeoutError:
+        timeout = config.tools.turn_timeout
+        ctx.error(
+            f"Turn timed out after {timeout:.0f}s. "
+            f"Partial results have been saved. "
+            f"Increase `tools.turn_timeout` in config or set to 0 to disable."
+        )
 
 
 def _short_message(exc: ModelHTTPError) -> str:
@@ -465,11 +471,12 @@ def _run_agent(
     history_repair_level: int = 0,
 ) -> None:
     """Stream an agent run, blocking until complete."""
-    future = asyncio.run_coroutine_threadsafe(
-        _stream_agent(ctx, model, message, history_repair_level=history_repair_level),
-        ctx.loop,
+    ctx.portal.call(
+        lambda: _run_with_cancel(
+            ctx,
+            _stream_agent(ctx, model, message, history_repair_level=history_repair_level),
+        )
     )
-    future.result()
 
 
 def _prepare_turn(
@@ -588,9 +595,27 @@ async def _stream_agent(
     history_repair_level: int = 0,
 ) -> None:
     """Run the agent with cancellation support, update session state."""
+    timeout = config.tools.turn_timeout
+    if timeout > 0:
+        with anyio.fail_after(timeout):
+            await _stream_agent_inner(
+                ctx, model, message, history_repair_level=history_repair_level
+            )
+    else:
+        await _stream_agent_inner(ctx, model, message, history_repair_level=history_repair_level)
+
+
+async def _stream_agent_inner(
+    ctx: LLMContext,
+    model: Model,
+    message: str,
+    *,
+    history_repair_level: int = 0,
+) -> None:
+    """Inner turn logic — streaming, compaction, and limit handling."""
     history, deps, settings = _prepare_turn(ctx, model, history_repair_level)
 
-    result = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, message, history))
+    result = await _do_stream(ctx, model, deps, settings, message, history)
 
     # Mid-turn compaction: if context exceeded the threshold during
     # a tool-call cycle, compact once and resume.
@@ -603,16 +628,14 @@ async def _stream_agent(
         history = ctx.store.load_messages(ctx.state.session_id)
         ctx.state.usage.snapshot_base()
 
-        resume = await _run_with_cancel(ctx, _do_stream(ctx, model, deps, settings, None, history))
+        resume = await _do_stream(ctx, model, deps, settings, None, history)
         result = _merge_results(result, resume)
 
     _finalize_turn(ctx, result)
 
     if result.limit_hit:
         history = ctx.store.load_messages(ctx.state.session_id)
-        summary = await _run_with_cancel(
-            ctx, _do_stream(ctx, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
-        )
+        summary = await _do_stream(ctx, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
         _save_messages_safe(ctx, [m for m in summary.new_messages if isinstance(m, ModelRequest)])
 
     # Post-turn compaction for turns that didn't trigger mid-turn.
@@ -662,35 +685,55 @@ def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[s
 
 async def _run_with_cancel(
     ctx: LLMContext,
-    coro: collections.abc.Coroutine[object, object, _StreamResult],
-) -> _StreamResult:
-    """Run *coro* with a parallel cancellation watcher.
+    coro: collections.abc.Awaitable[None],
+) -> None:
+    """Run *coro* with a cancellation watcher using anyio cancel scopes.
 
-    Raises ``TaskCancelled`` if the engine's cancel event fires
-    before the coroutine completes.
+    A parallel task awaits an ``anyio.Event`` that the UI thread sets
+    via ``anyio.from_thread.run_sync(event.set, token=...)`` (zero-
+    latency bridge).  When it fires, the shared cancel scope is
+    cancelled, tearing down the streaming coroutine.  Raises
+    ``TaskCancelled`` so the engine can report the cancellation.
+
+    Exceptions from *coro* are captured and re-raised **after** the task
+    group exits cleanly, so they propagate as bare exceptions rather
+    than being wrapped in an ``ExceptionGroup``.
     """
+    failure: BaseException | None = None
+    cancelled = False
 
-    async def _watch() -> None:
-        while not ctx.cancel.is_set():
-            await asyncio.sleep(0.1)
-        raise TaskCancelled
+    cancel_event = anyio.Event()
+    ctx.cancel_slot[0] = cancel_event
+    # If the threading.Event was already set before we entered (race),
+    # fire the anyio event immediately.
+    if ctx.cancel.is_set():
+        cancel_event.set()
 
-    stream_task = asyncio.create_task(coro)
-    cancel_task = asyncio.create_task(_watch())
+    try:
+        async with anyio.create_task_group() as tg:
 
-    done, pending = await asyncio.wait(
-        {stream_task, cancel_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for task in pending:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    for task in done:
-        if task is cancel_task:
-            task.result()  # raises TaskCancelled
+            async def _watch() -> None:
+                nonlocal cancelled
+                await cancel_event.wait()
+                cancelled = True
+                tg.cancel_scope.cancel()
 
-    return stream_task.result()
+            tg.start_soon(_watch)
+            try:
+                await coro
+            except anyio.get_cancelled_exc_class():
+                if cancelled:
+                    raise TaskCancelled from None
+                raise
+            except BaseException as exc:
+                failure = exc
+            # Cancel the watcher — either normal exit or captured failure.
+            tg.cancel_scope.cancel()
+    finally:
+        ctx.cancel_slot[0] = None
+
+    if failure is not None:
+        raise failure
 
 
 def _merge_results(first: _StreamResult, second: _StreamResult) -> _StreamResult:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import os
@@ -12,6 +11,9 @@ import subprocess
 import sys
 import threading
 import traceback
+
+import anyio
+from anyio.from_thread import BlockingPortal, start_blocking_portal
 
 from rbtr.events import (
     Event,
@@ -24,6 +26,7 @@ from rbtr.events import (
 )
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
+from rbtr.llm.context import CancelSlot
 from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.sessions.scrub import scrub_secrets
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
@@ -44,6 +47,11 @@ from .types import Command, TaskType
 log = logging.getLogger(__name__)
 
 
+async def _capture_token() -> anyio.lowlevel.EventLoopToken:
+    """Return the ``anyio`` token for the current event loop."""
+    return anyio.lowlevel.current_token()
+
+
 class Engine:
     """Executes commands and emits typed events. Knows nothing about the UI."""
 
@@ -60,24 +68,40 @@ class Engine:
             None  # (stdout, stderr, returncode, hidden_count)
         )
         self._cancel = threading.Event()
+        self._cancel_slot: CancelSlot = [None]
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
         # Session persistence store.
         self.store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
         state.session_id = self.store.new_id()
-        # Long-lived event loop for async work (LLM streaming).
-        # Keeps httpx connection pools alive across calls.
-        self._loop = asyncio.new_event_loop()
-        self._loop_thread = threading.Thread(
-            target=self._loop.run_forever, daemon=True, name="asyncio-loop"
-        )
-        self._loop_thread.start()
+        # Async portal for LLM streaming (keeps httpx pools alive).
+        self._portal_cm = start_blocking_portal(backend="asyncio")
+        self._portal: BlockingPortal = self._portal_cm.__enter__()
+        self._anyio_token = self._portal.call(_capture_token)
+
+    # ── Context manager ──────────────────────────────────────────────
+
+    def __enter__(self) -> Engine:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        self.close()
 
     # ── Cancellation ─────────────────────────────────────────────────
 
     def cancel(self) -> None:
         """Signal the running task to stop. Thread-safe."""
         self._cancel.set()
+        # Signal the anyio cancel watcher (zero-latency bridge).
+        evt = self._cancel_slot[0]
+        if evt is not None:
+            with contextlib.suppress(Exception):
+                anyio.from_thread.run_sync(evt.set, token=self._anyio_token)
         pgid = self._shell_pgid
         if pgid is not None:
             with contextlib.suppress(OSError):
@@ -139,7 +163,9 @@ class Engine:
             store=self.store,
             events=self.events,
             cancel=self._cancel,
-            loop=self._loop,
+            portal=self._portal,
+            anyio_token=self._anyio_token,
+            cancel_slot=self._cancel_slot,
         )
 
     # ── Task runner ──────────────────────────────────────────────────
@@ -251,6 +277,8 @@ class Engine:
 
             reset_model()
         self.store.close()
+        with contextlib.suppress(Exception):
+            self._portal_cm.__exit__(None, None, None)
 
     # ── Utilities ────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
+  "anyio>=4.0",
   "httpx",
   "pydantic>=2.12.5",
   "pydantic-ai",

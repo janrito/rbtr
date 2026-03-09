@@ -13,15 +13,14 @@ implementations so the real ``_do_stream`` pipeline runs end-to-end
 
 from __future__ import annotations
 
-import asyncio
 import queue
-import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 
 import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
+from rbtr.engine import Engine
 from rbtr.events import Event, TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.llm.agent import AgentDeps
 from rbtr.llm.context import LLMContext
@@ -57,29 +56,23 @@ def _final_text(messages: list[ModelMessage]) -> str:
 
 
 @pytest.fixture
-def stream_ctx() -> tuple[LLMContext, AgentDeps, queue.Queue[Event]]:
-    """Lightweight context for ``_do_stream`` — no engine required."""
-    store = SessionStore()
+def stream_ctx() -> Generator[tuple[LLMContext, AgentDeps, queue.Queue[Event]]]:
+    """Lightweight context for ``_do_stream`` backed by a real engine."""
     state = EngineState()
     state.model_name = "test/test-model"
-    state.session_id = store.new_id()
-    store.set_context(state.session_id)
-
     events_q: queue.Queue[Event] = queue.Queue()
-    ctx = LLMContext(
-        state=state,
-        store=store,
-        events=events_q,
-        cancel=threading.Event(),
-        loop=asyncio.new_event_loop(),
-    )
-    deps = AgentDeps(state=state)
-    return ctx, deps, events_q
+    with Engine(state, events_q, store=SessionStore()) as engine:
+        # Sync store context so DB writes use the right session.
+        engine._sync_store_context()
+        ctx = engine._llm_context()
+        deps = AgentDeps(state=state)
+        yield ctx, deps, events_q
 
 
 # ── Text fidelity tests ─────────────────────────────────────────────
 
 
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("chunks", "expected"),
     [
@@ -102,7 +95,7 @@ def stream_ctx() -> tuple[LLMContext, AgentDeps, queue.Queue[Event]]:
         "unicode",
     ],
 )
-def test_streamed_text_matches_final_message(
+async def test_streamed_text_matches_final_message(
     stream_ctx: tuple[LLMContext, AgentDeps, queue.Queue[Event]],
     chunks: list[str],
     expected: str,
@@ -115,7 +108,7 @@ def test_streamed_text_matches_final_message(
             yield chunk
 
     model = FunctionModel(stream_function=stream_fn)
-    result = asyncio.run(_do_stream(ctx, model, deps, None, "test", []))
+    result = await _do_stream(ctx, model, deps, None, "test", [])
 
     streamed = _collect_text_deltas(events_q)
     final = _final_text(result.all_messages)
@@ -125,7 +118,8 @@ def test_streamed_text_matches_final_message(
     assert streamed == final
 
 
-def test_text_after_tool_calls_matches(
+@pytest.mark.anyio
+async def test_text_after_tool_calls_matches(
     stream_ctx: tuple[LLMContext, AgentDeps, queue.Queue[Event]],
 ) -> None:
     """Text emitted after a tool-call round-trip is fully captured.
@@ -153,7 +147,7 @@ def test_text_after_tool_calls_matches(
             yield " results."
 
     model = FunctionModel(stream_function=stream_fn)
-    result = asyncio.run(_do_stream(ctx, model, deps, None, "read a.py", []))
+    result = await _do_stream(ctx, model, deps, None, "read a.py", [])
 
     # Collect all events
     all_events: list[Event] = []
@@ -179,7 +173,8 @@ def test_text_after_tool_calls_matches(
     assert streamed == final
 
 
-def test_text_before_and_after_tool_call(
+@pytest.mark.anyio
+async def test_text_before_and_after_tool_call(
     stream_ctx: tuple[LLMContext, AgentDeps, queue.Queue[Event]],
 ) -> None:
     """Text before and after a tool call is fully captured.
@@ -205,7 +200,7 @@ def test_text_before_and_after_tool_call(
             yield "Found it: OK"
 
     model = FunctionModel(stream_function=stream_fn)
-    result = asyncio.run(_do_stream(ctx, model, deps, None, "check b.py", []))
+    result = await _do_stream(ctx, model, deps, None, "check b.py", [])
 
     all_events: list[Event] = []
     while True:
@@ -224,7 +219,8 @@ def test_text_before_and_after_tool_call(
     assert streamed == final
 
 
-def test_db_content_matches_streamed_text(
+@pytest.mark.anyio
+async def test_db_content_matches_streamed_text(
     stream_ctx: tuple[LLMContext, AgentDeps, queue.Queue[Event]],
 ) -> None:
     """Text persisted to the DB matches what was streamed to the UI."""
@@ -236,7 +232,7 @@ def test_db_content_matches_streamed_text(
         yield " must match."
 
     model = FunctionModel(stream_function=stream_fn)
-    result = asyncio.run(_do_stream(ctx, model, deps, None, "test", []))
+    result = await _do_stream(ctx, model, deps, None, "test", [])
 
     streamed = _collect_text_deltas(events_q)
     final = _final_text(result.all_messages)

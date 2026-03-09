@@ -123,6 +123,10 @@ class ToolsConfig(BaseModel):
     Managed exclusively by the draft tools — not writable via
     the ``edit`` tool."""
     max_requests_per_turn: int = 25
+    turn_timeout: float = 300.0
+    """Maximum seconds for a single LLM turn (including tool calls).
+
+    Set to ``0`` to disable.  Default is 5 minutes."""
 
 
 class LogConfig(BaseModel):

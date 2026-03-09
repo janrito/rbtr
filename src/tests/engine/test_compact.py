@@ -7,8 +7,6 @@ mocking only the LLM call boundary (``_stream_summary``).
 
 from __future__ import annotations
 
-from collections.abc import Generator
-
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
@@ -49,13 +47,6 @@ from .conftest import (
     has_event_type,
     output_texts,
 )
-
-
-@pytest.fixture
-def ctx(engine: Engine) -> LLMContext:
-    """LLMContext backed by the default engine fixture."""
-    return engine._llm_context()
-
 
 # ── Test data ────────────────────────────────────────────────────────
 
@@ -657,27 +648,27 @@ def test_snap_realistic_mid_turn() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_compact_no_llm(config_path: str, engine: Engine, ctx: LLMContext) -> None:
+def test_compact_no_llm(config_path: str, engine: Engine, llm_ctx: LLMContext) -> None:
     """Warns when no LLM is connected."""
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     texts = output_texts(drain(engine.events))
     assert any("No LLM connected" in t for t in texts)
 
 
-def test_compact_single_turn(config_path: str, engine: Engine, ctx: LLMContext) -> None:
+def test_compact_single_turn(config_path: str, engine: Engine, llm_ctx: LLMContext) -> None:
     """Single-turn history has nothing to compact."""
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     _seed(engine, _turns(1))
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     texts = output_texts(drain(engine.events))
     assert any("Nothing to compact" in t for t in texts)
 
 
 def test_compact_fewer_turns_than_keep_falls_back(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """With 2 turns (= keep_turns=2), normal split finds nothing to
     compact, so it falls back to keeping 1 turn.
@@ -693,7 +684,7 @@ def test_compact_fewer_turns_than_keep_falls_back(
     _seed(engine, _turns(2))
     engine.state.usage.context_window = 200_000
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     all_events = drain(engine.events)
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
@@ -703,7 +694,7 @@ def test_compact_fewer_turns_than_keep_falls_back(
 
 
 def test_compact_replaces_history(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """After compaction, history = [summary_msg] + kept turns."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
@@ -717,7 +708,7 @@ def test_compact_replaces_history(
     _seed(engine, list(REALISTIC_HISTORY))
     engine.state.usage.context_window = 200_000
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
 
     # Load from DB — the source of truth.
     loaded = engine.store.load_messages(engine.state.session_id)
@@ -741,7 +732,7 @@ def test_compact_replaces_history(
 
 
 def test_compact_emits_both_events(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """Both CompactionStarted and CompactionFinished are emitted."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
@@ -755,7 +746,7 @@ def test_compact_emits_both_events(
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     all_events = drain(engine.events)
     assert has_event_type(all_events, CompactionStarted)
     assert has_event_type(all_events, CompactionFinished)
@@ -765,7 +756,7 @@ def test_compact_emits_both_events(
 
 
 def test_compact_extra_instructions_in_prompt(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """Extra instructions appear in the prompt sent to the model."""
     mock = mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
@@ -779,14 +770,14 @@ def test_compact_extra_instructions_in_prompt(
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
-    compact_history(ctx, "Focus on security")
+    compact_history(llm_ctx, "Focus on security")
 
     prompt = mock.call_args[0][2]  # (engine, model, prompt)
     assert "Focus on security" in prompt
 
 
 def test_compact_over_limit_shrinks_old(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """When serialised old exceeds context, only a fitting prefix is summarised."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
@@ -808,7 +799,7 @@ def test_compact_over_limit_shrinks_old(
     # 9 turns ≈ 22.5k tokens. Set available to ~7.5k so only ~3 turns fit.
     engine.state.usage.context_window = 23_500  # minus 16k reserve = 7.5k available
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     all_events = drain(engine.events)
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
@@ -820,7 +811,7 @@ def test_compact_over_limit_shrinks_old(
 
 
 def test_compact_single_message_exceeds_context(
-    config_path: str, engine: Engine, ctx: LLMContext
+    config_path: str, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """When even one message exceeds available context, warns gracefully."""
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
@@ -837,13 +828,13 @@ def test_compact_single_message_exceeds_context(
     # Context window so small that even 1 message doesn't fit
     engine.state.usage.context_window = 17_000  # 17k - 16k reserve = 1k available
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
     texts = output_texts(drain(engine.events))
     assert any("even a single message exceeds" in t for t in texts)
 
 
 def test_compact_llm_error_leaves_history_unchanged(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """If the LLM call fails, history is not modified."""
     from pydantic_ai.exceptions import ModelHTTPError
@@ -860,7 +851,7 @@ def test_compact_llm_error_leaves_history_unchanged(
     _seed(engine, original)
     engine.state.usage.context_window = 200_000
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
 
     # DB unchanged after error — load_messages returns same count.
     assert len(engine.store.load_messages(engine.state.session_id)) == len(original)
@@ -881,7 +872,7 @@ def test_compact_llm_error_leaves_history_unchanged(
 
 
 def test_compact_leaves_last_input_tokens_unchanged(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """After compaction, last_input_tokens is unchanged — corrected on next LLM call."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
@@ -896,14 +887,14 @@ def test_compact_leaves_last_input_tokens_unchanged(
     engine.state.usage.context_window = 200_000
     engine.state.usage.last_input_tokens = 150_000  # simulate high usage
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
 
     # last_input_tokens untouched — no inaccurate estimate
     assert engine.state.usage.last_input_tokens == 150_000
 
 
 def test_compact_with_command_inputs(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """Compaction with interleaved command/shell inputs compacts the right messages.
 
@@ -937,7 +928,7 @@ def test_compact_with_command_inputs(
     assert len(paired) == 10
     assert all(isinstance(mid, str) and len(mid) > 0 for mid, _ in paired)
 
-    compact_history(ctx)
+    compact_history(llm_ctx)
 
     # After compaction, kept messages are valid — no orphaned parts.
     kept = engine.store.load_messages(engine.state.session_id)
@@ -1022,32 +1013,6 @@ def _text_only_model() -> FunctionModel:
     return FunctionModel(model_fn, stream_function=stream_fn)
 
 
-@pytest.fixture
-def llm_engine(creds_path: str) -> Generator[Engine]:
-    """Engine wired with OpenAI credentials for LLM tests."""
-    import queue
-
-    from rbtr.creds import creds
-    from rbtr.engine import Engine
-    from rbtr.sessions.store import SessionStore
-    from rbtr.state import EngineState
-
-    creds.update(openai_api_key="sk-test")
-    state = EngineState(owner="testowner", repo_name="testrepo")
-    state.connected_providers.add(BuiltinProvider.OPENAI)
-    state.model_name = "openai/gpt-4o"
-    state.model_name = "openai/gpt-4o"
-    eng = Engine(state, queue.Queue(), store=SessionStore())
-    yield eng
-    eng.close()
-
-
-@pytest.fixture
-def llm_ctx(llm_engine: Engine) -> LLMContext:
-    """LLMContext backed by the llm_engine fixture."""
-    return llm_engine._llm_context()
-
-
 def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:
     """Seed the DB with *turns* of history."""
     msgs = _turns(turns)
@@ -1087,9 +1052,7 @@ def _patch_for_mid_turn(engine: Engine, mocker: object) -> object:
     return summary_mock
 
 
-def test_mid_turn_compaction_fires(
-    config_path: str, mocker: object, llm_engine: Engine, ctx: LLMContext
-) -> None:
+def test_mid_turn_compaction_fires(config_path: str, mocker: object, llm_engine: Engine) -> None:
     """When context exceeds threshold during a tool-call turn,
     compaction fires mid-turn and the model continues.
     """
@@ -1105,7 +1068,7 @@ def test_mid_turn_compaction_fires(
 
 
 def test_mid_turn_compaction_produces_summary_in_db(
-    config_path: str, mocker: object, llm_engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
     """After mid-turn compaction the DB contains a summary message."""
     _seed_llm_history(llm_engine)
@@ -1126,7 +1089,7 @@ def test_mid_turn_compaction_produces_summary_in_db(
 
 
 def test_mid_turn_compaction_only_once_per_turn(
-    config_path: str, mocker: object, llm_engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
     """Mid-turn compaction fires at most once — the resume run does not
     re-trigger even if context is still high.
@@ -1141,7 +1104,7 @@ def test_mid_turn_compaction_only_once_per_turn(
 
 
 def test_mid_turn_compaction_preserves_continuity(
-    config_path: str, mocker: object, llm_engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
     """After mid-turn compaction the conversation can continue normally."""
     _seed_llm_history(llm_engine)
@@ -1172,7 +1135,7 @@ def test_mid_turn_compaction_preserves_continuity(
 
 
 def test_no_mid_turn_compaction_without_tools(
-    config_path: str, mocker: object, llm_engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
     """When the turn has no tool calls, mid-turn compaction does not
     fire — it falls through to post-turn compaction.
@@ -1197,7 +1160,7 @@ def test_no_mid_turn_compaction_without_tools(
 
 
 def test_mid_turn_compaction_blocks_reset(
-    config_path: str, mocker: object, llm_engine: Engine, llm_ctx: LLMContext
+    config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
     """``/compact reset`` is blocked after mid-turn compaction because
     the model continues and adds messages after the summary.
@@ -1210,7 +1173,7 @@ def test_mid_turn_compaction_blocks_reset(
 
     # The model resumed after mid-turn compaction, so messages
     # exist with IDs > summary_id.  Reset must be blocked.
-    reset_compaction(llm_ctx)
+    reset_compaction(llm_engine._llm_context())
     events = drain(llm_engine.events)
     texts = output_texts(events)
 
@@ -1223,7 +1186,7 @@ def test_mid_turn_compaction_blocks_reset(
 
 
 def test_compact_reset_restores_messages(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """``/compact reset`` un-marks compacted messages, summary stays."""
     mocker.patch(  # type: ignore[union-attr]
@@ -1239,13 +1202,13 @@ def test_compact_reset_restores_messages(
     engine.state.usage.context_window = 200_000
 
     # Compact — some messages now marked.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     compacted_count = len(engine.store.load_messages(engine.state.session_id))
     assert compacted_count < len(original)
 
     # Reset.
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     events = drain(engine.events)
     texts = output_texts(events)
 
@@ -1265,14 +1228,14 @@ def test_compact_reset_restores_messages(
 
 
 def test_compact_reset_no_existing_compaction(
-    config_path: str, engine: Engine, ctx: LLMContext
+    config_path: str, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """``/compact reset`` with no prior compaction says nothing to reset."""
     _seed(engine, _turns(3))
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     events = drain(engine.events)
     texts = output_texts(events)
 
@@ -1280,7 +1243,7 @@ def test_compact_reset_no_existing_compaction(
 
 
 def test_compact_reset_only_latest(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """``/compact reset`` undoes only the latest compaction, not all."""
     mocker.patch(  # type: ignore[union-attr]
@@ -1297,19 +1260,19 @@ def test_compact_reset_only_latest(
     _seed(engine, _turns(20))
 
     # First compaction.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     after_first = len(engine.store.load_messages(engine.state.session_id))
 
     # Add more turns, then compact again.
     _seed(engine, _turns(10))
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     after_second = len(engine.store.load_messages(engine.state.session_id))
     assert after_second <= after_first + 20  # sanity
 
     # Reset undoes only the second compaction.
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     drain(engine.events)
     after_reset = len(engine.store.load_messages(engine.state.session_id))
 
@@ -1333,7 +1296,7 @@ def test_compact_reset_only_latest(
 
 
 def test_compact_reset_blocked_after_new_messages(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """``/compact reset`` is blocked when messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
@@ -1348,14 +1311,14 @@ def test_compact_reset_blocked_after_new_messages(
     engine.state.usage.context_window = 200_000
 
     # Compact.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
 
     # Add new messages after compaction.
     _seed(engine, _turns(2))
 
     # Reset should be blocked.
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     events = drain(engine.events)
     texts = output_texts(events)
 
@@ -1373,7 +1336,7 @@ def test_compact_reset_blocked_after_new_messages(
 
 
 def test_compact_reset_allowed_immediately_after_compaction(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """``/compact reset`` works when no messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
@@ -1388,10 +1351,10 @@ def test_compact_reset_allowed_immediately_after_compaction(
     engine.state.usage.context_window = 200_000
 
     # Compact then immediately reset — no new messages in between.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
 
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     events = drain(engine.events)
     texts = output_texts(events)
 
@@ -1512,7 +1475,7 @@ def _assert_loaded_valid(engine: Engine) -> None:
 
 
 def test_compaction_across_tool_boundaries_no_orphans(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """Compacting a conversation where a tool return straddles the
     turn boundary produces no orphaned tool returns.
@@ -1533,13 +1496,13 @@ def test_compaction_across_tool_boundaries_no_orphans(
     engine.state.usage.context_window = 200_000
 
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
-    compact_history(ctx)  # keep_turns=2 from config
+    compact_history(llm_ctx)  # keep_turns=2 from config
     drain(engine.events)
     _assert_loaded_valid(engine)
 
 
 def test_compact_reset_restores_original_messages_without_summary(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """After ``/compact reset``, loaded messages are exactly the
     originals — no summary injected, no orphaned tool returns,
@@ -1561,13 +1524,13 @@ def test_compact_reset_restores_original_messages_without_summary(
     assert len(original) == len(TOOL_BOUNDARY_HISTORY)
 
     # Compact.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     compacted = engine.store.load_messages(engine.state.session_id)
     assert len(compacted) < len(original)
 
     # Reset.
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     drain(engine.events)
     restored = engine.store.load_messages(engine.state.session_id)
 
@@ -1590,7 +1553,7 @@ def test_compact_reset_restores_original_messages_without_summary(
 
 
 def test_compaction_reset_and_recompact_no_orphans(
-    config_path: str, mocker: object, engine: Engine, ctx: LLMContext
+    config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
     """After reset and recompaction, no orphaned tool returns exist.
 
@@ -1610,20 +1573,20 @@ def test_compaction_reset_and_recompact_no_orphans(
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
 
     # First compaction.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     _assert_loaded_valid(engine)
     after_compact = len(engine.store.load_messages(engine.state.session_id))
 
     # Reset — restores originals, deletes summary.
-    reset_compaction(ctx)
+    reset_compaction(llm_ctx)
     drain(engine.events)
     after_reset = engine.store.load_messages(engine.state.session_id)
     assert len(after_reset) == len(TOOL_BOUNDARY_HISTORY)
     _assert_loaded_valid(engine)
 
     # Recompact.
-    compact_history(ctx)
+    compact_history(llm_ctx)
     drain(engine.events)
     _assert_loaded_valid(engine)
     after_recompact = len(engine.store.load_messages(engine.state.session_id))

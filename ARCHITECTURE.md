@@ -25,15 +25,15 @@ graph LR
 ```
 
 The TUI dispatches work to the engine in daemon threads. The
-engine delegates LLM queries to an async event loop on a
+engine delegates LLM queries to an anyio `BlockingPortal` on a
 dedicated thread. Background indexing runs in its own daemon
 thread. All results flow back to the TUI as typed `Event`
 models on a `queue.Queue`.
 
 The TUI never runs commands or does I/O beyond rendering. The
-engine never imports Rich or touches the display. The async
-event loop is long-lived across tasks to keep httpx connection
-pools alive.
+engine never imports Rich or touches the display. The portal
+is long-lived across tasks to keep httpx connection pools
+alive.
 
 ---
 
@@ -116,7 +116,7 @@ It holds references to:
   model cache, usage counters, and discussion cache.
 - `SessionStore` (`sessions/store.py`) — session persistence.
 - `queue.Queue[Event]` — the event channel to the TUI.
-- An `asyncio` event loop on a dedicated daemon thread.
+- An anyio `BlockingPortal` on a dedicated daemon thread.
 
 Input is classified and dispatched:
 
@@ -136,7 +136,7 @@ session store, so all subsequent writes inherit it.
 
 **`LLMContext`** (`llm/context.py`) is the decoupling boundary
 between engine and LLM pipeline. It is a dataclass holding the
-state, store, event queue, cancellation flag, and async loop.
+state, store, event queue, cancellation flag, and portal.
 The engine creates one via `_llm_context()` before each LLM or
 compaction call. The LLM pipeline receives it as its only
 dependency — it never imports the `Engine` class.
@@ -477,11 +477,11 @@ thread launched by `/review`. Daemon threads communicate results
 exclusively through the event queue — they never call TUI
 methods.
 
-**Async event loop.** A dedicated daemon thread running
-`asyncio.run_forever()`, created once at engine init. LLM
-streaming runs as coroutines on this loop via
-`asyncio.run_coroutine_threadsafe()`. The loop persists across
-tasks so httpx connection pools stay alive between turns.
+**Async portal.** An anyio `BlockingPortal` created at engine
+init via `start_blocking_portal(backend="asyncio")`. LLM
+streaming runs as coroutines on the portal via
+`portal.call()`. The portal persists across tasks so httpx
+connection pools stay alive between turns.
 
 ```mermaid
 sequenceDiagram
@@ -502,16 +502,20 @@ sequenceDiagram
 
 ### Cancellation
 
-`Ctrl+C` sets a `threading.Event` on the engine. The LLM
-pipeline checks it at two levels:
+`Ctrl+C` sets a `threading.Event` on the engine and signals
+an `anyio.Event` via `anyio.from_thread.run_sync()`. The LLM
+pipeline checks cancellation at two levels:
 
 - **Synchronous.** `LLMContext.out()` and `LLMContext.warn()`
-  check the flag before emitting and raise `TaskCancelled`.
-- **Asynchronous.** `_run_with_cancel()` races the streaming
-  coroutine against a watcher task that polls the flag every
-  100ms. When the flag is set, the watcher raises
-  `TaskCancelled`, the streaming task is cancelled, and
-  pending asyncio tasks are cleaned up.
+  check the `threading.Event` before emitting and raise
+  `TaskCancelled`.
+- **Asynchronous.** `_run_with_cancel()` wraps the entire
+  agent turn in an anyio task group with a cancel scope. A
+  watcher task awaits an `anyio.Event` that the engine sets
+  from the UI thread (zero-latency bridge via a shared
+  `CancelSlot`). When fired, the watcher cancels the scope,
+  tearing down streaming, compaction, and all async work.
+  `TaskCancelled` is raised to the caller.
 
 Shell commands are killed via `SIGTERM` to the process group.
 

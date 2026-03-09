@@ -393,6 +393,5 @@ def review_engine(
     state = EngineState(owner="owner", repo_name="repo", repo=repo)
     state.review_target = pr_target
     state.gh_username = "reviewer"
-    eng = Engine(state, queue.Queue(), store=SessionStore())
-    yield eng
-    eng.close()
+    with Engine(state, queue.Queue(), store=SessionStore()) as eng:
+        yield eng

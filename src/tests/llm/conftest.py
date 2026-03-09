@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import queue
 from collections.abc import Generator
 
 import pytest
 
-from rbtr.engine import Engine
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
-from rbtr.llm.context import LLMContext
 from rbtr.models import BranchTarget
-from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
 
@@ -406,22 +402,8 @@ def _review_state(store: IndexStore) -> EngineState:
     return state
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def engine() -> Generator[Engine]:
-    """Default engine with auto-cleanup."""
-    state = EngineState(owner="testowner", repo_name="testrepo")
-    eng = Engine(state, queue.Queue(), store=SessionStore())
-    yield eng
-    eng.close()
-
-
-@pytest.fixture
-def llm_ctx(engine: Engine) -> LLMContext:
-    """LLMContext backed by the default engine fixture."""
-    return engine._llm_context()
+# ``engine``, ``llm_ctx``, and ``llm_engine`` live in the root
+# conftest — available to all test packages.
 
 
 # ── Index dataset (single branch) ───────────────────────────────────

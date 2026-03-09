@@ -32,7 +32,6 @@ from pydantic_ai.usage import RequestUsage
 from rbtr.creds import OAuthCreds
 from rbtr.engine import Engine
 from rbtr.events import Event, IndexReady, Output
-from rbtr.llm.context import LLMContext
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
@@ -165,20 +164,8 @@ def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs
 
 # ── Engine fixtures ──────────────────────────────────────────────────
 
-
-@pytest.fixture
-def engine() -> Generator[Engine]:
-    """Default engine with auto-cleanup."""
-    state = EngineState(owner="testowner", repo_name="testrepo")
-    eng = Engine(state, queue.Queue(), store=SessionStore())
-    yield eng
-    eng.close()
-
-
-@pytest.fixture
-def llm_ctx(engine: Engine) -> LLMContext:
-    """LLMContext backed by the default engine fixture."""
-    return engine._llm_context()
+# ``engine``, ``llm_ctx``, and ``llm_engine`` live in the root
+# conftest — available to all test packages.
 
 
 @pytest.fixture
@@ -196,9 +183,8 @@ def repo_engine(tmp_path: Path) -> Generator[Engine]:
     repo.create_commit("refs/heads/main", sig, sig, "init", tb.write(), [])
     repo.set_head("refs/heads/main")
     state = EngineState(owner="o", repo_name="r", repo=repo)
-    eng = Engine(state, queue.Queue(), store=SessionStore())
-    yield eng
-    eng.close()
+    with Engine(state, queue.Queue(), store=SessionStore()) as eng:
+        yield eng
 
 
 def wait_for_index(events: queue.Queue[Event], timeout: float = 30.0) -> list[Event]:

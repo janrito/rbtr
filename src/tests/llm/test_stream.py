@@ -29,7 +29,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RunUsage
 from pytest_mock import MockerFixture
 
-from rbtr.creds import creds
 from rbtr.engine.core import Engine
 from rbtr.events import ToolCallFinished, ToolCallStarted
 from rbtr.llm.context import LLMContext
@@ -39,7 +38,6 @@ from rbtr.llm.stream import (
     _record_usage,
     _update_live_usage,
 )
-from rbtr.providers import BuiltinProvider
 from rbtr.sessions.serialise import (
     FailedAttempt,
     FailureKind,
@@ -461,17 +459,10 @@ def _failed_request_rows(engine: Engine) -> list[Any]:
 def test_handle_llm_retries_without_effort_on_rejection(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """handle_llm retries without effort when the model rejects it."""
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     call_count = 0
 
@@ -485,16 +476,16 @@ def test_handle_llm_retries_without_effort_on_rejection(
 
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
-    handle_llm(engine._llm_context(), "test question")
+    handle_llm(llm_engine._llm_context(), "test question")
 
     assert call_count == 2
-    assert engine.state.effort_supported is False
+    assert llm_engine.state.effort_supported is False
 
     # Incident: failed request + attempt-failed row with correct metadata.
-    failed = _failed_request_rows(engine)
+    failed = _failed_request_rows(llm_engine)
     assert len(failed) == 1
 
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.EFFORT_UNSUPPORTED
     assert incidents[0].strategy == RecoveryStrategy.EFFORT_OFF
@@ -508,22 +499,15 @@ def test_handle_llm_retries_without_effort_on_rejection(
 def test_auto_compact_on_overflow_compacts_and_retries(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-
     compact_mock = mocker.patch("rbtr.llm.stream.compact_history")
 
     retry_calls: list[str] = []
     mocker.patch("rbtr.llm.stream.handle_llm", lambda eng, msg: retry_calls.append(msg))
 
-    _auto_compact_on_overflow(engine._llm_context(), "my question")
+    _auto_compact_on_overflow(llm_engine._llm_context(), "my question")
 
     compact_mock.assert_called_once()
     assert retry_calls == ["my question"]
@@ -535,23 +519,16 @@ def test_auto_compact_on_overflow_compacts_and_retries(
 def test_handle_llm_context_overflow_triggers_compact(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """handle_llm auto-compacts on context overflow and retries."""
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="analyse the codebase")]),
         ModelResponse(parts=[TextPart(content="I found 3 files so far")], model_name="test"),
         ModelRequest(parts=[UserPromptPart(content="turn 2")]),
         ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
     ]
-    engine._sync_store_context()
-    engine.store.save_messages(engine.state.session_id, messages)
+    llm_engine.store.save_messages(llm_engine.state.session_id, messages)
 
     # First call to _run_agent raises overflow, second succeeds
     call_count = 0
@@ -563,20 +540,15 @@ def test_handle_llm_context_overflow_triggers_compact(
             raise _make_http_error(HTTPStatus.BAD_REQUEST, "maximum context length exceeded")
 
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
-
-    # Mock compact_history (a no-op here — the retry is what matters).
     mocker.patch("rbtr.llm.stream.compact_history")
 
     from rbtr.llm.stream import handle_llm
 
-    handle_llm(engine._llm_context(), "test question")
+    handle_llm(llm_engine._llm_context(), "test question")
 
-    # _run_agent called twice: first fails, compact, then retry via handle_llm
-    # But handle_llm calls _run_agent for the retry, so total = 2
     assert call_count == 2
 
-    # Incident: overflow failure with compact_then_retry strategy.
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.OVERFLOW
     assert incidents[0].strategy == RecoveryStrategy.COMPACT_THEN_RETRY
@@ -589,9 +561,7 @@ def test_handle_llm_context_overflow_triggers_compact(
 def test_handle_llm_retries_on_corrupt_tool_args(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """handle_llm retries with simplified history on corrupt tool-call args.
 
@@ -602,11 +572,6 @@ def test_handle_llm_retries_on_corrupt_tool_args(
     to plain text).
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     call_count = 0
 
@@ -624,12 +589,12 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
-    handle_llm(engine._llm_context(), "show my notes")
+    handle_llm(llm_engine._llm_context(), "show my notes")
 
     assert call_count == 2
 
     # Incident: tool_args failure with simplified-history strategy.
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TOOL_ARGS
     assert incidents[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
@@ -639,9 +604,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 def test_handle_llm_retries_on_type_error(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """handle_llm retries with simplified history on TypeError.
 
@@ -651,11 +614,6 @@ def test_handle_llm_retries_on_type_error(
     simplified history flattens tool exchanges, avoiding the crash.
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     call_count = 0
 
@@ -673,12 +631,12 @@ def test_handle_llm_retries_on_type_error(
 
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
-    handle_llm(engine._llm_context(), "hello")
+    handle_llm(llm_engine._llm_context(), "hello")
 
     assert call_count == 2
 
     # Incident: type_error failure with simplified-history strategy.
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TYPE_ERROR
     assert incidents[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
@@ -691,9 +649,7 @@ def test_handle_llm_retries_on_type_error(
 def test_handle_llm_retries_on_history_format_error(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """handle_llm retries with simplified history on provider format rejection.
 
@@ -702,11 +658,6 @@ def test_handle_llm_retries_on_history_format_error(
     retries with ``history_repair_level=1``.
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     call_count = 0
 
@@ -727,15 +678,15 @@ def test_handle_llm_retries_on_history_format_error(
 
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
-    handle_llm(engine._llm_context(), "continue analysis")
+    handle_llm(llm_engine._llm_context(), "continue analysis")
 
     assert call_count == 2
 
     # Incident: history_format failure → first retry uses consolidation.
-    failed = _failed_request_rows(engine)
+    failed = _failed_request_rows(llm_engine)
     assert len(failed) == 1
 
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.HISTORY_FORMAT
     assert incidents[0].strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS
@@ -749,19 +700,12 @@ def test_handle_llm_retries_on_history_format_error(
 def test_handle_llm_records_failed_outcome_when_retry_raises(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """When a retry also fails, the incident outcome is set to ``failed``
     and the exception propagates to the caller.
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     def fake_run_agent(
         eng: object,
@@ -778,10 +722,10 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
     mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
 
     with pytest.raises(TypeError, match="unexpected null"):
-        handle_llm(engine._llm_context(), "hello")
+        handle_llm(llm_engine._llm_context(), "hello")
 
     # Incident: outcome is "failed", not "recovered".
-    incidents = _failure_incidents(engine)
+    incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TYPE_ERROR
     assert incidents[0].outcome == IncidentOutcome.FAILED
@@ -793,9 +737,7 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
 def test_dangling_tool_repair_is_transient(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """``repair_dangling_tool_calls`` must not persist synthetic messages.
 
@@ -804,11 +746,6 @@ def test_dangling_tool_repair_is_transient(
     dangling state.  An ``LLM_HISTORY_REPAIR`` incident row is persisted.
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     # Seed history with a dangling tool call (cancelled mid-turn).
     dangling_history: list[ModelMessage] = [
@@ -822,7 +759,7 @@ def test_dangling_tool_repair_is_transient(
         ),
         # No ToolReturnPart — simulates Ctrl+C mid-tool-call.
     ]
-    engine.store.save_messages(engine.state.session_id, dangling_history)
+    llm_engine.store.save_messages(llm_engine.state.session_id, dangling_history)
 
     # Mock _do_stream (not _run_agent) so _prepare_turn still runs.
     from rbtr.llm.stream import _StreamResult
@@ -838,10 +775,10 @@ def test_dangling_tool_repair_is_transient(
 
     mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
 
-    handle_llm(engine._llm_context(), "continue")
+    handle_llm(llm_engine._llm_context(), "continue")
 
     # The original dangling history is untouched in the DB.
-    loaded = engine.store.load_messages(engine.state.session_id)
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     has_synthetic = any(
         isinstance(msg, ModelRequest)
         and any(isinstance(p, ToolReturnPart) and p.content == "(cancelled)" for p in msg.parts)
@@ -850,7 +787,7 @@ def test_dangling_tool_repair_is_transient(
     assert not has_synthetic, "Synthetic (cancelled) messages must not be persisted"
 
     # Incident: LLM_HISTORY_REPAIR row for REPAIR_DANGLING.
-    repairs = _repair_incidents(engine)
+    repairs = _repair_incidents(llm_engine)
     dangling_repairs = [r for r in repairs if r.strategy == RecoveryStrategy.REPAIR_DANGLING]
     assert len(dangling_repairs) == 1
     assert dangling_repairs[0].tool_names == ["read_file"]
@@ -864,20 +801,13 @@ def test_dangling_tool_repair_is_transient(
 def test_simplify_history_persists_incidents(
     mocker: MockerFixture,
     config_path: Path,
-    creds_path: Path,
-    engine: Engine,
-    llm_ctx: LLMContext,
+    llm_engine: Engine,
 ) -> None:
     """When ``handle_llm`` retries with simplified history, it persists
     ``LLM_HISTORY_REPAIR`` rows for ``demote_thinking`` and
     ``flatten_tool_exchanges`` with correct counts.
     """
     from rbtr.llm.stream import handle_llm
-
-    creds.update(openai_api_key="sk-test")
-    engine.state.connected_providers.add(BuiltinProvider.OPENAI)
-    engine.state.model_name = "openai/gpt-4o"
-    engine._sync_store_context()
 
     # Seed history with a mixed request (tool return + user prompt)
     # that consolidation will split, plus thinking parts.
@@ -906,7 +836,7 @@ def test_simplify_history_persists_incidents(
             model_name="test",
         ),
     ]
-    engine.store.save_messages(engine.state.session_id, history)
+    llm_engine.store.save_messages(llm_engine.state.session_id, history)
 
     # First call to _do_stream raises history-format error.
     # Second call (with simplify_history=True) succeeds.
@@ -932,18 +862,18 @@ def test_simplify_history_persists_incidents(
 
     mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
 
-    handle_llm(engine._llm_context(), "now fix it")
+    handle_llm(llm_engine._llm_context(), "now fix it")
 
     assert do_stream_calls == 2
 
     # Incident: LLM_ATTEMPT_FAILED for the history-format error.
-    failures = _failure_incidents(engine)
+    failures = _failure_incidents(llm_engine)
     assert len(failures) == 1
     assert failures[0].failure_kind == FailureKind.HISTORY_FORMAT
     assert failures[0].outcome == IncidentOutcome.RECOVERED
 
     # Incident: LLM_HISTORY_REPAIR for consolidation (level 1 retry).
-    repairs = _repair_incidents(engine)
+    repairs = _repair_incidents(llm_engine)
     consolidate = [r for r in repairs if r.strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS]
     assert len(consolidate) == 1
     assert consolidate[0].turns_fixed == 1

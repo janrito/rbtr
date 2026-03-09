@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import AsyncIterator
 
+import anyio
 import httpx
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
@@ -134,7 +135,9 @@ class _CCATransport(httpx.AsyncBaseTransport):
         self._inner = httpx.AsyncHTTPTransport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        oauth = ensure_credentials()
+        # Offload to a thread: ensure_credentials() may do a sync
+        # HTTP token refresh, which would block the event loop.
+        oauth = await anyio.to_thread.run_sync(ensure_credentials)
         model_name = _extract_model_name(str(request.url))
 
         body = json.loads(request.content) if request.content else {}

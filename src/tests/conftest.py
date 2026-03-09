@@ -10,7 +10,11 @@ import pytest
 
 from rbtr.config import config
 from rbtr.creds import Creds, creds
+from rbtr.engine import Engine
 from rbtr.events import Event, MarkdownOutput, Output
+from rbtr.llm.context import LLMContext
+from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
 
 # ── Event helpers ────────────────────────────────────────────────────
 
@@ -116,3 +120,38 @@ def config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Pa
     config.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
     yield path
     config.__init__()  # type: ignore[misc]  # restore defaults after monkeypatch unwinds
+
+
+# ── Engine fixtures ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def engine() -> Generator[Engine]:
+    """Default engine with auto-cleanup."""
+    state = EngineState(owner="testowner", repo_name="testrepo")
+    with Engine(state, queue.Queue(), store=SessionStore()) as eng:
+        yield eng
+
+
+@pytest.fixture
+def llm_ctx(engine: Engine) -> LLMContext:
+    """LLMContext backed by the default engine fixture."""
+    return engine._llm_context()
+
+
+@pytest.fixture
+def llm_engine(creds_path: Path) -> Generator[Engine]:
+    """Engine pre-wired for LLM tests (OpenAI connected, model set).
+
+    Sets credentials, connects the OpenAI provider, assigns a model,
+    and syncs the store context — ready for ``handle_llm`` calls.
+    """
+    from rbtr.providers import BuiltinProvider
+
+    creds.update(openai_api_key="sk-test")
+    state = EngineState(owner="testowner", repo_name="testrepo")
+    state.connected_providers.add(BuiltinProvider.OPENAI)
+    state.model_name = "openai/gpt-4o"
+    with Engine(state, queue.Queue(), store=SessionStore()) as eng:
+        eng._sync_store_context()
+        yield eng
