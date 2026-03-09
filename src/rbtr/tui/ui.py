@@ -83,7 +83,7 @@ from rbtr.styles import (
     STYLE_ERROR,
     STYLE_SHELL_STDERR,
     STYLE_WARNING,
-    THEME,
+    build_theme,
 )
 from rbtr.tui.footer import _format_count, render_footer
 from rbtr.tui.input import (
@@ -1085,7 +1085,8 @@ def run(
     continue_session: bool = False,
 ) -> None:
     """Launch the rbtr interactive session."""
-    console = Console(markup=True, highlight=False, theme=THEME)
+    theme = build_theme(config.theme)
+    console = Console(markup=True, highlight=False, theme=theme)
     state = EngineState()
     events: queue.Queue[Event] = queue.Queue()
     engine = Engine(state, events)

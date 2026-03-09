@@ -96,3 +96,6 @@ Agent rules. Short, imperative.
   (default: all). Never run `ruff`, `sqlfluff`, `rumdl`,
   or other tools directly — the recipes carry the correct
   flags and file selections.
+- **Don't lint TODO files.** `TODO-*.md` files are planning
+  documents with tables and free-form prose. Don't run
+  `just lint-md` on them or try to fix their warnings.

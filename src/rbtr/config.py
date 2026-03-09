@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import tomli_w
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -152,6 +152,99 @@ class OAuthConfig(BaseModel):
     refresh_buffer_seconds: int = 300
 
 
+# ── Theme / palette ──────────────────────────────────────────────────
+
+
+class PaletteConfig(BaseModel):
+    """Base palette — shared text-style defaults, mode-specific fields
+    required (no defaults).
+
+    Every field accepts any Rich style string (ANSI names, hex,
+    ``rgb()``, or combinations like ``"bold #FF0000 on #1A1A2E"``).
+    Subclass to provide defaults for backgrounds and any text styles
+    that need to differ per mode.
+    ``styles.py`` maps fields to ``rbtr.*`` Rich theme keys.
+    """
+
+    # ── Text styles (shared defaults) ────────────────────────────
+    prompt: str = "bold cyan"
+    input_text: str = "bold"
+    cursor: str = "reverse"
+    dim: str = "dim"
+    muted: str = "dim"
+    error: str = "bold red"
+    rule: str = "dim"
+    footer: str = "dim"
+    completion_selected: str = "bold cyan"
+    completion_name: str = "bold blue"
+    completion_desc: str = "dim"
+    column_branch: str = "cyan"
+    link: str = "bold cyan underline"
+    paste_marker: str = "dim italic"
+    usage_ok: str = "dim green"
+    usage_critical: str = "dim red"
+    usage_messages: str = "dim"
+    out_dim: str = "dim"
+    out_dim_italic: str = "dim italic"
+    out_error: str = "bold red"
+    out_shell_stderr: str = "red"
+
+    # ── Mode-specific (required — subclasses provide defaults) ───
+    warning: str
+    usage_warning: str
+    out_warning: str
+    bg_input: str
+    bg_active: str
+    bg_succeeded: str
+    bg_failed: str
+    bg_queued: str
+    bg_toolcall: str
+    usage_uncertain: str
+
+
+class DarkPalette(PaletteConfig):
+    """Dark-mode palette — tinted panel backgrounds."""
+
+    warning: str = "yellow"
+    usage_warning: str = "dim yellow"
+    out_warning: str = "yellow"
+    bg_input: str = "on #282E3B"
+    bg_active: str = "on #1C212C"
+    bg_succeeded: str = "on #1A2620"
+    bg_failed: str = "on #2A1D20"
+    bg_queued: str = "on #1A1F29"
+    bg_toolcall: str = "on #231D2F"
+    usage_uncertain: str = "#282E3B"
+
+
+class LightPalette(PaletteConfig):
+    """Light-mode palette — pastel panel backgrounds."""
+
+    warning: str = "dark_orange"
+    usage_warning: str = "dim dark_orange"
+    out_warning: str = "dark_orange"
+    bg_input: str = "on #E8E8EC"
+    bg_active: str = "on #E8ECF0"
+    bg_succeeded: str = "on #E8F5E9"
+    bg_failed: str = "on #FFEBEE"
+    bg_queued: str = "on #ECEFF1"
+    bg_toolcall: str = "on #F3E5F5"
+    usage_uncertain: str = "#D0D0D0"
+
+
+class ThemeConfig(BaseModel):
+    """Theme configuration.
+
+    ``mode`` selects which palette is active.
+    ``[theme.dark]`` / ``[theme.light]`` override individual
+    fields within each palette.
+    """
+
+    mode: Literal["dark", "light"] = "dark"
+    dark: DarkPalette = Field(default_factory=DarkPalette)
+    light: LightPalette = Field(default_factory=LightPalette)
+
+
 # ── Config schema ────────────────────────────────────────────────────
 
 
@@ -183,6 +276,7 @@ class Config(BaseSettings):
     sessions: SessionsConfig = SessionsConfig()
     log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()
+    theme: ThemeConfig = ThemeConfig()
     tools: ToolsConfig = ToolsConfig()
     tui: TuiConfig = TuiConfig()
 

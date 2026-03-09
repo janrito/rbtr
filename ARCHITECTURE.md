@@ -953,10 +953,28 @@ to the LLM.
 
 ## Styling
 
-All visual styling is centralised in `styles.py`. The `THEME`
-object is a Rich `Theme` using the
-[Ayu Mirage](https://github.com/ayu-theme/ayu-colors) colour
-palette.
+All visual styling is centralised in `styles.py`.
+`build_theme()` selects the palette for the configured mode and
+passes it to Rich's `Theme`.
+
+### Palette hierarchy
+
+`PaletteConfig` is the base Pydantic model.  It defines ANSI
+text-style defaults (shared across modes) and declares
+background fields as required (no defaults).  `DarkPalette`
+and `LightPalette` subclass it to provide mode-specific
+background hex defaults.  Because Pydantic uses the field's
+type to deserialise, partial TOML overrides like
+`[theme.light] bg_succeeded = "on #E0FFE0"` get the
+correct light defaults for unset fields — no validators needed.
+
+### Theme configuration
+
+`[theme]` in config controls the colour mode:
+
+- `mode` — `"dark"` (default) or `"light"`.
+- `[theme.dark]` / `[theme.light]` — per-mode field overrides.
+  Any Rich style string is valid.
 
 ### Theme structure
 
