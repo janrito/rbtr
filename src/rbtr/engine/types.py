@@ -24,6 +24,7 @@ class Command(_CommandMixin, Enum):
     COMPACT = "/compact", "Summarise older context (reset = undo last)"
     SESSION = "/session", "List, inspect, or delete sessions"
     STATS = "/stats", "Show session token and cost statistics"
+    MEMORY = "/memory", "List or extract cross-session facts"
     RELOAD = "/reload", "Show active prompt sources"
     NEW = "/new", "Start a new conversation"
     QUIT = "/quit", "Exit rbtr (also /q)"

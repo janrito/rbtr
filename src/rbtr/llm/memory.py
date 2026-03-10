@@ -30,7 +30,7 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import UsageLimits
 
 from rbtr.config import config
-from rbtr.events import Output
+from rbtr.events import MemoryExtractionFinished, MemoryExtractionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import serialise_for_summary
@@ -255,11 +255,9 @@ def extract_facts_from_ctx(
     if not ctx.state.has_llm or not ctx.state.model_name:
         return
 
-    repo_scope: str | None = None
-    if ctx.state.owner and ctx.state.repo_name:
-        repo_scope = f"{ctx.state.owner}/{ctx.state.repo_name}"
+    repo_scope = ctx.state.repo_scope
 
-    ctx.emit(Output(text="Extracting facts from conversation\u2026"))
+    ctx.emit(MemoryExtractionStarted())
 
     try:
         added, confirmed, superseded = ctx.portal.call(
@@ -273,14 +271,13 @@ def extract_facts_from_ctx(
         )
     except Exception:
         log.exception("memory: extraction failed")
+        ctx.emit(MemoryExtractionFinished())
         return
 
-    parts: list[str] = []
-    if added:
-        parts.append(f"{added} new")
-    if confirmed:
-        parts.append(f"{confirmed} confirmed")
-    if superseded:
-        parts.append(f"{superseded} superseded")
-    if parts:
-        ctx.emit(Output(text=f"Memory: {', '.join(parts)}."))
+    ctx.emit(
+        MemoryExtractionFinished(
+            added=added,
+            confirmed=confirmed,
+            superseded=superseded,
+        )
+    )

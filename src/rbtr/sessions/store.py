@@ -132,6 +132,7 @@ _INSERT_FACT_SQL = _load_sql("insert_fact.sql")
 _UPDATE_FACT_CONFIRMED_SQL = _load_sql("update_fact_confirmed.sql")
 _SUPERSEDE_FACT_SQL = _load_sql("supersede_fact.sql")
 _LOAD_ACTIVE_FACTS_SQL = _load_sql("load_active_facts.sql")
+_LOAD_ALL_FACTS_SQL = _load_sql("load_all_facts.sql")
 _DELETE_FACT_SQL = _load_sql("delete_fact.sql")
 _PRUNE_EXCESS_FACTS_SQL = _load_sql("prune_excess_facts.sql")
 _SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
@@ -166,6 +167,7 @@ class Fact:
     created_at: str
     last_confirmed_at: str
     confirm_count: int
+    superseded_by: str | None = None
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────
@@ -854,6 +856,23 @@ class SessionStore:
                 created_at=r["created_at"],
                 last_confirmed_at=r["last_confirmed_at"],
                 confirm_count=r["confirm_count"],
+            )
+            for r in rows
+        ]
+
+    def load_all_facts(self, scope: str, limit: int = 200) -> list[Fact]:
+        """Load all facts for *scope* including superseded, most recently confirmed first."""
+        rows = self._con.execute(_LOAD_ALL_FACTS_SQL, [scope, limit]).fetchall()
+        return [
+            Fact(
+                id=r["id"],
+                scope=r["scope"],
+                content=r["content"],
+                source_session_id=r["source_session_id"],
+                created_at=r["created_at"],
+                last_confirmed_at=r["last_confirmed_at"],
+                confirm_count=r["confirm_count"],
+                superseded_by=r["superseded_by"],
             )
             for r in rows
         ]

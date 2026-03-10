@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic_ai import Agent
 from pydantic_ai._agent_graph import ModelRequestNode
 from pydantic_ai.exceptions import ModelHTTPError
@@ -23,6 +25,9 @@ from .history import (
     snap_to_safe_boundary,
     split_history,
 )
+from .memory import extract_facts_async
+
+log = logging.getLogger(__name__)
 
 # Minimum number of turns to keep — always preserve the most recent
 # turn so the model has immediate context.
@@ -154,6 +159,19 @@ async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -
         return
 
     summary_msg = build_summary_message(summary_text)
+
+    # Extract facts from old messages before they become invisible.
+    # Runs against the full message content, not the lossy summary.
+    try:
+        await extract_facts_async(
+            messages=old,
+            store=ctx.store,
+            session_id=sid,
+            model_name=ctx.state.model_name,
+            repo_scope=ctx.state.repo_scope,
+        )
+    except Exception:
+        log.exception("memory: extraction during compaction failed")
 
     ctx.store.compact_session(sid, summary=summary_msg, compact_ids=old_ids)
     ctx.state.usage.compaction_count += 1

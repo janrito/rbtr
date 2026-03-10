@@ -35,6 +35,7 @@ from rbtr.state import EngineState
 from .connect_cmd import cmd_connect
 from .draft_cmd import cmd_draft
 from .index_cmd import cmd_index
+from .memory_cmd import cmd_memory
 from .model_cmd import cmd_model
 from .reload_cmd import cmd_reload
 from .review_cmd import cmd_review
@@ -242,6 +243,8 @@ class Engine:
                 cmd_session(self, args)
             case Command.STATS:
                 cmd_stats(self, args)
+            case Command.MEMORY:
+                cmd_memory(self, args)
             case Command.RELOAD:
                 cmd_reload(self)
             case Command.NEW:

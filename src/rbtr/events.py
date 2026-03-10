@@ -169,6 +169,21 @@ class CompactionFinished(BaseModel):
     summary_tokens: int
 
 
+# ── Memory events ────────────────────────────────────────────────────
+
+
+class MemoryExtractionStarted(BaseModel):
+    """Fact extraction has begun."""
+
+
+class MemoryExtractionFinished(BaseModel):
+    """Fact extraction complete."""
+
+    added: int = 0
+    confirmed: int = 0
+    superseded: int = 0
+
+
 # ── Review events ────────────────────────────────────────────────────
 
 
@@ -196,5 +211,7 @@ Event = (
     | IndexCleared
     | CompactionStarted
     | CompactionFinished
+    | MemoryExtractionStarted
+    | MemoryExtractionFinished
     | ReviewPosted
 )

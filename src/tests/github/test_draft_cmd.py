@@ -25,6 +25,7 @@ from rbtr.engine.draft_cmd import (
 from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, OutputLevel
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
 # ── Shared test data ─────────────────────────────────────────────────
@@ -77,6 +78,7 @@ class FakeEngine:
         self.state.owner = "owner"
         self.state.repo_name = "repo"
         self._events: queue.Queue[Event] = queue.Queue()
+        self.store = SessionStore()
 
     def _emit(self, event: Event) -> None:
         self._events.put(event)
@@ -101,6 +103,13 @@ class FakeEngine:
 
     def _check_cancel(self) -> None:
         pass
+
+    def _llm_context(self) -> Any:
+        """Stub — memory extraction is mocked in post tests."""
+        ctx = MagicMock()
+        ctx.state = self.state
+        ctx.store = self.store
+        return ctx
 
     def collected_text(self) -> str:
         """Drain events and concatenate Output + MarkdownOutput text."""
@@ -209,8 +218,11 @@ def test_post_invalid_event(workspace: Path) -> None:
     assert "Unknown event type" in engine.collected_text()
 
 
+@patch("rbtr.engine.draft_cmd.extract_facts_from_ctx")
 @patch("rbtr.engine.draft_cmd.post_review_draft")
-def test_post_delegates_to_review(mock_post: MagicMock, workspace: Path) -> None:
+def test_post_delegates_to_review(
+    mock_post: MagicMock, mock_extract: MagicMock, workspace: Path
+) -> None:
     """cmd_draft delegates to post_review_draft with correct args."""
     save_draft(42, DRAFT)
     mock_post.return_value = True
@@ -225,8 +237,11 @@ def test_post_delegates_to_review(mock_post: MagicMock, workspace: Path) -> None
     assert args[3] == ReviewEvent.COMMENT  # event
 
 
+@patch("rbtr.engine.draft_cmd.extract_facts_from_ctx")
 @patch("rbtr.engine.draft_cmd.post_review_draft")
-def test_post_approve_passes_event(mock_post: MagicMock, workspace: Path) -> None:
+def test_post_approve_passes_event(
+    mock_post: MagicMock, mock_extract: MagicMock, workspace: Path
+) -> None:
     save_draft(42, DRAFT)
     mock_post.return_value = True
 
@@ -236,8 +251,11 @@ def test_post_approve_passes_event(mock_post: MagicMock, workspace: Path) -> Non
     assert mock_post.call_args[0][3] == ReviewEvent.APPROVE
 
 
+@patch("rbtr.engine.draft_cmd.extract_facts_from_ctx")
 @patch("rbtr.engine.draft_cmd.post_review_draft")
-def test_post_request_changes_passes_event(mock_post: MagicMock, workspace: Path) -> None:
+def test_post_request_changes_passes_event(
+    mock_post: MagicMock, mock_extract: MagicMock, workspace: Path
+) -> None:
     save_draft(42, DRAFT)
     mock_post.return_value = True
 

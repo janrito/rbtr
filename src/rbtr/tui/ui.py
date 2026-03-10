@@ -46,6 +46,8 @@ from rbtr.events import (
     IndexStarted,
     LinkOutput,
     MarkdownOutput,
+    MemoryExtractionFinished,
+    MemoryExtractionStarted,
     Output,
     OutputLevel,
     ReviewPosted,
@@ -601,6 +603,27 @@ class UI:
                     )
                 else:
                     line = Text("Compaction failed.", style=STYLE_DIM)
+                panel = self._history_panel("queued", line)
+                if self._live:
+                    self._live.update(self._render_view(), refresh=True)
+                self._print_to_scrollback(panel)
+            case MemoryExtractionStarted():
+                line = Text("Extracting facts from conversation \u2026", style=STYLE_DIM)
+                panel = self._history_panel("queued", line)
+                self._print_to_scrollback(panel)
+            case MemoryExtractionFinished(added=added, confirmed=confirmed, superseded=superseded):
+                total = added + confirmed + superseded
+                if total > 0:
+                    parts: list[str] = []
+                    if added:
+                        parts.append(f"{added} new")
+                    if confirmed:
+                        parts.append(f"{confirmed} confirmed")
+                    if superseded:
+                        parts.append(f"{superseded} superseded")
+                    line = Text(f"Memory: {', '.join(parts)}.", style=STYLE_DIM)
+                else:
+                    line = Text("No new facts extracted.", style=STYLE_DIM)
                 panel = self._history_panel("queued", line)
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)

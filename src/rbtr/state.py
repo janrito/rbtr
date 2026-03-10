@@ -69,3 +69,10 @@ class EngineState:
     def has_llm(self) -> bool:
         """Whether any LLM provider is connected."""
         return bool(self.connected_providers)
+
+    @property
+    def repo_scope(self) -> str | None:
+        """Fact scope key for the current repo, or ``None``."""
+        if self.owner and self.repo_name:
+            return f"{self.owner}/{self.repo_name}"
+        return None

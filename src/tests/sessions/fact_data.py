@@ -1,13 +1,11 @@
 """Shared test data for fact store tests.
 
 Realistic facts derived from the rbtr codebase and actual review
-sessions.  Organised into groups that exercise deduplication,
-confirmation, supersession, and non-match scenarios.
+sessions.  Organised into groups that exercise store operations,
+FTS5 search, supersession, and non-match scenarios.
 
 Each group is a list of dicts with ``content`` and ``scope``
-(``'global'`` or ``'owner/repo'``).  The groups document the
-expected dedup behaviour so tests can verify BM25 matching
-against concrete data.
+(``'global'`` or ``'owner/repo'``).
 
 Data only — no fixtures, no I/O.  Fixtures that seed a store
 with this data live in ``conftest.py``.
@@ -89,16 +87,16 @@ OTHER_REPO_FACTS: list[dict[str, str]] = [
 ALL_BASELINE = RBTR_FACTS + GLOBAL_FACTS + OTHER_REPO_FACTS
 
 
-# ── Deduplication pairs ──────────────────────────────────────────────
+# ── FTS5 search pairs ────────────────────────────────────────────────
 #
-# Each tuple is (existing_fact_content, new_extraction, should_match).
+# Each tuple is (existing_fact_content, query, should_match).
 #
-# ``should_match=True``:  the new extraction is semantically the same
-#     fact as the existing one.  FTS5 BM25 should surface it as a
-#     dedup candidate.  The correct action is to confirm, not insert.
+# ``should_match=True``:  FTS5 keyword search should return the
+#     existing fact as a result (shared domain terms).
 #
-# ``should_match=False``: the new extraction shares keywords but is
-#     a different fact.  FTS5 should not treat it as a duplicate.
+# ``should_match=False``: the query shares some keywords but is
+#     a different topic.  Used to verify search doesn't crash on
+#     low-overlap queries.
 
 DEDUP_PAIRS: list[tuple[str, str, bool]] = [
     # ── Exact or near-exact rewording (should match) ─────────────
@@ -151,8 +149,8 @@ DEDUP_PAIRS: list[tuple[str, str, bool]] = [
     # ── Partial overlap — tricky cases ───────────────────────────
     #
     # These share significant keyword overlap but are genuinely
-    # different facts.  BM25 may score them moderately.  The dedup
-    # threshold must be high enough to avoid false positives.
+    # different facts.  FTS5 may return them as results; dedup is
+    # the LLM's responsibility, not the store's.
     (
         "Sessions use SQLite (stdlib sqlite3) for OLTP persistence.",
         "SQLite FTS5 is used for fact deduplication via BM25 ranking.",
@@ -194,9 +192,9 @@ SUPERSESSION_PAIRS: list[tuple[str, str]] = [
 # ── Confirmation sequence ────────────────────────────────────────────
 #
 # A fact extracted across multiple sessions.  Each entry is a slight
-# rewording that should match the original via FTS5 and trigger a
-# confirm (bump ``last_confirmed_at`` and ``confirm_count``) rather
-# than a new insert.
+# rewording of the same core knowledge.  Used to test the store's
+# ``confirm_fact`` path — the LLM is responsible for recognising
+# these as the same fact and tagging them as ``confirm``.
 
 CONFIRMATION_SEQUENCE: list[str] = [
     # Session 1: first extraction

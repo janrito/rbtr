@@ -605,6 +605,13 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 | `CompactionStarted`  | Compaction has begun (message counts)    |
 | `CompactionFinished` | Compaction complete (summary token count) |
 
+#### Memory
+
+| Event                       | Description                              |
+| --------------------------- | ---------------------------------------- |
+| `MemoryExtractionStarted`   | Fact extraction has begun                |
+| `MemoryExtractionFinished`  | Extraction complete (added/confirmed/superseded counts) |
+
 #### Review
 
 | Event          | Description                     |
