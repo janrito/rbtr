@@ -555,7 +555,7 @@ def _prepare_turn(
                 ),
             )
 
-    deps = AgentDeps(state=ctx.state)
+    deps = AgentDeps(state=ctx.state, store=ctx.store)
     effort = ThinkingEffort.NONE if ctx.state.effort_supported is False else config.thinking_effort
     settings = model_settings(ctx.state.model_name, model, effort)
     if effort is not ThinkingEffort.NONE:

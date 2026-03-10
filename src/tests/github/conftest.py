@@ -377,7 +377,7 @@ def tool_ctx(
     state = EngineState()
     state.review_target = pr_target
     state.repo = repo
-    deps = AgentDeps(state=state)
+    deps = AgentDeps(state=state, store=SessionStore())
     ctx = mocker.MagicMock(spec=RunContext)
     ctx.deps = deps
     return ctx

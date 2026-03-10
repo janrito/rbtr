@@ -21,12 +21,13 @@ Public API
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.usage import UsageLimits
 
 from rbtr.config import config
@@ -70,6 +71,18 @@ class ExtractionResult(BaseModel):
     facts: list[ExtractedFact] = []
 
 
+@dataclass
+class ExtractionOutcome:
+    """Result of an extraction run, including overhead cost."""
+
+    added: int = 0
+    confirmed: int = 0
+    superseded: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float = 0.0
+
+
 # ── Extraction agent ─────────────────────────────────────────────────
 
 extract_agent: Agent[None, ExtractionResult] = Agent(
@@ -107,6 +120,63 @@ def _build_user_prompt(conversation: str, existing_facts: list[Fact]) -> str:
     parts.append("\n## Conversation\n")
     parts.append(conversation)
     return "\n".join(parts)
+
+
+# ── Fact injection ────────────────────────────────────────────────────
+
+
+def render_facts_instruction(
+    store: SessionStore,
+    repo_scope: str | None,
+    max_facts: int,
+    max_tokens: int,
+) -> str:
+    """Render stored facts as a system instruction block.
+
+    Loads active facts from global and repo scopes, most recently
+    confirmed first.  Truncates to *max_facts* total and
+    *max_tokens* estimated tokens.  Returns ``""`` if there are
+    no facts or memory is disabled.
+    """
+    scopes = [GLOBAL_SCOPE]
+    if repo_scope:
+        scopes.append(repo_scope)
+
+    facts: list[Fact] = []
+    per_scope_limit = max_facts  # Each scope can contribute up to max_facts.
+    for scope in scopes:
+        facts.extend(store.load_active_facts(scope, limit=per_scope_limit))
+
+    if not facts:
+        return ""
+
+    # Sort all facts together by last_confirmed_at DESC, take top N.
+    facts.sort(key=lambda f: f.last_confirmed_at, reverse=True)
+    facts = facts[:max_facts]
+
+    # Build the instruction, truncating at the token cap.
+    lines = ["## Learned facts\n"]
+    token_count = _estimate_tokens(lines[0])
+
+    for f in facts:
+        scope_label = "global" if f.scope == GLOBAL_SCOPE else f.scope
+        line = f"- [id={f.id}, {scope_label}] {f.content}"
+        line_tokens = _estimate_tokens(line)
+        if token_count + line_tokens > max_tokens:
+            break
+        lines.append(line)
+        token_count += line_tokens
+
+    # Only the header — no facts fit within the token cap.
+    if len(lines) == 1:
+        return ""
+
+    return "\n".join(lines)
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: 1 token per 4 characters."""
+    return len(text) // 4
 
 
 # ── Fact processing ──────────────────────────────────────────────────
@@ -174,30 +244,33 @@ def process_extracted_facts(
 # ── Async extraction ─────────────────────────────────────────────────
 
 
+_EMPTY_OUTCOME = ExtractionOutcome()
+
+
 async def extract_facts_async(
     messages: list[ModelMessage],
     store: SessionStore,
     session_id: str,
     model_name: str,
     repo_scope: str | None,
-) -> tuple[int, int, int]:
+) -> ExtractionOutcome:
     """Extract facts from *messages* and apply to the store.
 
     Uses the extraction agent to identify durable facts.  The LLM
     sees all existing facts in the user prompt and tags each
     extraction as ``new``, ``confirm``, or ``supersede``.
 
-    Returns ``(added, confirmed, superseded)`` counts.
+    Returns an ``ExtractionOutcome`` with counts and overhead cost.
     """
     if not messages:
-        return 0, 0, 0
+        return _EMPTY_OUTCOME
 
     if not config.memory.enabled:
-        return 0, 0, 0
+        return _EMPTY_OUTCOME
 
     conversation = serialise_for_summary(messages, max_tool_chars=500)
     if not conversation.strip():
-        return 0, 0, 0
+        return _EMPTY_OUTCOME
 
     # Load existing facts for the user prompt context.
     scopes = [GLOBAL_SCOPE]
@@ -214,7 +287,7 @@ async def extract_facts_async(
         model = build_model(extraction_model_name)
     except RbtrError:
         log.warning("memory: cannot build model %r for extraction", extraction_model_name)
-        return 0, 0, 0
+        return _EMPTY_OUTCOME
 
     effort = config.thinking_effort
     settings = model_settings(extraction_model_name, model, effort)
@@ -229,12 +302,37 @@ async def extract_facts_async(
         extraction = result.output
     except (ModelHTTPError, OSError, RbtrError) as e:
         log.warning("memory: extraction failed: %s", e)
-        return 0, 0, 0
+        return _EMPTY_OUTCOME
+
+    # Extract overhead cost from the agent result.
+    usage = result.usage()
+    cost = 0.0
+    for msg in result.new_messages():
+        if isinstance(msg, ModelResponse) and msg.model_name:
+            try:
+                price = msg.cost()
+                cost += float(price.total_price)
+            except (AssertionError, LookupError, ValueError):
+                pass
 
     if not extraction.facts:
-        return 0, 0, 0
+        return ExtractionOutcome(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cost=cost,
+        )
 
-    return process_extracted_facts(extraction.facts, store, session_id, repo_scope)
+    added, confirmed, superseded = process_extracted_facts(
+        extraction.facts, store, session_id, repo_scope
+    )
+    return ExtractionOutcome(
+        added=added,
+        confirmed=confirmed,
+        superseded=superseded,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cost=cost,
+    )
 
 
 # ── Background-thread entry point ────────────────────────────────────
@@ -260,7 +358,7 @@ def extract_facts_from_ctx(
     ctx.emit(MemoryExtractionStarted())
 
     try:
-        added, confirmed, superseded = ctx.portal.call(
+        outcome: ExtractionOutcome = ctx.portal.call(
             lambda: extract_facts_async(
                 messages=messages,
                 store=ctx.store,
@@ -276,8 +374,8 @@ def extract_facts_from_ctx(
 
     ctx.emit(
         MemoryExtractionFinished(
-            added=added,
-            confirmed=confirmed,
-            superseded=superseded,
+            added=outcome.added,
+            confirmed=outcome.confirmed,
+            superseded=outcome.superseded,
         )
     )

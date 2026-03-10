@@ -28,6 +28,7 @@ from rbtr.llm.memory import (
     FactAction,
     _build_user_prompt,
     process_extracted_facts,
+    render_facts_instruction,
 )
 from rbtr.sessions.store import SessionStore
 from tests.sessions.fact_data import GLOBAL, RBTR_KEY
@@ -256,3 +257,90 @@ def test_extraction_result_roundtrip() -> None:
     restored = ExtractionResult.model_validate(data)
     assert len(restored.facts) == 2
     assert restored.facts[1].existing_id == "old-fact-id"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# render_facts_instruction
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_inject_global_and_repo(store: SessionStore) -> None:
+    """Both global and repo facts appear in the rendered instruction."""
+    store.insert_fact(GLOBAL, "Prefers British English.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Uses pytest.", SESSION_ID)
+
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
+    assert "Prefers British English." in result
+    assert "Uses pytest." in result
+    assert "## Learned facts" in result
+
+
+def test_inject_global_only_no_repo(store: SessionStore) -> None:
+    """Only global facts when no repo is connected."""
+    store.insert_fact(GLOBAL, "Prefers British English.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Uses pytest.", SESSION_ID)
+
+    result = render_facts_instruction(store, repo_scope=None, max_facts=20, max_tokens=2000)
+    assert "Prefers British English." in result
+    assert "Uses pytest." not in result
+
+
+def test_inject_most_recently_confirmed_first(store: SessionStore) -> None:
+    """Facts are ordered by last_confirmed_at descending."""
+    f1 = store.insert_fact(RBTR_KEY, "First fact.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Second fact.", SESSION_ID)
+    # Confirm f1 so it becomes most recent.
+    store.confirm_fact(f1.id)
+
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
+    pos_first = result.index("First fact.")
+    pos_second = result.index("Second fact.")
+    assert pos_first < pos_second
+
+
+def test_inject_fact_count_cap(store: SessionStore) -> None:
+    """Respects max_facts limit."""
+    for i in range(10):
+        store.insert_fact(RBTR_KEY, f"Fact number {i}.", SESSION_ID)
+
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=3, max_tokens=2000)
+    assert result.count("- [id=") == 3
+
+
+def test_inject_token_cap(store: SessionStore) -> None:
+    """Stops adding facts when token cap is exceeded."""
+    for i in range(20):
+        store.insert_fact(RBTR_KEY, f"This is fact number {i} with some extra words.", SESSION_ID)
+
+    # Very small token cap — should only fit a few facts.
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=50)
+    fact_lines = [line for line in result.splitlines() if line.startswith("- [id=")]
+    assert len(fact_lines) < 20
+    assert len(fact_lines) >= 1
+
+
+def test_inject_empty_returns_empty(store: SessionStore) -> None:
+    """No facts returns empty string."""
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
+    assert result == ""
+
+
+def test_inject_scope_labels_and_ids(store: SessionStore) -> None:
+    """Fact lines include ids and scope labels."""
+    g = store.insert_fact(GLOBAL, "Global pref.", SESSION_ID)
+    r = store.insert_fact(RBTR_KEY, "Repo pref.", SESSION_ID)
+
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
+    assert f"[id={g.id}, global]" in result
+    assert f"[id={r.id}, {RBTR_KEY}]" in result
+
+
+def test_inject_excludes_superseded(store: SessionStore) -> None:
+    """Superseded facts are not injected."""
+    old = store.insert_fact(RBTR_KEY, "Python 3.12.", SESSION_ID)
+    new = store.insert_fact(RBTR_KEY, "Python 3.13+.", SESSION_ID)
+    store.supersede_fact(old.id, new.id)
+
+    result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
+    assert "Python 3.13+." in result
+    assert "Python 3.12." not in result

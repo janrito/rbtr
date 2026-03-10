@@ -65,7 +65,7 @@ def stream_ctx() -> Generator[tuple[LLMContext, AgentDeps, queue.Queue[Event]]]:
         # Sync store context so DB writes use the right session.
         engine._sync_store_context()
         ctx = engine._llm_context()
-        deps = AgentDeps(state=state)
+        deps = AgentDeps(state=state, store=engine.store)
         yield ctx, deps, events_q
 
 

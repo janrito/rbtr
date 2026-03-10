@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from rbtr.llm.agent import AgentDeps, _index_status as index_status
 from rbtr.llm.tools.common import _index_tool_names
 from rbtr.models import BranchTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
 
@@ -25,7 +26,7 @@ def _make_ctx(*, review_target=None, index_ready: bool = False) -> _FakeCtx:
     state = EngineState()
     state.review_target = review_target
     state.index_ready = index_ready
-    return _FakeCtx(deps=AgentDeps(state=state))
+    return _FakeCtx(deps=AgentDeps(state=state, store=SessionStore()))
 
 
 def test_no_review_target_empty() -> None:

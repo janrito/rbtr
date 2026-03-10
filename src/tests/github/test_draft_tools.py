@@ -24,6 +24,7 @@ from rbtr.llm.tools.draft import (
     set_draft_summary,
 )
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
 # ── Repo builder (minimal copy from git/conftest) ────────────────────
@@ -133,7 +134,7 @@ def ctx(
     state = EngineState()
     state.review_target = pr_target
     state.repo = repo
-    deps = AgentDeps(state=state)
+    deps = AgentDeps(state=state, store=SessionStore())
     mock_ctx = MagicMock(spec=RunContext)
     mock_ctx.deps = deps
     return mock_ctx
@@ -144,7 +145,7 @@ def ctx_no_repo(pr_target: PRTarget) -> RunContext[AgentDeps]:
     """RunContext with a PR target but no repo (for edit/remove tests)."""
     state = EngineState()
     state.review_target = pr_target
-    deps = AgentDeps(state=state)
+    deps = AgentDeps(state=state, store=SessionStore())
     mock_ctx = MagicMock(spec=RunContext)
     mock_ctx.deps = deps
     return mock_ctx
