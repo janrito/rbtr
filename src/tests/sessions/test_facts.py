@@ -349,18 +349,19 @@ def test_fts5_finds_dedup_match(
     [p for p in DEDUP_PAIRS if not p[2]],
     ids=[p[1][:50] for p in DEDUP_PAIRS if not p[2]],
 )
-def test_fts5_no_false_positive(
+def test_fts5_search_handles_low_overlap(
     store: SessionStore, existing: str, query: str, should_match: bool
 ) -> None:
-    """FTS5 search does not return unrelated facts as matches."""
+    """FTS5 search doesn't crash on queries with low keyword overlap.
+
+    FTS5 MATCH with OR tokens *may* return results for shared
+    keywords — that's expected.  The dedup decision is the LLM's
+    job, not the store's.  This test verifies the search is safe
+    on these inputs.
+    """
     store.insert_fact(RBTR_KEY, existing, SESSION_ID)
-    results = store.search_facts(query, RBTR_KEY)
-    # Either no results, or the match content differs from existing.
-    if results:
-        # Some keyword overlap may return results but they shouldn't
-        # be the top-ranked match in a real dedup scenario.  For now
-        # we just verify the search doesn't crash on these inputs.
-        pass
+    # Should not raise — results may or may not be returned.
+    store.search_facts(query, RBTR_KEY)
 
 
 def test_fts5_search_returns_bm25_order(seeded_store: SessionStore) -> None:

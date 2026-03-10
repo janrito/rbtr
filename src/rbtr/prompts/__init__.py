@@ -182,3 +182,11 @@ def render_index_status(*, status: str, tool_names: list[str]) -> str:
 def render_compact() -> str:
     """Render the compaction task instructions."""
     return _load_template("compact.md").strip()
+
+
+# ── Memory extraction task ───────────────────────────────────────────
+
+
+def render_memory_extract() -> str:
+    """Render the memory extraction task instructions."""
+    return _load_template("memory_extract.md").strip()

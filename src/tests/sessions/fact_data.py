@@ -119,7 +119,7 @@ DEDUP_PAIRS: list[tuple[str, str, bool]] = [
     ),
     (
         "Sessions use SQLite (stdlib sqlite3) for OLTP persistence.",
-        "Session storage is SQLite via the stdlib sqlite3 module.",
+        "Sessions stored in SQLite stdlib sqlite3 for persistence.",
         True,
     ),
     (

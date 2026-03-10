@@ -35,6 +35,36 @@ engine never imports Rich or touches the display. The portal
 is long-lived across tasks to keep httpx connection pools
 alive.
 
+### Why two databases
+
+SQLite and DuckDB are both embedded, single-file databases, but
+they are built for opposite workloads.
+
+**Sessions (SQLite)** are an OLTP workload: many small appends
+(one INSERT per streaming part, per user input, per incident),
+concurrent writes from multiple daemon threads, and point-query
+reads by `session_id`. SQLite's WAL mode gives non-blocking
+multi-reader/multi-writer concurrency, and the stdlib `sqlite3`
+module adds zero dependencies. Losing session data is
+unrecoverable, so reliability matters more than query speed.
+
+**The code index (DuckDB)** is an OLAP workload: bulk PyArrow
+inserts of thousands of chunks, BM25 full-text search over
+tokenised content, cosine-similarity vector search over
+embeddings, and analytical aggregations for search-score
+fusion. DuckDB's columnar storage, vectorized execution, and
+multi-threaded query processing make these operations fast.
+Index data is derived and rebuildable — a schema change just
+triggers a re-index.
+
+DuckDB's concurrency model (single writer per process, MVCC
+requiring explicit `CHECKPOINT` for cross-thread visibility)
+is acceptable for the index because writes happen in one
+background daemon thread with periodic checkpoints, and reads
+from the UI thread are non-blocking. That same model would be
+a regression for sessions, where multiple threads write
+concurrently during streaming.
+
 ---
 
 ## Configuration and credentials
@@ -952,6 +982,57 @@ After the retry, the outcome is written back:
 Incidents are queryable via `/stats` and visible in session
 history exports but never injected into the conversation sent
 to the LLM.
+
+---
+
+## Cross-session memory
+
+The `facts` table in `sessions.db` stores durable knowledge
+that persists across conversations. Facts have a `scope` —
+`"global"` for cross-project preferences, or `"owner/repo"`
+for project-specific knowledge the agent learned during
+reviews. Static project instructions live in `AGENTS.md`;
+facts are agent-learned only.
+
+### Storage
+
+Facts are stored in the same SQLite database as sessions.
+Store methods live on `SessionStore`: `insert_fact`,
+`confirm_fact`, `supersede_fact`, `load_active_facts`,
+`delete_fact`, `prune_excess_facts`, `search_facts`. A
+`facts_fts` FTS5 virtual table (content-external, synced via
+triggers) enables keyword search for future use (e.g. the
+`remember` tool can search before inserting).
+
+### Extraction
+
+A dedicated `extract_agent` (`llm/memory.py`) identifies
+durable facts from conversation messages. It follows the same
+pattern as `compact_agent` and the main `agent`:
+module-level `Agent()`, `@instructions` decorators for the
+static task prompt (`prompts/memory_extract.md`), model
+passed at each call site. The conversation and existing facts
+are passed as the user prompt.
+
+### Deduplication
+
+LLM-driven. The extraction prompt includes all existing
+active facts for the same scopes. The LLM tags each
+extraction as `new`, `confirm` (re-observed with
+`existing_id`), or `supersede` (outdated, with
+`existing_id`). No client-side dedup logic — the LLM sees
+the full context and makes the decision. If it occasionally
+misses a near-duplicate, the hard-limit pruning keeps the
+store bounded.
+
+### Lifecycle
+
+Facts are created via extraction (at compaction or on
+demand) or the `remember` tool. They accumulate
+`confirm_count` as they are re-observed. A fact can be
+superseded (replaced by a newer one) or pruned when the
+per-scope hard limit is exceeded (oldest by
+`last_confirmed_at` are removed first).
 
 ---
 
