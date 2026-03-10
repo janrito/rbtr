@@ -82,6 +82,16 @@ class IndexConfig(BaseModel):
     embedding_batch_size: int = 32
 
 
+class MemoryConfig(BaseModel):
+    enabled: bool = True
+    max_facts_global: int = 50
+    max_facts_repo: int = 100
+    max_injected_facts: int = 20
+    max_injected_tokens: int = 2000
+    extraction_model: str = ""
+    """Empty string means use the current session model."""
+
+
 class SessionsConfig(BaseModel):
     pass
 
@@ -277,6 +287,7 @@ class Config(BaseSettings):
     endpoints: dict[str, EndpointConfig] = {}
     github: GithubConfig = GithubConfig()
     index: IndexConfig = IndexConfig()
+    memory: MemoryConfig = MemoryConfig()
     sessions: SessionsConfig = SessionsConfig()
     log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()

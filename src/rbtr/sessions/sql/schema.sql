@@ -35,3 +35,48 @@ WHERE user_text IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_fragments_compacted_by
 ON fragments (compacted_by)
 WHERE compacted_by IS NOT NULL;
+
+-- ── Facts (cross-session memory) ────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS facts (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_session_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_confirmed_at TEXT NOT NULL,
+  confirm_count INTEGER NOT NULL DEFAULT 1,
+  superseded_by TEXT REFERENCES facts (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_facts_scope
+ON facts (scope, superseded_by)
+WHERE superseded_by IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_facts_recency
+ON facts (last_confirmed_at DESC)
+WHERE superseded_by IS NULL;
+
+-- Content-external FTS5 table for dedup via BM25.
+-- content=facts means FTS5 reads from the facts table;
+-- content_rowid=rowid maps FTS rowid to facts.rowid.
+CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts  -- noqa: PRS
+USING fts5(content, content=facts, content_rowid=rowid);  -- noqa: PRS
+
+-- Sync triggers: keep facts_fts in lockstep with facts.
+CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
+  INSERT INTO facts_fts (rowid, content)
+  VALUES (NEW.rowid, NEW.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
+  INSERT INTO facts_fts (facts_fts, rowid, content)
+  VALUES ('delete', OLD.rowid, OLD.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content ON facts BEGIN
+  INSERT INTO facts_fts (facts_fts, rowid, content)
+  VALUES ('delete', OLD.rowid, OLD.content);
+  INSERT INTO facts_fts (rowid, content)
+  VALUES (NEW.rowid, NEW.content);
+END;

@@ -73,7 +73,7 @@ SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 # Date-based schema version: YYYYMMDD0R where R is a release
 # counter for multiple migrations on the same day.  Fits in
 # SQLite's 32-bit PRAGMA user_version (max 2_147_483_647).
-_SCHEMA_VERSION = 2026_03_03_01
+_SCHEMA_VERSION = 2026_03_08_01
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -104,6 +104,37 @@ _RESET_COMPACTION_SQL = _load_sql("reset_compaction.sql")
 _HAS_MESSAGES_AFTER_SQL = _load_sql("has_messages_after.sql")
 _DELETE_MESSAGE_SQL = _load_sql("delete_message.sql")
 _SESSION_STARTED_AT_SQL = _load_sql("session_started_at.sql")
+_MIGRATE_2026030301_SQL = _load_sql("migrate_2026030301_to_2026030801.sql")
+
+# ── FTS5 helpers ─────────────────────────────────────────────────────
+
+_FTS5_STRIP = str.maketrans("", "", "\"'`(){}[]<>*:-+!@#$%^&=|\\;,./?\n\r\t")
+
+
+def _fts5_quote(text: str) -> str:
+    """Turn free text into a safe FTS5 OR query.
+
+    Each whitespace-separated token is double-quoted so that
+    punctuation (hyphens, dots, backticks) doesn't become an
+    FTS5 operator.  Tokens are joined with ``OR`` so any
+    overlapping term contributes to the BM25 score.
+    """
+    cleaned = text.translate(_FTS5_STRIP)
+    tokens = cleaned.split()
+    if not tokens:
+        return ""
+    return " OR ".join(f'"{t}"' for t in tokens)
+
+
+# ── Facts SQL ────────────────────────────────────────────────────────
+
+_INSERT_FACT_SQL = _load_sql("insert_fact.sql")
+_UPDATE_FACT_CONFIRMED_SQL = _load_sql("update_fact_confirmed.sql")
+_SUPERSEDE_FACT_SQL = _load_sql("supersede_fact.sql")
+_LOAD_ACTIVE_FACTS_SQL = _load_sql("load_active_facts.sql")
+_DELETE_FACT_SQL = _load_sql("delete_fact.sql")
+_PRUNE_EXCESS_FACTS_SQL = _load_sql("prune_excess_facts.sql")
+_SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
 
 
 # ── Result types ─────────────────────────────────────────────────────
@@ -122,6 +153,19 @@ class SessionSummary:
     review_target: str | None
     repo_owner: str | None
     repo_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Fact:
+    """A single cross-session memory fact."""
+
+    id: str
+    scope: str
+    content: str
+    source_session_id: str
+    created_at: str
+    last_confirmed_at: str
+    confirm_count: int
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────
@@ -273,9 +317,14 @@ class SessionStore:
     def _migrate(self, from_version: int) -> None:
         """Run migrations from *from_version* to ``_SCHEMA_VERSION``.
 
-        Databases older than the current date-based version are
-        wiped and recreated — no incremental migration path.
+        Known migrations are applied incrementally.  Unknown older
+        versions are wiped and recreated.
         """
+        if from_version == 2026_03_03_01:
+            log.info("sessions: migrating v%d → v%d (add facts)", from_version, _SCHEMA_VERSION)
+            self._con.executescript(_MIGRATE_2026030301_SQL)
+            self._set_user_version(_SCHEMA_VERSION)
+            return
         log.info("sessions: wiping v%d DB, recreating as v%d", from_version, _SCHEMA_VERSION)
         self._wipe_and_recreate()
 
@@ -760,6 +809,96 @@ class SessionStore:
                 [label, session_id],
             )
             return cur.rowcount
+
+    # ── Facts (cross-session memory) ────────────────────────────────
+
+    def insert_fact(self, scope: str, content: str, session_id: str) -> Fact:
+        """Insert a new fact and return it."""
+        fact_id = self.new_id()
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._con:
+            self._con.execute(
+                _INSERT_FACT_SQL,
+                [fact_id, scope, content, session_id, now, now],
+            )
+        return Fact(
+            id=fact_id,
+            scope=scope,
+            content=content,
+            source_session_id=session_id,
+            created_at=now,
+            last_confirmed_at=now,
+            confirm_count=1,
+        )
+
+    def confirm_fact(self, fact_id: str) -> None:
+        """Bump `last_confirmed_at` and `confirm_count` for an existing fact."""
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._con:
+            self._con.execute(_UPDATE_FACT_CONFIRMED_SQL, [now, fact_id])
+
+    def supersede_fact(self, old_id: str, new_id: str) -> None:
+        """Mark *old_id* as superseded by *new_id*."""
+        with self._lock, self._con:
+            self._con.execute(_SUPERSEDE_FACT_SQL, [new_id, old_id])
+
+    def load_active_facts(self, scope: str, limit: int = 100) -> list[Fact]:
+        """Load active (non-superseded) facts for *scope*, most recently confirmed first."""
+        rows = self._con.execute(_LOAD_ACTIVE_FACTS_SQL, [scope, limit]).fetchall()
+        return [
+            Fact(
+                id=r["id"],
+                scope=r["scope"],
+                content=r["content"],
+                source_session_id=r["source_session_id"],
+                created_at=r["created_at"],
+                last_confirmed_at=r["last_confirmed_at"],
+                confirm_count=r["confirm_count"],
+            )
+            for r in rows
+        ]
+
+    def delete_fact(self, fact_id: str) -> int:
+        """Delete a fact by ID.  Returns number of rows deleted (0 or 1)."""
+        with self._lock, self._con:
+            cur = self._con.execute(_DELETE_FACT_SQL, [fact_id])
+            return cur.rowcount
+
+    def prune_excess_facts(self, scope: str, keep: int) -> int:
+        """Delete active facts in *scope* beyond the *keep* most recently confirmed.
+
+        Superseded facts are not counted toward the limit.
+        Returns number of rows deleted.
+        """
+        with self._lock, self._con:
+            cur = self._con.execute(_PRUNE_EXCESS_FACTS_SQL, [scope, scope, keep])
+            return cur.rowcount
+
+    def search_facts(self, query: str, scope: str, limit: int = 10) -> list[Fact]:
+        """Search active facts via FTS5 BM25 for deduplication.
+
+        Returns facts in *scope* ranked by BM25 relevance (best first).
+        The *query* is matched against fact content using FTS5.
+
+        The raw query is tokenised and each token is quoted so that
+        hyphens and punctuation don't become FTS5 operators.
+        """
+        fts_query = _fts5_quote(query)
+        if not fts_query:
+            return []
+        rows = self._con.execute(_SEARCH_FACTS_FTS_SQL, [fts_query, scope, limit]).fetchall()
+        return [
+            Fact(
+                id=r["id"],
+                scope=r["scope"],
+                content=r["content"],
+                source_session_id=r["source_session_id"],
+                created_at=r["created_at"],
+                last_confirmed_at=r["last_confirmed_at"],
+                confirm_count=r["confirm_count"],
+            )
+            for r in rows
+        ]
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
