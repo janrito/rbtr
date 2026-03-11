@@ -97,14 +97,14 @@ def test_new_fact_inserted_directly(store: SessionStore) -> None:
 
 def test_confirm_bumps_existing(store: SessionStore) -> None:
     """Confirm action bumps an existing fact."""
-    existing = store.insert_fact(RBTR_KEY, "Uses pytest.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Uses pytest.", SESSION_ID)
 
     extracted = [
         ExtractedFact(
             content="Uses pytest.",
             scope="repo",
             action=FactAction.CONFIRM,
-            existing_id=existing.id,
+            existing_content="Uses pytest.",
         ),
     ]
     pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
@@ -116,8 +116,23 @@ def test_confirm_bumps_existing(store: SessionStore) -> None:
     assert facts[0].confirm_count == 2
 
 
-def test_confirm_without_existing_id_falls_through(store: SessionStore) -> None:
-    """Confirm without existing_id is treated as new (fallback)."""
+def test_confirm_content_not_found(store: SessionStore) -> None:
+    """Confirm with non-matching content is silently ignored."""
+    extracted = [
+        ExtractedFact(
+            content="Uses pytest.",
+            scope="repo",
+            action=FactAction.CONFIRM,
+            existing_content="No such fact.",
+        ),
+    ]
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 0
+    assert pr.confirmed == 0
+
+
+def test_confirm_without_existing_content_falls_through(store: SessionStore) -> None:
+    """Confirm without existing_content is treated as new (fallback)."""
     extracted = [
         ExtractedFact(content="Orphan confirm.", scope="repo", action=FactAction.CONFIRM),
     ]
@@ -133,14 +148,14 @@ def test_confirm_without_existing_id_falls_through(store: SessionStore) -> None:
 
 def test_supersede_replaces_old(store: SessionStore) -> None:
     """Supersede action inserts new and marks old as superseded."""
-    old = store.insert_fact(RBTR_KEY, "Python 3.12.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Python 3.12.", SESSION_ID)
 
     extracted = [
         ExtractedFact(
             content="Python 3.13+.",
             scope="repo",
             action=FactAction.SUPERSEDE,
-            existing_id=old.id,
+            existing_content="Python 3.12.",
         ),
     ]
     pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
@@ -152,8 +167,26 @@ def test_supersede_replaces_old(store: SessionStore) -> None:
     assert facts[0].content == "Python 3.13+."
 
 
-def test_supersede_without_existing_id_falls_through(store: SessionStore) -> None:
-    """Supersede without existing_id is treated as new (fallback)."""
+def test_supersede_content_not_found_skipped(store: SessionStore) -> None:
+    """Supersede with non-matching content is skipped entirely."""
+    extracted = [
+        ExtractedFact(
+            content="New replacement.",
+            scope="repo",
+            action=FactAction.SUPERSEDE,
+            existing_content="No such fact.",
+        ),
+    ]
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 0
+    assert pr.superseded == 0
+
+    facts = store.load_active_facts(RBTR_KEY)
+    assert len(facts) == 0
+
+
+def test_supersede_without_existing_content_falls_through(store: SessionStore) -> None:
+    """Supersede without existing_content is treated as new (fallback)."""
     extracted = [
         ExtractedFact(content="Orphan supersede.", scope="repo", action=FactAction.SUPERSEDE),
     ]
@@ -217,10 +250,10 @@ def test_prompt_includes_existing_facts(store: SessionStore) -> None:
     facts = [f1, f2]
 
     prompt = _build_user_prompt("## User\nHello", facts)
-    assert f"id={f1.id}" in prompt
-    assert "Uses pytest." in prompt
-    assert f"id={f2.id}" in prompt
-    assert "Prefers British English." in prompt
+    assert "- Uses pytest." in prompt
+    assert "- Prefers British English." in prompt
+    # No IDs exposed to the LLM.
+    assert "id=" not in prompt
 
 
 def test_prompt_empty_facts() -> None:
@@ -249,14 +282,14 @@ def test_extraction_result_roundtrip() -> None:
                 content="Python 3.13+.",
                 scope="repo",
                 action=FactAction.SUPERSEDE,
-                existing_id="old-fact-id",
+                existing_content="Python 3.12.",
             ),
         ]
     )
     data = result.model_dump()
     restored = ExtractionResult.model_validate(data)
     assert len(restored.facts) == 2
-    assert restored.facts[1].existing_id == "old-fact-id"
+    assert restored.facts[1].existing_content == "Python 3.12."
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -304,7 +337,8 @@ def test_inject_fact_count_cap(store: SessionStore) -> None:
         store.insert_fact(RBTR_KEY, f"Fact number {i}.", SESSION_ID)
 
     result = render_facts_instruction(store, RBTR_KEY, max_facts=3, max_tokens=2000)
-    assert result.count("- [id=") == 3
+    fact_lines = [line for line in result.splitlines() if line.startswith("- [")]
+    assert len(fact_lines) == 3
 
 
 def test_inject_token_cap(store: SessionStore) -> None:
@@ -314,7 +348,7 @@ def test_inject_token_cap(store: SessionStore) -> None:
 
     # Very small token cap — should only fit a few facts.
     result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=50)
-    fact_lines = [line for line in result.splitlines() if line.startswith("- [id=")]
+    fact_lines = [line for line in result.splitlines() if line.startswith("- [")]
     assert len(fact_lines) < 20
     assert len(fact_lines) >= 1
 
@@ -325,14 +359,15 @@ def test_inject_empty_returns_empty(store: SessionStore) -> None:
     assert result == ""
 
 
-def test_inject_scope_labels_and_ids(store: SessionStore) -> None:
-    """Fact lines include ids and scope labels."""
-    g = store.insert_fact(GLOBAL, "Global pref.", SESSION_ID)
-    r = store.insert_fact(RBTR_KEY, "Repo pref.", SESSION_ID)
+def test_inject_scope_labels(store: SessionStore) -> None:
+    """Fact lines include scope labels but not IDs."""
+    store.insert_fact(GLOBAL, "Global pref.", SESSION_ID)
+    store.insert_fact(RBTR_KEY, "Repo pref.", SESSION_ID)
 
     result = render_facts_instruction(store, RBTR_KEY, max_facts=20, max_tokens=2000)
-    assert f"[id={g.id}, global]" in result
-    assert f"[id={r.id}, {RBTR_KEY}]" in result
+    assert "[global] Global pref." in result
+    assert f"[{RBTR_KEY}] Repo pref." in result
+    assert "id=" not in result
 
 
 def test_inject_excludes_superseded(store: SessionStore) -> None:

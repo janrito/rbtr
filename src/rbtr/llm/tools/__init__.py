@@ -16,4 +16,5 @@ import rbtr.llm.tools.draft
 import rbtr.llm.tools.file
 import rbtr.llm.tools.git
 import rbtr.llm.tools.index
+import rbtr.llm.tools.memory
 import rbtr.llm.tools.notes  # noqa: F401

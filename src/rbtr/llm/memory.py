@@ -67,8 +67,8 @@ class ExtractedFact(BaseModel):
     scope: str = "repo"
     """``'global'`` or ``'repo'``."""
     action: FactAction = FactAction.NEW
-    existing_id: str | None = None
-    """Set when ``action`` is ``confirm`` or ``supersede``."""
+    existing_content: str | None = None
+    """Content of the existing fact when ``action`` is ``confirm`` or ``supersede``."""
 
 
 class ExtractionResult(BaseModel):
@@ -123,7 +123,7 @@ def _build_user_prompt(conversation: str, existing_facts: list[Fact]) -> str:
     parts: list[str] = ["## Existing facts\n"]
     if existing_facts:
         for f in existing_facts:
-            parts.append(f"- [id={f.id}] {f.content}")
+            parts.append(f"- {f.content}")
     else:
         parts.append("(none)")
     parts.append("\n## Conversation\n")
@@ -169,7 +169,7 @@ def render_facts_instruction(
 
     for f in facts:
         scope_label = "global" if f.scope == GLOBAL_SCOPE else f.scope
-        line = f"- [id={f.id}, {scope_label}] {f.content}"
+        line = f"- [{scope_label}] {f.content}"
         line_tokens = _estimate_tokens(line)
         if token_count + line_tokens > max_tokens:
             break
@@ -240,17 +240,30 @@ def process_extracted_facts(
             log.debug("memory: skipping repo-scoped fact (no repo): %s", ef.content[:60])
             continue
 
-        if ef.action == FactAction.CONFIRM and ef.existing_id:
-            store.confirm_fact(ef.existing_id)
-            result.confirmed += 1
-            result.fact_ids.append(ef.existing_id)
+        if ef.action == FactAction.CONFIRM and ef.existing_content:
+            existing = store.find_fact_by_content(ef.existing_content, scope)
+            if existing:
+                store.confirm_fact(existing.id)
+                result.confirmed += 1
+                result.fact_ids.append(existing.id)
+            else:
+                log.debug("memory: confirm target not found: %s", ef.existing_content[:60])
 
-        elif ef.action == FactAction.SUPERSEDE and ef.existing_id:
-            new_fact = store.insert_fact(scope, ef.content, session_id)
-            store.supersede_fact(ef.existing_id, new_fact.id)
-            result.added += 1
-            result.superseded += 1
-            result.fact_ids.append(new_fact.id)
+        elif ef.action == FactAction.SUPERSEDE and ef.existing_content:
+            existing = store.find_fact_by_content(ef.existing_content, scope)
+            if existing:
+                new_fact = store.insert_fact(scope, ef.content, session_id)
+                store.supersede_fact(existing.id, new_fact.id)
+                result.added += 1
+                result.superseded += 1
+                result.fact_ids.append(new_fact.id)
+            else:
+                # Target not found — skip entirely. Inserting without
+                # superseding would create a near-duplicate.
+                log.warning(
+                    "memory: supersede target not found, skipping: %s",
+                    ef.existing_content[:80],
+                )
 
         else:
             # NEW or fallback — insert directly.

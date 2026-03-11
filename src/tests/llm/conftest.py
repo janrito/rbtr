@@ -10,6 +10,7 @@ from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.models import BranchTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
 
@@ -19,17 +20,27 @@ from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
 class FakeCtx:
     """Minimal stand-in for ``RunContext[AgentDeps]`` in tool tests.
 
-    Tools only access ``ctx.deps.state``, so this duck type is
-    sufficient without pulling in a real ``Model`` instance.
+    Tools access ``ctx.deps.state`` and optionally ``ctx.deps.store``,
+    so this duck type is sufficient without pulling in a real
+    ``Model`` instance.
     """
 
-    def __init__(self, state: EngineState) -> None:
-        self.deps = _FakeDeps(state)
+    def __init__(
+        self,
+        state: EngineState,
+        store: SessionStore | None = None,
+    ) -> None:
+        self.deps = _FakeDeps(state, store)
 
 
 class _FakeDeps:
-    def __init__(self, state: EngineState) -> None:
+    def __init__(
+        self,
+        state: EngineState,
+        store: SessionStore | None = None,
+    ) -> None:
         self.state = state
+        self.store = store or SessionStore()
 
 
 # ── Store helpers ────────────────────────────────────────────────────

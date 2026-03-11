@@ -134,6 +134,8 @@ def _fts5_quote(text: str) -> str:
 # ── Facts SQL ────────────────────────────────────────────────────────
 
 _INSERT_FACT_SQL = _load_sql("insert_fact.sql")
+_GET_FACT_SQL = _load_sql("get_fact.sql")
+_FIND_FACT_BY_CONTENT_SQL = _load_sql("find_fact_by_content.sql")
 _UPDATE_FACT_CONFIRMED_SQL = _load_sql("update_fact_confirmed.sql")
 _SUPERSEDE_FACT_SQL = _load_sql("supersede_fact.sql")
 _LOAD_ACTIVE_FACTS_SQL = _load_sql("load_active_facts.sql")
@@ -878,6 +880,38 @@ class SessionStore:
             created_at=now,
             last_confirmed_at=now,
             confirm_count=1,
+        )
+
+    def get_fact(self, fact_id: str) -> Fact | None:
+        """Look up a single fact by ID, or ``None`` if not found."""
+        row = self._con.execute(_GET_FACT_SQL, [fact_id]).fetchone()
+        if row is None:
+            return None
+        return Fact(
+            id=row["id"],
+            scope=row["scope"],
+            content=row["content"],
+            source_session_id=row["source_session_id"],
+            created_at=row["created_at"],
+            last_confirmed_at=row["last_confirmed_at"],
+            confirm_count=row["confirm_count"],
+            superseded_by=row["superseded_by"],
+        )
+
+    def find_fact_by_content(self, content: str, scope: str) -> Fact | None:
+        """Find an active fact by exact content and scope, or ``None``."""
+        row = self._con.execute(_FIND_FACT_BY_CONTENT_SQL, [content, scope]).fetchone()
+        if row is None:
+            return None
+        return Fact(
+            id=row["id"],
+            scope=row["scope"],
+            content=row["content"],
+            source_session_id=row["source_session_id"],
+            created_at=row["created_at"],
+            last_confirmed_at=row["last_confirmed_at"],
+            confirm_count=row["confirm_count"],
+            superseded_by=row["superseded_by"],
         )
 
     def confirm_fact(self, fact_id: str) -> None:

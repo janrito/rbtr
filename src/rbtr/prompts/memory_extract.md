@@ -34,9 +34,10 @@ For each fact, specify:
 - `action`: one of:
   - `"new"` — a new fact not covered by existing facts
   - `"confirm"` — an existing fact confirmed by this
-    conversation (set `existing_id` to the fact's id)
+    conversation (set `existing_content` to the exact text
+    of the existing fact)
   - `"supersede"` — an existing fact is outdated or wrong;
-    provide the replacement (set `existing_id` to the old
-    fact's id)
+    provide the replacement (set `existing_content` to the
+    exact text of the old fact)
 
 If there are no facts worth extracting, return an empty list.
