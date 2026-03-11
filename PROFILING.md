@@ -6,10 +6,10 @@ measurements taken on Apple M3 Pro (18 GB), macOS, Python
 
 ## Test repos
 
-| Repo     | Files | Chunks | Top languages               |
-| -------- | ----: | -----: | --------------------------- |
-| rbtr     |   131 |  2,264 | Python 107, Markdown 6      |
-| typeshed | 3,319 | 64,074 | Python 3070, TOML 125       |
+| Repo     | Files | Chunks | Top languages                 |
+| -------- | ----: | -----: | ----------------------------- |
+| rbtr     |   131 |  2,264 | Python 107, Markdown 6        |
+| typeshed | 3,319 | 64,074 | Python 3070, TOML 125         |
 | ukf      | 4,462 | 39,287 | Python 1574, HTML 579, JS 435 |
 
 ## Indexing time (no embedding)

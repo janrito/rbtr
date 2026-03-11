@@ -277,11 +277,11 @@ LLM never sees a tool it cannot call.
 
 ### File tools (`require_repo`)
 
-| Tool         | Purpose                                           |
-| ------------ | ------------------------------------------------- |
-| `read_file`  | Read file content by path, with pagination        |
+| Tool         | Purpose                                                 |
+| ------------ | ------------------------------------------------------- |
+| `read_file`  | Read file content by path, with pagination              |
 | `grep`       | Substring search in one file, a directory, or repo-wide |
-| `list_files` | List files in the repository or a subdirectory     |
+| `list_files` | List files in the repository or a subdirectory          |
 
 ### Git tools (`require_repo`)
 
@@ -293,23 +293,23 @@ LLM never sees a tool it cannot call.
 
 ### Index tools (`require_index`)
 
-| Tool              | Purpose                                         |
-| ----------------- | ----------------------------------------------- |
-| `search`          | Find symbols by name, keywords, or concepts     |
-| `read_symbol`     | Read the full source code of a symbol           |
-| `list_symbols`    | List functions, classes, methods in a file       |
+| Tool              | Purpose                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| `search`          | Find symbols by name, keywords, or concepts                      |
+| `read_symbol`     | Read the full source code of a symbol                            |
+| `list_symbols`    | List functions, classes, methods in a file                       |
 | `find_references` | Find symbols referencing a given symbol via the dependency graph |
-| `changed_symbols` | List symbols changed between base and head      |
+| `changed_symbols` | List symbols changed between base and head                       |
 
 ### Draft tools (`require_pr_target`)
 
-| Tool                 | Purpose                                     |
-| -------------------- | ------------------------------------------- |
-| `add_draft_comment`  | Add an inline comment to the review draft   |
-| `edit_draft_comment` | Edit an existing draft comment              |
+| Tool                   | Purpose                                   |
+| ---------------------- | ----------------------------------------- |
+| `add_draft_comment`    | Add an inline comment to the review draft |
+| `edit_draft_comment`   | Edit an existing draft comment            |
 | `remove_draft_comment` | Remove a draft comment                    |
-| `set_draft_summary`  | Set the top-level review summary            |
-| `read_draft`         | Read the current draft                      |
+| `set_draft_summary`    | Set the top-level review summary          |
+| `read_draft`           | Read the current draft                    |
 
 ### Discussion tools (`require_pr`)
 
@@ -319,8 +319,8 @@ LLM never sees a tool it cannot call.
 
 ### Edit tools (always visible)
 
-| Tool   | Purpose                                              |
-| ------ | ---------------------------------------------------- |
+| Tool   | Purpose                                                  |
+| ------ | -------------------------------------------------------- |
 | `edit` | Create or modify files matching `editable_include` globs |
 
 File tools read from the git object store first and fall back
@@ -434,12 +434,12 @@ Model listing, tab completion, dispatch, and pricing via
 The LLM receives instructions assembled from four templates in
 `prompts/`, rendered via minijinja:
 
-| Template          | Agent      | Content                            |
-| ----------------- | ---------- | ---------------------------------- |
+| Template          | Agent      | Content                             |
+| ----------------- | ---------- | ----------------------------------- |
 | `system.md`       | Both       | Identity, authority, language style |
-| `review.md`       | Main       | Review context, principles, format |
-| `compact.md`      | Compaction | What to preserve/drop in summaries |
-| `index_status.md` | Main       | Index availability, tool readiness |
+| `review.md`       | Main       | Review context, principles, format  |
+| `compact.md`      | Compaction | What to preserve/drop in summaries  |
+| `index_status.md` | Main       | Index availability, tool readiness  |
 
 **Main agent** receives three `@agent.instructions` decorators:
 `_system()` renders `system.md`, `_review_task(ctx)` renders
@@ -563,18 +563,18 @@ matches on the `Event` union type.
 
 | Event          | Description                                |
 | -------------- | ------------------------------------------ |
-| `TaskStarted`  | A new task has begun (carries `task_type`)  |
+| `TaskStarted`  | A new task has begun (carries `task_type`) |
 | `TaskFinished` | A task has completed                       |
 
 #### Output
 
-| Event            | Description                                           |
-| ---------------- | ----------------------------------------------------- |
-| `Output`         | A line of text with a semantic `OutputLevel`           |
-| `TableOutput`    | A table (columns and rows as plain strings)            |
-| `MarkdownOutput` | Markdown content to render                             |
-| `LinkOutput`     | A link with URL and optional label                     |
-| `FlushPanel`     | Flush active lines to scrollback or discard them       |
+| Event            | Description                                      |
+| ---------------- | ------------------------------------------------ |
+| `Output`         | A line of text with a semantic `OutputLevel`     |
+| `TableOutput`    | A table (columns and rows as plain strings)      |
+| `MarkdownOutput` | Markdown content to render                       |
+| `LinkOutput`     | A link with URL and optional label               |
+| `FlushPanel`     | Flush active lines to scrollback or discard them |
 
 `Output.level` is an `OutputLevel` enum (`INFO`, `WARNING`,
 `ERROR`, `SHELL_STDERR`). The TUI maps each level to a theme
@@ -595,22 +595,22 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 | --------------- | --------------------------------------------- |
 | `IndexStarted`  | Background indexing has begun                 |
 | `IndexProgress` | Progress update (phase, indexed count, total) |
-| `IndexReady`    | Indexing complete, store is queryable          |
+| `IndexReady`    | Indexing complete, store is queryable         |
 | `IndexCleared`  | Index has been cleared                        |
 
 #### Compaction
 
-| Event               | Description                              |
-| -------------------- | ---------------------------------------- |
-| `CompactionStarted`  | Compaction has begun (message counts)    |
+| Event                | Description                               |
+| -------------------- | ----------------------------------------- |
+| `CompactionStarted`  | Compaction has begun (message counts)     |
 | `CompactionFinished` | Compaction complete (summary token count) |
 
 #### Fact extraction
 
-| Event                      | Description                                            |
-| -------------------------- | ------------------------------------------------------ |
-| `FactExtractionStarted`   | Fact extraction has begun                              |
-| `FactExtractionFinished`  | Fact extraction complete (added/confirmed/superseded)  |
+| Event                    | Description                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `FactExtractionStarted`  | Fact extraction has begun                             |
+| `FactExtractionFinished` | Fact extraction complete (added/confirmed/superseded) |
 
 #### Review
 
@@ -871,11 +871,11 @@ repair below).
 
 ### Fragment status
 
-| Status        | Meaning                                |
-| ------------- | -------------------------------------- |
-| `IN_PROGRESS` | Streaming response being written       |
+| Status        | Meaning                                  |
+| ------------- | ---------------------------------------- |
+| `IN_PROGRESS` | Streaming response being written         |
 | `COMPLETE`    | Finished row, visible to `load_messages` |
-| `FAILED`      | Failed turn, excluded from replay      |
+| `FAILED`      | Failed turn, excluded from replay        |
 
 `IN_PROGRESS` rows are invisible to `load_messages()` — they
 become visible only when `ResponseWriter.finish()` sets the
@@ -956,15 +956,15 @@ Repairs run in `_prepare_turn()` at three escalating levels:
 `handle_llm()` in `stream.py` classifies exceptions and selects
 a recovery strategy:
 
-| Failure kind       | Trigger               | Recovery              |
-| ------------------ | --------------------- | --------------------- |
-| `HISTORY_FORMAT`   | 400 + format error    | `CONSOLIDATE` / `SIMPLIFY` |
-| `OVERFLOW`         | Context exceeded      | `COMPACT_THEN_RETRY`  |
-| `EFFORT_UNSUPPORTED` | 400 + effort rejected | `EFFORT_OFF`        |
-| `TOOL_ARGS`        | Malformed tool args   | `SIMPLIFY_HISTORY`    |
-| `TYPE_ERROR`       | Adapter null values   | `SIMPLIFY_HISTORY`    |
-| `CANCELLED`        | Ctrl+C                | `NONE`                |
-| `UNKNOWN`          | Unclassified          | `NONE`                |
+| Failure kind         | Trigger               | Recovery                   |
+| -------------------- | --------------------- | -------------------------- |
+| `HISTORY_FORMAT`     | 400 + format error    | `CONSOLIDATE` / `SIMPLIFY` |
+| `OVERFLOW`           | Context exceeded      | `COMPACT_THEN_RETRY`       |
+| `EFFORT_UNSUPPORTED` | 400 + effort rejected | `EFFORT_OFF`               |
+| `TOOL_ARGS`          | Malformed tool args   | `SIMPLIFY_HISTORY`         |
+| `TYPE_ERROR`         | Adapter null values   | `SIMPLIFY_HISTORY`         |
+| `CANCELLED`          | Ctrl+C                | `NONE`                     |
+| `UNKNOWN`            | Unclassified          | `NONE`                     |
 
 ### Incident recording
 
@@ -979,10 +979,10 @@ Every retry cycle persists two incident rows:
 
 After the retry, the outcome is written back:
 
-| `IncidentOutcome` | Meaning                              |
-| ----------------- | ------------------------------------ |
-| `RECOVERED`       | Retry succeeded                      |
-| `FAILED`          | Retry also failed                    |
+| `IncidentOutcome` | Meaning                               |
+| ----------------- | ------------------------------------- |
+| `RECOVERED`       | Retry succeeded                       |
+| `FAILED`          | Retry also failed                     |
 | `ABORTED`         | No recovery attempted (unrecoverable) |
 
 Incidents are queryable via `/stats` and visible in session
@@ -1126,11 +1126,11 @@ passes it to Rich's `Theme`.
 
 ### Palette hierarchy
 
-`PaletteConfig` is the base Pydantic model.  It defines ANSI
+`PaletteConfig` is the base Pydantic model. It defines ANSI
 text-style defaults (shared across modes) and declares
-background fields as required (no defaults).  `DarkPalette`
+background fields as required (no defaults). `DarkPalette`
 and `LightPalette` subclass it to provide mode-specific
-background hex defaults.  Because Pydantic uses the field's
+background hex defaults. Because Pydantic uses the field's
 type to deserialise, partial TOML overrides like
 `[theme.light] bg_succeeded = "on #E0FFE0"` get the
 correct light defaults for unset fields — no validators needed.
@@ -1155,16 +1155,16 @@ rendering. No engine or LLM module imports from `styles.py`.
 
 ### Style groups
 
-| Group      | Keys                   | Purpose                   |
-| ---------- | ---------------------- | ------------------------- |
-| Prompt     | `rbtr.prompt`, `.input` | Input area               |
-| Panels     | `rbtr.bg.*` (6 keys)  | Panel background by state |
-| Text       | `rbtr.dim/muted/warning/error` | Semantic colours   |
-| Chrome     | `rbtr.rule`, `.footer` | Separators, status bar   |
-| Completion | `rbtr.completion.*`   | Tab-completion menu       |
-| Usage      | `rbtr.usage.*`        | Context-window indicator  |
-| Output     | `rbtr.out.*` (5 keys) | TUI-internal level styles |
-| Inline     | `rbtr.link`           | Links                     |
+| Group      | Keys                           | Purpose                   |
+| ---------- | ------------------------------ | ------------------------- |
+| Prompt     | `rbtr.prompt`, `.input`        | Input area                |
+| Panels     | `rbtr.bg.*` (6 keys)           | Panel background by state |
+| Text       | `rbtr.dim/muted/warning/error` | Semantic colours          |
+| Chrome     | `rbtr.rule`, `.footer`         | Separators, status bar    |
+| Completion | `rbtr.completion.*`            | Tab-completion menu       |
+| Usage      | `rbtr.usage.*`                 | Context-window indicator  |
+| Output     | `rbtr.out.*` (5 keys)          | TUI-internal level styles |
+| Inline     | `rbtr.link`                    | Links                     |
 
 ---
 

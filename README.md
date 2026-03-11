@@ -1645,7 +1645,7 @@ editable_include = [".rbtr/my-notes/*"]
 ## Theme
 
 rbtr defaults to a dark palette with semantically tinted panel
-backgrounds.  Switch to light mode or override individual
+backgrounds. Switch to light mode or override individual
 styles in `config.toml`:
 
 ```toml
@@ -1658,8 +1658,8 @@ prompt = "bold magenta"
 ```
 
 Text styles use ANSI names (`bold cyan`, `dim`, `yellow`, …)
-that adapt to your terminal's colour scheme.  Panel backgrounds
-use hex values.  Any string that Rich accepts as a
+that adapt to your terminal's colour scheme. Panel backgrounds
+use hex values. Any string that Rich accepts as a
 [style definition](https://rich.readthedocs.io/en/latest/style.html)
 is valid.
 

@@ -126,6 +126,7 @@ max-complexity = 12
 [tool.rumdl]
 respect_gitignore = true
 exclude = ["cov-append.md", "TODO-*"]
+extend-enable = ["MD060"]
 
 [tool.rumdl.MD013]
 line_length = 88
@@ -134,6 +135,8 @@ code_blocks = false
 tables = false
 reflow = true
 
+[tool.rumdl.MD060]
+style = "aligned"
 
 # -- sqlfluff --
 

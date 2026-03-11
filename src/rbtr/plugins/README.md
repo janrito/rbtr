@@ -54,14 +54,14 @@ tables.
 You don't need to implement everything at once. Each field you add to
 `LanguageRegistration` unlocks more analysis:
 
-| What you provide | What you get |
-|---|---|
-| `id` + `extensions` | File detection, line-based chunks |
-| + `chunker` | Custom chunking (no grammar needed) |
-| + `grammar_module` | Tree-sitter parse tree |
-| + `query` | Structural symbol extraction |
-| + `import_extractor` | Precise import edge inference |
-| + `scope_types` | Method-in-class scoping |
+| What you provide     | What you get                        |
+| -------------------- | ----------------------------------- |
+| `id` + `extensions`  | File detection, line-based chunks   |
+| + `chunker`          | Custom chunking (no grammar needed) |
+| + `grammar_module`   | Tree-sitter parse tree              |
+| + `query`            | Structural symbol extraction        |
+| + `import_extractor` | Precise import edge inference       |
+| + `scope_types`      | Method-in-class scoping             |
 
 Start with detection only and add capabilities as needed.
 
