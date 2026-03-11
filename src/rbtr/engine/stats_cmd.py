@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
+from rbtr.llm.memory import GLOBAL_SCOPE
 from rbtr.sessions.stats import IncidentStats, OverheadStats, TokenStats, ToolStat
 from rbtr.usage import format_cost, format_tokens
 
@@ -102,7 +103,7 @@ def _cmd_global(engine: Engine) -> None:
     if incidents.has_incidents:
         _render_incidents(engine, incidents)
 
-    _render_facts(engine)
+    _render_facts(engine, all_scopes=True)
 
 
 # ── Shared rendering ────────────────────────────────────────────────
@@ -254,17 +255,35 @@ def _render_overhead(engine: Engine, oh: OverheadStats) -> None:
             _out(engine, _row("Cost", format_cost(oh.fact_extraction_cost)))
 
 
-def _render_facts(engine: Engine) -> None:
+def _render_facts(engine: Engine, *, all_scopes: bool = False) -> None:
+    """Render fact counts.
+
+    *all_scopes*: show every scope (``/stats all``).
+    Otherwise show only global + current repo (``/stats``).
+    """
     if not config.memory.enabled:
         return
     counts = engine.store.fact_counts()
     if not counts:
         return
-    total = sum(counts.values())
+
+    if all_scopes:
+        visible = counts
+    else:
+        scopes = {GLOBAL_SCOPE}
+        repo_scope = engine.state.repo_scope
+        if repo_scope:
+            scopes.add(repo_scope)
+        visible = {s: c for s, c in counts.items() if s in scopes}
+
+    if not visible:
+        return
+    total = sum(visible.values())
     _out(engine, "")
-    _out(engine, f"  Facts ({total})")
-    for scope, count in sorted(counts.items()):
-        _out(engine, f"    {scope:<30}{count:>{_COL}}")
+    _out(engine, f"Facts ({total})")
+    for scope, count in sorted(visible.items()):
+        label = "global" if scope == GLOBAL_SCOPE else scope
+        _out(engine, _row(label, str(count)))
 
 
 def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:

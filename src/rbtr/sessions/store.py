@@ -142,6 +142,7 @@ _LOAD_ALL_FACTS_SQL = _load_sql("load_all_facts.sql")
 _DELETE_FACT_SQL = _load_sql("delete_fact.sql")
 _DELETE_OLD_FACTS_SQL = _load_sql("delete_old_facts.sql")
 _FACT_COUNTS_SQL = _load_sql("fact_counts.sql")
+_FACT_SCOPES_SQL = _load_sql("fact_scopes.sql")
 
 _SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
 
@@ -967,6 +968,11 @@ class SessionStore:
         """Return active (non-superseded) fact count per scope."""
         rows = self._con.execute(_FACT_COUNTS_SQL).fetchall()
         return {r["scope"]: r["active_count"] for r in rows}
+
+    def fact_scopes(self) -> list[str]:
+        """Return all distinct scopes that have any facts (including superseded)."""
+        rows = self._con.execute(_FACT_SCOPES_SQL).fetchall()
+        return [r["scope"] for r in rows]
 
     def search_facts(self, query: str, scope: str, limit: int = 10) -> list[Fact]:
         """Search active facts via FTS5 BM25 for deduplication.

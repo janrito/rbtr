@@ -32,15 +32,27 @@ def cmd_memory(engine: Engine, args: str) -> None:
 
 
 def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
-    """Print active facts, optionally including superseded."""
+    """Print facts, optionally including superseded.
+
+    Bare ``/memory`` shows global + current repo.
+    ``/memory all`` shows every scope (all repos).
+    """
     if not config.memory.enabled:
         engine._warn("Memory is disabled (config.memory.enabled = false).")
         return
 
-    scopes = [GLOBAL_SCOPE]
-    repo_scope = engine.state.repo_scope
-    if repo_scope:
-        scopes.append(repo_scope)
+    if include_superseded:
+        # All scopes — discover from all facts, including superseded.
+        all_scopes = engine.store.fact_scopes()
+        if not all_scopes:
+            engine._out("No facts stored yet.")
+            return
+        scopes = _global_first(all_scopes)
+    else:
+        scopes = [GLOBAL_SCOPE]
+        repo_scope = engine.state.repo_scope
+        if repo_scope:
+            scopes.append(repo_scope)
 
     total = 0
     for scope in scopes:
@@ -53,16 +65,25 @@ def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
             continue
 
         label = "global" if scope == GLOBAL_SCOPE else scope
-        engine._out(f"**{label}** ({len(facts)})")
+        engine._out("")
+        engine._markdown(f"### {label} ({len(facts)})")
         for f in facts:
             prefix = "~~" if f.superseded_by else ""
             suffix = "~~" if f.superseded_by else ""
             confirmed = f" (x{f.confirm_count})" if f.confirm_count > 1 else ""
-            engine._out(f"  {prefix}{f.content}{suffix}{confirmed}")
+            engine._markdown(f"- {prefix}{f.content}{suffix}{confirmed}")
         total += len(facts)
 
     if total == 0:
         engine._out("No facts stored yet.")
+
+
+def _global_first(scopes: list[str]) -> list[str]:
+    """Sort scopes with global first, then alphabetical."""
+    rest = sorted(s for s in scopes if s != GLOBAL_SCOPE)
+    if GLOBAL_SCOPE in scopes:
+        return [GLOBAL_SCOPE, *rest]
+    return rest
 
 
 def _extract(engine: Engine) -> None:

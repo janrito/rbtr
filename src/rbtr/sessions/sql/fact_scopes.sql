@@ -1,0 +1,3 @@
+SELECT DISTINCT scope
+FROM facts
+ORDER BY scope;
