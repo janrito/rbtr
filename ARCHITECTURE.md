@@ -605,12 +605,12 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 | `CompactionStarted`  | Compaction has begun (message counts)    |
 | `CompactionFinished` | Compaction complete (summary token count) |
 
-#### Memory
+#### Fact extraction
 
-| Event                       | Description                              |
-| --------------------------- | ---------------------------------------- |
-| `MemoryExtractionStarted`   | Fact extraction has begun                |
-| `MemoryExtractionFinished`  | Extraction complete (added/confirmed/superseded counts) |
+| Event                      | Description                                            |
+| -------------------------- | ------------------------------------------------------ |
+| `FactExtractionStarted`   | Fact extraction has begun                              |
+| `FactExtractionFinished`  | Fact extraction complete (added/confirmed/superseded)  |
 
 #### Review
 
@@ -1008,38 +1008,113 @@ Store methods live on `SessionStore`: `insert_fact`,
 `confirm_fact`, `supersede_fact`, `load_active_facts`,
 `delete_fact`, `prune_excess_facts`, `search_facts`. A
 `facts_fts` FTS5 virtual table (content-external, synced via
-triggers) enables keyword search for future use (e.g. the
-`remember` tool can search before inserting).
+triggers) enables keyword search for deduplication.
 
-### Extraction
+### Fact extraction
 
-A dedicated `extract_agent` (`llm/memory.py`) identifies
-durable facts from conversation messages. It follows the same
-pattern as `compact_agent` and the main `agent`:
-module-level `Agent()`, `@instructions` decorators for the
-static task prompt (`prompts/memory_extract.md`), model
-passed at each call site. The conversation and existing facts
-are passed as the user prompt.
+A dedicated `fact_extract_agent` (`llm/memory.py`) identifies
+durable facts from conversation messages. It follows the
+background agent pattern (see below): module-level `Agent()`,
+`@instructions` decorators for the static task prompt
+(`prompts/memory_extract.md`), model passed at each call
+site. The conversation and existing facts are passed as the
+user prompt.
+
+Three triggers:
+
+- **Compaction** — runs concurrently with the summary
+  agent via `asyncio.gather`. The compaction summary and
+  fact extraction are independent (different serialisations,
+  different agents).
+- **`/draft post`** — after posting a review, the richest
+  source of project knowledge.
+- **`/memory extract`** — explicit user command.
+
+Orchestration is split into composable steps:
+
+1. `run_fact_extraction()` — async, runs the agent, returns
+   `FactExtractionRun` (raw results + cost + model refs)
+   or `None`.
+2. `apply_fact_extraction()` — async, processes facts,
+   persists overhead, runs clarification if needed.
+   Single orchestrator used by both `extract_facts_from_ctx`
+   (daemon thread entry point) and `compact_history_async`.
+3. `extract_facts_from_ctx()` — sync daemon-thread wrapper
+   that emits `FactExtractionStarted`/`Finished` events
+   around steps 1 and 2 via `portal.call`.
 
 ### Deduplication
 
 LLM-driven. The extraction prompt includes all existing
 active facts for the same scopes. The LLM tags each
-extraction as `new`, `confirm` (re-observed with
-`existing_id`), or `supersede` (outdated, with
-`existing_id`). No client-side dedup logic — the LLM sees
-the full context and makes the decision. If it occasionally
-misses a near-duplicate, the hard-limit pruning keeps the
-store bounded.
+extraction as `new`, `confirm` (re-observed, with
+`existing_content`), or `supersede` (outdated, with
+`existing_content` of the old fact). No client-side dedup
+logic — the LLM sees the full context and makes the
+decision. If it occasionally misses a near-duplicate, the
+hard-limit pruning keeps the store bounded.
+
+Content-based matching throughout — no IDs exposed to LLMs.
+The `remember` tool, fact injection, extraction prompt, and
+clarification retry all reference facts by their text
+content.
+
+### Fact clarification
+
+When the LLM's `existing_content` doesn't exactly match any
+active fact (typo, paraphrase), the failed facts are
+collected and a follow-up prompt is sent to the same agent
+with `message_history` from the first call. One retry only;
+still-unresolved facts are logged and skipped. Overhead from
+clarification is persisted as a separate fragment.
 
 ### Lifecycle
 
-Facts are created via extraction (at compaction or on
-demand) or the `remember` tool. They accumulate
-`confirm_count` as they are re-observed. A fact can be
-superseded (replaced by a newer one) or pruned when the
-per-scope hard limit is exceeded (oldest by
+Facts are created via fact extraction (at compaction, after
+`/draft post`, or on demand) or the `remember` tool. They
+accumulate `confirm_count` as they are re-observed. A fact
+can be superseded (replaced by a newer one) or pruned when
+the per-scope hard limit is exceeded (oldest by
 `last_confirmed_at` are removed first).
+
+### Overhead tracking
+
+Both compaction and fact extraction incur LLM costs outside
+the main conversation. These are persisted as overhead
+fragments (`overhead-compaction`, `overhead-fact-extraction`)
+and tracked separately in `SessionUsage`. The `/stats`
+command breaks down overhead by type.
+
+Each overhead fragment carries a typed `data_json` payload
+(`CompactionOverhead` or `FactExtractionOverhead`) with
+domain-specific metadata (trigger, message counts, model
+name, fact IDs). Persistence is domain-specific — extraction
+overhead is saved in `memory.py`, compaction overhead in
+`compact.py`.
+
+---
+
+## Background agent pattern
+
+Compaction and fact extraction are independent background
+agents that share structural conventions but no code. Future
+background agents should follow the same pattern.
+
+Each is a module-level PydanticAI `Agent()` with
+`@instructions` decorators: `render_system()` for shared
+identity, plus a task-specific `.md` template. The model is
+passed at call time, not baked in — background agents may
+use a different model than the main conversation.
+
+### Cost tracking
+
+Background agent calls incur LLM costs outside the main
+conversation. These are persisted as overhead fragments
+(`overhead-compaction`, `overhead-fact-extraction`) via
+`store.save_overhead()` and recorded on `SessionUsage`.
+Each overhead type has its own `FragmentKind`, data model,
+and `record_*` method — deliberately not unified. The
+`/stats` command breaks down overhead by type.
 
 ---
 
