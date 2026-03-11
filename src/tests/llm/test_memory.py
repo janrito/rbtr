@@ -19,10 +19,12 @@ Organisation:
 from __future__ import annotations
 
 from collections.abc import Generator
+from types import SimpleNamespace
 
 import pytest
 from pytest_mock import MockerFixture
 
+from rbtr.llm.context import LLMContext
 from rbtr.llm.memory import (
     ExtractedFact,
     FactAction,
@@ -37,6 +39,20 @@ from rbtr.sessions.store import SessionStore
 from tests.sessions.fact_data import GLOBAL, RBTR_KEY
 
 SESSION_ID = "extract-session-001"
+
+
+def _make_ctx(
+    store: SessionStore,
+    session_id: str = SESSION_ID,
+    repo_scope: str | None = RBTR_KEY,
+) -> LLMContext:
+    """Build a minimal ``LLMContext``-shaped object for ``process_extracted_facts``.
+
+    Only ``.store`` and ``.state.session_id`` / ``.state.repo_scope``
+    are accessed — the rest is stubbed out.
+    """
+    state = SimpleNamespace(session_id=session_id, repo_scope=repo_scope)
+    return SimpleNamespace(store=store, state=state)  # type: ignore[return-value]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -64,7 +80,7 @@ def test_new_facts_inserted(store: SessionStore) -> None:
         ExtractedFact(content="Python 3.13+.", scope="repo", action=FactAction.NEW),
         ExtractedFact(content="Prefers British English.", scope="global", action=FactAction.NEW),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 3
     assert pr.confirmed == 0
     assert pr.superseded == 0
@@ -83,7 +99,7 @@ def test_new_fact_inserted_directly(store: SessionStore) -> None:
     extracted = [
         ExtractedFact(content="Uses pytest.", scope="repo", action=FactAction.NEW),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 1
     assert pr.confirmed == 0
 
@@ -110,7 +126,7 @@ def test_confirm_bumps_existing(store: SessionStore) -> None:
             existing_content="Uses pytest.",
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 0
     assert pr.confirmed == 1
 
@@ -119,29 +135,34 @@ def test_confirm_bumps_existing(store: SessionStore) -> None:
     assert facts[0].confirm_count == 2
 
 
-def test_confirm_content_not_found(store: SessionStore) -> None:
-    """Confirm with non-matching content is silently ignored."""
+@pytest.mark.parametrize("action", [FactAction.CONFIRM, FactAction.SUPERSEDE])
+def test_content_not_found_skipped(store: SessionStore, action: FactAction) -> None:
+    """Confirm/supersede with non-matching content produces no changes."""
     extracted = [
         ExtractedFact(
-            content="Uses pytest.",
+            content="Some fact.",
             scope="repo",
-            action=FactAction.CONFIRM,
+            action=action,
             existing_content="No such fact.",
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 0
     assert pr.confirmed == 0
+    assert pr.superseded == 0
+    assert store.load_active_facts(RBTR_KEY) == []
 
 
-def test_confirm_without_existing_content_falls_through(store: SessionStore) -> None:
-    """Confirm without existing_content is treated as new (fallback)."""
+@pytest.mark.parametrize("action", [FactAction.CONFIRM, FactAction.SUPERSEDE])
+def test_without_existing_content_falls_through(store: SessionStore, action: FactAction) -> None:
+    """Confirm/supersede without existing_content is treated as new (fallback)."""
     extracted = [
-        ExtractedFact(content="Orphan confirm.", scope="repo", action=FactAction.CONFIRM),
+        ExtractedFact(content="Orphan fact.", scope="repo", action=action),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 1
     assert pr.confirmed == 0
+    assert pr.superseded == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -161,41 +182,13 @@ def test_supersede_replaces_old(store: SessionStore) -> None:
             existing_content="Python 3.12.",
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 1
     assert pr.superseded == 1
 
     facts = store.load_active_facts(RBTR_KEY)
     assert len(facts) == 1
     assert facts[0].content == "Python 3.13+."
-
-
-def test_supersede_content_not_found_skipped(store: SessionStore) -> None:
-    """Supersede with non-matching content is skipped entirely."""
-    extracted = [
-        ExtractedFact(
-            content="New replacement.",
-            scope="repo",
-            action=FactAction.SUPERSEDE,
-            existing_content="No such fact.",
-        ),
-    ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert pr.added == 0
-    assert pr.superseded == 0
-
-    facts = store.load_active_facts(RBTR_KEY)
-    assert len(facts) == 0
-
-
-def test_supersede_without_existing_content_falls_through(store: SessionStore) -> None:
-    """Supersede without existing_content is treated as new (fallback)."""
-    extracted = [
-        ExtractedFact(content="Orphan supersede.", scope="repo", action=FactAction.SUPERSEDE),
-    ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert pr.added == 1
-    assert pr.superseded == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -215,7 +208,7 @@ def test_supersede_mismatch_collected_as_failed(store: SessionStore) -> None:
             existing_content="Uses pytst.",  # typo
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 0
     assert pr.superseded == 0
     assert len(pr.failed) == 1
@@ -234,7 +227,7 @@ def test_confirm_mismatch_collected_as_failed(store: SessionStore) -> None:
             existing_content="Uses pytst.",  # typo
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.confirmed == 0
     assert len(pr.failed) == 1
 
@@ -258,7 +251,7 @@ def test_mixed_success_and_failure(store: SessionStore) -> None:
             existing_content="Uses pytst.",  # typo — fails
         ),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts(extracted, _make_ctx(store))
     assert pr.added == 1
     assert pr.confirmed == 1
     assert pr.superseded == 0
@@ -276,7 +269,7 @@ def test_repo_scope_without_repo_skipped(store: SessionStore) -> None:
         ExtractedFact(content="Uses pytest.", scope="repo", action=FactAction.NEW),
         ExtractedFact(content="Prefers British English.", scope="global", action=FactAction.NEW),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
+    pr = process_extracted_facts(extracted, _make_ctx(store, repo_scope=None))
     assert pr.added == 1  # Only the global fact.
     assert len(store.load_active_facts(GLOBAL)) == 1
     assert len(store.load_active_facts(RBTR_KEY)) == 0
@@ -287,7 +280,7 @@ def test_global_scope_always_works(store: SessionStore) -> None:
     extracted = [
         ExtractedFact(content="Prefers terse comments.", scope="global", action=FactAction.NEW),
     ]
-    pr = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
+    pr = process_extracted_facts(extracted, _make_ctx(store, repo_scope=None))
     assert pr.added == 1
 
 
@@ -298,7 +291,7 @@ def test_global_scope_always_works(store: SessionStore) -> None:
 
 def test_empty_extraction(store: SessionStore) -> None:
     """Empty fact list produces no changes."""
-    pr = process_extracted_facts([], store, SESSION_ID, RBTR_KEY)
+    pr = process_extracted_facts([], _make_ctx(store))
     assert (pr.added, pr.confirmed, pr.superseded) == (0, 0, 0)
 
 

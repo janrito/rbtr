@@ -15,7 +15,7 @@ from rbtr.git.objects import read_blob
 from rbtr.github.draft import comment_sync_status, is_tombstone, load_draft
 from rbtr.llm.memory import extract_facts_from_ctx
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewEvent
-from rbtr.sessions.serialise import FactExtractionSource
+from rbtr.sessions.overhead import FactExtractionSource
 
 from .publish import clear_review_draft, post_review_draft, sync_review_draft
 

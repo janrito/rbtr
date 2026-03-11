@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 
 from rbtr.config import config
 from rbtr.engine.session_cmd import parse_duration
-from rbtr.llm.memory import GLOBAL_SCOPE, extract_facts_from_ctx
+from rbtr.llm.memory import extract_facts_from_ctx
+from rbtr.sessions.kinds import GLOBAL_SCOPE
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -47,7 +48,8 @@ def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
         if not all_scopes:
             engine._out("No facts stored yet.")
             return
-        scopes = _global_first(all_scopes)
+        rest = sorted(s for s in all_scopes if s != GLOBAL_SCOPE)
+        scopes = [GLOBAL_SCOPE, *rest] if GLOBAL_SCOPE in all_scopes else rest
     else:
         scopes = [GLOBAL_SCOPE]
         repo_scope = engine.state.repo_scope
@@ -76,14 +78,6 @@ def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
 
     if total == 0:
         engine._out("No facts stored yet.")
-
-
-def _global_first(scopes: list[str]) -> list[str]:
-    """Sort scopes with global first, then alphabetical."""
-    rest = sorted(s for s in scopes if s != GLOBAL_SCOPE)
-    if GLOBAL_SCOPE in scopes:
-        return [GLOBAL_SCOPE, *rest]
-    return rest
 
 
 def _extract(engine: Engine) -> None:

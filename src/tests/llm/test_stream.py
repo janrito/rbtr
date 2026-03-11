@@ -38,14 +38,14 @@ from rbtr.llm.stream import (
     _update_live_usage,
 )
 from rbtr.llm.usage import record_run_usage
-from rbtr.sessions.serialise import (
+from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
-    FragmentKind,
     HistoryRepair,
     IncidentOutcome,
     RecoveryStrategy,
 )
+from rbtr.sessions.kinds import FragmentKind
 
 from .conftest import drain
 

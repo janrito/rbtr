@@ -37,16 +37,15 @@ from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.providers import build_model, model_context_window, model_settings
-from rbtr.sessions.scrub import scrub_secrets
-from rbtr.sessions.serialise import (
+from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
-    FragmentKind,
-    FragmentStatus,
     HistoryRepair,
     IncidentOutcome,
     RecoveryStrategy,
 )
+from rbtr.sessions.kinds import FragmentKind, FragmentStatus
+from rbtr.sessions.scrub import scrub_secrets
 
 from .agent import AgentDeps, agent
 from .compact import CompactionTrigger, compact_history, compact_history_async

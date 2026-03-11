@@ -29,16 +29,16 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.sessions.serialise import (
+from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
-    FragmentKind,
-    FragmentStatus,
     HistoryRepair,
     Incident,
     IncidentOutcome,
     RecoveryStrategy,
-    SessionContext,
+)
+from rbtr.sessions.kinds import FragmentKind, FragmentStatus, SessionContext
+from rbtr.sessions.serialise import (
     dump_part,
     prepare_incident_row,
     prepare_input_row,

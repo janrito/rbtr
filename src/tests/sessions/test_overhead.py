@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.sessions.serialise import (
+from rbtr.sessions.kinds import FragmentKind
+from rbtr.sessions.overhead import (
     CompactionOverhead,
     CompactionTrigger,
     FactExtractionOverhead,
     FactExtractionSource,
-    FragmentKind,
 )
 from rbtr.sessions.store import SessionStore
 from rbtr.usage import SessionUsage
@@ -346,16 +346,7 @@ def test_message_kinds_are_not_overhead() -> None:
 
 def test_clarification_produces_second_extraction_fragment(store: SessionStore) -> None:
     """Extraction + clarification retry produces two overhead fragments."""
-    from unittest.mock import MagicMock
-
-    from rbtr.llm.memory import (
-        FactExtractionRun,
-        ProcessResult,
-        _FactClarifyResult,
-        _save_clarify_overhead,
-        _save_overhead,
-    )
-    from rbtr.sessions.serialise import FactExtractionSource
+    from rbtr.llm.memory import _persist_overhead
     from rbtr.state import EngineState
 
     state = EngineState()
@@ -368,21 +359,32 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
 
     ctx = _FakeCtx()
 
-    run = FactExtractionRun(
-        facts=[],
-        conversation_history=[],
+    # Main extraction overhead.
+    _persist_overhead(
+        ctx,  # type: ignore[arg-type]
+        FactExtractionOverhead(
+            source=FactExtractionSource.COMPACTION,
+            added=1,
+            superseded=1,
+            model_name="test-model",
+            fact_ids=["f1", "f2"],
+        ),
         input_tokens=800,
         output_tokens=100,
         cost=0.002,
-        model_name="test-model",
-        model=MagicMock(),
-        settings=None,
     )
-    pr = ProcessResult(added=1, superseded=1, fact_ids=["f1", "f2"])
-    _save_overhead(ctx, FactExtractionSource.COMPACTION, run, pr)  # type: ignore[arg-type]
 
-    cr = _FactClarifyResult(input_tokens=400, output_tokens=50, cost=0.001)
-    _save_clarify_overhead(ctx, FactExtractionSource.COMPACTION, "test-model", cr)  # type: ignore[arg-type]
+    # Clarification overhead.
+    _persist_overhead(
+        ctx,  # type: ignore[arg-type]
+        FactExtractionOverhead(
+            source=FactExtractionSource.COMPACTION,
+            model_name="test-model",
+        ),
+        input_tokens=400,
+        output_tokens=50,
+        cost=0.001,
+    )
 
     oh = store.overhead_stats(SESSION_A)
     assert oh.fact_extraction_count == 2  # Main + clarification.
@@ -393,10 +395,7 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
 
 def test_no_clarification_single_fragment(store: SessionStore) -> None:
     """Extraction without clarification produces one overhead fragment."""
-    from unittest.mock import MagicMock
-
-    from rbtr.llm.memory import FactExtractionRun, ProcessResult, _save_overhead
-    from rbtr.sessions.serialise import FactExtractionSource
+    from rbtr.llm.memory import _persist_overhead
     from rbtr.state import EngineState
 
     state = EngineState()
@@ -409,18 +408,17 @@ def test_no_clarification_single_fragment(store: SessionStore) -> None:
 
     ctx = _FakeCtx()
 
-    run = FactExtractionRun(
-        facts=[],
-        conversation_history=[],
+    _persist_overhead(
+        ctx,  # type: ignore[arg-type]
+        FactExtractionOverhead(
+            source=FactExtractionSource.COMMAND,
+            added=2,
+            model_name="test-model",
+        ),
         input_tokens=800,
         output_tokens=100,
         cost=0.002,
-        model_name="test-model",
-        model=MagicMock(),
-        settings=None,
     )
-    pr = ProcessResult(added=2)
-    _save_overhead(ctx, FactExtractionSource.COMMAND, run, pr)  # type: ignore[arg-type]
 
     oh = store.overhead_stats(SESSION_A)
     assert oh.fact_extraction_count == 1

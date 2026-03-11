@@ -17,11 +17,11 @@ from rbtr.events import CompactionFinished, CompactionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.prompts import render_compact, render_system
 from rbtr.providers import build_model, model_settings
-from rbtr.sessions.serialise import (
+from rbtr.sessions.kinds import FragmentKind
+from rbtr.sessions.overhead import (
     CompactionOverhead,
     CompactionTrigger,
     FactExtractionSource,
-    FragmentKind,
 )
 
 from .context import LLMContext

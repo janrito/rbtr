@@ -43,7 +43,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from uuid_utils import uuid7
 
-from rbtr.sessions.serialise import FragmentKind, FragmentStatus
+from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -20,14 +20,14 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.engine import Engine
-from rbtr.sessions.serialise import (
+from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
-    FragmentKind,
     HistoryRepair,
     IncidentOutcome,
     RecoveryStrategy,
 )
+from rbtr.sessions.kinds import FragmentKind
 
 from .conftest import _user, drain, output_texts
 

@@ -42,18 +42,13 @@ from rbtr.llm.history import serialise_for_summary
 from rbtr.llm.usage import extract_cost
 from rbtr.prompts import render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
-from rbtr.sessions.serialise import (
-    FactExtractionOverhead,
-    FactExtractionSource,
-    FragmentKind,
-)
+from rbtr.sessions.kinds import GLOBAL_SCOPE, FragmentKind
+from rbtr.sessions.overhead import FactExtractionOverhead, FactExtractionSource
 from rbtr.sessions.store import Fact, SessionStore
 
 log = logging.getLogger(__name__)
 
 # ── Structured output ────────────────────────────────────────────────
-
-GLOBAL_SCOPE = "global"
 
 
 class FactAction(StrEnum):
@@ -224,9 +219,7 @@ class ProcessResult:
 
 def process_extracted_facts(
     extracted: list[ExtractedFact],
-    store: SessionStore,
-    session_id: str,
-    repo_scope: str | None,
+    ctx: LLMContext,
 ) -> ProcessResult:
     """Apply extracted facts to the store.
 
@@ -242,6 +235,9 @@ def process_extracted_facts(
 
     Returns a ``ProcessResult`` with counts and touched fact IDs.
     """
+    store = ctx.store
+    session_id = ctx.state.session_id
+    repo_scope = ctx.state.repo_scope
     result = ProcessResult()
 
     for ef in extracted:
@@ -434,16 +430,30 @@ async def apply_fact_extraction(
     Returns the accumulated ``ProcessResult``.
     """
     if not run.facts:
-        _save_overhead(ctx, source, run, ProcessResult())
+        _persist_overhead(
+            ctx,
+            FactExtractionOverhead(source=source, model_name=run.model_name or None),
+            run.input_tokens,
+            run.output_tokens,
+            run.cost,
+        )
         return ProcessResult()
 
-    pr = process_extracted_facts(
-        run.facts,
-        ctx.store,
-        ctx.state.session_id,
-        ctx.state.repo_scope,
+    pr = process_extracted_facts(run.facts, ctx)
+    _persist_overhead(
+        ctx,
+        FactExtractionOverhead(
+            source=source,
+            added=pr.added,
+            confirmed=pr.confirmed,
+            superseded=pr.superseded,
+            model_name=run.model_name or None,
+            fact_ids=pr.fact_ids,
+        ),
+        run.input_tokens,
+        run.output_tokens,
+        run.cost,
     )
-    _save_overhead(ctx, source, run, pr)
 
     if pr.failed:
         ctx.out("Clarifying mismatched facts…")
@@ -459,12 +469,7 @@ async def apply_fact_extraction(
             cr = _EMPTY_CLARIFY
 
         if cr.facts:
-            pr2 = process_extracted_facts(
-                cr.facts,
-                ctx.store,
-                ctx.state.session_id,
-                ctx.state.repo_scope,
-            )
+            pr2 = process_extracted_facts(cr.facts, ctx)
             pr.added += pr2.added
             pr.confirmed += pr2.confirmed
             pr.superseded += pr2.superseded
@@ -475,7 +480,13 @@ async def apply_fact_extraction(
                 )
 
         if cr.input_tokens or cr.cost:
-            _save_clarify_overhead(ctx, source, run.model_name, cr)
+            _persist_overhead(
+                ctx,
+                FactExtractionOverhead(source=source, model_name=run.model_name or None),
+                cr.input_tokens,
+                cr.output_tokens,
+                cr.cost,
+            )
 
     return pr
 
@@ -539,57 +550,26 @@ def extract_facts_from_ctx(
 # ── Overhead persistence ─────────────────────────────────────────────
 
 
-def _save_overhead(
+def _persist_overhead(
     ctx: LLMContext,
-    source: FactExtractionSource,
-    run: FactExtractionRun,
-    pr: ProcessResult,
+    payload: FactExtractionOverhead,
+    input_tokens: int,
+    output_tokens: int,
+    cost: float,
 ) -> None:
-    """Persist main fact extraction overhead fragment."""
-    if not run.input_tokens and not run.cost:
+    """Persist a fact extraction overhead fragment and record on usage."""
+    if not input_tokens and not cost:
         return
     ctx.store.save_overhead(
         ctx.state.session_id,
         FragmentKind.OVERHEAD_FACT_EXTRACTION,
-        FactExtractionOverhead(
-            source=source,
-            added=pr.added,
-            confirmed=pr.confirmed,
-            superseded=pr.superseded,
-            model_name=run.model_name or None,
-            fact_ids=pr.fact_ids,
-        ),
-        input_tokens=run.input_tokens,
-        output_tokens=run.output_tokens,
-        cost=run.cost,
+        payload,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost=cost,
     )
     ctx.state.usage.record_fact_extraction(
-        input_tokens=run.input_tokens,
-        output_tokens=run.output_tokens,
-        cost=run.cost,
-    )
-
-
-def _save_clarify_overhead(
-    ctx: LLMContext,
-    source: FactExtractionSource,
-    model_name: str,
-    cr: _FactClarifyResult,
-) -> None:
-    """Persist clarification retry overhead fragment."""
-    ctx.store.save_overhead(
-        ctx.state.session_id,
-        FragmentKind.OVERHEAD_FACT_EXTRACTION,
-        FactExtractionOverhead(
-            source=source,
-            model_name=model_name or None,
-        ),
-        input_tokens=cr.input_tokens,
-        output_tokens=cr.output_tokens,
-        cost=cr.cost,
-    )
-    ctx.state.usage.record_fact_extraction(
-        input_tokens=cr.input_tokens,
-        output_tokens=cr.output_tokens,
-        cost=cr.cost,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost=cost,
     )

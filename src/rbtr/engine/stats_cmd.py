@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
-from rbtr.llm.memory import GLOBAL_SCOPE
+from rbtr.sessions.kinds import GLOBAL_SCOPE
 from rbtr.sessions.stats import IncidentStats, OverheadStats, TokenStats, ToolStat
 from rbtr.usage import format_cost, format_tokens
 

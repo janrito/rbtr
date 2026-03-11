@@ -6,8 +6,8 @@ import pytest
 from pydantic_ai.tools import ToolDefinition
 
 from rbtr.config import config
-from rbtr.llm.memory import GLOBAL_SCOPE
 from rbtr.llm.tools.memory import _require_memory, remember
+from rbtr.sessions.kinds import GLOBAL_SCOPE
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 

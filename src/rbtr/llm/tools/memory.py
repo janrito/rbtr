@@ -7,7 +7,7 @@ from pydantic_ai.tools import ToolDefinition
 
 from rbtr.config import config
 from rbtr.llm.agent import AgentDeps, agent
-from rbtr.llm.memory import GLOBAL_SCOPE
+from rbtr.sessions.kinds import GLOBAL_SCOPE
 
 
 async def _require_memory(

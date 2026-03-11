@@ -17,8 +17,8 @@ from rbtr.engine import Engine
 from rbtr.events import CompactionFinished
 from rbtr.llm.compact import compact_history
 from rbtr.llm.context import LLMContext
-from rbtr.llm.memory import GLOBAL_SCOPE
 from rbtr.providers import BuiltinProvider
+from rbtr.sessions.kinds import GLOBAL_SCOPE
 
 from .conftest import (
     TARGET_PR_42,
