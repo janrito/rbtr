@@ -1,4 +1,4 @@
-"""Handler for /memory — list and extract cross-session facts."""
+"""Handler for ``/memory`` — list and extract facts."""
 
 from __future__ import annotations
 

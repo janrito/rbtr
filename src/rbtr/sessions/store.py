@@ -518,7 +518,7 @@ class SessionStore:
         output_tokens: int | None = None,
         cost: float | None = None,
     ) -> str:
-        """Persist an overhead cost record (compaction / extraction).
+        """Persist an overhead cost record (compaction / fact extraction).
 
         Creates a self-referencing row with token counts and cost
         from the background LLM call.  Overhead fragments are

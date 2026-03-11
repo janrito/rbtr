@@ -11,8 +11,8 @@ import pytest
 from rbtr.sessions.serialise import (
     CompactionOverhead,
     CompactionTrigger,
-    ExtractionOverhead,
-    ExtractionSource,
+    FactExtractionOverhead,
+    FactExtractionSource,
     FragmentKind,
 )
 from rbtr.sessions.store import SessionStore
@@ -60,9 +60,9 @@ def test_compaction_overhead_persisted(store: SessionStore) -> None:
 
 
 def test_extraction_overhead_persisted(store: SessionStore) -> None:
-    """An `overhead-extraction` fragment is persisted with correct data."""
-    payload = ExtractionOverhead(
-        source=ExtractionSource.COMPACTION,
+    """An `overhead-fact-extraction` fragment is persisted with correct data."""
+    payload = FactExtractionOverhead(
+        source=FactExtractionSource.COMPACTION,
         added=2,
         confirmed=1,
         superseded=0,
@@ -71,7 +71,7 @@ def test_extraction_overhead_persisted(store: SessionStore) -> None:
     )
     row_id = store.save_overhead(
         SESSION_A,
-        FragmentKind.OVERHEAD_EXTRACTION,
+        FragmentKind.OVERHEAD_FACT_EXTRACTION,
         payload,
         input_tokens=800,
         output_tokens=100,
@@ -80,10 +80,10 @@ def test_extraction_overhead_persisted(store: SessionStore) -> None:
     assert row_id
 
     oh = store.overhead_stats(SESSION_A)
-    assert oh.extraction_count == 1
-    assert oh.extraction_input_tokens == 800
-    assert oh.extraction_output_tokens == 100
-    assert oh.extraction_cost == pytest.approx(0.001)
+    assert oh.fact_extraction_count == 1
+    assert oh.fact_extraction_input_tokens == 800
+    assert oh.fact_extraction_output_tokens == 100
+    assert oh.fact_extraction_cost == pytest.approx(0.001)
 
 
 # ── Overhead fragments excluded from conversation ────────────────────
@@ -176,9 +176,9 @@ def test_multiple_overheads_accumulate(store: SessionStore) -> None:
 
     store.save_overhead(
         SESSION_A,
-        FragmentKind.OVERHEAD_EXTRACTION,
-        ExtractionOverhead(
-            source=ExtractionSource.COMMAND,
+        FragmentKind.OVERHEAD_FACT_EXTRACTION,
+        FactExtractionOverhead(
+            source=FactExtractionSource.COMMAND,
             added=1,
         ),
         input_tokens=500,
@@ -190,8 +190,8 @@ def test_multiple_overheads_accumulate(store: SessionStore) -> None:
     assert oh.compaction_count == 3
     assert oh.compaction_input_tokens == 3000
     assert oh.compaction_cost == pytest.approx(0.009)
-    assert oh.extraction_count == 1
-    assert oh.extraction_input_tokens == 500
+    assert oh.fact_extraction_count == 1
+    assert oh.fact_extraction_input_tokens == 500
     assert oh.total_cost == pytest.approx(0.010)
 
 
@@ -214,9 +214,9 @@ def test_global_overhead_stats(store: SessionStore) -> None:
     store.set_context(session_id=SESSION_B)
     store.save_overhead(
         SESSION_B,
-        FragmentKind.OVERHEAD_EXTRACTION,
-        ExtractionOverhead(
-            source=ExtractionSource.POST,
+        FragmentKind.OVERHEAD_FACT_EXTRACTION,
+        FactExtractionOverhead(
+            source=FactExtractionSource.POST,
             added=3,
             fact_ids=["a", "b", "c"],
         ),
@@ -227,9 +227,9 @@ def test_global_overhead_stats(store: SessionStore) -> None:
 
     oh = store.global_overhead_stats()
     assert oh.compaction_count == 1
-    assert oh.extraction_count == 1
+    assert oh.fact_extraction_count == 1
     assert oh.compaction_input_tokens == 1000
-    assert oh.extraction_input_tokens == 800
+    assert oh.fact_extraction_input_tokens == 800
     assert oh.total_cost == pytest.approx(0.007)
 
 
@@ -238,7 +238,7 @@ def test_empty_overhead_stats(store: SessionStore) -> None:
     oh = store.overhead_stats(SESSION_A)
     assert not oh.has_overhead
     assert oh.compaction_count == 0
-    assert oh.extraction_count == 0
+    assert oh.fact_extraction_count == 0
     assert oh.total_cost == 0.0
 
 
@@ -257,14 +257,14 @@ def test_record_compaction_accumulates() -> None:
     assert usage.total_cost == pytest.approx(0.03)
 
 
-def test_record_extraction_accumulates() -> None:
+def test_record_fact_extraction_accumulates() -> None:
     """Extraction tokens and cost accumulate on `SessionUsage`."""
     usage = SessionUsage()
-    usage.record_extraction(input_tokens=100, output_tokens=50, cost=0.01)
+    usage.record_fact_extraction(input_tokens=100, output_tokens=50, cost=0.01)
 
-    assert usage.extraction_input_tokens == 100
-    assert usage.extraction_output_tokens == 50
-    assert usage.extraction_cost == pytest.approx(0.01)
+    assert usage.fact_extraction_input_tokens == 100
+    assert usage.fact_extraction_output_tokens == 50
+    assert usage.fact_extraction_cost == pytest.approx(0.01)
     assert usage.total_cost == pytest.approx(0.01)
 
 
@@ -273,7 +273,7 @@ def test_overhead_included_in_total_cost() -> None:
     usage = SessionUsage()
     usage.record_run(input_tokens=1000, output_tokens=500, cost=0.10, new_responses=1)
     usage.record_compaction(input_tokens=100, output_tokens=50, cost=0.01)
-    usage.record_extraction(input_tokens=80, output_tokens=20, cost=0.005)
+    usage.record_fact_extraction(input_tokens=80, output_tokens=20, cost=0.005)
 
     assert usage.total_cost == pytest.approx(0.115)
     # Conversation tokens unchanged.
@@ -285,13 +285,13 @@ def test_reset_clears_overhead() -> None:
     """`reset()` clears all overhead counters."""
     usage = SessionUsage()
     usage.record_compaction(input_tokens=100, output_tokens=50, cost=0.01)
-    usage.record_extraction(input_tokens=80, output_tokens=20, cost=0.005)
+    usage.record_fact_extraction(input_tokens=80, output_tokens=20, cost=0.005)
     usage.reset()
 
     assert usage.compaction_input_tokens == 0
     assert usage.compaction_cost == 0.0
-    assert usage.extraction_input_tokens == 0
-    assert usage.extraction_cost == 0.0
+    assert usage.fact_extraction_input_tokens == 0
+    assert usage.fact_extraction_cost == 0.0
     assert usage.total_cost == 0.0
 
 
@@ -307,15 +307,15 @@ def test_restore_includes_overhead() -> None:
         compaction_input_tokens=1000,
         compaction_output_tokens=200,
         compaction_cost=0.05,
-        extraction_input_tokens=500,
-        extraction_output_tokens=100,
-        extraction_cost=0.01,
+        fact_extraction_input_tokens=500,
+        fact_extraction_output_tokens=100,
+        fact_extraction_cost=0.01,
     )
 
     assert usage.compaction_input_tokens == 1000
     assert usage.compaction_cost == pytest.approx(0.05)
-    assert usage.extraction_input_tokens == 500
-    assert usage.extraction_cost == pytest.approx(0.01)
+    assert usage.fact_extraction_input_tokens == 500
+    assert usage.fact_extraction_cost == pytest.approx(0.01)
     # total_cost = conversation + compaction + extraction.
     assert usage.total_cost == pytest.approx(0.56)
 
@@ -326,16 +326,102 @@ def test_restore_includes_overhead() -> None:
 def test_overhead_kinds_are_overhead() -> None:
     """`is_overhead` returns True for overhead kinds."""
     assert FragmentKind.OVERHEAD_COMPACTION.is_overhead
-    assert FragmentKind.OVERHEAD_EXTRACTION.is_overhead
+    assert FragmentKind.OVERHEAD_FACT_EXTRACTION.is_overhead
 
 
 def test_overhead_kinds_are_not_message() -> None:
     """`is_message` returns False for overhead kinds."""
     assert not FragmentKind.OVERHEAD_COMPACTION.is_message
-    assert not FragmentKind.OVERHEAD_EXTRACTION.is_message
+    assert not FragmentKind.OVERHEAD_FACT_EXTRACTION.is_message
 
 
 def test_message_kinds_are_not_overhead() -> None:
     """`is_overhead` returns False for message kinds."""
     assert not FragmentKind.REQUEST_MESSAGE.is_overhead
     assert not FragmentKind.RESPONSE_MESSAGE.is_overhead
+
+
+# ── Clarification produces second fragment ───────────────────────────
+
+
+def test_clarification_produces_second_extraction_fragment(store: SessionStore) -> None:
+    """Extraction + clarification retry produces two overhead fragments."""
+    from unittest.mock import MagicMock
+
+    from rbtr.llm.memory import (
+        FactExtractionRun,
+        ProcessResult,
+        _FactClarifyResult,
+        _save_clarify_overhead,
+        _save_overhead,
+    )
+    from rbtr.sessions.serialise import FactExtractionSource
+    from rbtr.state import EngineState
+
+    state = EngineState()
+    state.session_id = SESSION_A
+
+    class _FakeCtx:
+        def __init__(self) -> None:
+            self.store = store
+            self.state = state
+
+    ctx = _FakeCtx()
+
+    run = FactExtractionRun(
+        facts=[],
+        conversation_history=[],
+        input_tokens=800,
+        output_tokens=100,
+        cost=0.002,
+        model_name="test-model",
+        model=MagicMock(),
+        settings=None,
+    )
+    pr = ProcessResult(added=1, superseded=1, fact_ids=["f1", "f2"])
+    _save_overhead(ctx, FactExtractionSource.COMPACTION, run, pr)  # type: ignore[arg-type]
+
+    cr = _FactClarifyResult(input_tokens=400, output_tokens=50, cost=0.001)
+    _save_clarify_overhead(ctx, FactExtractionSource.COMPACTION, "test-model", cr)  # type: ignore[arg-type]
+
+    oh = store.overhead_stats(SESSION_A)
+    assert oh.fact_extraction_count == 2  # Main + clarification.
+    assert oh.fact_extraction_input_tokens == 1200  # 800 + 400.
+    assert oh.fact_extraction_output_tokens == 150  # 100 + 50.
+    assert oh.fact_extraction_cost == pytest.approx(0.003)
+
+
+def test_no_clarification_single_fragment(store: SessionStore) -> None:
+    """Extraction without clarification produces one overhead fragment."""
+    from unittest.mock import MagicMock
+
+    from rbtr.llm.memory import FactExtractionRun, ProcessResult, _save_overhead
+    from rbtr.sessions.serialise import FactExtractionSource
+    from rbtr.state import EngineState
+
+    state = EngineState()
+    state.session_id = SESSION_A
+
+    class _FakeCtx:
+        def __init__(self) -> None:
+            self.store = store
+            self.state = state
+
+    ctx = _FakeCtx()
+
+    run = FactExtractionRun(
+        facts=[],
+        conversation_history=[],
+        input_tokens=800,
+        output_tokens=100,
+        cost=0.002,
+        model_name="test-model",
+        model=MagicMock(),
+        settings=None,
+    )
+    pr = ProcessResult(added=2)
+    _save_overhead(ctx, FactExtractionSource.COMMAND, run, pr)  # type: ignore[arg-type]
+
+    oh = store.overhead_stats(SESSION_A)
+    assert oh.fact_extraction_count == 1
+    assert oh.fact_extraction_input_tokens == 800

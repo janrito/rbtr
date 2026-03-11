@@ -241,13 +241,13 @@ def _render_overhead(engine: Engine, oh: OverheadStats) -> None:
         if oh.compaction_cost:
             _out(engine, _row("Cost", format_cost(oh.compaction_cost)))
 
-    if oh.extraction_count:
+    if oh.fact_extraction_count:
         _out(engine, "")
-        _out(engine, f"  Extraction overhead ({oh.extraction_count})")
-        _out(engine, _row("Input", format_tokens(oh.extraction_input_tokens)))
-        _out(engine, _row("Output", format_tokens(oh.extraction_output_tokens)))
-        if oh.extraction_cost:
-            _out(engine, _row("Cost", format_cost(oh.extraction_cost)))
+        _out(engine, f"  Fact extraction overhead ({oh.fact_extraction_count})")
+        _out(engine, _row("Input", format_tokens(oh.fact_extraction_input_tokens)))
+        _out(engine, _row("Output", format_tokens(oh.fact_extraction_output_tokens)))
+        if oh.fact_extraction_cost:
+            _out(engine, _row("Cost", format_cost(oh.fact_extraction_cost)))
 
 
 def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:

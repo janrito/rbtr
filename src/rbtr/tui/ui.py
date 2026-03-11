@@ -39,6 +39,8 @@ from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
     Event,
+    FactExtractionFinished,
+    FactExtractionStarted,
     FlushPanel,
     IndexCleared,
     IndexProgress,
@@ -46,8 +48,6 @@ from rbtr.events import (
     IndexStarted,
     LinkOutput,
     MarkdownOutput,
-    MemoryExtractionFinished,
-    MemoryExtractionStarted,
     Output,
     OutputLevel,
     ReviewPosted,
@@ -607,11 +607,11 @@ class UI:
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)
                 self._print_to_scrollback(panel)
-            case MemoryExtractionStarted():
-                line = Text("Extracting facts from conversation \u2026", style=STYLE_DIM)
+            case FactExtractionStarted():
+                line = Text("Extracting facts \u2026", style=STYLE_DIM)
                 panel = self._history_panel("queued", line)
                 self._print_to_scrollback(panel)
-            case MemoryExtractionFinished(added=added, confirmed=confirmed, superseded=superseded):
+            case FactExtractionFinished(added=added, confirmed=confirmed, superseded=superseded):
                 total = added + confirmed + superseded
                 if total > 0:
                     parts: list[str] = []

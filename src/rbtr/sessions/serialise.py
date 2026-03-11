@@ -107,7 +107,7 @@ class FragmentKind(StrEnum):
       ``FragmentKind(part.part_kind)`` works for any content part
     - **User input**: ``COMMAND``, ``SHELL``
     - **Incidents**: ``LLM_ATTEMPT_FAILED``, ``LLM_HISTORY_REPAIR``
-    - **Overhead**: ``OVERHEAD_COMPACTION``, ``OVERHEAD_EXTRACTION``
+    - **Overhead**: ``OVERHEAD_COMPACTION``, ``OVERHEAD_FACT_EXTRACTION``
 
     Use ``is_message``, ``is_input``, ``is_incident``,
     ``is_overhead`` to test group membership.
@@ -139,7 +139,7 @@ class FragmentKind(StrEnum):
 
     # ── Overhead ─────────────────────────────────────────────────
     OVERHEAD_COMPACTION = "overhead-compaction"
-    OVERHEAD_EXTRACTION = "overhead-extraction"
+    OVERHEAD_FACT_EXTRACTION = "overhead-fact-extraction"
 
     @property
     def is_message(self) -> bool:
@@ -158,14 +158,16 @@ class FragmentKind(StrEnum):
 
     @property
     def is_overhead(self) -> bool:
-        """True for overhead kinds (compaction / extraction cost)."""
+        """True for overhead kinds (compaction / fact extraction cost)."""
         return self in _OVERHEAD_KINDS
 
 
 _MESSAGE_KINDS = frozenset({FragmentKind.REQUEST_MESSAGE, FragmentKind.RESPONSE_MESSAGE})
 _INPUT_KINDS = frozenset({FragmentKind.COMMAND, FragmentKind.SHELL})
 _INCIDENT_KINDS = frozenset({FragmentKind.LLM_ATTEMPT_FAILED, FragmentKind.LLM_HISTORY_REPAIR})
-_OVERHEAD_KINDS = frozenset({FragmentKind.OVERHEAD_COMPACTION, FragmentKind.OVERHEAD_EXTRACTION})
+_OVERHEAD_KINDS = frozenset(
+    {FragmentKind.OVERHEAD_COMPACTION, FragmentKind.OVERHEAD_FACT_EXTRACTION}
+)
 
 
 class FragmentStatus(StrEnum):
@@ -419,7 +421,7 @@ Incident = FailedAttempt | HistoryRepair
 #
 # Pydantic BaseModels for the ``data_json`` column of overhead
 # fragments.  These track cost and metadata for background LLM
-# calls (compaction summaries, memory extraction) that are not
+# calls (compaction summaries, fact extraction) that are not
 # part of the conversation.
 
 
@@ -442,18 +444,18 @@ class CompactionOverhead(BaseModel):
     model_name: str | None = None
 
 
-class ExtractionSource(StrEnum):
-    """What triggered the memory extraction."""
+class FactExtractionSource(StrEnum):
+    """What triggered the fact extraction."""
 
     COMPACTION = "compaction"
     POST = "post"
     COMMAND = "command"
 
 
-class ExtractionOverhead(BaseModel):
-    """``data_json`` for ``FragmentKind.OVERHEAD_EXTRACTION``."""
+class FactExtractionOverhead(BaseModel):
+    """``data_json`` for ``FragmentKind.OVERHEAD_FACT_EXTRACTION``."""
 
-    source: ExtractionSource
+    source: FactExtractionSource
     added: int = 0
     confirmed: int = 0
     superseded: int = 0
@@ -461,7 +463,7 @@ class ExtractionOverhead(BaseModel):
     fact_ids: list[str] = []
 
 
-Overhead = CompactionOverhead | ExtractionOverhead
+Overhead = CompactionOverhead | FactExtractionOverhead
 """Union of all overhead types for ``save_overhead``."""
 
 

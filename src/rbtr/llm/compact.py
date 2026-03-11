@@ -20,7 +20,7 @@ from rbtr.providers import build_model, model_settings
 from rbtr.sessions.serialise import (
     CompactionOverhead,
     CompactionTrigger,
-    ExtractionSource,
+    FactExtractionSource,
     FragmentKind,
 )
 
@@ -32,7 +32,7 @@ from .history import (
     snap_to_safe_boundary,
     split_history,
 )
-from .memory import ExtractionOutcome, extract_facts_async, save_extraction_overhead
+from .memory import FactExtractionRun, apply_fact_extraction, run_fact_extraction
 from .usage import extract_cost
 
 log = logging.getLogger(__name__)
@@ -184,20 +184,18 @@ async def compact_history_async(
     ctx.emit(CompactionStarted(old_messages=len(old), kept_messages=len(kept)))
 
     # Run summary and fact extraction concurrently — they are
-    # independent (summary uses serialised text, extraction uses
-    # raw messages) and hit separate agents.
-    async def _extract_safe() -> ExtractionOutcome | None:
+    # independent (summary uses serialised text, fact extraction
+    # uses raw messages) and hit separate agents.
+    async def _extract_safe() -> FactExtractionRun | None:
         try:
-            return await extract_facts_async(
-                messages=old,
-                store=ctx.store,
-                session_id=sid,
-                model_name=ctx.state.model_name,
-                repo_scope=ctx.state.repo_scope,
-                source=ExtractionSource.COMPACTION,
+            return await run_fact_extraction(
+                old,
+                ctx.store,
+                ctx.state.repo_scope,
+                ctx.state.model_name,
             )
         except Exception:
-            log.exception("memory: extraction during compaction failed")
+            log.exception("memory: fact extraction during compaction failed")
             return None
 
     summary_task = _stream_summary(ctx, model, extra_instructions, serialised)
@@ -207,9 +205,9 @@ async def compact_history_async(
     summary_result = results[0]
     extract_result = results[1]
 
-    # Persist extraction overhead (even if summary failed).
-    if isinstance(extract_result, ExtractionOutcome):
-        save_extraction_overhead(ctx, extract_result)
+    # Process fact extraction results and persist overhead (even if summary failed).
+    if isinstance(extract_result, FactExtractionRun):
+        await apply_fact_extraction(ctx, extract_result, FactExtractionSource.COMPACTION)
 
     if isinstance(summary_result, BaseException):
         ctx.error(f"Compaction failed: {summary_result}")

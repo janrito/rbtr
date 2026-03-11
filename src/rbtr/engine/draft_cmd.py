@@ -15,7 +15,7 @@ from rbtr.git.objects import read_blob
 from rbtr.github.draft import comment_sync_status, is_tombstone, load_draft
 from rbtr.llm.memory import extract_facts_from_ctx
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewEvent
-from rbtr.sessions.serialise import ExtractionSource
+from rbtr.sessions.serialise import FactExtractionSource
 
 from .publish import clear_review_draft, post_review_draft, sync_review_draft
 
@@ -212,7 +212,7 @@ def _post_draft(engine: Engine, pr_number: int, event_arg: str) -> None:
     ctx = engine._llm_context()
     messages = engine.store.load_messages(ctx.state.session_id)
     if messages:
-        extract_facts_from_ctx(ctx, messages, source=ExtractionSource.POST)
+        extract_facts_from_ctx(ctx, messages, source=FactExtractionSource.POST)
 
 
 def _resolve_event(arg: str) -> ReviewEvent | None:

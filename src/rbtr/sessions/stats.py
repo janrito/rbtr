@@ -245,26 +245,26 @@ def global_incident_stats(con: sqlite3.Connection) -> IncidentStats:
 
 @dataclass(frozen=True, slots=True)
 class OverheadStats:
-    """Compaction and extraction cost breakdown for a session or globally."""
+    """Compaction and fact extraction cost breakdown for a session or globally."""
 
     compaction_input_tokens: int
     compaction_output_tokens: int
     compaction_cost: float
     compaction_count: int
-    extraction_input_tokens: int
-    extraction_output_tokens: int
-    extraction_cost: float
-    extraction_count: int
+    fact_extraction_input_tokens: int
+    fact_extraction_output_tokens: int
+    fact_extraction_cost: float
+    fact_extraction_count: int
 
     @property
     def has_overhead(self) -> bool:
         """True if any overhead was recorded."""
-        return self.compaction_count > 0 or self.extraction_count > 0
+        return self.compaction_count > 0 or self.fact_extraction_count > 0
 
     @property
     def total_cost(self) -> float:
-        """Combined compaction + extraction cost."""
-        return self.compaction_cost + self.extraction_cost
+        """Combined compaction + fact extraction cost."""
+        return self.compaction_cost + self.fact_extraction_cost
 
 
 _EMPTY_OVERHEAD_STATS = OverheadStats(
@@ -272,26 +272,26 @@ _EMPTY_OVERHEAD_STATS = OverheadStats(
     compaction_output_tokens=0,
     compaction_cost=0.0,
     compaction_count=0,
-    extraction_input_tokens=0,
-    extraction_output_tokens=0,
-    extraction_cost=0.0,
-    extraction_count=0,
+    fact_extraction_input_tokens=0,
+    fact_extraction_output_tokens=0,
+    fact_extraction_cost=0.0,
+    fact_extraction_count=0,
 )
 
 
 def _parse_overhead_row(row: sqlite3.Row | None) -> OverheadStats:
     """Build ``OverheadStats`` from a SQL result row."""
-    if row is None or (row["compaction_count"] == 0 and row["extraction_count"] == 0):
+    if row is None or (row["compaction_count"] == 0 and row["fact_extraction_count"] == 0):
         return _EMPTY_OVERHEAD_STATS
     return OverheadStats(
         compaction_input_tokens=int(row["compaction_input_tokens"]),
         compaction_output_tokens=int(row["compaction_output_tokens"]),
         compaction_cost=float(row["compaction_cost"]),
         compaction_count=int(row["compaction_count"]),
-        extraction_input_tokens=int(row["extraction_input_tokens"]),
-        extraction_output_tokens=int(row["extraction_output_tokens"]),
-        extraction_cost=float(row["extraction_cost"]),
-        extraction_count=int(row["extraction_count"]),
+        fact_extraction_input_tokens=int(row["fact_extraction_input_tokens"]),
+        fact_extraction_output_tokens=int(row["fact_extraction_output_tokens"]),
+        fact_extraction_cost=float(row["fact_extraction_cost"]),
+        fact_extraction_count=int(row["fact_extraction_count"]),
     )
 
 

@@ -144,7 +144,7 @@ def test_compaction_triggers_extraction(
     engine: Engine,
     llm_ctx: LLMContext,
 ) -> None:
-    """Compaction calls extract_facts_async with the old messages."""
+    """Compaction calls `run_fact_extraction` with the old messages."""
     config.update(memory={"enabled": True})
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
@@ -152,7 +152,7 @@ def test_compaction_triggers_extraction(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mock_extract = mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact.extract_facts_async",
+        "rbtr.llm.compact.run_fact_extraction",
     )
 
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
@@ -165,7 +165,7 @@ def test_compaction_triggers_extraction(
 
     # Verify it received the old messages (not the kept ones).
     call_kwargs = mock_extract.call_args
-    messages = call_kwargs.kwargs.get("messages") or call_kwargs.args[0]
+    messages = call_kwargs.args[0]
     assert len(messages) > 0
 
 
@@ -183,7 +183,7 @@ def test_compaction_extraction_failure_non_fatal(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact.extract_facts_async",
+        "rbtr.llm.compact.run_fact_extraction",
         side_effect=RuntimeError("LLM exploded"),
     )
 
@@ -264,7 +264,7 @@ def test_compaction_skips_extraction_when_disabled(
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact.extract_facts_async",
+        "rbtr.llm.compact.run_fact_extraction",
     )
 
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
@@ -273,9 +273,8 @@ def test_compaction_skips_extraction_when_disabled(
     _seed(engine, _turns(10))
 
     compact_history(llm_ctx)
-    # extract_facts_async is called but returns (0, 0, 0) because
-    # config.memory.enabled is False (checked inside the function).
-    # The important thing is that compaction still succeeds.
+    # `run_fact_extraction` returns None because `config.memory.enabled`
+    # is False (checked inside the function).  Compaction succeeds.
 
     all_events = drain(engine.events)
     assert any(isinstance(e, CompactionFinished) for e in all_events)

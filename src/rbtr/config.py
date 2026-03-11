@@ -88,7 +88,7 @@ class MemoryConfig(BaseModel):
     max_facts_repo: int = 100
     max_injected_facts: int = 20
     max_injected_tokens: int = 2000
-    extraction_model: str = ""
+    fact_extraction_model: str = ""
     """Empty string means use the current session model."""
 
 

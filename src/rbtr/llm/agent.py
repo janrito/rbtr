@@ -63,7 +63,7 @@ def _index_status(ctx: RunContext[AgentDeps]) -> str:
 
 @agent.instructions
 def _memory(ctx: RunContext[AgentDeps]) -> str:
-    """Inject learned facts from cross-session memory."""
+    """Inject facts from cross-session memory."""
     if not config.memory.enabled:
         return ""
     return render_facts_instruction(

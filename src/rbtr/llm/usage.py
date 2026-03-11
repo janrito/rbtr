@@ -1,8 +1,8 @@
-"""LLM usage extraction and recording.
+"""LLM usage reading and recording.
 
 Reads cost, token counts, and context-window metadata from
 PydanticAI ``ModelResponse`` objects.  Used by the conversation
-pipeline (``stream.py``), compaction, and memory extraction.
+pipeline (``stream.py``), compaction, and fact extraction.
 
 Distinct from ``rbtr.usage`` which is a pure accumulator with no
 LLM / pydantic_ai dependencies.

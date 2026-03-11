@@ -218,7 +218,7 @@ def test_compaction_reduces_history(mocker: MockerFixture, llm_engine: Engine) -
         return_value=summary_result("Summary: discussed 15 questions."),
     )
     mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
-    mocker.patch("rbtr.llm.compact.extract_facts_async", return_value=None)
+    mocker.patch("rbtr.llm.compact.run_fact_extraction", return_value=None)
 
     llm_engine.state.usage.context_window = 200_000
     llm_engine.run_task("command", "/compact")

@@ -184,9 +184,9 @@ def render_compact() -> str:
     return _load_template("compact.md").strip()
 
 
-# ── Memory extraction task ───────────────────────────────────────────
+# ── Extraction task ───────────────────────────────────────────────────
 
 
-def render_memory_extract() -> str:
-    """Render the memory extraction task instructions."""
+def render_fact_extraction() -> str:
+    """Render the fact extraction task instructions."""
     return _load_template("memory_extract.md").strip()

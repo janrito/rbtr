@@ -13,9 +13,11 @@ site.
 
 Public API
 ----------
-- ``extract_facts_async`` — extract facts from messages (async).
 - ``extract_facts_from_ctx`` — background-thread entry point.
-- ``process_extracted_facts`` — apply extractions to the store.
+- ``apply_fact_extraction`` — async orchestrator (process, persist,
+  clarify).  Used by both ``extract_facts_from_ctx`` and
+  ``compact.py``.
+- ``process_extracted_facts`` — apply extracted facts to the store.
 """
 
 from __future__ import annotations
@@ -28,19 +30,21 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from rbtr.config import config
-from rbtr.events import MemoryExtractionFinished, MemoryExtractionStarted
+from rbtr.events import FactExtractionFinished, FactExtractionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import serialise_for_summary
 from rbtr.llm.usage import extract_cost
-from rbtr.prompts import render_memory_extract, render_system
+from rbtr.prompts import render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
 from rbtr.sessions.serialise import (
-    ExtractionOverhead,
-    ExtractionSource,
+    FactExtractionOverhead,
+    FactExtractionSource,
     FragmentKind,
 )
 from rbtr.sessions.store import Fact, SessionStore
@@ -71,44 +75,49 @@ class ExtractedFact(BaseModel):
     """Content of the existing fact when ``action`` is ``confirm`` or ``supersede``."""
 
 
-class ExtractionResult(BaseModel):
-    """Structured output from the extraction agent."""
+class FactExtractionResult(BaseModel):
+    """Structured output from the fact extraction agent."""
 
     facts: list[ExtractedFact] = []
 
 
-@dataclass
-class ExtractionOutcome:
-    """Result of an extraction run, including overhead cost."""
-
-    added: int = 0
-    confirmed: int = 0
-    superseded: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost: float = 0.0
-    source: ExtractionSource = ExtractionSource.COMMAND
-    model_name: str = ""
-    fact_ids: list[str] = field(default_factory=list)
-
-
 # ── Extraction agent ─────────────────────────────────────────────────
 
-extract_agent: Agent[None, ExtractionResult] = Agent(
-    output_type=ExtractionResult,
+fact_extract_agent: Agent[None, FactExtractionResult] = Agent(
+    output_type=FactExtractionResult,
 )
 
 
-@extract_agent.instructions
+@fact_extract_agent.instructions
 def _system() -> str:
     """Shared system prompt — same identity as the main agent."""
     return render_system()
 
 
-@extract_agent.instructions
-def _extraction_task() -> str:
+@fact_extract_agent.instructions
+def _fact_extraction_task() -> str:
     """Task instructions — what to extract, format, rules."""
-    return render_memory_extract()
+    return render_fact_extraction()
+
+
+def _build_clarify_prompt(failed: list[ExtractedFact]) -> str:
+    """Build a follow-up prompt asking the model to correct misquoted content.
+
+    Sent as a continuation of the fact extraction conversation — the model
+    already has the existing facts and conversation in its history.
+    """
+    parts: list[str] = [
+        """\
+The following facts you extracted had `existing_content` that
+didn't exactly match any active fact. Correct the
+`existing_content` to match an existing fact exactly, or
+drop the fact if none match.""",
+    ]
+    for f in failed:
+        parts.append(
+            f"- action={f.action}, content={f.content!r}, existing_content={f.existing_content!r}"
+        )
+    return "\n".join(parts)
 
 
 # ── User prompt builder ──────────────────────────────────────────────
@@ -117,7 +126,7 @@ def _extraction_task() -> str:
 def _build_user_prompt(conversation: str, existing_facts: list[Fact]) -> str:
     """Build the user prompt from conversation and existing facts.
 
-    The static task instructions live in ``@extract_agent.instructions``.
+    The static task instructions live in ``@fact_extract_agent.instructions``.
     This function builds the per-call user prompt with the dynamic data.
     """
     parts: list[str] = ["## Existing facts\n"]
@@ -164,7 +173,7 @@ def render_facts_instruction(
     facts = facts[:max_facts]
 
     # Build the instruction, truncating at the token cap.
-    lines = ["## Learned facts\n"]
+    lines = ["## Facts\n"]
     token_count = _estimate_tokens(lines[0])
 
     for f in facts:
@@ -192,7 +201,7 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _resolve_scope(extracted: ExtractedFact, repo_scope: str | None) -> str | None:
-    """Map extraction scope to a store scope value.
+    """Map extracted fact scope to a store scope value.
 
     Returns ``None`` if repo scope is requested but no repo is connected.
     """
@@ -202,13 +211,15 @@ def _resolve_scope(extracted: ExtractedFact, repo_scope: str | None) -> str | No
 
 
 @dataclass
-class _ProcessResult:
+class ProcessResult:
     """Counts and fact IDs from ``process_extracted_facts``."""
 
     added: int = 0
     confirmed: int = 0
     superseded: int = 0
     fact_ids: list[str] = field(default_factory=list)
+    failed: list[ExtractedFact] = field(default_factory=list)
+    """Supersede/confirm facts whose ``existing_content`` didn't match."""
 
 
 def process_extracted_facts(
@@ -216,11 +227,11 @@ def process_extracted_facts(
     store: SessionStore,
     session_id: str,
     repo_scope: str | None,
-) -> _ProcessResult:
+) -> ProcessResult:
     """Apply extracted facts to the store.
 
-    The LLM has already seen all existing facts in the extraction
-    prompt and tagged each extraction accordingly:
+    The LLM has already seen all existing facts in the fact extraction
+    prompt and tagged each fact accordingly:
 
     - ``confirm``: bump the existing fact's ``last_confirmed_at``.
     - ``supersede``: insert new fact, mark old as superseded.
@@ -230,9 +241,9 @@ def process_extracted_facts(
     If it occasionally misses a near-duplicate, the hard-limit
     pruning keeps the store bounded.
 
-    Returns a ``_ProcessResult`` with counts and touched fact IDs.
+    Returns a ``ProcessResult`` with counts and touched fact IDs.
     """
-    result = _ProcessResult()
+    result = ProcessResult()
 
     for ef in extracted:
         scope = _resolve_scope(ef, repo_scope)
@@ -247,7 +258,7 @@ def process_extracted_facts(
                 result.confirmed += 1
                 result.fact_ids.append(existing.id)
             else:
-                log.debug("memory: confirm target not found: %s", ef.existing_content[:60])
+                result.failed.append(ef)
 
         elif ef.action == FactAction.SUPERSEDE and ef.existing_content:
             existing = store.find_fact_by_content(ef.existing_content, scope)
@@ -258,12 +269,7 @@ def process_extracted_facts(
                 result.superseded += 1
                 result.fact_ids.append(new_fact.id)
             else:
-                # Target not found — skip entirely. Inserting without
-                # superseding would create a near-duplicate.
-                log.warning(
-                    "memory: supersede target not found, skipping: %s",
-                    ef.existing_content[:80],
-                )
+                result.failed.append(ef)
 
         else:
             # NEW or fallback — insert directly.
@@ -274,37 +280,41 @@ def process_extracted_facts(
     return result
 
 
-# ── Async extraction ─────────────────────────────────────────────────
+# ── Async fact extraction ────────────────────────────────────────────
 
 
-_EMPTY_OUTCOME = ExtractionOutcome()
+@dataclass
+class FactExtractionRun:
+    """Raw result from a single fact extraction agent call."""
+
+    facts: list[ExtractedFact]
+    conversation_history: list[ModelMessage]
+    input_tokens: int
+    output_tokens: int
+    cost: float
+    model_name: str
+    model: Model
+    settings: ModelSettings | None
 
 
-async def extract_facts_async(
+async def run_fact_extraction(
     messages: list[ModelMessage],
     store: SessionStore,
-    session_id: str,
-    model_name: str,
     repo_scope: str | None,
-    source: ExtractionSource = ExtractionSource.COMMAND,
-) -> ExtractionOutcome:
-    """Extract facts from *messages* and apply to the store.
+    model_name: str,
+) -> FactExtractionRun | None:
+    """Run the fact extraction agent and return raw results.
 
-    Uses the extraction agent to identify durable facts.  The LLM
-    sees all existing facts in the user prompt and tags each
-    extraction as ``new``, ``confirm``, or ``supersede``.
-
-    Returns an ``ExtractionOutcome`` with counts and overhead cost.
+    Returns ``None`` if fact extraction is skipped (no messages, disabled,
+    empty conversation, model error).  Does **not** process facts or
+    persist overhead — callers handle that.
     """
-    if not messages:
-        return _EMPTY_OUTCOME
-
-    if not config.memory.enabled:
-        return _EMPTY_OUTCOME
+    if not messages or not config.memory.enabled:
+        return None
 
     conversation = serialise_for_summary(messages, max_tool_chars=500)
     if not conversation.strip():
-        return _EMPTY_OUTCOME
+        return None
 
     # Load existing facts for the user prompt context.
     scopes = [GLOBAL_SCOPE]
@@ -316,53 +326,158 @@ async def extract_facts_async(
 
     user_prompt = _build_user_prompt(conversation, existing)
 
-    extraction_model_name = config.memory.extraction_model or model_name
+    extraction_model_name = config.memory.fact_extraction_model or model_name
     try:
         model = build_model(extraction_model_name)
     except RbtrError:
         log.warning("memory: cannot build model %r for extraction", extraction_model_name)
-        return _EMPTY_OUTCOME
+        return None
 
     effort = config.thinking_effort
     settings = model_settings(extraction_model_name, model, effort)
 
     try:
-        result = await extract_agent.run(
+        result = await fact_extract_agent.run(
             user_prompt,
             model=model,
             model_settings=settings,
             usage_limits=UsageLimits(request_limit=1),
         )
-        extraction = result.output
     except (ModelHTTPError, OSError, RbtrError) as e:
-        log.warning("memory: extraction failed: %s", e)
-        return _EMPTY_OUTCOME
+        log.warning("memory: fact extraction failed: %s", e)
+        return None
 
-    # Extract overhead cost from the agent result.
     usage = result.usage()
     cost = extract_cost(result.new_messages())
 
-    if not extraction.facts:
-        return ExtractionOutcome(
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            cost=cost,
-            source=source,
-            model_name=extraction_model_name,
-        )
-
-    pr = process_extracted_facts(extraction.facts, store, session_id, repo_scope)
-    return ExtractionOutcome(
-        added=pr.added,
-        confirmed=pr.confirmed,
-        superseded=pr.superseded,
+    return FactExtractionRun(
+        facts=result.output.facts,
+        conversation_history=result.all_messages(),
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
         cost=cost,
-        source=source,
         model_name=extraction_model_name,
-        fact_ids=pr.fact_ids,
+        model=model,
+        settings=settings,
     )
+
+
+# ── Clarification retry ──────────────────────────────────────────────
+
+
+@dataclass
+class _FactClarifyResult:
+    """Corrected facts and overhead from a clarification call."""
+
+    facts: list[ExtractedFact] = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float = 0.0
+
+
+_EMPTY_CLARIFY = _FactClarifyResult()
+
+
+async def _clarify_failed_facts(
+    failed: list[ExtractedFact],
+    conversation_history: list[ModelMessage],
+    model: Model,
+    settings: ModelSettings | None,
+) -> _FactClarifyResult:
+    """Ask the model to correct misquoted ``existing_content``.
+
+    Continues the fact extraction conversation — the model already has
+    the existing facts and conversation in its history.  A follow-up
+    prompt lists the failures and asks for corrections.
+    """
+    prompt = _build_clarify_prompt(failed)
+
+    try:
+        result = await fact_extract_agent.run(
+            prompt,
+            model=model,
+            model_settings=settings,
+            message_history=conversation_history,
+            usage_limits=UsageLimits(request_limit=1),
+        )
+    except (ModelHTTPError, OSError, RbtrError) as e:
+        log.warning("memory: clarification failed: %s", e)
+        return _EMPTY_CLARIFY
+
+    c_usage = result.usage()
+    c_cost = extract_cost(result.new_messages())
+    corrected = result.output.facts
+
+    return _FactClarifyResult(
+        facts=corrected,
+        input_tokens=c_usage.input_tokens,
+        output_tokens=c_usage.output_tokens,
+        cost=c_cost,
+    )
+
+
+# ── Orchestration ─────────────────────────────────────────────────────
+
+
+async def apply_fact_extraction(
+    ctx: LLMContext,
+    run: FactExtractionRun,
+    source: FactExtractionSource,
+) -> ProcessResult:
+    """Process a fact extraction run: apply facts, persist overhead, clarify.
+
+    Single async orchestrator used by both ``extract_facts_from_ctx``
+    (daemon thread, via ``portal.call``) and ``compact.py`` (already
+    async).  Each step persists its overhead fragment immediately so
+    work isn't lost on failure.
+
+    Returns the accumulated ``ProcessResult``.
+    """
+    if not run.facts:
+        _save_overhead(ctx, source, run, ProcessResult())
+        return ProcessResult()
+
+    pr = process_extracted_facts(
+        run.facts,
+        ctx.store,
+        ctx.state.session_id,
+        ctx.state.repo_scope,
+    )
+    _save_overhead(ctx, source, run, pr)
+
+    if pr.failed:
+        ctx.out("Clarifying mismatched facts…")
+        try:
+            cr = await _clarify_failed_facts(
+                pr.failed,
+                run.conversation_history,
+                run.model,
+                run.settings,
+            )
+        except Exception:
+            log.exception("memory: clarification failed")
+            cr = _EMPTY_CLARIFY
+
+        if cr.facts:
+            pr2 = process_extracted_facts(
+                cr.facts,
+                ctx.store,
+                ctx.state.session_id,
+                ctx.state.repo_scope,
+            )
+            pr.added += pr2.added
+            pr.confirmed += pr2.confirmed
+            pr.superseded += pr2.superseded
+            for f in pr2.failed:
+                log.warning(
+                    "memory: supersede/confirm still unresolved after retry: %s",
+                    (f.existing_content or "")[:80],
+                )
+
+        if cr.input_tokens or cr.cost:
+            _save_clarify_overhead(ctx, source, run.model_name, cr)
+
+    return pr
 
 
 # ── Background-thread entry point ────────────────────────────────────
@@ -372,9 +487,12 @@ def extract_facts_from_ctx(
     ctx: LLMContext,
     messages: list[ModelMessage],
     *,
-    source: ExtractionSource = ExtractionSource.COMMAND,
+    source: FactExtractionSource = FactExtractionSource.COMMAND,
 ) -> None:
     """Extract facts using an ``LLMContext``, emitting status events.
+
+    Runs ``run_fact_extraction`` then delegates to ``apply_fact_extraction``
+    for processing, clarification, and overhead persistence.
 
     Designed to be called from a background daemon thread via
     ``ctx.portal.call``.
@@ -385,33 +503,35 @@ def extract_facts_from_ctx(
     if not ctx.state.has_llm or not ctx.state.model_name:
         return
 
-    repo_scope = ctx.state.repo_scope
-
-    ctx.emit(MemoryExtractionStarted())
+    ctx.emit(FactExtractionStarted())
 
     try:
-        outcome: ExtractionOutcome = ctx.portal.call(
-            lambda: extract_facts_async(
-                messages=messages,
-                store=ctx.store,
-                session_id=ctx.state.session_id,
-                model_name=ctx.state.model_name,
-                repo_scope=repo_scope,
-                source=source,
+        run = ctx.portal.call(
+            lambda: run_fact_extraction(
+                messages, ctx.store, ctx.state.repo_scope, ctx.state.model_name
             )
         )
     except Exception:
-        log.exception("memory: extraction failed")
-        ctx.emit(MemoryExtractionFinished())
+        log.exception("memory: fact extraction failed")
+        ctx.emit(FactExtractionFinished())
         return
 
-    save_extraction_overhead(ctx, outcome)
+    if run is None:
+        ctx.emit(FactExtractionFinished())
+        return
+
+    try:
+        pr = ctx.portal.call(lambda: apply_fact_extraction(ctx, run, source))
+    except Exception:
+        log.exception("memory: fact extraction processing failed")
+        ctx.emit(FactExtractionFinished())
+        return
 
     ctx.emit(
-        MemoryExtractionFinished(
-            added=outcome.added,
-            confirmed=outcome.confirmed,
-            superseded=outcome.superseded,
+        FactExtractionFinished(
+            added=pr.added,
+            confirmed=pr.confirmed,
+            superseded=pr.superseded,
         )
     )
 
@@ -419,27 +539,57 @@ def extract_facts_from_ctx(
 # ── Overhead persistence ─────────────────────────────────────────────
 
 
-def save_extraction_overhead(ctx: LLMContext, outcome: ExtractionOutcome) -> None:
-    """Persist extraction overhead as a fragment and record on ``SessionUsage``."""
-    if not outcome.input_tokens and not outcome.cost:
+def _save_overhead(
+    ctx: LLMContext,
+    source: FactExtractionSource,
+    run: FactExtractionRun,
+    pr: ProcessResult,
+) -> None:
+    """Persist main fact extraction overhead fragment."""
+    if not run.input_tokens and not run.cost:
         return
     ctx.store.save_overhead(
         ctx.state.session_id,
-        FragmentKind.OVERHEAD_EXTRACTION,
-        ExtractionOverhead(
-            source=outcome.source,
-            added=outcome.added,
-            confirmed=outcome.confirmed,
-            superseded=outcome.superseded,
-            model_name=outcome.model_name or None,
-            fact_ids=outcome.fact_ids,
+        FragmentKind.OVERHEAD_FACT_EXTRACTION,
+        FactExtractionOverhead(
+            source=source,
+            added=pr.added,
+            confirmed=pr.confirmed,
+            superseded=pr.superseded,
+            model_name=run.model_name or None,
+            fact_ids=pr.fact_ids,
         ),
-        input_tokens=outcome.input_tokens,
-        output_tokens=outcome.output_tokens,
-        cost=outcome.cost,
+        input_tokens=run.input_tokens,
+        output_tokens=run.output_tokens,
+        cost=run.cost,
     )
-    ctx.state.usage.record_extraction(
-        input_tokens=outcome.input_tokens,
-        output_tokens=outcome.output_tokens,
-        cost=outcome.cost,
+    ctx.state.usage.record_fact_extraction(
+        input_tokens=run.input_tokens,
+        output_tokens=run.output_tokens,
+        cost=run.cost,
+    )
+
+
+def _save_clarify_overhead(
+    ctx: LLMContext,
+    source: FactExtractionSource,
+    model_name: str,
+    cr: _FactClarifyResult,
+) -> None:
+    """Persist clarification retry overhead fragment."""
+    ctx.store.save_overhead(
+        ctx.state.session_id,
+        FragmentKind.OVERHEAD_FACT_EXTRACTION,
+        FactExtractionOverhead(
+            source=source,
+            model_name=model_name or None,
+        ),
+        input_tokens=cr.input_tokens,
+        output_tokens=cr.output_tokens,
+        cost=cr.cost,
+    )
+    ctx.state.usage.record_fact_extraction(
+        input_tokens=cr.input_tokens,
+        output_tokens=cr.output_tokens,
+        cost=cr.cost,
     )

@@ -172,11 +172,11 @@ class CompactionFinished(BaseModel):
 # ── Memory events ────────────────────────────────────────────────────
 
 
-class MemoryExtractionStarted(BaseModel):
+class FactExtractionStarted(BaseModel):
     """Fact extraction has begun."""
 
 
-class MemoryExtractionFinished(BaseModel):
+class FactExtractionFinished(BaseModel):
     """Fact extraction complete."""
 
     added: int = 0
@@ -211,7 +211,7 @@ Event = (
     | IndexCleared
     | CompactionStarted
     | CompactionFinished
-    | MemoryExtractionStarted
-    | MemoryExtractionFinished
+    | FactExtractionStarted
+    | FactExtractionFinished
     | ReviewPosted
 )

@@ -284,9 +284,9 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         compaction_input_tokens=oh.compaction_input_tokens,
         compaction_output_tokens=oh.compaction_output_tokens,
         compaction_cost=oh.compaction_cost,
-        extraction_input_tokens=oh.extraction_input_tokens,
-        extraction_output_tokens=oh.extraction_output_tokens,
-        extraction_cost=oh.extraction_cost,
+        fact_extraction_input_tokens=oh.fact_extraction_input_tokens,
+        fact_extraction_output_tokens=oh.fact_extraction_output_tokens,
+        fact_extraction_cost=oh.fact_extraction_cost,
     )
 
     label = target.session_label or target.session_id[:8]
