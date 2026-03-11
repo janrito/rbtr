@@ -1050,8 +1050,8 @@ extraction as `new`, `confirm` (re-observed, with
 `existing_content`), or `supersede` (outdated, with
 `existing_content` of the old fact). No client-side dedup
 logic — the LLM sees the full context and makes the
-decision. If it occasionally misses a near-duplicate, the
-hard-limit pruning keeps the store bounded.
+decision. If it occasionally misses a near-duplicate,
+`/memory purge` provides explicit cleanup.
 
 Content-based matching throughout — no IDs exposed to LLMs.
 The `remember` tool, fact injection, extraction prompt, and

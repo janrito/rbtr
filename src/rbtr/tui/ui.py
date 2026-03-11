@@ -269,6 +269,17 @@ class UI:
                         (f"/index {name}", desc) for name, desc in subs if name.startswith(arg)
                     ]
                     self.inp.apply_completions(matches)
+                case Command.MEMORY:
+                    subs = [
+                        ("list", "Active facts"),
+                        ("all", "All facts (include superseded)"),
+                        ("extract", "Extract facts from session"),
+                        ("purge", "Delete old facts by age"),
+                    ]
+                    matches = [
+                        (f"/memory {name}", desc) for name, desc in subs if name.startswith(arg)
+                    ]
+                    self.inp.apply_completions(matches)
                 case Command.COMPACT:
                     if "reset".startswith(arg):
                         self.inp.apply_completions(

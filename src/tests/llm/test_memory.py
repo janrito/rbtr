@@ -88,7 +88,7 @@ def test_new_fact_inserted_directly(store: SessionStore) -> None:
     assert pr.confirmed == 0
 
     # Two facts now — the LLM should have tagged it 'confirm',
-    # but if it didn't, pruning handles the duplicate later.
+    # but if it didn't, `/memory purge` handles cleanup later.
     facts = store.load_active_facts(RBTR_KEY)
     assert len(facts) == 2
 

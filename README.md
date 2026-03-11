@@ -147,6 +147,7 @@ saved automatically to the session database (see Sessions below).
 | `/compact reset`       | Undo last compaction (before new messages) |
 | `/session`             | List, inspect, or delete sessions          |
 | `/stats`               | Show session token and cost statistics     |
+| `/memory`              | List, extract, or purge cross-session facts|
 | `/reload`              | Show active prompt sources                 |
 | `/new`                 | Start a new conversation                   |
 | `/quit`                | Exit (also `/q`)                           |
@@ -612,6 +613,93 @@ resolved.
 Sessions with no incidents show no extra sections — the output
 is identical to before.
 
+## Cross-session memory
+
+rbtr learns facts from conversations and remembers them across
+sessions. Facts are durable knowledge — project conventions,
+architecture decisions, user preferences, recurring patterns
+discovered during review.
+
+Static project instructions belong in `AGENTS.md`. Facts are
+what the agent learns on its own.
+
+### How facts are created
+
+Facts are extracted automatically at two points:
+
+- **During compaction** — the extraction agent runs
+  concurrently with the summary agent, analysing the messages
+  being compacted.
+- **After posting a review** — `/draft post` triggers
+  extraction on the full session, since completed reviews are
+  the richest source of project knowledge.
+
+You can also trigger extraction manually with
+`/memory extract`, or teach the agent directly — it has a
+`remember` tool that saves facts on demand during
+conversation.
+
+### Scopes
+
+Each fact has a scope:
+
+- **global** — applies everywhere (e.g. "prefers British
+  English spelling")
+- **repo** — specific to the current repository (e.g. "uses
+  pytest with the mocker fixture, not unittest.mock")
+
+Repo-scoped facts are keyed by `owner/repo` and only
+injected when working in that repository.
+
+### Injection
+
+At session start, active facts for the current scopes are
+loaded and injected into the system prompt. Two caps control
+what's included:
+
+- `max_injected_facts` (default 20) — maximum number of
+  facts
+- `max_injected_tokens` (default 2000) — token budget for
+  injected facts
+
+Facts are ordered by `last_confirmed_at` (most recently
+confirmed first), so frequently re-observed facts take
+priority.
+
+### Deduplication
+
+The extraction agent sees all existing facts and tags each
+extraction as `new`, `confirm` (re-observed), or `supersede`
+(replaces an outdated fact). Matching is content-based — no
+opaque IDs are exposed to the LLM. When the LLM's reference
+doesn't exactly match, a clarification retry corrects the
+mismatch.
+
+### `/memory` command
+
+```text
+/memory               List active facts by scope
+/memory all           Include superseded facts
+/memory extract       Extract facts from the current session
+/memory purge 7d      Delete facts not confirmed in 7 days
+/memory purge 2w      Delete facts older than 2 weeks
+```
+
+Purge uses `last_confirmed_at` — facts that are regularly
+re-observed survive longer. Duration suffixes: `d` (days),
+`w` (weeks), `h` (hours).
+
+### Memory configuration
+
+```toml
+[memory]
+enabled = true                    # Toggle the feature
+max_injected_facts = 20           # Facts in system prompt
+max_injected_tokens = 2000        # Token budget for injection
+max_extraction_facts = 200        # Existing facts shown to extraction agent
+fact_extraction_model = ""        # Override model (empty = session model)
+```
+
 ## Context compaction
 
 Long conversations accumulate tokens until the model's context
@@ -1063,6 +1151,13 @@ files matching the `editable_include` glob patterns
 set, replaces the exact match. Editable files are readable
 by `read_file`, `grep`, and `list_files` via the
 filesystem fallback.
+
+#### Memory (require `memory.enabled`)
+
+**`remember(content, scope?, supersedes?)`** — Save a
+durable fact for future sessions. `scope` is `"global"` or
+`"repo"`. When `supersedes` is set, it must be the exact
+text of an existing fact to replace.
 
 #### PR discussion (require PR)
 

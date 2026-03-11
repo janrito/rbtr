@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+from rbtr.config import config
 from rbtr.sessions.stats import IncidentStats, OverheadStats, TokenStats, ToolStat
 from rbtr.usage import format_cost, format_tokens
 
@@ -38,6 +39,7 @@ def _cmd_current(engine: Engine) -> None:
     _out(engine, f"Session ({_elapsed(engine)})")
     _out(engine, _row("Model", engine.state.model_name or "—"))
     _render_body(engine, ts, tools, incidents, oh, show_context=True)
+    _render_facts(engine)
 
 
 # ── /stats <session_id> ─────────────────────────────────────────────
@@ -99,6 +101,8 @@ def _cmd_global(engine: Engine) -> None:
 
     if incidents.has_incidents:
         _render_incidents(engine, incidents)
+
+    _render_facts(engine)
 
 
 # ── Shared rendering ────────────────────────────────────────────────
@@ -248,6 +252,19 @@ def _render_overhead(engine: Engine, oh: OverheadStats) -> None:
         _out(engine, _row("Output", format_tokens(oh.fact_extraction_output_tokens)))
         if oh.fact_extraction_cost:
             _out(engine, _row("Cost", format_cost(oh.fact_extraction_cost)))
+
+
+def _render_facts(engine: Engine) -> None:
+    if not config.memory.enabled:
+        return
+    counts = engine.store.fact_counts()
+    if not counts:
+        return
+    total = sum(counts.values())
+    _out(engine, "")
+    _out(engine, f"  Facts ({total})")
+    for scope, count in sorted(counts.items()):
+        _out(engine, f"    {scope:<30}{count:>{_COL}}")
 
 
 def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:
