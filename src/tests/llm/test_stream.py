@@ -35,9 +35,9 @@ from rbtr.llm.context import LLMContext
 from rbtr.llm.stream import (
     _auto_compact_on_overflow,
     _emit_tool_event,
-    _record_usage,
     _update_live_usage,
 )
+from rbtr.llm.usage import record_run_usage
 from rbtr.sessions.serialise import (
     FailedAttempt,
     FailureKind,
@@ -155,7 +155,7 @@ def test_emit_tool_result_success_has_no_error(engine: Engine, llm_ctx: LLMConte
     assert events[0].error is None
 
 
-# ── _record_usage ────────────────────────────────────────────────────
+# ── record_run_usage ────────────────────────────────────────────────────
 
 
 def _make_run_usage(*, input_tokens: int = 100, output_tokens: int = 50) -> RunUsage:
@@ -200,7 +200,7 @@ def _make_run_usage(*, input_tokens: int = 100, output_tokens: int = 50) -> RunU
     ],
     ids=["no_messages", "with_response", "no_model_name"],
 )
-def test_record_usage_basics(
+def testrecord_run_usage_basics(
     engine: Engine,
     messages: list[ModelMessage],
     input_tokens: int,
@@ -209,8 +209,8 @@ def test_record_usage_basics(
     expected_input: int,
     expected_output: int,
 ) -> None:
-    """Basic _record_usage scenarios: empty, with response, no model name."""
-    _record_usage(
+    """Basic record_run_usage scenarios: empty, with response, no model name."""
+    record_run_usage(
         engine, messages, _make_run_usage(input_tokens=input_tokens, output_tokens=output_tokens)
     )
     if expected_cost is not None:
@@ -219,7 +219,7 @@ def test_record_usage_basics(
     assert engine.state.usage.output_tokens == expected_output
 
 
-# ── _record_usage: context tracking ─────────────────────────────────
+# ── record_run_usage: context tracking ─────────────────────────────────
 
 # Provider presets for building realistic ModelResponse objects.
 _PROVIDERS: dict[str, tuple[str, str, str]] = {
@@ -262,14 +262,14 @@ def _make_provider_response(
         ("openai/gpt-4o", "openai", 128_000),
     ],
 )
-def test_record_usage_sets_context_window(
+def testrecord_run_usage_sets_context_window(
     model_name: str,
     provider: str,
     expected_window: int,
     engine: Engine,
     llm_ctx: LLMContext,
 ) -> None:
-    """_record_usage resolves the real context window for built-in providers."""
+    """record_run_usage resolves the real context window for built-in providers."""
     engine.state.model_name = model_name
     response = _make_provider_response(provider, input_tokens=5000, output_tokens=200)
     messages: list[ModelMessage] = [
@@ -277,14 +277,16 @@ def test_record_usage_sets_context_window(
         response,
     ]
 
-    _record_usage(llm_ctx, messages, _make_run_usage(input_tokens=5000, output_tokens=200))
+    record_run_usage(llm_ctx, messages, _make_run_usage(input_tokens=5000, output_tokens=200))
 
     assert engine.state.usage.context_window == expected_window
     assert engine.state.usage.context_window_known is True
     assert engine.state.usage.last_input_tokens == 5000
 
 
-def test_record_usage_last_input_tokens_from_response(engine: Engine, llm_ctx: LLMContext) -> None:
+def testrecord_run_usage_last_input_tokens_from_response(
+    engine: Engine, llm_ctx: LLMContext
+) -> None:
     """last_input_tokens comes from the last ModelResponse.usage, not cumulative RunUsage."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     # Simulate a multi-request run (tool calls):
@@ -298,14 +300,14 @@ def test_record_usage_last_input_tokens_from_response(engine: Engine, llm_ctx: L
         response2,
     ]
     # RunUsage cumulative = 5000 + 8000 = 13000
-    _record_usage(llm_ctx, messages, _make_run_usage(input_tokens=13000, output_tokens=400))
+    record_run_usage(llm_ctx, messages, _make_run_usage(input_tokens=13000, output_tokens=400))
 
     # last_input_tokens should be the last response's value, not cumulative
     assert engine.state.usage.last_input_tokens == 8000
     assert engine.state.usage.input_tokens == 13000
 
 
-def test_record_usage_context_used_pct(engine: Engine, llm_ctx: LLMContext) -> None:
+def testrecord_run_usage_context_used_pct(engine: Engine, llm_ctx: LLMContext) -> None:
     """context_used_pct uses the real context window, not the 128 k default."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     response = _make_provider_response(input_tokens=100_000)
@@ -314,14 +316,14 @@ def test_record_usage_context_used_pct(engine: Engine, llm_ctx: LLMContext) -> N
         response,
     ]
 
-    _record_usage(llm_ctx, messages, _make_run_usage(input_tokens=100_000))
+    record_run_usage(llm_ctx, messages, _make_run_usage(input_tokens=100_000))
 
     # 100k / 200k = 50%, NOT 100k / 128k = 78%
     assert engine.state.usage.context_window == 200_000
     assert engine.state.usage.context_used_pct == pytest.approx(50.0)
 
 
-def test_record_usage_cache_tokens(engine: Engine, llm_ctx: LLMContext) -> None:
+def testrecord_run_usage_cache_tokens(engine: Engine, llm_ctx: LLMContext) -> None:
     """Cache tokens are tracked alongside the context window."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
     response = _make_provider_response(
@@ -341,14 +343,14 @@ def test_record_usage_cache_tokens(engine: Engine, llm_ctx: LLMContext) -> None:
         cache_write_tokens=1000,
     )
 
-    _record_usage(llm_ctx, messages, usage)
+    record_run_usage(llm_ctx, messages, usage)
 
     assert engine.state.usage.cache_read_tokens == 3000
     assert engine.state.usage.cache_write_tokens == 1000
     assert engine.state.usage.context_window == 200_000
 
 
-def test_record_usage_multi_turn_context_pct(engine: Engine, llm_ctx: LLMContext) -> None:
+def testrecord_run_usage_multi_turn_context_pct(engine: Engine, llm_ctx: LLMContext) -> None:
     """Context % stays correct across multiple turns."""
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
 
@@ -358,7 +360,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine, llm_ctx: LLMContext
         ModelRequest(parts=[UserPromptPart(content="turn 1")]),
         resp1,
     ]
-    _record_usage(llm_ctx, msgs1, _make_run_usage(input_tokens=10_000))
+    record_run_usage(llm_ctx, msgs1, _make_run_usage(input_tokens=10_000))
 
     assert engine.state.usage.context_window == 200_000
     assert engine.state.usage.context_used_pct == pytest.approx(5.0)
@@ -371,7 +373,7 @@ def test_record_usage_multi_turn_context_pct(engine: Engine, llm_ctx: LLMContext
         resp2,
     ]
     new_msgs2 = msgs2[len(msgs1) :]
-    _record_usage(llm_ctx, new_msgs2, _make_run_usage(input_tokens=50_000))
+    record_run_usage(llm_ctx, new_msgs2, _make_run_usage(input_tokens=50_000))
 
     assert engine.state.usage.context_window == 200_000  # stays correct
     assert engine.state.usage.context_used_pct == pytest.approx(25.0)

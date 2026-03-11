@@ -33,6 +33,7 @@ from rbtr.llm.history import (
     split_history,
 )
 from rbtr.providers import BuiltinProvider
+from tests.engine.conftest import summary_result
 
 from .conftest import (
     _USAGE,
@@ -675,7 +676,7 @@ def test_compact_fewer_turns_than_keep_falls_back(
     """
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of turn 1.",
+        return_value=summary_result("Summary of turn 1."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -699,7 +700,7 @@ def test_compact_replaces_history(
     """After compaction, history = [summary_msg] + kept turns."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Reviewed PR #42. Found unused import in foo.py.",
+        return_value=summary_result("Reviewed PR #42. Found unused import in foo.py."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -737,7 +738,7 @@ def test_compact_emits_both_events(
     """Both CompactionStarted and CompactionFinished are emitted."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -761,7 +762,7 @@ def test_compact_extra_instructions_in_prompt(
     """Extra instructions appear in the prompt sent to the model."""
     mock = mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -782,7 +783,7 @@ def test_compact_over_limit_shrinks_old(
     """When serialised old exceeds context, only a fitting prefix is summarised."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Partial summary.",
+        return_value=summary_result("Partial summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -877,7 +878,7 @@ def test_compact_leaves_last_input_tokens_unchanged(
     """After compaction, last_input_tokens is unchanged — corrected on next LLM call."""
     mocker.patch(  # type: ignore[union-attr]  # mocker is pytest_mock.MockerFixture
         "rbtr.llm.compact._stream_summary",
-        return_value="Short summary.",
+        return_value=summary_result("Short summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -905,7 +906,7 @@ def test_compact_with_command_inputs(
     """
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of conversation.",
+        return_value=summary_result("Summary of conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1036,7 +1037,7 @@ def _patch_for_mid_turn(engine: Engine, mocker: object) -> object:
         return_value=_tool_then_text_model(),
     )
     summary_mock = mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact._stream_summary", return_value="Summary."
+        "rbtr.llm.compact._stream_summary", return_value=summary_result("Summary.")
     )
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact.build_model",
@@ -1146,7 +1147,7 @@ def test_no_mid_turn_compaction_without_tools(
         return_value=_text_only_model(),
     )
     mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact._stream_summary", return_value="Summary."
+        "rbtr.llm.compact._stream_summary", return_value=summary_result("Summary.")
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     llm_engine.state.usage.context_window = 50
@@ -1191,7 +1192,7 @@ def test_compact_reset_restores_messages(
     """``/compact reset`` un-marks compacted messages, summary stays."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1248,7 +1249,7 @@ def test_compact_reset_only_latest(
     """``/compact reset`` undoes only the latest compaction, not all."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1301,7 +1302,7 @@ def test_compact_reset_blocked_after_new_messages(
     """``/compact reset`` is blocked when messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1341,7 +1342,7 @@ def test_compact_reset_allowed_immediately_after_compaction(
     """``/compact reset`` works when no messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1487,7 +1488,7 @@ def test_compaction_across_tool_boundaries_no_orphans(
     """
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Found TODOs, read foo.py, listed project files.",
+        return_value=summary_result("Found TODOs, read foo.py, listed project files."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1510,7 +1511,7 @@ def test_compact_reset_restores_original_messages_without_summary(
     """
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of tool conversation.",
+        return_value=summary_result("Summary of tool conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 
@@ -1563,7 +1564,7 @@ def test_compaction_reset_and_recompact_no_orphans(
     """
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of tool-heavy conversation.",
+        return_value=summary_result("Summary of tool-heavy conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
 

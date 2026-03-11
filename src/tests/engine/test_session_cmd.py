@@ -12,7 +12,7 @@ from rbtr.engine import Engine
 from rbtr.engine.session_cmd import _format_age, _parse_duration
 from rbtr.providers import BuiltinProvider
 
-from .conftest import _assistant, _seed, _user, drain, output_texts
+from .conftest import _assistant, _seed, _user, drain, output_texts, summary_result
 
 
 @pytest.fixture
@@ -266,7 +266,7 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     """Resume after compaction loads only the post-compaction state."""
     mocker.patch(
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of conversation.",
+        return_value=summary_result("Summary of conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model")
 

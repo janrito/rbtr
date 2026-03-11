@@ -32,6 +32,7 @@ from pydantic_ai.usage import RequestUsage
 from rbtr.creds import OAuthCreds
 from rbtr.engine import Engine
 from rbtr.events import Event, IndexReady, Output
+from rbtr.llm.compact import _SummaryResult
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
@@ -160,6 +161,14 @@ def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs
     """Seed messages into the engine's store."""
     engine._sync_store_context()
     engine.store.save_messages(engine.state.session_id, messages, **kwargs)  # type: ignore[arg-type]
+
+
+# ── Compaction helpers ────────────────────────────────────────────────
+
+
+def summary_result(text: str = "Summary.") -> _SummaryResult:
+    """Build a ``_SummaryResult`` with zero cost — for mocking ``_stream_summary``."""
+    return _SummaryResult(text=text, input_tokens=0, output_tokens=0, cost=0.0)
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────

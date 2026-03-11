@@ -274,12 +274,19 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         engine.state.session_started_at = started
 
     ts = engine.store.token_stats(target.session_id)
+    oh = engine.store.overhead_stats(target.session_id)
     engine.state.usage.restore(
         turn_count=ts.active_turns,
         response_count=ts.active_responses,
         input_tokens=ts.active_input_tokens,
         output_tokens=ts.active_output_tokens,
         cost=ts.active_cost,
+        compaction_input_tokens=oh.compaction_input_tokens,
+        compaction_output_tokens=oh.compaction_output_tokens,
+        compaction_cost=oh.compaction_cost,
+        extraction_input_tokens=oh.extraction_input_tokens,
+        extraction_output_tokens=oh.extraction_output_tokens,
+        extraction_cost=oh.extraction_cost,
     )
 
     label = target.session_label or target.session_id[:8]

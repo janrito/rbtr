@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from rbtr.sessions.stats import IncidentStats, TokenStats, ToolStat
+from rbtr.sessions.stats import IncidentStats, OverheadStats, TokenStats, ToolStat
 from rbtr.usage import format_cost, format_tokens
 
 if TYPE_CHECKING:
@@ -33,10 +33,11 @@ def _cmd_current(engine: Engine) -> None:
     ts = engine.store.token_stats(sid)
     tools = engine.store.tool_stats(sid)
     incidents = engine.store.incident_stats(sid)
+    oh = engine.store.overhead_stats(sid)
 
     _out(engine, f"Session ({_elapsed(engine)})")
     _out(engine, _row("Model", engine.state.model_name or "—"))
-    _render_body(engine, ts, tools, incidents, show_context=True)
+    _render_body(engine, ts, tools, incidents, oh, show_context=True)
 
 
 # ── /stats <session_id> ─────────────────────────────────────────────
@@ -52,12 +53,13 @@ def _cmd_historical(engine: Engine, query: str) -> None:
     ts = engine.store.token_stats(sid)
     tools = engine.store.tool_stats(sid)
     incidents = engine.store.incident_stats(sid)
+    oh = engine.store.overhead_stats(sid)
 
     _out(engine, f"Session {target.session_label or sid[:8]}")
     _out(engine, _row("ID", sid[:8]))
     if target.model_name:
         _out(engine, _row("Model", target.model_name))
-    _render_body(engine, ts, tools, incidents)
+    _render_body(engine, ts, tools, incidents, oh)
 
 
 # ── /stats all ───────────────────────────────────────────────────────
@@ -70,6 +72,7 @@ def _cmd_global(engine: Engine) -> None:
         return
 
     incidents = engine.store.global_incident_stats()
+    oh = engine.store.global_overhead_stats()
 
     _out(engine, f"All sessions ({gs.session_count})")
     _out(engine, _row("Total cost", format_cost(gs.total_cost) if gs.total_cost else "—"))
@@ -90,6 +93,9 @@ def _cmd_global(engine: Engine) -> None:
             _out(engine, f"    {m.model_name or '?':<30}{cost:>10}   ({m.session_count} sessions)")
 
     _render_tools(engine, gs.tools, compact=False)
+
+    if oh.has_overhead:
+        _render_overhead(engine, oh)
 
     if incidents.has_incidents:
         _render_incidents(engine, incidents)
@@ -133,6 +139,7 @@ def _render_body(
     ts: TokenStats,
     tools: list[ToolStat],
     incidents: IncidentStats,
+    oh: OverheadStats,
     *,
     show_context: bool = False,
 ) -> None:
@@ -145,6 +152,8 @@ def _render_body(
     _render_tokens(engine, ts, compact, show_context=show_context)
     _render_cost(engine, ts, compact)
     _render_tools(engine, tools, compact)
+    if oh.has_overhead:
+        _render_overhead(engine, oh)
     if incidents.has_incidents:
         _render_incidents(engine, incidents)
 
@@ -221,6 +230,24 @@ def _render_cost(engine: Engine, ts: TokenStats, compact: bool) -> None:
         engine,
         _row("Total", format_cost(ts.total_cost), format_cost(ts.active_cost) if compact else ""),
     )
+
+
+def _render_overhead(engine: Engine, oh: OverheadStats) -> None:
+    if oh.compaction_count:
+        _out(engine, "")
+        _out(engine, f"  Compaction overhead ({oh.compaction_count})")
+        _out(engine, _row("Input", format_tokens(oh.compaction_input_tokens)))
+        _out(engine, _row("Output", format_tokens(oh.compaction_output_tokens)))
+        if oh.compaction_cost:
+            _out(engine, _row("Cost", format_cost(oh.compaction_cost)))
+
+    if oh.extraction_count:
+        _out(engine, "")
+        _out(engine, f"  Extraction overhead ({oh.extraction_count})")
+        _out(engine, _row("Input", format_tokens(oh.extraction_input_tokens)))
+        _out(engine, _row("Output", format_tokens(oh.extraction_output_tokens)))
+        if oh.extraction_cost:
+            _out(engine, _row("Cost", format_cost(oh.extraction_cost)))
 
 
 def _render_tools(engine: Engine, tools: list[ToolStat], compact: bool) -> None:

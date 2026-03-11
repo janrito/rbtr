@@ -20,7 +20,16 @@ from rbtr.llm.context import LLMContext
 from rbtr.llm.memory import GLOBAL_SCOPE
 from rbtr.providers import BuiltinProvider
 
-from .conftest import TARGET_PR_42, _assistant, _seed, _turns, _user, drain, output_texts
+from .conftest import (
+    TARGET_PR_42,
+    _assistant,
+    _seed,
+    _turns,
+    _user,
+    drain,
+    output_texts,
+    summary_result,
+)
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -139,7 +148,7 @@ def test_compaction_triggers_extraction(
     config.update(memory={"enabled": True})
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary of the conversation.",
+        return_value=summary_result("Summary of the conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mock_extract = mocker.patch(  # type: ignore[union-attr]
@@ -170,7 +179,7 @@ def test_compaction_extraction_failure_non_fatal(
     config.update(memory={"enabled": True})
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mocker.patch(  # type: ignore[union-attr]
@@ -251,7 +260,7 @@ def test_compaction_skips_extraction_when_disabled(
     config.update(memory={"enabled": False})
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary.",
+        return_value=summary_result("Summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
     mocker.patch(  # type: ignore[union-attr]

@@ -74,6 +74,15 @@ class SessionUsage:
     context_window_known: bool = False
     # Number of compactions performed in this session.
     compaction_count: int = 0
+    # Overhead — compaction and extraction costs, tracked separately
+    # from conversation costs.  Included in total_cost for the footer;
+    # shown independently in /stats.
+    compaction_input_tokens: int = 0
+    compaction_output_tokens: int = 0
+    compaction_cost: float = 0.0
+    extraction_input_tokens: int = 0
+    extraction_output_tokens: int = 0
+    extraction_cost: float = 0.0
     # Baseline snapshot taken at the start of each agent run, used by
     # _update_live_usage to compute accurate lifetime totals mid-run.
     live_base: _LiveBase = field(default_factory=_LiveBase)
@@ -149,6 +158,32 @@ class SessionUsage:
         # correct baseline.
         self.snapshot_base()
 
+    def record_compaction(
+        self,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+    ) -> None:
+        """Record tokens and cost from a compaction summary call."""
+        self.compaction_input_tokens += input_tokens
+        self.compaction_output_tokens += output_tokens
+        self.compaction_cost += cost
+        self.total_cost += cost
+
+    def record_extraction(
+        self,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        cost: float,
+    ) -> None:
+        """Record tokens and cost from a memory extraction call."""
+        self.extraction_input_tokens += input_tokens
+        self.extraction_output_tokens += output_tokens
+        self.extraction_cost += cost
+        self.total_cost += cost
+
     @property
     def context_used_pct(self) -> float:
         """Percentage of context window consumed (0-100)."""
@@ -183,13 +218,25 @@ class SessionUsage:
         input_tokens: int,
         output_tokens: int,
         cost: float,
+        compaction_input_tokens: int = 0,
+        compaction_output_tokens: int = 0,
+        compaction_cost: float = 0.0,
+        extraction_input_tokens: int = 0,
+        extraction_output_tokens: int = 0,
+        extraction_cost: float = 0.0,
     ) -> None:
         """Restore counters from DB stats (e.g. on session resume)."""
         self.turn_count = turn_count
         self.response_count = response_count
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
-        self.total_cost = cost
+        self.total_cost = cost + compaction_cost + extraction_cost
+        self.compaction_input_tokens = compaction_input_tokens
+        self.compaction_output_tokens = compaction_output_tokens
+        self.compaction_cost = compaction_cost
+        self.extraction_input_tokens = extraction_input_tokens
+        self.extraction_output_tokens = extraction_output_tokens
+        self.extraction_cost = extraction_cost
         self.snapshot_base()
 
     def reset(self) -> None:
@@ -206,6 +253,12 @@ class SessionUsage:
         self.cost_available = True
         self.context_window_known = False
         self.compaction_count = 0
+        self.compaction_input_tokens = 0
+        self.compaction_output_tokens = 0
+        self.compaction_cost = 0.0
+        self.extraction_input_tokens = 0
+        self.extraction_output_tokens = 0
+        self.extraction_cost = 0.0
         self.live_base = _LiveBase()
 
 

@@ -61,10 +61,10 @@ def test_new_facts_inserted(store: SessionStore) -> None:
         ExtractedFact(content="Python 3.13+.", scope="repo", action=FactAction.NEW),
         ExtractedFact(content="Prefers British English.", scope="global", action=FactAction.NEW),
     ]
-    added, confirmed, superseded = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 3
-    assert confirmed == 0
-    assert superseded == 0
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 3
+    assert pr.confirmed == 0
+    assert pr.superseded == 0
 
     repo_facts = store.load_active_facts(RBTR_KEY)
     global_facts = store.load_active_facts(GLOBAL)
@@ -80,9 +80,9 @@ def test_new_fact_inserted_directly(store: SessionStore) -> None:
     extracted = [
         ExtractedFact(content="Uses pytest.", scope="repo", action=FactAction.NEW),
     ]
-    added, confirmed, _ = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 1
-    assert confirmed == 0
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 1
+    assert pr.confirmed == 0
 
     # Two facts now — the LLM should have tagged it 'confirm',
     # but if it didn't, pruning handles the duplicate later.
@@ -107,9 +107,9 @@ def test_confirm_bumps_existing(store: SessionStore) -> None:
             existing_id=existing.id,
         ),
     ]
-    added, confirmed, _ = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 0
-    assert confirmed == 1
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 0
+    assert pr.confirmed == 1
 
     facts = store.load_active_facts(RBTR_KEY)
     assert len(facts) == 1
@@ -121,9 +121,9 @@ def test_confirm_without_existing_id_falls_through(store: SessionStore) -> None:
     extracted = [
         ExtractedFact(content="Orphan confirm.", scope="repo", action=FactAction.CONFIRM),
     ]
-    added, confirmed, _ = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 1
-    assert confirmed == 0
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 1
+    assert pr.confirmed == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -143,9 +143,9 @@ def test_supersede_replaces_old(store: SessionStore) -> None:
             existing_id=old.id,
         ),
     ]
-    added, _confirmed, superseded = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 1
-    assert superseded == 1
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 1
+    assert pr.superseded == 1
 
     facts = store.load_active_facts(RBTR_KEY)
     assert len(facts) == 1
@@ -157,9 +157,9 @@ def test_supersede_without_existing_id_falls_through(store: SessionStore) -> Non
     extracted = [
         ExtractedFact(content="Orphan supersede.", scope="repo", action=FactAction.SUPERSEDE),
     ]
-    added, _, superseded = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
-    assert added == 1
-    assert superseded == 0
+    pr = process_extracted_facts(extracted, store, SESSION_ID, RBTR_KEY)
+    assert pr.added == 1
+    assert pr.superseded == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -173,8 +173,8 @@ def test_repo_scope_without_repo_skipped(store: SessionStore) -> None:
         ExtractedFact(content="Uses pytest.", scope="repo", action=FactAction.NEW),
         ExtractedFact(content="Prefers British English.", scope="global", action=FactAction.NEW),
     ]
-    added, _, _ = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
-    assert added == 1  # Only the global fact.
+    pr = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
+    assert pr.added == 1  # Only the global fact.
     assert len(store.load_active_facts(GLOBAL)) == 1
     assert len(store.load_active_facts(RBTR_KEY)) == 0
 
@@ -184,8 +184,8 @@ def test_global_scope_always_works(store: SessionStore) -> None:
     extracted = [
         ExtractedFact(content="Prefers terse comments.", scope="global", action=FactAction.NEW),
     ]
-    added, _, _ = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
-    assert added == 1
+    pr = process_extracted_facts(extracted, store, SESSION_ID, repo_scope=None)
+    assert pr.added == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -195,8 +195,8 @@ def test_global_scope_always_works(store: SessionStore) -> None:
 
 def test_empty_extraction(store: SessionStore) -> None:
     """Empty fact list produces no changes."""
-    added, confirmed, superseded = process_extracted_facts([], store, SESSION_ID, RBTR_KEY)
-    assert (added, confirmed, superseded) == (0, 0, 0)
+    pr = process_extracted_facts([], store, SESSION_ID, RBTR_KEY)
+    assert (pr.added, pr.confirmed, pr.superseded) == (0, 0, 0)
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from pydantic_ai import Agent
 from pydantic_ai._agent_graph import ModelRequestNode
@@ -16,6 +17,12 @@ from rbtr.events import CompactionFinished, CompactionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.prompts import render_compact, render_system
 from rbtr.providers import build_model, model_settings
+from rbtr.sessions.serialise import (
+    CompactionOverhead,
+    CompactionTrigger,
+    ExtractionSource,
+    FragmentKind,
+)
 
 from .context import LLMContext
 from .history import (
@@ -25,13 +32,28 @@ from .history import (
     snap_to_safe_boundary,
     split_history,
 )
-from .memory import extract_facts_async
+from .memory import ExtractionOutcome, extract_facts_async, save_extraction_overhead
+from .usage import extract_cost
 
 log = logging.getLogger(__name__)
 
 # Minimum number of turns to keep — always preserve the most recent
 # turn so the model has immediate context.
 _MIN_KEEP_TURNS = 1
+
+# Re-export for call sites that import from this module.
+__all__ = ["CompactionTrigger", "compact_history", "compact_history_async", "reset_compaction"]
+
+
+@dataclass(frozen=True, slots=True)
+class _SummaryResult:
+    """Internal result from ``_stream_summary``."""
+
+    text: str
+    input_tokens: int
+    output_tokens: int
+    cost: float
+
 
 # ── Compaction agent ─────────────────────────────────────────────────
 
@@ -53,7 +75,12 @@ def _compact_task() -> str:
 # ── Public API ───────────────────────────────────────────────────────
 
 
-def compact_history(ctx: LLMContext, extra_instructions: str = "") -> None:
+def compact_history(
+    ctx: LLMContext,
+    extra_instructions: str = "",
+    *,
+    trigger: CompactionTrigger = CompactionTrigger.MANUAL,
+) -> None:
     """Synchronous entry point — for daemon-thread callers.
 
     Schedules :func:`compact_history_async` on the portal and blocks
@@ -62,7 +89,7 @@ def compact_history(ctx: LLMContext, extra_instructions: str = "") -> None:
 
     Used by ``/compact`` command and ``_auto_compact_on_overflow``.
     """
-    ctx.portal.call(lambda: compact_history_async(ctx, extra_instructions))
+    ctx.portal.call(lambda: compact_history_async(ctx, extra_instructions, trigger=trigger))
 
 
 def reset_compaction(ctx: LLMContext) -> None:
@@ -81,7 +108,12 @@ def reset_compaction(ctx: LLMContext) -> None:
     ctx.out(f"Compaction reset — {restored} fragments restored ({len(msgs)} active messages).")
 
 
-async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -> None:
+async def compact_history_async(
+    ctx: LLMContext,
+    extra_instructions: str = "",
+    *,
+    trigger: CompactionTrigger = CompactionTrigger.MANUAL,
+) -> None:
     """Summarise older messages to reduce context usage.
 
     Splits history into old and kept turns, serialises the old part,
@@ -154,36 +186,65 @@ async def compact_history_async(ctx: LLMContext, extra_instructions: str = "") -
     # Run summary and fact extraction concurrently — they are
     # independent (summary uses serialised text, extraction uses
     # raw messages) and hit separate agents.
-    async def _extract_safe() -> None:
+    async def _extract_safe() -> ExtractionOutcome | None:
         try:
-            await extract_facts_async(
+            return await extract_facts_async(
                 messages=old,
                 store=ctx.store,
                 session_id=sid,
                 model_name=ctx.state.model_name,
                 repo_scope=ctx.state.repo_scope,
+                source=ExtractionSource.COMPACTION,
             )
         except Exception:
             log.exception("memory: extraction during compaction failed")
+            return None
 
     summary_task = _stream_summary(ctx, model, extra_instructions, serialised)
     extract_task = _extract_safe()
 
     results = await asyncio.gather(summary_task, extract_task, return_exceptions=True)
     summary_result = results[0]
+    extract_result = results[1]
+
+    # Persist extraction overhead (even if summary failed).
+    if isinstance(extract_result, ExtractionOutcome):
+        save_extraction_overhead(ctx, extract_result)
 
     if isinstance(summary_result, BaseException):
         ctx.error(f"Compaction failed: {summary_result}")
         ctx.emit(CompactionFinished(summary_tokens=0))
         return
 
-    summary_text: str = summary_result
-    summary_msg = build_summary_message(summary_text)
+    sr: _SummaryResult = summary_result
+    summary_msg = build_summary_message(sr.text)
 
     ctx.store.compact_session(sid, summary=summary_msg, compact_ids=old_ids)
     ctx.state.usage.compaction_count += 1
 
-    ctx.emit(CompactionFinished(summary_tokens=estimate_tokens(summary_text)))
+    # Persist compaction overhead.
+    summary_tokens = estimate_tokens(sr.text)
+    ctx.store.save_overhead(
+        sid,
+        FragmentKind.OVERHEAD_COMPACTION,
+        CompactionOverhead(
+            trigger=trigger,
+            old_messages=len(old),
+            kept_messages=len(kept),
+            summary_tokens=summary_tokens,
+            model_name=ctx.state.model_name,
+        ),
+        input_tokens=sr.input_tokens,
+        output_tokens=sr.output_tokens,
+        cost=sr.cost,
+    )
+    ctx.state.usage.record_compaction(
+        input_tokens=sr.input_tokens,
+        output_tokens=sr.output_tokens,
+        cost=sr.cost,
+    )
+
+    ctx.emit(CompactionFinished(summary_tokens=summary_tokens))
 
 
 def find_fit_count(
@@ -211,13 +272,11 @@ def find_fit_count(
 
 async def _stream_summary(
     ctx: LLMContext, model: Model, extra_instructions: str, conversation: str
-) -> str:
-    """Stream the compaction summary from the model, return the full text.
+) -> _SummaryResult:
+    """Stream the compaction summary from the model.
 
-    The module-level ``compact_agent`` provides persona and compaction
-    instructions via its ``@instructions`` decorators.
-    ``extra_instructions`` (e.g. "mid-turn with active tool calls")
-    is passed at call time so it appends to the base instructions.
+    Returns a ``_SummaryResult`` with the summary text and overhead
+    cost info from the LLM call.
     """
     effort = ThinkingEffort.NONE if ctx.state.effort_supported is False else config.thinking_effort
     settings = model_settings(ctx.state.model_name, model, effort)
@@ -237,4 +296,12 @@ async def _stream_summary(
                     async for delta in stream.stream_text(delta=True):
                         text_parts.append(delta)
 
-    return "".join(text_parts)
+    usage = run.usage()
+    cost = extract_cost(run.new_messages())
+
+    return _SummaryResult(
+        text="".join(text_parts),
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cost=cost,
+    )

@@ -100,16 +100,17 @@ class SessionContext:
 class FragmentKind(StrEnum):
     """Row kind for the ``fragments`` table.
 
-    Four groups of values share a single TEXT column:
+    Five groups of values share a single TEXT column:
 
     - **Message-level**: ``REQUEST_MESSAGE``, ``RESPONSE_MESSAGE``
     - **PydanticAI parts**: values match ``part_kind`` strings so
       ``FragmentKind(part.part_kind)`` works for any content part
     - **User input**: ``COMMAND``, ``SHELL``
     - **Incidents**: ``LLM_ATTEMPT_FAILED``, ``LLM_HISTORY_REPAIR``
+    - **Overhead**: ``OVERHEAD_COMPACTION``, ``OVERHEAD_EXTRACTION``
 
-    Use ``is_message``, ``is_input``, ``is_incident`` to test
-    group membership.
+    Use ``is_message``, ``is_input``, ``is_incident``,
+    ``is_overhead`` to test group membership.
     """
 
     # ── Message-level ────────────────────────────────────────────
@@ -136,6 +137,10 @@ class FragmentKind(StrEnum):
     LLM_ATTEMPT_FAILED = "llm-attempt-failed"
     LLM_HISTORY_REPAIR = "llm-history-repair"
 
+    # ── Overhead ─────────────────────────────────────────────────
+    OVERHEAD_COMPACTION = "overhead-compaction"
+    OVERHEAD_EXTRACTION = "overhead-extraction"
+
     @property
     def is_message(self) -> bool:
         """True for message-level kinds (request / response)."""
@@ -151,10 +156,16 @@ class FragmentKind(StrEnum):
         """True for incident kinds (failures / repairs)."""
         return self in _INCIDENT_KINDS
 
+    @property
+    def is_overhead(self) -> bool:
+        """True for overhead kinds (compaction / extraction cost)."""
+        return self in _OVERHEAD_KINDS
+
 
 _MESSAGE_KINDS = frozenset({FragmentKind.REQUEST_MESSAGE, FragmentKind.RESPONSE_MESSAGE})
 _INPUT_KINDS = frozenset({FragmentKind.COMMAND, FragmentKind.SHELL})
 _INCIDENT_KINDS = frozenset({FragmentKind.LLM_ATTEMPT_FAILED, FragmentKind.LLM_HISTORY_REPAIR})
+_OVERHEAD_KINDS = frozenset({FragmentKind.OVERHEAD_COMPACTION, FragmentKind.OVERHEAD_EXTRACTION})
 
 
 class FragmentStatus(StrEnum):
@@ -404,6 +415,56 @@ Incident = FailedAttempt | HistoryRepair
 """Union of all incident types for ``save_incident``."""
 
 
+# ── Overhead models ──────────────────────────────────────────────
+#
+# Pydantic BaseModels for the ``data_json`` column of overhead
+# fragments.  These track cost and metadata for background LLM
+# calls (compaction summaries, memory extraction) that are not
+# part of the conversation.
+
+
+class CompactionTrigger(StrEnum):
+    """What initiated the compaction."""
+
+    MID_TURN = "mid-turn"
+    AUTO_POST_TURN = "auto-post-turn"
+    AUTO_OVERFLOW = "auto-overflow"
+    MANUAL = "manual"
+
+
+class CompactionOverhead(BaseModel):
+    """``data_json`` for ``FragmentKind.OVERHEAD_COMPACTION``."""
+
+    trigger: CompactionTrigger
+    old_messages: int
+    kept_messages: int
+    summary_tokens: int
+    model_name: str | None = None
+
+
+class ExtractionSource(StrEnum):
+    """What triggered the memory extraction."""
+
+    COMPACTION = "compaction"
+    POST = "post"
+    COMMAND = "command"
+
+
+class ExtractionOverhead(BaseModel):
+    """``data_json`` for ``FragmentKind.OVERHEAD_EXTRACTION``."""
+
+    source: ExtractionSource
+    added: int = 0
+    confirmed: int = 0
+    superseded: int = 0
+    model_name: str | None = None
+    fact_ids: list[str] = []
+
+
+Overhead = CompactionOverhead | ExtractionOverhead
+"""Union of all overhead types for ``save_overhead``."""
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Write path: ModelMessage / incident / input → Fragment
 # ═══════════════════════════════════════════════════════════════════════
@@ -590,6 +651,49 @@ def prepare_incident_row(
         cache_read_tokens=None,
         cache_write_tokens=None,
         cost=None,
+        data_json=payload.model_dump_json(exclude_none=True),
+        user_text=None,
+        tool_name=None,
+        compacted_by=None,
+        status=FragmentStatus.COMPLETE,
+    )
+
+
+def prepare_overhead_row(
+    kind: FragmentKind,
+    payload: Overhead,
+    *,
+    context: SessionContext,
+    row_id: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cost: float | None = None,
+) -> Fragment:
+    """Build a self-referencing ``Fragment`` for overhead cost tracking.
+
+    Same pattern as ``prepare_incident_row`` — self-referencing with
+    ``message_id = id``, ``fragment_index = 0``.  Additionally
+    populates ``input_tokens``, ``output_tokens``, and ``cost``
+    columns from the overhead LLM call.
+    """
+    now = datetime.now(UTC).isoformat()
+    return Fragment(
+        id=row_id,
+        session_id=context.session_id,
+        message_id=row_id,
+        fragment_index=0,
+        fragment_kind=kind,
+        created_at=now,
+        session_label=context.session_label,
+        repo_owner=context.repo_owner,
+        repo_name=context.repo_name,
+        model_name=context.model_name,
+        review_target=context.review_target,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=None,
+        cache_write_tokens=None,
+        cost=cost,
         data_json=payload.model_dump_json(exclude_none=True),
         user_text=None,
         tool_name=None,

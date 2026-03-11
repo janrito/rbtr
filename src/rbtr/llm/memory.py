@@ -21,13 +21,13 @@ Public API
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import UsageLimits
 
 from rbtr.config import config
@@ -35,8 +35,14 @@ from rbtr.events import MemoryExtractionFinished, MemoryExtractionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import serialise_for_summary
+from rbtr.llm.usage import extract_cost
 from rbtr.prompts import render_memory_extract, render_system
 from rbtr.providers import build_model, model_settings
+from rbtr.sessions.serialise import (
+    ExtractionOverhead,
+    ExtractionSource,
+    FragmentKind,
+)
 from rbtr.sessions.store import Fact, SessionStore
 
 log = logging.getLogger(__name__)
@@ -81,6 +87,9 @@ class ExtractionOutcome:
     input_tokens: int = 0
     output_tokens: int = 0
     cost: float = 0.0
+    source: ExtractionSource = ExtractionSource.COMMAND
+    model_name: str = ""
+    fact_ids: list[str] = field(default_factory=list)
 
 
 # ── Extraction agent ─────────────────────────────────────────────────
@@ -192,12 +201,22 @@ def _resolve_scope(extracted: ExtractedFact, repo_scope: str | None) -> str | No
     return repo_scope
 
 
+@dataclass
+class _ProcessResult:
+    """Counts and fact IDs from ``process_extracted_facts``."""
+
+    added: int = 0
+    confirmed: int = 0
+    superseded: int = 0
+    fact_ids: list[str] = field(default_factory=list)
+
+
 def process_extracted_facts(
     extracted: list[ExtractedFact],
     store: SessionStore,
     session_id: str,
     repo_scope: str | None,
-) -> tuple[int, int, int]:
+) -> _ProcessResult:
     """Apply extracted facts to the store.
 
     The LLM has already seen all existing facts in the extraction
@@ -211,11 +230,9 @@ def process_extracted_facts(
     If it occasionally misses a near-duplicate, the hard-limit
     pruning keeps the store bounded.
 
-    Returns ``(added, confirmed, superseded)`` counts.
+    Returns a ``_ProcessResult`` with counts and touched fact IDs.
     """
-    added = 0
-    confirmed = 0
-    superseded = 0
+    result = _ProcessResult()
 
     for ef in extracted:
         scope = _resolve_scope(ef, repo_scope)
@@ -225,20 +242,23 @@ def process_extracted_facts(
 
         if ef.action == FactAction.CONFIRM and ef.existing_id:
             store.confirm_fact(ef.existing_id)
-            confirmed += 1
+            result.confirmed += 1
+            result.fact_ids.append(ef.existing_id)
 
         elif ef.action == FactAction.SUPERSEDE and ef.existing_id:
             new_fact = store.insert_fact(scope, ef.content, session_id)
             store.supersede_fact(ef.existing_id, new_fact.id)
-            added += 1
-            superseded += 1
+            result.added += 1
+            result.superseded += 1
+            result.fact_ids.append(new_fact.id)
 
         else:
             # NEW or fallback — insert directly.
-            store.insert_fact(scope, ef.content, session_id)
-            added += 1
+            new_fact = store.insert_fact(scope, ef.content, session_id)
+            result.added += 1
+            result.fact_ids.append(new_fact.id)
 
-    return added, confirmed, superseded
+    return result
 
 
 # ── Async extraction ─────────────────────────────────────────────────
@@ -253,6 +273,7 @@ async def extract_facts_async(
     session_id: str,
     model_name: str,
     repo_scope: str | None,
+    source: ExtractionSource = ExtractionSource.COMMAND,
 ) -> ExtractionOutcome:
     """Extract facts from *messages* and apply to the store.
 
@@ -306,32 +327,28 @@ async def extract_facts_async(
 
     # Extract overhead cost from the agent result.
     usage = result.usage()
-    cost = 0.0
-    for msg in result.new_messages():
-        if isinstance(msg, ModelResponse) and msg.model_name:
-            try:
-                price = msg.cost()
-                cost += float(price.total_price)
-            except (AssertionError, LookupError, ValueError):
-                pass
+    cost = extract_cost(result.new_messages())
 
     if not extraction.facts:
         return ExtractionOutcome(
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cost=cost,
+            source=source,
+            model_name=extraction_model_name,
         )
 
-    added, confirmed, superseded = process_extracted_facts(
-        extraction.facts, store, session_id, repo_scope
-    )
+    pr = process_extracted_facts(extraction.facts, store, session_id, repo_scope)
     return ExtractionOutcome(
-        added=added,
-        confirmed=confirmed,
-        superseded=superseded,
+        added=pr.added,
+        confirmed=pr.confirmed,
+        superseded=pr.superseded,
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
         cost=cost,
+        source=source,
+        model_name=extraction_model_name,
+        fact_ids=pr.fact_ids,
     )
 
 
@@ -341,6 +358,8 @@ async def extract_facts_async(
 def extract_facts_from_ctx(
     ctx: LLMContext,
     messages: list[ModelMessage],
+    *,
+    source: ExtractionSource = ExtractionSource.COMMAND,
 ) -> None:
     """Extract facts using an ``LLMContext``, emitting status events.
 
@@ -365,6 +384,7 @@ def extract_facts_from_ctx(
                 session_id=ctx.state.session_id,
                 model_name=ctx.state.model_name,
                 repo_scope=repo_scope,
+                source=source,
             )
         )
     except Exception:
@@ -372,10 +392,41 @@ def extract_facts_from_ctx(
         ctx.emit(MemoryExtractionFinished())
         return
 
+    save_extraction_overhead(ctx, outcome)
+
     ctx.emit(
         MemoryExtractionFinished(
             added=outcome.added,
             confirmed=outcome.confirmed,
             superseded=outcome.superseded,
         )
+    )
+
+
+# ── Overhead persistence ─────────────────────────────────────────────
+
+
+def save_extraction_overhead(ctx: LLMContext, outcome: ExtractionOutcome) -> None:
+    """Persist extraction overhead as a fragment and record on ``SessionUsage``."""
+    if not outcome.input_tokens and not outcome.cost:
+        return
+    ctx.store.save_overhead(
+        ctx.state.session_id,
+        FragmentKind.OVERHEAD_EXTRACTION,
+        ExtractionOverhead(
+            source=outcome.source,
+            added=outcome.added,
+            confirmed=outcome.confirmed,
+            superseded=outcome.superseded,
+            model_name=outcome.model_name or None,
+            fact_ids=outcome.fact_ids,
+        ),
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
+        cost=outcome.cost,
+    )
+    ctx.state.usage.record_extraction(
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
+        cost=outcome.cost,
     )

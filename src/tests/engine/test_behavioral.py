@@ -25,7 +25,7 @@ from pydantic_ai.models.test import TestModel
 from rbtr.engine import Engine
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
 
-from .conftest import drain, has_event_type, output_texts
+from .conftest import drain, has_event_type, output_texts, summary_result
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -215,9 +215,10 @@ def test_compaction_reduces_history(mocker: MockerFixture, llm_engine: Engine) -
     # Mock the summary LLM call (compaction uses its own agent).
     mocker.patch(
         "rbtr.llm.compact._stream_summary",
-        return_value="Summary: discussed 15 questions.",
+        return_value=summary_result("Summary: discussed 15 questions."),
     )
     mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
+    mocker.patch("rbtr.llm.compact.extract_facts_async", return_value=None)
 
     llm_engine.state.usage.context_window = 200_000
     llm_engine.run_task("command", "/compact")
@@ -249,7 +250,7 @@ def test_compaction_then_resume(mocker: MockerFixture, llm_engine: Engine) -> No
 
     mocker.patch(
         "rbtr.llm.compact._stream_summary",
-        return_value="Compacted summary.",
+        return_value=summary_result("Compacted summary."),
     )
     mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
 
@@ -289,7 +290,7 @@ def test_compaction_preserves_continuity(mocker: MockerFixture, llm_engine: Engi
 
     mocker.patch(
         "rbtr.llm.compact._stream_summary",
-        return_value="Compacted summary of earlier conversation.",
+        return_value=summary_result("Compacted summary of earlier conversation."),
     )
     mocker.patch("rbtr.llm.compact.build_model", return_value=test_model)
 

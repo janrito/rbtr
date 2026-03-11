@@ -45,11 +45,13 @@ from rbtr.sessions.serialise import (
     FragmentKind,
     FragmentStatus,
     Incident,
+    Overhead,
     SessionContext,
     dump_part,
     prepare_incident_row,
     prepare_input_row,
     prepare_message_row,
+    prepare_overhead_row,
     prepare_part_row,
     prepare_part_rows,
     reconstruct_message,
@@ -57,11 +59,14 @@ from rbtr.sessions.serialise import (
 from rbtr.sessions.stats import (
     GlobalStats,
     IncidentStats,
+    OverheadStats,
     TokenStats,
     ToolStat,
     global_incident_stats as _global_incident_stats,
+    global_overhead_stats as _global_overhead_stats,
     global_stats as _global_stats,
     incident_stats as _incident_stats,
+    overhead_stats as _overhead_stats,
     token_stats as _token_stats,
     tool_stats as _tool_stats,
 )
@@ -501,6 +506,40 @@ class SessionStore:
             self._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
         return row_id
 
+    def save_overhead(
+        self,
+        session_id: str,
+        kind: FragmentKind,
+        payload: Overhead,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cost: float | None = None,
+    ) -> str:
+        """Persist an overhead cost record (compaction / extraction).
+
+        Creates a self-referencing row with token counts and cost
+        from the background LLM call.  Overhead fragments are
+        excluded from ``load_messages`` (``is_message`` returns
+        ``False``) and from conversation stats SQL (which filters
+        by ``request-message`` / ``response-message``).
+
+        Returns the row ID.
+        """
+        row_id = self.new_id()
+        row = prepare_overhead_row(
+            kind,
+            payload,
+            context=self._ctx,
+            row_id=row_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+        )
+        with self._lock, self._con:
+            self._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
+        return row_id
+
     def update_incident_json(self, row_id: str, key: str, value: str) -> None:
         """Set a top-level key in an incident row's ``data_json``.
 
@@ -799,6 +838,14 @@ class SessionStore:
     def global_incident_stats(self) -> IncidentStats:
         """Return failure and repair incident stats across all sessions."""
         return _global_incident_stats(self._con)
+
+    def overhead_stats(self, session_id: str) -> OverheadStats:
+        """Return overhead cost stats for a session."""
+        return _overhead_stats(self._con, session_id)
+
+    def global_overhead_stats(self) -> OverheadStats:
+        """Return overhead cost stats across all sessions."""
+        return _global_overhead_stats(self._con)
 
     def update_session_label(self, session_id: str, label: str) -> int:
         """Update the label on all fragments for a session.
