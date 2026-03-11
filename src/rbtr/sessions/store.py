@@ -15,8 +15,7 @@ Public API
   ``search_history``
 - **write**: ``save_messages``, ``save_incident``, ``begin_response``,
   ``compact_session``
-- **delete**: ``delete_session``, ``delete_old_sessions``,
-  ``delete_excess_sessions``
+- **delete**: ``delete_session``, ``delete_old_sessions``
 - **lifecycle**: ``new_id``, ``close``
 
 Message write methods accept ``ModelMessage`` objects — serialisation
@@ -99,7 +98,7 @@ _COMPACT_MARK_MESSAGE_SQL = _load_sql("compact_mark_message.sql")
 _LIST_SESSIONS_SQL = _load_sql("list_sessions.sql")
 _DELETE_SESSION_SQL = _load_sql("delete_session.sql")
 _DELETE_OLD_SESSIONS_SQL = _load_sql("delete_old_sessions.sql")
-_DELETE_EXCESS_SESSIONS_SQL = _load_sql("delete_excess_sessions.sql")
+
 _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 _SESSION_HISTORY_SQL = _load_sql("session_history.sql")
 _GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
@@ -141,7 +140,8 @@ _SUPERSEDE_FACT_SQL = _load_sql("supersede_fact.sql")
 _LOAD_ACTIVE_FACTS_SQL = _load_sql("load_active_facts.sql")
 _LOAD_ALL_FACTS_SQL = _load_sql("load_all_facts.sql")
 _DELETE_FACT_SQL = _load_sql("delete_fact.sql")
-_PRUNE_EXCESS_FACTS_SQL = _load_sql("prune_excess_facts.sql")
+_DELETE_OLD_FACTS_SQL = _load_sql("delete_old_facts.sql")
+
 _SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
 
 
@@ -684,14 +684,6 @@ class SessionStore:
             cur = self._con.execute(_DELETE_OLD_SESSIONS_SQL, [before.isoformat()])
             return cur.rowcount
 
-    def delete_excess_sessions(self, keep: int) -> int:
-        """Keep only the *keep* most recent sessions, delete the rest."""
-        if keep < 1:
-            return 0
-        with self._lock, self._con:
-            cur = self._con.execute(_DELETE_EXCESS_SESSIONS_SQL, [keep])
-            return cur.rowcount
-
     # ── Reads ────────────────────────────────────────────────────────
 
     def load_messages(self, session_id: str) -> list[ModelMessage]:
@@ -964,14 +956,10 @@ class SessionStore:
             cur = self._con.execute(_DELETE_FACT_SQL, [fact_id])
             return cur.rowcount
 
-    def prune_excess_facts(self, scope: str, keep: int) -> int:
-        """Delete active facts in *scope* beyond the *keep* most recently confirmed.
-
-        Superseded facts are not counted toward the limit.
-        Returns number of rows deleted.
-        """
+    def delete_old_facts(self, before: datetime) -> int:
+        """Delete facts whose `last_confirmed_at` is before *before*."""
         with self._lock, self._con:
-            cur = self._con.execute(_PRUNE_EXCESS_FACTS_SQL, [scope, scope, keep])
+            cur = self._con.execute(_DELETE_OLD_FACTS_SQL, [before.isoformat()])
             return cur.rowcount
 
     def search_facts(self, query: str, scope: str, limit: int = 10) -> list[Fact]:

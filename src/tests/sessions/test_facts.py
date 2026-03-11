@@ -2,7 +2,7 @@
 
 Data-first: realistic facts from ``fact_data`` seeded via a shared
 fixture.  Tests verify behaviours through the store's public fact
-API — insert, confirm, supersede, load, prune, delete, FTS5 search.
+API — insert, confirm, supersede, load, delete, FTS5 search.
 
 Organisation:
 - Fixtures
@@ -11,7 +11,6 @@ Organisation:
 - Ordering
 - Confirmation
 - Supersession
-- Pruning
 - Deletion
 - FTS5 dedup search
 - FTS5 cross-scope isolation
@@ -22,6 +21,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator
+from datetime import UTC, datetime
 
 import pytest
 
@@ -234,79 +234,6 @@ def test_supersession_pairs(store: SessionStore, old_content: str, new_content: 
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Pruning
-# ═══════════════════════════════════════════════════════════════════════
-
-
-def test_prune_keeps_n_most_recent(store: SessionStore) -> None:
-    """Pruning keeps the N most recently confirmed facts."""
-    for i in range(5):
-        time.sleep(0.002)
-        store.insert_fact(RBTR_KEY, f"Fact {i}.", SESSION_ID)
-
-    deleted = store.prune_excess_facts(RBTR_KEY, keep=3)
-    assert deleted == 2
-
-    loaded = store.load_active_facts(RBTR_KEY)
-    assert len(loaded) == 3
-    # Most recent should survive.
-    contents = {f.content for f in loaded}
-    assert "Fact 4." in contents
-    assert "Fact 3." in contents
-    assert "Fact 2." in contents
-
-
-def test_prune_deletes_oldest(store: SessionStore) -> None:
-    """Pruning removes the oldest by last_confirmed_at."""
-    for i in range(4):
-        time.sleep(0.002)
-        store.insert_fact(RBTR_KEY, f"Fact {i}.", SESSION_ID)
-
-    store.prune_excess_facts(RBTR_KEY, keep=2)
-    loaded = store.load_active_facts(RBTR_KEY)
-    contents = {f.content for f in loaded}
-    assert "Fact 0." not in contents
-    assert "Fact 1." not in contents
-
-
-def test_prune_ignores_superseded(store: SessionStore) -> None:
-    """Superseded facts don't count toward the keep limit."""
-    facts = []
-    for i in range(4):
-        time.sleep(0.002)
-        facts.append(store.insert_fact(RBTR_KEY, f"Fact {i}.", SESSION_ID))
-
-    # Supersede fact 2 — it shouldn't count toward active limit.
-    store.supersede_fact(facts[2].id, facts[3].id)
-
-    # Keep 2 active: should keep facts 3 and 1 (0 pruned).
-    deleted = store.prune_excess_facts(RBTR_KEY, keep=2)
-    assert deleted == 1
-
-    loaded = store.load_active_facts(RBTR_KEY)
-    assert len(loaded) == 2
-
-
-def test_prune_no_op_under_limit(store: SessionStore) -> None:
-    """Pruning with keep >= count deletes nothing."""
-    store.insert_fact(RBTR_KEY, "Solo fact.", SESSION_ID)
-    deleted = store.prune_excess_facts(RBTR_KEY, keep=10)
-    assert deleted == 0
-    assert len(store.load_active_facts(RBTR_KEY)) == 1
-
-
-def test_prune_scoped(store: SessionStore) -> None:
-    """Pruning one scope doesn't affect another."""
-    for i in range(3):
-        store.insert_fact(RBTR_KEY, f"Repo fact {i}.", SESSION_ID)
-    store.insert_fact(GLOBAL, "Global fact.", SESSION_ID)
-
-    store.prune_excess_facts(RBTR_KEY, keep=1)
-    assert len(store.load_active_facts(RBTR_KEY)) == 1
-    assert len(store.load_active_facts(GLOBAL)) == 1
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # Deletion
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -322,6 +249,45 @@ def test_delete_removes_fact(store: SessionStore) -> None:
 def test_delete_nonexistent(store: SessionStore) -> None:
     """Deleting a non-existent ID returns 0, no error."""
     assert store.delete_fact("nonexistent-id") == 0
+
+
+def test_delete_old_facts(store: SessionStore) -> None:
+    """delete_old_facts removes facts confirmed before the cutoff."""
+    store.insert_fact(RBTR_KEY, "Old fact.", SESSION_ID)
+    time.sleep(0.01)
+    cutoff = datetime.now(UTC)
+    time.sleep(0.01)
+    store.insert_fact(RBTR_KEY, "Recent fact.", SESSION_ID)
+
+    deleted = store.delete_old_facts(before=cutoff)
+    assert deleted == 1
+
+    active = store.load_active_facts(RBTR_KEY)
+    assert len(active) == 1
+    assert active[0].content == "Recent fact."
+
+
+def test_delete_old_facts_keeps_all_recent(store: SessionStore) -> None:
+    """delete_old_facts with an old cutoff deletes nothing."""
+    store.insert_fact(RBTR_KEY, "Fresh.", SESSION_ID)
+    deleted = store.delete_old_facts(before=datetime(2000, 1, 1, tzinfo=UTC))
+    assert deleted == 0
+    assert len(store.load_active_facts(RBTR_KEY)) == 1
+
+
+def test_delete_old_facts_uses_confirmed_at(store: SessionStore) -> None:
+    """Confirmed facts survive based on `last_confirmed_at`, not `created_at`."""
+    fact = store.insert_fact(RBTR_KEY, "Confirmed recently.", SESSION_ID)
+    time.sleep(0.01)
+    # Confirm bumps last_confirmed_at to now.
+    store.confirm_fact(fact.id)
+    time.sleep(0.01)
+    cutoff = datetime.now(UTC)
+
+    deleted = store.delete_old_facts(before=cutoff)
+    # The fact was confirmed after creation, but before cutoff — deleted.
+    # (confirm happened before cutoff)
+    assert deleted == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -433,11 +399,6 @@ def test_empty_store_load(store: SessionStore) -> None:
 def test_empty_store_search(store: SessionStore) -> None:
     """Searching an empty store returns empty list, no error."""
     assert store.search_facts("anything", RBTR_KEY) == []
-
-
-def test_empty_store_prune(store: SessionStore) -> None:
-    """Pruning an empty store is a no-op."""
-    assert store.prune_excess_facts(RBTR_KEY, keep=5) == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════

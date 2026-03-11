@@ -21,7 +21,7 @@ _UNIT_MAP: dict[str, str] = {
 }
 
 
-def _parse_duration(spec: str) -> timedelta | None:
+def parse_duration(spec: str) -> timedelta | None:
     """Parse a duration like ``7d``, ``2w``, ``24h``.
 
     Returns ``None`` if the format is not recognised.
@@ -367,7 +367,7 @@ def _cmd_purge(engine: Engine, args: list[str]) -> None:
         engine._warn("Usage: /session purge <duration> (e.g. 7d, 2w, 24h)")
         return
 
-    duration = _parse_duration(args[0])
+    duration = parse_duration(args[0])
     if duration is None:
         engine._warn(f"Invalid duration: {args[0]}. Use e.g. 7d, 2w, 24h.")
         return

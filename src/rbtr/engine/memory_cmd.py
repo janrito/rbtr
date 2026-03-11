@@ -1,10 +1,12 @@
-"""Handler for ``/memory`` — list and extract facts."""
+"""Handler for ``/memory`` — list, extract, and purge facts."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
+from rbtr.engine.session_cmd import parse_duration
 from rbtr.llm.memory import GLOBAL_SCOPE, extract_facts_from_ctx
 
 if TYPE_CHECKING:
@@ -13,7 +15,8 @@ if TYPE_CHECKING:
 
 def cmd_memory(engine: Engine, args: str) -> None:
     """Dispatch ``/memory`` subcommands."""
-    sub = args.split(maxsplit=1)[0].lower() if args else ""
+    parts = args.split(maxsplit=1) if args else []
+    sub = parts[0].lower() if parts else ""
 
     match sub:
         case "" | "list":
@@ -22,8 +25,10 @@ def cmd_memory(engine: Engine, args: str) -> None:
             _list_facts(engine, include_superseded=True)
         case "extract":
             _extract(engine)
+        case "purge":
+            _purge(engine, parts[1] if len(parts) > 1 else "")
         case _:
-            engine._warn("Usage: /memory [list | all | extract]")
+            engine._warn("Usage: /memory [list | all | extract | purge <duration>]")
 
 
 def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
@@ -77,3 +82,19 @@ def _extract(engine: Engine) -> None:
         return
 
     extract_facts_from_ctx(ctx, messages)
+
+
+def _purge(engine: Engine, args: str) -> None:
+    """Delete facts older than a duration."""
+    if not args:
+        engine._warn("Usage: /memory purge <duration> (e.g. 7d, 2w, 24h)")
+        return
+
+    duration = parse_duration(args.strip())
+    if duration is None:
+        engine._warn(f"Invalid duration: {args.strip()}. Use e.g. 7d, 2w, 24h.")
+        return
+
+    cutoff = datetime.now(UTC) - duration
+    deleted = engine.store.delete_old_facts(before=cutoff)
+    engine._out(f"Deleted {deleted} fact{'s' if deleted != 1 else ''} older than {args.strip()}.")

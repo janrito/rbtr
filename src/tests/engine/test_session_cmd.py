@@ -9,7 +9,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse
 from pytest_mock import MockerFixture
 
 from rbtr.engine import Engine
-from rbtr.engine.session_cmd import _format_age, _parse_duration
+from rbtr.engine.session_cmd import _format_age, parse_duration
 from rbtr.providers import BuiltinProvider
 
 from .conftest import _assistant, _seed, _user, drain, output_texts, summary_result
@@ -356,25 +356,25 @@ def test_purge_no_args(seeded_engine: Engine) -> None:
     assert any("Usage" in t for t in texts)
 
 
-# ── _parse_duration ──────────────────────────────────────────────────
+# ── parse_duration ──────────────────────────────────────────────────
 
 
-def test_parse_duration_days() -> None:
-    assert _parse_duration("7d") == timedelta(days=7)
+def testparse_duration_days() -> None:
+    assert parse_duration("7d") == timedelta(days=7)
 
 
-def test_parse_duration_weeks() -> None:
-    assert _parse_duration("2w") == timedelta(weeks=2)
+def testparse_duration_weeks() -> None:
+    assert parse_duration("2w") == timedelta(weeks=2)
 
 
-def test_parse_duration_hours() -> None:
-    assert _parse_duration("24h") == timedelta(hours=24)
+def testparse_duration_hours() -> None:
+    assert parse_duration("24h") == timedelta(hours=24)
 
 
-def test_parse_duration_invalid() -> None:
-    assert _parse_duration("abc") is None
-    assert _parse_duration("") is None
-    assert _parse_duration("7x") is None
+def testparse_duration_invalid() -> None:
+    assert parse_duration("abc") is None
+    assert parse_duration("") is None
+    assert parse_duration("7x") is None
 
 
 # ── _format_age ──────────────────────────────────────────────────────

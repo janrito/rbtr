@@ -238,8 +238,7 @@ def process_extracted_facts(
     - ``new``: insert as a new fact.
 
     No client-side dedup — the LLM makes the dedup decision.
-    If it occasionally misses a near-duplicate, the hard-limit
-    pruning keeps the store bounded.
+    Long-term cleanup is handled by ``/memory purge``.
 
     Returns a ``ProcessResult`` with counts and touched fact IDs.
     """
@@ -320,9 +319,10 @@ async def run_fact_extraction(
     scopes = [GLOBAL_SCOPE]
     if repo_scope:
         scopes.append(repo_scope)
+    per_scope_limit = config.memory.max_extraction_facts
     existing: list[Fact] = []
     for scope in scopes:
-        existing.extend(store.load_active_facts(scope))
+        existing.extend(store.load_active_facts(scope, limit=per_scope_limit))
 
     user_prompt = _build_user_prompt(conversation, existing)
 

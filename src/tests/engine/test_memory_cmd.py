@@ -278,3 +278,44 @@ def test_compaction_skips_extraction_when_disabled(
 
     all_events = drain(engine.events)
     assert any(isinstance(e, CompactionFinished) for e in all_events)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# /memory purge
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_memory_purge_deletes_old_facts(mem_engine: Engine) -> None:
+    """Purge with a zero-duration cutoff deletes all existing facts."""
+    store = mem_engine.store
+    store.insert_fact(RBTR_KEY, "Old fact.", SESSION_ID)
+
+    mem_engine._handle_command("/memory purge 0d")
+    texts = output_texts(drain(mem_engine.events))
+    assert any("1 fact" in t for t in texts)
+    assert store.load_active_facts(RBTR_KEY) == []
+
+
+def test_memory_purge_keeps_recent(mem_engine: Engine) -> None:
+    """Purge with a long duration keeps recent facts."""
+    store = mem_engine.store
+    store.insert_fact(RBTR_KEY, "Fresh fact.", SESSION_ID)
+
+    mem_engine._handle_command("/memory purge 30d")
+    texts = output_texts(drain(mem_engine.events))
+    assert any("0 facts" in t for t in texts)
+    assert len(store.load_active_facts(RBTR_KEY)) == 1
+
+
+def test_memory_purge_no_args_warns(mem_engine: Engine) -> None:
+    """Purge without duration shows usage."""
+    mem_engine._handle_command("/memory purge")
+    texts = output_texts(drain(mem_engine.events))
+    assert any("Usage" in t for t in texts)
+
+
+def test_memory_purge_invalid_duration_warns(mem_engine: Engine) -> None:
+    """Purge with invalid duration shows error."""
+    mem_engine._handle_command("/memory purge xyz")
+    texts = output_texts(drain(mem_engine.events))
+    assert any("Invalid" in t for t in texts)

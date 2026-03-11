@@ -560,30 +560,6 @@ def test_delete_old_keeps_recent() -> None:
         assert len(store.list_sessions()) == 1
 
 
-def test_delete_excess_keeps_recent() -> None:
-    with SessionStore() as store:
-        store.save_messages("s1", [_user("old")])
-        time.sleep(0.01)
-        store.save_messages("s2", [_user("new")])
-        deleted = store.delete_excess_sessions(keep=1)
-        assert deleted > 0
-        sessions = store.list_sessions()
-        assert len(sessions) == 1
-        assert sessions[0].session_id == "s2"
-
-
-def test_delete_excess_noop_under_limit() -> None:
-    with SessionStore() as store:
-        store.save_messages("s1", [_user("only")])
-        assert store.delete_excess_sessions(keep=5) == 0
-
-
-def test_delete_excess_zero_is_noop() -> None:
-    with SessionStore() as store:
-        store.save_messages("s1", [_user("safe")])
-        assert store.delete_excess_sessions(keep=0) == 0
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Schema & lifecycle
 # ═══════════════════════════════════════════════════════════════════════

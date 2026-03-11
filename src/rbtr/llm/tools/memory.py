@@ -73,17 +73,7 @@ def remember(
     if old_fact:
         store.supersede_fact(old_fact.id, fact.id)
 
-    # Prune if over the hard limit.
-    limit = (
-        config.memory.max_facts_global
-        if resolved_scope == GLOBAL_SCOPE
-        else config.memory.max_facts_repo
-    )
-    pruned = store.prune_excess_facts(resolved_scope, keep=limit)
-
     parts = [f"Saved ({resolved_scope})."]
     if old_fact:
         parts.append("Superseded old fact.")
-    if pruned:
-        parts.append(f"Pruned {pruned} old fact(s) over the limit.")
     return " ".join(parts)

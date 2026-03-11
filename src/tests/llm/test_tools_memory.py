@@ -163,31 +163,3 @@ def test_supersede_strips_whitespace(ctx: FakeCtx, store: SessionStore) -> None:
         ctx, "Use ruff with --fix.", scope="global", supersedes="  Use ruff.  "
     )
     assert "Superseded" in result
-
-
-# ── pruning ──────────────────────────────────────────────────────────
-
-
-def test_prune_after_insert(ctx: FakeCtx, store: SessionStore) -> None:
-    """Inserting beyond the hard limit triggers pruning."""
-    original = config.memory.max_facts_global
-    try:
-        config.memory.max_facts_global = 3
-
-        for i in range(3):
-            store.insert_fact(GLOBAL_SCOPE, f"Fact {i}.", SESSION)
-
-        result = remember(ctx, "Fact 3.", scope="global")  # type: ignore[arg-type]
-        assert "Pruned" in result
-
-        active = store.load_active_facts(GLOBAL_SCOPE)
-        assert len(active) == 3
-        assert any(f.content == "Fact 3." for f in active)
-    finally:
-        config.memory.max_facts_global = original
-
-
-def test_no_prune_under_limit(ctx: FakeCtx, store: SessionStore) -> None:
-    """No pruning message when under the limit."""
-    result = remember(ctx, "Only fact.", scope="global")  # type: ignore[arg-type]
-    assert "Pruned" not in result

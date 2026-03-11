@@ -84,10 +84,10 @@ class IndexConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     enabled: bool = True
-    max_facts_global: int = 50
-    max_facts_repo: int = 100
     max_injected_facts: int = 20
     max_injected_tokens: int = 2000
+    max_extraction_facts: int = 200
+    """Cap on existing facts shown to the extraction agent for dedup."""
     fact_extraction_model: str = ""
     """Empty string means use the current session model."""
 

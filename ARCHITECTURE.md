@@ -910,10 +910,9 @@ remain in the database — compaction is non-destructive.
   `/review` or at startup.
 - **Continuation.** `/continue` loads the most recent session
   for the current repo and restores `EngineState` from it.
-- **Retention.** `delete_old_sessions` and
-  `delete_excess_sessions` enforce configurable age and count
-  limits. Deletion cascades from message headers to parts via
-  the `message_id` FK.
+- **Retention.** `delete_old_sessions` enforces age-based
+  cleanup via `/session purge <duration>`. Deletion cascades
+  from message headers to parts via the `message_id` FK.
 
 ---
 
@@ -1006,7 +1005,7 @@ facts are agent-learned only.
 Facts are stored in the same SQLite database as sessions.
 Store methods live on `SessionStore`: `insert_fact`,
 `confirm_fact`, `supersede_fact`, `load_active_facts`,
-`delete_fact`, `prune_excess_facts`, `search_facts`. A
+`delete_fact`, `delete_old_facts`, `search_facts`. A
 `facts_fts` FTS5 virtual table (content-external, synced via
 triggers) enables keyword search for deduplication.
 
@@ -1073,9 +1072,10 @@ clarification is persisted as a separate fragment.
 Facts are created via fact extraction (at compaction, after
 `/draft post`, or on demand) or the `remember` tool. They
 accumulate `confirm_count` as they are re-observed. A fact
-can be superseded (replaced by a newer one) or pruned when
-the per-scope hard limit is exceeded (oldest by
-`last_confirmed_at` are removed first).
+can be superseded (replaced by a newer one). Long-term
+cleanup is explicit via `/memory purge <duration>`, which
+deletes facts by `last_confirmed_at` — same pattern as
+`/session purge`.
 
 ### Overhead tracking
 
