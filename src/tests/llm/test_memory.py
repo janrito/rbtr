@@ -28,6 +28,7 @@ from rbtr.llm.context import LLMContext
 from rbtr.llm.memory import (
     ExtractedFact,
     FactAction,
+    FactExtractionDeps,
     FactExtractionResult,
     _build_clarify_prompt,
     _build_user_prompt,
@@ -302,27 +303,9 @@ def test_empty_extraction(store: SessionStore) -> None:
 
 def test_prompt_includes_conversation() -> None:
     """Rendered prompt includes the conversation text."""
-    prompt = _build_user_prompt("## User\nWhat testing framework?", [])
+    prompt = _build_user_prompt("## User\nWhat testing framework?")
     assert "What testing framework?" in prompt
-
-
-def test_prompt_includes_existing_facts(store: SessionStore) -> None:
-    """Rendered prompt includes existing facts for LLM dedup context."""
-    f1 = store.insert_fact(RBTR_KEY, "Uses pytest.", SESSION_ID)
-    f2 = store.insert_fact(GLOBAL, "Prefers British English.", SESSION_ID)
-    facts = [f1, f2]
-
-    prompt = _build_user_prompt("## User\nHello", facts)
-    assert "- Uses pytest." in prompt
-    assert "- Prefers British English." in prompt
-    # No IDs exposed to the LLM.
-    assert "id=" not in prompt
-
-
-def test_prompt_empty_facts() -> None:
-    """Rendered prompt shows '(none)' when no existing facts."""
-    prompt = _build_user_prompt("## User\nHello", [])
-    assert "(none)" in prompt
+    assert "## Conversation" in prompt
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -495,14 +478,16 @@ async def test_clarify_returns_corrected_facts(mocker: MockerFixture) -> None:
             existing_content="Uses pytst.",  # typo
         ),
     ]
+    deps = FactExtractionDeps(existing_facts=[])
     history: list[object] = []  # Simulates result.all_messages() from first run.
-    result = await _clarify_failed_facts(failed, history, mocker.MagicMock(), None)
+    result = await _clarify_failed_facts(failed, history, mocker.MagicMock(), None, deps)
     assert len(result.facts) == 1
     assert result.facts[0].existing_content == "Uses pytest."
     mock_run.assert_called_once()
-    # Verify message_history was passed.
+    # Verify message_history and deps were passed.
     _, kwargs = mock_run.call_args
     assert kwargs["message_history"] is history
+    assert kwargs["deps"] is deps
 
 
 @pytest.mark.anyio
@@ -514,7 +499,8 @@ async def test_clarify_model_failure_returns_empty(mocker: MockerFixture) -> Non
         "rbtr.llm.memory.fact_extract_agent.run",
         side_effect=ModelHTTPError(status_code=500, model_name="test", body="fail"),
     )
-    result = await _clarify_failed_facts([], [], mocker.MagicMock(), None)
+    deps = FactExtractionDeps(existing_facts=[])
+    result = await _clarify_failed_facts([], [], mocker.MagicMock(), None, deps)
     assert result.facts == []
     assert result.input_tokens == 0
 
@@ -526,11 +512,13 @@ async def test_clarify_empty_response(mocker: MockerFixture) -> None:
         "rbtr.llm.memory.fact_extract_agent.run",
         return_value=_FakeAgentResult(FactExtractionResult()),
     )
+    deps = FactExtractionDeps(existing_facts=[])
     result = await _clarify_failed_facts(
         [ExtractedFact(content="X.", action=FactAction.SUPERSEDE, existing_content="Y.")],
         [],
         mocker.MagicMock(),
         None,
+        deps,
     )
     assert result.facts == []
 

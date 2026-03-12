@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import Model
@@ -78,8 +78,17 @@ class FactExtractionResult(BaseModel):
 
 # ── Extraction agent ─────────────────────────────────────────────────
 
-fact_extract_agent: Agent[None, FactExtractionResult] = Agent(
+
+@dataclass
+class FactExtractionDeps:
+    """Dependencies injected into every fact extraction run."""
+
+    existing_facts: list[Fact]
+
+
+fact_extract_agent: Agent[FactExtractionDeps, FactExtractionResult] = Agent(
     output_type=FactExtractionResult,
+    deps_type=FactExtractionDeps,
 )
 
 
@@ -93,6 +102,19 @@ def _system() -> str:
 def _fact_extraction_task() -> str:
     """Task instructions — what to extract, format, rules."""
     return render_fact_extraction()
+
+
+@fact_extract_agent.instructions
+def _existing_facts(ctx: RunContext[FactExtractionDeps]) -> str:
+    """Render existing facts as reference context for dedup decisions."""
+    facts = ctx.deps.existing_facts
+    parts: list[str] = ["## Existing facts\n"]
+    if facts:
+        for f in facts:
+            parts.append(f"- {f.content}")
+    else:
+        parts.append("(none)")
+    return "\n".join(parts)
 
 
 def _build_clarify_prompt(failed: list[ExtractedFact]) -> str:
@@ -118,21 +140,14 @@ drop the fact if none match.""",
 # ── User prompt builder ──────────────────────────────────────────────
 
 
-def _build_user_prompt(conversation: str, existing_facts: list[Fact]) -> str:
-    """Build the user prompt from conversation and existing facts.
+def _build_user_prompt(conversation: str) -> str:
+    """Build the user prompt from conversation text.
 
-    The static task instructions live in ``@fact_extract_agent.instructions``.
-    This function builds the per-call user prompt with the dynamic data.
+    Existing facts are injected via ``@fact_extract_agent.instructions``
+    (through ``FactExtractionDeps``).  The user prompt contains only the
+    conversation to analyse.
     """
-    parts: list[str] = ["## Existing facts\n"]
-    if existing_facts:
-        for f in existing_facts:
-            parts.append(f"- {f.content}")
-    else:
-        parts.append("(none)")
-    parts.append("\n## Conversation\n")
-    parts.append(conversation)
-    return "\n".join(parts)
+    return f"## Conversation\n\n{conversation}"
 
 
 # ── Fact injection ────────────────────────────────────────────────────
@@ -290,6 +305,7 @@ class FactExtractionRun:
     model_name: str
     model: Model
     settings: ModelSettings | None
+    deps: FactExtractionDeps
 
 
 async def run_fact_extraction(
@@ -311,7 +327,7 @@ async def run_fact_extraction(
     if not conversation.strip():
         return None
 
-    # Load existing facts for the user prompt context.
+    # Load existing facts — injected into instructions via deps.
     scopes = [GLOBAL_SCOPE]
     if repo_scope:
         scopes.append(repo_scope)
@@ -320,7 +336,8 @@ async def run_fact_extraction(
     for scope in scopes:
         existing.extend(store.load_active_facts(scope, limit=per_scope_limit))
 
-    user_prompt = _build_user_prompt(conversation, existing)
+    deps = FactExtractionDeps(existing_facts=existing)
+    user_prompt = _build_user_prompt(conversation)
 
     extraction_model_name = config.memory.fact_extraction_model or model_name
     try:
@@ -335,6 +352,7 @@ async def run_fact_extraction(
     try:
         result = await fact_extract_agent.run(
             user_prompt,
+            deps=deps,
             model=model,
             model_settings=settings,
             usage_limits=UsageLimits(request_limit=1),
@@ -355,6 +373,7 @@ async def run_fact_extraction(
         model_name=extraction_model_name,
         model=model,
         settings=settings,
+        deps=deps,
     )
 
 
@@ -379,18 +398,21 @@ async def _clarify_failed_facts(
     conversation_history: list[ModelMessage],
     model: Model,
     settings: ModelSettings | None,
+    deps: FactExtractionDeps,
 ) -> _FactClarifyResult:
     """Ask the model to correct misquoted ``existing_content``.
 
     Continues the fact extraction conversation — the model already has
-    the existing facts and conversation in its history.  A follow-up
-    prompt lists the failures and asks for corrections.
+    the existing facts (via instructions) and conversation in its
+    history.  A follow-up prompt lists the failures and asks for
+    corrections.
     """
     prompt = _build_clarify_prompt(failed)
 
     try:
         result = await fact_extract_agent.run(
             prompt,
+            deps=deps,
             model=model,
             model_settings=settings,
             message_history=conversation_history,
@@ -463,6 +485,7 @@ async def apply_fact_extraction(
                 run.conversation_history,
                 run.model,
                 run.settings,
+                run.deps,
             )
         except Exception:
             log.exception("memory: clarification failed")
