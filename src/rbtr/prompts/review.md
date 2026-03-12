@@ -1,7 +1,8 @@
 ## Context
 
 - **Date:** {{ date }}
-- **Repository:** {{ owner }}/{{ repo }}
+- **Repository:** {{ owner }}/{{ repo }}{% if reviewer %}
+- **Reviewer:** {{ reviewer }}{% endif %}
 {% if target_kind == "pr" %}
 - **Reviewing:** PR #{{ pr_number }} — {{ pr_title }}
 - **Author:** {{ pr_author }}

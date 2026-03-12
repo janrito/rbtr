@@ -40,7 +40,7 @@ from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import serialise_for_summary
 from rbtr.llm.usage import extract_cost
-from rbtr.prompts import render_fact_extraction, render_system
+from rbtr.prompts import render_existing_facts, render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
 from rbtr.sessions.kinds import GLOBAL_SCOPE, FragmentKind
 from rbtr.sessions.overhead import FactExtractionOverhead, FactExtractionSource
@@ -107,14 +107,9 @@ def _fact_extraction_task() -> str:
 @fact_extract_agent.instructions
 def _existing_facts(ctx: RunContext[FactExtractionDeps]) -> str:
     """Render existing facts as reference context for dedup decisions."""
-    facts = ctx.deps.existing_facts
-    parts: list[str] = ["## Existing facts\n"]
-    if facts:
-        for f in facts:
-            parts.append(f"- {f.content}")
-    else:
-        parts.append("(none)")
-    return "\n".join(parts)
+    if not ctx.deps.existing_facts:
+        return ""
+    return render_existing_facts([f.content for f in ctx.deps.existing_facts])
 
 
 def _build_clarify_prompt(failed: list[ExtractedFact]) -> str:

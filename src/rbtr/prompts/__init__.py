@@ -117,6 +117,7 @@ def _review_context(state: EngineState) -> dict[str, Any]:
         "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
         "owner": state.owner or "unknown",
         "repo": state.repo_name or "unknown",
+        "reviewer": state.gh_username,
         "target_kind": "none",
         "base_branch": "",
         "branch": "",
@@ -190,3 +191,8 @@ def render_compact() -> str:
 def render_fact_extraction() -> str:
     """Render the fact extraction task instructions."""
     return _load_template("memory_extract.md").strip()
+
+
+def render_existing_facts(facts: list[str]) -> str:
+    """Render existing facts for the fact extraction agent."""
+    return _render(_load_template("memory_existing_facts.md"), facts=facts)

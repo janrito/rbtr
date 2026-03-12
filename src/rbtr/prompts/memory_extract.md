@@ -46,13 +46,6 @@ Bad: "Uses pytest for testing" (in pyproject.toml) · "Target
 Python 3.13+" (in AGENTS.md) · "Uses ruff for linting" (in
 pyproject.toml) · "SQL in .sql files" (in AGENTS.md)
 
-## Existing facts
-
-These facts are already stored. Do NOT extract duplicates.
-If a fact is **confirmed** by the conversation, mark it
-`confirm`. If **contradicted or outdated**, mark it
-`supersede` and provide the replacement.
-
 ## Output format
 
 For each fact:
