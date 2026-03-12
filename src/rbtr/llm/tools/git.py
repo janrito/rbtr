@@ -13,11 +13,11 @@ from rbtr.git.objects import (
     diff_refs,
     diff_single,
 )
-from rbtr.llm.agent import AgentDeps, agent
-from rbtr.llm.tools.common import get_repo, limited, require_repo
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import get_repo, limited, repo_toolset
 
 
-@agent.tool(prepare=require_repo)
+@repo_toolset.tool
 def changed_files(
     ctx: RunContext[AgentDeps],
     offset: int = 0,
@@ -63,7 +63,7 @@ def changed_files(
     return result
 
 
-@agent.tool(prepare=require_repo)
+@repo_toolset.tool
 def diff(
     ctx: RunContext[AgentDeps],
     path: str = "",
@@ -123,7 +123,7 @@ def _paginate_diff(dr: DiffResult, offset: int, max_lines: int) -> str:
     return text
 
 
-@agent.tool(prepare=require_repo)
+@repo_toolset.tool
 def commit_log(
     ctx: RunContext[AgentDeps],
     offset: int = 0,

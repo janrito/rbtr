@@ -1,4 +1,4 @@
-"""File tools — read_file, grep, list_files."""
+"""File tools — read_file, list_files, grep."""
 
 from __future__ import annotations
 
@@ -10,14 +10,8 @@ from pydantic_ai import RunContext
 from rbtr.config import config
 from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.git.objects import read_blob
-from rbtr.llm.agent import AgentDeps, agent
-from rbtr.llm.tools.common import (
-    get_repo,
-    limited,
-    require_repo,
-    resolve_tool_ref,
-    validate_path,
-)
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import get_repo, limited, repo_toolset, resolve_tool_ref, validate_path
 
 
 def _read_fs_file(path: str) -> tuple[list[str], str | None]:
@@ -92,7 +86,7 @@ def _format_file_page(path: str, all_lines: list[str], offset: int, max_lines: i
     return output
 
 
-@agent.tool(prepare=require_repo)
+@repo_toolset.tool
 def read_file(
     ctx: RunContext[AgentDeps],
     path: str,
@@ -140,7 +134,76 @@ def read_file(
     return _format_file_page(path, fs_lines, offset, capped)
 
 
-@agent.tool(prepare=require_repo)
+@repo_toolset.tool
+def list_files(
+    ctx: RunContext[AgentDeps],
+    path: str = "",
+    ref: str = "head",
+    offset: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """List files in the repository or a subdirectory.
+
+    Args:
+        path: Directory prefix to scope the listing
+            (e.g. `src/api`, `.rbtr/`).
+            Empty string (default) lists from the repo root.
+        ref: Which version of the codebase to read
+            (defaults to `"head"`).
+        offset: Number of entries to skip (default 0).
+        max_results: Maximum entries to return per call
+            (defaults to `tools.max_results` config value).
+    """
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+
+    # Try git tree first.
+    repo = get_repo(ctx)
+    resolved = resolve_tool_ref(ctx, ref)
+    try:
+        commit = resolve_commit(repo, resolved)
+    except KeyError:
+        return f"Ref '{ref}' not found."
+
+    prefix = path.rstrip("/")
+    git_entries: list[str] = []
+    for entry_path, _blob in walk_tree(repo, commit.tree, ""):
+        if prefix and not entry_path.startswith(prefix + "/") and entry_path != prefix:
+            continue
+        git_entries.append(entry_path)
+
+    if git_entries:
+        git_entries.sort()
+        return _format_file_list(git_entries, offset, limit)
+
+    # Fall back to local filesystem when path is set.
+    if path:
+        fs_entries = _list_fs_files(path, repo=repo)
+        if fs_entries:
+            return _format_file_list(fs_entries, offset, limit)
+
+    return f"No files found under '{path}'." if path else "No files in repository."
+
+
+def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
+    """Format a paginated file listing."""
+    total = len(entries)
+    page = entries[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} files."
+    header = f"Files ({total}):"
+    listing = "\n".join(f"  {e}" for e in page)
+    result = f"{header}\n{listing}"
+    shown = offset + len(page)
+    if shown < total:
+        result += limited(shown, total, hint=f"offset={shown} to continue")
+    return result
+
+
+@repo_toolset.tool
 def grep(
     ctx: RunContext[AgentDeps],
     search: str | int | float,
@@ -443,73 +506,4 @@ def _grep_tree(
     shown = offset + len(page)
     if shown < total_groups:
         result += limited(shown, total_groups, hint=f"offset={shown} to see more match groups")
-    return result
-
-
-@agent.tool(prepare=require_repo)
-def list_files(
-    ctx: RunContext[AgentDeps],
-    path: str = "",
-    ref: str = "head",
-    offset: int = 0,
-    max_results: int | None = None,
-) -> str:
-    """List files in the repository or a subdirectory.
-
-    Args:
-        path: Directory prefix to scope the listing
-            (e.g. `src/api`, `.rbtr/`).
-            Empty string (default) lists from the repo root.
-        ref: Which version of the codebase to read
-            (defaults to `"head"`).
-        offset: Number of entries to skip (default 0).
-        max_results: Maximum entries to return per call
-            (defaults to `tools.max_results` config value).
-    """
-    limit = (
-        min(max_results, config.tools.max_results)
-        if max_results is not None
-        else config.tools.max_results
-    )
-
-    # Try git tree first.
-    repo = get_repo(ctx)
-    resolved = resolve_tool_ref(ctx, ref)
-    try:
-        commit = resolve_commit(repo, resolved)
-    except KeyError:
-        return f"Ref '{ref}' not found."
-
-    prefix = path.rstrip("/")
-    git_entries: list[str] = []
-    for entry_path, _blob in walk_tree(repo, commit.tree, ""):
-        if prefix and not entry_path.startswith(prefix + "/") and entry_path != prefix:
-            continue
-        git_entries.append(entry_path)
-
-    if git_entries:
-        git_entries.sort()
-        return _format_file_list(git_entries, offset, limit)
-
-    # Fall back to local filesystem when path is set.
-    if path:
-        fs_entries = _list_fs_files(path, repo=repo)
-        if fs_entries:
-            return _format_file_list(fs_entries, offset, limit)
-
-    return f"No files found under '{path}'." if path else "No files in repository."
-
-
-def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
-    """Format a paginated file listing."""
-    total = len(entries)
-    page = entries[offset : offset + limit]
-    if not page:
-        return f"Offset {offset} exceeds {total} files."
-    header = f"Files ({total}):"
-    listing = "\n".join(f"  {e}" for e in page)
-    result = f"{header}\n{listing}"
-    shown = offset + len(page)
-    if shown < total:
-        result += limited(shown, total, hint=f"offset={shown} to continue")
     return result

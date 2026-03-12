@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from rbtr.llm.agent import AgentDeps, _index_status as index_status
+from rbtr.llm.agent import _index_status as index_status
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import _index_tool_names
 from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
@@ -69,7 +70,7 @@ def test_index_not_ready_warns() -> None:
 
 
 def test_index_tool_names_matches_registered_tools() -> None:
-    """Introspected tool list includes all tools guarded by _require_index."""
+    """Introspected tool list includes all tools registered on index_toolset."""
     names = _index_tool_names()
     assert len(names) >= 5, f"expected ≥5 index tools, got {names}"
     assert "search" in names

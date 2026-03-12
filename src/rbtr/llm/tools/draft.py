@@ -12,8 +12,8 @@ from rbtr.git.objects import (
     resolve_anchor,
 )
 from rbtr.github.draft import draft_path, draft_transaction, load_draft, save_draft
-from rbtr.llm.agent import AgentDeps, agent
-from rbtr.llm.tools.common import limited, require_pr_target
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import limited, review_toolset
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
 
 
@@ -136,7 +136,7 @@ def _validate_comment_location(
     return None
 
 
-@agent.tool(prepare=require_pr_target)
+@review_toolset.tool
 def add_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
@@ -211,7 +211,7 @@ def add_draft_comment(
     return f"Comment added ({path}:{line}). Draft has {len(draft.comments)} comment(s)."
 
 
-@agent.tool(prepare=require_pr_target)
+@review_toolset.tool
 def edit_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
@@ -260,7 +260,7 @@ def edit_draft_comment(
         return f"Comment updated ({updated.path}:{updated.line})."
 
 
-@agent.tool(prepare=require_pr_target)
+@review_toolset.tool
 def remove_draft_comment(
     ctx: RunContext[AgentDeps],
     path: str,
@@ -310,7 +310,7 @@ def remove_draft_comment(
         )
 
 
-@agent.tool(prepare=require_pr_target)
+@review_toolset.tool
 def set_draft_summary(
     ctx: RunContext[AgentDeps],
     summary: str,
@@ -333,7 +333,7 @@ def set_draft_summary(
     return f"Review summary updated ({len(summary)} chars)."
 
 
-@agent.tool(prepare=require_pr_target)
+@review_toolset.tool
 def read_draft(
     ctx: RunContext[AgentDeps],
     offset: int = 0,

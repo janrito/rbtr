@@ -22,8 +22,8 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
 from rbtr.engine import Engine
 from rbtr.events import Event, TextDelta, ToolCallFinished, ToolCallStarted
-from rbtr.llm.agent import AgentDeps
 from rbtr.llm.context import LLMContext
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.stream import _do_stream
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState

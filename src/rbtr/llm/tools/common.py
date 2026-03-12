@@ -1,7 +1,7 @@
 """Shared helpers for LLM tool modules.
 
-Prepare functions control tool visibility based on engine state.
-Accessor helpers extract typed values from ``RunContext``.
+Toolset instances, filter functions, accessor helpers, and output
+formatting shared across tool modules.
 """
 
 from __future__ import annotations
@@ -9,57 +9,63 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 
 import pygit2
-from pydantic_ai import RunContext
+from pydantic_ai import FunctionToolset, RunContext
 from pydantic_ai.tools import ToolDefinition
 
 from rbtr.index.store import IndexStore
-from rbtr.llm.agent import AgentDeps, agent
+from rbtr.llm.deps import AgentDeps
 from rbtr.models import PRTarget
 
-# ── Prepare functions ────────────────────────────────────────────────
+# ── Toolset instances ────────────────────────────────────────────────
+#
+# All four toolsets live here so tool modules (file.py, git.py, etc.)
+# can register on the same instance without importing each other.
+
+index_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
+"""Index tools — `search`, `changed_symbols`, `find_references`, `read_symbol`, `list_symbols`."""
+
+repo_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
+"""Git + file tools — `changed_files`, `diff`, `commit_log`, `read_file`, `list_files`, `grep`."""
+
+review_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
+"""PR feedback tools — `add_draft_comment`, `edit_draft_comment`, etc."""
+
+workspace_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
+"""Persistent workspace tools — `edit`, `remember`."""
 
 
-async def require_index(
-    ctx: RunContext[AgentDeps],
-    tool_def: ToolDefinition,
-) -> ToolDefinition | None:
-    """Return the tool definition only when an index is available."""
-    if ctx.deps.state.index is None or ctx.deps.state.review_target is None:
-        return None
-    return tool_def
+# ── Filter functions (used by FilteredToolset wrappers) ──────────────
 
 
-async def require_repo(
-    ctx: RunContext[AgentDeps],
-    tool_def: ToolDefinition,
-) -> ToolDefinition | None:
-    """Return the tool definition only when a repo + review target is available."""
-    if ctx.deps.state.repo is None or ctx.deps.state.review_target is None:
-        return None
-    return tool_def
+def has_index(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bool:
+    """True when both the code index and a review target exist."""
+    return ctx.deps.state.index is not None and ctx.deps.state.review_target is not None
+
+
+def has_repo(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bool:
+    """True when both a git repository and a review target exist."""
+    return ctx.deps.state.repo is not None and ctx.deps.state.review_target is not None
+
+
+def has_pr_target(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bool:
+    """True when a PR target is selected (no GitHub auth needed)."""
+    return isinstance(ctx.deps.state.review_target, PRTarget)
+
+
+# ── Per-tool prepare functions (exceptions — only for stricter gates) ─
 
 
 async def require_pr(
     ctx: RunContext[AgentDeps],
     tool_def: ToolDefinition,
 ) -> ToolDefinition | None:
-    """Return the tool definition only when a PR target and GitHub auth are available."""
+    """Return the tool definition only when a PR target and GitHub auth are available.
+
+    Used as a per-tool prepare on `get_pr_discussion` — stricter
+    than the group-level `has_pr_target` filter.
+    """
     state = ctx.deps.state
     if state.gh is None or not isinstance(state.review_target, PRTarget):
-        return None
-    return tool_def
-
-
-async def require_pr_target(
-    ctx: RunContext[AgentDeps],
-    tool_def: ToolDefinition,
-) -> ToolDefinition | None:
-    """Return the tool definition only when a PR target is selected.
-
-    Unlike ``require_pr``, does not require GitHub auth — draft
-    management is purely local.
-    """
-    if not isinstance(ctx.deps.state.review_target, PRTarget):
         return None
     return tool_def
 
@@ -134,13 +140,9 @@ def limited(shown: int, total: int, *, hint: str) -> str:
     return f"\n\n... limited ({shown}/{total}). {hint}"
 
 
-# ── Agent introspection ──────────────────────────────────────────────
+# ── Toolset introspection ────────────────────────────────────────────
 
 
 def _index_tool_names() -> list[str]:
-    """Return names of tools that use :func:`require_index` as their prepare function."""
-    return sorted(
-        name
-        for name, tool in agent._function_toolset.tools.items()
-        if tool.prepare is require_index
-    )
+    """Return names of tools registered on the index toolset."""
+    return sorted(index_toolset.tools.keys())

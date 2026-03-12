@@ -6,8 +6,8 @@ from pydantic_ai import RunContext
 
 from rbtr.config import config
 from rbtr.github.client import get_pr_discussion as fetch_pr_discussion
-from rbtr.llm.agent import AgentDeps, agent
-from rbtr.llm.tools.common import limited, require_pr
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import limited, require_pr, review_toolset
 from rbtr.models import DiscussionEntry, DiscussionEntryKind, PRTarget
 
 
@@ -50,7 +50,7 @@ def format_discussion_entry(entry: DiscussionEntry) -> str:
     return "\n".join(parts)
 
 
-@agent.tool(prepare=require_pr)
+@review_toolset.tool(prepare=require_pr)
 def get_pr_discussion(
     ctx: RunContext[AgentDeps],
     offset: int = 0,

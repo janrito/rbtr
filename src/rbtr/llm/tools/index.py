@@ -1,4 +1,4 @@
-"""Index tools — search, read_symbol, list_symbols, find_references, changed_symbols."""
+"""Index tools — search, changed_symbols, find_references, read_symbol, list_symbols."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ from pydantic_ai import RunContext
 from rbtr.config import config
 from rbtr.index.models import ChunkKind, EdgeKind
 from rbtr.index.orchestrator import compute_diff
-from rbtr.llm.agent import AgentDeps, agent
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import (
     get_store,
     head_commit,
+    index_toolset,
     limited,
-    require_index,
     resolve_tool_ref,
     validate_path,
 )
 
 
-@agent.tool(prepare=require_index)
+@index_toolset.tool
 def search(
     ctx: RunContext[AgentDeps],
     query: str,
@@ -65,105 +65,74 @@ def search(
     return result
 
 
-@agent.tool(prepare=require_index)
-def read_symbol(
+@index_toolset.tool
+def changed_symbols(
     ctx: RunContext[AgentDeps],
-    name: str,
-    ref: str = "head",
-) -> str:
-    """Read the full source code of a symbol from the index.
-
-    Args:
-        name: Short name to match (e.g. `MQ`,
-            `parse_config`).  Case-insensitive substring match.
-            Returns the first matching code symbol.  Use short
-            names, not fully-qualified paths — `MQ` not
-            `lib.mq.MQ`.
-        ref: Which version of the codebase to read
-            (defaults to `"head"`).
-    """
-    store = get_store(ctx)
-    resolved = resolve_tool_ref(ctx, ref)
-    matches = store.search_by_name(resolved, name)
-
-    code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
-    symbols = [c for c in matches if c.kind in code_kinds]
-
-    if not symbols:
-        return f"No symbol matching '{name}'. Use search with a shorter substring."
-
-    sym = symbols[0]
-    header = f"# {sym.kind} {sym.scope + '.' if sym.scope else ''}{sym.name}"
-    location = f"# {sym.file_path}:{sym.line_start}-{sym.line_end}"
-    content_lines = sym.content.splitlines()
-    max_lines = config.tools.max_lines
-    if len(content_lines) > max_lines:
-        body = "\n".join(content_lines[:max_lines])
-        total = len(content_lines)
-        return f"{header}\n{location}\n\n{body}" + limited(
-            max_lines,
-            total,
-            hint=f"use read_file('{sym.file_path}', offset={max_lines}) to continue",
-        )
-    return f"{header}\n{location}\n\n{sym.content}"
-
-
-@agent.tool(prepare=require_index)
-def list_symbols(
-    ctx: RunContext[AgentDeps],
-    path: str,
-    ref: str = "head",
     offset: int = 0,
-    max_results: int | None = None,
+    max_lines: int | None = None,
 ) -> str:
-    """List the symbols (functions, classes, methods) in a file.
+    """List symbols changed between base and head.
 
     Args:
-        path: File path relative to repo root
-            (e.g. `src/api/handler.py`).
-        ref: Which version of the codebase to read
-            (defaults to `"head"`).
-        offset: Number of symbols to skip (default 0).
-        max_results: Maximum symbols to return per call
-            (defaults to `tools.max_results` config value).
+        offset: Number of output lines to skip (default 0).
+        max_lines: Maximum lines to return per call
+            (defaults to `tools.max_lines` config value).
     """
-    if err := validate_path(path):
-        return err
-
     store = get_store(ctx)
-    resolved = resolve_tool_ref(ctx, ref)
-    chunks = store.get_chunks(resolved, file_path=path)
-    code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
-    symbols = sorted(
-        (c for c in chunks if c.kind in code_kinds),
-        key=lambda c: c.line_start,
-    )
+    target = ctx.deps.state.review_target
+    if target is None:
+        return "No review target selected."
 
-    if not symbols:
-        return f"No symbols found in '{path}' at ref '{ref}'."
+    sd = compute_diff(target.base_commit, target.head_commit, store)
+    sections: list[str] = []
 
-    total = len(symbols)
+    if sd.added:
+        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.added]
+        sections.append(f"Added ({len(sd.added)}):\n" + "\n".join(lines))
+
+    if sd.removed:
+        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.removed]
+        sections.append(f"Removed ({len(sd.removed)}):\n" + "\n".join(lines))
+
+    if sd.modified:
+        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.modified]
+        sections.append(f"Modified ({len(sd.modified)}):\n" + "\n".join(lines))
+
+    if sd.stale_docs:
+        lines = [
+            f"  {doc.name} ({doc.file_path}) → {code.name} ({code.file_path})"
+            for doc, code in sd.stale_docs
+        ]
+        sections.append(f"Stale docs ({len(sd.stale_docs)}):\n" + "\n".join(lines))
+
+    if sd.missing_tests:
+        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.missing_tests]
+        sections.append(f"Missing tests ({len(sd.missing_tests)}):\n" + "\n".join(lines))
+
+    if sd.broken_edges:
+        lines = [f"  {e.source_id} → {e.target_id}  ({e.kind})" for e in sd.broken_edges]
+        sections.append(f"Broken edges ({len(sd.broken_edges)}):\n" + "\n".join(lines))
+
+    if not sections:
+        return "No structural differences between base and head."
+
+    all_lines = "\n\n".join(sections).splitlines()
+    total = len(all_lines)
     limit = (
-        min(max_results, config.tools.max_results)
-        if max_results is not None
-        else config.tools.max_results
+        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
     )
-    page = symbols[offset : offset + limit]
+    page = all_lines[offset : offset + limit]
     if not page:
-        return f"Offset {offset} exceeds {total} symbols."
-
-    lines = [f"# {path}  ({total} symbols)"]
-    for s in page:
-        scope = f"{s.scope}." if s.scope else ""
-        lines.append(f"  {s.line_start:>4d}  {s.kind} {scope}{s.name}")
-    result = "\n".join(lines)
-    shown = offset + len(page)
-    if shown < total:
-        result += limited(shown, total, hint=f"offset={shown} to continue")
+        return f"Offset {offset} exceeds {total} lines."
+    result = "\n".join(page)
+    if offset + len(page) < total:
+        result += limited(
+            offset + len(page), total, hint=f"offset={offset + len(page)} to continue"
+        )
     return result
 
 
-@agent.tool(prepare=require_index)
+@index_toolset.tool
 def find_references(
     ctx: RunContext[AgentDeps],
     name: str,
@@ -230,68 +199,99 @@ def find_references(
     return result
 
 
-@agent.tool(prepare=require_index)
-def changed_symbols(
+@index_toolset.tool
+def read_symbol(
     ctx: RunContext[AgentDeps],
-    offset: int = 0,
-    max_lines: int | None = None,
+    name: str,
+    ref: str = "head",
 ) -> str:
-    """List symbols changed between base and head.
+    """Read the full source code of a symbol from the index.
 
     Args:
-        offset: Number of output lines to skip (default 0).
-        max_lines: Maximum lines to return per call
-            (defaults to `tools.max_lines` config value).
+        name: Short name to match (e.g. `MQ`,
+            `parse_config`).  Case-insensitive substring match.
+            Returns the first matching code symbol.  Use short
+            names, not fully-qualified paths — `MQ` not
+            `lib.mq.MQ`.
+        ref: Which version of the codebase to read
+            (defaults to `"head"`).
     """
     store = get_store(ctx)
-    target = ctx.deps.state.review_target
-    if target is None:
-        return "No review target selected."
+    resolved = resolve_tool_ref(ctx, ref)
+    matches = store.search_by_name(resolved, name)
 
-    sd = compute_diff(target.base_commit, target.head_commit, store)
-    sections: list[str] = []
+    code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
+    symbols = [c for c in matches if c.kind in code_kinds]
 
-    if sd.added:
-        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.added]
-        sections.append(f"Added ({len(sd.added)}):\n" + "\n".join(lines))
+    if not symbols:
+        return f"No symbol matching '{name}'. Use search with a shorter substring."
 
-    if sd.removed:
-        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.removed]
-        sections.append(f"Removed ({len(sd.removed)}):\n" + "\n".join(lines))
-
-    if sd.modified:
-        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.modified]
-        sections.append(f"Modified ({len(sd.modified)}):\n" + "\n".join(lines))
-
-    if sd.stale_docs:
-        lines = [
-            f"  {doc.name} ({doc.file_path}) → {code.name} ({code.file_path})"
-            for doc, code in sd.stale_docs
-        ]
-        sections.append(f"Stale docs ({len(sd.stale_docs)}):\n" + "\n".join(lines))
-
-    if sd.missing_tests:
-        lines = [f"  {c.kind} {c.name}  ({c.file_path}:{c.line_start})" for c in sd.missing_tests]
-        sections.append(f"Missing tests ({len(sd.missing_tests)}):\n" + "\n".join(lines))
-
-    if sd.broken_edges:
-        lines = [f"  {e.source_id} → {e.target_id}  ({e.kind})" for e in sd.broken_edges]
-        sections.append(f"Broken edges ({len(sd.broken_edges)}):\n" + "\n".join(lines))
-
-    if not sections:
-        return "No structural differences between base and head."
-
-    all_lines = "\n\n".join(sections).splitlines()
-    total = len(all_lines)
-    limit = (
-        min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
-    )
-    page = all_lines[offset : offset + limit]
-    if not page:
-        return f"Offset {offset} exceeds {total} lines."
-    result = "\n".join(page)
-    if offset + len(page) < total:
-        result += limited(
-            offset + len(page), total, hint=f"offset={offset + len(page)} to continue"
+    sym = symbols[0]
+    header = f"# {sym.kind} {sym.scope + '.' if sym.scope else ''}{sym.name}"
+    location = f"# {sym.file_path}:{sym.line_start}-{sym.line_end}"
+    content_lines = sym.content.splitlines()
+    max_lines = config.tools.max_lines
+    if len(content_lines) > max_lines:
+        body = "\n".join(content_lines[:max_lines])
+        total = len(content_lines)
+        return f"{header}\n{location}\n\n{body}" + limited(
+            max_lines,
+            total,
+            hint=f"use read_file('{sym.file_path}', offset={max_lines}) to continue",
         )
+    return f"{header}\n{location}\n\n{sym.content}"
+
+
+@index_toolset.tool
+def list_symbols(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    ref: str = "head",
+    offset: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """List the symbols (functions, classes, methods) in a file.
+
+    Args:
+        path: File path relative to repo root
+            (e.g. `src/api/handler.py`).
+        ref: Which version of the codebase to read
+            (defaults to `"head"`).
+        offset: Number of symbols to skip (default 0).
+        max_results: Maximum symbols to return per call
+            (defaults to `tools.max_results` config value).
+    """
+    if err := validate_path(path):
+        return err
+
+    store = get_store(ctx)
+    resolved = resolve_tool_ref(ctx, ref)
+    chunks = store.get_chunks(resolved, file_path=path)
+    code_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
+    symbols = sorted(
+        (c for c in chunks if c.kind in code_kinds),
+        key=lambda c: c.line_start,
+    )
+
+    if not symbols:
+        return f"No symbols found in '{path}' at ref '{ref}'."
+
+    total = len(symbols)
+    limit = (
+        min(max_results, config.tools.max_results)
+        if max_results is not None
+        else config.tools.max_results
+    )
+    page = symbols[offset : offset + limit]
+    if not page:
+        return f"Offset {offset} exceeds {total} symbols."
+
+    lines = [f"# {path}  ({total} symbols)"]
+    for s in page:
+        scope = f"{s.scope}." if s.scope else ""
+        lines.append(f"  {s.line_start:>4d}  {s.kind} {scope}{s.name}")
+    result = "\n".join(lines)
+    shown = offset + len(page)
+    if shown < total:
+        result += limited(shown, total, hint=f"offset={shown} to continue")
     return result

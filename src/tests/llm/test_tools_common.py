@@ -1,15 +1,17 @@
-"""Tests for tool prepare functions (tool visibility guards)."""
+"""Tests for toolset filter and per-tool prepare functions."""
 
 from __future__ import annotations
 
 import tempfile
-from unittest.mock import MagicMock
 
 import pygit2
 import pytest
+from github import Github
+from pydantic_ai.tools import ToolDefinition
+from pytest_mock import MockerFixture
 
 from rbtr.index.store import IndexStore
-from rbtr.llm.tools.common import require_index, require_pr, require_pr_target, require_repo
+from rbtr.llm.tools.common import has_index, has_pr_target, has_repo, require_pr
 from rbtr.models import BranchTarget, PRTarget
 from rbtr.state import EngineState
 
@@ -36,13 +38,14 @@ _PR_TARGET = PRTarget(
     updated_at=0,
 )
 
+_TOOL_DEF = ToolDefinition(name="test_tool")
 
-# ── require_index ────────────────────────────────────────────────────
+
+# ── has_index ────────────────────────────────────────────────────────
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("has_index", "has_target", "expected_visible"),
+    ("has_idx", "has_target", "expected"),
     [
         (False, True, False),
         (True, False, False),
@@ -51,38 +54,32 @@ _PR_TARGET = PRTarget(
     ],
     ids=["no_index", "no_target", "neither", "both"],
 )
-async def test_require_index(
-    has_index: bool,
+def test_has_index(
+    has_idx: bool,
     has_target: bool,
-    expected_visible: bool,
+    expected: bool,
 ) -> None:
-    """Tool is visible only when both index and review target exist."""
+    """Filter returns True only when both index and review target exist."""
     state = EngineState()
     store: IndexStore | None = None
-    if has_index:
+    if has_idx:
         store = IndexStore()
         state.index = store
     if has_target:
         state.review_target = _BRANCH_TARGET
 
-    tool_def = object()
-    result = await require_index(FakeCtx(state), tool_def)  # type: ignore[arg-type]
-
-    if expected_visible:
-        assert result is tool_def
-    else:
-        assert result is None
+    result = has_index(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+    assert result is expected
 
     if store is not None:
         store.close()
 
 
-# ── require_repo ─────────────────────────────────────────────────────
+# ── has_repo ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("has_repo", "has_target", "expected_visible"),
+    ("has_rp", "has_target", "expected"),
     [
         (False, True, False),
         (True, False, False),
@@ -91,29 +88,24 @@ async def test_require_index(
     ],
     ids=["no_repo", "no_target", "neither", "both"],
 )
-async def test_require_repo(
-    has_repo: bool,
+def test_has_repo(
+    has_rp: bool,
     has_target: bool,
-    expected_visible: bool,
+    expected: bool,
 ) -> None:
-    """Tool is visible only when both repo and review target exist."""
+    """Filter returns True only when both repo and review target exist."""
     with tempfile.TemporaryDirectory() as tmp:
         state = EngineState()
-        if has_repo:
+        if has_rp:
             state.repo = pygit2.init_repository(tmp)
         if has_target:
             state.review_target = _BRANCH_TARGET
 
-        tool_def = object()
-        result = await require_repo(FakeCtx(state), tool_def)  # type: ignore[arg-type]
-
-        if expected_visible:
-            assert result is tool_def
-        else:
-            assert result is None
+        result = has_repo(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+        assert result is expected
 
 
-# ── require_pr ───────────────────────────────────────────────────────
+# ── require_pr (per-tool prepare — stricter than group filter) ───────
 
 
 @pytest.mark.anyio
@@ -131,29 +123,28 @@ async def test_require_pr(
     has_gh: bool,
     target: object,
     expected_visible: bool,
+    mocker: MockerFixture,
 ) -> None:
     """Tool is visible only when both GitHub auth and a PR target exist."""
     state = EngineState()
     if has_gh:
-        state.gh = MagicMock()
+        state.gh = mocker.create_autospec(Github, instance=True)
         state.gh_username = "reviewer"
     state.review_target = target  # type: ignore[assignment]
 
-    tool_def = object()
-    result = await require_pr(FakeCtx(state), tool_def)  # type: ignore[arg-type]
+    result = await require_pr(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
 
     if expected_visible:
-        assert result is tool_def
+        assert result is _TOOL_DEF
     else:
         assert result is None
 
 
-# ── require_pr_target ────────────────────────────────────────────────
+# ── has_pr_target ────────────────────────────────────────────────────
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("target", "expected_visible"),
+    ("target", "expected"),
     [
         (None, False),
         (_BRANCH_TARGET, False),
@@ -161,18 +152,13 @@ async def test_require_pr(
     ],
     ids=["no_target", "branch_target", "pr_target"],
 )
-async def test_require_pr_target(
+def test_has_pr_target(
     target: object,
-    expected_visible: bool,
+    expected: bool,
 ) -> None:
-    """Tool is visible when a PR target is selected (no GitHub auth needed)."""
+    """Filter returns True when a PR target is selected."""
     state = EngineState()
     state.review_target = target  # type: ignore[assignment]
 
-    tool_def = object()
-    result = await require_pr_target(FakeCtx(state), tool_def)  # type: ignore[arg-type]
-
-    if expected_visible:
-        assert result is tool_def
-    else:
-        assert result is None
+    result = has_pr_target(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+    assert result is expected

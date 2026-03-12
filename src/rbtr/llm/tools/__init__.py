@@ -1,20 +1,16 @@
 """LLM tools — expose the code index and git history to the agent.
 
-Each tool is registered on the shared ``agent`` instance via
-``@agent.tool``.  Submodules are imported for their side effects
-(decorator registration).
-
-Import tools directly from their submodule::
-
-    from rbtr.llm.tools.file import grep
-    from rbtr.llm.tools.draft import add_draft_comment
+Submodule imports below trigger ``@toolset.tool`` registration.
+Import order determines tool presentation order within
+cross-module toolsets (e.g. git before file on ``repo_toolset``).
 """
 
-# Side-effect imports: each submodule registers @agent.tool decorators.
-import rbtr.llm.tools.discussion
-import rbtr.llm.tools.draft
-import rbtr.llm.tools.file
-import rbtr.llm.tools.git
-import rbtr.llm.tools.index
-import rbtr.llm.tools.memory
-import rbtr.llm.tools.notes  # noqa: F401
+# isort: off
+from . import index as index
+from . import git as git
+from . import file as file
+from . import discussion as discussion
+from . import draft as draft
+from . import notes as notes
+from . import memory as memory
+# isort: on

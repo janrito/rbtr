@@ -47,9 +47,10 @@ from rbtr.sessions.incidents import (
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.scrub import scrub_secrets
 
-from .agent import AgentDeps, agent
+from .agent import agent
 from .compact import CompactionTrigger, compact_history, compact_history_async
 from .context import LLMContext
+from .deps import AgentDeps
 from .errors import is_context_overflow, is_effort_unsupported
 from .history import (
     consolidate_tool_returns,

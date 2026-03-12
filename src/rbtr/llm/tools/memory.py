@@ -6,7 +6,8 @@ from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 
 from rbtr.config import config
-from rbtr.llm.agent import AgentDeps, agent
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import workspace_toolset
 from rbtr.sessions.kinds import GLOBAL_SCOPE
 
 
@@ -20,7 +21,7 @@ async def _require_memory(
     return tool_def
 
 
-@agent.tool(prepare=_require_memory)
+@workspace_toolset.tool(prepare=_require_memory)
 def remember(
     ctx: RunContext[AgentDeps],
     content: str,

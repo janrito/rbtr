@@ -15,7 +15,7 @@ import pytest
 from pydantic_ai import RunContext
 
 from rbtr.github.draft import load_draft, save_draft
-from rbtr.llm.agent import AgentDeps
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.draft import (
     add_draft_comment,
     edit_draft_comment,

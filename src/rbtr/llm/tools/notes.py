@@ -8,7 +8,8 @@ from pydantic_ai import RunContext
 
 from rbtr.config import config
 from rbtr.git.filters import _matches_globs
-from rbtr.llm.agent import AgentDeps, agent
+from rbtr.llm.deps import AgentDeps
+from rbtr.llm.tools.common import workspace_toolset
 
 
 def _is_editable(path: str) -> bool:
@@ -20,7 +21,7 @@ def _is_editable(path: str) -> bool:
     return _matches_globs(path, config.tools.editable_include)
 
 
-@agent.tool
+@workspace_toolset.tool
 def edit(
     ctx: RunContext[AgentDeps],
     path: str,
