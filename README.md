@@ -1,38 +1,201 @@
 # rbtr
 
-An interactive, terminal-based PR review workbench powered by LLMs.
-rbtr sits alongside you while you review a PR — it helps you reason
-through changes, explore the code, and write clear feedback for the
-author.
+A terminal-based code review harness powered by LLMs. rbtr
+indexes your repository, reads the diff, understands the
+structure of the code — commit messages, PR description,
+existing discussion — and helps you reason through the
+changes. It writes structured review comments and posts
+them to GitHub.
 
-## Quick start
+It connects to Claude, GPT, Gemini, and any OpenAI-compatible
+endpoint. Conversations are saved automatically and survive
+crashes. Long sessions compact themselves so the model never
+loses context.
+
+## Install
 
 ```bash
-# Install (requires Python 3.13+)
+# Requires Python 3.13+
 uv tool install -e .
-
-# Launch in any git repo
-rbtr
-
-# Or jump straight to a PR
-rbtr 42
 ```
 
-rbtr opens an interactive session in your terminal. Type plain text
-to talk to the LLM, prefix with `/` for commands, or prefix with `!`
-to run shell commands without leaving the session:
+## Your first review
+
+```bash
+rbtr                  # launch in a git repo
+```
+
+Connect a provider, select a PR, and ask the model to review:
 
 ```text
-you: explain the retry logic in src/client.py
-claude/claude-sonnet-4-20250514: The retry logic uses exponential backoff…
-
-you: !git diff HEAD~3 --stat
- src/client.py | 12 ++++++------
- 1 file changed, 6 insertions(+), 6 deletions(-)
+you: /connect claude
+Opening browser to sign in with your Claude account…
+Connected to Claude. LLM is ready.
 
 you: /review 42
 Fetching PR #42…
+⟳ indexing 177 files…
 ```
+
+The model has 18 tools — it reads files, searches the index,
+inspects the diff, and follows references across the codebase.
+Ask it anything about the changes:
+
+```text
+you: explain the nature of the changes, focus on error handling
+
+claude: [reads diff, searches for retry logic, reads related files]
+
+The PR adds retry logic to the HTTP client but has two issues:
+
+1. **No backoff** — `src/client.py:42` retries immediately
+   in a tight loop. Under load this will hammer the server.
+
+2. **Unused import** — `src/client.py:89` imports `sleep`
+   but the retry loop uses `time.sleep` directly.
+
+I've added both as draft comments.
+
+you: the first one is a blocker, mark it as such
+```
+
+Inspect and post the draft:
+
+```text
+you: /draft
+
+## 2 comments
+
+### src/client.py
+
+  ★ 1. L:42
+  > resp = session.get(url)
+  **blocker:** Retries without backoff. Under load this
+  hammers the server. Use exponential backoff.
+
+  ★ 2. L:89
+  > from time import sleep
+  **nit:** Unused import — `sleep` is never called.
+
+## Summary
+
+Two issues in the retry logic. The missing backoff is a
+blocker; the unused import is minor.
+
+you: /draft post
+Review posted.
+```
+
+You can also start without a PR — `rbtr` opens a plain
+conversation in any git repo. Use `/review` later to select
+a target.
+
+## Tools
+
+The model has 18 tools for reading code, navigating the
+codebase, and writing review feedback. Tools are hidden
+until their prerequisites are met — the model never sees
+a tool it cannot use.
+
+### Reading code
+
+The model reads changed files, referenced modules, tests,
+and config to understand context beyond the diff.
+
+| Tool         | Description                              |
+| ------------ | ---------------------------------------- |
+| `read_file`  | Read file contents, paginated by lines   |
+| `grep`       | Substring search in a file, directory,   |
+|              | or repo-wide                             |
+| `list_files` | List files in the repo or a subdirectory |
+
+### Understanding changes
+
+The model starts here — what changed, how the work was
+structured, and what the changes mean structurally.
+
+| Tool              | Description                          |
+| ----------------- | ------------------------------------ |
+| `diff`            | Unified diff (base→head), by file    |
+| `changed_files`   | Files changed in the PR              |
+| `commit_log`      | Commits between base and head        |
+| `changed_symbols` | Symbols added, removed, or modified. |
+|                   | Flags stale docs and missing tests   |
+
+### Navigating the codebase
+
+The code index lets the model search by name, keyword, or
+concept — and follow references to check whether a change
+breaks callers or misses related code.
+
+| Tool              | Description                          |
+| ----------------- | ------------------------------------ |
+| `search`          | Find symbols by name, keyword, or    |
+|                   | natural-language concept             |
+| `read_symbol`     | Read the full source of a symbol     |
+| `list_symbols`    | Table of contents for a file         |
+| `find_references` | Find all symbols referencing a given |
+|                   | symbol via the dependency graph      |
+
+### Writing the review
+
+The model builds the review incrementally — adding comments
+on specific lines, editing them based on discussion, and
+setting the overall summary.
+
+| Tool                   | Description                      |
+| ---------------------- | -------------------------------- |
+| `add_draft_comment`    | Inline comment on a code snippet |
+| `edit_draft_comment`   | Edit an existing comment         |
+| `remove_draft_comment` | Remove a comment                 |
+| `set_draft_summary`    | Set the top-level review body    |
+| `read_draft`           | Read the current draft           |
+
+### Context and memory
+
+The model reads existing discussion to avoid duplicating
+feedback, saves durable facts for future sessions, and
+writes notes to the workspace.
+
+| Tool                | Description                         |
+| ------------------- | ----------------------------------- |
+| `get_pr_discussion` | Existing reviews, comments, CI      |
+| `remember`          | Save a fact for future sessions     |
+| `edit`              | Create or modify `.rbtr/notes/` and |
+|                     | `.rbtr/AGENTS.md`                   |
+
+Tools that read code accept a `ref` parameter — `"head"`
+(default), `"base"`, or a raw commit SHA — so the model
+can inspect the codebase at any point in time. File tools
+read from the git object store first and fall back to the
+local filesystem for untracked files (`.rbtr/notes/`,
+drafts).
+
+All paginated tools show a trailer when output is truncated.
+Each turn is limited to 25 tool calls (configurable via
+`max_requests_per_turn`). When the limit is reached, the
+model summarises its progress and asks whether to continue.
+
+## Commands
+
+| Command                | Description                                 |
+| ---------------------- | ------------------------------------------- |
+| `/help`                | Show available commands                     |
+| `/review`              | List open PRs and branches                  |
+| `/review <id>`         | Select a PR or branch for review            |
+| `/draft`               | View, sync, or post the review draft        |
+| `/connect <service>`   | Authenticate with a service                 |
+| `/model`               | List available models from all providers    |
+| `/model <provider/id>` | Set the active model                        |
+| `/index`               | Index status, search, diagnostics, rebuild  |
+| `/compact`             | Summarise older context to free space       |
+| `/compact reset`       | Undo last compaction (before new messages)  |
+| `/session`             | List, inspect, or delete sessions           |
+| `/stats`               | Show session token and cost statistics      |
+| `/memory`              | List, extract, or purge cross-session facts |
+| `/reload`              | Show active prompt sources                  |
+| `/new`                 | Start a new conversation                    |
+| `/quit`                | Exit (also `/q`)                            |
 
 ## Providers
 
@@ -112,9 +275,12 @@ The model list is fetched lazily on first Tab completion or
 
 ### Switching models mid-conversation
 
-Conversation history is preserved when you switch models. PydanticAI's
-message format is provider-agnostic, so previous messages are converted
-automatically when sent to the new provider:
+Conversation history is preserved when you switch models.
+PydanticAI's message format is provider-agnostic, so previous
+messages are converted automatically. When a provider rejects
+history from a different provider (mismatched tool-call
+formats, thinking metadata), rbtr repairs the history in
+memory — the original messages are never modified:
 
 ```text
 you: explain the retry logic in src/client.py
@@ -131,55 +297,29 @@ Only `/new` clears history (explicit user action). The active model is
 persisted to `config.toml` across restarts. Conversation messages are
 saved automatically to the session database (see Sessions below).
 
-## Commands
+## Terminal reference
 
-| Command                | Description                                |
-| ---------------------- | ------------------------------------------ |
-| `/help`                | Show available commands                    |
-| `/review`              | List open PRs and branches                 |
-| `/review <id>`         | Select a PR or branch for review           |
-| `/draft`               | View, sync, or post the review draft       |
-| `/connect <service>`   | Authenticate with a service                |
-| `/model`               | List available models from all providers   |
-| `/model <provider/id>` | Set the active model                       |
-| `/index`               | Index status, search, diagnostics, rebuild |
-| `/compact`             | Summarise older context to free space      |
-| `/compact reset`       | Undo last compaction (before new messages) |
-| `/session`             | List, inspect, or delete sessions          |
-| `/stats`               | Show session token and cost statistics     |
-| `/memory`              | List, extract, or purge cross-session facts|
-| `/reload`              | Show active prompt sources                 |
-| `/new`                 | Start a new conversation                   |
-| `/quit`                | Exit (also `/q`)                           |
+### Shell commands
 
-## Shell commands
-
-Prefix any command with `!` to run it in a shell without leaving rbtr:
+Prefix any command with `!` to run it in a shell:
 
 ```text
 you: !git log --oneline -5
 you: !rg "TODO" src/
-you: !cat src/client.py
 ```
 
 Long output is truncated — press **Ctrl+O** to expand it.
 
-## Tab completion
+### Tab completion
 
-Tab works across all input modes:
+| Context        | Example            | Completes               |
+| -------------- | ------------------ | ----------------------- |
+| Slash commands | `/rev` → `/review` | Command names           |
+| Command args   | `/connect c`       | Providers, models, etc. |
+| Shell commands | `!git ch`          | Bash completion         |
+| File paths     | `!cat ~/Doc`       | Directories and files   |
 
-| Context           | Example            | Completes                                      |
-| ----------------- | ------------------ | ---------------------------------------------- |
-| Slash commands    | `/rev` → `/review` | Command names                                  |
-| Command arguments | `/connect c`       | Provider names, model IDs, draft subcommands   |
-| Shell commands    | `!git ch`          | Bash programmable completion (branches, flags) |
-| File paths        | `!cat ~/Doc`       | Directories and files (expands `~`)            |
-| Executables       | `!my`              | Commands found in `PATH`                       |
-
-A single match auto-accepts; multiple matches extend the common prefix
-and show a menu (capped at 20 suggestions).
-
-## Key bindings
+### Key bindings
 
 | Key       | Action                                   |
 | --------- | ---------------------------------------- |
@@ -190,317 +330,55 @@ and show a menu (capped at 20 suggestions).
 | Up/Down   | Browse history or navigate multiline     |
 | Ctrl+C    | Cancel running task (double-tap to quit) |
 | Ctrl+O    | Expand truncated shell output            |
-| Ctrl+W    | Delete word backward                     |
-| Ctrl+U    | Kill to start of line                    |
-| Ctrl+K    | Kill to end of line                      |
-| Ctrl+\_   | Undo                                     |
 
 ### Pasting
 
-rbtr enables **bracketed paste** on the terminal, so pasted
-content is never interpreted as keystrokes — newlines in pasted
-text insert newlines into the prompt instead of submitting.
+Bracketed paste is enabled — pasted newlines insert into the
+prompt instead of submitting. Large pastes collapse into an
+atomic marker (`[pasted 42 lines]`) that expands on submit.
 
-Large pastes are collapsed into an atomic marker so the input
-line stays readable:
+## Usage display
+
+The footer shows token usage and context after each response:
 
 ```text
-> review this: [pasted 42 lines]
+ owner/repo                            claude/claude-sonnet-4-20250514
+ PR #42 · feature-branch  |7| 12% of 200k ↑24.3k ↓1.2k ↯18.0k $0.045
 ```
 
-The marker is displayed in dim italic. The real content is
-stored internally and expanded back when you press Enter —
-the LLM receives the full pasted text, not the marker.
+`|7|` messages, `12%` context used, `↑` input tokens,
+`↓` output tokens, `↯` cache-read tokens, `$` cost.
+Colours shift from green to yellow to red as context fills.
+`/new` resets all counters.
 
-**Thresholds** (configurable in `config.toml` under `[tui]`):
+## Sessions
 
-| Setting                | Default | Triggers marker when…               |
-| ---------------------- | ------- | ----------------------------------- |
-| `paste_collapse_lines` | 4       | Paste has ≥ 4 lines                 |
-| `paste_collapse_chars` | 200     | Single-line paste exceeds 200 chars |
+Every conversation is saved to a local SQLite database at
+`~/.config/rbtr/sessions.db`. Messages are persisted as they
+stream — if rbtr crashes, the conversation survives up to the
+last received part.
 
-Below the threshold, pasted text appears inline as-is.
+### Persistence
 
-**Markers are atomic:**
+The message format is provider-agnostic. History is preserved
+across `/model` switches — only `/new` clears it. When
+switching providers causes a format rejection, rbtr repairs
+the history automatically in memory (the original messages are
+never modified). Repairs and failures are recorded as incidents,
+visible in `/stats`.
 
-- Cursor skips over them — Left/Right arrows jump from one
-  edge to the other.
-- Backspace or Delete at a marker edge removes the entire
-  marker and its content.
-- Kill commands (Ctrl+W, Ctrl+U, Ctrl+K) that overlap a
-  marker remove it whole.
-- Multiple pastes produce independent markers; deleting one
-  preserves the others.
-
-Marker format: `[pasted 42 lines]` for multiline,
-`[pasted 523 chars]` for long single-line. Duplicate counts
-are disambiguated: `[pasted 42 lines #2]`.
-
-### Cancellation recovery
-
-Ctrl+C cancels the current LLM turn immediately. If the
-model was mid-way through a tool-calling cycle, the model's
-response (with tool calls) is already persisted to the session
-database but some or all tool results may not be. Both
-PydanticAI and upstream provider APIs (OpenAI, Anthropic)
-reject conversations where a tool call has no matching result.
-
-rbtr detects this on the next turn by scanning the entire
-history for each `ToolCallPart` and checking whether a
-matching `ToolReturnPart` exists anywhere. Any tool call
-without a matching result gets a synthetic `(cancelled)`
-return injected. This handles both cases:
-
-- **No results saved** — all tool calls in the response are
-  patched.
-- **Partial results** — only the tool calls that were still
-  in-flight when Ctrl+C fired are patched; completed results
-  are preserved.
-
-The synthetic results are applied in memory — not persisted.
-The repair runs on every session load and produces the same
-result. A one-time warning is shown:
+Ctrl+C during a tool-calling turn cancels immediately. Any tool
+calls without results get synthetic `(cancelled)` returns so
+the conversation can continue:
 
 ```text
 ⚠ Previous turn was cancelled mid-tool-call (read_file, grep).
   Those tool results are lost — the model will continue without them.
 ```
 
-The model sees the `(cancelled)` results and can decide
-whether to retry the tool calls or proceed differently. No
-manual intervention is needed.
-
-## Usage display
-
-After the first LLM response, the footer shows token usage and context
-information:
-
-```text
- owner/repo                                    claude/claude-sonnet-4-20250514
- PR #42 · feature-branch   |7|  12% of 200k  ↑ 24.3k  ↓ 1.2k  ↯ 18.0k  $0.0450
-```
-
-| Field     | Example | Description                                     |
-| --------- | ------- | ----------------------------------------------- |
-| `\|7\|`   |         | Messages in this conversation                   |
-| `12%`     |         | Last request size as % of context window        |
-| `of 200k` |         | Model's context window size                     |
-| `↑ 24.3k` |         | Cumulative input tokens                         |
-| `↓ 1.2k`  |         | Cumulative output tokens                        |
-| `↯ 18.0k` |         | Cumulative cache-read tokens (hidden when zero) |
-| `$0.0450` |         | Cumulative cost                                 |
-
-**Colour signals help you manage context:**
-
-- **Message count** — gray (≤ 25, fresh), yellow (26–50, consider `/new`),
-  red (51+, very long).
-- **Context %** — green (< 70%), yellow (70–89%), red (90%+).
-- **Dimmed values** indicate the model didn't report pricing metadata
-  (common with custom endpoints). Context window falls back to 128k
-  and cost shows `$0.0000`.
-
-`/new` resets all counters.
-
-## Sessions
-
-Every conversation is automatically saved to a local SQLite database
-at `~/.config/rbtr/sessions.db`.
-
-### How messages are stored
-
-The database has a single `fragments` table. Each message is
-stored as **1 + N rows**:
-
-- **1 message row** — metadata (timestamps, model name, token
-  counts, cost). Self-referencing (`message_id = id`),
-  `fragment_index = 0`.
-- **N content rows** — one per part (user text, assistant text,
-  tool call, tool result, thinking, etc.), each serialised as
-  JSON. Content rows point to the message row via `message_id`
-  and have `fragment_index >= 1`.
-
-Sessions are a `session_id` column, not a separate table.
-Aggregates (message count, total cost) are computed via
-`GROUP BY`.
-
-Command and shell inputs (`/review`, `!ls`) are stored as
-single self-referencing rows (no content fragments) so they
-appear in input history.
-
-#### Example: a simple turn
-
-A user asks "list the files" and the model responds with a tool
-call to `list_directory`, gets the result, then writes a text
-answer. This produces 4 messages and ~10 rows:
-
-```text
-message row  "request"   fragment_index=0   ← user prompt metadata
-  content    "user text" fragment_index=1   ← "list the files"
-
-message row  "response"  fragment_index=0   ← model response metadata (tokens, cost)
-  content    "tool call" fragment_index=1   ← list_directory({path: "."})
-
-message row  "request"   fragment_index=0   ← tool result metadata
-  content    "tool result" fragment_index=1 ← "src/ tests/ README.md ..."
-
-message row  "response"  fragment_index=0   ← model response metadata
-  content    "text"      fragment_index=1   ← "Here are the files: ..."
-```
-
-Each row carries denormalised metadata (`session_id`,
-`model_name`, `repo_owner`, `repo_name`, `session_label`) for
-efficient queries without joins.
-
-### Streaming persistence
-
-Model responses are persisted **as they stream in**, not
-batch-saved after the turn:
-
-1. A message row is inserted with `status = 'in_progress'`.
-2. Each part is inserted as it starts streaming.
-3. Each part is updated with the final data when it finishes.
-4. The message row is set to `status = 'complete'` with cost.
-
-Only complete rows are returned by `load_messages()`, so
-partially streamed responses are invisible. User prompts
-and tool results are inserted complete immediately.
-
-### Loading and reconstruction
-
-`load_messages()` queries all non-compacted, complete fragments
-for a session, groups them by `message_id`, merges each message
-row with its content rows, and returns the reconstructed
-conversation as a list — ready to pass to the model as history.
-
-### Switching providers
-
-The message format is **provider-agnostic**. A response from
-Claude and one from GPT-4o have the same structure (text parts,
-tool calls, etc.). History is preserved across `/model`
-switches — only `/new` clears it.
-
-Providers differ in how they encode tool exchanges, reasoning
-metadata, and required message fields. PydanticAI translates
-between formats, but edge cases in long or cross-provider
-histories can produce structures that a provider rejects. rbtr
-adds several repair layers on top of PydanticAI to keep sessions
-usable across provider switches.
-
-### History repair
-
-LLM APIs require every tool call to have a matching tool result
-(and vice versa), and require tool-call arguments to be valid
-JSON. Providers also differ in wire format — tool-call ID
-schemes, required fields, reasoning metadata — so history
-produced by one provider can be structurally invalid for another.
-
-PydanticAI's internal message format is provider-agnostic, but
-providers embed provider-specific metadata that other providers
-reject. rbtr adds repair layers on top to preserve cross-provider
-session continuity.
-
-#### Immutable history principle
-
-Persisted messages are immutable. rbtr never modifies, deletes,
-or injects messages into saved conversation history. All repairs
-and adaptations are applied **transiently in memory** at load
-time. The database always retains the original conversation
-exactly as it happened.
-
-This means:
-
-- Switching to a provider that rejects thinking parts does not
-  destroy the original thinking data. The next turn with a
-  compatible provider uses the original `ThinkingPart`s.
-- A session interrupted mid-tool-call retains the original
-  dangling state. The synthetic `(cancelled)` tool returns
-  exist only in the in-memory history passed to the provider.
-- Any history transformation can be reviewed after the fact
-  via incident records that describe what was changed and why.
-
-When a repair or adaptation is applied, rbtr persists a
-structured incident record (`LLM_HISTORY_REPAIR`) alongside
-the conversation. Incident records are invisible to replay
-(`load_messages` excludes them) but queryable for diagnostics.
-
-#### On load
-
-When a session is resumed, structural damage is repaired in
-memory before the first API call. The database is not modified.
-
-**Corrupt tool-call args.** A model can produce invalid JSON for
-tool arguments during streaming (e.g. mixed XML/JSON fragments).
-PydanticAI accepts any string at validation time, so the corrupt
-data is saved to the database. The error only surfaces when the
-provider adapter tries to parse the args. rbtr sets corrupt args
-to `{}` in memory on every load — the message stays in history so
-its matching tool results are not orphaned.
-
-**Dangling tool calls.** Ctrl+C or a crash during tool execution
-leaves tool calls with no matching result. Every provider rejects
-unpaired tool calls. rbtr injects a synthetic tool result with
-content `(cancelled)` for each unmatched call in memory. When
-partial results already exist (some tools completed before
-cancellation), the synthetic returns are merged into the same
-request so the provider sees exactly one response with all
-returns — providers like Gemini enforce strict count matching.
-The repair runs on every load and produces the same result — the
-database retains the original dangling state.
-
-#### On retry
-
-When the first API call fails with a provider rejection, rbtr
-retries with escalating history simplification. All transforms
-are applied in memory — the original messages remain in the
-database unchanged. The next turn with a compatible provider uses
-the original history.
-
-**Level 1 — consolidate tool returns.** Restructures tool
-call/return grouping without destroying content. Each model
-response's matching tool returns are collected into a single
-request immediately after it — even when they were scattered
-across multiple requests or mixed with user prompts. This
-handles the most common cross-provider issue: switching to a
-provider with stricter pairing rules (e.g. Gemini requiring
-exact function-response counts per turn).
-
-**Level 2 — demote thinking + flatten tool exchanges.** If
-consolidation still fails, rbtr retries with heavier transforms:
-
-- _Thinking-part metadata._ Providers embed reasoning IDs in
-  thinking parts (`rs_*`, `reasoning_content`). A different
-  provider rejects them. rbtr converts thinking parts to plain
-  text wrapped in `<thinking>` tags — content preserved,
-  metadata stripped.
-
-- _Flatten tool exchanges (last resort)._ Converts tool calls
-  and results to plain text:
-  `[Repaired historical tool call -- tool_name(args)]`
-  and `[tool_name result]\n…`. All content survives as readable
-  text; only the machine-level pairing is removed.
-
-The retry triggers on HTTP 400 errors matching format-rejection
-patterns (unpaired tool calls, orphaned tool returns, missing
-required fields, reasoning-ID mismatches, function-call count
-mismatches), on `ValueError` from malformed tool-call args that
-survived load-time repair, and on `TypeError` from adapter
-crashes on unexpected null values.
-
-#### On compaction
-
-When history is split for context compaction (see
-[Context compaction](#context-compaction)), two mechanisms prevent
-the split from creating orphaned tool parts.
-
-**Orphaned tool returns.** A tool result can end up in the kept
-partition while its matching tool call was compacted away. rbtr
-scans the kept partition for tool-result-only messages whose
-tool-call ID has no match and moves them into the old partition.
-
-**Split between call and result.** The split point can land
-between a tool-call message and its immediately following
-tool-result message. rbtr decrements the split index until the
-boundary no longer separates a call/result pair.
+See [Conversation storage](ARCHITECTURE.md#conversation-storage)
+and [Cross-provider history repair](ARCHITECTURE.md#cross-provider-history-repair)
+in ARCHITECTURE.md.
 
 ### `/new` — starting fresh
 
@@ -586,7 +464,7 @@ repair summaries.
 When an LLM call fails and rbtr auto-recovers, or when history
 is manipulated to satisfy provider constraints, the event is
 recorded as an **incident** in the session database (see
-[History repair](#history-repair)). `/stats` surfaces these
+ARCHITECTURE.md — History repair). `/stats` surfaces these
 when they exist:
 
 ```text
@@ -702,318 +580,110 @@ fact_extraction_model = ""        # Override model (empty = session model)
 
 ## Context compaction
 
-Long conversations accumulate tokens until the model's context
-window fills up. rbtr compacts automatically — summarising older
-messages while keeping recent turns intact.
+Long conversations fill the context window. rbtr compacts
+automatically — summarising older messages while keeping
+recent turns intact.
 
-### How compaction works
+Compaction splits the conversation by turn boundaries. A turn
+starts at a user prompt and includes the model's responses,
+tool calls, and tool results. The last `keep_turns` (default 2)
+are preserved; everything older is serialised and sent to the
+model for summarisation. The original messages stay in the
+database for auditing.
 
-Compaction splits the conversation into **old** and **kept**
-messages based on `keep_turns` (default 2). A _turn_ starts at a
-user prompt and includes everything up to the next user prompt
-(the model's responses, tool calls, tool results).
+### Example
 
-After splitting, any orphaned tool returns in **kept** — tool
-results whose matching tool call is in **old** — are moved to
-**old**. This prevents API errors from mismatched tool call IDs
-after compaction.
-
-The old messages are serialised to text and sent to the current
-model with a summary prompt. The result:
-
-- **Old rows** get `compacted_by` set to the summary's row ID.
-  They become invisible to `load_messages()` but stay in the
-  database for auditing. Cleaned up when the session is deleted
-  (FK cascade).
-- **Summary** — a single message containing the LLM-generated
-  summary, prefixed with
-  `[Context summary — earlier conversation was compacted]`.
-  Timestamped to sort before the kept messages.
-- **Kept messages** — untouched, stay as-is.
-
-#### Example: compaction with `keep_turns = 2`
-
-Before compaction (5 turns):
+Before (5 turns):
 
 ```text
-turn 1:  user "set up the project"     → assistant "done, created package.json"
-turn 2:  user "add authentication"     → assistant [tool calls] → "added auth middleware"
-turn 3:  user "write tests for auth"   → assistant [tool calls] → "added 12 tests"
-turn 4:  user "fix the failing test"   → assistant [tool calls] → "fixed assertion"
-turn 5:  user "review the PR"          → assistant [reading files...] ← in progress
+turn 1:  user "set up the project"     → assistant "done"
+turn 2:  user "add authentication"     → assistant [tools] → "added auth"
+turn 3:  user "write tests for auth"   → assistant [tools] → "added 12 tests"
+turn 4:  user "fix the failing test"   → assistant [tools] → "fixed assertion"
+turn 5:  user "review the PR"          → assistant [reading files...]
 ```
 
-After compaction — turns 1–3 are summarised, turns 4–5 are kept:
+After (turns 1–3 summarised, 4–5 kept):
 
 ```text
-summary: "[Context summary] Set up project with package.json. Added auth
-          middleware with JWT validation. Wrote 12 tests for auth module."
-turn 4:  user "fix the failing test"   → assistant [tool calls] → "fixed assertion"
-turn 5:  user "review the PR"          → assistant [reading files...] ← in progress
+summary: "[Context summary] Set up project. Added auth
+          middleware. Wrote 12 tests for auth module."
+turn 4:  user "fix the failing test"   → assistant "fixed assertion"
+turn 5:  user "review the PR"          → assistant [reading files...]
 ```
-
-The summary is a plain text message with no provider-specific
-parts, so it survives model switches.
-
-#### What happens in the database
-
-Before compaction, the fragments table has rows for all 5 turns
-(message rows + content rows, `compacted_by = NULL`):
-
-```text
-id   message_id  kind              compacted_by  content
-───  ──────────  ────              ────────────  ───────
-m1   m1          request-message   NULL          ← "set up the project"
-m1p  m1          user-prompt       NULL          "set up the project"
-m2   m2          response-message  NULL          ← "done, created package.json"
-m2p  m2          text              NULL          "done, created package.json"
-...  (turns 2–3: same pattern)
-m8   m8          request-message   NULL          ← "fix the failing test"
-m8p  m8          user-prompt       NULL          "fix the failing test"
-m9   m9          response-message  NULL          ← tool calls + "fixed assertion"
-...  (turn 5)
-```
-
-After compaction, the old rows are marked and a summary is
-inserted:
-
-```text
-id   message_id  kind              compacted_by  content
-───  ──────────  ────              ────────────  ───────
-m1   m1          request-message   S1            ← marked, invisible
-m1p  m1          user-prompt       S1            ← marked, invisible
-m2   m2          response-message  S1            ← marked, invisible
-m2p  m2          text              S1            ← marked, invisible
-...  (all turns 1–3 rows: compacted_by = S1)
-S1   S1          request-message   NULL          ← NEW summary message
-S1p  S1          user-prompt       NULL          "[Context summary] Set up project..."
-m8   m8          request-message   NULL          ← turn 4, untouched
-m8p  m8          user-prompt       NULL          "fix the failing test"
-m9   m9          response-message  NULL          ← turn 4 response, untouched
-...  (turn 5, untouched)
-```
-
-`load_messages()` filters `WHERE compacted_by IS NULL`, so it
-returns: summary S1 → turn 4 → turn 5. The old rows stay in the
-database until the session is deleted.
 
 ### When compaction triggers
 
-Five paths, all using the same compaction logic:
-
-**1. Post-turn** — After a successful LLM response, if context
-usage exceeds `auto_compact_pct` (default 85%).
-
-**2. Mid-turn** — During a multi-step tool-calling turn, after
-each tool-call cycle. If the threshold is exceeded and the model
-made tool calls (meaning more requests will follow), rbtr breaks
-out of the agent loop, compacts, reloads history from the
-database, and resumes the turn. The in-progress turn counts as
-one of the `keep_turns` — so with `keep_turns = 2`, the current
-turn and the previous turn are preserved, and everything older is
-summarised. Mid-turn compaction fires at most once per turn.
-
-**3. On overflow error** — When the API rejects a request with a
-context-length error (HTTP 400, 413, etc.), rbtr compacts and
-retries automatically.
-
-**4. Manual** — `/compact` on demand, with optional extra
-instructions for the summary:
+- **Post-turn** — after a response, if context usage exceeds
+  `auto_compact_pct` (default 85%).
+- **Mid-turn** — during a tool-calling cycle, if the threshold
+  is exceeded. Compacts once, reloads history, resumes the turn.
+- **Overflow** — when the API rejects a request with a
+  context-length error. Compacts and retries.
+- **Manual** — `/compact`, with optional extra instructions:
 
 ```text
 you: /compact
 you: /compact Focus on the authentication changes
 ```
 
-**5. Reset** — `/compact reset` undoes the latest compaction,
-restoring the original messages to active context. The summary
-message is deleted (its timestamp would interleave with restored
-messages). Reset is only allowed if no messages were sent after
-the compaction:
+`/compact reset` undoes the latest compaction, restoring the
+original messages. Only allowed before new messages are sent.
 
-```text
-you: /compact reset
-Compaction reset — 42 fragments restored (26 active messages).
-```
+When the old messages are too large for a single summary
+request, rbtr finds the largest prefix that fits, summarises
+it, and pushes the rest into the kept portion.
 
-### Compaction progress
-
-When compaction runs, two panels appear in the conversation
-history:
-
-```text
-Compacting 42 messages …
-Compacted 42 messages into ~1.2k tokens.
-```
-
-### Large conversations
-
-When the messages to be summarised are too large to fit in a
-single summary request, rbtr uses binary search to find the
-largest prefix that fits, summarises that prefix, and pushes the
-rest into the kept portion.
-
-### Compaction settings
-
-Settings in `config.toml` under `[compaction]`:
+### Settings
 
 ```toml
 [compaction]
-auto_compact_pct = 85       # trigger at this % of context window
+auto_compact_pct = 85       # trigger threshold (% of context)
 keep_turns = 2              # recent turns to preserve
-reserve_tokens = 16000      # tokens reserved for the summary response
-summary_max_chars = 2000    # max chars per tool result in summary input
+reserve_tokens = 16000      # reserved for the summary response
+summary_max_chars = 2000    # max chars per tool result in input
 ```
 
-Token estimation uses `len(text) // 4` — no external tokenizer
-dependency. After compaction the footer's context % stays at the
-pre-compaction value until the next LLM call corrects it.
+See [Context compaction in ARCHITECTURE.md](ARCHITECTURE.md#context-compaction)
+for the split algorithm, orphan handling, and reset mechanics.
 
 ## Configuration
 
 Two TOML files under `~/.config/rbtr/`:
 
-### `config.toml` — preferences and endpoint URLs
+- **`config.toml`** — model, endpoints, feature settings.
+- **`creds.toml`** — API keys and OAuth tokens (0600).
 
 ```toml
+# config.toml
 model = "claude/claude-sonnet-4-20250514"
 
 [endpoints.deepinfra]
 base_url = "https://api.deepinfra.com/v1/openai"
-
-[endpoints.ollama]
-base_url = "http://localhost:11434/v1"
 ```
 
 Config values can also be set via environment variables with
-`RBTR_` prefix (e.g. `RBTR_MODEL`).
+`RBTR_` prefix (e.g. `RBTR_MODEL`). OAuth tokens are managed
+by `/connect` — you never need to edit `creds.toml` by hand.
 
-### `creds.toml` — tokens and API keys (0600 permissions)
+### Customising the prompt
 
-```toml
-github_token = "ghp_..."
-openai_api_key = "sk-..."
+Three levels of customisation, loaded in order:
 
-[claude]
-access_token = "..."
-refresh_token = "..."
-expires_at = 1739836725.0
+1. **`AGENTS.md`** (repo root) — project-specific rules.
+   Configure the file list with
+   `project_instructions = ["AGENTS.md"]`.
+2. **`~/.config/rbtr/APPEND_SYSTEM.md`** — user-wide
+   preferences appended to the system prompt.
+3. **`~/.config/rbtr/SYSTEM.md`** — full system prompt
+   replacement (Jinja template with `project_instructions`
+   and `append_system` variables).
 
-[chatgpt]
-access_token = "..."
-refresh_token = "..."
-expires_at = 1739836725.0
-account_id = "..."
-
-[endpoint_keys]
-deepinfra = "..."
-```
-
-OAuth tokens (Claude, ChatGPT) are refreshed automatically when
-they expire. You never need to edit `creds.toml` by hand — use
-`/connect` instead.
-
-## Prompt architecture
-
-rbtr's instructions to the LLM are split into four templates,
-each with a single responsibility:
-
-| Template          | Scope           | Description                                    |
-| ----------------- | --------------- | ---------------------------------------------- |
-| `system.md`       | Both agents     | Identity, authority, language style            |
-| `review.md`       | Main agent only | Review context, principles, strategy, format   |
-| `compact.md`      | Compact agent   | What to preserve/drop when summarising history |
-| `index_status.md` | Main agent only | Index availability and tool readiness          |
-
-The main agent receives `system.md` + `review.md` +
-`index_status.md` on every turn. The compaction agent (a
-separate, tool-less instance that summarises older history)
-receives `system.md` + `compact.md`. Both share the same
-identity and language rules.
-
-### Customisation
-
-You can customise the system prompt at three levels — user-wide
-preferences, full replacement, and per-project instructions.
-
-Loading order: built-in `system.md` (or `SYSTEM.md` override)
-→ `APPEND_SYSTEM.md` → project instruction files.
-
-### `APPEND_SYSTEM.md` — user-wide additions
-
-Create `~/.config/rbtr/APPEND_SYSTEM.md` to append text to
-the system prompt. Plain markdown, injected verbatim after the
-built-in content. Applies to both the main and compaction
-agents. Use this for personal review preferences, domain
-context, or house style that applies to all repos:
+Example `AGENTS.md`:
 
 ```markdown
-## My preferences
-
-- Always check for missing error handling in HTTP handlers.
-- Flag any use of `subprocess.run` without `check=True`.
-- I prefer explicit `return None` over implicit returns.
-```
-
-### `SYSTEM.md` — system prompt replacement
-
-Create `~/.config/rbtr/SYSTEM.md` to replace the built-in
-`system.md` template. This replaces only the system prompt
-(identity, authority, language) — review instructions
-(`review.md`) and compaction instructions (`compact.md`) are
-unaffected.
-
-This is a Jinja template with the following variables:
-
-| Variable               | Type  | Description                    |
-| ---------------------- | ----- | ------------------------------ |
-| `project_instructions` | `str` | Concatenated project files     |
-| `append_system`        | `str` | Contents of `APPEND_SYSTEM.md` |
-
-Minimal example:
-
-```markdown
-You are a code reviewer. Be direct.
-{% if append_system %}
-{{ append_system }}
-{% endif %}
-{% if project_instructions %}
-{{ project_instructions }}
-{% endif %}
-```
-
-### Project instructions
-
-Project-specific rules are loaded from files in the repo root.
-By default rbtr reads `AGENTS.md`. Configure the file list in
-`config.toml`:
-
-```toml
-project_instructions = ["AGENTS.md"]
-```
-
-Multiple files are concatenated in list order:
-
-```toml
-project_instructions = ["AGENTS.md", "REVIEW.md", "docs/STYLE.md"]
-```
-
-Missing files are silently skipped. The concatenated content is
-injected into the system prompt under a "Project instructions"
-heading (in the built-in template) or via the
-`project_instructions` template variable (in a custom
-`SYSTEM.md`). Because the system prompt is shared, project
-instructions apply to both the main and compaction agents.
-
-Use project instruction files for coding standards, architecture
-rules, review focus areas, or anything specific to the repo:
-
-```markdown
-# AGENTS.md
-
 - Target Python 3.13+. Use modern features.
 - All code must be type-annotated.
-- No `Any` as a lazy type escape.
 - Run `just check` after every change.
 ```
 
@@ -1045,193 +715,6 @@ model (bge-m3, quantized, runs on Metal/CPU — no API calls). The
 structural index is usable immediately; embeddings fill in behind
 it.
 
-### Tools available to the LLM
-
-rbtr gives the LLM 18 tools, conditionally hidden based on
-what's available (repo only, or repo + index). Every tool that
-reads state accepts a `ref` parameter — `"head"` (default),
-`"base"`, or a raw commit SHA — so the LLM can inspect the
-codebase at any point in time.
-
-All paginated tools accept `offset` and a per-call limit
-(`max_results`, `max_lines`, or `max_hits`) that defaults
-to the configured cap. When output is truncated, a
-`... limited (shown/total)` trailer tells the LLM how to
-request the next page.
-
-#### File tools (require repo)
-
-Available as soon as a repository is connected. Read from the
-git object store first; if a path is not found in git, fall
-back to the local filesystem (covers `.rbtr/notes/` files
-and other untracked files). Filesystem fallback respects
-`.gitignore` and the `include`/`extend_exclude` config —
-ignored paths (`.mypy_cache`, `node_modules`, etc.) are
-never exposed to the LLM.
-
-**`read_file(path, ref?, offset?, max_lines?)`** — Read
-file contents with line numbers. Paginate with `offset`.
-Binary files rejected.
-
-**`grep(search, path?, ref?, offset?, max_hits?,
-context_lines?)`** — Case-insensitive substring search. Three
-modes: exact file (`path="src/app.py"`), directory prefix
-(`path="src/"`), or repo-wide (no `path`). Matches shown
-with surrounding context; nearby matches merged.
-
-**`list_files(path?, ref?, offset?, max_results?)`** — List
-files in the repo or a subdirectory. Sorted alphabetically.
-
-**`changed_files(offset?, max_results?)`** — List files
-changed between base and head (added, modified, deleted).
-Starting point for review.
-
-#### Search tools (require index)
-
-Available once the code index finishes building. Always
-search the head snapshot.
-
-**`search(query, offset?, max_results?)`** — Unified code
-search. Finds symbols by name, keywords, or concepts.
-Fuses three signals internally — name matching, BM25
-keyword search, and semantic similarity — into a single
-ranked result list. Works for exact identifiers
-(`IndexStore`), keyword queries (`retry timeout`), and
-natural-language concepts (`how does auth work`).
-
-The query is automatically classified as an identifier,
-concept, or pattern, and fusion weights are adjusted
-accordingly. Identifier queries favour name matching;
-concept queries favour BM25 and semantic similarity.
-Results include kind-boost (classes rank above imports)
-and file-category penalty (source ranks above tests).
-
-#### Index read tools (require index)
-
-**`read_symbol(name, ref?)`** — Read the full source of a
-symbol. Looks up by name (case-insensitive substring),
-prefers code symbols (functions, classes, methods) over
-tests or docs. Returns kind, scope, file path, line range,
-and content.
-
-**`list_symbols(path, ref?, offset?, max_results?)`** — List
-the symbols in a file — structural table of contents with
-line number, kind, scope, and name.
-
-#### Dependency graph (require index)
-
-**`find_references(name, kind?, ref?, offset?,
-max_results?)`** — Find all symbols that reference a given
-symbol via the dependency graph. Returns each referencing
-symbol labelled by edge type. Filter by `kind`: `imports`,
-`calls`, `inherits`, `tests`, `documents`, `configures`.
-
-#### Git tools (require repo)
-
-**`diff(path?, ref?, offset?, max_lines?)`** — Unified text
-diff. Three modes: base→head (default), single-ref (one
-commit), or range (`ref1..ref2`). Optional `path` filters
-to a single file. Paginate with `offset`.
-
-**`commit_log(offset?, max_results?)`** — Commit log between
-base and head — SHA, author, and first line of commit
-message.
-
-**`changed_symbols(offset?, max_lines?)`** — List symbols
-changed between base and head using the code index. Shows
-added, removed, modified symbols plus stale docs, missing
-tests, and broken edges.
-
-#### Edit (always available)
-
-**`edit(path, new_text, old_text?)`** — Create or modify
-files matching the `editable_include` glob patterns
-(default: `.rbtr/notes/*`, `.rbtr/AGENTS.md`). When
-`old_text` is empty, creates the file or appends; when
-set, replaces the exact match. Editable files are readable
-by `read_file`, `grep`, and `list_files` via the
-filesystem fallback.
-
-#### Memory (require `memory.enabled`)
-
-**`remember(content, scope?, supersedes?)`** — Save a
-durable fact for future sessions. `scope` is `"global"` or
-`"repo"`. When `supersedes` is set, it must be the exact
-text of an existing fact to replace.
-
-#### PR discussion (require PR)
-
-**`get_pr_discussion(offset?, max_results?)`** — Read
-all existing discussion on the current PR. Returns reviews,
-inline comments, and general comments sorted chronologically.
-Includes bot comments (CI, linters) and emoji reactions.
-Cached per session — fetched once, then read from memory.
-
-#### Draft management (require PR)
-
-**`add_draft_comment(path, anchor, body, suggestion?, ref?)`** —
-Add an inline comment to the review draft. The `anchor` is
-an exact code snippet from the file; the comment is placed on
-its last line. Persisted to `.rbtr/drafts/<pr>.yaml`
-immediately.
-
-**`edit_draft_comment(path, comment, body?, suggestion?)`** —
-Edit an existing comment. `comment` is a body substring
-identifying which comment to edit.
-
-**`remove_draft_comment(path, comment)`** — Remove a
-comment by body substring.
-
-**`set_draft_summary(summary)`** — Set the top-level
-review body that appears at the top of the GitHub review.
-
-**`read_draft()`** — Read the current draft (summary +
-all comments with status indicators).
-
-#### The `ref` parameter
-
-Tools that accept `ref` return the **state of the codebase at
-that snapshot**, not the changes introduced by it:
-
-- `"head"` (default) — the PR head / feature branch tip.
-- `"base"` — the base branch (e.g. `main`).
-- Any raw commit SHA or git ref (e.g. `"abc1234"`, `"v2.1.0"`).
-
-Change tools (`diff`, `changed_symbols`, `changed_files`) show
-changes _between_ base and head — they don't accept `ref` in
-the same sense.
-
-#### Git-first with filesystem fallback
-
-File tools (`read_file`, `grep`, `list_files`) look up paths
-in the git object store first. If a path or prefix is not found
-in git, they fall back to the local filesystem. This means:
-
-- Repository files are always read from the git snapshot (at
-  `ref`), ensuring reproducible reads.
-- Workspace files (`.rbtr/notes/` files, untracked files)
-  are accessible without committing them to git.
-- When a prefix has files in both git and the filesystem, git
-  wins — the filesystem is only tried when git has nothing.
-
-The filesystem fallback applies the same three-layer filter as
-the indexer: `include` globs override `.gitignore`, then
-`.gitignore` patterns are applied, then `extend_exclude` globs.
-This prevents build artifacts, caches, and database files from
-leaking into tool results.
-
-#### Tool availability
-
-Tools are conditionally hidden from the LLM based on session
-state — the LLM only sees tools it can actually use:
-
-- **Repo tools** appear when a repository is connected
-  (`/review`).
-- **Index tools** appear when the code index is ready (built
-  automatically in the background after `/review`).
-- The LLM never sees a tool it can't call — no confusing
-  error messages from missing prerequisites.
-
 ### Progress indicator
 
 The footer shows indexing progress:
@@ -1258,49 +741,18 @@ indexing to finish.
 | `/index search <query>`      | Search the index and show ranked results |
 | `/index search-diag <query>` | Search with full signal breakdown table  |
 
-#### `/index status`
-
-`/index status` (or just `/index`) shows four sections:
-
-1. **Snapshots** — side-by-side comparison of base and head:
-   file count, symbol count, and edge count per snapshot.
-   Shows `-` for a snapshot that hasn't been indexed yet.
-2. **Chunks** — per-kind breakdown (function, class, method,
-   import, doc, etc.) of the head snapshot, with embedding
-   coverage. Falls back to base when head isn't indexed yet.
-3. **Edges** — per-kind breakdown (imports, tests, docs) of
-   the same snapshot.
-4. **Commits** — for each commit in `base..head`, the number
-   of files it changed and how many indexed symbols live in
-   those files at head. Helps identify high-impact commits vs
-   trivial ones. Uses `commit_log_between` for the commit
-   list, then diffs each commit against its first parent.
-   Capped at 20 commits.
-
 ### Index configuration
-
-Settings in `config.toml` under `[index]`:
 
 ```toml
 [index]
-enabled = true                                          # master toggle
-db_dir = ".rbtr/index"                                  # DuckDB storage (relative to repo)
-model_cache_dir = "~/.config/rbtr/models"               # GGUF model cache (shared)
+enabled = true
 embedding_model = "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"
-max_file_size = 524288                                  # skip files > 512 KiB
-chunk_lines = 50                                        # lines per plaintext chunk
-chunk_overlap = 5                                       # overlap between chunks
-embedding_batch_size = 32                               # chunks per embedding call
-include = [".rbtr/notes/*"]                              # force-include globs (override .gitignore)
-extend_exclude = [".rbtr/index"]                        # exclude globs (on top of .gitignore)
+include = [".rbtr/notes/*"]      # force-include (override .gitignore)
+extend_exclude = [".rbtr/index"] # exclude on top of .gitignore
 ```
 
-The `include` and `extend_exclude` settings apply to both the
-indexer and file tool filesystem fallback. Literal patterns also
-match children — `".rbtr/index"` excludes `.rbtr/index/data.db`.
-
-The index is persistent — subsequent `/review` runs on the same
-repo skip unchanged files (keyed by git blob SHA).
+The index is persistent — subsequent `/review` runs skip
+unchanged files (keyed by git blob SHA).
 
 ### Graceful degradation
 
@@ -1314,333 +766,56 @@ repo skip unchanged files (keyed by git blob SHA).
 
 ## Review draft
 
-When reviewing a GitHub PR, rbtr helps you build a structured
-review that can be posted back to GitHub. The LLM builds the
-draft incrementally using tool calls; you inspect it locally,
-sync it with GitHub, and post it when ready.
+The LLM builds a structured review using draft tools
+(`add_draft_comment`, `set_draft_summary`, etc.). The draft
+persists to `.rbtr/drafts/<pr>.yaml` — crash-safe, human-
+editable, and synced bidirectionally with GitHub.
 
 ### Workflow
 
-1. **Select a PR** — `/review 42` fetches the PR and pulls
-   any existing pending review from GitHub into the local
-   draft.
-
-2. **Review with the LLM** — as you discuss the code, the
-   LLM uses `add_draft_comment` and `set_draft_summary`
-   to build a draft. Each change persists immediately to
-   `.rbtr/drafts/42.yaml`.
-
-3. **Inspect the draft** — `/draft` shows the current state:
-   summary, numbered inline comments with sync status
-   indicators, and suggestion markers.
-
-4. **Sync** — `/draft sync` does a bidirectional sync with
-   GitHub: pulls remote changes, merges them into the local
-   draft, then pushes the result back as a pending review.
-
-5. **Post** — `/draft post` submits the review to GitHub.
-   `/draft post approve` and `/draft post request_changes`
-   set the review event type (default is `COMMENT`).
-
-### How the draft is stored
-
-The draft lives at `.rbtr/drafts/<pr>.yaml` — a plain YAML
-file updated atomically on every mutation. It's
-human-readable and hand-editable:
-
-```yaml
-summary: Good PR overall, two issues.
-github_review_id: 12345
-summary_hash: a1b2c3d4e5f6g7h8
-comments:
-  - path: src/client.py
-    line: 42
-    body: "**blocker:** Retry without backoff."
-    github_id: 98765
-    comment_hash: f9e8d7c6b5a43210
-  - path: src/config.py
-    line: 8
-    body: "**nit:** Unused import."
-```
-
-Top-level fields:
-
-- **`summary`** — the review body (markdown).
-- **`github_review_id`** — the PENDING review ID on
-  GitHub. Absent until the draft has been synced.
-- **`summary_hash`** — hash of the summary, frozen at last
-  sync. Only updated when syncing, never on local edits.
-
-Each comment has:
-
-- **`path`, `line`, `body`, `suggestion`** — the review
-  content. `suggestion` is optional replacement code
-  (posted as a GitHub suggestion block).
-- **`github_id`** — GitHub's comment ID, set after the
-  comment has been pushed to or pulled from GitHub.
-  Absent for locally-created comments that haven't been
-  synced yet.
-- **`comment_hash`** — hash of this comment's content,
-  frozen at last sync. Only updated when syncing, never
-  on local edits. Absent for new comments.
-
-Editing a comment body is automatically detected as a
-local change — no manual marking needed.
-
-### Sync with GitHub
-
-`/draft sync` performs a bidirectional sync between the local
-draft and the user's pending review on GitHub.
-
-Because GitHub does not allow editing individual pending
-review comments, every push deletes the old pending review
-and recreates it. Comment IDs change on each cycle — this
-is normal. rbtr re-establishes them automatically after
-each push.
-
-#### Matching
-
-Comments are matched between local and remote in two tiers:
-
-- **By ID** — if a local comment has a `github_id` from a
-  previous sync, it matches the remote comment with the
-  same ID.
-- **By content** — for new local comments (never synced),
-  rbtr matches by exact `(path, line, body)` against
-  unmatched remote comments.
-
-After matching:
-
-- **Unmatched remote comments** are imported as new local
-  comments. You'll see:
-  `"New remote comment imported: path:line"`.
-- **Locally deleted on GitHub** — local comments whose
-  `github_id` is absent from the remote were deleted on
-  GitHub. They're removed locally with a warning.
-- **New local comments** (no ID, no content match) are
-  kept and included in the next push.
-- **Tombstoned comments** (synced comments removed via
-  `remove_draft_comment`) are excluded from the push and
-  dropped from the draft after sync. `/draft` shows them
-  with a `✗` indicator.
-
-#### Three-way merge
-
-After matching, rbtr detects what changed on each side
-since the last sync:
-
-| Synced | Local | Remote | Outcome                                |
-| ------ | ----- | ------ | -------------------------------------- |
-| A      | A     | A      | No change                              |
-| A      | A     | B      | Remote edit → accept                   |
-| A      | B     | A      | Local edit → keep, push on next sync   |
-| A      | B     | B      | Both changed identically → no conflict |
-| A      | B     | C      | **Conflict** → keep local, warn user   |
-
-Conflicts always resolve in favour of the local draft. The
-warning includes a preview of the remote body so you can
-decide whether to incorporate it manually.
-
-The same logic applies to the review summary.
-
-#### Example: sync with a remote edit
-
-```text
-# Initial state: local and GitHub are in sync.
-# Local comment: "Fix the null check."
-
-# Someone edits the comment on GitHub to
-# "Fix the null check (line 42)."
-# Meanwhile, local is unchanged.
-
-you: /draft sync
-Pulling remote pending review…
-Pushing draft (1 comment)…
-Draft synced (1 comment).
-
-# Result: local body updated to
-# "Fix the null check (line 42)."
-```
-
-#### Example: conflict
-
-```text
-# Local body was edited to: "Better explanation."
-# Remote body was edited to: "Different rewrite."
-
-you: /draft sync
-⚠ Conflict on src/client.py:42 — keeping local.
-  Remote was: Different rewrite.
-Pushing draft (1 comment)…
-Draft synced (1 comment).
-
-# Result: local "Better explanation." is pushed.
-```
-
-#### Deleting synced comments
-
-When you ask the LLM to remove a comment that has already
-been synced, `remove_draft_comment` marks it for deletion
-rather than removing it outright. This prevents the next
-pull from re-importing it from GitHub.
-
-`/draft` shows these with a `✗` indicator:
-
-```text
-you: /draft
-Summary: Good PR overall.
-2 comments (1 pending deletion):
-  ✓ 1. src/client.py:42 — **blocker:** Retry without …
-  ✗ 2. src/config.py:8 — (will be deleted on next sync)
-```
-
-On the next `/draft sync`, the marked comment is excluded
-from the push and dropped from the local draft. Comments
-that have never been synced are removed immediately — no
-marking needed.
-
-### Sync status indicators
-
-`/draft` shows a status indicator next to each comment:
-
-```text
-you: /draft
-Summary: Good PR overall.
-2 comments:
-  ✓ 1. src/client.py:42 — **blocker:** Retry without backoff.
-  ★ 2. src/config.py:8 — **nit:** Unused import.
-```
-
-| Indicator | Meaning                                        |
-| --------- | ---------------------------------------------- |
-| `✓`       | **Synced** — matches the last-pushed snapshot  |
-| `✎`       | **Modified** — changed locally since last sync |
-| `★`       | **New** — never synced to GitHub               |
-| `✗`       | **Deleted** — will be removed on next sync     |
+1. `/review 42` — fetches the PR, pulls any existing
+   pending review from GitHub.
+2. The LLM adds comments and a summary as it reviews.
+3. `/draft` — inspect the current state.
+4. `/draft sync` — bidirectional sync with GitHub
+   (three-way merge, conflicts resolve to local).
+5. `/draft post` — submit the review. Optional event type:
+   `approve`, `request_changes` (default `COMMENT`).
 
 ### Draft commands
 
 | Subcommand            | Description                           |
 | --------------------- | ------------------------------------- |
-| `/draft`              | Show the current draft with status    |
+| `/draft`              | Show draft with sync status           |
 | `/draft sync`         | Bidirectional sync with GitHub        |
 | `/draft post [event]` | Submit review to GitHub               |
 | `/draft clear`        | Delete local draft and remote pending |
 
-Tab completes subcommands and event types.
+### Status indicators
 
-### Posting
-
-`/draft post` submits the review to GitHub as a final,
-visible review. Before posting it pulls the remote state
-one last time to check for unsynced comments — if the
-remote pending review has comments that aren't in your
-local draft, the post is refused with a message to run
-`/draft sync` first.
-
-Any existing pending review is deleted before the
-submitted review is created, so you don't end up with
-both a pending and a submitted review.
-
-Event types:
-
-```text
-/draft post                    # COMMENT (default)
-/draft post approve            # APPROVE
-/draft post request_changes    # REQUEST_CHANGES
-```
-
-After posting, the local draft file is deleted
-automatically.
+| Indicator | Meaning                                |
+| --------- | -------------------------------------- |
+| `✓`       | Synced — matches last-pushed snapshot  |
+| `✎`       | Modified locally since last sync       |
+| `★`       | New — never synced to GitHub           |
+| `✗`       | Deleted — will be removed on next sync |
 
 ### Safety
 
 - **Unsynced guard** — `/draft post` refuses if the remote
-  pending review has comments not in your local draft. Run
-  `/draft sync` first.
-- **Atomic posting** — all comments are submitted in a
-  single `create_review` API call. No partial reviews.
-- **Crash-safe** — the draft is a YAML file on disk,
-  updated on every mutation. If rbtr crashes, the draft
-  survives. If the crash happens mid-sync (after deleting
-  the old review but before creating the new one), the next
-  sync detects the stale `review_id` (404) and recovers
-  gracefully.
-- **Human-editable** — `.rbtr/drafts/42.yaml` is plain
-  YAML. You can edit it by hand — add comments,
-  change bodies, or clear `comment_hash` / `summary_hash`
-  to force a full re-sync. Sync state uses content
-  hashes (not duplicated content), so editing a comment
-  body is automatically detected as a local change.
-- **Draft cleanup** — after a successful post, the local
-  file is deleted automatically.
+  has comments not in the local draft.
+- **Atomic posting** — all comments are submitted in one
+  API call.
+- **Crash-safe** — YAML on disk, updated on every mutation.
+  Mid-sync crashes recover on the next sync.
+- **GitHub suggestions** — the LLM can provide replacement
+  code; it's posted as a suggestion block that the author
+  can apply with one click.
 
-### GitHub suggestions
+See [Review draft and GitHub integration][arch-draft]
+in ARCHITECTURE.md for sync internals.
 
-When the LLM provides a `suggestion` parameter in
-`add_draft_comment`, it's posted as a GitHub suggestion
-block:
-
-````markdown
-Use exponential backoff.
-
-```suggestion
-time.sleep(2 ** attempt)
-```
-````
-
-The author can apply suggestions with one click in the
-GitHub UI.
-
-Suggestion blocks are parsed back out when pulling from
-GitHub — `body` and `suggestion` stay as separate fields
-locally, even after a round-trip through the API.
-
-## Tool-call limits
-
-Each turn has a limit on how many tool calls the LLM can make
-(default 25). This prevents runaway loops where the model keeps
-searching without producing useful output.
-
-When the limit is reached, rbtr does **not** error out. Instead
-it asks the model to summarize what it accomplished and what
-remains, so you can decide whether to continue:
-
-```text
-claude/claude-sonnet-4-20250514: I've reviewed 8 of the 12 changed files
-so far. I found two issues in the retry logic and one missing null check.
-The remaining files to review are: config.py, utils.py, client.py, and
-the test file. Would you like me to continue?
-
-you: yes, continue with the remaining files
-```
-
-The limit is configurable in `config.toml`:
-
-```toml
-[tools]
-max_requests_per_turn = 25                                # default
-notes_dir = ".rbtr/notes"                                 # hint for prompts
-drafts_dir = ".rbtr/drafts"                               # draft YAML files
-editable_include = [".rbtr/notes/*", ".rbtr/AGENTS.md"]   # edit tool globs
-```
-
-The `edit` tool can create and modify files matching the
-`editable_include` glob patterns. `notes_dir` is a hint
-used in prompts — editability is controlled solely by
-`editable_include`. Draft files live in `drafts_dir` and
-are managed exclusively by the draft tools.
-
-If you change `editable_include`, update `index.include` to
-match so the new paths are indexed:
-
-```toml
-[index]
-include = [".rbtr/my-notes/*"]
-
-[tools]
-editable_include = [".rbtr/my-notes/*"]
-```
+[arch-draft]: ARCHITECTURE.md#review-draft-and-github-integration
 
 ## Theme
 

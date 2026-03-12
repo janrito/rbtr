@@ -63,6 +63,10 @@ Agent rules. Short, imperative.
 - **Markdown-style backticks in docs.** Use single backticks
   (`` ` ``) in docstrings, comments, and documentation.
   Never use rST double-backtick (``` `` ```) literals.
+- **Reference-style links for long URLs.** When an inline
+  link would exceed the line-length limit, use a markdown
+  reference link with the definition immediately after the
+  paragraph that uses it.
 - Fix the root cause first.
 
 ## Testing

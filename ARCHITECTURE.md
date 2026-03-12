@@ -7,10 +7,40 @@ For usage, see [README.md](README.md).
 
 ## Overview
 
-rbtr has four layers: a terminal UI that owns the display, an
-engine that dispatches commands, an LLM pipeline that streams
-model responses, and two storage backends — SQLite for sessions
-and DuckDB for the code index.
+rbtr is built around six capabilities:
+
+1. **Conversation storage.** Every message — user prompts,
+   model responses, tool calls, tool results — is persisted
+   to SQLite as it streams. Conversations survive crashes,
+   work across provider switches, and support compaction
+   when the context window fills.
+2. **Code indexing and search.** Tree-sitter extracts
+   functions, classes, and imports from every file. A
+   dependency graph connects them. Three search channels
+   (name matching, BM25, semantic embeddings) are fused
+   into a single ranked result. The model searches by
+   name, keyword, or concept.
+3. **Read-only git interface.** All file reads go through
+   the git object store at exact commit SHAs. The working
+   tree is never read for repository files and never
+   modified. Untracked workspace files (`.rbtr/notes/`,
+   drafts) use a separate filesystem fallback.
+4. **Cross-session memory.** An extraction agent identifies
+   durable facts from conversations — project conventions,
+   architecture decisions, recurring patterns. Facts are
+   scoped (global or per-repo), deduplicated by the LLM,
+   and injected into the system prompt of future sessions.
+5. **Context compaction.** When the context window fills,
+   older messages are summarised by a dedicated agent.
+   The originals stay in the database. Compaction triggers
+   automatically (mid-turn, post-turn, on overflow) or
+   manually, and can be undone.
+6. **Review drafts and GitHub integration.** The model
+   builds a structured review incrementally — inline
+   comments, a summary, suggestions. The draft syncs
+   with GitHub's pending review API and posts atomically.
+
+### Layers
 
 ```mermaid
 graph LR
@@ -24,816 +54,155 @@ graph LR
     Engine -.->|"events (queue)"| TUI
 ```
 
-The TUI dispatches work to the engine in daemon threads. The
-engine delegates LLM queries to an anyio `BlockingPortal` on a
-dedicated thread. Background indexing runs in its own daemon
-thread. All results flow back to the TUI as typed `Event`
-models on a `queue.Queue`.
+Four layers: a terminal UI that owns the display, an engine
+that dispatches commands, an LLM pipeline that streams model
+responses, and two storage backends — SQLite for sessions,
+DuckDB for the code index.
 
 The TUI never runs commands or does I/O beyond rendering. The
 engine never imports Rich or touches the display. The portal
 is long-lived across tasks to keep httpx connection pools
 alive.
 
-### Why two databases
+### How a review flows
 
-SQLite and DuckDB are both embedded, single-file databases, but
-they are built for opposite workloads.
+A `/review 42` command follows this path:
 
-**Sessions (SQLite)** are an OLTP workload: many small appends
-(one INSERT per streaming part, per user input, per incident),
-concurrent writes from multiple daemon threads, and point-query
-reads by `session_id`. SQLite's WAL mode gives non-blocking
-multi-reader/multi-writer concurrency, and the stdlib `sqlite3`
-module adds zero dependencies. Losing session data is
-unrecoverable, so reliability matters more than query speed.
+1. **TUI** receives input, spawns a daemon thread.
+2. **Engine** (`engine/review_cmd.py`) fetches PR metadata
+   from the GitHub API — title, body, base/head SHAs,
+   author. Stores exact commit SHAs in `EngineState`. Opens
+   the repo via pygit2.
+3. **Index** (`index/orchestrator.py`) starts in a background
+   daemon thread. Extracts chunks from the base commit, then
+   incrementally indexes the head commit. Emits
+   `IndexProgress` events; emits `IndexReady` when done.
+4. **User sends a message.** Engine calls `handle_llm()`.
+5. **LLM pipeline** (`llm/stream.py`) loads history from
+   SQLite, assembles the system prompt (system + review +
+   index status templates), and enters the `agent.iter()`
+   streaming loop.
+6. **Tool calls.** The model calls `read_file`, `search`,
+   `diff`, etc. File tools read from the git object store
+   at the stored SHAs. Index tools query DuckDB. Draft
+   tools write to `.rbtr/drafts/42.yaml`.
+7. **Streaming response.** Text deltas and tool-call events
+   flow back to the TUI via the event queue. Each part is
+   persisted to SQLite as it arrives.
+8. **Draft and post.** `/draft sync` syncs with GitHub's
+   pending review API. `/draft post` submits the review.
 
-**The code index (DuckDB)** is an OLAP workload: bulk PyArrow
-inserts of thousands of chunks, BM25 full-text search over
-tokenised content, cosine-similarity vector search over
-embeddings, and analytical aggregations for search-score
-fusion. DuckDB's columnar storage, vectorized execution, and
-multi-threaded query processing make these operations fast.
-Index data is derived and rebuildable — a schema change just
-triggers a re-index.
-
-DuckDB's concurrency model (single writer per process, MVCC
-requiring explicit `CHECKPOINT` for cross-thread visibility)
-is acceptable for the index because writes happen in one
-background daemon thread with periodic checkpoints, and reads
-from the UI thread are non-blocking. That same model would be
-a regression for sessions, where multiple threads write
-concurrently during streaming.
-
----
-
-## Configuration and credentials
-
-Two singleton instances, importable directly:
-
-```python
-from rbtr.config import config
-from rbtr.creds import creds
-```
-
-Both use pydantic-settings with TOML files under
-`~/.config/rbtr/`. Both support `update(**kwargs)` which
-persists to disk and reloads the instance in place.
-
-**`config.py`** reads `config.toml`. Contains preferences,
-endpoint URLs, model selection, index settings, and TUI
-settings. Environment variables with `RBTR_` prefix override
-any TOML value.
-
-**`creds.py`** reads `creds.toml` with 0600 permissions.
-Contains OAuth tokens (Claude, ChatGPT, Google), API keys
-(OpenAI, Fireworks, OpenRouter), endpoint keys, and the GitHub
-token.
-
-**`constants.py`** defines path constants: `RBTR_DIR`
-(`~/.config/rbtr/`) and `WORKSPACE_DIR` (`.rbtr/` in the repo
-root).
+The review starts immediately — the user can talk to the
+model while the index builds. Index tools appear when
+`IndexReady` is emitted.
 
 ---
 
-## TUI
+## Conversation storage
+
+LLM conversations are complex structures: user prompts,
+model responses with thinking and text parts, tool calls
+with arguments and results, all interleaved across multiple
+request/response cycles. rbtr needs to persist these as they
+stream (for crash recovery), replay them to any provider
+(for cross-model switching), compact them when the context
+fills, and track costs across the session.
+
+The design: decompose each PydanticAI message into
+**fragments** — one row per message header, one row per
+part — in a single SQLite table. This flat structure
+supports streaming writes (insert each part as it arrives),
+selective replay (filter by status and compaction state),
+and provider-agnostic storage (parts are serialised as
+JSON, not in any provider's wire format). Persisted history
+is immutable — repairs, compaction, and provider adaptations
+are applied transiently in memory at load time.
+
+All reads and writes go through `SessionStore`
+(`sessions/store.py`).
+
+### How messages map to fragments
+
+`sessions/serialise.py` handles the conversion in both
+directions. A PydanticAI `ModelRequest` or `ModelResponse`
+becomes 1 + N rows:
+
+- **1 message header** (`fragment_index = 0`) — metadata:
+  timestamps, model name, token counts, cost. Links parts
+  via `message_id`.
+- **N part rows** (`fragment_index >= 1`) — one per part:
+  `UserPromptPart`, `TextPart`, `ToolCallPart`,
+  `ToolReturnPart`, `ThinkingPart`, etc. Each serialised
+  as JSON in `data_json`.
+
+The `FragmentKind` enum and `FragmentStatus` enum
+(`sessions/kinds.py`) are the type system for this table —
+every other sessions module depends on them.
+
+Sessions are a `session_id` column, not a separate table.
+
+### Streaming writes and crash recovery
+
+`ResponseWriter` inserts parts as they stream from the
+model. Each part starts as `IN_PROGRESS` and is set to
+`COMPLETE` when the full content arrives.
+`load_messages()` filters `WHERE status = 'COMPLETE'`,
+so a crash mid-stream leaves no corrupt state — the
+incomplete parts are invisible on next load.
+
+### Cost and usage tracking
+
+`llm/usage.py` reads token counts, cost, and context-window
+metadata from PydanticAI `ModelResponse` objects. Token
+counts and cost are written to the fragment header when a
+response finishes. Usage accumulates on `SessionUsage` and
+is visible in the footer and `/stats`.
+
+Background agents (compaction, fact extraction) incur costs
+outside the main conversation. These are persisted as
+overhead fragments via `store.save_overhead()` with typed
+payloads (`CompactionOverhead`, `FactExtractionOverhead`
+from `sessions/overhead.py`). Session statistics
+(`sessions/stats.py`) aggregate both conversation and
+overhead costs for `/stats` reporting.
+
+### Rebuilding history for replay
+
+`load_messages()` reconstructs the conversation:
+
+1. Query all `COMPLETE` fragments where
+   `compacted_by IS NULL` for the session.
+2. Group by `message_id`.
+3. Merge each header with its parts into a PydanticAI
+   message object.
+
+The result is a provider-agnostic message list ready to
+send to any model. When the provider rejects the history
+(incompatible tool-call encoding, thinking metadata from
+a different provider), the history repair pipeline
+transforms it in memory — see [History repair][hist-rep]
+below.
+
+When compaction has run, the `compacted_by` filter
+hides the original messages and the summary message
+takes their place — see
+[Context compaction](#context-compaction).
+
+[hist-rep]: #cross-provider-history-repair
+
+### Session lifecycle
+
+- **Creation.** A new `session_id` (UUID7) is generated on
+  `/review` or at startup.
+- **Continuation.** `/session resume` loads a previous
+  session and restores `EngineState` from it.
+- **Retention.** `/session purge <duration>` enforces
+  age-based cleanup. Deletion cascades from message
+  headers to parts via the `message_id` FK.
 
-The TUI lives in `tui/` and runs entirely on the main thread.
+### Fragment reference
 
-**`tui/ui.py`** owns the main event loop. It polls
-`queue.Queue[Event]`, matches on the event type, and renders
-via Rich `Live`. The terminal's native scroll buffer holds all
-conversation history. The Live region is kept small — only the
-current active panel and input chrome. Completed panels are
-flushed to scrollback so they become part of the terminal's
-own scroll history rather than an in-process buffer.
-
-Each panel gets a background colour by variant: `response`
-(transparent — LLM markdown text), `succeeded` (green —
-command/shell output), `failed` (red — errors and failed tool
-calls), `toolcall` (purple — successful tool results),
-`input` (grey — user input echo), `queued` (slate — pending
-commands). LLM text and tool results are always separate
-panels — a multi-tool-call turn produces alternating
-`response` and `toolcall` panels. Failed tool calls show a
-`✗` icon and the `failed` background.
-
-**`tui/footer.py`** renders the status bar. Pure functions, no
-UI state. The footer shows the model name, token usage
-(input/output/cache), context window percentage, message count,
-cumulative cost, thinking effort level, and index progress.
-Colour thresholds signal context pressure (green/yellow/red)
-and message count (grey/yellow/red).
-
-**`tui/input.py`** wraps prompt_toolkit for input handling.
-Manages bracketed paste detection, paste markers (collapsed
-display of large pastes with atomic cursor behaviour), tab
-completion (slash commands, command arguments, bash
-programmable completion, file paths, executables), multiline
-editing via Alt+Enter, and input history backed by the session
-database.
-
----
-
-## Engine
-
-The `Engine` class (`engine/core.py`) is a stateless dispatcher.
-It holds references to:
-
-- `EngineState` (`state.py`) — mutable session state shared
-  across engine, LLM pipeline, and UI. Contains the repo
-  handle, review target, connected providers, index store,
-  model cache, usage counters, and discussion cache.
-- `SessionStore` (`sessions/store.py`) — session persistence.
-- `queue.Queue[Event]` — the event channel to the TUI.
-- An anyio `BlockingPortal` on a dedicated daemon thread.
-
-Input is classified and dispatched:
-
-- Starts with `/` → `_handle_command()` routes to the matching
-  `engine/*_cmd.py` handler via the `Command` enum.
-- Starts with `!` → `handle_shell()` runs the command in a pty
-  with output truncation.
-- Anything else → `handle_llm()` in the LLM pipeline.
-
-Each `*_cmd.py` module is a standalone handler that receives the
-`Engine` instance and an argument string. Handlers emit events
-through the engine. They never import or reference the TUI.
-
-Before each task, the engine calls `_sync_store_context()` to
-push current metadata (session ID, label, repo, model) to the
-session store, so all subsequent writes inherit it.
-
-**`LLMContext`** (`llm/context.py`) is the decoupling boundary
-between engine and LLM pipeline. It is a dataclass holding the
-state, store, event queue, cancellation flag, and portal.
-The engine creates one via `_llm_context()` before each LLM or
-compaction call. The LLM pipeline receives it as its only
-dependency — it never imports the `Engine` class.
-
----
-
-## LLM pipeline
-
-The LLM pipeline lives in `llm/` and handles model interaction,
-streaming, error recovery, and compaction.
-
-```mermaid
-flowchart TD
-    A["handle_llm()"] --> B[_prepare_turn]
-    B --> C[_run_agent]
-    C --> D["_stream_agent<br/>agent.iter() loop"]
-
-    D --> E{node type}
-    E -- ModelRequestNode --> F[stream response<br/>emit events, save via ResponseWriter]
-    E -- CallToolsNode --> G[execute tools]
-    G --> H{context<br/>threshold?}
-    H -- over limit --> I[mid-turn compact<br/>reload from DB]
-    I --> D
-    H -- ok --> D
-
-    F --> D
-    D --> J{done}
-    J -- tool limit hit --> K[_stream_summary]
-    J -- yes --> L[_finalize_turn<br/>_record_usage]
-
-    C -- error --> M{classify}
-    M -- overflow --> N[compact + retry]
-    M -- history format --> O[repair + retry]
-    M -- other --> P[emit error]
-```
-
-**`handle_llm()`** (`llm/stream.py`) is the entry point.
-`_prepare_turn` builds the PydanticAI model, loads history
-from the session database, and applies load-time repairs
-(corrupt args, dangling tool calls). `_run_agent` then enters
-the streaming loop.
-
-**Streaming** iterates `agent.iter()` graph nodes.
-`ModelRequestNode` yields text and tool-call deltas, emitted
-as `TextDelta` and `ToolCallStarted`/`ToolCallFinished` events.
-Each response is persisted via `ResponseWriter` as it streams
-(inserted incomplete, updated on finish). `CallToolsNode`
-executes tools and checks whether context usage exceeds the
-compaction threshold — if so, a mid-turn compaction runs once,
-history is reloaded from the database, and the loop resumes.
-
-**Error recovery** classifies failures and retries:
-
-- **Context overflow** — compact history, retry.
-- **History format error** — escalating repair. Level 1:
-  consolidate tool returns (restructure grouping). Level 2:
-  demote thinking parts to plain text, flatten tool exchanges
-  to readable text. Retry after each level.
-- **Effort unsupported** — disable the effort parameter, retry.
-- **Other** — emit the error to the user.
-
-**Tool-call limit.** After `max_requests_per_turn` model
-requests (default 25), the loop breaks. A tool-free summary
-request asks the model to report what it accomplished and what
-remains.
-
-**Key modules:**
-
-- **`agent.py`** — PydanticAI `Agent` definition.
-  `@agent.instructions` decorators wire the system prompt,
-  review instructions, and index status. The agent is defined
-  once at module level; the model is provided at call time.
-- **`compact.py`** — a separate tool-less `Agent` for
-  compaction. `compact_history()` splits the conversation via
-  `split_history()`, serialises old turns, and sends them for
-  summarisation. The compaction agent shares the system prompt
-  but receives `compact.md` as its task instructions.
-- **`history.py`** — repair functions for cross-provider
-  compatibility: `consolidate_tool_returns`,
-  `demote_thinking`, `flatten_tool_exchanges`,
-  `repair_dangling_tool_calls`. All operate on in-memory
-  message lists and return new lists — the database is never
-  modified.
-- **`errors.py`** — pure functions that inspect
-  `ModelHTTPError` to classify failures as overflow, history
-  format rejection, effort unsupported, or unrecoverable.
-
----
-
-## Tools
-
-18 tools registered via `@agent.tool` decorators in submodules
-under `llm/tools/`. Each receives `RunContext[AgentDeps]` and
-returns a string result.
-
-Tools are conditionally visible to the LLM based on session
-state. Each tool declares a `prepare` function that either
-returns the tool definition (visible) or `None` (hidden). The
-LLM never sees a tool it cannot call.
-
-| Prepare function   | Condition                              |
-| ------------------ | -------------------------------------- |
-| `require_repo`     | A repository is connected (`/review`)  |
-| `require_index`    | The code index has finished building   |
-| `require_pr`       | A PR or branch is selected             |
-| `require_pr_target`| The target is specifically a PR        |
-| *(none)*           | Always visible                         |
-
-### File tools (`require_repo`)
-
-| Tool         | Purpose                                                 |
-| ------------ | ------------------------------------------------------- |
-| `read_file`  | Read file content by path, with pagination              |
-| `grep`       | Substring search in one file, a directory, or repo-wide |
-| `list_files` | List files in the repository or a subdirectory          |
-
-### Git tools (`require_repo`)
-
-| Tool            | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `changed_files` | List file paths changed between base and head  |
-| `diff`          | Unified text diff, optionally filtered by path |
-| `commit_log`    | Commit log between base and head               |
-
-### Index tools (`require_index`)
-
-| Tool              | Purpose                                                          |
-| ----------------- | ---------------------------------------------------------------- |
-| `search`          | Find symbols by name, keywords, or concepts                      |
-| `read_symbol`     | Read the full source code of a symbol                            |
-| `list_symbols`    | List functions, classes, methods in a file                       |
-| `find_references` | Find symbols referencing a given symbol via the dependency graph |
-| `changed_symbols` | List symbols changed between base and head                       |
-
-### Draft tools (`require_pr_target`)
-
-| Tool                   | Purpose                                   |
-| ---------------------- | ----------------------------------------- |
-| `add_draft_comment`    | Add an inline comment to the review draft |
-| `edit_draft_comment`   | Edit an existing draft comment            |
-| `remove_draft_comment` | Remove a draft comment                    |
-| `set_draft_summary`    | Set the top-level review summary          |
-| `read_draft`           | Read the current draft                    |
-
-### Discussion tools (`require_pr`)
-
-| Tool                | Purpose                                      |
-| ------------------- | -------------------------------------------- |
-| `get_pr_discussion` | Read existing discussion on the current PR   |
-
-### Edit tools (always visible)
-
-| Tool   | Purpose                                                  |
-| ------ | -------------------------------------------------------- |
-| `edit` | Create or modify files matching `editable_include` globs |
-
-File tools read from the git object store first and fall back
-to the local filesystem for untracked files (`.rbtr/notes/`,
-draft files). The filesystem fallback respects `.gitignore` and
-the `include`/`extend_exclude` config. Tools that accept a
-`ref` parameter return the state of the codebase at that
-snapshot (`"head"`, `"base"`, or a raw commit SHA), not the
-changes introduced by it.
-
-All paginated tools accept `offset` and a per-call limit. When
-output is truncated, a trailer tells the LLM how many results
-remain and how to request the next page.
-
----
-
-## Provider system
-
-Every provider satisfies the `Provider` protocol:
-
-```python
-class Provider(Protocol):
-    GENAI_ID: str
-    LABEL: str
-    def is_connected(self) -> bool: ...
-    def list_models(self) -> list[str]: ...
-    def build_model(self, model_name: str) -> Model: ...
-    def model_settings(self, model_id: str, model: Model,
-                       effort: ThinkingEffort) -> ModelSettings | None: ...
-    def context_window(self, model_id: str) -> int | None: ...
-```
-
-The `PROVIDERS` dict in `providers/__init__.py` is the single
-registration point — a mapping from `BuiltinProvider` enum
-values to provider instances. All dispatch functions
-(`build_model`, `model_settings`, `model_context_window`) call
-`_resolve()`, which splits `<prefix>/<model-id>`, looks up the
-prefix in `PROVIDERS`, and falls back to `endpoint.resolve()`
-for custom endpoints. Nothing else in the codebase imports
-provider modules directly.
-
-**Builtin providers:**
-
-| Prefix       | Module            | Auth        |
-| ------------ | ----------------- | ----------- |
-| `claude`     | `claude.py`       | OAuth/PKCE  |
-| `chatgpt`    | `openai_codex.py` | OAuth/PKCE  |
-| `google`     | `google.py`       | OAuth/PKCE  |
-| `openai`     | `openai.py`       | API key     |
-| `fireworks`  | `fireworks.py`    | API key     |
-| `openrouter` | `openrouter.py`   | API key     |
-
-**Custom endpoints** (`/connect endpoint <name> <url> [key]`)
-are stored in `config.toml` under `[endpoints.<name>]` with
-optional keys in `creds.toml` under `[endpoint_keys]`.
-`endpoint.py` wraps each as an `EndpointProvider` that satisfies
-the same protocol. Endpoint providers appear in model listings,
-tab completion, and dispatch identically to builtin providers.
-
-**API-key providers** share a generic connect handler in
-`connect_cmd.py`. Each exposes a `CRED_FIELD` attribute naming
-the credential field (e.g. `"fireworks_api_key"`). The connect
-command stores the key via `creds.update()`, and `setup.py`
-auto-detects stored keys on startup by calling
-`prov.is_connected()` for each registered provider.
-
-**OAuth providers** (Claude, ChatGPT, Google) each have their
-own connect handler with PKCE and a localhost callback.
-Tokens are stored in `creds.toml` under a provider-specific
-section and refreshed automatically when they expire.
-
-**`shared.py`** contains helpers used by multiple providers:
-`openai_chat_model_settings()` maps `ThinkingEffort` to
-OpenAI-compatible settings, and `genai_prices_context_window()`
-looks up context windows from the `genai-prices` library.
-
-### How to add a provider
-
-1. **Create `providers/<name>.py`** with a class satisfying
-   `Provider`. Use `fireworks.py` as a template for API-key
-   providers, `google.py` for OAuth providers. Instantiate the
-   class as a module-level `provider` variable.
-
-2. **Add a credential field** to `Creds` in `creds.py` (e.g.
-   `newprov_api_key: str = ""`).
-
-3. **Add an enum variant** to `BuiltinProvider` in
-   `providers/__init__.py`.
-
-4. **Add an entry** to the `PROVIDERS` dict mapping the new
-   enum variant to the provider instance.
-
-5. **Add a connect handler** in `engine/connect_cmd.py`. For
-   API-key providers, add `CRED_FIELD` and optionally
-   `KEY_PREFIX` to the provider class — the generic
-   `_connect_api_key` handler will work automatically. OAuth
-   providers need a dedicated handler in the `match` block.
-
-6. **Add auto-detect** in `engine/setup.py`. The existing loop
-   over `PROVIDERS` already calls `prov.is_connected()` for
-   each registered provider, so API-key providers work with no
-   changes. OAuth providers may need additional setup logic.
-
-Model listing, tab completion, dispatch, and pricing via
-`genai-prices` all derive from the registry automatically.
-
----
-
-## Prompt architecture
-
-The LLM receives instructions assembled from four templates in
-`prompts/`, rendered via minijinja:
-
-| Template          | Agent      | Content                             |
-| ----------------- | ---------- | ----------------------------------- |
-| `system.md`       | Both       | Identity, authority, language style |
-| `review.md`       | Main       | Review context, principles, format  |
-| `compact.md`      | Compaction | What to preserve/drop in summaries  |
-| `index_status.md` | Main       | Index availability, tool readiness  |
-
-**Main agent** receives three `@agent.instructions` decorators:
-`_system()` renders `system.md`, `_review_task(ctx)` renders
-`review.md` with live state (date, repo, PR metadata), and
-`_index_status(ctx)` renders `index_status.md` with the current
-index state and the names of tools that require it. All three
-run on every turn.
-
-**Compaction agent** is a separate tool-less `Agent` instance
-in `llm/compact.py`. It receives two
-`@compact_agent.instructions` decorators: `_system()` (same
-`render_system()` as the main agent) and `_compact_task()`
-(renders `compact.md`). The shared system prompt ensures
-consistent identity and language across both agents.
-
-**`review.md`** is a Jinja template with variables populated
-from `EngineState`: `date`, `owner`, `repo`, `target_kind`,
-`base_branch`, `branch`, `pr_number`, `pr_title`, `pr_author`,
-`pr_body`, `editable_globs`.
-
-**`system.md`** has two template variables:
-`project_instructions` and `append_system`.
-
-### Customisation
-
-Three layers, applied in order:
-
-1. **System prompt override.** If `~/.config/rbtr/SYSTEM.md`
-   exists, it replaces the built-in `system.md`. The same
-   template variables (`project_instructions`, `append_system`)
-   are available. Only the system prompt is replaced — review
-   and compaction instructions are unaffected.
-
-2. **Append system.** If `~/.config/rbtr/APPEND_SYSTEM.md`
-   exists, its content is injected into the `append_system`
-   template variable. Plain markdown, not a template. Applies
-   to both agents.
-
-3. **Project instructions.** Files listed in
-   `config.project_instructions` (default `["AGENTS.md"]`) are
-   read from the repo root, concatenated, and injected into the
-   `project_instructions` template variable. Missing files are
-   silently skipped.
-
-Tool docstrings are the single source of truth for tool
-behaviour. The prompt templates describe capabilities
-conceptually without naming tools or parameters.
-
----
-
-## Threading and communication
-
-Three thread types coexist at runtime.
-
-**Main thread.** The TUI. Owns the Rich `Live` context and the
-prompt_toolkit input session. Polls `queue.Queue[Event]` in a
-loop and renders each event. Never runs commands or performs
-blocking I/O beyond display.
-
-**Daemon threads.** The engine spawns one per task via
-`threading.Thread(daemon=True)`. Commands (`/review`, `/model`),
-shell execution (`!git log`), and LLM queries each run in their
-own daemon thread. Background indexing is a separate daemon
-thread launched by `/review`. Daemon threads communicate results
-exclusively through the event queue — they never call TUI
-methods.
-
-**Async portal.** An anyio `BlockingPortal` created at engine
-init via `start_blocking_portal(backend="asyncio")`. LLM
-streaming runs as coroutines on the portal via
-`portal.call()`. The portal persists across tasks so httpx
-connection pools stay alive between turns.
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant TUI as TUI (main thread)
-    participant E as Engine (daemon thread)
-    participant L as Async loop (LLM)
-
-    U->>TUI: types "explain the retry logic"
-    TUI->>E: _start_task(LLM, "explain…")
-    E->>L: handle_llm(ctx, message)
-    L->>L: agent.iter() streaming
-    L-->>TUI: TextDelta, ToolCallStarted, …
-    L->>E: return
-    E-->>TUI: TaskFinished
-    TUI->>U: renders complete response
-```
-
-### Cancellation
-
-`Ctrl+C` sets a `threading.Event` on the engine and signals
-an `anyio.Event` via `anyio.from_thread.run_sync()`. The LLM
-pipeline checks cancellation at two levels:
-
-- **Synchronous.** `LLMContext.out()` and `LLMContext.warn()`
-  check the `threading.Event` before emitting and raise
-  `TaskCancelled`.
-- **Asynchronous.** `_run_with_cancel()` wraps the entire
-  agent turn in an anyio task group with a cancel scope. A
-  watcher task awaits an `anyio.Event` that the engine sets
-  from the UI thread (zero-latency bridge via a shared
-  `CancelSlot`). When fired, the watcher cancels the scope,
-  tearing down streaming, compaction, and all async work.
-  `TaskCancelled` is raised to the caller.
-
-Shell commands are killed via `SIGTERM` to the process group.
-
-The engine's `run_task()` catches `TaskCancelled` and emits
-`TaskFinished(success=False, cancelled=True)`. The TUI
-re-enables the input prompt.
-
-### Events
-
-All communication from engine and LLM threads to the TUI flows
-through typed Pydantic models defined in `events.py`. The TUI
-matches on the `Event` union type.
-
-#### Lifecycle
-
-| Event          | Description                                |
-| -------------- | ------------------------------------------ |
-| `TaskStarted`  | A new task has begun (carries `task_type`) |
-| `TaskFinished` | A task has completed                       |
-
-#### Output
-
-| Event            | Description                                      |
-| ---------------- | ------------------------------------------------ |
-| `Output`         | A line of text with a semantic `OutputLevel`     |
-| `TableOutput`    | A table (columns and rows as plain strings)      |
-| `MarkdownOutput` | Markdown content to render                       |
-| `LinkOutput`     | A link with URL and optional label               |
-| `FlushPanel`     | Flush active lines to scrollback or discard them |
-
-`Output.level` is an `OutputLevel` enum (`INFO`, `WARNING`,
-`ERROR`, `SHELL_STDERR`). The TUI maps each level to a theme
-key for rendering. `Output.detail` optionally carries
-expandable diagnostic text (shown via Ctrl+O on errors).
-
-#### LLM streaming
-
-| Event              | Description                                            |
-| ------------------ | ------------------------------------------------------ |
-| `TextDelta`        | A streaming text chunk                                 |
-| `ToolCallStarted`  | The LLM is calling a tool                              |
-| `ToolCallFinished` | A tool call has completed (carries optional `error`)   |
-
-#### Index
-
-| Event           | Description                                   |
-| --------------- | --------------------------------------------- |
-| `IndexStarted`  | Background indexing has begun                 |
-| `IndexProgress` | Progress update (phase, indexed count, total) |
-| `IndexReady`    | Indexing complete, store is queryable         |
-| `IndexCleared`  | Index has been cleared                        |
-
-#### Compaction
-
-| Event                | Description                               |
-| -------------------- | ----------------------------------------- |
-| `CompactionStarted`  | Compaction has begun (message counts)     |
-| `CompactionFinished` | Compaction complete (summary token count) |
-
-#### Fact extraction
-
-| Event                    | Description                                           |
-| ------------------------ | ----------------------------------------------------- |
-| `FactExtractionStarted`  | Fact extraction has begun                             |
-| `FactExtractionFinished` | Fact extraction complete (added/confirmed/superseded) |
-
-#### Review
-
-| Event          | Description                     |
-| -------------- | ------------------------------- |
-| `ReviewPosted` | A review was posted to GitHub   |
-
----
-
-## Code index
-
-The code index lives in `index/` and provides structural and
-semantic search across the repository. It runs in a background
-daemon thread — the review proceeds immediately while indexing
-catches up. Once ready, the LLM gains access to the index tools
-(`search`, `read_symbol`, `list_symbols`, `find_references`,
-`changed_symbols`).
-
-```mermaid
-flowchart LR
-    A["git tree<br/>(pygit2)"] --> B["tree-sitter<br/>or chunks.py"]
-    B --> C["DuckDB<br/>(store.py)"]
-    C --> D["edges.py<br/>import/test/doc"]
-    D --> C
-    C --> E["embeddings.py<br/>GGUF model"]
-    E --> C
-    C --> F["search.py<br/>score fusion"]
-```
-
-### Data flow
-
-**File listing.** `index/git.py` lists files from the git tree
-at a commit ref, filtered by `.gitignore`, the
-`include`/`extend_exclude` config, and `max_file_size`.
-
-**Extraction.** For each file, the orchestrator dispatches to
-one of three strategies:
-
-- **Tree-sitter** (`treesitter.py`) — if the language plugin
-  provides a grammar and query. Extracts functions, classes,
-  methods, and imports as structured `Chunk` objects with
-  names, kinds, line ranges, and scope.
-- **Custom chunker** — if the language plugin provides a
-  `chunker` function (e.g. markdown heading-hierarchy
-  splitting).
-- **Plaintext** (`chunks.py`) — fallback. Splits the file into
-  fixed-size overlapping line chunks.
-
-**Storage.** `store.py` bulk-inserts chunks via PyArrow into
-DuckDB. Each chunk is keyed by `(commit_sha, file_path,
-start_line)`.
-
-**Edge inference.** `edges.py` infers cross-file relationships
-from chunk metadata and content:
-
-- **Import edges** — from tree-sitter import extractors
-  (structural) or text-search fallback.
-- **Test edges** — `test_foo.py` → `foo.py` by naming
-  convention and import analysis.
-- **Doc edges** — markdown/RST sections that mention function
-  or class names.
-
-**Embeddings.** `embeddings.py` computes vectors using a local
-GGUF model (bge-m3, quantized). Runs on Metal (Apple Silicon)
-or CPU. No API calls. Chunks are embedded in configurable batch
-sizes.
-
-**Tokenisation.** `tokenise.py` provides code-aware
-tokenisation for BM25 indexing: splits camelCase and
-snake_case identifiers, emits both the compound form and its
-parts. Applied at index time and query time.
-
-### Storage schema
-
-One DuckDB file per repo at `.rbtr/index/index.duckdb`. Three
-tables:
-
-- **`file_snapshots`** — maps `(commit_sha, file_path)` to
-  `blob_sha`. Used for incremental updates: if a file's blob
-  SHA hasn't changed, its chunks are reused.
-- **`chunks`** — extracted symbols. Each row has the chunk's
-  name, kind, file path, line range, content, tokenised
-  content (for BM25), and an optional embedding vector.
-- **`edges`** — cross-file relationships. Each row connects a
-  source chunk to a target chunk with an edge kind (IMPORTS,
-  TESTS, DOCUMENTS, CALLS, DEFINES).
-
-### Incremental updates
-
-`build_index()` indexes a single commit. `update_index()`
-indexes a head commit given an existing index at a base commit
-— it copies unchanged file snapshots and only re-extracts
-changed files. Both deduplicate at the blob level: if two files
-(or two commits) share the same blob SHA, chunks are extracted
-once.
-
-### Search
-
-`IndexStore.search()` fuses three retrieval channels into a
-single ranked result list:
-
-- **Name matching** — case-insensitive substring and
-  token-level matching against chunk names.
-- **BM25 keyword search** — full-text search over tokenised
-  chunk content.
-- **Semantic similarity** — cosine distance between query and
-  chunk embeddings. Skipped when embeddings are unavailable;
-  its weight is redistributed to the other channels.
-
-`classify_query()` routes each query as `IDENTIFIER`,
-`CONCEPT`, or `PATTERN` and adjusts fusion weights accordingly.
-Identifier queries favour name matching; concept queries favour
-BM25 and semantic similarity.
-
-After fusion, post-fusion multipliers adjust scores:
-
-- **Kind boost** — classes and functions rank above imports.
-- **File category penalty** — source files rank above tests.
-- **Importance** — chunks with more inbound edges rank higher.
-- **Proximity** — chunks in files touched by the current diff
-  rank higher.
-
-### Graceful degradation
-
-- No grammar installed for a language → line-based plaintext
-  chunking.
-- No embedding model (missing GGUF, GPU init failure) →
-  structural index works, semantic signal skipped.
-- Slow indexing → review starts immediately, index tools
-  appear when `IndexReady` is emitted.
-
----
-
-## Language plugin system
-
-Language plugins use [pluggy](https://pluggy.readthedocs.io/).
-Each plugin implements the `rbtr_register_languages` hook and
-returns a list of `LanguageRegistration` instances
-(`plugins/hookspec.py`).
-
-### Registration order
-
-The plugin manager (`plugins/manager.py`) registers plugins in
-precedence order:
-
-1. `DefaultsPlugin` (`plugins/defaults.py`) — grammar-only and
-   detection-only registrations for languages without full
-   plugins (C#, CSS, HCL, markdown, etc.).
-2. Language-specific plugins (`plugins/python.py`,
-   `plugins/go.py`, etc.) — override defaults for the same
-   language ID.
-3. External plugins via the `rbtr.languages` setuptools entry
-   point — highest priority.
-
-### Progressive capability
-
-Each field on `LanguageRegistration` unlocks more analysis:
-
-| Field              | Unlocks                                |
-| ------------------ | -------------------------------------- |
-| `id` + `extensions`| File detection, line-based chunks      |
-| `chunker`          | Custom chunking (no grammar needed)    |
-| `grammar_module`   | Tree-sitter parsing                    |
-| `query`            | Structural symbol extraction           |
-| `import_extractor` | Structural import metadata for edges   |
-| `scope_types`      | Method-in-class scoping                |
-
-### How to add a language
-
-**Minimal (detection only).** Add an entry in
-`plugins/defaults.py`:
-
-```python
-LanguageRegistration(id="kotlin", extensions=frozenset({".kt", ".kts"}))
-```
-
-This gives file detection and line-based plaintext chunking.
-
-**With tree-sitter grammar:**
-
-1. Create `plugins/<language>.py` with a plugin class.
-2. Decorate the registration method with `@hookimpl`.
-3. Return a `LanguageRegistration` with `grammar_module`,
-   `query`, and optionally `import_extractor` and
-   `scope_types`.
-4. Register the plugin in `plugins/manager.py`
-   (`_register_builtins`).
-5. Add the grammar package to `pyproject.toml` optional deps.
-
-Use `plugins/bash.py` as a minimal grammar example (functions
-only, no imports, no classes). Use `plugins/python.py` for a
-full example with import extractor and scope types.
-
-**External plugins** register via the `rbtr.languages` entry
-point:
-
-```toml
-# hypothetical third-party plugin's pyproject.toml
-[project.entry-points."rbtr.languages"]
-kotlin = "rbtr_kotlin:KotlinPlugin"
-```
-
-`hookspec.py` exports two utilities for plugin authors:
-`parse_path_relative()` for languages with filesystem-relative
-imports (JS, TS) and `collect_scoped_path()` for languages with
-`::` or `.`-separated scoped identifiers (Rust, Java).
-
----
-
-## Session persistence
-
-Conversation history lives in a single SQLite database at
-`.rbtr/sessions.db`. All reads and writes go through
-`SessionStore` (`sessions/store.py`), which serialises
-PydanticAI message objects into a flat fragment table.
-
-### Schema
-
-One table, `fragments`, stores everything — messages, parts,
-user input, and incidents. Sessions are a grouping column, not
-a separate table.
-
-Key columns:
+One table, `fragments`. Key columns:
 
 | Column           | Purpose                                     |
 | ---------------- | ------------------------------------------- |
@@ -842,89 +211,34 @@ Key columns:
 | `message_id`     | Self-referential FK — parts point to header |
 | `fragment_index` | Ordering within a message (0 = header)      |
 | `fragment_kind`  | Discriminator (`FragmentKind` enum)         |
-| `status`         | Lifecycle state (`FragmentStatus` enum)     |
+| `status`         | `IN_PROGRESS`, `COMPLETE`, or `FAILED`      |
 | `data_json`      | Serialised PydanticAI message or part       |
-| `user_text`      | Extracted user prompt (for search/display)  |
-| `tool_name`      | Extracted tool name (for search/display)    |
-| `compacted_by`   | FK to summary message that replaced this    |
+| `compacted_by`   | FK to summary that replaced this fragment   |
 
-### Fragment kinds
+`FragmentKind` groups: message-level (`REQUEST_MESSAGE`,
+`RESPONSE_MESSAGE`), PydanticAI parts (`USER_PROMPT`,
+`TEXT`, `TOOL_CALL`, `TOOL_RETURN`, `THINKING`, etc.),
+user input (`COMMAND`, `SHELL`), and incidents
+(`LLM_ATTEMPT_FAILED`, `LLM_HISTORY_REPAIR`).
 
-`FragmentKind` has four groups:
+### Cross-provider history repair
 
-**Message-level** — `REQUEST_MESSAGE`, `RESPONSE_MESSAGE`. One
-row per message, `fragment_index = 0`. Contains the full
-serialised `ModelRequest` or `ModelResponse` (minus parts).
+Switching from Claude to GPT to Gemini mid-conversation
+produces history that each provider's API may reject —
+different tool-call ID schemes, thinking metadata formats,
+required message fields. Ctrl+C during tool execution
+leaves dangling tool calls with no results.
 
-**PydanticAI parts** — `USER_PROMPT`, `SYSTEM_PROMPT`,
-`TOOL_RETURN`, `RETRY_PROMPT`, `TEXT`, `TOOL_CALL`, `THINKING`,
-`FILE`, `BUILTIN_TOOL_CALL`, `BUILTIN_TOOL_RETURN`. One row per
-part, `fragment_index >= 1`, linked to the message header via
-`message_id`.
+rbtr's principle: **persisted history is immutable.** The
+database always retains the original conversation exactly
+as it happened. All repairs are applied transiently in
+memory at load time by `sessions/scrub.py` and
+`llm/history.py`. Each repair is recorded as an incident
+row (`sessions/incidents.py` defines the data models:
+`FailedAttempt`, `HistoryRepair`, `FailureKind`,
+`RecoveryStrategy`, `IncidentOutcome`).
 
-**User input** — `COMMAND`, `SHELL`. Standalone rows recording
-slash commands and shell invocations.
-
-**Incidents** — `LLM_ATTEMPT_FAILED`, `LLM_HISTORY_REPAIR`.
-Standalone rows recording failures and repairs (see History
-repair below).
-
-### Fragment status
-
-| Status        | Meaning                                  |
-| ------------- | ---------------------------------------- |
-| `IN_PROGRESS` | Streaming response being written         |
-| `COMPLETE`    | Finished row, visible to `load_messages` |
-| `FAILED`      | Failed turn, excluded from replay        |
-
-`IN_PROGRESS` rows are invisible to `load_messages()` — they
-become visible only when `ResponseWriter.finish()` sets the
-status to `COMPLETE`. Failed rows are visible in
-`search_history` (so the user can retry via up-arrow) but
-excluded from the message list sent to the LLM.
-
-### Streaming persistence
-
-`ResponseWriter` provides incremental persistence during LLM
-streaming. Created by `SessionStore.begin_response()`, it
-inserts parts as they arrive (`add_part` on `PartStartEvent`,
-`finish_part` on `PartEndEvent`) and finalises the message with
-cost and token counts. If the process crashes mid-stream, the
-`IN_PROGRESS` rows are simply invisible on next load — no
-cleanup needed.
-
-### Session compaction
-
-`compact_session()` replaces a range of messages with a
-summary. It inserts the summary message and its content
-fragments, then sets `compacted_by` on each replaced message,
-linking it to the summary.
-
-Compacted messages are excluded from `load_messages()` via a
-`WHERE compacted_by IS NULL` filter. The original messages
-remain in the database — compaction is non-destructive.
-
-### Session lifecycle
-
-- **Creation.** A new `session_id` (UUID7) is generated on
-  `/review` or at startup.
-- **Continuation.** `/continue` loads the most recent session
-  for the current repo and restores `EngineState` from it.
-- **Retention.** `delete_old_sessions` enforces age-based
-  cleanup via `/session purge <duration>`. Deletion cascades
-  from message headers to parts via the `message_id` FK.
-
----
-
-## History repair
-
-Persisted history is immutable. When the LLM rejects a
-conversation (provider-incompatible tool encoding, context
-overflow, unsupported parameters), repairs are applied
-transiently in memory. The original messages are never
-modified. Each repair is recorded as an incident row.
-
-### Repair stages
+#### Repair stages
 
 Repairs run in `_prepare_turn()` at three escalating levels:
 
@@ -951,7 +265,7 @@ Repairs run in `_prepare_turn()` at three escalating levels:
   `ToolReturnPart` pairs to plain text, removing structural
   pairing entirely. Last resort.
 
-### Error classification and recovery
+#### Error classification and recovery
 
 `handle_llm()` in `stream.py` classifies exceptions and selects
 a recovery strategy:
@@ -966,7 +280,7 @@ a recovery strategy:
 | `CANCELLED`          | Ctrl+C                | `NONE`                     |
 | `UNKNOWN`            | Unclassified          | `NONE`                     |
 
-### Incident recording
+#### Incident recording
 
 Every retry cycle persists two incident rows:
 
@@ -991,33 +305,191 @@ to the LLM.
 
 ---
 
+## Context compaction
+
+Long conversations fill the model's context window. A review
+that explores several files, runs searches, and builds a draft
+can easily reach the limit within a single session. Truncating
+history loses context the model needs; failing on overflow
+breaks the session.
+
+Compaction summarises older messages to free space while
+preserving recent turns. The originals stay in the database
+(immutable history) — the summary replaces them only in the
+message list sent to the model. Compaction triggers
+automatically when context pressure rises, or manually via
+`/compact`. It can be undone.
+
+The algorithm lives in `llm/compact.py` and `llm/history.py`.
+Database operations use `SessionStore.compact_session()` (see
+[Conversation storage](#conversation-storage)).
+
+### Split algorithm
+
+`split_history()` divides the conversation into _old_
+(to summarise) and _kept_ (to preserve). A turn starts at a
+`ModelRequest` containing a `UserPromptPart` and includes all
+subsequent messages until the next such request — tool calls,
+tool returns, and assistant responses within a turn stay
+together.
+
+The split removes the last `keep_turns` turns (default 2) from
+the end of the conversation. Everything before that boundary
+is _old_. When the conversation has fewer turns than
+`keep_turns`, the split is retried with `keep_turns=1` — at
+least the most recent turn is always preserved.
+
+After splitting, `split_history()` scans the _kept_ partition
+for orphaned tool returns — `ToolReturnPart`s whose matching
+`ToolCallPart` (by `tool_call_id`) ended up in _old_. These
+are moved to _old_ to prevent API errors from mismatched
+tool-call IDs.
+
+### Safe boundary snapping
+
+When the serialised old messages exceed the available context,
+`find_fit_count()` uses binary search to find the largest
+message prefix that fits. The resulting split point can land
+between a `ModelResponse` (containing tool calls) and its
+immediately following `ModelRequest` (containing tool
+results). `snap_to_safe_boundary()` decrements the count
+until the boundary no longer separates a call/result pair.
+
+### Serialisation
+
+`serialise_for_summary()` converts old messages to a
+human-readable text format. Each message becomes a markdown
+section: `## User`, `## Assistant`, `## Tool call: name(args)`,
+`## Tool result: name`. Tool results are truncated to
+`summary_max_chars` (default 2000). Thinking parts are omitted.
+
+### Summary agent
+
+`compact_agent` is a separate, tool-less `Agent[None, str]`
+that shares the system prompt with the main agent but receives
+`compact.md` as its task instructions. It runs with
+`UsageLimits(request_limit=1)` — a single request/response
+cycle. Extra instructions (e.g. from `/compact Focus on auth`)
+are passed via the `instructions=` parameter.
+
+`_stream_summary()` iterates the agent's `ModelRequestNode`
+stream, collecting text deltas into the summary. The result
+includes token counts and cost for overhead tracking.
+
+### Concurrent fact extraction
+
+During compaction, fact extraction runs concurrently with the
+summary via `asyncio.gather()`. The two are independent — the
+summary uses serialised text, fact extraction uses raw messages.
+If fact extraction fails, the summary still proceeds. Fact
+extraction identifies durable knowledge from conversations —
+see [Extraction pipeline](#extraction-pipeline) under
+Cross-session memory.
+
+### Trigger paths
+
+Four trigger paths, all calling the same
+`compact_history_async()`:
+
+| Trigger   | Enum             | Condition                           |
+| --------- | ---------------- | ----------------------------------- |
+| Post-turn | `AUTO_POST_TURN` | After response, context ≥ threshold |
+| Mid-turn  | `MID_TURN`       | During tool-call cycle, ≥ threshold |
+| Overflow  | `AUTO_OVERFLOW`  | API context-length error            |
+| Manual    | `MANUAL`         | `/compact` command                  |
+
+Mid-turn compaction fires at most once per turn. After
+compacting, history is reloaded from the database and the
+agent loop resumes with the fresh (shorter) history. The
+in-progress turn counts as one of the `keep_turns`.
+
+Post-turn compaction runs only when mid-turn compaction did
+not fire during the same turn.
+
+Overflow compaction calls `compact_history()` synchronously,
+then retries the original `handle_llm()` call.
+
+### Reset
+
+`reset_compaction()` undoes the latest compaction.
+`SessionStore.reset_latest_compaction()` clears `compacted_by`
+on all fragments marked by the most recent summary, then
+deletes the summary message (its timestamp would interleave
+with restored messages). Reset is blocked if messages were
+added after the compaction — the summary is already part of
+the later context.
+
+### Persistence
+
+After the summary is generated, `compact_session()` inserts
+the summary message and sets `compacted_by` on each old
+fragment, linking it to the summary. `load_messages()` filters
+`WHERE compacted_by IS NULL`, so compacted messages are
+invisible. The originals remain in the database for auditing.
+
+Compaction overhead (trigger, message counts, summary tokens,
+model, cost) is persisted as an `OVERHEAD_COMPACTION` fragment
+via `save_overhead()` and tracked on `SessionUsage`.
+
+### Settings
+
+```toml
+[compaction]
+auto_compact_pct = 85
+keep_turns = 2
+reserve_tokens = 16000
+summary_max_chars = 2000
+```
+
+- `auto_compact_pct` — context usage percentage that triggers
+  automatic compaction (post-turn and mid-turn).
+- `keep_turns` — number of recent turns to preserve.
+- `reserve_tokens` — tokens reserved for the summary response
+  (subtracted from available context when fitting old messages).
+- `summary_max_chars` — maximum characters per tool result in
+  the serialised summary input.
+
+Token estimation uses `len(text) // 4` — no external tokeniser.
+
+---
+
 ## Cross-session memory
 
-The `facts` table in `sessions.db` stores durable knowledge
-that persists across conversations. Facts have a `scope` —
-`"global"` for cross-project preferences, or `"owner/repo"`
-for project-specific knowledge the agent learned during
-reviews. Static project instructions live in `AGENTS.md`;
-facts are agent-learned only.
+Static project instructions live in `AGENTS.md`, but the
+model also learns things during reviews — project
+conventions, architecture decisions, recurring patterns,
+user preferences. Cross-session memory captures this
+knowledge as **facts** that persist across conversations
+and are injected into the system prompt of future sessions.
+
+Facts are scoped: `"global"` (applies everywhere) or
+`"owner/repo"` (applies only to that repository). They
+are created automatically (during compaction, after posting
+a review) or explicitly (via the `remember` tool or
+`/memory extract`). The LLM handles deduplication — it
+sees all existing facts and tags each new extraction as
+`new`, `confirm`, or `supersede`.
 
 ### Storage
 
-Facts are stored in the same SQLite database as sessions.
-Store methods live on `SessionStore`: `insert_fact`,
-`confirm_fact`, `supersede_fact`, `load_active_facts`,
-`delete_fact`, `delete_old_facts`, `search_facts`. A
-`facts_fts` FTS5 virtual table (content-external, synced via
-triggers) enables keyword search for deduplication.
+Facts live in a `facts` table in `sessions.db` (same
+SQLite database as conversations). A `facts_fts` FTS5
+virtual table (content-external, synced via triggers)
+enables keyword search for deduplication. Store methods
+live on `SessionStore`.
 
-### Fact extraction
+### Extraction pipeline
 
 A dedicated `fact_extract_agent` (`llm/memory.py`) identifies
 durable facts from conversation messages. It follows the
-background agent pattern (see below): module-level `Agent()`,
+background agent pattern (see
+[Background agents](#background-agents)): module-level
+`Agent[FactExtractionDeps, FactExtractionResult]`,
 `@instructions` decorators for the static task prompt
-(`prompts/memory_extract.md`), model passed at each call
-site. The conversation and existing facts are passed as the
-user prompt.
+(`prompts/memory_extract.md`) and existing facts (via
+`RunContext`), model passed at each call site. The conversation
+is passed as the user prompt; existing facts are injected as
+instructions through `FactExtractionDeps`.
 
 Three triggers:
 
@@ -1067,7 +539,7 @@ with `message_history` from the first call. One retry only;
 still-unresolved facts are logged and skipped. Overhead from
 clarification is persisted as a separate fragment.
 
-### Lifecycle
+### Fact lifecycle
 
 Facts are created via fact extraction (at compaction, after
 `/draft post`, or on demand) or the `remember` tool. They
@@ -1077,102 +549,298 @@ cleanup is explicit via `/memory purge <duration>`, which
 deletes facts by `last_confirmed_at` — same pattern as
 `/session purge`.
 
-### Overhead tracking
+### Cost overhead
 
-Both compaction and fact extraction incur LLM costs outside
-the main conversation. These are persisted as overhead
-fragments (`overhead-compaction`, `overhead-fact-extraction`)
-and tracked separately in `SessionUsage`. The `/stats`
-command breaks down overhead by type.
-
-Each overhead fragment carries a typed `data_json` payload
-(`CompactionOverhead` or `FactExtractionOverhead`) with
-domain-specific metadata (trigger, message counts, model
-name, fact IDs). Persistence is domain-specific — extraction
-overhead is saved in `memory.py`, compaction overhead in
-`compact.py`.
+Fact extraction costs are persisted as
+`OVERHEAD_FACT_EXTRACTION` fragments with a
+`FactExtractionOverhead` payload (source trigger, model,
+token counts, cost, fact IDs). Clarification retries
+produce a separate overhead fragment. See
+[Cost and usage tracking](#cost-and-usage-tracking) for
+the general overhead mechanism.
 
 ---
 
-## Background agent pattern
+## Code index
 
-Compaction and fact extraction are independent background
-agents that share structural conventions but no code. Future
-background agents should follow the same pattern.
+An LLM reviewing code needs more than the diff. It needs to
+find related functions, trace callers, check whether a change
+breaks anything downstream, and understand conventions used
+elsewhere in the codebase. rbtr builds a structural index of
+the repository to give the model these abilities.
 
-Each is a module-level PydanticAI `Agent()` with
-`@instructions` decorators: `render_system()` for shared
-identity, plus a task-specific `.md` template. The model is
-passed at call time, not baked in — background agents may
-use a different model than the main conversation.
+The index decomposes source files into **chunks** (functions,
+classes, methods, imports, doc sections), connects them with
+a **dependency graph** (import, test, and doc edges), and
+makes them searchable through three channels (name matching,
+BM25 keywords, semantic embeddings) fused into a single
+ranked result.
 
-### Cost tracking
+The index lives in `index/` and runs in a background daemon
+thread — the review starts immediately while indexing catches
+up.
 
-Background agent calls incur LLM costs outside the main
-conversation. These are persisted as overhead fragments
-(`overhead-compaction`, `overhead-fact-extraction`) via
-`store.save_overhead()` and recorded on `SessionUsage`.
-Each overhead type has its own `FragmentKind`, data model,
-and `record_*` method — deliberately not unified. The
-`/stats` command breaks down overhead by type.
+### Language decomposition
+
+Each file is decomposed into chunks using one of three
+strategies, selected by the language plugin:
+
+- **Tree-sitter** — if the plugin provides a grammar and
+  query. Extracts functions, classes, methods, and imports
+  as structured `Chunk` objects with names, kinds, line
+  ranges, and scope. This is the primary path for supported
+  languages (Python, Go, TypeScript, Rust, etc.).
+- **Custom chunker** — if the plugin provides a `chunker`
+  function (e.g. markdown heading-hierarchy splitting).
+- **Plaintext fallback** — splits the file into fixed-size
+  overlapping line chunks. Any file in any language gets
+  indexed.
+
+### Indexing across time and changes
+
+The index stores chunks keyed by `(commit_sha, file_path,
+start_line)`. Both base and head commits are indexed:
+
+- `build_index()` indexes a single commit.
+- `update_index()` indexes head given an existing base
+  index — copies unchanged file snapshots and only
+  re-extracts changed files.
+
+Deduplication is at the blob level: if two files share the
+same git blob SHA, chunks are extracted once. The index is
+persistent — subsequent `/review` runs skip unchanged files.
+
+`index/languages.py` detects each file's language from its
+extension (using the plugin registry). `index/arrow.py`
+provides PyArrow helpers for bulk inserts into DuckDB.
+
+### Dependency graph
+
+`edges.py` infers cross-file relationships from chunk
+metadata and content:
+
+- **Import edges** — from tree-sitter import extractors
+  (structural) or text-search fallback for languages
+  without an extractor.
+- **Test edges** — `test_foo.py` → `foo.py` by naming
+  convention and import analysis.
+- **Doc edges** — markdown/RST sections that mention
+  function or class names.
+
+The graph powers `find_references` (find all callers of a
+function), `changed_symbols` (flag missing tests and stale
+docs for changed code), and the **importance** signal in
+search ranking (symbols with more inbound edges rank
+higher).
+
+### Search fusion
+
+`search()` fuses three retrieval channels:
+
+- **Name matching** — case-insensitive substring and
+  token-level matching against chunk names. Finds exact
+  identifiers (`IndexStore`, `_prepare_turn`).
+- **BM25 keyword search** — full-text search over
+  tokenised content. Code-aware tokenisation
+  (`tokenise.py`) splits `camelCase` and `snake_case`,
+  emitting both compound and parts. Finds keyword queries
+  (`retry timeout`, `error handling`).
+- **Semantic similarity** — cosine distance between query
+  and chunk embeddings (bge-m3, quantized GGUF, runs on
+  Metal/CPU — no API calls). Finds conceptual queries
+  (`how does auth work`).
+
+`classify_query()` routes each query as `IDENTIFIER`,
+`CONCEPT`, or `PATTERN` and adjusts fusion weights.
+After fusion, post-fusion multipliers adjust scores:
+
+- **Kind boost** — classes and functions rank above imports.
+- **File category** — source files rank above tests.
+- **Importance** — more inbound graph edges → higher rank.
+- **Proximity** — files touched by the current diff rank
+  higher.
+
+### Graceful degradation
+
+- No grammar installed → line-based plaintext chunking.
+- No embedding model → structural index works, semantic
+  signal skipped (weight redistributed).
+- Slow indexing → review starts immediately, index tools
+  appear when `IndexReady` is emitted.
+
+### Benchmarking and search quality
+
+Three scripts measure and tune search:
+
+**`scripts/eval_search.py`** — Runs 24+ curated queries against
+the rbtr repo, measuring recall@1, recall@5, and MRR across
+three backends (name, BM25, unified). Queries are grouped by
+technique (tokenisation, IDF, kind scoring, file category, name
+matching, query understanding, structural signals).
+
+**`scripts/tune_search.py`** — Grid-searches fusion weight
+combinations for each query kind (identifier / concept).
+Precomputes all channel scores once, then sweeps in-memory.
+Reports the top 10 weight combos and the current settings.
+
+**`scripts/bench_search.py`** — Mines real search queries from
+session history (`~/.config/rbtr/sessions.db`). Filters by repo
+remote URL, extracts search→read pairs, detects retry chains,
+and replays paired queries through the current pipeline. Reports
+R@1, R@5, MRR, and per-query signal breakdowns.
+
+```bash
+just eval-search                      # evaluate against curated queries
+just tune-search                      # grid-search fusion weights
+just tune-search -- --step 0.05       # finer resolution
+just bench-search                     # replay real queries (current dir)
+just bench-search -- /path/to/repo    # replay for a specific repo
+```
+
+General index benchmarking:
+
+```bash
+just bench                            # quick benchmark (current repo)
+just bench -- /path/to/repo main      # custom repo
+just bench -- . main feature          # with incremental update
+just bench-scalene -- /path/to/repo   # line-level CPU + memory profiling
+just scalene-view                     # view last scalene profile
+```
+
+### Language plugins
+
+Language plugins use [pluggy](https://pluggy.readthedocs.io/).
+Each plugin implements the `rbtr_register_languages` hook and
+returns a list of `LanguageRegistration` instances
+(`plugins/hookspec.py`).
+
+#### Registration order
+
+The plugin manager (`plugins/manager.py`) registers plugins in
+precedence order:
+
+1. `DefaultsPlugin` (`plugins/defaults.py`) — grammar-only and
+   detection-only registrations for languages without full
+   plugins (C#, CSS, HCL, markdown, etc.).
+2. Language-specific plugins (`plugins/python.py`,
+   `plugins/go.py`, etc.) — override defaults for the same
+   language ID.
+3. External plugins via the `rbtr.languages` setuptools entry
+   point — highest priority.
+
+#### Progressive capability
+
+Each field on `LanguageRegistration` unlocks more analysis:
+
+| Field               | Unlocks                              |
+| ------------------- | ------------------------------------ |
+| `id` + `extensions` | File detection, line-based chunks    |
+| `chunker`           | Custom chunking (no grammar needed)  |
+| `grammar_module`    | Tree-sitter parsing                  |
+| `query`             | Structural symbol extraction         |
+| `import_extractor`  | Structural import metadata for edges |
+| `scope_types`       | Method-in-class scoping              |
+
+#### How to add a language
+
+**Minimal (detection only).** Add an entry in
+`plugins/defaults.py`:
+
+```python
+LanguageRegistration(id="kotlin", extensions=frozenset({".kt", ".kts"}))
+```
+
+This gives file detection and line-based plaintext chunking.
+
+**With tree-sitter grammar:**
+
+1. Create `plugins/<language>.py` with a plugin class.
+2. Decorate the registration method with `@hookimpl`.
+3. Return a `LanguageRegistration` with `grammar_module`,
+   `query`, and optionally `import_extractor` and
+   `scope_types`.
+4. Register the plugin in `plugins/manager.py`
+   (`_register_builtins`).
+5. Add the grammar package to `pyproject.toml` optional deps.
+
+Use `plugins/bash.py` as a minimal grammar example (functions
+only, no imports, no classes). Use `plugins/python.py` for a
+full example with import extractor and scope types.
+
+**External plugins** register via the `rbtr.languages` entry
+point:
+
+```toml
+# hypothetical third-party plugin's pyproject.toml
+[project.entry-points."rbtr.languages"]
+kotlin = "rbtr_kotlin:KotlinPlugin"
+```
+
+`hookspec.py` exports two utilities for plugin authors:
+`parse_path_relative()` for languages with filesystem-relative
+imports (JS, TS) and `collect_scoped_path()` for languages with
+`::` or `.`-separated scoped identifiers (Rust, Java).
 
 ---
 
-## Styling
+## Read-only git interface
 
-All visual styling is centralised in `styles.py`.
-`build_theme()` selects the palette for the configured mode and
-passes it to Rich's `Theme`.
+A code review tool that modifies the working tree is
+dangerous — uncommitted changes, dirty state, merge
+conflicts. rbtr never reads or writes the working tree for
+repository files. All file access goes through the git
+object store at exact commit SHAs, giving the model a
+frozen, reproducible view of the code at both sides of
+the diff.
 
-### Palette hierarchy
+The implementation lives in `git/` (pygit2 wrappers) and
+`engine/review_cmd.py` (ref resolution).
 
-`PaletteConfig` is the base Pydantic model. It defines ANSI
-text-style defaults (shared across modes) and declares
-background fields as required (no defaults). `DarkPalette`
-and `LightPalette` subclass it to provide mode-specific
-background hex defaults. Because Pydantic uses the field's
-type to deserialise, partial TOML overrides like
-`[theme.light] bg_succeeded = "on #E0FFE0"` get the
-correct light defaults for unset fields — no validators needed.
+When `/review` selects a PR, `review_cmd.py` fetches exact
+commit SHAs from the GitHub API and stores them on
+`ReviewTarget` (`models.py`):
 
-### Theme configuration
+- `base_commit` — exact SHA for the base (e.g. tip of `main`
+  at PR creation). Immune to stale local branches.
+- `head_commit` — exact SHA for the head (feature branch tip).
+- `head_sha` — on `PRTarget`, the raw SHA from GitHub (used
+  by the draft system for stale comment translation).
 
-`[theme]` in config controls the colour mode:
+For local branch reviews (`/review main..feature`), these
+equal the branch names and resolve via pygit2.
 
-- `mode` — `"dark"` (default) or `"light"`.
-- `[theme.dark]` / `[theme.light]` — per-mode field overrides.
-  Any Rich style string is valid.
+`git/repo.py` wraps pygit2 for all object-store reads.
+File access follows the path
+`pygit2.Repository.revparse_single(ref)` → tree → blob.
+The working tree is never read for repository files and
+never modified.
 
-### Theme structure
+`git/filters.py` handles path filtering — gitignore
+matching, glob patterns, and binary file detection. Both
+the indexer (deciding which files to index) and the file
+tools (deciding which untracked files are readable) use
+these filters.
 
-Code references semantic style keys — never inline hex colours
-or ad-hoc style strings. Only the TUI imports `styles.py`.
+Untracked files (`.rbtr/notes/`, drafts) use a filesystem
+fallback that respects `.gitignore` and the
+`include`/`extend_exclude` config.
 
-Events carry semantic data, not style strings. `Output` events
-use an `OutputLevel` enum (`INFO`, `WARNING`, `ERROR`,
-`SHELL_STDERR`). The TUI maps each level to a theme key when
-rendering. No engine or LLM module imports from `styles.py`.
-
-### Style groups
-
-| Group      | Keys                           | Purpose                   |
-| ---------- | ------------------------------ | ------------------------- |
-| Prompt     | `rbtr.prompt`, `.input`        | Input area                |
-| Panels     | `rbtr.bg.*` (6 keys)           | Panel background by state |
-| Text       | `rbtr.dim/muted/warning/error` | Semantic colours          |
-| Chrome     | `rbtr.rule`, `.footer`         | Separators, status bar    |
-| Completion | `rbtr.completion.*`            | Tab-completion menu       |
-| Usage      | `rbtr.usage.*`                 | Context-window indicator  |
-| Output     | `rbtr.out.*` (5 keys)          | TUI-internal level styles |
-| Inline     | `rbtr.link`                    | Links                     |
+The `ref` parameter on tools maps directly to the stored
+SHAs: `"head"` → `head_commit`, `"base"` → `base_commit`,
+or a raw SHA is passed through to pygit2.
 
 ---
 
 ## Review draft and GitHub integration
 
-The draft system lets the LLM build a review incrementally,
-sync it with GitHub's pending review, and post it. Three
-modules collaborate:
+The model builds a review incrementally — adding comments
+as it reads code, revising them as it learns more. The
+review needs to sync with GitHub's pending review API
+(which has significant limitations), handle concurrent
+edits from the GitHub UI, survive across sessions, and
+post atomically.
+
+Three modules collaborate:
 
 - **`github/draft.py`** — local persistence and matching.
   Loads, saves, and diffs YAML draft files.
@@ -1200,7 +868,7 @@ Two hard API limitations shape the sync design:
 
 **No individual pending-comment updates.** PATCH on a pending
 review comment returns 404. DELETE works, but there is no way
-to *modify* a single pending comment — the only option is to
+to _modify_ a single pending comment — the only option is to
 delete the entire review and recreate it. Every push therefore
 goes through a delete → create cycle. To track comments across
 this cycle, each comment's `github_id` is recorded locally and
@@ -1369,3 +1037,655 @@ are separated out and skipped with a warning.
    against diff.
 4. Post via `client.post_review()` as a single API call.
 5. Delete local draft file.
+
+---
+
+## Runtime architecture
+
+rbtr has four layers: a terminal UI that owns the display,
+an engine that dispatches commands, an LLM pipeline that
+streams model responses, and storage backends (SQLite for
+sessions, DuckDB for the code index). The TUI never runs
+commands. The engine never touches the display. The LLM
+pipeline never imports the engine. Communication flows
+through an event queue and typed context objects.
+
+Three thread types coexist at runtime.
+
+**Main thread.** The TUI. Owns the Rich `Live` context and the
+prompt_toolkit input session. Polls `queue.Queue[Event]` in a
+loop and renders each event. Never runs commands or performs
+blocking I/O beyond display.
+
+**Daemon threads.** The engine spawns one per task via
+`threading.Thread(daemon=True)`. Commands (`/review`, `/model`),
+shell execution (`!git log`), and LLM queries each run in their
+own daemon thread. Background indexing is a separate daemon
+thread launched by `/review`. Daemon threads communicate results
+exclusively through the event queue — they never call TUI
+methods.
+
+**Async portal.** An anyio `BlockingPortal` created at engine
+init via `start_blocking_portal(backend="asyncio")`. LLM
+streaming runs as coroutines on the portal via
+`portal.call()`. The portal persists across tasks so httpx
+connection pools stay alive between turns.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TUI as TUI (main thread)
+    participant E as Engine (daemon thread)
+    participant L as Async loop (LLM)
+
+    U->>TUI: types "explain the retry logic"
+    TUI->>E: _start_task(LLM, "explain…")
+    E->>L: handle_llm(ctx, message)
+    L->>L: agent.iter() streaming
+    L-->>TUI: TextDelta, ToolCallStarted, …
+    L->>E: return
+    E-->>TUI: TaskFinished
+    TUI->>U: renders complete response
+```
+
+### Storage backends
+
+The two storage backends serve opposite workloads. SQLite
+(WAL mode) handles session history: many small streaming
+inserts from multiple threads, point queries by
+`session_id`, crash recovery. DuckDB handles the code
+index: bulk PyArrow inserts, BM25 full-text search,
+cosine-similarity vector search, analytical score fusion.
+Index data is derived and rebuildable; session data is not.
+
+### Engine dispatch
+
+The `Engine` class (`engine/core.py`) is a stateless dispatcher.
+It holds references to:
+
+- `EngineState` (`state.py`) — the mutable shared state bag.
+  Contains the pygit2 repo handle, `ReviewTarget`, connected
+  providers, `IndexStore`, model name, `SessionUsage`,
+  discussion cache, and active session ID. Every layer
+  reads from it; only the engine writes to it.
+- `SessionStore` (`sessions/store.py`) — session persistence.
+- `queue.Queue[Event]` — the event channel to the TUI.
+- An anyio `BlockingPortal` on a dedicated daemon thread.
+
+Input is classified and dispatched:
+
+- Starts with `/` → `_handle_command()` routes to the matching
+  `engine/*_cmd.py` handler via the `Command` enum.
+- Starts with `!` → `handle_shell()` runs the command in a pty
+  with output truncation.
+- Anything else → `handle_llm()` in the LLM pipeline.
+
+Each `*_cmd.py` module is a standalone handler that receives the
+`Engine` instance and an argument string. Handlers emit events
+through the engine. They never import or reference the TUI.
+
+Before each task, the engine calls `_sync_store_context()` to
+push current metadata (session ID, label, repo, model) to the
+session store, so all subsequent writes inherit it.
+
+**`LLMContext`** (`llm/context.py`) is the decoupling boundary
+between engine and LLM pipeline. It is a dataclass holding the
+state, store, event queue, cancellation flag, and portal.
+The engine creates one via `_llm_context()` before each LLM or
+compaction call. The LLM pipeline receives it as its only
+dependency — it never imports the `Engine` class.
+
+### Cancellation
+
+`Ctrl+C` sets a `threading.Event` on the engine and signals
+an `anyio.Event` via `anyio.from_thread.run_sync()`. The LLM
+pipeline checks cancellation at two levels:
+
+- **Synchronous.** `LLMContext.out()` and `LLMContext.warn()`
+  check the `threading.Event` before emitting and raise
+  `TaskCancelled`.
+- **Asynchronous.** `_run_with_cancel()` wraps the entire
+  agent turn in an anyio task group with a cancel scope. A
+  watcher task awaits an `anyio.Event` that the engine sets
+  from the UI thread (zero-latency bridge via a shared
+  `CancelSlot`). When fired, the watcher cancels the scope,
+  tearing down streaming, compaction, and all async work.
+  `TaskCancelled` is raised to the caller.
+
+Shell commands are killed via `SIGTERM` to the process group.
+
+The engine's `run_task()` catches `TaskCancelled` and emits
+`TaskFinished(success=False, cancelled=True)`. The TUI
+re-enables the input prompt.
+
+### Events
+
+All communication from engine and LLM threads to the TUI flows
+through typed Pydantic models defined in `events.py`. The TUI
+matches on the `Event` union type.
+
+#### Lifecycle
+
+| Event          | Description                                |
+| -------------- | ------------------------------------------ |
+| `TaskStarted`  | A new task has begun (carries `task_type`) |
+| `TaskFinished` | A task has completed                       |
+
+#### Output
+
+| Event            | Description                                      |
+| ---------------- | ------------------------------------------------ |
+| `Output`         | A line of text with a semantic `OutputLevel`     |
+| `TableOutput`    | A table (columns and rows as plain strings)      |
+| `MarkdownOutput` | Markdown content to render                       |
+| `LinkOutput`     | A link with URL and optional label               |
+| `FlushPanel`     | Flush active lines to scrollback or discard them |
+
+`Output.level` is an `OutputLevel` enum (`INFO`, `WARNING`,
+`ERROR`, `SHELL_STDERR`). The TUI maps each level to a theme
+key for rendering. `Output.detail` optionally carries
+expandable diagnostic text (shown via Ctrl+O on errors).
+
+#### LLM streaming
+
+| Event              | Description                                          |
+| ------------------ | ---------------------------------------------------- |
+| `TextDelta`        | A streaming text chunk                               |
+| `ToolCallStarted`  | The LLM is calling a tool                            |
+| `ToolCallFinished` | A tool call has completed (carries optional `error`) |
+
+#### Index
+
+| Event           | Description                                   |
+| --------------- | --------------------------------------------- |
+| `IndexStarted`  | Background indexing has begun                 |
+| `IndexProgress` | Progress update (phase, indexed count, total) |
+| `IndexReady`    | Indexing complete, store is queryable         |
+| `IndexCleared`  | Index has been cleared                        |
+
+#### Compaction
+
+| Event                | Description                               |
+| -------------------- | ----------------------------------------- |
+| `CompactionStarted`  | Compaction has begun (message counts)     |
+| `CompactionFinished` | Compaction complete (summary token count) |
+
+#### Fact extraction
+
+| Event                    | Description                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `FactExtractionStarted`  | Fact extraction has begun                             |
+| `FactExtractionFinished` | Fact extraction complete (added/confirmed/superseded) |
+
+#### Review
+
+| Event          | Description                   |
+| -------------- | ----------------------------- |
+| `ReviewPosted` | A review was posted to GitHub |
+
+---
+
+## LLM pipeline
+
+The LLM pipeline (`llm/`) manages three concerns: streaming
+model responses while persisting each part for crash
+recovery, managing the context window so long conversations
+don't fail, and recovering from provider errors so model
+switches don't break sessions.
+
+```mermaid
+flowchart TD
+    A[prepare turn] --> B[stream response]
+    B --> C{tool calls?}
+    C -- yes --> D[execute tools]
+    D --> E{context full?}
+    E -- yes --> F[compact + reload]
+    F --> B
+    E -- no --> B
+    C -- no --> G[finalize turn]
+    A -- error --> H{classify}
+    H -- overflow --> F
+    H -- format --> I[repair history + retry]
+    H -- other --> J[emit error]
+```
+
+### Streaming and persistence
+
+`handle_llm()` (`llm/stream.py`) is the entry point.
+`_prepare_turn` builds the PydanticAI model, loads history
+from the session database, and applies load-time repairs
+(corrupt args, dangling tool calls).
+
+The streaming loop iterates `agent.iter()` graph nodes.
+`ModelRequestNode` yields text and tool-call deltas —
+each part is persisted via `ResponseWriter` as it arrives
+(see [Conversation storage](#conversation-storage)).
+`CallToolsNode` executes tools and checks whether context
+usage exceeds the compaction threshold.
+
+### Error recovery
+
+When a provider rejects the request, the pipeline classifies
+the failure and retries:
+
+- **Context overflow** — compact history, retry.
+- **History format error** — escalating repair (see
+  [Cross-provider history repair](#cross-provider-history-repair)).
+  Level 1: restructure
+  tool-call grouping. Level 2: demote thinking parts,
+  flatten tool exchanges to plain text.
+- **Effort unsupported** — disable the parameter, retry.
+- **Other** — emit the error to the user.
+
+**Tool-call limit.** After `max_requests_per_turn` model
+requests (default 25), the loop breaks. A tool-free summary
+request asks the model to report what it accomplished and what
+remains.
+
+**Key modules:**
+
+- **`agent.py`** — PydanticAI `Agent` definition.
+  `@agent.instructions` decorators wire the system prompt,
+  review instructions, and index status. The agent is defined
+  once at module level; the model is provided at call time.
+- **`compact.py`** — a separate tool-less `Agent` for
+  compaction. `compact_history()` splits the conversation via
+  `split_history()`, serialises old turns, and sends them for
+  summarisation. The compaction agent shares the system prompt
+  but receives `compact.md` as its task instructions.
+- **`history.py`** — repair functions for cross-provider
+  compatibility: `consolidate_tool_returns`,
+  `demote_thinking`, `flatten_tool_exchanges`,
+  `repair_dangling_tool_calls`. All operate on in-memory
+  message lists and return new lists — the database is never
+  modified.
+- **`errors.py`** — pure functions that inspect
+  `ModelHTTPError` to classify failures as overflow, history
+  format rejection, effort unsupported, or unrecoverable.
+
+### Background agents
+
+Compaction and fact extraction are independent background
+agents that share structural conventions but no code. Future
+background agents should follow the same pattern.
+
+Each is a module-level PydanticAI `Agent()` with
+`@instructions` decorators: `render_system()` for shared
+identity, plus a task-specific `.md` template. The model is
+passed at call time, not baked in — background agents may
+use a different model than the main conversation.
+
+### Overhead tracking
+
+Background agents (compaction, fact extraction) incur LLM
+costs outside the main conversation. Each agent persists
+its own overhead fragment with a typed payload — compaction
+overhead in `compact.py`, extraction overhead in `memory.py`.
+See [Cost and usage tracking](#cost-and-usage-tracking) for
+the storage mechanism.
+
+---
+
+## Provider system
+
+Every provider satisfies the `Provider` protocol:
+
+```python
+class Provider(Protocol):
+    GENAI_ID: str
+    LABEL: str
+    def is_connected(self) -> bool: ...
+    def list_models(self) -> list[str]: ...
+    def build_model(self, model_name: str) -> Model: ...
+    def model_settings(self, model_id: str, model: Model,
+                       effort: ThinkingEffort) -> ModelSettings | None: ...
+    def context_window(self, model_id: str) -> int | None: ...
+```
+
+The `PROVIDERS` dict in `providers/__init__.py` is the single
+registration point — a mapping from `BuiltinProvider` enum
+values to provider instances. All dispatch functions
+(`build_model`, `model_settings`, `model_context_window`) call
+`_resolve()`, which splits `<prefix>/<model-id>`, looks up the
+prefix in `PROVIDERS`, and falls back to `endpoint.resolve()`
+for custom endpoints. Nothing else in the codebase imports
+provider modules directly.
+
+**Builtin providers:**
+
+| Prefix       | Module            | Auth       |
+| ------------ | ----------------- | ---------- |
+| `claude`     | `claude.py`       | OAuth/PKCE |
+| `chatgpt`    | `openai_codex.py` | OAuth/PKCE |
+| `google`     | `google.py`       | OAuth/PKCE |
+| `openai`     | `openai.py`       | API key    |
+| `fireworks`  | `fireworks.py`    | API key    |
+| `openrouter` | `openrouter.py`   | API key    |
+
+**Custom endpoints** (`/connect endpoint <name> <url> [key]`)
+are stored in `config.toml` under `[endpoints.<name>]` with
+optional keys in `creds.toml` under `[endpoint_keys]`.
+`endpoint.py` wraps each as an `EndpointProvider` that satisfies
+the same protocol. Endpoint providers appear in model listings,
+tab completion, and dispatch identically to builtin providers.
+
+**API-key providers** share a generic connect handler in
+`connect_cmd.py`. Each exposes a `CRED_FIELD` attribute naming
+the credential field (e.g. `"fireworks_api_key"`). The connect
+command stores the key via `creds.update()`, and `setup.py`
+auto-detects stored keys on startup by calling
+`prov.is_connected()` for each registered provider.
+
+**OAuth providers** (Claude, ChatGPT, Google) each have their
+own connect handler. The shared OAuth infrastructure lives in
+`oauth.py` — PKCE challenge generation, a localhost callback
+server (binds an ephemeral port, serves one request), token
+exchange, and automatic refresh when tokens expire. Each
+provider's connect handler calls `oauth.authorize()` with
+provider-specific URLs and scopes. Tokens are stored in
+`creds.toml` under a provider-specific section.
+
+**`shared.py`** contains helpers used by multiple providers:
+`openai_chat_model_settings()` maps `ThinkingEffort` to
+OpenAI-compatible settings, and `genai_prices_context_window()`
+looks up context windows from the `genai-prices` library.
+
+### How to add a provider
+
+1. **Create `providers/<name>.py`** with a class satisfying
+   `Provider`. Use `fireworks.py` as a template for API-key
+   providers, `google.py` for OAuth providers. Instantiate the
+   class as a module-level `provider` variable.
+
+2. **Add a credential field** to `Creds` in `creds.py` (e.g.
+   `newprov_api_key: str = ""`).
+
+3. **Add an enum variant** to `BuiltinProvider` in
+   `providers/__init__.py`.
+
+4. **Add an entry** to the `PROVIDERS` dict mapping the new
+   enum variant to the provider instance.
+
+5. **Add a connect handler** in `engine/connect_cmd.py`. For
+   API-key providers, add `CRED_FIELD` and optionally
+   `KEY_PREFIX` to the provider class — the generic
+   `_connect_api_key` handler will work automatically. OAuth
+   providers need a dedicated handler in the `match` block.
+
+6. **Add auto-detect** in `engine/setup.py`. The existing loop
+   over `PROVIDERS` already calls `prov.is_connected()` for
+   each registered provider, so API-key providers work with no
+   changes. OAuth providers may need additional setup logic.
+
+Model listing, tab completion, dispatch, and pricing via
+`genai-prices` all derive from the registry automatically.
+
+---
+
+## Prompt architecture
+
+The LLM receives instructions assembled from four templates in
+`prompts/`, rendered via minijinja:
+
+| Template          | Agent      | Content                             |
+| ----------------- | ---------- | ----------------------------------- |
+| `system.md`       | Both       | Identity, authority, language style |
+| `review.md`       | Main       | Review context, principles, format  |
+| `compact.md`      | Compaction | What to preserve/drop in summaries  |
+| `index_status.md` | Main       | Index availability, tool readiness  |
+
+**Main agent** receives three `@agent.instructions` decorators:
+`_system()` renders `system.md`, `_review_task(ctx)` renders
+`review.md` with live state (date, repo, PR metadata), and
+`_index_status(ctx)` renders `index_status.md` with the current
+index state and the names of tools that require it. All three
+run on every turn.
+
+**Compaction agent** is a separate tool-less `Agent` instance
+in `llm/compact.py`. It receives two
+`@compact_agent.instructions` decorators: `_system()` (same
+`render_system()` as the main agent) and `_compact_task()`
+(renders `compact.md`). The shared system prompt ensures
+consistent identity and language across both agents.
+
+**`review.md`** is a Jinja template with variables populated
+from `EngineState`: `date`, `owner`, `repo`, `target_kind`,
+`base_branch`, `branch`, `pr_number`, `pr_title`, `pr_author`,
+`pr_body`, `editable_globs`.
+
+**`system.md`** has two template variables:
+`project_instructions` and `append_system`.
+
+### Customisation
+
+Three layers, applied in order:
+
+1. **System prompt override.** If `~/.config/rbtr/SYSTEM.md`
+   exists, it replaces the built-in `system.md`. The same
+   template variables (`project_instructions`, `append_system`)
+   are available. Only the system prompt is replaced — review
+   and compaction instructions are unaffected.
+
+2. **Append system.** If `~/.config/rbtr/APPEND_SYSTEM.md`
+   exists, its content is injected into the `append_system`
+   template variable. Plain markdown, not a template. Applies
+   to both agents.
+
+3. **Project instructions.** Files listed in
+   `config.project_instructions` (default `["AGENTS.md"]`) are
+   read from the repo root, concatenated, and injected into the
+   `project_instructions` template variable. Missing files are
+   silently skipped.
+
+Tool docstrings are the single source of truth for tool
+behaviour. The prompt templates describe capabilities
+conceptually without naming tools or parameters.
+
+---
+
+## Tools
+
+18 tools registered via `@agent.tool` decorators in submodules
+under `llm/tools/`. Each receives `RunContext[AgentDeps]` and
+returns a string result.
+
+Tools are conditionally visible to the LLM based on session
+state. Each tool declares a `prepare` function that either
+returns the tool definition (visible) or `None` (hidden). The
+LLM never sees a tool it cannot call.
+
+| Prepare function    | Condition                             |
+| ------------------- | ------------------------------------- |
+| `require_repo`      | A repository is connected (`/review`) |
+| `require_index`     | The code index has finished building  |
+| `require_pr`        | A PR or branch is selected            |
+| `require_pr_target` | The target is specifically a PR       |
+| _(none)_            | Always visible                        |
+
+### File tools (`require_repo`)
+
+| Tool         | Purpose                                                 |
+| ------------ | ------------------------------------------------------- |
+| `read_file`  | Read file content by path, with pagination              |
+| `grep`       | Substring search in one file, a directory, or repo-wide |
+| `list_files` | List files in the repository or a subdirectory          |
+
+### Git tools (`require_repo`)
+
+| Tool            | Purpose                                        |
+| --------------- | ---------------------------------------------- |
+| `changed_files` | List file paths changed between base and head  |
+| `diff`          | Unified text diff, optionally filtered by path |
+| `commit_log`    | Commit log between base and head               |
+
+### Index tools (`require_index`)
+
+| Tool              | Purpose                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| `search`          | Find symbols by name, keywords, or concepts                      |
+| `read_symbol`     | Read the full source code of a symbol                            |
+| `list_symbols`    | List functions, classes, methods in a file                       |
+| `find_references` | Find symbols referencing a given symbol via the dependency graph |
+| `changed_symbols` | List symbols changed between base and head                       |
+
+### Draft tools (`require_pr_target`)
+
+| Tool                   | Purpose                                   |
+| ---------------------- | ----------------------------------------- |
+| `add_draft_comment`    | Add an inline comment to the review draft |
+| `edit_draft_comment`   | Edit an existing draft comment            |
+| `remove_draft_comment` | Remove a draft comment                    |
+| `set_draft_summary`    | Set the top-level review summary          |
+| `read_draft`           | Read the current draft                    |
+
+### Discussion tools (`require_pr`)
+
+| Tool                | Purpose                                    |
+| ------------------- | ------------------------------------------ |
+| `get_pr_discussion` | Read existing discussion on the current PR |
+
+### Edit tools (always visible)
+
+| Tool   | Purpose                                                  |
+| ------ | -------------------------------------------------------- |
+| `edit` | Create or modify files matching `editable_include` globs |
+
+File tools read from the git object store first and fall back
+to the local filesystem for untracked files (`.rbtr/notes/`,
+draft files). The filesystem fallback respects `.gitignore` and
+the `include`/`extend_exclude` config. Tools that accept a
+`ref` parameter return the state of the codebase at that
+snapshot (`"head"`, `"base"`, or a raw commit SHA), not the
+changes introduced by it.
+
+`llm/tools/common.py` provides shared helpers: pagination
+(offset/limit with a trailer telling the LLM how many results
+remain), output truncation, and `ref` parameter resolution.
+Individual tool modules (`file.py`, `git.py`, `index.py`,
+`draft.py`, `discussion.py`, `notes.py`, `memory.py`) each
+register their tools via `@agent.tool`.
+
+---
+
+## Configuration and credentials
+
+Two singleton instances, importable directly:
+
+```python
+from rbtr.config import config
+from rbtr.creds import creds
+```
+
+Both use pydantic-settings with TOML files under
+`~/.config/rbtr/`. Both support `update(**kwargs)` which
+persists to disk and reloads the instance in place.
+
+**`config.py`** reads `config.toml`. Contains preferences,
+endpoint URLs, model selection, index settings, and TUI
+settings. Environment variables with `RBTR_` prefix override
+any TOML value.
+
+**`creds.py`** reads `creds.toml` with 0600 permissions.
+Contains OAuth tokens (Claude, ChatGPT, Google), API keys
+(OpenAI, Fireworks, OpenRouter), endpoint keys, and the GitHub
+token.
+
+**`constants.py`** defines path constants: `RBTR_DIR`
+(`~/.config/rbtr/`) and `WORKSPACE_DIR` (`.rbtr/` in the repo
+root).
+
+---
+
+## TUI
+
+The TUI lives in `tui/` and runs entirely on the main thread.
+
+**`tui/ui.py`** owns the main event loop. It polls
+`queue.Queue[Event]`, matches on the event type, and renders
+via Rich `Live`. The terminal's native scroll buffer holds all
+conversation history. The Live region is kept small — only the
+current active panel and input chrome. Completed panels are
+flushed to scrollback so they become part of the terminal's
+own scroll history rather than an in-process buffer.
+
+Each panel gets a background colour by variant: `response`
+(transparent — LLM markdown text), `succeeded` (green —
+command/shell output), `failed` (red — errors and failed tool
+calls), `toolcall` (purple — successful tool results),
+`input` (grey — user input echo), `queued` (slate — pending
+commands). LLM text and tool results are always separate
+panels — a multi-tool-call turn produces alternating
+`response` and `toolcall` panels. Failed tool calls show a
+`✗` icon and the `failed` background.
+
+**`tui/footer.py`** renders the status bar. Pure functions, no
+UI state. The footer shows the model name, token usage
+(input/output/cache), context window percentage, message count,
+cumulative cost, thinking effort level, and index progress.
+Colour thresholds signal context pressure (green/yellow/red)
+and message count (grey/yellow/red).
+
+**`tui/input.py`** wraps prompt_toolkit for input handling.
+Manages bracketed paste detection, paste markers (collapsed
+display of large pastes with atomic cursor behaviour), tab
+completion (slash commands, command arguments, bash
+programmable completion, file paths, executables), multiline
+editing via Alt+Enter, and input history backed by the
+session database (up/down arrow browses previous inputs,
+deduplicated across sessions).
+
+**Thinking effort.** Shift+Tab cycles the `ThinkingEffort`
+enum (`off` → `low` → `medium` → `high`). The footer
+displays the current level. The provider's `model_settings()`
+maps the enum to provider-specific parameters (e.g.
+`budget_tokens` for Claude, `reasoning_effort` for OpenAI).
+
+---
+
+## Styling
+
+All visual styling is centralised in `styles.py`.
+`build_theme()` selects the palette for the configured mode and
+passes it to Rich's `Theme`.
+
+### Palette hierarchy
+
+`PaletteConfig` is the base Pydantic model. It defines ANSI
+text-style defaults (shared across modes) and declares
+background fields as required (no defaults). `DarkPalette`
+and `LightPalette` subclass it to provide mode-specific
+background hex defaults. Because Pydantic uses the field's
+type to deserialise, partial TOML overrides like
+`[theme.light] bg_succeeded = "on #E0FFE0"` get the
+correct light defaults for unset fields — no validators needed.
+
+### Theme configuration
+
+`[theme]` in config controls the colour mode:
+
+- `mode` — `"dark"` (default) or `"light"`.
+- `[theme.dark]` / `[theme.light]` — per-mode field overrides.
+  Any Rich style string is valid.
+
+### Theme structure
+
+Code references semantic style keys — never inline hex colours
+or ad-hoc style strings. Only the TUI imports `styles.py`.
+
+Events carry semantic data, not style strings. `Output` events
+use an `OutputLevel` enum (`INFO`, `WARNING`, `ERROR`,
+`SHELL_STDERR`). The TUI maps each level to a theme key when
+rendering. No engine or LLM module imports from `styles.py`.
+
+### Style groups
+
+| Group      | Keys                           | Purpose                   |
+| ---------- | ------------------------------ | ------------------------- |
+| Prompt     | `rbtr.prompt`, `.input`        | Input area                |
+| Panels     | `rbtr.bg.*` (6 keys)           | Panel background by state |
+| Text       | `rbtr.dim/muted/warning/error` | Semantic colours          |
+| Chrome     | `rbtr.rule`, `.footer`         | Separators, status bar    |
+| Completion | `rbtr.completion.*`            | Tab-completion menu       |
+| Usage      | `rbtr.usage.*`                 | Context-window indicator  |
+| Output     | `rbtr.out.*` (5 keys)          | TUI-internal level styles |
+| Inline     | `rbtr.link`                    | Links                     |
