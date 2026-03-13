@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic_ai import RunContext
 
 from rbtr.config import config
 from rbtr.git.objects import (
     DiffLineRanges,
     diff_line_ranges,
-    diff_line_ranges_left,
     resolve_anchor,
 )
-from rbtr.github.draft import draft_path, draft_transaction, load_draft, save_draft
+from rbtr.github import client
+from rbtr.github.draft import (
+    draft_path,
+    draft_transaction,
+    find_comment,
+    load_draft,
+    save_draft,
+    snap_to_commentable_line,
+)
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import limited, review_toolset
 from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
+
+log = logging.getLogger(__name__)
 
 
 def _pr_number(ctx: RunContext[AgentDeps]) -> int:
@@ -31,12 +42,6 @@ def _load_or_create_draft(pr_number: int) -> ReviewDraft:
     return load_draft(pr_number) or ReviewDraft()
 
 
-# Cached diff line ranges — invalidated on new /review.
-_cached_ranges: DiffLineRanges | None = None
-_cached_ranges_left: DiffLineRanges | None = None
-_cached_ranges_key: tuple[str, str] = ("", "")
-
-
 def _get_diff_ranges(
     ctx: RunContext[AgentDeps],
     *,
@@ -44,96 +49,56 @@ def _get_diff_ranges(
 ) -> DiffLineRanges:
     """Return commentable line ranges for the current review target.
 
-    Caches the result so repeated `add_draft_comment` calls in the
-    same turn don't recompute the diff.  *side* selects HEAD
-    (`RIGHT`) or BASE (`LEFT`) ranges.
+    Tries GitHub's ``pull.get_files()`` patch data first (the
+    authoritative source for which lines the review API accepts).
+    Falls back to the local pygit2 three-dot diff when the GitHub
+    context is unavailable or the API call fails.
+
+    Results are cached on ``state.diff_range_cache`` keyed by
+    ``(base_commit, head_commit)`` so repeated ``add_draft_comment``
+    calls in the same turn don't re-fetch.  The cache self-invalidates
+    when the key changes (e.g. after a refs refresh).
     """
-    global _cached_ranges, _cached_ranges_left, _cached_ranges_key
     state = ctx.deps.state
     target = state.review_target
-    repo = state.repo
-    if target is None or repo is None:
+    if target is None:
         return {}
     key = (target.base_commit, target.head_commit)
-    if _cached_ranges_key != key:
-        _cached_ranges = None
-        _cached_ranges_left = None
-        _cached_ranges_key = key
-    if side is DiffSide.LEFT:
-        if _cached_ranges_left is None:
-            try:
-                _cached_ranges_left = diff_line_ranges_left(
-                    repo, target.base_commit, target.head_commit
-                )
-            except KeyError:
-                _cached_ranges_left = {}
-        return _cached_ranges_left
-    if _cached_ranges is None:
-        try:
-            _cached_ranges = diff_line_ranges(repo, target.base_commit, target.head_commit)
-        except KeyError:
-            _cached_ranges = {}
-    return _cached_ranges
+    cache = state.diff_range_cache
+    if cache is None or cache[0] != key:
+        right, left = _fetch_diff_ranges(ctx, key)
+        state.diff_range_cache = (key, right, left)
+    else:
+        _, right, left = cache
+    return left if side is DiffSide.LEFT else right
 
 
-def find_comment(
-    comments: list[InlineComment],
-    path: str,
-    body_substring: str,
-) -> tuple[int, InlineComment] | str:
-    """Find a single comment by *path* and *body_substring*.
+def _fetch_diff_ranges(
+    ctx: RunContext[AgentDeps],
+    key: tuple[str, str],
+) -> tuple[DiffLineRanges, DiffLineRanges]:
+    """Fetch diff ranges, preferring GitHub data over local git.
 
-    Searches *comments* for entries whose `path` matches and
-    whose `body` contains *body_substring*.
-
-    Returns `(index, comment)` on a unique match, or an error
-    string when zero or multiple comments match.
+    Returns ``(right_ranges, left_ranges)``.
     """
-    matches: list[tuple[int, InlineComment]] = [
-        (i, c) for i, c in enumerate(comments) if c.path == path and body_substring in c.body
-    ]
-    if not matches:
-        on_file = [c for c in comments if c.path == path]
-        if not on_file:
-            return f"No comments on '{path}'."
-        return (
-            f"No comment on '{path}' contains \"{body_substring}\". "
-            f"Comments on this file:\n" + "\n".join(f"  - L{c.line}: {c.body}" for c in on_file)
-        )
-    if len(matches) > 1:
-        return (
-            f"\"{body_substring}\" matches {len(matches)} comments on '{path}'. "
-            f"Use a more specific substring:\n"
-            + "\n".join(f"  - L{c.line}: {c.body}" for _, c in matches)
-        )
-    return matches[0]
+    # Try GitHub first — authoritative for what the review API accepts.
+    gh_ctx = ctx.deps.state.gh_ctx
+    target = ctx.deps.state.review_target
+    if gh_ctx is not None and isinstance(target, PRTarget):
+        try:
+            return client.get_pr_diff_ranges(gh_ctx, target.number)
+        except Exception:
+            log.debug("GitHub diff ranges unavailable, falling back to local git")
 
-
-def _validate_comment_location(
-    ranges: DiffLineRanges,
-    path: str,
-    line: int,
-) -> str | None:
-    """Return an error message if *path*/*line* can't be commented on, else None."""
-    if not ranges:
-        return None  # no diff data — skip validation
-    if path not in ranges:
-        available = sorted(ranges.keys())
-        return (
-            f"'{path}' is not in the PR diff. "
-            f"Comments must target changed files. Changed files: {', '.join(available[:20])}"
-        )
-    valid_lines = ranges[path]
-    if line not in valid_lines:
-        # Find nearest valid lines for a helpful message.
-        sorted_lines = sorted(valid_lines)
-        nearest = min(sorted_lines, key=lambda n: abs(n - line))
-        return (
-            f"Line {line} in '{path}' is not in the PR diff. "
-            f"Use a line that appears in a changed hunk. "
-            f"Nearest commentable line: {nearest}."
-        )
-    return None
+    # Fall back to local git.
+    repo = ctx.deps.state.repo
+    if target is None or repo is None:
+        return {}, {}
+    base, head = key
+    try:
+        return diff_line_ranges(repo, base, head)
+    except KeyError:
+        return {}, {}
 
 
 @review_toolset.tool
@@ -186,14 +151,11 @@ def add_draft_comment(
         return f"Cannot add comment: {result}"
     line = result
 
-    # Validate line is in the PR diff.
+    # Ensure line is commentable — snap to nearest valid line if needed.
     ranges = _get_diff_ranges(ctx, side=side)
-    error = _validate_comment_location(ranges, path, line)
+    line, error, note = snap_to_commentable_line(ranges, path, line)
     if error:
-        return (
-            "Cannot add comment: the anchored code is not in the PR diff. "
-            "Comment on code that was changed or is near a change."
-        )
+        return f"Cannot add comment: {error}"
 
     comment = InlineComment(
         path=path,
@@ -208,7 +170,10 @@ def add_draft_comment(
         draft = draft.model_copy(update={"comments": [*draft.comments, comment]})
         save_draft(pr, draft)
 
-    return f"Comment added ({path}:{line}). Draft has {len(draft.comments)} comment(s)."
+    placed = f"Comment added ({path}:{line}). Draft has {len(draft.comments)} comment(s)."
+    if note:
+        placed = f"{note} {placed}"
+    return placed
 
 
 @review_toolset.tool

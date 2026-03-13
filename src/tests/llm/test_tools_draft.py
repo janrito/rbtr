@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.llm.tools.draft import find_comment
+from rbtr.github.draft import find_comment
 from rbtr.models import InlineComment
 
 # ── find_comment ─────────────────────────────────────────────────────

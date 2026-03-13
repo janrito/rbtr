@@ -842,8 +842,10 @@ post atomically.
 
 Three modules collaborate:
 
-- **`github/draft.py`** — local persistence and matching.
-  Loads, saves, and diffs YAML draft files.
+- **`github/draft.py`** — local persistence, matching, and
+  comment validation. Loads, saves, and diffs YAML draft
+  files. Pure domain operations on comments — `find_comment`,
+  `snap_to_commentable_line`, `partition_comments`.
 - **`github/client.py`** — GitHub API wrapper. Reads and
   writes pending reviews, converts between line formats.
 - **`engine/publish.py`** — orchestration. Coordinates pull,
@@ -1009,7 +1011,7 @@ are separated out and skipped with a warning.
    number via `translate_line()`. Comments targeting deleted
    lines are skipped with a warning.
 2. Validate against current diff via
-   `_partition_comments()` — comments whose `(path, line)`
+   `partition_comments()` — comments whose `(path, line)`
    is no longer in a diff hunk are kept locally but excluded
    from the push.
 3. Delete existing PENDING review (404 = already gone,

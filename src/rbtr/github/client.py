@@ -21,6 +21,7 @@ from github.Reaction import Reaction
 
 from rbtr.config import config
 from rbtr.exceptions import RbtrError
+from rbtr.git.objects import HUNK_RE, DiffLineRanges, SideDiffRanges, patch_line_ranges
 from rbtr.models import (
     BranchSummary,
     DiffSide,
@@ -191,6 +192,17 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
     )
 
 
+def get_pr_refs(ctx: GitHubCtx, pr_number: int) -> tuple[str, str]:
+    """Return ``(head_sha, base_sha)`` for a PR.
+
+    Single API call.  Both values come from the PR object's
+    ``head.sha`` and ``base.sha`` — the current tip of each branch
+    as GitHub sees it.
+    """
+    pr = _pull(ctx, pr_number)
+    return pr.head.sha or "", pr.base.sha or ""
+
+
 # ── Pending review ────────────────────────────────────────────────────
 #
 # GITHUB API WORKAROUND — position ↔ line conversion
@@ -229,8 +241,6 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
 # conversion is deterministic — ``_walk_hunk`` is the single
 # source of truth for both directions.
 
-_HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-
 
 def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, DiffSide]]:
     """Yield ``(position, line, side)`` for each diff line in *diff_hunk*.
@@ -249,7 +259,7 @@ def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, DiffSide]]:
     if header_idx == -1:
         return
 
-    m = _HUNK_RE.match(lines[header_idx])
+    m = HUNK_RE.match(lines[header_idx])
     if not m:
         return
 
@@ -303,6 +313,29 @@ def _line_to_position(diff_hunk: str, line: int, side: DiffSide) -> int | None:
     return None
 
 
+def get_pr_diff_ranges(ctx: GitHubCtx, pr_number: int) -> SideDiffRanges:
+    """Return API-reviewable changed line ranges from GitHub PR patch data."""
+    pr = _pull(ctx, pr_number)
+
+    right: DiffLineRanges = {}
+    left: DiffLineRanges = {}
+
+    for file in pr.get_files():
+        patch = file.patch or ""
+        if not patch:
+            continue
+
+        right_lines, left_lines = patch_line_ranges(patch)
+        if right_lines:
+            right[file.filename] = right_lines
+
+        old_path = file.previous_filename or file.filename
+        if left_lines:
+            left[old_path] = left_lines
+
+    return right, left
+
+
 def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewDraft | None:
     """Return the user's PENDING review on a PR, or ``None``.
 
@@ -337,16 +370,43 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewD
         )
         return None
 
-    # Fetch inline comments for this specific review.
-    #
-    # Read from the list-response data directly via the base-class
-    # raw_data getter.  PullRequestComment properties trigger lazy-load
-    # completion against GET /repos/{owner}/{repo}/pulls/comments/{id},
-    # but pending review comments are NOT accessible at that endpoint
-    # (404).  The data we need is already present from the list call.
+    comments = _fetch_review_comments(pr, pending.id)
+
+    return ReviewDraft(
+        summary=pending.body or "",
+        comments=comments,
+        github_review_id=pending.id,
+    )
+
+
+def get_review_comments(
+    ctx: GitHubCtx,
+    pr_number: int,
+    review_id: int,
+) -> list[InlineComment]:
+    """Fetch inline comments for a known review ID.
+
+    Lighter than :func:`get_pending_review` — skips the scan of
+    all reviews when the review ID is already known (e.g. after
+    ``push_pending_review``).
+    """
+    pr = _pull(ctx, pr_number)
+    return _fetch_review_comments(pr, review_id)
+
+
+def _fetch_review_comments(pr: Any, review_id: int) -> list[InlineComment]:
+    """Fetch and parse inline comments for a specific review.
+
+    Reads from the list-response raw data directly via the
+    base-class ``raw_data`` getter.  ``PullRequestComment``
+    properties trigger lazy-load completion against
+    ``GET /repos/{owner}/{repo}/pulls/comments/{id}``, but
+    pending review comments are NOT accessible at that endpoint
+    (404).  The data we need is already present from the list call.
+    """
     comments: list[InlineComment] = []
     raw_data = GithubObject.raw_data.fget  # type: ignore[attr-defined]  # @property always has fget
-    for comment in pr.get_single_review_comments(pending.id):
+    for comment in pr.get_single_review_comments(review_id):
         data: dict[str, Any] = raw_data(comment)
         body_raw = data.get("body") or ""
         body, suggestion = parse_comment_body(body_raw)
@@ -377,11 +437,7 @@ def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewD
             )
         )
 
-    return ReviewDraft(
-        summary=pending.body or "",
-        comments=comments,
-        github_review_id=pending.id,
-    )
+    return comments
 
 
 # ── Post / delete reviews ────────────────────────────────────────────

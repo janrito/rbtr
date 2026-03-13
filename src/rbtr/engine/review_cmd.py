@@ -173,6 +173,7 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
             updated_at=pr.updated_at,
         )
         engine.state.discussion_cache = None
+        engine.state.diff_range_cache = None
 
         # Fetch the PR head commit and base branch so they're
         # available locally for indexing and tools.  Without the
@@ -224,6 +225,8 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
         head_commit=target,
         updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
     )
+    engine.state.discussion_cache = None
+    engine.state.diff_range_cache = None
     _update_session_label(engine)
     _print_review_target(engine)
     run_index(engine)

@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from github.GithubException import GithubException
 
-from rbtr.engine.publish import _partition_comments, sync_review_draft
+from rbtr.engine.publish import sync_review_draft
 from rbtr.events import Event, FlushPanel, Output, OutputLevel
 from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges
-from rbtr.github.client import get_pending_review, parse_comment_body
-from rbtr.github.draft import _comment_hash, load_draft, save_draft
+from rbtr.github.client import GitHubCtx, get_pending_review, parse_comment_body
+from rbtr.github.draft import _comment_hash, load_draft, partition_comments, save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft
 from rbtr.state import EngineState
 
@@ -361,52 +362,60 @@ def test_sync_detects_remote_edit(workspace: Path) -> None:
     assert draft.comments[0].body == "Edited on GH."
 
 
-# ── _partition_comments ──────────────────────────────────────────────
+# ── partition_comments ──────────────────────────────────────────────
 
 
-class TestPartitionComments:
-    """Unit tests for _partition_comments."""
+def test_partition_empty_ranges_reject_line_comments() -> None:
+    comments = [InlineComment(path="a.py", line=10, body="x")]
+    valid, invalid = partition_comments(comments, {}, {})
+    assert valid == []
+    assert invalid == comments
 
-    def test_empty_ranges_treats_all_as_valid(self) -> None:
-        comments = [InlineComment(path="a.py", line=10, body="x")]
-        valid, invalid = _partition_comments(comments, {})
-        assert valid == comments
-        assert invalid == []
 
-    def test_valid_comment_passes(self) -> None:
-        ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
-        comments = [InlineComment(path="a.py", line=10, body="x")]
-        valid, invalid = _partition_comments(comments, ranges)
-        assert len(valid) == 1
-        assert len(invalid) == 0
+def test_partition_valid_comment_passes() -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+    comments = [InlineComment(path="a.py", line=10, body="x")]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 1
+    assert len(invalid) == 0
 
-    def test_wrong_line_is_invalid(self) -> None:
-        ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
-        comments = [InlineComment(path="a.py", line=99, body="x")]
-        valid, invalid = _partition_comments(comments, ranges)
-        assert len(valid) == 0
-        assert len(invalid) == 1
 
-    def test_wrong_path_is_invalid(self) -> None:
-        ranges: DiffLineRanges = {"a.py": {5, 10}}
-        comments = [InlineComment(path="b.py", line=5, body="x")]
-        valid, invalid = _partition_comments(comments, ranges)
-        assert len(valid) == 0
-        assert len(invalid) == 1
+def test_partition_wrong_line_is_invalid() -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+    comments = [InlineComment(path="a.py", line=99, body="x")]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 0
+    assert len(invalid) == 1
 
-    def test_mixed_valid_and_invalid(self) -> None:
-        ranges: DiffLineRanges = {"a.py": {10}, "b.py": {20}}
-        comments = [
-            InlineComment(path="a.py", line=10, body="ok"),
-            InlineComment(path="a.py", line=99, body="stale"),
-            InlineComment(path="b.py", line=20, body="ok2"),
-            InlineComment(path="c.py", line=1, body="gone"),
-        ]
-        valid, invalid = _partition_comments(comments, ranges)
-        assert len(valid) == 2
-        assert len(invalid) == 2
-        assert {c.body for c in valid} == {"ok", "ok2"}
-        assert {c.body for c in invalid} == {"stale", "gone"}
+
+def test_partition_wrong_path_is_invalid() -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10}}
+    comments = [InlineComment(path="b.py", line=5, body="x")]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 0
+    assert len(invalid) == 1
+
+
+def test_partition_mixed_valid_and_invalid() -> None:
+    ranges: DiffLineRanges = {"a.py": {10}, "b.py": {20}}
+    comments = [
+        InlineComment(path="a.py", line=10, body="ok"),
+        InlineComment(path="a.py", line=99, body="stale"),
+        InlineComment(path="b.py", line=20, body="ok2"),
+        InlineComment(path="c.py", line=1, body="gone"),
+    ]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 2
+    assert len(invalid) == 2
+    assert {c.body for c in valid} == {"ok", "ok2"}
+    assert {c.body for c in invalid} == {"stale", "gone"}
+
+
+def test_partition_left_side_uses_left_ranges() -> None:
+    comments = [InlineComment(path="a.py", line=7, side="LEFT", body="old")]
+    valid, invalid = partition_comments(comments, {"a.py": {10}}, {"a.py": {7}})
+    assert len(valid) == 1
+    assert len(invalid) == 0
 
 
 # ── sync with stale comments ────────────────────────────────────────
@@ -419,8 +428,8 @@ def test_sync_skips_stale_comments(
     """Comments targeting lines not in the diff are skipped during push."""
     # Restrict the diff to only a.py:10.
     monkeypatch.setattr(
-        "rbtr.engine.publish._get_diff_ranges",
-        lambda _engine: {"a.py": {10}},
+        "rbtr.engine.publish._github_diff_ranges",
+        lambda _engine, _pr: ({"a.py": {10}}, {}),
     )
 
     save_draft(
@@ -454,8 +463,9 @@ def test_sync_skips_stale_comments(
 
     # Warnings about skipped comments.
     text = engine.collected_text()
-    assert "Skipped stale comment" in text
+    assert "Skipped comment" in text
     assert "a.py:999" in text
+    assert "Nearest commentable line: 10" in text
     assert "gone.py:1" in text
 
 
@@ -465,8 +475,8 @@ def test_sync_all_comments_stale_still_pushes_summary(
 ) -> None:
     """When all comments are stale, the summary-only draft is still pushed."""
     monkeypatch.setattr(
-        "rbtr.engine.publish._get_diff_ranges",
-        lambda _engine: {"a.py": {10}},
+        "rbtr.engine.publish._github_diff_ranges",
+        lambda _engine, _pr: ({"a.py": {10}}, {}),
     )
 
     save_draft(
@@ -490,3 +500,87 @@ def test_sync_all_comments_stale_still_pushes_summary(
 
     text = engine.collected_text()
     assert "1 stale comment kept locally" in text
+
+
+def test_sync_warns_when_diff_ranges_unavailable(
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line comments still push when both GitHub and local ranges are unavailable."""
+    monkeypatch.setattr("rbtr.engine.publish._github_diff_ranges", lambda _e, _pr: None)
+    monkeypatch.setattr("rbtr.engine.publish._local_diff_ranges", lambda _engine: None)
+    monkeypatch.setattr("rbtr.engine.publish._refresh_pr_refs", lambda _e, _n: "")
+
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Summary.",
+            comments=[InlineComment(path="a.py", line=10, body="Needs fix.")],
+        ),
+    )
+
+    pr = FakePR(reviews=[])
+    engine = _FakeEngine(gh=FakeGithub(FakeRepo(pr)), gh_username="reviewer")
+    sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    text = engine.collected_text()
+    assert "Cannot validate comment locations" in text
+    # Comment was still pushed.
+    assert len(pr.created_reviews) == 1
+    assert len(pr.created_reviews[0]["comments"]) == 1
+
+
+def test_sync_422_includes_line_resolution_diagnostics(
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GitHub 422 unresolved-line errors include per-comment diagnostics."""
+    # Preflight passes (GitHub ranges include the line), but push still 422s.
+    monkeypatch.setattr(
+        "rbtr.engine.publish._github_diff_ranges",
+        lambda _engine, _pr: ({"a.py": {10}}, {}),
+    )
+
+    save_draft(
+        42,
+        ReviewDraft(
+            summary="Summary.",
+            comments=[InlineComment(path="a.py", line=10, body="Needs fix.")],
+        ),
+    )
+
+    exc = GithubException(
+        422,
+        {
+            "message": "Unprocessable Entity",
+            "errors": ["Line could not be resolved"],
+        },
+        None,
+    )
+
+    def _raise_422(
+        _ctx: GitHubCtx,
+        _pr_number: int,
+        _draft: ReviewDraft,
+        commit_id: str = "",
+    ) -> int:
+        del _ctx, _pr_number, _draft, commit_id
+        raise exc
+
+    monkeypatch.setattr("rbtr.engine.publish.client.push_pending_review", _raise_422)
+    monkeypatch.setattr(
+        "rbtr.engine.publish.client.get_pr_diff_ranges",
+        lambda _ctx, _pr_number: ({"a.py": {10}}, {}),
+    )
+
+    engine = _FakeEngine(gh=FakeGithub(FakeRepo(FakePR(reviews=[]))), gh_username="reviewer")
+
+    with pytest.raises(RbtrError) as err:
+        sync_review_draft(engine, 42)  # type: ignore[arg-type]  # FakeEngine stub
+
+    message = str(err.value)
+    assert "Failed to push draft" in message
+    assert "Line-resolution diagnostics:" in message
+    assert "a.py:10 (RIGHT)" in message
+    assert "GitHub check:" in message
+    assert "line is present in GitHub PR patch ranges" in message

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pygit2
 from github import Github
 
+from rbtr.git.objects import DiffLineRanges
 from rbtr.github.client import GitHubCtx
 from rbtr.models import DiscussionEntry, Target
 from rbtr.oauth import PendingLogin
@@ -57,6 +58,12 @@ class EngineState:
     usage: SessionUsage = field(default_factory=SessionUsage)
     # Cached PR discussion — fetched once per PR, cleared on new /review.
     discussion_cache: list[DiscussionEntry] | None = None
+    # Cached diff line ranges for review comment validation.
+    # Tuple of ``((base_commit, head_commit), right_ranges, left_ranges)``.
+    # Self-invalidating: callers compare the key to the current target
+    # commits and rebuild when stale.  Set to ``None`` when no review
+    # target is active.
+    diff_range_cache: tuple[tuple[str, str], DiffLineRanges, DiffLineRanges] | None = None
 
     @property
     def gh_ctx(self) -> GitHubCtx | None:

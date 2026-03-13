@@ -127,6 +127,14 @@ class FakeIssueComment:
         return self._reactions
 
 
+class _FakePRRef:
+    """Stub for PullRequest head/base ref — provides ``.sha`` and ``.ref``."""
+
+    def __init__(self, sha: str = "", ref: str = "") -> None:
+        self.sha = sha
+        self.ref = ref
+
+
 class FakePR:
     """Stub for PullRequest — supports all API surfaces used in tests."""
 
@@ -138,6 +146,8 @@ class FakePR:
         issue_comments: list[FakeIssueComment] | None = None,
         review_comments_by_id: dict[int, list[FakeInlineComment]] | None = None,
         default_user: FakeUser | None = None,
+        head_sha: str = "",
+        base_sha: str = "",
     ) -> None:
         self._reviews = reviews or []
         self._inline_comments = inline_comments or []
@@ -145,6 +155,8 @@ class FakePR:
         self._review_comments_by_id = review_comments_by_id or {}
         self._default_user = default_user or FakeUser()
         self.created_reviews: list[dict[str, Any]] = []
+        self.head = _FakePRRef(sha=head_sha)
+        self.base = _FakePRRef(sha=base_sha)
 
     def get_reviews(self) -> list[FakeReview]:
         return self._reviews
@@ -363,17 +375,11 @@ def tool_ctx(
     pr_target: PRTarget,
     draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid],
     mocker: MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> RunContext[AgentDeps]:
     """RunContext wired to the draft_repo — for LLM tool calls."""
     repo, _, _ = draft_repo
 
-    import rbtr.llm.tools.draft as _m
-
-    monkeypatch.setattr(_m, "_cached_ranges", None)
-    monkeypatch.setattr(_m, "_cached_ranges_left", None)
-    monkeypatch.setattr(_m, "_cached_ranges_key", ("", ""))
-
+    # Each test gets a fresh EngineState — no global cache to reset.
     state = EngineState()
     state.review_target = pr_target
     state.repo = repo

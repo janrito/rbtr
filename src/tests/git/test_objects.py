@@ -27,10 +27,13 @@ from rbtr.config import config
 from rbtr.git import FileEntry, changed_files, is_binary, list_files
 from rbtr.git.filters import _matches_globs
 from rbtr.git.objects import (
+    DiffLineRanges,
     DiffStats,
     commit_log_between,
     diff_refs,
     diff_single,
+    nearest_commentable_line,
+    patch_line_ranges,
     read_blob,
     resolve_anchor,
     resolve_commit,
@@ -692,3 +695,97 @@ class TestTranslateLine:
             3,
         )
         assert result == 2
+
+
+# ── nearest_commentable_line ─────────────────────────────────────────
+
+
+_RANGES: DiffLineRanges = {"a.py": {5, 10, 20}, "empty.py": set()}
+
+
+@pytest.mark.parametrize(
+    ("path", "line", "expected"),
+    [
+        # Exact match.
+        ("a.py", 10, 10),
+        # Nearest below.
+        ("a.py", 7, 5),
+        # Nearest above.
+        ("a.py", 12, 10),
+        # Equidistant — both 10 and 20 are distance 5.
+        ("a.py", 15, {10, 20}),
+        # Far away — still returns nearest.
+        ("a.py", 999, 20),
+        # File not in ranges.
+        ("b.py", 5, None),
+        # File with empty line set.
+        ("empty.py", 1, None),
+    ],
+    ids=[
+        "exact",
+        "nearest-below",
+        "nearest-above",
+        "equidistant",
+        "far",
+        "missing-file",
+        "empty-lines",
+    ],
+)
+def test_nearest_commentable_line(path: str, line: int, expected: int | set[int] | None) -> None:
+    result = nearest_commentable_line(_RANGES, path, line)
+    if isinstance(expected, set):
+        assert result in expected
+    else:
+        assert result == expected
+
+
+def test_nearest_commentable_line_empty_ranges() -> None:
+    """Empty ranges dict returns ``None`` for any file."""
+    assert nearest_commentable_line({}, "a.py", 5) is None
+
+
+# ── patch_line_ranges ────────────────────────────────────────────────
+
+
+def test_patch_line_ranges_includes_context() -> None:
+    """Context lines are commentable on both sides, just like changed lines."""
+    patch = "\n".join(
+        [
+            "@@ -10,3 +10,3 @@",
+            " context",
+            "-old_call()",
+            "+new_call()",
+            " context2",
+        ]
+    )
+
+    right, left = patch_line_ranges(patch)
+
+    # Changed lines.
+    assert 11 in right
+    assert 11 in left
+    # Context lines — commentable on both sides.
+    assert 10 in right
+    assert 10 in left
+    assert 12 in right
+    assert 12 in left
+
+
+def test_patch_line_ranges_empty_patch() -> None:
+    assert patch_line_ranges("") == (set(), set())
+
+
+def test_patch_line_ranges_addition_only() -> None:
+    """Pure addition — only right-side lines."""
+    patch = "@@ -5,0 +6,2 @@\n+new1\n+new2"
+    right, left = patch_line_ranges(patch)
+    assert right == {6, 7}
+    assert left == set()
+
+
+def test_patch_line_ranges_deletion_only() -> None:
+    """Pure deletion — only left-side lines."""
+    patch = "@@ -10,2 +9,0 @@\n-old1\n-old2"
+    right, left = patch_line_ranges(patch)
+    assert right == set()
+    assert left == {10, 11}

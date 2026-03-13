@@ -63,8 +63,9 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 
 from rbtr.config import config
 from rbtr.exceptions import RbtrError
+from rbtr.git.objects import DiffLineRanges, nearest_commentable_line
 from rbtr.github.client import format_comment_body
-from rbtr.models import InlineComment, ReviewDraft
+from rbtr.models import DiffSide, InlineComment, ReviewDraft
 
 log = logging.getLogger(__name__)
 
@@ -374,3 +375,99 @@ def comment_sync_status(comment: InlineComment) -> str:
     if _comment_hash(comment) != comment.comment_hash:
         return "✎"
     return "✓"
+
+
+# ── Comment validation ───────────────────────────────────────────────
+
+
+def find_comment(
+    comments: list[InlineComment],
+    path: str,
+    body_substring: str,
+) -> tuple[int, InlineComment] | str:
+    """Find a single comment by *path* and *body_substring*.
+
+    Searches *comments* for entries whose `path` matches and
+    whose `body` contains *body_substring*.
+
+    Returns `(index, comment)` on a unique match, or an error
+    string when zero or multiple comments match.
+    """
+    matches: list[tuple[int, InlineComment]] = [
+        (i, c) for i, c in enumerate(comments) if c.path == path and body_substring in c.body
+    ]
+    if not matches:
+        on_file = [c for c in comments if c.path == path]
+        if not on_file:
+            return f"No comments on '{path}'."
+        return (
+            f"No comment on '{path}' contains \"{body_substring}\". "
+            f"Comments on this file:\n" + "\n".join(f"  - L{c.line}: {c.body}" for c in on_file)
+        )
+    if len(matches) > 1:
+        return (
+            f"\"{body_substring}\" matches {len(matches)} comments on '{path}'. "
+            f"Use a more specific substring:\n"
+            + "\n".join(f"  - L{c.line}: {c.body}" for _, c in matches)
+        )
+    return matches[0]
+
+
+def snap_to_commentable_line(
+    ranges: DiffLineRanges,
+    path: str,
+    line: int,
+) -> tuple[int, str | None, str]:
+    """Ensure *line* is commentable, snapping to the nearest valid line if not.
+
+    Returns ``(line, error, note)`` where:
+
+    - *line* is the (possibly adjusted) commentable line.
+    - *error* is set when the path is not in the diff (caller
+      should reject).
+    - *note* describes the snap when the line was adjusted.
+    """
+    if not ranges:
+        return line, None, ""  # no diff data — skip validation
+    if path not in ranges:
+        available = sorted(ranges.keys())
+        return (
+            line,
+            (
+                f"'{path}' is not in the PR diff. "
+                f"Comments must target changed files. Changed files: {', '.join(available[:20])}"
+            ),
+            "",
+        )
+    if line in ranges[path]:
+        return line, None, ""
+    # path is in ranges (checked above) → nearest is always valid.
+    nearest = nearest_commentable_line(ranges, path, line)
+    if nearest is None:  # pragma: no cover — unreachable, path has lines
+        return line, None, ""
+    return nearest, None, f"Snapped from line {line} to nearest commentable line {nearest}."
+
+
+def partition_comments(
+    comments: list[InlineComment],
+    right_ranges: DiffLineRanges,
+    left_ranges: DiffLineRanges,
+) -> tuple[list[InlineComment], list[InlineComment]]:
+    """Split comments into ``(valid, invalid)`` based on side-aware ranges.
+
+    File-level comments (``line == 0``) are always valid.
+    ``RIGHT`` comments validate against HEAD-side ranges,
+    ``LEFT`` comments validate against BASE-side ranges.
+    """
+    valid: list[InlineComment] = []
+    invalid: list[InlineComment] = []
+    for c in comments:
+        if c.line == 0:
+            valid.append(c)
+            continue
+        ranges = left_ranges if c.side is DiffSide.LEFT else right_ranges
+        if c.path in ranges and c.line in ranges[c.path]:
+            valid.append(c)
+        else:
+            invalid.append(c)
+    return valid, invalid

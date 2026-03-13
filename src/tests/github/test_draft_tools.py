@@ -14,9 +14,11 @@ import pygit2
 import pytest
 from pydantic_ai import RunContext
 
-from rbtr.github.draft import load_draft, save_draft
+from rbtr.git.objects import DiffLineRanges
+from rbtr.github.draft import load_draft, save_draft, snap_to_commentable_line
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.draft import (
+    _get_diff_ranges,
     add_draft_comment,
     edit_draft_comment,
     read_draft,
@@ -119,18 +121,11 @@ def pr_target(draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid]) -> P
 def ctx(
     pr_target: PRTarget,
     draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> RunContext[AgentDeps]:
     """RunContext with a real repo and PR target."""
     repo, _, _ = draft_repo
 
-    # Clear the global diff-range cache between tests.
-    import rbtr.llm.tools.draft as _tools_mod
-
-    monkeypatch.setattr(_tools_mod, "_cached_ranges", None)
-    monkeypatch.setattr(_tools_mod, "_cached_ranges_left", None)
-    monkeypatch.setattr(_tools_mod, "_cached_ranges_key", ("", ""))
-
+    # Each test gets a fresh EngineState — no global cache to reset.
     state = EngineState()
     state.review_target = pr_target
     state.repo = repo
@@ -218,14 +213,111 @@ def test_add_comment_file_not_in_diff(workspace: Path, ctx: RunContext[AgentDeps
     assert "not in the PR diff" in result
 
 
-def test_add_comment_anchor_outside_diff_hunk(workspace: Path, ctx: RunContext[AgentDeps]) -> None:
-    # "def handle(request):" is line 1 — context line. Whether it's
-    # commentable depends on the diff hunk range. If it's NOT in the
-    # range, we get the "not in the PR diff" error. If it IS (context
-    # line), the comment succeeds. Either way, the flow works.
+def test_add_comment_anchor_outside_diff_hunk_snaps(
+    workspace: Path, ctx: RunContext[AgentDeps]
+) -> None:
+    # "def handle(request):" is line 1 — may or may not be in a diff
+    # hunk.  If not, the tool snaps to the nearest commentable line
+    # instead of rejecting.
     result = add_draft_comment(ctx, "src/handler.py", "def handle(request):", "Body.")
-    # Line 1 is typically a context line in the diff — should succeed.
-    assert "Comment added" in result or "Cannot add comment" in result
+    assert "Comment added" in result
+
+
+@pytest.mark.parametrize(
+    ("line", "expected_line", "has_note"),
+    [
+        (10, 10, False),  # exact match
+        (12, 10, True),  # snaps to nearest
+        (99, 10, True),  # snaps from far away
+    ],
+    ids=["exact", "near", "far"],
+)
+def test_snap_to_commentable_line(line: int, expected_line: int, has_note: bool) -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10}}
+    result_line, error, note = snap_to_commentable_line(ranges, "a.py", line)
+    assert result_line == expected_line
+    assert error is None
+    assert bool(note) == has_note
+
+
+def test_snap_rejects_file_not_in_diff() -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10}}
+    _, error, _ = snap_to_commentable_line(ranges, "b.py", 5)
+    assert error is not None
+    assert "not in the PR diff" in error
+
+
+def test_snap_skips_when_no_ranges() -> None:
+    result_line, error, note = snap_to_commentable_line({}, "a.py", 42)
+    assert result_line == 42
+    assert error is None
+    assert note == ""
+
+
+# ── diff_range_cache on EngineState ──────────────────────────────────
+
+
+def test_diff_range_cache_populated_on_first_add(
+    workspace: Path, ctx: RunContext[AgentDeps]
+) -> None:
+    """First ``add_draft_comment`` populates ``state.diff_range_cache``."""
+    state = ctx.deps.state
+    assert state.diff_range_cache is None
+
+    add_draft_comment(ctx, "src/handler.py", "validate(request)", "Body.")
+
+    assert state.diff_range_cache is not None
+    key, right, left = state.diff_range_cache
+    target = state.review_target
+    assert target is not None
+    assert key == (target.base_commit, target.head_commit)
+    assert isinstance(right, dict)
+    assert isinstance(left, dict)
+
+
+def test_diff_range_cache_reused_across_calls(workspace: Path, ctx: RunContext[AgentDeps]) -> None:
+    """Subsequent calls reuse the cached ranges (same object identity)."""
+    _get_diff_ranges(ctx)
+    cache_after_first = ctx.deps.state.diff_range_cache
+
+    _get_diff_ranges(ctx)
+    cache_after_second = ctx.deps.state.diff_range_cache
+
+    # Same object — not re-fetched.
+    assert cache_after_first is cache_after_second
+
+
+def test_diff_range_cache_invalidated_on_key_change(
+    workspace: Path, ctx: RunContext[AgentDeps]
+) -> None:
+    """Cache is rebuilt when the review target's commits change."""
+    _get_diff_ranges(ctx)
+    old_cache = ctx.deps.state.diff_range_cache
+    assert old_cache is not None
+
+    # Simulate a refs refresh — change the key by swapping base/head.
+    target = ctx.deps.state.review_target
+    assert isinstance(target, PRTarget)
+    ctx.deps.state.review_target = target.model_copy(
+        update={
+            "base_commit": target.head_commit,
+            "head_commit": target.base_commit,
+        }
+    )
+
+    _get_diff_ranges(ctx)
+    new_cache = ctx.deps.state.diff_range_cache
+
+    # Cache was rebuilt — different key.
+    assert new_cache is not old_cache
+    assert new_cache is not None
+    assert new_cache[0] != old_cache[0]
+
+
+def test_fresh_engine_state_has_no_cache() -> None:
+    """New ``EngineState`` starts with no diff range cache."""
+    state = EngineState()
+    assert state.diff_range_cache is None
 
 
 def test_add_comment_ref_base(workspace: Path, ctx: RunContext[AgentDeps]) -> None:
