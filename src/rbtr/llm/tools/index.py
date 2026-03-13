@@ -25,12 +25,13 @@ def search(
     offset: int = 0,
     max_results: int | None = None,
 ) -> str:
-    """Search the codebase — finds symbols by name, keywords, or concepts.
+    """Explore the codebase by name, keyword, or concept.
 
-    Fuses name matching, keyword search (BM25), and semantic
-    similarity into a single ranked result list.  Works for exact
-    identifiers (``IndexStore``), keyword queries (``retry timeout``),
-    and natural-language concepts (``how does auth work``).
+    Use this as the first step when investigating code — it handles
+    identifier names (`Config`), keyword queries (`retry timeout`),
+    and natural-language questions (`how does auth work`) in a single
+    ranked result list.  Prefer `grep` only when you need an exact
+    literal substring match (e.g. an error message or config key).
 
     Args:
         query: What to search for — an identifier name, keywords,
@@ -71,7 +72,12 @@ def changed_symbols(
     offset: int = 0,
     max_lines: int | None = None,
 ) -> str:
-    """List symbols changed between base and head.
+    """Understand what changed structurally between base and head.
+
+    Use this to get an overview of which functions, classes, and methods
+    were added, removed, or modified — plus stale docs, missing tests,
+    and broken dependency edges.  Prefer `diff` only when you need
+    the line-level patch for a specific file.
 
     Args:
         offset: Number of output lines to skip (default 0).
@@ -141,7 +147,13 @@ def find_references(
     offset: int = 0,
     max_results: int | None = None,
 ) -> str:
-    """Find symbols that reference a given symbol via the dependency graph.
+    """Trace who depends on a symbol — callers, importers, tests, subclasses.
+
+    Use this to assess the impact of a change: who calls a function,
+    who imports a module, what tests cover a class.  Returns structural
+    relationships from the dependency graph, not string matches.
+    Prefer `grep` only for literal substring searches that aren't
+    symbol relationships (e.g. log messages, config keys).
 
     Args:
         name: Short symbol name to look up
@@ -205,7 +217,13 @@ def read_symbol(
     name: str,
     ref: str = "head",
 ) -> str:
-    """Read the full source code of a symbol from the index.
+    """Jump to a symbol's source code by name.
+
+    Use this when you know the function, class, or method name and
+    want to read its definition.  Faster and more precise than
+    `grep` + `read_file` — returns the complete symbol body in
+    one call.  Use `read_file` instead when you need a specific
+    line range or a non-code file.
 
     Args:
         name: Short name to match (e.g. `MQ`,

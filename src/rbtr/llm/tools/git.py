@@ -71,7 +71,12 @@ def diff(
     offset: int = 0,
     max_lines: int | None = None,
 ) -> str:
-    """Show a unified text diff from the git repository.
+    """See the line-level patch for a file or the full review target.
+
+    Use this when you need to read exact added/removed lines — e.g.
+    to verify a specific code change or quote a diff hunk.  Prefer
+    `changed_symbols` when you first need to understand *what*
+    changed structurally before diving into raw patches.
 
     Args:
         path: File path to restrict the diff to

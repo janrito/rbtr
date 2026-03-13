@@ -94,7 +94,13 @@ def read_file(
     offset: int = 0,
     max_lines: int | None = None,
 ) -> str:
-    """Read file content by path.
+    """Read a file region by path and line range.
+
+    Use this when you need to read a specific section of a file —
+    configuration, imports, surrounding context around a known line.
+    Prefer `read_symbol` when you know the function or class name,
+    since it returns the complete definition in one call without
+    needing a line number.
 
     Args:
         path: File path relative to repo root
@@ -213,12 +219,15 @@ def grep(
     max_hits: int | None = None,
     context_lines: int | None = None,
 ) -> str:
-    """Search for a substring in one file or across the repository.
+    """Find an exact literal substring in files.
 
-    Case-insensitive.  Binary files are skipped silently.
-
-    Files not found in the git tree are looked up on the local
-    filesystem as a fallback (e.g. `.rbtr/notes/`).
+    Use this for known strings like error messages, config keys, or
+    import paths.  Prefer `search` for exploring by concept, name,
+    or keyword — it ranks results and handles fuzzy matches.
+    Prefer `find_references` for tracing symbol relationships
+    (callers, importers, tests).  Case-insensitive.  Binary files
+    are skipped.  Falls back to the local filesystem for paths
+    outside the git tree (e.g. `.rbtr/notes/`).
 
     Args:
         search: Substring to find.  Case-insensitive — `"config"`
