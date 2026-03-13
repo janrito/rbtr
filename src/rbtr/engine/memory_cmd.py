@@ -78,6 +78,8 @@ def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
 
     if total == 0:
         engine._out("No facts stored yet.")
+    else:
+        engine._context(f"[/memory → {total} facts]", f"Listed {total} active facts.")
 
 
 def _extract(engine: Engine) -> None:
@@ -97,6 +99,7 @@ def _extract(engine: Engine) -> None:
         return
 
     extract_facts_from_ctx(ctx, messages)
+    engine._context("[/memory extract]", "Extracted facts from current session.")
 
 
 def _purge(engine: Engine, args: str) -> None:

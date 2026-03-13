@@ -204,6 +204,7 @@ def _cmd_rename(engine: Engine, args: list[str]) -> None:
     engine.state.session_label = label
     engine.store.update_session_label(engine.state.session_id, label)
     engine._out(f"Session renamed to '{label}'.")
+    engine._context(f"[/session rename → {label}]", f"Renamed session to '{label}'.")
 
 
 # ── Session lookup ───────────────────────────────────────────────────

@@ -184,6 +184,21 @@ class FactExtractionFinished(BaseModel):
     superseded: int = 0
 
 
+# ── Context marker events ─────────────────────────────────────────────
+
+
+class ContextMarkerReady(BaseModel):
+    """A command produced context for the LLM.
+
+    The TUI inserts *marker* into the input buffer as a
+    context marker.  On submit, it expands to *content*.
+    The user can delete the marker to exclude the context.
+    """
+
+    marker: str
+    content: str
+
+
 # ── Review events ────────────────────────────────────────────────────
 
 
@@ -211,6 +226,7 @@ Event = (
     | IndexCleared
     | CompactionStarted
     | CompactionFinished
+    | ContextMarkerReady
     | FactExtractionStarted
     | FactExtractionFinished
     | ReviewPosted

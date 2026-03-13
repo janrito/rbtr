@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from rbtr.engine.publish import sync_review_draft
-from rbtr.events import Event, FlushPanel, Output, OutputLevel
+from rbtr.events import ContextMarkerReady, Event, FlushPanel, Output, OutputLevel
 from rbtr.github.client import (
     _position_to_line,
     format_comment_body,
@@ -606,6 +606,9 @@ class _FakeEngine:
 
     def _clear(self) -> None:
         self._emit(FlushPanel(discard=True))
+
+    def _context(self, marker: str, content: str) -> None:
+        self._emit(ContextMarkerReady(marker=marker, content=content))
 
     def _check_cancel(self) -> None:
         pass

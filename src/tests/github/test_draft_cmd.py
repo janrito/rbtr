@@ -22,7 +22,7 @@ from rbtr.engine.draft_cmd import (
     _resolve_event,
     cmd_draft,
 )
-from rbtr.events import Event, FlushPanel, MarkdownOutput, Output, OutputLevel
+from rbtr.events import ContextMarkerReady, Event, FlushPanel, MarkdownOutput, Output, OutputLevel
 from rbtr.github.draft import save_draft
 from rbtr.models import InlineComment, PRTarget, ReviewDraft, ReviewEvent
 from rbtr.sessions.store import SessionStore
@@ -100,6 +100,9 @@ class FakeEngine:
 
     def _clear(self) -> None:
         self._emit(FlushPanel(discard=True))
+
+    def _context(self, marker: str, content: str) -> None:
+        self._emit(ContextMarkerReady(marker=marker, content=content))
 
     def _check_cancel(self) -> None:
         pass

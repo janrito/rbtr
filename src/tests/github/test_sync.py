@@ -10,7 +10,7 @@ import pytest
 from github.GithubException import GithubException
 
 from rbtr.engine.publish import sync_review_draft
-from rbtr.events import Event, FlushPanel, Output, OutputLevel
+from rbtr.events import ContextMarkerReady, Event, FlushPanel, Output, OutputLevel
 from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges
 from rbtr.github.client import GitHubCtx, get_pending_review, parse_comment_body
@@ -185,6 +185,9 @@ class _FakeEngine:
 
     def _clear(self) -> None:
         self._emit(FlushPanel(discard=True))
+
+    def _context(self, marker: str, content: str) -> None:
+        self._emit(ContextMarkerReady(marker=marker, content=content))
 
     def _check_cancel(self) -> None:
         pass

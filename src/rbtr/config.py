@@ -147,6 +147,8 @@ class LogConfig(BaseModel):
 
 class TuiConfig(BaseModel):
     shell_max_lines: int = 25
+    shell_context_max_chars: int = 4_000
+    """Max chars of shell output included in a context marker."""
     tool_max_lines: int = 15
     tool_max_chars: int = 8_000
     max_completions: int = 20
@@ -195,6 +197,7 @@ class PaletteConfig(BaseModel):
     column_branch: str = "cyan"
     link: str = "bold cyan underline"
     paste_marker: str = "dim italic"
+    context_marker: str = "dim cyan"
     usage_ok: str = "dim green"
     usage_critical: str = "dim red"
     usage_messages: str = "dim"

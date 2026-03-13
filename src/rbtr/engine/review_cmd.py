@@ -110,6 +110,10 @@ def _list(engine: Engine) -> None:
                 targets.append((b.name, b.name))
             engine.state.cached_review_targets = targets
 
+            engine._context(
+                f"[/review → {len(prs)} PRs, {len(branches)} branches]",
+                f"Listed {len(prs)} open PRs and {len(branches)} unmerged branches.",
+            )
             engine._out("Use /review <pr_number> or /review <branch_name> to select.")
             return
         except GithubException as e:
@@ -148,6 +152,10 @@ def _list(engine: Engine) -> None:
     # Cache for Tab completion.
     engine.state.cached_review_targets = [(b.name, b.name) for b in branches_local]
 
+    engine._context(
+        f"[/review → {len(branches_local)} branches]",
+        f"Listed {len(branches_local)} local branches.",
+    )
     engine._out("Use /review <branch_name> to select.")
 
 
@@ -189,6 +197,10 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
 
         _update_session_label(engine)
         _print_review_target(engine)
+        engine._context(
+            f"[/review → PR #{pr.number}]",
+            f"Selected PR #{pr.number}: {pr.title} ({pr.base_branch} → {pr.head_branch}).",
+        )
         _sync_pending_draft(engine, pr.number)
         run_index(engine)
     except GithubException as e:
@@ -229,6 +241,10 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
     engine.state.diff_range_cache = None
     _update_session_label(engine)
     _print_review_target(engine)
+    engine._context(
+        f"[/review → {resolved_base}..{target}]",
+        f"Selected branch review: {resolved_base} → {target}.",
+    )
     run_index(engine)
 
 

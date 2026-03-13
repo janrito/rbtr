@@ -178,24 +178,29 @@ model summarises its progress and asks whether to continue.
 
 ## Commands
 
-| Command                | Description                                 |
-| ---------------------- | ------------------------------------------- |
-| `/help`                | Show available commands                     |
-| `/review`              | List open PRs and branches                  |
-| `/review <id>`         | Select a PR or branch for review            |
-| `/draft`               | View, sync, or post the review draft        |
-| `/connect <service>`   | Authenticate with a service                 |
-| `/model`               | List available models from all providers    |
-| `/model <provider/id>` | Set the active model                        |
-| `/index`               | Index status, search, diagnostics, rebuild  |
-| `/compact`             | Summarise older context to free space       |
-| `/compact reset`       | Undo last compaction (before new messages)  |
-| `/session`             | List, inspect, or delete sessions           |
-| `/stats`               | Show session token and cost statistics      |
-| `/memory`              | List, extract, or purge cross-session facts |
-| `/reload`              | Show active prompt sources                  |
-| `/new`                 | Start a new conversation                    |
-| `/quit`                | Exit (also `/q`)                            |
+| Command                | Description                                 | Context |
+| ---------------------- | ------------------------------------------- | ------- |
+| `/help`                | Show available commands                     |         |
+| `/review`              | List open PRs and branches                  | ✓       |
+| `/review <id>`         | Select a PR or branch for review            | ✓       |
+| `/draft`               | View, sync, or post the review draft        | ✓       |
+| `/connect <service>`   | Authenticate with a service                 | ✓       |
+| `/model`               | List available models from all providers    |         |
+| `/model <provider/id>` | Set the active model                        | ✓       |
+| `/index`               | Index status, search, diagnostics, rebuild  | partial |
+| `/compact`             | Summarise older context to free space       | ✓       |
+| `/compact reset`       | Undo last compaction (before new messages)  | ✓       |
+| `/session`             | List, inspect, or delete sessions           | partial |
+| `/stats`               | Show session token and cost statistics      | ✓       |
+| `/memory`              | List, extract, or purge cross-session facts | partial |
+| `/reload`              | Show active prompt sources                  |         |
+| `/new`                 | Start a new conversation                    |         |
+| `/quit`                | Exit (also `/q`)                            |         |
+
+The **Context** column shows which commands produce
+[context markers](#context-markers) for the model.
+`partial` means some subcommands emit markers (e.g.
+`/index status` does, `/index search` does not).
 
 ## Providers
 
@@ -336,6 +341,16 @@ Long output is truncated — press **Ctrl+O** to expand it.
 Bracketed paste is enabled — pasted newlines insert into the
 prompt instead of submitting. Large pastes collapse into an
 atomic marker (`[pasted 42 lines]`) that expands on submit.
+
+### Context markers
+
+After a slash command or shell command, a context marker
+appears in your input — a tag like `[/review → PR #42]` or
+`[! git log — exit 0]`. On submit, markers expand into a
+`[Recent actions]` block prepended to your message so the
+model knows what you just did. Delete a marker before
+sending to exclude it. Not every command produces a marker —
+only those whose outcome is useful to the model.
 
 ## Usage display
 

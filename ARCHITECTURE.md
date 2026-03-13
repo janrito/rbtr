@@ -1219,6 +1219,12 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 | `FactExtractionStarted`  | Fact extraction has begun                             |
 | `FactExtractionFinished` | Fact extraction complete (added/confirmed/superseded) |
 
+#### Context
+
+| Event                | Description                           |
+| -------------------- | ------------------------------------- |
+| `ContextMarkerReady` | A command produced context for the LLM |
+
 #### Review
 
 | Event          | Description                   |
@@ -1629,12 +1635,24 @@ and message count (grey/yellow/red).
 
 **`tui/input.py`** wraps prompt_toolkit for input handling.
 Manages bracketed paste detection, paste markers (collapsed
-display of large pastes with atomic cursor behaviour), tab
-completion (slash commands, command arguments, bash
+display of large pastes with atomic cursor behaviour),
+context markers (command summaries injected for the LLM),
+tab completion (slash commands, command arguments, bash
 programmable completion, file paths, executables), multiline
 editing via Alt+Enter, and input history backed by the
 session database (up/down arrow browses previous inputs,
 deduplicated across sessions).
+
+**Context markers.** Slash commands and shell commands emit
+`ContextMarkerReady` events. The TUI inserts each as a
+visible, deletable marker in the input buffer (reusing the
+`PasteRegion` infrastructure with `kind=CONTEXT`). On
+submit, `expand_markers()` collects context markers in
+buffer order, removes them from the text, and prepends a
+`[Recent actions]` block. Per-command opt-in — handlers call
+`engine._context(marker, content)` when the outcome is
+useful to the model. Shell markers include the full output,
+truncated to `tui.shell_context_max_chars`.
 
 **Thinking effort.** Shift+Tab cycles the `ThinkingEffort`
 enum (`off` → `low` → `medium` → `high`). The footer

@@ -41,6 +41,10 @@ def _cmd_current(engine: Engine) -> None:
     _out(engine, _row("Model", engine.state.model_name or "—"))
     _render_body(engine, ts, tools, incidents, oh, show_context=True)
     _render_facts(engine)
+    engine._context(
+        f"[/stats → {ts.total_turns} turns]",
+        f"Viewed session stats: {ts.total_turns} turns, {ts.total_responses} responses.",
+    )
 
 
 # ── /stats <session_id> ─────────────────────────────────────────────

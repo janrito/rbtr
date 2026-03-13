@@ -15,7 +15,9 @@ import traceback
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
 
+from rbtr.config import config
 from rbtr.events import (
+    ContextMarkerReady,
     Event,
     FlushPanel,
     MarkdownOutput,
@@ -132,6 +134,15 @@ class Engine:
         self._check_cancel()
         self._emit(MarkdownOutput(text=text))
 
+    def _context(self, marker: str, content: str) -> None:
+        """Emit a context marker for the LLM conversation.
+
+        The TUI inserts *marker* into the input buffer. On submit
+        it expands to *content*.  The user can delete the marker
+        to exclude the context.
+        """
+        self._emit(ContextMarkerReady(marker=marker, content=content))
+
     def _flush(self) -> None:
         """Flush current output as a completed panel and start fresh."""
         self._emit(FlushPanel())
@@ -237,8 +248,13 @@ class Engine:
                 sub = args.split(maxsplit=1)[0].lower() if args else ""
                 if sub == "reset":
                     reset_compaction(ctx)
+                    self._context("[/compact reset]", "Reset last compaction.")
                 else:
                     compact_history(ctx, extra_instructions=args)
+                    self._context(
+                        "[/compact]",
+                        f"Compacted conversation history (keeping {config.compaction.keep_turns} recent turns).",
+                    )
             case Command.SESSION:
                 cmd_session(self, args)
             case Command.STATS:

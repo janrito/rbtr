@@ -35,6 +35,7 @@ COLUMN_BRANCH = "rbtr.column.branch"
 
 LINK_STYLE = "rbtr.link"
 PASTE_MARKER = "rbtr.paste_marker"
+CONTEXT_MARKER = "rbtr.context_marker"
 
 BG_INPUT = "rbtr.bg.input"
 BG_ACTIVE = "rbtr.bg.active"
@@ -66,6 +67,7 @@ STYLE_SHELL_STDERR = "rbtr.out.shell_stderr"
 _KEY_OVERRIDES: dict[str, str] = {
     "input_text": "rbtr.input",
     "paste_marker": "rbtr.paste_marker",
+    "context_marker": "rbtr.context_marker",
 }
 
 

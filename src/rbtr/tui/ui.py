@@ -38,6 +38,7 @@ from rbtr.engine.model_cmd import get_models
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
+    ContextMarkerReady,
     Event,
     FactExtractionFinished,
     FactExtractionStarted,
@@ -71,6 +72,7 @@ from rbtr.styles import (
     COMPLETION_DESC,
     COMPLETION_NAME,
     COMPLETION_SELECTED,
+    CONTEXT_MARKER,
     CURSOR,
     DIM,
     ERROR,
@@ -91,6 +93,8 @@ from rbtr.tui.footer import _format_count, render_footer
 from rbtr.tui.input import (
     InputReader,
     InputState,
+    MarkerKind,
+    PasteRegion,
     query_shell_completions,
 )
 
@@ -641,6 +645,8 @@ class UI:
                 self._print_to_scrollback(panel)
             case ReviewPosted():
                 pass  # Visual feedback handled by LinkOutput
+            case ContextMarkerReady(marker=marker, content=content):
+                self._insert_context_marker(marker, content)
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True
@@ -732,14 +738,15 @@ class UI:
         while i < len(buf):
             # Check if we're at a marker start.
             if span_idx < len(spans) and i == spans[span_idx][0]:
-                m_start, m_end, _ = spans[span_idx]
+                m_start, m_end, region = spans[span_idx]
                 marker_text = buf[m_start:m_end]
+                marker_style = CONTEXT_MARKER if region.kind is MarkerKind.CONTEXT else PASTE_MARKER
                 if pos == m_start:
                     # Cursor is at the marker — highlight the leading '['.
                     t.append(marker_text[0], style=CURSOR)
-                    t.append(marker_text[1:], style=PASTE_MARKER)
+                    t.append(marker_text[1:], style=marker_style)
                 else:
-                    t.append(marker_text, style=PASTE_MARKER)
+                    t.append(marker_text, style=marker_style)
                 i = m_end
                 span_idx += 1
                 continue
@@ -888,6 +895,29 @@ class UI:
         provider = self.inp.history_provider
         if provider is not None:
             self.inp.history = list(reversed(provider(None, config.tui.max_history)))
+
+    def _insert_context_marker(self, marker: str, content: str) -> None:
+        """Insert a context marker at the start of the input buffer.
+
+        Appends after any existing context markers so markers read
+        left-to-right in execution order.  Shifts the cursor right
+        so in-progress typing is undisturbed.
+        """
+        region = PasteRegion(marker=marker, content=content, kind=MarkerKind.CONTEXT)
+        self.inp.paste_regions.append(region)
+
+        # Find insertion point: after the last context marker.
+        insert_pos = 0
+        for _span_start, span_end, span_region in self.inp.marker_spans():
+            if span_region.kind is MarkerKind.CONTEXT:
+                insert_pos = max(insert_pos, span_end)
+
+        text = self.inp.text
+        # Add a trailing space so markers don't merge visually.
+        new_text = text[:insert_pos] + marker + " " + text[insert_pos:]
+        old_cursor = self.inp.cursor
+        new_cursor = old_cursor + len(marker) + 1 if old_cursor >= insert_pos else old_cursor
+        self.inp.set_text(new_text, cursor=new_cursor)
 
     def _echo_input(self, text: str) -> None:
         """Print an Input HistoryPanel to native scrollback."""

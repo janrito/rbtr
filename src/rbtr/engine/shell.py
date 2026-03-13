@@ -86,6 +86,35 @@ def handle_shell(engine: Engine, cmd: str) -> None:
     else:
         engine._last_shell_full_output = None
 
+    # Emit context marker so the LLM knows what was run.
+    _emit_shell_context(engine, cmd, stdout_full, stderr_full, proc.returncode)
+
+
+def _emit_shell_context(
+    engine: Engine,
+    cmd: str,
+    stdout: str,
+    stderr: str,
+    returncode: int,
+) -> None:
+    """Emit a ``ContextMarkerReady`` event summarising the shell command."""
+    rc = returncode
+    marker = f"[! {cmd} — exit {rc}]"
+
+    max_chars = config.tui.shell_context_max_chars
+    parts: list[str] = [f"$ {cmd}"]
+    if stdout:
+        parts.append(stdout)
+    if stderr:
+        parts.append(f"(stderr)\n{stderr}")
+    parts.append(f"exit code {rc}")
+    body = "\n".join(parts)
+
+    if len(body) > max_chars:
+        body = body[:max_chars] + "\n… (truncated)"
+
+    engine._context(marker, body)
+
 
 def _truncate_output(text: str, max_lines: int) -> tuple[str, int]:
     """Truncate text to max_lines. Returns (truncated, hidden_count)."""

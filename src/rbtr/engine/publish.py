@@ -437,6 +437,10 @@ def post_review_draft(
     engine._clear()
     engine._emit(ReviewPosted(url=url))
     engine._emit(LinkOutput(url=url, label="Review posted"))
+    engine._context(
+        f"[/draft post → {event.value}]",
+        f"Posted review to GitHub as {event.value} ({n} comments).",
+    )
 
     # Clean up local draft.
     delete_draft(pr_number)
@@ -595,6 +599,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     engine._out(". ".join(parts) + ".")
     for c in stale:
         engine._warn(_stale_comment_warning(c, right_ranges, left_ranges))
+    engine._context("[/draft sync → synced]", f"Synced draft with GitHub: {n} comments pushed.")
 
 
 def clear_review_draft(engine: Engine, pr_number: int) -> None:

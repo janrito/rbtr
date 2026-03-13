@@ -114,6 +114,13 @@ def _status(engine: Engine) -> None:
     if head_chunks:
         _emit_commit_table(engine, head_chunks, base_ref, head_ref)
 
+    n_files = len({c.file_path for c in display_chunks})
+    status = "ready" if engine.state.index_ready else "building"
+    engine._context(
+        f"[/index → {len(display_chunks)} symbols]",
+        f"Index status: {n_files} files, {len(display_chunks)} symbols, {status}.",
+    )
+
 
 def _emit_snapshot_table(
     engine: Engine,
@@ -297,6 +304,7 @@ def _clear(engine: Engine) -> None:
     else:
         engine._out("No index file to clear.")
     engine._emit(IndexCleared())
+    engine._context("[/index clear]", "Cleared the code index.")
 
 
 def _rebuild(engine: Engine) -> None:
@@ -313,6 +321,7 @@ def _rebuild(engine: Engine) -> None:
 
     engine._out("Rebuilding index…")
     run_index(engine)
+    engine._context("[/index rebuild]", "Rebuilt the code index.")
 
 
 def _model(engine: Engine, model_id: str) -> None:

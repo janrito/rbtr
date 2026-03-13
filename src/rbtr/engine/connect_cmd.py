@@ -126,6 +126,7 @@ def _connect_api_key(
     if current_key and not api_key:
         engine.state.connected_providers.add(provider)
         engine._out(f"Already connected to {prov.LABEL}.")
+        engine._context(f"[/connect → {prov.LABEL}]", f"Already connected to {prov.LABEL}.")
         return
 
     if not api_key:
@@ -140,6 +141,7 @@ def _connect_api_key(
     creds.update(**{cred_field: api_key})
     engine.state.connected_providers.add(provider)
     engine._out(f"Connected to {prov.LABEL}. LLM is ready.")
+    engine._context(f"[/connect → {prov.LABEL}]", f"Connected to {prov.LABEL}.")
     get_models(engine)
 
 
@@ -176,6 +178,7 @@ def _connect_auto_oauth(
             engine.state.connected_providers.add(provider)
             engine.state.pending_logins.pop(provider, None)
             engine._out(f"Connected to {label}. LLM is ready.")
+            engine._context(f"[/connect → {label}]", f"Connected to {label}.")
             get_models(engine)
         except TaskCancelled:
             raise
@@ -189,6 +192,7 @@ def _connect_auto_oauth(
     if PROVIDERS[provider].is_connected():
         engine.state.connected_providers.add(provider)
         engine._out(f"Already connected to {label}.")
+        engine._context(f"[/connect → {label}]", f"Already connected to {label}.")
         return
 
     # Phase 1: try automatic localhost callback.
@@ -204,6 +208,7 @@ def _connect_auto_oauth(
         creds.update(**{provider.value: oc})
         engine.state.connected_providers.add(provider)
         engine._out(f"Connected to {label}. LLM is ready.")
+        engine._context(f"[/connect → {label}]", f"Connected to {label}.")
         get_models(engine)
     except TaskCancelled:
         raise
@@ -244,6 +249,7 @@ def _connect_claude(engine: Engine, auth_code: str) -> None:
             engine.state.connected_providers.add(prov)
             engine.state.pending_logins.pop(prov, None)
             engine._out(f"Connected to {label}. LLM is ready.")
+            engine._context(f"[/connect → {label}]", f"Connected to {label}.")
             get_models(engine)
         except TaskCancelled:
             raise
@@ -257,6 +263,7 @@ def _connect_claude(engine: Engine, auth_code: str) -> None:
     if PROVIDERS[prov].is_connected():
         engine.state.connected_providers.add(prov)
         engine._out(f"Already connected to {label}.")
+        engine._context(f"[/connect → {label}]", f"Already connected to {label}.")
         return
 
     # Phase 1: generate PKCE, open browser, show instructions.
@@ -298,6 +305,7 @@ def _connect_github(engine: Engine) -> None:
         engine.state.gh = gh
         engine.state.gh_username = gh.get_user().login
         engine._out("Authenticated with GitHub.")
+        engine._context("[/connect → GitHub]", "Connected to GitHub.")
     except TaskCancelled:
         raise
     except Exception as e:
@@ -339,6 +347,7 @@ def _connect_endpoint(engine: Engine, args: str) -> None:
         engine.state.connected_providers.add(name)
         engine._out(f"Endpoint {name!r} connected ({base_url}).")
         engine._out(f"Set a model with: /model {name}/<model-id>")
+        engine._context(f"[/connect → {name}]", f"Connected endpoint {name!r} ({base_url}).")
         get_models(engine)
     except RbtrError as e:
         engine._warn(str(e))

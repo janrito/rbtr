@@ -98,6 +98,7 @@ def _apply_model(engine: Engine, model_id: str) -> None:
         engine.state.usage.context_window_known = True
 
     engine._out(f"Model set to {model_id}")
+    engine._context(f"[/model → {model_id}]", f"Switched model to {model_id}.")
 
 
 # ── Cache ────────────────────────────────────────────────────────────

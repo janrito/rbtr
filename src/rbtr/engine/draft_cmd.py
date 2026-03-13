@@ -180,6 +180,13 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
     else:
         engine._out("(empty)")
 
+    live = [c for c in draft.comments if not is_tombstone(c)]
+    has_summary = "present" if draft.summary else "absent"
+    engine._context(
+        f"[/draft → {len(live)} comments]",
+        f"Viewed review draft: {len(live)} comments, summary {has_summary}.",
+    )
+
 
 def _sync_draft(engine: Engine, pr_number: int) -> None:
     """Bidirectional sync: pull remote pending comments, push local back."""

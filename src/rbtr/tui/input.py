@@ -26,6 +26,7 @@ import threading
 import time
 import typing
 from dataclasses import dataclass, field
+from enum import StrEnum
 from importlib import resources
 
 from prompt_toolkit.buffer import Buffer
@@ -262,12 +263,20 @@ def completion_suffix(value: str, context_word: str = "") -> str:
 # ── Paste markers ────────────────────────────────────────────────────
 
 
+class MarkerKind(StrEnum):
+    """Distinguishes paste markers from context markers."""
+
+    PASTE = "paste"
+    CONTEXT = "context"
+
+
 @dataclass
 class PasteRegion:
-    """A collapsed paste: the buffer holds *marker*, the real text is *content*."""
+    """A collapsed region: the buffer holds *marker*, the real text is *content*."""
 
     marker: str
     content: str
+    kind: MarkerKind = MarkerKind.PASTE
 
 
 # (start_offset, end_offset_exclusive, owning_region)
@@ -364,10 +373,53 @@ class InputState:
     # ── Paste marker helpers ─────────────────────────────────────────
 
     def expand_markers(self, text: str) -> str:
-        """Replace every paste marker in *text* with its real content."""
+        """Replace every marker in *text* with its real content.
+
+        Paste markers expand inline (marker → content).
+        Context markers are collected in buffer order, removed
+        from the text, and prepended as a structured block::
+
+            [Recent actions]
+            - Connected to Claude.
+            - Selected PR #42: Fix auth (main → fix-auth)
+
+            ---
+            <user's actual message>
+        """
+        # Separate context and paste regions.
+        context_regions: list[PasteRegion] = []
+        paste_only: list[PasteRegion] = []
         for region in self.paste_regions:
+            if region.kind is MarkerKind.CONTEXT:
+                context_regions.append(region)
+            else:
+                paste_only.append(region)
+
+        # Expand paste markers inline.
+        for region in paste_only:
             text = text.replace(region.marker, region.content)
-        return text
+
+        if not context_regions:
+            return text
+
+        # Collect context entries in order of appearance.
+        ordered = sorted(
+            context_regions,
+            key=lambda r: text.find(r.marker),
+        )
+
+        # Remove context markers from text.
+        for region in context_regions:
+            text = text.replace(region.marker, "")
+        user_text = text.strip()
+
+        # Build the context prefix.
+        lines = [f"- {region.content}" for region in ordered]
+        prefix = "[Recent actions]\n" + "\n".join(lines)
+
+        if user_text:
+            return f"{prefix}\n\n---\n{user_text}"
+        return prefix
 
     def marker_span_at(self, pos: int) -> MarkerSpan | None:
         """Return the marker span containing *pos*, or ``None``.
