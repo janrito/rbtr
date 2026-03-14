@@ -1381,22 +1381,18 @@ def test_streaming_two_responses_in_sequence() -> None:
     assert loaded[3].parts[0].content == "a2"  # type: ignore[union-attr]
 
 
-def test_corrupt_tool_call_args_repaired_on_load() -> None:
-    """A tool-call with malformed JSON args is repaired, not fatal.
+def test_corrupt_tool_call_args_preserved_on_load() -> None:
+    """Corrupt tool-call args survive ``load_messages`` for upstream repair.
 
-    When a model produces invalid JSON for tool arguments during
-    streaming (e.g. mixed XML/JSON), the corrupt part is saved
-    with ``status = 'complete'``.  On reload, ``load_messages`` must repair
-    the args to ``{}`` so the message stays in the history and
-    tool-call / tool-return pairing is preserved.
+    Args validation moved from the deserialisation layer to
+    ``_prepare_turn`` (via ``validate_tool_call_args``) so the
+    repair can be recorded as an incident.  ``load_messages``
+    preserves the original corrupt value.
     """
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello")])
 
-        # Directly inject a corrupt tool-call fragment — args is
-        # a string but NOT valid JSON (model produced mixed
-        # XML/JSON during streaming).
         corrupt_args = '{"path": "schemas.py", "offset": 174,\n<parameter name="max_lines": 35}'
         corrupt_part = ToolCallPart(
             tool_name="read_file",
@@ -1410,7 +1406,6 @@ def test_corrupt_tool_call_args_repaired_on_load() -> None:
         )
         store.save_messages("s1", [corrupt_response])
 
-        # Save a tool-return that matches the corrupt call.
         store.save_messages(
             "s1",
             [
@@ -1428,14 +1423,13 @@ def test_corrupt_tool_call_args_repaired_on_load() -> None:
 
         loaded = store.load_messages("s1")
 
-    # All three messages survive — the corrupt response has repaired args.
+    # All three messages survive — corrupt args preserved for upstream repair.
     assert len(loaded) == 3
     assert isinstance(loaded[1], ModelResponse)
-    repaired = loaded[1].parts[0]
-    assert isinstance(repaired, ToolCallPart)
-    assert repaired.args == {}
-    assert repaired.tool_name == "read_file"
-    # The matching tool-return is preserved — no orphan.
+    part = loaded[1].parts[0]
+    assert isinstance(part, ToolCallPart)
+    assert part.args == corrupt_args
+    assert part.tool_name == "read_file"
     assert isinstance(loaded[2], ModelRequest)
     assert isinstance(loaded[2].parts[0], ToolReturnPart)
     assert loaded[2].parts[0].tool_call_id == "tc_corrupt"
@@ -1911,3 +1905,89 @@ def test_incident_stats_sessions_isolated() -> None:
     assert s1.failures[0].failure_kind == "overflow"
     assert s2.total_failures == 1
     assert s2.failures[0].failure_kind == "type_error"
+
+
+# ── has_repair_incident ──────────────────────────────────────────────
+
+
+def test_has_repair_incident_false_when_empty() -> None:
+    """No incidents recorded yet — nothing matches."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        fp = "functions.grep:4,functions.read_file:3"
+        assert not store.has_repair_incident("s1", "sanitize_fields", fp)
+
+
+def test_has_repair_incident_matches_same_fingerprint() -> None:
+    """Same Gemini IDs on the next turn — incident already recorded."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        fp = "functions.grep:4,functions.read_file:3"
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json=(
+                '{"strategy":"sanitize_fields",'
+                f'"fingerprint":"{fp}",'
+                '"reason":"invalid_tool_call_id_chars"}'
+            ),
+        )
+        assert store.has_repair_incident("s1", "sanitize_fields", fp)
+
+
+def test_has_repair_incident_new_ids_new_fingerprint() -> None:
+    """A second Gemini session adds new IDs — different fingerprint."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        # First batch of Gemini IDs.
+        fp1 = "functions.grep:4,functions.read_file:3"
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json=(
+                '{"strategy":"sanitize_fields",'
+                f'"fingerprint":"{fp1}",'
+                '"reason":"invalid_tool_call_id_chars"}'
+            ),
+        )
+        # Second batch includes a new ID — not a duplicate.
+        fp2 = "functions.edit:8,functions.grep:4,functions.read_file:3"
+        assert not store.has_repair_incident("s1", "sanitize_fields", fp2)
+
+
+def test_has_repair_incident_isolated_across_sessions() -> None:
+    """Incidents in one session don't match another."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        fp = "toolu_01ABC"
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json=(
+                '{"strategy":"repair_dangling",'
+                f'"fingerprint":"{fp}",'
+                '"reason":"cancelled_mid_tool_call"}'
+            ),
+        )
+        assert not store.has_repair_incident("s2", "repair_dangling", fp)
+
+
+def test_has_repair_incident_isolated_across_strategies() -> None:
+    """Same fingerprint under a different strategy doesn't match."""
+    with SessionStore() as store:
+        store.set_context("s1")
+        fp = "functions.grep:4"
+        _insert_incident_row(
+            store,
+            session_id="s1",
+            kind=FragmentKind.LLM_HISTORY_REPAIR,
+            data_json=(
+                '{"strategy":"repair_dangling",'
+                f'"fingerprint":"{fp}",'
+                '"reason":"cancelled_mid_tool_call"}'
+            ),
+        )
+        assert not store.has_repair_incident("s1", "sanitize_fields", fp)

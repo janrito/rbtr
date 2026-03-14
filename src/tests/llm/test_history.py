@@ -24,6 +24,8 @@ from rbtr.llm.history import (
     flatten_tool_exchanges,
     is_history_format_error,
     repair_dangling_tool_calls,
+    sanitize_tool_call_ids,
+    validate_tool_call_args,
 )
 
 # ── demote_thinking ──────────────────────────────────────────────────
@@ -216,6 +218,11 @@ _FORMAT_ERROR_CASES: list[tuple[str, str, bool]] = [
         True,
     ),
     (
+        "tool_use_id_invalid_pattern",
+        "messages.0.content.2.tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+'",
+        True,
+    ),
+    (
         "unrelated_context_overflow",
         "maximum context length exceeded",
         False,
@@ -242,7 +249,7 @@ def test_is_history_format_error(error_msg: str, expected: bool) -> None:
 
 
 def test_repair_empty_history() -> None:
-    history, tools = repair_dangling_tool_calls([])
+    history, tools, _ = repair_dangling_tool_calls([])
     assert history == []
     assert tools == []
 
@@ -254,7 +261,7 @@ def test_repair_no_dangling_calls() -> None:
         ModelResponse(parts=[TextPart(content="hi")]),
         ModelRequest(parts=[UserPromptPart(content="bye")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -265,7 +272,7 @@ def test_repair_response_without_tool_calls() -> None:
         ModelRequest(parts=[UserPromptPart(content="hello")]),
         ModelResponse(parts=[TextPart(content="hi")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -282,7 +289,7 @@ def test_repair_dangling_at_end() -> None:
             ]
         ),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert len(repaired) == 3  # original 2 + synthetic request
     assert tools == ["read_file", "grep"]
 
@@ -311,7 +318,7 @@ def test_repair_dangling_mid_history() -> None:
         ModelRequest(parts=[UserPromptPart(content="try again")]),
         ModelResponse(parts=[TextPart(content="ok")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert tools == ["list_files"]
     assert len(repaired) == 5  # 4 original + 1 synthetic
 
@@ -343,7 +350,7 @@ def test_repair_tool_calls_with_results_untouched() -> None:
         ),
         ModelResponse(parts=[TextPart(content="done")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -366,7 +373,7 @@ def test_repair_partial_results() -> None:
             ]
         ),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert tools == ["grep", "diff"]
     # 3 messages — synthetic returns merged into existing request.
     assert len(repaired) == 3
@@ -404,7 +411,7 @@ def test_repair_partial_results_mid_history() -> None:
         ModelRequest(parts=[UserPromptPart(content="try again")]),
         ModelResponse(parts=[TextPart(content="ok")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert tools == ["grep"]
     # 5 messages — synthetic merged into existing request (no extra message).
     assert len(repaired) == 5
@@ -461,7 +468,7 @@ def test_repair_tool_returns_after_interleaved_user_prompt() -> None:
         # Model produces final text.
         ModelResponse(parts=[TextPart(content="Here are the findings.")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
 
     # No repairs needed — all tool calls have matching returns.
     assert repaired is history
@@ -510,7 +517,7 @@ def test_repair_returns_scattered_across_multiple_messages() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     assert repaired is history
     assert tools == []
 
@@ -551,7 +558,7 @@ def test_repair_idempotent_with_prior_synthetics() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    repaired, tools = repair_dangling_tool_calls(history)
+    repaired, tools, _ = repair_dangling_tool_calls(history)
     # No new repairs — both real returns and prior synthetics count.
     assert repaired is history
     assert tools == []
@@ -580,7 +587,7 @@ def test_repair_mixed_matched_and_truly_missing() -> None:
         ),
         ModelResponse(parts=[TextPart(content="Done.")]),
     ]
-    _repaired, tools = repair_dangling_tool_calls(history)
+    _repaired, tools, _ = repair_dangling_tool_calls(history)
     # Only tc2 and tc3 should be repaired — tc1 has a real return later.
     assert sorted(tools) == ["diff", "grep"]
 
@@ -697,3 +704,155 @@ def test_consolidate_missing_return_injects_synthetic() -> None:
     assert returns[0].tool_call_id == "tc1"
     assert returns[1].tool_call_id == "tc2"
     assert returns[1].content == "(cancelled)"
+
+
+# ── Level-0 preventive repairs ───────────────────────────────────────
+#
+# Shared dataset: a conversation started on Gemini (IDs with dots
+# and colons), then switched to Claude (IDs with toolu_ prefix).
+# One Gemini tool call has corrupt args from a streaming failure.
+
+# Gemini turn — two tool calls with Gemini-style IDs.
+_GEMINI_RESPONSE = ModelResponse(
+    parts=[
+        ToolCallPart(
+            tool_name="read_file",
+            args={"path": "src/main.py"},
+            tool_call_id="functions.read_file:3",
+        ),
+        ToolCallPart(
+            tool_name="grep",
+            args='{"pattern": "TODO",\n<parameter name="path": "src/"}',
+            tool_call_id="functions.grep:4",
+        ),
+    ],
+    model_name="google/gemini-2.5-pro",
+)
+_GEMINI_RETURNS = ModelRequest(
+    parts=[
+        ToolReturnPart(
+            tool_name="read_file",
+            content="def main(): ...",
+            tool_call_id="functions.read_file:3",
+        ),
+        ToolReturnPart(
+            tool_name="grep",
+            content="src/main.py:10: # TODO: fix",
+            tool_call_id="functions.grep:4",
+        ),
+    ]
+)
+
+# Claude turn — valid IDs.
+_CLAUDE_RESPONSE = ModelResponse(
+    parts=[
+        ToolCallPart(
+            tool_name="read_file",
+            args={"path": "src/utils.py"},
+            tool_call_id="toolu_01ABC",
+        ),
+    ],
+    model_name="claude/claude-sonnet-4-6",
+)
+_CLAUDE_RETURN = ModelRequest(
+    parts=[
+        ToolReturnPart(
+            tool_name="read_file",
+            content="def helper(): ...",
+            tool_call_id="toolu_01ABC",
+        ),
+    ]
+)
+
+_MIXED_HISTORY: list[ModelMessage] = [
+    ModelRequest(parts=[UserPromptPart(content="review src/main.py")]),
+    _GEMINI_RESPONSE,
+    _GEMINI_RETURNS,
+    ModelResponse(parts=[TextPart(content="Found a TODO.")], model_name="google/gemini-2.5-pro"),
+    ModelRequest(parts=[UserPromptPart(content="check utils too")]),
+    _CLAUDE_RESPONSE,
+    _CLAUDE_RETURN,
+    ModelResponse(parts=[TextPart(content="Looks clean.")], model_name="claude/claude-sonnet-4-6"),
+]
+
+
+# ── sanitize_tool_call_ids ───────────────────────────────────────────
+
+
+def test_sanitize_skips_claude_ids() -> None:
+    """Claude-style IDs (``toolu_*``) are already valid."""
+    history: list[ModelMessage] = _MIXED_HISTORY[4:]  # Claude turns only.
+    result, bad_ids = sanitize_tool_call_ids(history)
+    assert bad_ids == []
+    assert result is history
+
+
+def test_sanitize_fixes_gemini_ids_preserves_pairing() -> None:
+    """Gemini ``functions.name:N`` IDs are sanitized; pairing holds."""
+    result, bad_ids = sanitize_tool_call_ids(list(_MIXED_HISTORY))
+    assert bad_ids == ["functions.grep:4", "functions.read_file:3"]
+
+    # Response side.
+    resp = result[1]
+    assert isinstance(resp, ModelResponse)
+    assert resp.parts[0].tool_call_id == "functions_read_file_3"  # type: ignore[union-attr]
+    assert resp.parts[1].tool_call_id == "functions_grep_4"  # type: ignore[union-attr]
+
+    # Return side — same IDs.
+    req = result[2]
+    assert isinstance(req, ModelRequest)
+    assert req.parts[0].tool_call_id == "functions_read_file_3"  # type: ignore[union-attr]
+    assert req.parts[1].tool_call_id == "functions_grep_4"  # type: ignore[union-attr]
+
+    # Claude IDs untouched.
+    claude_resp = result[5]
+    assert isinstance(claude_resp, ModelResponse)
+    assert claude_resp.parts[0].tool_call_id == "toolu_01ABC"  # type: ignore[union-attr]
+
+
+def test_sanitize_handles_retry_prompt_part() -> None:
+    """``RetryPromptPart`` IDs are sanitized alongside tool returns."""
+    history: list[ModelMessage] = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="grep", args={}, tool_call_id="functions.grep:7")],
+        ),
+        ModelRequest(
+            parts=[RetryPromptPart(content="try again", tool_call_id="functions.grep:7")],
+        ),
+    ]
+    result, bad_ids = sanitize_tool_call_ids(history)
+    assert bad_ids == ["functions.grep:7"]
+
+    req = result[1]
+    assert isinstance(req, ModelRequest)
+    retry = req.parts[0]
+    assert isinstance(retry, RetryPromptPart)
+    assert retry.tool_call_id == "functions_grep_7"
+
+
+# ── validate_tool_call_args ──────────────────────────────────────────
+
+
+def test_validate_args_skips_valid() -> None:
+    """Well-formed args (dict or valid JSON string) are untouched."""
+    history: list[ModelMessage] = _MIXED_HISTORY[4:]  # Claude turns only.
+    repaired = validate_tool_call_args(history)
+    assert repaired == []
+
+
+def test_validate_args_repairs_corrupt_gemini_streaming() -> None:
+    """Corrupt args from a Gemini streaming failure are replaced with ``{}``."""
+    history = list(_MIXED_HISTORY)
+    repaired = validate_tool_call_args(history)
+    assert repaired == [("grep", "functions.grep:4")]
+
+    resp = history[1]
+    assert isinstance(resp, ModelResponse)
+    # Corrupt part repaired.
+    grep_part = resp.parts[1]
+    assert isinstance(grep_part, ToolCallPart)
+    assert grep_part.args == {}
+    # Valid part untouched.
+    read_part = resp.parts[0]
+    assert isinstance(read_part, ToolCallPart)
+    assert read_part.args == {"path": "src/main.py"}

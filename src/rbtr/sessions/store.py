@@ -106,6 +106,7 @@ _HAS_MESSAGES_AFTER_SQL = _load_sql("has_messages_after.sql")
 _DELETE_MESSAGE_SQL = _load_sql("delete_message.sql")
 _SESSION_STARTED_AT_SQL = _load_sql("session_started_at.sql")
 _MIGRATE_2026030301_SQL = _load_sql("migrate_2026030301_to_2026030801.sql")
+_HAS_REPAIR_INCIDENT_SQL = _load_sql("has_repair_incident.sql")
 
 # ── FTS5 helpers ─────────────────────────────────────────────────────
 
@@ -552,6 +553,28 @@ class SessionStore:
                 "UPDATE fragments SET data_json = json_set(data_json, '$.' || ?, ?) WHERE id = ?",
                 [key, value, row_id],
             )
+
+    def has_repair_incident(
+        self,
+        session_id: str,
+        strategy: str,
+        fingerprint: str,
+    ) -> bool:
+        """Check whether a history-repair incident already exists.
+
+        Used by level-0 preventive repairs to avoid persisting
+        duplicate incidents on every turn (the persisted history
+        is immutable, so the same repair fires every time).
+
+        The *fingerprint* identifies the specific set of items
+        repaired — a new cancellation or a new batch of invalid
+        IDs produces a different fingerprint and records a new
+        incident.
+        """
+        row = self._con.execute(
+            _HAS_REPAIR_INCIDENT_SQL, [session_id, strategy, fingerprint]
+        ).fetchone()
+        return row is not None
 
     # ── Streaming writes ────────────────────────────────────────────
 

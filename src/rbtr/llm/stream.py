@@ -59,6 +59,8 @@ from .history import (
     format_tool_args,
     is_history_format_error,
     repair_dangling_tool_calls,
+    sanitize_tool_call_ids,
+    validate_tool_call_args,
 )
 from .usage import record_run_usage
 
@@ -321,9 +323,9 @@ def _is_tool_args_error(exc: ValueError) -> bool:
     invalid JSON for tool arguments during streaming (e.g. mixed
     XML/JSON), the error surfaces here as a ``ValueError``.
 
-    Normally ``_validate_tool_call_args`` in the deserialisation
-    layer catches these at load time.  This handler is a fallback
-    for edge cases (e.g. args corrupted after loading).
+    Normally ``validate_tool_call_args`` catches these in
+    ``_prepare_turn``.  This handler is a fallback for edge cases
+    (e.g. args corrupted after loading).
     """
     msg = str(exc).lower()
     return "key must be a string" in msg or "eof while parsing" in msg
@@ -492,30 +494,79 @@ def _prepare_turn(
     2 = demote thinking + flatten tool exchanges.
 
     Repairs are transient — applied in memory only.  The DB retains
-    the original conversation.  Each manipulation is recorded as an
-    ``LLM_HISTORY_REPAIR`` incident row.
+    the original conversation.  Level-0 repairs record a single
+    incident per session (deduplicated via ``has_repair_incident``).
+    Level 1-2 repairs record an incident on every retry.
 
     Mutates engine state: emits warnings for repaired tool calls,
     tracks ``effort_supported``, and snapshots the usage baseline
     for the upcoming run.
     """
     history = ctx.store.load_messages(ctx.state.session_id)
-    history, repaired_tools = repair_dangling_tool_calls(history)
+    sid = ctx.state.session_id
+
+    # Level-0 preventive repairs — run every turn against
+    # immutable history.  Each records a single incident per
+    # unique fingerprint (checked via has_repair_incident).  A
+    # new cancellation or new batch of invalid IDs produces a
+    # different fingerprint and records a new incident.
+    repaired_args = validate_tool_call_args(history)
+    if repaired_args:
+        fp = ",".join(sorted(tid for _, tid in repaired_args))
+        if not ctx.store.has_repair_incident(sid, RecoveryStrategy.VALIDATE_TOOL_ARGS, fp):
+            names = ", ".join(name for name, _ in repaired_args)
+            ctx.warn(
+                f"Repaired corrupt tool-call arguments ({names}). "
+                f"The model produced invalid JSON during a previous turn."
+            )
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.VALIDATE_TOOL_ARGS,
+                    fingerprint=fp,
+                    tool_names=[name for name, _ in repaired_args],
+                    call_count=len(repaired_args),
+                    reason="corrupt_tool_call_args",
+                ),
+            )
+
+    history, sanitized_ids = sanitize_tool_call_ids(history)
+    if sanitized_ids:
+        fp = ",".join(sanitized_ids)
+        if not ctx.store.has_repair_incident(sid, RecoveryStrategy.SANITIZE_FIELDS, fp):
+            ctx.warn(
+                f"Sanitized {len(sanitized_ids)} tool-call ID(s) "
+                f"with characters incompatible with the current provider."
+            )
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.SANITIZE_FIELDS,
+                    fingerprint=fp,
+                    reason="invalid_tool_call_id_chars",
+                ),
+            )
+
+    history, repaired_tools, repaired_call_ids = repair_dangling_tool_calls(history)
     if repaired_tools and history_repair_level == 0:
-        names = ", ".join(repaired_tools)
-        ctx.warn(
-            f"Previous turn was cancelled mid-tool-call ({names}). "
-            f"Those tool results are lost — the model will continue without them."
-        )
-        _persist_history_repair(
-            ctx,
-            HistoryRepair(
-                strategy=RecoveryStrategy.REPAIR_DANGLING,
-                tool_names=repaired_tools,
-                call_count=len(repaired_tools),
-                reason="cancelled_mid_tool_call",
-            ),
-        )
+        fp = ",".join(sorted(repaired_call_ids))
+        if not ctx.store.has_repair_incident(sid, RecoveryStrategy.REPAIR_DANGLING, fp):
+            ctx.warn(
+                f"Previous turn was cancelled mid-tool-call "
+                f"({', '.join(repaired_tools)}). "
+                f"Those tool results are lost — the model will "
+                f"continue without them."
+            )
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.REPAIR_DANGLING,
+                    fingerprint=fp,
+                    tool_names=repaired_tools,
+                    call_count=len(repaired_tools),
+                    reason="cancelled_mid_tool_call",
+                ),
+            )
     if history_repair_level >= 1:
         consolidated = consolidate_tool_returns(history)
         history = consolidated.history

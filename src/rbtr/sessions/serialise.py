@@ -18,30 +18,6 @@ are serialised directly via their built-in ``part_kind`` discriminator.
 
 All functions are pure — no I/O, no engine or UI imports.
 
-Tool-call args validation
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``ToolCallPart.args`` is typed ``str | dict[str, Any] | None``.
-PydanticAI accepts *any* string at validation time — it never
-checks that a string is valid JSON.  Provider adapters only
-discover malformed args later, when they call ``args_as_dict()``
-(via ``pydantic_core.from_json``), which raises ``ValueError``.
-
-A model can produce invalid args during streaming (e.g. mixed
-XML/JSON fragments when it hallucinates the tool-call format).
-The corrupt part is saved with ``status = 'complete'`` because
-``_part_ta.dump_json`` faithfully serialises any string.
-
-``reconstruct_message`` calls ``_validate_tool_call_args`` after
-Pydantic validation.  Rather than raising (which would skip the
-entire message and orphan its matching ``ToolReturnPart``\\s),
-it **repairs** corrupt args to ``{}`` in-place.  The message
-stays in the history so tool-call / tool-return pairing is
-preserved and the provider adapter never rejects the history.
-A secondary fallback in ``handle_llm`` catches any remaining
-``ValueError`` and retries with simplified history
-(``flatten_tool_exchanges`` converts tool calls to plain text,
-bypassing ``args_as_dict()`` entirely).
 """
 
 import json
@@ -398,46 +374,7 @@ def reconstruct_message(
     Merges the header dict (message-level metadata) with the
     deserialised parts, then validates through PydanticAI's
     ``TypeAdapter[ModelMessage]``.
-
-    After reconstruction, validates that all ``ToolCallPart`` args
-    are parseable JSON.  Malformed args (e.g. from a model producing
-    invalid JSON during streaming) are repaired to ``{}`` in-place
-    so the message stays in the history and tool-call / tool-return
-    pairing is preserved.
     """
     data: dict[str, Any] = json.loads(header_json)
     data["parts"] = [json.loads(pj) for pj in part_jsons]
-    msg = _message_ta.validate_python(data)
-    _validate_tool_call_args(msg)
-    return msg
-
-
-def _validate_tool_call_args(msg: ModelMessage) -> None:
-    """Ensure every ``ToolCallPart`` has parseable args.
-
-    PydanticAI accepts any string for ``ToolCallPart.args`` at
-    validation time, but provider adapters call ``args_as_dict()``
-    (which uses ``pydantic_core.from_json``) when building the
-    API request.  If the model produced malformed JSON during
-    streaming (e.g. mixed XML/JSON), the error surfaces far from
-    the source.
-
-    Rather than raising (which would skip the entire message and
-    orphan its matching ``ToolReturnPart``\\s in subsequent
-    ``ModelRequest``\\s), corrupt args are **repaired to ``{}``**
-    in-place.  This preserves tool-call / tool-return pairing so
-    the provider adapter never rejects the history on account of
-    orphaned returns.
-    """
-    match msg:
-        case ModelResponse(parts=parts):
-            for part in parts:
-                if isinstance(part, ToolCallPart):
-                    try:
-                        part.args_as_dict()
-                    except ValueError:
-                        log.warning(
-                            "sessions: repairing corrupt args for tool call %s",
-                            part.tool_name,
-                        )
-                        part.args = {}
+    return _message_ta.validate_python(data)

@@ -71,6 +71,12 @@ class RecoveryStrategy(StrEnum):
     FLATTEN_TOOL_EXCHANGES = "flatten_tool_exchanges"
     """Convert tool-call/result pairs to plain text (last resort)."""
 
+    SANITIZE_FIELDS = "sanitize_fields"
+    """Replace invalid characters in history fields (e.g. ``tool_call_id``)."""
+
+    VALIDATE_TOOL_ARGS = "validate_tool_args"
+    """Repair unparseable ``ToolCallPart.args`` to ``{}``."""
+
     NONE = "none"
     """No recovery attempted (unrecoverable failure)."""
 
@@ -135,6 +141,13 @@ class HistoryRepair(BaseModel, extra="ignore"):
     reason: str | None = None
     """Why this repair was applied (e.g. ``cancelled_mid_tool_call``,
     ``cross_provider_retry``)."""
+
+    fingerprint: str | None = None
+    """Deterministic identifier for the specific set of items
+    repaired.  Used by ``has_repair_incident`` to deduplicate
+    level-0 repairs that fire every turn against immutable
+    history.  Computed from the sorted affected
+    ``tool_call_id``\\s or tool names."""
 
     # ── REPAIR_DANGLING detail ───────────────────────────────────
 

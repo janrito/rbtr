@@ -376,11 +376,14 @@ last received part.
 ### Persistence
 
 The message format is provider-agnostic. History is preserved
-across `/model` switches — only `/new` clears it. When
-switching providers causes a format rejection, rbtr repairs
-the history automatically in memory (the original messages are
-never modified). Repairs and failures are recorded as incidents,
-visible in `/stats`.
+across `/model` switches — only `/new` clears it. rbtr
+repairs history automatically in memory on every turn — the
+original messages are never modified. Preventive repairs
+(sanitising cross-provider field values, patching cancelled
+tool calls) run before each API call. When a provider still
+rejects the history, escalating structural repairs retry
+automatically. All repairs are recorded as incidents, visible
+in `/stats`.
 
 Ctrl+C during a tool-calling turn cancels immediately. Any tool
 calls without results get synthetic `(cancelled)` returns so

@@ -244,6 +244,13 @@ Repairs run in `_prepare_turn()` at three escalating levels:
 
 **Level 0 — structural repair (every turn):**
 
+- `sanitize_tool_call_ids` — replaces characters in
+  `tool_call_id` values that violate provider patterns
+  (e.g. Anthropic requires `^[a-zA-Z0-9_-]+$`). IDs from
+  other providers may contain dots, colons, or other
+  characters. Both `ToolCallPart` and `ToolReturnPart` /
+  `RetryPromptPart` are updated consistently to preserve
+  pairing.
 - `repair_dangling_tool_calls` — injects synthetic
   `(cancelled)` tool returns for unmatched `ToolCallPart`s
   left by a cancelled turn. Merges synthetic returns into
@@ -282,7 +289,12 @@ a recovery strategy:
 
 #### Incident recording
 
-Every retry cycle persists two incident rows:
+Level-0 preventive repairs run every turn against immutable
+history.  Each persists a single **`LLM_HISTORY_REPAIR`**
+row per unique fingerprint, deduplicated via
+`has_repair_incident` to avoid duplicates on subsequent turns.
+
+Every retry cycle (levels 1–2) persists two incident rows:
 
 1. **`LLM_ATTEMPT_FAILED`** — records `FailureKind`, strategy,
    diagnostic traceback, error text, model name, and HTTP
@@ -1302,9 +1314,10 @@ remains.
   summarisation. The compaction agent shares the system prompt
   but receives `compact.md` as its task instructions.
 - **`history.py`** — repair functions for cross-provider
-  compatibility: `consolidate_tool_returns`,
-  `demote_thinking`, `flatten_tool_exchanges`,
-  `repair_dangling_tool_calls`. All operate on in-memory
+  compatibility: `sanitize_tool_call_ids`,
+  `consolidate_tool_returns`, `demote_thinking`,
+  `flatten_tool_exchanges`, `repair_dangling_tool_calls`.
+  All operate on in-memory
   message lists and return new lists — the database is never
   modified.
 - **`errors.py`** — pure functions that inspect

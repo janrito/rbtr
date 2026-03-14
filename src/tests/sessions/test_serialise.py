@@ -411,9 +411,13 @@ def test_incident_row_payload_roundtrip() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_corrupt_tool_args_repaired() -> None:
-    """reconstruct_message repairs corrupt tool-call args to ``{}``."""
-    # Build a response with a corrupt ToolCallPart manually.
+def test_corrupt_tool_args_preserved_on_deserialise() -> None:
+    """reconstruct_message preserves corrupt args for upstream repair.
+
+    Args validation is not a deserialisation concern — it runs in
+    ``_prepare_turn`` via ``validate_tool_call_args`` where the
+    repair can be recorded as an incident.
+    """
     corrupt_part = ToolCallPart(
         tool_name="read_file",
         args='{"path": bad json',
@@ -424,16 +428,15 @@ def test_corrupt_tool_args_repaired() -> None:
         usage=_USAGE,
         model_name="test",
     )
-    # Serialise via the normal path.
     row = prepare_message_row(good_response, context=_CTX, row_id="r1")
     part_rows = prepare_part_rows(good_response, message_id="r1", context=_CTX)
     assert row.data_json is not None
 
-    # Reconstruct — should repair the corrupt args.
     restored = reconstruct_message(
         row.fragment_kind,
         row.data_json,
         [r.data_json for r in part_rows if r.data_json],
     )
     assert isinstance(restored, ModelResponse)
-    assert restored.parts[0].args == {}  # type: ignore[union-attr]
+    # Corrupt args survive deserialisation — repaired later in _prepare_turn.
+    assert restored.parts[0].args == '{"path": bad json'  # type: ignore[union-attr]
