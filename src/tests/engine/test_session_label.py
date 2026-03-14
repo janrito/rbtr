@@ -28,14 +28,28 @@ def test_label_detached_head(tmp_path: pytest.TempPathFactory) -> None:
     assert len(label.split(" — ")[1]) == 8  # short hash
 
 
-def test_review_updates_label(repo_engine: Engine) -> None:
-    """First /review sets the session label to base → head."""
+def test_review_snapshot_updates_label(repo_engine: Engine) -> None:
+    """First /review <ref> sets the session label to the ref."""
     engine = repo_engine
     repo = engine.state.repo
     assert repo is not None
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
     engine.run_task("command", "/review feature")
+    drain(engine.events)
+
+    assert "feature" in engine.state.session_label
+    assert "→" not in engine.state.session_label
+
+
+def test_review_branch_updates_label(repo_engine: Engine) -> None:
+    """First /review <base> <target> sets the session label to base → head."""
+    engine = repo_engine
+    repo = engine.state.repo
+    assert repo is not None
+    repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
+
+    engine.run_task("command", "/review main feature")
     drain(engine.events)
 
     assert "main" in engine.state.session_label

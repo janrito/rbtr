@@ -11,7 +11,7 @@ from rbtr.config import config
 from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.git.objects import read_blob
 from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.common import get_repo, limited, repo_toolset, resolve_tool_ref, validate_path
+from rbtr.llm.tools.common import file_toolset, get_repo, limited, resolve_tool_ref, validate_path
 
 
 def _read_fs_file(path: str) -> tuple[list[str], str | None]:
@@ -86,7 +86,7 @@ def _format_file_page(path: str, all_lines: list[str], offset: int, max_lines: i
     return output
 
 
-@repo_toolset.tool
+@file_toolset.tool
 def read_file(
     ctx: RunContext[AgentDeps],
     path: str,
@@ -140,7 +140,7 @@ def read_file(
     return _format_file_page(path, fs_lines, offset, capped)
 
 
-@repo_toolset.tool
+@file_toolset.tool
 def list_files(
     ctx: RunContext[AgentDeps],
     path: str = "",
@@ -209,7 +209,7 @@ def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
     return result
 
 
-@repo_toolset.tool
+@file_toolset.tool
 def grep(
     ctx: RunContext[AgentDeps],
     search: str | int | float,

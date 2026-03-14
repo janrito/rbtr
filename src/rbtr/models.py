@@ -6,8 +6,9 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 # ── Review targets ───────────────────────────────────────────────────
-# A review target is either a GitHub PR or a local branch.  Each has
-# the fields it actually needs — no optional sentinels.
+# A review target is either a GitHub PR, a local branch diff, or a
+# single-commit snapshot.  Each has the fields it actually needs —
+# no optional sentinels.
 
 
 class ReviewTarget(BaseModel):
@@ -54,11 +55,23 @@ class PRTarget(ReviewTarget):
 
 
 class BranchTarget(ReviewTarget):
-    """A local branch selected for review (no PR)."""
+    """A local branch diff selected for review (no PR)."""
 
 
-# Union type used on Session.review_target.
-type Target = PRTarget | BranchTarget
+class SnapshotTarget(BaseModel):
+    """A single commit selected for exploration (no diff)."""
+
+    head_commit: str
+    """Git-resolvable ref for the snapshot commit."""
+
+    ref_label: str
+    """Human-readable label: branch name, tag, or short SHA."""
+
+    updated_at: datetime
+
+
+# Union type used on EngineState.review_target.
+type Target = PRTarget | BranchTarget | SnapshotTarget
 
 
 # ── Listing models ───────────────────────────────────────────────────

@@ -778,7 +778,7 @@ def test_changed_symbols_no_review_target() -> None:
     state.index = store
     ctx = FakeCtx(state)
     result = changed_symbols(ctx)  # type: ignore[arg-type]
-    assert "No review target" in result
+    assert "No diff target" in result
     store.close()
 
 

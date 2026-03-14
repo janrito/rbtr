@@ -61,7 +61,7 @@ def _get_diff_ranges(
     """
     state = ctx.deps.state
     target = state.review_target
-    if target is None:
+    if not isinstance(target, PRTarget):
         return {}
     key = (target.base_commit, target.head_commit)
     cache = state.diff_range_cache

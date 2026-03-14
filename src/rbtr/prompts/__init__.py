@@ -27,7 +27,7 @@ import minijinja
 
 from rbtr.config import config
 from rbtr.constants import RBTR_DIR
-from rbtr.models import BranchTarget, PRTarget
+from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
 
 if TYPE_CHECKING:
     from rbtr.state import EngineState
@@ -113,6 +113,13 @@ def render_system() -> str:
 
 def _review_context(state: EngineState) -> dict[str, Any]:
     """Build template context for the review instructions."""
+    notes_name = "review"
+    match state.review_target:
+        case PRTarget(number=n):
+            notes_name = f"pr-{n}"
+        case SnapshotTarget(ref_label=label):
+            notes_name = f"snapshot-{label}"
+
     ctx: dict[str, Any] = {
         "date": datetime.now(tz=UTC).strftime("%Y-%m-%d"),
         "owner": state.owner or "unknown",
@@ -126,6 +133,9 @@ def _review_context(state: EngineState) -> dict[str, Any]:
         "pr_author": "",
         "pr_body": "",
         "editable_globs": config.tools.editable_include,
+        "ref_label": "",
+        "commit": "",
+        "notes_name": notes_name,
     }
 
     match state.review_target:
@@ -151,6 +161,12 @@ def _review_context(state: EngineState) -> dict[str, Any]:
                 "target_kind": "branch",
                 "base_branch": base,
                 "branch": head,
+            }
+        case SnapshotTarget(ref_label=label, head_commit=commit):
+            ctx |= {
+                "target_kind": "snapshot",
+                "ref_label": label,
+                "commit": commit,
             }
 
     return ctx

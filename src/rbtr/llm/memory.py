@@ -529,16 +529,19 @@ def extract_facts_from_ctx(
     if not config.memory.enabled:
         return
 
-    if not ctx.state.has_llm or not ctx.state.model_name:
+    model_name = ctx.state.model_name
+    if not ctx.state.has_llm or not model_name:
         return
 
     ctx.emit(FactExtractionStarted())
 
     try:
         run = ctx.portal.call(
-            lambda: run_fact_extraction(
-                messages, ctx.store, ctx.state.repo_scope, ctx.state.model_name
-            )
+            run_fact_extraction,
+            messages,
+            ctx.store,
+            ctx.state.repo_scope,
+            model_name,
         )
     except Exception:
         log.exception("memory: fact extraction failed")

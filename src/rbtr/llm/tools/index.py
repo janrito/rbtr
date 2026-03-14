@@ -13,9 +13,11 @@ from rbtr.llm.tools.common import (
     head_commit,
     index_toolset,
     limited,
+    require_diff_target,
     resolve_tool_ref,
     validate_path,
 )
+from rbtr.models import ReviewTarget
 
 
 @index_toolset.tool
@@ -66,7 +68,7 @@ def search(
     return result
 
 
-@index_toolset.tool
+@index_toolset.tool(prepare=require_diff_target)
 def changed_symbols(
     ctx: RunContext[AgentDeps],
     offset: int = 0,
@@ -86,8 +88,8 @@ def changed_symbols(
     """
     store = get_store(ctx)
     target = ctx.deps.state.review_target
-    if target is None:
-        return "No review target selected."
+    if not isinstance(target, ReviewTarget):
+        return "No diff target selected."
 
     sd = compute_diff(target.base_commit, target.head_commit, store)
     sections: list[str] = []

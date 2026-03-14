@@ -8,7 +8,7 @@ receive ``RunContext``.
 The model is provided at each call site via ``agent.iter(model=...)``,
 not baked into the agent.
 
-Tools are organised into four ``FunctionToolset`` instances, each
+Tools are organised into five `FunctionToolset` instances, each
 wrapped in a ``FilteredToolset`` that gates the entire group on
 engine state.  Presentation order to the model follows toolset
 order x registration order within each toolset.
@@ -24,11 +24,13 @@ from rbtr.llm.deps import AgentDeps
 from rbtr.llm.memory import render_facts_instruction
 from rbtr.llm.tools.common import (
     _index_tool_names,
+    diff_toolset,
+    file_toolset,
+    has_diff_target,
     has_index,
     has_pr_target,
     has_repo,
     index_toolset,
-    repo_toolset,
     review_toolset,
     workspace_toolset,
 )
@@ -38,7 +40,8 @@ agent: Agent[AgentDeps, str] = Agent(
     deps_type=AgentDeps,
     toolsets=[
         FilteredToolset(index_toolset, filter_func=has_index),
-        FilteredToolset(repo_toolset, filter_func=has_repo),
+        FilteredToolset(file_toolset, filter_func=has_repo),
+        FilteredToolset(diff_toolset, filter_func=has_diff_target),
         FilteredToolset(review_toolset, filter_func=has_pr_target),
         workspace_toolset,
     ],

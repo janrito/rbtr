@@ -29,7 +29,7 @@ from rbtr.events import (
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
 from rbtr.llm.context import CancelSlot
-from rbtr.models import BranchTarget, PRTarget, Target
+from rbtr.models import BranchTarget, PRTarget, SnapshotTarget, Target
 from rbtr.sessions.scrub import scrub_secrets
 from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
 from rbtr.state import EngineState
@@ -314,14 +314,17 @@ class Engine:
 
 
 def _review_target_str(target: Target | None) -> str | None:
-    """Encode a review target as the string you'd pass to ``/review``.
+    """Encode a review target as the string you'd pass to `/review`.
 
-    ``"42"`` for PRs, ``"main feature"`` for branches.
+    `"42"` for PRs, `"main feature"` for branches,
+    `"main"` for snapshots.
     """
     match target:
         case PRTarget(number=n):
             return str(n)
         case BranchTarget(base_branch=base, head_branch=head):
             return f"{base} {head}"
-        case _:
+        case SnapshotTarget(ref_label=label):
+            return label
+        case None:
             return None

@@ -66,6 +66,14 @@ alive.
 
 ### How a review flows
 
+Three review modes, selected by argument count:
+
+- `/review 42` — PR review (GitHub metadata + diff).
+- `/review main feature` — branch diff (local refs, no GitHub).
+- `/review v2.1.0` — snapshot (single ref, no diff).
+
+#### PR and branch reviews
+
 A `/review 42` command follows this path:
 
 1. **TUI** receives input, spawns a daemon thread.
@@ -92,9 +100,31 @@ A `/review 42` command follows this path:
 8. **Draft and post.** `/draft sync` syncs with GitHub's
    pending review API. `/draft post` submits the review.
 
+Branch reviews (`/review main feature`) follow the same path
+but skip step 2 (no GitHub fetch) and use local branch names
+as refs.
+
 The review starts immediately — the user can talk to the
 model while the index builds. Index tools appear when
 `IndexReady` is emitted.
+
+#### Snapshot reviews
+
+A `/review v2.1.0` command follows a simpler path:
+
+1. **Engine** resolves the ref via `repo.revparse_single()`,
+   peels to a commit, and stores the SHA in a
+   `SnapshotTarget`.
+2. **Index** indexes only that single commit — no base, no
+   incremental update.
+3. **Tools.** File tools (`read_file`, `list_files`, `grep`)
+   and index tools (`search`, `read_symbol`, `list_symbols`,
+   `find_references`) are available. Diff tools
+   (`diff`, `changed_files`, `commit_log`, `changed_symbols`)
+   and draft tools are hidden.
+4. **Prompt.** The review template uses exploration-oriented
+   instructions (orient → explore → annotate) instead of the
+   diff-oriented flow (brief → deepen → evaluate → draft).
 
 ---
 
@@ -290,7 +320,7 @@ a recovery strategy:
 #### Incident recording
 
 Level-0 preventive repairs run every turn against immutable
-history.  Each persists a single **`LLM_HISTORY_REPAIR`**
+history. Each persists a single **`LLM_HISTORY_REPAIR`**
 row per unique fingerprint, deduplicated via
 `has_repair_incident` to avoid duplicates on subsequent turns.
 
@@ -808,18 +838,21 @@ the diff.
 The implementation lives in `git/` (pygit2 wrappers) and
 `engine/review_cmd.py` (ref resolution).
 
-When `/review` selects a PR, `review_cmd.py` fetches exact
-commit SHAs from the GitHub API and stores them on
-`ReviewTarget` (`models.py`):
+When `/review` selects a target, `review_cmd.py` builds one
+of three target types (`models.py`):
 
-- `base_commit` — exact SHA for the base (e.g. tip of `main`
-  at PR creation). Immune to stale local branches.
-- `head_commit` — exact SHA for the head (feature branch tip).
-- `head_sha` — on `PRTarget`, the raw SHA from GitHub (used
-  by the draft system for stale comment translation).
+- **`PRTarget`** — GitHub PR. `base_commit` and `head_commit`
+  are exact SHAs from the API. `head_sha` is the raw SHA
+  used by the draft system for stale comment translation.
+- **`BranchTarget`** — local branch diff
+  (`/review main feature`). `base_commit` and `head_commit`
+  are branch names that resolve via pygit2.
+- **`SnapshotTarget`** — single ref (`/review v2.1.0`).
+  Only `head_commit` (SHA). No `base_commit`, no diff.
 
-For local branch reviews (`/review main..feature`), these
-equal the branch names and resolve via pygit2.
+The `Target` union (`PRTarget | BranchTarget | SnapshotTarget`)
+is used throughout — every `match target:` block handles all
+three arms.
 
 `git/repo.py` wraps pygit2 for all object-store reads.
 File access follows the path
@@ -1233,8 +1266,8 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 
 #### Context
 
-| Event                | Description                           |
-| -------------------- | ------------------------------------- |
+| Event                | Description                            |
+| -------------------- | -------------------------------------- |
 | `ContextMarkerReady` | A command produced context for the LLM |
 
 #### Review
@@ -1472,7 +1505,11 @@ consistent identity and language across both agents.
 **`review.md`** is a Jinja template with variables populated
 from `EngineState`: `date`, `owner`, `repo`, `target_kind`,
 `base_branch`, `branch`, `pr_number`, `pr_title`, `pr_author`,
-`pr_body`, `editable_globs`.
+`pr_body`, `editable_globs`, `ref_label`, `commit`. The
+`target_kind` variable (`"pr"`, `"branch"`, `"snapshot"`, or
+`"none"`) selects the appropriate context block and flow
+instructions — snapshot mode uses orient/explore/annotate
+instead of brief/deepen/evaluate/draft.
 
 **`system.md`** has two template variables:
 `project_instructions` and `append_system`.
@@ -1506,24 +1543,35 @@ conceptually without naming tools or parameters.
 
 ## Tools
 
-18 tools registered via `@agent.tool` decorators in submodules
-under `llm/tools/`. Each receives `RunContext[AgentDeps]` and
+19 tools registered across five toolsets in submodules under
+`llm/tools/`. Each tool receives `RunContext[AgentDeps]` and
 returns a string result.
 
 Tools are conditionally visible to the LLM based on session
-state. Each tool declares a `prepare` function that either
-returns the tool definition (visible) or `None` (hidden). The
-LLM never sees a tool it cannot call.
+state. Each toolset is wrapped in a `FilteredToolset` with a
+filter function that controls group visibility. Individual
+tools can further restrict visibility with a `prepare`
+function.
 
-| Prepare function    | Condition                             |
-| ------------------- | ------------------------------------- |
-| `require_repo`      | A repository is connected (`/review`) |
-| `require_index`     | The code index has finished building  |
-| `require_pr`        | A PR or branch is selected            |
-| `require_pr_target` | The target is specifically a PR       |
-| _(none)_            | Always visible                        |
+### Toolset visibility
 
-### File tools (`require_repo`)
+| Toolset             | Filter            | Visible when                       |
+| ------------------- | ----------------- | ---------------------------------- |
+| `index_toolset`     | `has_index`       | Index ready + any target           |
+| `file_toolset`      | `has_repo`        | Repo + any target (incl. snapshot) |
+| `diff_toolset`      | `has_diff_target` | Repo + PR or branch target         |
+| `review_toolset`    | `has_pr_target`   | PR target selected                 |
+| `workspace_toolset` | _(none)_          | Always visible                     |
+
+### Per-tool visibility
+
+| Prepare function      | Condition                              |
+| --------------------- | -------------------------------------- |
+| `require_diff_target` | Hides `changed_symbols` for snapshots  |
+| `require_pr`          | Hides `get_pr_discussion` without auth |
+| _(none)_              | Inherits toolset filter only           |
+
+### File tools (`file_toolset`)
 
 | Tool         | Purpose                                                 |
 | ------------ | ------------------------------------------------------- |
@@ -1531,7 +1579,7 @@ LLM never sees a tool it cannot call.
 | `grep`       | Substring search in one file, a directory, or repo-wide |
 | `list_files` | List files in the repository or a subdirectory          |
 
-### Git tools (`require_repo`)
+### Diff tools (`diff_toolset`)
 
 | Tool            | Purpose                                        |
 | --------------- | ---------------------------------------------- |
@@ -1539,7 +1587,7 @@ LLM never sees a tool it cannot call.
 | `diff`          | Unified text diff, optionally filtered by path |
 | `commit_log`    | Commit log between base and head               |
 
-### Index tools (`require_index`)
+### Index tools (`index_toolset`)
 
 | Tool              | Purpose                                                          |
 | ----------------- | ---------------------------------------------------------------- |
@@ -1547,9 +1595,9 @@ LLM never sees a tool it cannot call.
 | `read_symbol`     | Read the full source code of a symbol                            |
 | `list_symbols`    | List functions, classes, methods in a file                       |
 | `find_references` | Find symbols referencing a given symbol via the dependency graph |
-| `changed_symbols` | List symbols changed between base and head                       |
+| `changed_symbols` | Symbols changed between base and head (hidden for snapshots)     |
 
-### Draft tools (`require_pr_target`)
+### Draft tools (`review_toolset`)
 
 | Tool                   | Purpose                                   |
 | ---------------------- | ----------------------------------------- |
@@ -1559,13 +1607,13 @@ LLM never sees a tool it cannot call.
 | `set_draft_summary`    | Set the top-level review summary          |
 | `read_draft`           | Read the current draft                    |
 
-### Discussion tools (`require_pr`)
+### Discussion tools (`review_toolset`)
 
 | Tool                | Purpose                                    |
 | ------------------- | ------------------------------------------ |
 | `get_pr_discussion` | Read existing discussion on the current PR |
 
-### Edit tools (always visible)
+### Workspace tools (`workspace_toolset`)
 
 | Tool   | Purpose                                                  |
 | ------ | -------------------------------------------------------- |
@@ -1579,12 +1627,14 @@ the `include`/`extend_exclude` config. Tools that accept a
 snapshot (`"head"`, `"base"`, or a raw commit SHA), not the
 changes introduced by it.
 
-`llm/tools/common.py` provides shared helpers: pagination
+`llm/tools/common.py` provides shared helpers: toolset
+definitions, filter and prepare functions, pagination
 (offset/limit with a trailer telling the LLM how many results
 remain), output truncation, and `ref` parameter resolution.
 Individual tool modules (`file.py`, `git.py`, `index.py`,
 `draft.py`, `discussion.py`, `notes.py`, `memory.py`) each
-register their tools via `@agent.tool`.
+register their tools on the appropriate toolset via
+`@<toolset>.tool`.
 
 ---
 

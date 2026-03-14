@@ -179,6 +179,7 @@ class UI:
         events: queue.Queue[Event],
         engine: Engine,
         pr_number: int | None = None,
+        snapshot_ref: str | None = None,
         continue_session: bool = False,
     ) -> None:
         self.console = console
@@ -187,6 +188,7 @@ class UI:
         self._events = events
         self._engine = engine
         self._pr_number = pr_number
+        self._snapshot_ref = snapshot_ref
         self._continue_session = continue_session
         self._live: Live | None = None
         # Current active panel state — built from events, never from engine state
@@ -1058,6 +1060,8 @@ class UI:
             self._start_task(TaskType.SETUP, "")
             if self._pr_number is not None:
                 self._startup_commands.append(f"/review {self._pr_number}")
+            elif self._snapshot_ref is not None:
+                self._startup_commands.append(f"/review {self._snapshot_ref}")
             elif self._continue_session:
                 self._startup_commands.append("/session resume-last")
 
@@ -1146,6 +1150,7 @@ class UI:
 def run(
     *,
     pr_number: int | None = None,
+    snapshot_ref: str | None = None,
     continue_session: bool = False,
 ) -> None:
     """Launch the rbtr interactive session."""
@@ -1160,6 +1165,7 @@ def run(
             events,
             engine,
             pr_number=pr_number,
+            snapshot_ref=snapshot_ref,
             continue_session=continue_session,
         )
         ui.run()

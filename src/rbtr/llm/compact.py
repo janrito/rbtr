@@ -175,8 +175,13 @@ async def compact_history_async(
         old_ids = [mid for mid, msg in paired if id(msg) in old_set]
         serialised = serialise_for_summary(old, max_tool_chars=max_tool_chars)
 
+    model_name = ctx.state.model_name
+    if not model_name:
+        ctx.warn("No model selected.")
+        return
+
     try:
-        model = build_model(ctx.state.model_name)
+        model = build_model(model_name)
     except RbtrError as e:
         ctx.warn(str(e))
         return
@@ -192,7 +197,7 @@ async def compact_history_async(
                 old,
                 ctx.store,
                 ctx.state.repo_scope,
-                ctx.state.model_name,
+                model_name,
             )
         except Exception:
             log.exception("memory: fact extraction during compaction failed")

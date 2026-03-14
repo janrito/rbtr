@@ -24,8 +24,8 @@ Skip facts the agent can discover from files: tooling versions
 in `pyproject.toml`, style rules in `AGENTS.md`, framework
 choices visible from imports, CI config in workflow files.
 
-Litmus test: *"Would the agent know this from the project
-files?"* If yes, don't extract it.
+Litmus test: _"Would the agent know this from the project
+files?"_ If yes, don't extract it.
 
 ## What NOT to extract
 

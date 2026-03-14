@@ -14,10 +14,11 @@ from rbtr.git.objects import (
     diff_single,
 )
 from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.common import get_repo, limited, repo_toolset
+from rbtr.llm.tools.common import diff_toolset, get_repo, limited
+from rbtr.models import ReviewTarget
 
 
-@repo_toolset.tool
+@diff_toolset.tool
 def changed_files(
     ctx: RunContext[AgentDeps],
     offset: int = 0,
@@ -32,8 +33,8 @@ def changed_files(
     """
     repo = get_repo(ctx)
     target = ctx.deps.state.review_target
-    if target is None:
-        return "No review target selected."
+    if not isinstance(target, ReviewTarget):
+        return "No diff target selected."
 
     try:
         paths = _changed_files(repo, target.base_commit, target.head_commit)
@@ -63,7 +64,7 @@ def changed_files(
     return result
 
 
-@repo_toolset.tool
+@diff_toolset.tool
 def diff(
     ctx: RunContext[AgentDeps],
     path: str = "",
@@ -97,8 +98,8 @@ def diff(
 
     try:
         if not ref:
-            if target is None:
-                return "No review target selected."
+            if not isinstance(target, ReviewTarget):
+                return "No diff target selected."
             result = diff_refs(repo, target.base_commit, target.head_commit, path=path)
         elif ".." in ref:
             parts = ref.split("..", 1)
@@ -128,7 +129,7 @@ def _paginate_diff(dr: DiffResult, offset: int, max_lines: int) -> str:
     return text
 
 
-@repo_toolset.tool
+@diff_toolset.tool
 def commit_log(
     ctx: RunContext[AgentDeps],
     offset: int = 0,
@@ -143,8 +144,8 @@ def commit_log(
     """
     repo = get_repo(ctx)
     target = ctx.deps.state.review_target
-    if target is None:
-        return "No review target selected."
+    if not isinstance(target, ReviewTarget):
+        return "No diff target selected."
 
     try:
         entries = commit_log_between(repo, target.base_commit, target.head_commit)

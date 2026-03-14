@@ -37,7 +37,7 @@ Fetching PR #42…
 ⟳ indexing 177 files…
 ```
 
-The model has 18 tools — it reads files, searches the index,
+The model has 19 tools — it reads files, searches the index,
 inspects the diff, and follows references across the codebase.
 Ask it anything about the changes:
 
@@ -90,9 +90,39 @@ You can also start without a PR — `rbtr` opens a plain
 conversation in any git repo. Use `/review` later to select
 a target.
 
+### Snapshot review
+
+Review code at a single point in time — no PR, no diff, no
+GitHub. Useful for onboarding, architecture review, or audit.
+
+```bash
+rbtr v2.1.0               # launch with a tag
+rbtr main                  # launch with a branch
+rbtr HEAD                  # launch at current commit
+```
+
+Or from inside rbtr:
+
+```text
+you: /review v2.1.0
+Reviewing snapshot: v2.1.0
+⟳ indexing 177 files…
+
+you: walk me through the auth module
+
+you: /review main feature
+Reviewing branch: main → feature
+```
+
+In snapshot mode the model has file tools (`read_file`,
+`list_files`, `grep`), index tools (`search`, `read_symbol`,
+`list_symbols`, `find_references`), and workspace tools
+(`edit`, `remember`). Diff and draft tools are hidden — there
+is no base to compare against.
+
 ## Tools
 
-The model has 18 tools for reading code, navigating the
+The model has 19 tools for reading code, navigating the
 codebase, and writing review feedback. Tools are hidden
 until their prerequisites are met — the model never sees
 a tool it cannot use.
@@ -178,24 +208,26 @@ model summarises its progress and asks whether to continue.
 
 ## Commands
 
-| Command                | Description                                 | Context |
-| ---------------------- | ------------------------------------------- | ------- |
-| `/help`                | Show available commands                     |         |
-| `/review`              | List open PRs and branches                  | ✓       |
-| `/review <id>`         | Select a PR or branch for review            | ✓       |
-| `/draft`               | View, sync, or post the review draft        | ✓       |
-| `/connect <service>`   | Authenticate with a service                 | ✓       |
-| `/model`               | List available models from all providers    |         |
-| `/model <provider/id>` | Set the active model                        | ✓       |
-| `/index`               | Index status, search, diagnostics, rebuild  | partial |
-| `/compact`             | Summarise older context to free space       | ✓       |
-| `/compact reset`       | Undo last compaction (before new messages)  | ✓       |
-| `/session`             | List, inspect, or delete sessions           | partial |
-| `/stats`               | Show session token and cost statistics      | ✓       |
-| `/memory`              | List, extract, or purge cross-session facts | partial |
-| `/reload`              | Show active prompt sources                  |         |
-| `/new`                 | Start a new conversation                    |         |
-| `/quit`                | Exit (also `/q`)                            |         |
+| Command                   | Description                                 | Context |
+| ------------------------- | ------------------------------------------- | ------- |
+| `/help`                   | Show available commands                     |         |
+| `/review`                 | List open PRs and branches                  | ✓       |
+| `/review <number>`        | Select a PR for review                      | ✓       |
+| `/review <ref>`           | Snapshot review at a git ref                | ✓       |
+| `/review <base> <target>` | Diff review between two refs                | ✓       |
+| `/draft`                  | View, sync, or post the review draft        | ✓       |
+| `/connect <service>`      | Authenticate with a service                 | ✓       |
+| `/model`                  | List available models from all providers    |         |
+| `/model <provider/id>`    | Set the active model                        | ✓       |
+| `/index`                  | Index status, search, diagnostics, rebuild  | partial |
+| `/compact`                | Summarise older context to free space       | ✓       |
+| `/compact reset`          | Undo last compaction (before new messages)  | ✓       |
+| `/session`                | List, inspect, or delete sessions           | partial |
+| `/stats`                  | Show session token and cost statistics      | ✓       |
+| `/memory`                 | List, extract, or purge cross-session facts | partial |
+| `/reload`                 | Show active prompt sources                  |         |
+| `/new`                    | Start a new conversation                    |         |
+| `/quit`                   | Exit (also `/q`)                            |         |
 
 The **Context** column shows which commands produce
 [context markers](#context-markers) for the model.

@@ -19,10 +19,10 @@ lint-sql:
     uv run sqlfluff lint .
 
 fmt-md *FILES:
-    rumdl check --fix {{ if FILES == "" { "." } else { FILES } }}
+    uv run rumdl check --fix {{ if FILES == "" { "." } else { FILES } }}
 
 lint-md *FILES:
-    rumdl check {{ if FILES == "" { "." } else { FILES } }}
+    uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
 typecheck:
     uv run mypy

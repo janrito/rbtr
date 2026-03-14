@@ -94,7 +94,7 @@ def test_diff_no_target() -> None:
         state = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = FakeCtx(state)
         result = diff(ctx)  # type: ignore[arg-type]
-        assert "No review target" in result
+        assert "No diff target" in result
 
 
 # ── changed_files ────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ def test_changed_files_no_target() -> None:
         state = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = FakeCtx(state)
         result = changed_files(ctx)  # type: ignore[arg-type]
-        assert "No review target" in result
+        assert "No diff target" in result
 
 
 # ── commit_log ───────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ def test_commit_log_no_target() -> None:
         state = EngineState(repo=repo, owner="o", repo_name="r")
         ctx = FakeCtx(state)
         result = commit_log(ctx)  # type: ignore[arg-type]
-        assert "No review target" in result
+        assert "No diff target" in result
 
 
 # ── diff edge cases ─────────────────────────────────────────────────

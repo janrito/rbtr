@@ -2,7 +2,8 @@
 
 Submodule imports below trigger ``@toolset.tool`` registration.
 Import order determines tool presentation order within
-cross-module toolsets (e.g. git before file on ``repo_toolset``).
+cross-module toolsets (e.g. git on `diff_toolset`, file on
+`file_toolset`).
 """
 
 # isort: off

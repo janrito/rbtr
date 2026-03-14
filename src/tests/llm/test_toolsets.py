@@ -11,8 +11,9 @@ import pytest
 # Importing agent triggers all side-effect registrations.
 from rbtr.llm.agent import agent  # noqa: F401
 from rbtr.llm.tools.common import (
+    diff_toolset,
+    file_toolset,
     index_toolset,
-    repo_toolset,
     review_toolset,
     workspace_toolset,
 )
@@ -28,8 +29,12 @@ from rbtr.llm.tools.common import (
             ["search", "changed_symbols", "find_references", "read_symbol", "list_symbols"],
         ),
         (
-            repo_toolset,
-            ["changed_files", "diff", "commit_log", "read_file", "list_files", "grep"],
+            file_toolset,
+            ["read_file", "list_files", "grep"],
+        ),
+        (
+            diff_toolset,
+            ["changed_files", "diff", "commit_log"],
         ),
         (
             review_toolset,
@@ -47,7 +52,7 @@ from rbtr.llm.tools.common import (
             ["edit", "remember"],
         ),
     ],
-    ids=["index", "repo", "review", "workspace"],
+    ids=["index", "file", "diff", "review", "workspace"],
 )
 def test_tool_registration_order(
     toolset: object,
@@ -62,10 +67,11 @@ def test_tool_registration_order(
 
 
 def test_total_tool_count() -> None:
-    """All 19 tools are registered across the four toolsets."""
+    """All 19 tools are registered across the five toolsets."""
     all_tools = (
         list(index_toolset.tools)
-        + list(repo_toolset.tools)
+        + list(file_toolset.tools)
+        + list(diff_toolset.tools)
         + list(review_toolset.tools)
         + list(workspace_toolset.tools)
     )

@@ -6,7 +6,7 @@ from rich.console import Group
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
-from rbtr.models import PRTarget
+from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
 from rbtr.state import EngineState
 from rbtr.styles import (
     ERROR,
@@ -44,9 +44,11 @@ def render_footer(
     match target:
         case PRTarget(number=n, base_branch=base, head_branch=head):
             review = f" PR #{n} · {base} → {head}"
-        case _ if target is not None:
-            review = f" {target.base_branch} → {target.head_branch}"
-        case _:
+        case BranchTarget(base_branch=base, head_branch=head):
+            review = f" {base} → {head}"
+        case SnapshotTarget(ref_label=label):
+            review = f" {label}"
+        case None:
             review = ""
     if not state.gh and not review:
         review = " ✗ not authenticated"

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from rbtr.config import config
 from rbtr.events import ColumnDef, IndexCleared, TableOutput
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr.models import SnapshotTarget
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -73,13 +74,18 @@ def _status(engine: Engine) -> None:
         engine._out("No review target selected.")
         return
 
-    base_ref = target.base_commit
     head_ref = target.head_commit
 
-    base_chunks = store.get_chunks(base_ref)
     head_chunks = store.get_chunks(head_ref)
-    base_edges = store.get_edges(base_ref)
     head_edges = store.get_edges(head_ref)
+
+    if isinstance(target, SnapshotTarget):
+        base_chunks: list[Chunk] = []
+        base_edges: list[Edge] = []
+    else:
+        base_ref = target.base_commit
+        base_chunks = store.get_chunks(base_ref)
+        base_edges = store.get_edges(base_ref)
 
     # DB file size.
     db_path = Path(config.index.db_dir) / "index.duckdb"
@@ -91,15 +97,19 @@ def _status(engine: Engine) -> None:
 
     orphans = store.count_orphan_chunks()
 
-    engine._out(f"Target: {target.base_branch} → {target.head_branch}")
+    if isinstance(target, SnapshotTarget):
+        engine._out(f"Target: {target.ref_label}")
+    else:
+        engine._out(f"Target: {target.base_branch} → {target.head_branch}")
     if not head_chunks and base_chunks:
         engine._out(f"Showing: {base_ref} (head not indexed yet)")
     engine._out(f"DB size: {size_str}")
     if orphans > 0:
         engine._out(f"Orphaned chunks: {orphans} (will be pruned on next index)")
 
-    # ── Snapshot comparison ──────────────────────────────────────
-    _emit_snapshot_table(engine, base_chunks, head_chunks, base_edges, head_edges)
+    # ── Snapshot comparison (diff targets only) ──────────────────
+    if not isinstance(target, SnapshotTarget):
+        _emit_snapshot_table(engine, base_chunks, head_chunks, base_edges, head_edges)
 
     # ── Per-kind breakdown (head, or base if head not indexed) ──
     display_chunks = head_chunks if head_chunks else base_chunks

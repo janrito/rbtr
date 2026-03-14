@@ -12,6 +12,7 @@ from rbtr.events import IndexProgress, IndexReady, IndexStarted, Output, OutputL
 from rbtr.git import FileEntry, list_files
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
+from rbtr.models import SnapshotTarget
 from rbtr.plugins.manager import get_manager
 
 if TYPE_CHECKING:
@@ -42,7 +43,6 @@ def _build_index(engine: Engine) -> None:
     if not config.index.enabled:
         return
 
-    base_ref = target.base_commit
     head_ref = target.head_commit
 
     # Open (or reuse) the DuckDB store.
@@ -74,24 +74,35 @@ def _build_index(engine: Engine) -> None:
     def on_embed_progress(done: int, total: int) -> None:
         engine._emit(IndexProgress(phase="embedding", indexed=done, total=total))
 
-    # Build base index first, then incremental update for head.
+    # Snapshots index a single commit; diff targets index base
+    # first and then incrementally update for head.
     try:
-        build_index(
-            repo,
-            base_ref,
-            store,
-            on_progress=on_parse_progress,
-            on_embed_progress=on_embed_progress,
-        )
+        if isinstance(target, SnapshotTarget):
+            result = build_index(
+                repo,
+                head_ref,
+                store,
+                on_progress=on_parse_progress,
+                on_embed_progress=on_embed_progress,
+            )
+        else:
+            base_ref = target.base_commit
+            build_index(
+                repo,
+                base_ref,
+                store,
+                on_progress=on_parse_progress,
+                on_embed_progress=on_embed_progress,
+            )
 
-        result = update_index(
-            repo,
-            base_ref,
-            head_ref,
-            store,
-            on_progress=on_parse_progress,
-            on_embed_progress=on_embed_progress,
-        )
+            result = update_index(
+                repo,
+                base_ref,
+                head_ref,
+                store,
+                on_progress=on_parse_progress,
+                on_embed_progress=on_embed_progress,
+            )
 
         engine.state.index_ready = True
         engine._emit(IndexReady(chunk_count=result.stats.total_chunks))

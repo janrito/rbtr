@@ -38,7 +38,7 @@ from rbtr.events import (
     TextDelta,
 )
 from rbtr.exceptions import RbtrError, TaskCancelled
-from rbtr.models import BranchTarget, PRSummary, PRTarget
+from rbtr.models import BranchTarget, PRSummary, PRTarget, SnapshotTarget
 from rbtr.providers import BuiltinProvider
 from rbtr.state import EngineState
 
@@ -244,7 +244,8 @@ def test_review_pr_without_auth_warns(engine: Engine) -> None:
     assert any("Not authenticated" in t for t in texts)
 
 
-def test_review_branch_by_name(mocker: MockerFixture, repo_engine: Engine) -> None:
+def test_review_snapshot_by_branch(mocker: MockerFixture, repo_engine: Engine) -> None:
+    """Single-arg /review creates a SnapshotTarget."""
     mocker.patch("rbtr.engine.review_cmd.run_index")
     engine = repo_engine
     repo = engine.state.repo
@@ -255,12 +256,24 @@ def test_review_branch_by_name(mocker: MockerFixture, repo_engine: Engine) -> No
 
     drained_events = drain(engine.events)
     assert drained_events[-1].success is True
-    assert isinstance(engine.state.review_target, BranchTarget)
-    assert engine.state.review_target.base_branch == "main"
-    assert engine.state.review_target.head_branch == "my-branch"
+    assert isinstance(engine.state.review_target, SnapshotTarget)
+    assert engine.state.review_target.ref_label == "my-branch"
 
 
-def test_review_nonexistent_branch_warns(repo_engine: Engine) -> None:
+def test_review_snapshot_head(mocker: MockerFixture, repo_engine: Engine) -> None:
+    """/review HEAD creates a SnapshotTarget at the current HEAD."""
+    mocker.patch("rbtr.engine.review_cmd.run_index")
+    engine = repo_engine
+
+    engine.run_task(TaskType.COMMAND, "/review HEAD")
+
+    drained_events = drain(engine.events)
+    assert drained_events[-1].success is True
+    assert isinstance(engine.state.review_target, SnapshotTarget)
+    assert engine.state.review_target.ref_label == "HEAD"
+
+
+def test_review_nonexistent_ref_warns(repo_engine: Engine) -> None:
     engine = repo_engine
 
     engine.run_task(TaskType.COMMAND, "/review ghost-branch")

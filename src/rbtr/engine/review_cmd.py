@@ -10,9 +10,9 @@ from github.GithubException import GithubException
 
 from rbtr.events import ColumnDef, TableOutput
 from rbtr.exceptions import RbtrError
-from rbtr.git import default_branch, fetch_pr_refs, list_local_branches, resolve_commit
+from rbtr.git import fetch_pr_refs, list_local_branches, resolve_commit
 from rbtr.github import client
-from rbtr.models import BranchTarget, PRTarget
+from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
 
 from .indexing import run_index
 from .publish import _sync_pending_draft, _warn_access
@@ -28,8 +28,8 @@ def cmd_review(engine: Engine, identifier: str) -> None:
 
         /review                     — list open PRs and branches
         /review <number>            — select a GitHub PR
-        /review <branch>            — review branch vs default base
-        /review <base> <target>     — review target vs explicit base
+        /review <ref>               — snapshot at <ref>
+        /review <base> <target>     — diff target against base
     """
     if not identifier:
         _list(engine)
@@ -43,11 +43,11 @@ def cmd_review(engine: Engine, identifier: str) -> None:
             return
         except ValueError:
             pass
-        _review_branch(engine, base=None, target=parts[0])
+        _review_snapshot(engine, parts[0])
     elif len(parts) == 2:
         _review_branch(engine, base=parts[0], target=parts[1])
     else:
-        engine._warn("Usage: /review [base] <target> or /review <pr_number>")
+        engine._warn("Usage: /review <ref>, /review <base> <target>, or /review <pr_number>")
 
 
 def _list(engine: Engine) -> None:
@@ -114,7 +114,7 @@ def _list(engine: Engine) -> None:
                 f"[/review → {len(prs)} PRs, {len(branches)} branches]",
                 f"Listed {len(prs)} open PRs and {len(branches)} unmerged branches.",
             )
-            engine._out("Use /review <pr_number> or /review <branch_name> to select.")
+            engine._out("Use /review <number>, /review <ref>, or /review <base> <target>.")
             return
         except GithubException as e:
             engine._clear()
@@ -156,7 +156,7 @@ def _list(engine: Engine) -> None:
         f"[/review → {len(branches_local)} branches]",
         f"Listed {len(branches_local)} local branches.",
     )
-    engine._out("Use /review <branch_name> to select.")
+    engine._out("Use /review <ref> or /review <base> <target>.")
 
 
 def _review_pr(engine: Engine, pr_number: int) -> None:
@@ -211,30 +211,63 @@ def _review_pr(engine: Engine, pr_number: int) -> None:
         engine._warn(str(e))
 
 
-def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
+def _review_branch(engine: Engine, *, base: str, target: str) -> None:
     if engine.state.repo is None:
         return
 
     repo = engine.state.repo
 
-    # Validate target branch exists locally.
-    if target not in repo.branches.local:
-        engine._warn(f"Branch '{target}' not found locally.")
-        return
+    # Validate both refs resolve to commits.
+    resolved: dict[str, pygit2.Commit] = {}
+    for label, ref in [("base", base), ("target", target)]:
+        try:
+            resolved[label] = resolve_commit(repo, ref)
+        except KeyError:
+            engine._warn(f"{label.capitalize()} ref '{ref}' not found.")
+            return
 
-    # Resolve base: explicit arg, or fall back to repo default.
-    resolved_base = base if base is not None else default_branch(repo)
-    if resolved_base not in repo.branches.local:
-        engine._warn(f"Base branch '{resolved_base}' not found locally.")
-        return
-
-    branch = repo.branches.local[target]
-    commit = branch.peel(pygit2.Commit)
+    head_commit = resolved["target"]
     engine.state.review_target = BranchTarget(
-        base_branch=resolved_base,
+        base_branch=base,
         head_branch=target,
-        base_commit=resolved_base,
+        base_commit=base,
         head_commit=target,
+        updated_at=datetime.fromtimestamp(head_commit.commit_time, tz=UTC),
+    )
+    engine.state.discussion_cache = None
+    engine.state.diff_range_cache = None
+    _update_session_label(engine)
+    _print_review_target(engine)
+    engine._context(
+        f"[/review → {base}..{target}]",
+        f"Selected branch review: {base} → {target}.",
+    )
+    run_index(engine)
+
+
+def _review_snapshot(engine: Engine, ref: str) -> None:
+    """Review a single commit — no diff, no GitHub."""
+    if engine.state.repo is None:
+        return
+
+    repo = engine.state.repo
+
+    try:
+        obj = repo.revparse_single(ref)
+    except KeyError:
+        engine._warn(f"Ref '{ref}' not found.")
+        return
+
+    commit = obj.peel(pygit2.Commit)
+    sha = str(commit.id)
+
+    # Build a human-readable label: use the original ref unless
+    # it's already the full SHA (e.g. user typed a commit hash).
+    ref_label = ref if ref != sha else sha[:12]
+
+    engine.state.review_target = SnapshotTarget(
+        head_commit=sha,
+        ref_label=ref_label,
         updated_at=datetime.fromtimestamp(commit.commit_time, tz=UTC),
     )
     engine.state.discussion_cache = None
@@ -242,8 +275,8 @@ def _review_branch(engine: Engine, *, base: str | None, target: str) -> None:
     _update_session_label(engine)
     _print_review_target(engine)
     engine._context(
-        f"[/review → {resolved_base}..{target}]",
-        f"Selected branch review: {resolved_base} → {target}.",
+        f"[/review → {ref_label}]",
+        f"Selected snapshot: {ref_label} ({sha[:12]}).",
     )
     run_index(engine)
 
@@ -265,7 +298,11 @@ def _update_session_label(engine: Engine) -> None:
     prefix = ""
     if engine.state.owner and engine.state.repo_name:
         prefix = f"{engine.state.owner}/{engine.state.repo_name} — "
-    engine.state.session_label = f"{prefix}{target.base_branch} → {target.head_branch}"
+    match target:
+        case SnapshotTarget(ref_label=label):
+            engine.state.session_label = f"{prefix}{label}"
+        case _:
+            engine.state.session_label = f"{prefix}{target.base_branch} → {target.head_branch}"
 
 
 def _check_refs(engine: Engine, base_ref: str, head_ref: str) -> None:
@@ -302,3 +339,5 @@ def _print_review_target(engine: Engine) -> None:
             engine._out(f"Reviewing PR #{number}: {title} ({base} → {head})")
         case BranchTarget(base_branch=base, head_branch=head):
             engine._out(f"Reviewing branch: {base} → {head}")
+        case SnapshotTarget(ref_label=label):
+            engine._out(f"Reviewing snapshot: {label}")
