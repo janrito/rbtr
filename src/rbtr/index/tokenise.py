@@ -2,8 +2,8 @@
 
 Splits identifiers on camelCase and underscore boundaries, emitting
 both the original lowered form and individual parts.  This lets
-DuckDB's BM25 index match queries like ``agent deps`` against
-chunks containing ``AgentDeps``.
+DuckDB's BM25 index match queries like `agent deps` against
+chunks containing `AgentDeps`.
 """
 
 from __future__ import annotations

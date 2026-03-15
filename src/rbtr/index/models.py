@@ -51,20 +51,20 @@ class ImportMeta(TypedDict, total=False):
     """Structured import data extracted by tree-sitter.
 
     All keys are optional — different import styles populate
-    different subsets.  ``edges.py`` reads these keys without
+    different subsets.  `edges.py` reads these keys without
     knowing the source language.
 
     Keys:
         module: Module path after stripping relative prefixes.
-                Dotted for Python/Java (``foo.bar``), slash-separated
-                for Go/Rust (``std/collections``), bare name for
-                JS/TS after ``./``/``../`` is parsed out (``models``).
+                Dotted for Python/Java (`foo.bar`), slash-separated
+                for Go/Rust (`std/collections`), bare name for
+                JS/TS after `./`/`../` is parsed out (`models`).
         names:  Comma-separated imported symbol names
-                (e.g. ``Chunk,Edge``).
+                (e.g. `Chunk,Edge`).
         dots:   Levels up from the importing file for relative
                 imports (stored as a string).  1 = current directory
-                (Python ``from .``, JS ``./``), 2 = parent directory
-                (Python ``from ..``, JS ``../``, Rust ``super::``),
+                (Python `from .`, JS `./`), 2 = parent directory
+                (Python `from ..`, JS `../`, Rust `super::`),
                 etc.  Absent for absolute imports.
     """
 

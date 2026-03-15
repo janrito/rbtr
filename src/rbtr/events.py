@@ -106,12 +106,12 @@ class ToolCallStarted(BaseModel):
 class ToolCallFinished(BaseModel):
     """A tool call has completed.
 
-    ``result`` contains the full tool output (up to a generous char
+    `result` contains the full tool output (up to a generous char
     limit).  The UI is responsible for line-based truncation when
     rendering.
 
-    When ``error`` is set the tool call failed — ``result`` is empty
-    and ``error`` contains the error message.
+    When `error` is set the tool call failed — `result` is empty
+    and `error` contains the error message.
     """
 
     tool_name: str
@@ -131,8 +131,8 @@ class IndexStarted(BaseModel):
 class IndexProgress(BaseModel):
     """Incremental progress update from the indexer.
 
-    ``phase`` describes what the indexer is doing (e.g. "parsing",
-    "embedding").  ``indexed`` / ``total`` track the current phase.
+    `phase` describes what the indexer is doing (e.g. "parsing",
+    "embedding").  `indexed` / `total` track the current phase.
     """
 
     phase: str
@@ -143,7 +143,7 @@ class IndexProgress(BaseModel):
 class IndexReady(BaseModel):
     """Indexing is complete and the store is queryable.
 
-    ``chunk_count`` is the total number of chunks in the store.
+    `chunk_count` is the total number of chunks in the store.
     """
 
     chunk_count: int

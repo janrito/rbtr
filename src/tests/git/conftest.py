@@ -3,7 +3,7 @@
 Provides realistic multi-commit repositories that tests can query
 without building their own from scratch.
 
-``sample_repo`` — linear history
+`sample_repo` — linear history
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ::
@@ -34,7 +34,7 @@ This gives tests:
 - Blob reads (existing, missing, binary)
 - Branch resolution (main, feature, remote-only)
 
-``merge_repo`` — non-linear history with merge commit
+`merge_repo` — non-linear history with merge commit
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ::
@@ -59,7 +59,7 @@ Files at *head* (F)::
     shared.py  — "s = 0"  (unchanged)
     feature.py — "f = 1"  (added on side branch)
 
-Changed files base→head: ``feature.py`` only.
+Changed files base→head: `feature.py` only.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def build_tree(
     repo: pygit2.Repository,
     files: dict[str, bytes],
 ) -> pygit2.Oid:
-    """Build a nested tree from ``{"dir/file.py": b"..."}`` paths."""
+    """Build a nested tree from `{"dir/file.py": b"..."}` paths."""
     subtrees: dict[str, dict[str, bytes]] = {}
     blobs: dict[str, bytes] = {}
 
@@ -157,10 +157,10 @@ class MergeRepo:
                \\
                 D ─── E ── F  (head, merge of E + C)
 
-    ``base`` is the branch ref pointing at C.
-    ``head`` is the branch ref pointing at F.
-    ``exclusive`` lists commits only reachable from head (D, E, F).
-    ``shared`` lists commits reachable from both (A, B, C).
+    `base` is the branch ref pointing at C.
+    `head` is the branch ref pointing at F.
+    `exclusive` lists commits only reachable from head (D, E, F).
+    `shared` lists commits reachable from both (A, B, C).
     """
 
     repo: pygit2.Repository

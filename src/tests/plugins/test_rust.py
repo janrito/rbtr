@@ -1,7 +1,7 @@
 """Tests for the Rust language plugin.
 
 Covers functions, structs, enums, impl blocks, and all
-``use`` declaration forms including ``super`` and ``crate``.
+`use` declaration forms including `super` and `crate`.
 Skipped when tree-sitter-rust is not installed.
 """
 

@@ -430,7 +430,7 @@ def _make_http_error(status: HTTPStatus, body: str) -> ModelHTTPError:
 
 
 def _failure_incidents(engine: Engine) -> list[FailedAttempt]:
-    """Return deserialised ``FailedAttempt`` rows for the session."""
+    """Return deserialised `FailedAttempt` rows for the session."""
     rows = engine.store._con.execute(
         "SELECT data_json FROM fragments WHERE fragment_kind = ? AND session_id = ?",
         [FragmentKind.LLM_ATTEMPT_FAILED.value, engine.state.session_id],
@@ -439,7 +439,7 @@ def _failure_incidents(engine: Engine) -> list[FailedAttempt]:
 
 
 def _repair_incidents(engine: Engine) -> list[HistoryRepair]:
-    """Return deserialised ``HistoryRepair`` rows for the session."""
+    """Return deserialised `HistoryRepair` rows for the session."""
     rows = engine.store._con.execute(
         "SELECT data_json FROM fragments WHERE fragment_kind = ? AND session_id = ?",
         [FragmentKind.LLM_HISTORY_REPAIR.value, engine.state.session_id],
@@ -567,10 +567,10 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 ) -> None:
     """handle_llm retries with simplified history on corrupt tool-call args.
 
-    When the provider adapter calls ``args_as_dict()`` on a
-    ``ToolCallPart`` with malformed JSON args, a ``ValueError``
-    is raised.  ``handle_llm`` should catch it and retry with
-    ``history_repair_level=1`` (which flattens tool exchanges
+    When the provider adapter calls `args_as_dict()` on a
+    `ToolCallPart` with malformed JSON args, a `ValueError`
+    is raised.  `handle_llm` should catch it and retry with
+    `history_repair_level=1` (which flattens tool exchanges
     to plain text).
     """
     from rbtr.llm.stream import handle_llm
@@ -611,7 +611,7 @@ def test_handle_llm_retries_on_type_error(
     """handle_llm retries with simplified history on TypeError.
 
     Some OpenAI-compatible providers crash in the request builder
-    (e.g. ``'NoneType' object is not subscriptable``) when the
+    (e.g. `'NoneType' object is not subscriptable`) when the
     history contains structures they can't handle.  Retrying with
     simplified history flattens tool exchanges, avoiding the crash.
     """
@@ -656,8 +656,8 @@ def test_handle_llm_retries_on_history_format_error(
     """handle_llm retries with simplified history on provider format rejection.
 
     When the provider rejects history due to reasoning IDs, unpaired
-    tool calls, or other provider-specific metadata, ``handle_llm``
-    retries with ``history_repair_level=1``.
+    tool calls, or other provider-specific metadata, `handle_llm`
+    retries with `history_repair_level=1`.
     """
     from rbtr.llm.stream import handle_llm
 
@@ -704,7 +704,7 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
     config_path: Path,
     llm_engine: Engine,
 ) -> None:
-    """When a retry also fails, the incident outcome is set to ``failed``
+    """When a retry also fails, the incident outcome is set to `failed`
     and the exception propagates to the caller.
     """
     from rbtr.llm.stream import handle_llm
@@ -741,11 +741,11 @@ def test_dangling_tool_repair_is_transient(
     config_path: Path,
     llm_engine: Engine,
 ) -> None:
-    """``repair_dangling_tool_calls`` must not persist synthetic messages.
+    """`repair_dangling_tool_calls` must not persist synthetic messages.
 
     The in-memory history passed to the agent contains the synthetic
-    ``(cancelled)`` tool returns, but the DB retains the original
-    dangling state.  An ``LLM_HISTORY_REPAIR`` incident row is persisted.
+    `(cancelled)` tool returns, but the DB retains the original
+    dangling state.  An `LLM_HISTORY_REPAIR` incident row is persisted.
     """
     from rbtr.llm.stream import handle_llm
 
@@ -805,9 +805,9 @@ def test_simplify_history_persists_incidents(
     config_path: Path,
     llm_engine: Engine,
 ) -> None:
-    """When ``handle_llm`` retries with simplified history, it persists
-    ``LLM_HISTORY_REPAIR`` rows for ``demote_thinking`` and
-    ``flatten_tool_exchanges`` with correct counts.
+    """When `handle_llm` retries with simplified history, it persists
+    `LLM_HISTORY_REPAIR` rows for `demote_thinking` and
+    `flatten_tool_exchanges` with correct counts.
     """
     from rbtr.llm.stream import handle_llm
 

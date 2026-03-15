@@ -10,9 +10,9 @@ import pygit2
 def _matches_globs(path: str, patterns: list[str]) -> bool:
     """Check whether *path* matches any of the given globs.
 
-    A literal pattern (no ``*``, ``?``, or ``[``) also matches
-    any child path — e.g. pattern ``".rbtr/"`` matches
-    ``".rbtr/index/data.db"``.  Trailing slashes on directory
+    A literal pattern (no `*`, `?`, or `[`) also matches
+    any child path — e.g. pattern `".rbtr/"` matches
+    `".rbtr/index/data.db"`.  Trailing slashes on directory
     patterns are handled correctly.
     """
     for pat in patterns:
@@ -38,7 +38,7 @@ def is_path_ignored(
     Applies a three-layer filter:
 
     1. *include* globs force-include (override gitignore and exclude).
-    2. ``.gitignore`` via ``repo.path_is_ignored`` (when *repo* is
+    2. `.gitignore` via `repo.path_is_ignored` (when *repo* is
        available).
     3. *exclude* globs.
     """

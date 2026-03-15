@@ -44,7 +44,7 @@ class FireworksProvider:
             raise RbtrError(f"Failed to list Fireworks models: {e}") from e
 
     def build_model(self, model_name: str) -> Model:
-        """Build an OpenAI-compatible model via ``FireworksProvider``."""
+        """Build an OpenAI-compatible model via `FireworksProvider`."""
         # Deferred: openai SDK is heavy; only load when this provider is used.
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.fireworks import FireworksProvider as _FireworksProvider
@@ -62,7 +62,7 @@ class FireworksProvider:
         return openai_chat_model_settings(model, effort)
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window from ``genai-prices``."""
+        """Look up context window from `genai-prices`."""
         from rbtr.providers.shared import genai_prices_context_window
 
         return genai_prices_context_window(self.GENAI_ID, model_id)

@@ -128,7 +128,7 @@ class FakeIssueComment:
 
 
 class _FakePRRef:
-    """Stub for PullRequest head/base ref — provides ``.sha`` and ``.ref``."""
+    """Stub for PullRequest head/base ref — provides `.sha` and `.ref`."""
 
     def __init__(self, sha: str = "", ref: str = "") -> None:
         self.sha = sha
@@ -227,7 +227,7 @@ class FakePR:
 
 
 class FakeCommit:
-    """Stub for github.Commit.Commit — only ``.sha`` is needed."""
+    """Stub for github.Commit.Commit — only `.sha` is needed."""
 
     def __init__(self, sha: str) -> None:
         self.sha = sha
@@ -257,7 +257,7 @@ def fake_ctx(
     owner: str = "owner",
     repo_name: str = "repo",
 ) -> GitHubCtx:
-    """Build a ``GitHubCtx`` backed by fake objects for tests."""
+    """Build a `GitHubCtx` backed by fake objects for tests."""
     return GitHubCtx(
         gh=gh or FakeGithub(),  # type: ignore[arg-type]  # fake stub
         owner=owner,
@@ -272,7 +272,7 @@ def _build_tree(
     repo: pygit2.Repository,
     files: dict[str, bytes],
 ) -> pygit2.Oid:
-    """Build a nested tree from ``{"dir/file.py": b"..."}`` paths."""
+    """Build a nested tree from `{"dir/file.py": b"..."}` paths."""
     subtrees: dict[str, dict[str, bytes]] = {}
     blobs: dict[str, bytes] = {}
     for path, content in files.items():

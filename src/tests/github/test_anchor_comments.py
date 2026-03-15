@@ -3,7 +3,7 @@
 Exercises side/commit_id metadata flowing through the full
 lifecycle: add → edit/remove → sync → post → pull → display.
 
-All tests use the shared ``draft_repo`` fixture (see conftest)
+All tests use the shared `draft_repo` fixture (see conftest)
 and drive behaviour through public APIs only.
 """
 

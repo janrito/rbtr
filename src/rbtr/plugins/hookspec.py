@@ -1,6 +1,6 @@
 """Language plugin contract for the code index.
 
-A language plugin provides ``rbtr`` with the ability to detect,
+A language plugin provides `rbtr` with the ability to detect,
 parse, and extract structural data from source files in a given
 language.
 
@@ -27,18 +27,18 @@ import resolution.
 Progressive capability
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Each additional field on ``LanguageRegistration`` unlocks more
+Each additional field on `LanguageRegistration` unlocks more
 precise analysis:
 
 ============================================= ===================================
 Field                                          Capability
 ============================================= ===================================
-``id`` + ``extensions``                        File detection + line-based chunks
-``chunker``                                    Custom chunking (no grammar needed)
-``grammar_module``                             Tree-sitter grammar loading
-``query``                                      Structural symbol extraction
-``import_extractor``                           Structural import metadata
-``scope_types``                                Correct method-in-class scoping
+`id` + `extensions`                        File detection + line-based chunks
+`chunker`                                    Custom chunking (no grammar needed)
+`grammar_module`                             Tree-sitter grammar loading
+`query`                                      Structural symbol extraction
+`import_extractor`                           Structural import metadata
+`scope_types`                                Correct method-in-class scoping
 ============================================= ===================================
 
 Here is a complete example showing every field:
@@ -85,10 +85,10 @@ Shared utilities
 ~~~~~~~~~~~~~~~~
 
 This module also exports helper functions that plugin authors can
-use in their ``import_extractor`` implementations:
+use in their `import_extractor` implementations:
 
-- :func:`parse_path_relative` — parse ``./``/``../`` prefixes
-- :func:`collect_scoped_path` — collect nested ``scoped_identifier``
+- `parse_path_relative` — parse `./`/`../` prefixes
+- `collect_scoped_path` — collect nested `scoped_identifier`
   segments
 """
 
@@ -140,7 +140,7 @@ DEFAULT_SCOPE_TYPES: frozenset[str] = frozenset(
 class LanguageRegistration:
     """Describes a language plugin's capabilities.
 
-    Only ``id`` is required.  Every other field has a sensible
+    Only `id` is required.  Every other field has a sensible
     default — provide only what your language needs.
 
     Examples:
@@ -183,55 +183,55 @@ class LanguageRegistration:
             )
 
     Attributes:
-        id:               Unique language identifier (e.g. ``"python"``).
+        id:               Unique language identifier (e.g. `"python"`).
                           Must be lowercase, no spaces.
         extensions:       File extensions handled, including the leading
-                          dot (e.g. ``frozenset({".py", ".pyi"})``).
+                          dot (e.g. `frozenset({".py", ".pyi"})`).
         filenames:        Exact filenames handled without extension
                           matching (e.g.
-                          ``frozenset({"Makefile", "Dockerfile"})``).
+                          `frozenset({"Makefile", "Dockerfile"})`).
         grammar_module:   Python module exposing a grammar factory
-                          function (e.g. ``"tree_sitter_python"``).
-                          ``None`` means no tree-sitter parsing — the
+                          function (e.g. `"tree_sitter_python"`).
+                          `None` means no tree-sitter parsing — the
                           file will get line-based chunking only.
         grammar_entry:    Name of the grammar factory function on
-                          *grammar_module*.  Defaults to ``"language"``.
+                          *grammar_module*.  Defaults to `"language"`.
                           Override for packages with non-standard names,
-                          e.g. ``"language_typescript"`` for
-                          ``tree_sitter_typescript``.
+                          e.g. `"language_typescript"` for
+                          `tree_sitter_typescript`.
         query:            Tree-sitter S-expression query for symbol
                           extraction.  Must use these capture-name
                           conventions:
 
-                          - ``@function`` / ``@_fn_name`` — functions
-                          - ``@class`` / ``@_cls_name`` — classes/types
-                          - ``@method`` / ``@_method_name`` — methods
-                          - ``@import`` — import statements
+                          - `@function` / `@_fn_name` — functions
+                          - `@class` / `@_cls_name` — classes/types
+                          - `@method` / `@_method_name` — methods
+                          - `@import` — import statements
 
-                          ``None`` means no structural extraction even
+                          `None` means no structural extraction even
                           if a grammar is available.
-        import_extractor: Callable that takes a tree-sitter ``Node``
-                          (the ``@import`` capture) and returns an
-                          ``ImportMeta`` dict.  Populate ``module`` for
-                          the import path, ``names`` for imported
-                          symbols (comma-separated), and ``dots`` for
-                          relative import depth.  Return ``{}`` for
-                          unrecognised nodes.  ``None`` falls back to
-                          text-search import resolution in ``edges.py``.
+        import_extractor: Callable that takes a tree-sitter `Node`
+                          (the `@import` capture) and returns an
+                          `ImportMeta` dict.  Populate `module` for
+                          the import path, `names` for imported
+                          symbols (comma-separated), and `dots` for
+                          relative import depth.  Return `{}` for
+                          unrecognised nodes.  `None` falls back to
+                          text-search import resolution in `edges.py`.
         scope_types:      Tree-sitter node types that create a naming
                           scope (used to detect methods inside classes).
-                          Examples: ``{"class_definition"}`` for Python,
-                          ``{"class_declaration"}`` for Java/JS,
-                          ``{"impl_item", "struct_item"}`` for Rust.
-                          Empty ``frozenset()`` for languages without
+                          Examples: `{"class_definition"}` for Python,
+                          `{"class_declaration"}` for Java/JS,
+                          `{"impl_item", "struct_item"}` for Rust.
+                          Empty `frozenset()` for languages without
                           classes (e.g. Bash).
         chunker:          Custom chunking function with signature
-                          ``(file_path, blob_sha, content) -> list[Chunk]``.
+                          `(file_path, blob_sha, content) -> list[Chunk]`.
                           When set, the orchestrator calls this instead
                           of tree-sitter extraction or plaintext
                           fallback.  Used by prose formats like
                           Markdown and RST for heading-hierarchy
-                          chunking.  ``None`` uses the default
+                          chunking.  `None` uses the default
                           strategy (tree-sitter if grammar + query,
                           plaintext otherwise).
     """
@@ -262,7 +262,7 @@ class LanguageHookspec:
 
     A plugin class implements one or more of these methods and is
     registered with the plugin manager (built-in) or via the
-    ``rbtr.languages`` entry-point group (external).
+    `rbtr.languages` entry-point group (external).
 
     Example plugin class::
 
@@ -283,11 +283,11 @@ class LanguageHookspec:
         """Register one or more languages.
 
         Called once at startup.  Return a list of
-        ``LanguageRegistration`` instances — one per language.
+        `LanguageRegistration` instances — one per language.
 
         A single plugin may register multiple languages.  For
-        example, the built-in ``JavaScriptPlugin`` registers both
-        ``"javascript"`` and ``"typescript"``.
+        example, the built-in `JavaScriptPlugin` registers both
+        `"javascript"` and `"typescript"`.
 
         Example::
 
@@ -305,9 +305,9 @@ class LanguageHookspec:
 
 
 def parse_path_relative(specifier: str) -> tuple[int, str]:
-    """Parse a path-relative module specifier into ``(dots, cleaned)``.
+    """Parse a path-relative module specifier into `(dots, cleaned)`.
 
-    Strips ``./`` and ``../`` prefixes and returns a ``dots`` count
+    Strips `./` and `../` prefixes and returns a `dots` count
     using the unified depth convention (1 = current directory,
     2 = parent, etc.) plus the remaining module path.
 
@@ -342,19 +342,19 @@ def parse_path_relative(specifier: str) -> tuple[int, str]:
 
 
 def collect_scoped_path(node: Node) -> list[str]:
-    """Recursively collect path segments from a ``scoped_identifier``.
+    """Recursively collect path segments from a `scoped_identifier`.
 
-    Walks the tree-sitter ``scoped_identifier`` node and collects
+    Walks the tree-sitter `scoped_identifier` node and collects
     all identifier-like children into a flat list.  Handles Rust
-    keywords (``crate``, ``super``, ``self``) and Java-style
+    keywords (`crate`, `super`, `self`) and Java-style
     nested scoped identifiers.
 
-    Use this in import extractors for languages with ``::``-separated
-    or ``.``-separated scoped paths (Rust, Java, C#, Scala, etc.).
+    Use this in import extractors for languages with `::`-separated
+    or `.`-separated scoped paths (Rust, Java, C#, Scala, etc.).
 
     Examples:
 
-        Given the Rust AST for ``std::collections::HashMap``::
+        Given the Rust AST for `std::collections::HashMap`::
 
             scoped_identifier
               scoped_identifier
@@ -362,23 +362,23 @@ def collect_scoped_path(node: Node) -> list[str]:
                 identifier "collections"
               identifier "HashMap"
 
-        Returns ``["std", "collections", "HashMap"]``.
+        Returns `["std", "collections", "HashMap"]`.
 
-        Given ``crate::models``::
+        Given `crate::models`::
 
             scoped_identifier
               crate "crate"
               identifier "models"
 
-        Returns ``["crate", "models"]``.
+        Returns `["crate", "models"]`.
 
-        Given ``super::utils``::
+        Given `super::utils`::
 
             scoped_identifier
               super "super"
               identifier "utils"
 
-        Returns ``["super", "utils"]``.
+        Returns `["super", "utils"]`.
     """
     parts: list[str] = []
     for child in node.children:

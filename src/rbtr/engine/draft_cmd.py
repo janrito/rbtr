@@ -2,8 +2,8 @@
 
 This module is a thin command dispatcher.  It parses subcommands
 and arguments, validates local state (draft exists, event type
-valid), and delegates GitHub interaction to ``engine.publish``.
-It never imports ``github.client`` or catches ``GithubException``.
+valid), and delegates GitHub interaction to `engine.publish`.
+It never imports `github.client` or catches `GithubException`.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def _file_context(
 ) -> str | None:
     """Return a few numbered lines around *line* from *path* at *ref*.
 
-    Returns ``None`` when the file can't be read (missing, binary,
+    Returns `None` when the file can't be read (missing, binary,
     or line out of range).  The *radius* controls how many lines
     above and below the target line to include.
     """
@@ -101,9 +101,9 @@ def _show_draft(engine: Engine, pr_number: int) -> None:
     """Display the current draft with rich markdown rendering.
 
     Layout:
-    - ``## N comments`` heading, then each file as ``### path``
+    - `## N comments` heading, then each file as `### path`
       with its comments rendered as markdown.
-    - ``## Summary`` at the bottom (most prominent piece last).
+    - `## Summary` at the bottom (most prominent piece last).
     """
     draft = load_draft(pr_number)
     if draft is None:

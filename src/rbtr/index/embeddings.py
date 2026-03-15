@@ -2,8 +2,8 @@
 
 The model is lazily initialised on first use and kept in memory
 for the lifetime of the process.  GGUF model files are downloaded
-via ``huggingface_hub`` and stored at ``config.index.model_cache_dir``
-(default ``~/.config/rbtr/models/``).
+via `huggingface_hub` and stored at `config.index.model_cache_dir`
+(default `~/.config/rbtr/models/`).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 # via C-level printf/fprintf.  Redirecting fds is not thread-safe
 # (it corrupts Rich's Live display in the main thread).
 #
-# Instead we use ``llama_log_set`` to install a callback that routes
+# Instead we use `llama_log_set` to install a callback that routes
 # ALL native log output to Python's logging.  The callback must be
 # set *before* Llama() construction (which triggers ggml_metal_init).
 # We keep a strong reference to prevent GC of the ctypes callback.
@@ -78,14 +78,14 @@ def _list_repo(repo_id: str) -> list[str]:
 def _resolve_model_path() -> Path:
     """Download the GGUF file if needed and return its local path.
 
-    Uses ``huggingface_hub`` for resumable downloads and caching.
-    The model ID from ``config.index.embedding_model`` is resolved
-    to a ``<org>/<repo>`` HuggingFace repo and a GGUF filename.
+    Uses `huggingface_hub` for resumable downloads and caching.
+    The model ID from `config.index.embedding_model` is resolved
+    to a `<org>/<repo>` HuggingFace repo and a GGUF filename.
 
-    Supports two formats for ``config.index.embedding_model``:
+    Supports two formats for `config.index.embedding_model`:
 
-    - ``<org>/<repo>/<filename.gguf>`` — explicit file.
-    - ``<org>/<repo>`` — picks the first ``.gguf`` file in the repo.
+    - `<org>/<repo>/<filename.gguf>` — explicit file.
+    - `<org>/<repo>` — picks the first `.gguf` file in the repo.
     """
     model_id = config.index.embedding_model
     cache_dir = config.index.model_cache_dir
@@ -177,7 +177,7 @@ def reset_model() -> None:
 def embedding_text(name: str, content: str) -> str:
     """Build the text sent to the embedding model for a chunk.
 
-    Returns ``name + newline + content``.  Richer formats were
+    Returns `name + newline + content`.  Richer formats were
     tested (header with kind/path, prepended docstring) and both
     produced net-negative results — the docstring is already in
     the content, so prepending it doubles its token weight and
@@ -196,7 +196,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     similarity.  Empty input returns an empty list.
 
     Each text is embedded individually to avoid exceeding the
-    model's context window — llama-cpp's ``embed()`` concatenates
+    model's context window — llama-cpp's `embed()` concatenates
     all inputs into a single context, which overflows for batches
     of long code chunks.
     """

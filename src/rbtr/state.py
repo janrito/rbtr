@@ -59,15 +59,15 @@ class EngineState:
     # Cached PR discussion — fetched once per PR, cleared on new /review.
     discussion_cache: list[DiscussionEntry] | None = None
     # Cached diff line ranges for review comment validation.
-    # Tuple of ``((base_commit, head_commit), right_ranges, left_ranges)``.
+    # Tuple of `((base_commit, head_commit), right_ranges, left_ranges)`.
     # Self-invalidating: callers compare the key to the current target
-    # commits and rebuild when stale.  Set to ``None`` when no review
+    # commits and rebuild when stale.  Set to `None` when no review
     # target is active.
     diff_range_cache: tuple[tuple[str, str], DiffLineRanges, DiffLineRanges] | None = None
 
     @property
     def gh_ctx(self) -> GitHubCtx | None:
-        """Build a :class:`GitHubCtx` from session state, or ``None``."""
+        """Build a `GitHubCtx` from session state, or `None`."""
         if self.gh is None:
             return None
         return GitHubCtx(gh=self.gh, owner=self.owner, repo_name=self.repo_name)
@@ -79,7 +79,7 @@ class EngineState:
 
     @property
     def repo_scope(self) -> str | None:
-        """Fact scope key for the current repo, or ``None``."""
+        """Fact scope key for the current repo, or `None`."""
         if self.owner and self.repo_name:
             return f"{self.owner}/{self.repo_name}"
         return None

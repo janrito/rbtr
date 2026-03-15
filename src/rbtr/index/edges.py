@@ -7,7 +7,7 @@ and writes the results.
 Two resolution strategies are used:
 
 - **Structural (tree-sitter):** Import metadata is extracted by
-  ``treesitter.py`` during parsing and stored in ``chunk.metadata``.
+  `treesitter.py` during parsing and stored in `chunk.metadata`.
   This gives exact module paths and symbol names.  Used for languages
   with a tree-sitter import extractor (currently Python).
 
@@ -35,7 +35,7 @@ def _resolve_module_to_file(
 ) -> str | None:
     """Try to find a repo file matching *module_path*.
 
-    Checks ``module_path.py`` and ``module_path/__init__.py``.
+    Checks `module_path.py` and `module_path/__init__.py`.
     """
     candidates = [
         f"{module_path}.py",
@@ -48,7 +48,7 @@ def _resolve_module_to_file(
 
 
 def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
-    """Map ``(file_path, name)`` → chunk for symbol lookup."""
+    """Map `(file_path, name)` → chunk for symbol lookup."""
     index: dict[tuple[str, str], Chunk] = {}
     for c in chunks:
         if c.kind in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD):
@@ -63,8 +63,8 @@ def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
 #
 # Strategy: structural (tree-sitter metadata) with text-search fallback.
 #
-# When tree-sitter metadata is present (``chunk.metadata`` has ``module``
-# or ``dots`` keys), we use the exact module path and symbol names.
+# When tree-sitter metadata is present (`chunk.metadata` has `module`
+# or `dots` keys), we use the exact module path and symbol names.
 # When metadata is absent, we fall back to scanning the import chunk's
 # text for known repo file stems — less precise but handles any language.
 
@@ -72,8 +72,8 @@ def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
 def _module_to_segments(module: str) -> list[str]:
     """Split a module string into path segments.
 
-    Slash-separated paths (JS/TS/Go/Rust) are split on ``/``.
-    Dotted paths (Python/Java: ``os.path``) are split on ``.``.
+    Slash-separated paths (JS/TS/Go/Rust) are split on `/`.
+    Dotted paths (Python/Java: `os.path`) are split on `.`.
     When the string has no separator, it is returned as a single
     segment.
     """
@@ -89,11 +89,11 @@ def _resolve_relative_module(
     dots: int,
     module: str | None,
 ) -> str | None:
-    """Resolve a relative import to a ``/``-separated path prefix.
+    """Resolve a relative import to a `/`-separated path prefix.
 
     *dots* is the number of levels up from the file: 1 = current
     directory, 2 = parent directory, etc.  This convention is shared
-    across languages (Python ``from .``, JS ``./``, Rust ``super::``).
+    across languages (Python `from .`, JS `./`, Rust `super::`).
     """
     parts = PurePosixPath(file_path).parts
     if len(parts) < dots:
@@ -108,7 +108,7 @@ def _resolve_import_module(
     meta: ImportMeta,
     file_path: str,
 ) -> str | None:
-    """Resolve import metadata to a ``/``-separated module path."""
+    """Resolve import metadata to a `/`-separated module path."""
     dots_str = meta.get("dots")
     module = meta.get("module")
 
@@ -178,7 +178,7 @@ def _structural_import_edges(
 def _build_stem_index(
     repo_files: set[str],
 ) -> dict[str, list[str]]:
-    """Map file stems → file paths, excluding ``__init__`` and short stems."""
+    """Map file stems → file paths, excluding `__init__` and short stems."""
     stem_to_files: dict[str, list[str]] = {}
     for f in repo_files:
         stem = PurePosixPath(f).stem
@@ -238,7 +238,7 @@ def infer_import_edges(
     chunks: list[Chunk],
     repo_files: set[str],
 ) -> list[Edge]:
-    """Infer ``IMPORTS`` edges from import chunks.
+    """Infer `IMPORTS` edges from import chunks.
 
     Uses tree-sitter metadata when available (exact), falls back to
     text search otherwise (best-effort).
@@ -284,9 +284,9 @@ def infer_import_edges(
 def _strip_test_prefix(file_path: str) -> str | None:
     """Extract the base name from a test file path.
 
-    ``tests/test_foo.py`` → ``foo``
-    ``test_bar.py`` → ``bar``
-    ``src/tests/test_baz_qux.py`` → ``baz_qux``
+    `tests/test_foo.py` → `foo`
+    `test_bar.py` → `bar`
+    `src/tests/test_baz_qux.py` → `baz_qux`
     """
     name = PurePosixPath(file_path).stem
     if not name.startswith("test_"):
@@ -343,7 +343,7 @@ def _imported_names_from_file(
 ) -> list[str]:
     """Extract symbol names imported from *source_file* by the test.
 
-    Reads ``chunk.metadata`` — no language-specific parsing.
+    Reads `chunk.metadata` — no language-specific parsing.
     """
     names: list[str] = []
     for c in test_chunks:
@@ -369,7 +369,7 @@ def infer_test_edges(
     chunks: list[Chunk],
     repo_files: set[str],
 ) -> list[Edge]:
-    """Infer ``TESTS`` edges from test files.
+    """Infer `TESTS` edges from test files.
 
     Links test functions to the source symbols they test, using
     file naming conventions and import analysis.
@@ -446,10 +446,10 @@ _MIN_NAME_LENGTH = 3
 def infer_doc_edges(
     chunks: list[Chunk],
 ) -> list[Edge]:
-    """Infer ``DOCUMENTS`` edges via text search.
+    """Infer `DOCUMENTS` edges via text search.
 
-    Tokenises ``DOC_SECTION`` content into words and checks set
-    membership against known ``FUNCTION``, ``CLASS``, and ``METHOD``
+    Tokenises `DOC_SECTION` content into words and checks set
+    membership against known `FUNCTION`, `CLASS`, and `METHOD`
     names.  Skips names shorter than 3 characters to avoid false
     positives.
 

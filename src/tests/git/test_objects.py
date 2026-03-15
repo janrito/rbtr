@@ -1,7 +1,7 @@
 """Tests for git object-store operations.
 
 Tests are organised around a shared multi-commit repository
-(``sample_repo`` from conftest) that has adds, modifications,
+(`sample_repo` from conftest) that has adds, modifications,
 deletions, and binary files across three commits.  Individual
 tests verify *behaviours* against this dataset rather than
 constructing throwaway repos for each assertion.
@@ -62,7 +62,7 @@ def _lf(
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> list[FileEntry]:
-    """Shorthand for ``list(list_files(...))`` with config defaults."""
+    """Shorthand for `list(list_files(...))` with config defaults."""
     return list(
         list_files(
             repo,
@@ -740,7 +740,7 @@ def test_nearest_commentable_line(path: str, line: int, expected: int | set[int]
 
 
 def test_nearest_commentable_line_empty_ranges() -> None:
-    """Empty ranges dict returns ``None`` for any file."""
+    """Empty ranges dict returns `None` for any file."""
     assert nearest_commentable_line({}, "a.py", 5) is None
 
 

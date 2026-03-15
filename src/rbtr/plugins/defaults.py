@@ -14,7 +14,7 @@ These registrations are loaded at the lowest priority — any
 specific language plugin (built-in or external) will override them.
 
 To promote a language to full support, create a dedicated plugin
-file (e.g. ``plugins/ruby.py``) with a query and optionally an
+file (e.g. `plugins/ruby.py`) with a query and optionally an
 import extractor, and remove its entry here.
 
 Example of promoting Ruby::
@@ -33,7 +33,7 @@ Example of promoting Ruby::
                 scope_types=frozenset({"class", "module"}),
             )]
 
-Then register it in ``plugin_manager.py``'s ``_register_builtins``.
+Then register it in `plugin_manager.py`'s `_register_builtins`.
 """
 
 from __future__ import annotations

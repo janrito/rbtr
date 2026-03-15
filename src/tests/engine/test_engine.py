@@ -904,7 +904,7 @@ def test_state_index_defaults_to_none() -> None:
 
 
 def test_new_preserves_index(mocker: MockerFixture, engine: Engine) -> None:
-    """``/new`` clears conversation but leaves the index intact."""
+    """`/new` clears conversation but leaves the index intact."""
     mock_store = mocker.MagicMock()
     engine.state.index = mock_store
 

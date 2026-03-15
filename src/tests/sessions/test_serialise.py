@@ -415,7 +415,7 @@ def test_corrupt_tool_args_preserved_on_deserialise() -> None:
     """reconstruct_message preserves corrupt args for upstream repair.
 
     Args validation is not a deserialisation concern — it runs in
-    ``_prepare_turn`` via ``validate_tool_call_args`` where the
+    `_prepare_turn` via `validate_tool_call_args` where the
     repair can be recorded as an incident.
     """
     corrupt_part = ToolCallPart(

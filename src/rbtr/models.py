@@ -25,14 +25,14 @@ class ReviewTarget(BaseModel):
 
     For PRs this is the exact SHA from the GitHub API (immune
     to stale local branches).  For local branch reviews it
-    equals ``base_branch``.
+    equals `base_branch`.
     """
 
     head_commit: str
     """Git-resolvable ref for the head commit.
 
     For PRs this is the exact SHA from the GitHub API.
-    For local branch reviews it equals ``head_branch``.
+    For local branch reviews it equals `head_branch`.
     """
 
     updated_at: datetime
@@ -48,8 +48,8 @@ class PRTarget(ReviewTarget):
     head_sha: str = ""
     """Commit SHA of the PR head (from the GitHub API).
 
-    Kept separately from ``head_commit`` because the GitHub
-    review API requires the exact SHA as ``commit_id`` when
+    Kept separately from `head_commit` because the GitHub
+    review API requires the exact SHA as `commit_id` when
     posting reviews and inline comments.
     """
 
@@ -119,7 +119,7 @@ class ReviewEvent(StrEnum):
 class DiffSide(StrEnum):
     """Which side of a diff a comment targets.
 
-    GitHub uses this with ``line`` to locate the comment.
+    GitHub uses this with `line` to locate the comment.
     """
 
     RIGHT = "RIGHT"
@@ -133,19 +133,19 @@ class InlineComment(BaseModel):
     """A single inline comment on a specific line in the diff."""
 
     path: str
-    """File path relative to repo root (e.g. ``src/api/handler.py``)."""
+    """File path relative to repo root (e.g. `src/api/handler.py`)."""
 
     line: int
-    """Line number in the file (1-indexed).  For ``RIGHT``
-    this is the line in the head version; for ``LEFT``
+    """Line number in the file (1-indexed).  For `RIGHT`
+    this is the line in the head version; for `LEFT`
     the line in the base version."""
 
     side: DiffSide = DiffSide.RIGHT
     """Which side of the diff this comment targets."""
 
     commit_id: str = ""
-    """Commit SHA that ``line`` was resolved against.  Set from
-    ``PRTarget.head_sha`` for locally-created comments, from
+    """Commit SHA that `line` was resolved against.  Set from
+    `PRTarget.head_sha` for locally-created comments, from
     the GitHub response for remote-imported comments.  Empty
     means unknown (legacy drafts) — falls back to line-number
     validation at push time."""
@@ -161,11 +161,11 @@ class InlineComment(BaseModel):
 
     github_id: int | None = None
     """GitHub's comment ID — set when pulled from or pushed to GitHub.
-    ``None`` for locally-created comments that haven't been synced."""
+    `None` for locally-created comments that haven't been synced."""
 
     comment_hash: str = ""
     """Content hash frozen at last sync — only updated by
-    ``stamp_synced()``, never by local edits.  Empty means
+    `stamp_synced()`, never by local edits.  Empty means
     never synced.  Comparing this against the live content
     hash detects local modifications."""
 
@@ -236,18 +236,18 @@ class DiscussionEntry(BaseModel):
     # ── Reactions ────────────────────────────────────────────────────
 
     reactions: dict[str, int] = {}
-    """Emoji → count mapping (e.g. ``{"+1": 3, "-1": 1}``)."""
+    """Emoji → count mapping (e.g. `{"+1": 3, "-1": 1}`)."""
 
 
 class ReviewDraft(BaseModel):
     """A complete review ready to post to GitHub.
 
     Contains a top-level summary and zero or more inline comments.
-    The ``event`` field is set by the user at post time, not by
+    The `event` field is set by the user at post time, not by
     the LLM.
 
-    Sync tracking is flat: ``github_review_id`` and ``summary_hash``
-    at the draft level, ``comment_hash`` on each comment.  No nested
+    Sync tracking is flat: `github_review_id` and `summary_hash`
+    at the draft level, `comment_hash` on each comment.  No nested
     sync section — the TOML stays simple and hand-editable.
     """
 
@@ -258,9 +258,9 @@ class ReviewDraft(BaseModel):
     """Inline comments attached to specific lines in the diff."""
 
     github_review_id: int | None = None
-    """The PENDING review ID on GitHub.  ``None`` = never pushed."""
+    """The PENDING review ID on GitHub.  `None` = never pushed."""
 
     summary_hash: str = ""
     """Hash of the review summary frozen at last sync — only
-    updated by ``stamp_synced()``, never by local edits.
+    updated by `stamp_synced()`, never by local edits.
     Empty means never synced."""

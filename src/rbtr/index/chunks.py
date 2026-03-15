@@ -73,7 +73,7 @@ def chunk_markdown(file_path: str, blob_sha: str, content: str) -> list[Chunk]:
 def _raw_chunks(file_path: str, blob_sha: str, content: str) -> list[Chunk]:
     """Split into fixed-size line-based chunks with overlap.
 
-    Chunk size and overlap come from ``config.index``.
+    Chunk size and overlap come from `config.index`.
     """
     chunk_lines = config.index.chunk_lines
     overlap = config.index.chunk_overlap

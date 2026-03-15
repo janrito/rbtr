@@ -4,18 +4,18 @@ Realistic facts derived from the rbtr codebase and actual review
 sessions.  Organised into groups that exercise store operations,
 FTS5 search, supersession, and non-match scenarios.
 
-Each group is a list of dicts with ``content`` and ``scope``
-(``'global'`` or ``'owner/repo'``).
+Each group is a list of dicts with `content` and `scope`
+(`'global'` or `'owner/repo'`).
 
 Data only — no fixtures, no I/O.  Fixtures that seed a store
-with this data live in ``conftest.py``.
+with this data live in `conftest.py`.
 """
 
 from __future__ import annotations
 
 # ── Scope values ─────────────────────────────────────────────────────
 #
-# ``'global'`` for cross-project, ``'owner/repo'`` for repo-scoped.
+# `'global'` for cross-project, `'owner/repo'` for repo-scoped.
 
 GLOBAL = "global"
 RBTR_KEY = "alejandrogiacometti/rbtr"
@@ -91,10 +91,10 @@ ALL_BASELINE = RBTR_FACTS + GLOBAL_FACTS + OTHER_REPO_FACTS
 #
 # Each tuple is (existing_fact_content, query, should_match).
 #
-# ``should_match=True``:  FTS5 keyword search should return the
+# `should_match=True`:  FTS5 keyword search should return the
 #     existing fact as a result (shared domain terms).
 #
-# ``should_match=False``: the query shares some keywords but is
+# `should_match=False`: the query shares some keywords but is
 #     a different topic.  Used to verify search doesn't crash on
 #     low-overlap queries.
 
@@ -167,7 +167,7 @@ DEDUP_PAIRS: list[tuple[str, str, bool]] = [
 # ── Supersession pairs ──────────────────────────────────────────────
 #
 # (old_content, new_content) — the new fact should supersede the old.
-# The old fact gets ``superseded_by`` set; the new one is inserted.
+# The old fact gets `superseded_by` set; the new one is inserted.
 
 SUPERSESSION_PAIRS: list[tuple[str, str]] = [
     (
@@ -193,8 +193,8 @@ SUPERSESSION_PAIRS: list[tuple[str, str]] = [
 #
 # A fact extracted across multiple sessions.  Each entry is a slight
 # rewording of the same core knowledge.  Used to test the store's
-# ``confirm_fact`` path — the LLM is responsible for recognising
-# these as the same fact and tagging them as ``confirm``.
+# `confirm_fact` path — the LLM is responsible for recognising
+# these as the same fact and tagging them as `confirm`.
 
 CONFIRMATION_SEQUENCE: list[str] = [
     # Session 1: first extraction
@@ -210,7 +210,7 @@ CONFIRMATION_SEQUENCE: list[str] = [
 
 # ── Cross-scope isolation ────────────────────────────────────────────
 #
-# Facts that are textually similar but have different ``scope`` values.
+# Facts that are textually similar but have different `scope` values.
 # Dedup must respect scope boundaries — a repo fact should not match
 # a global fact even if the content overlaps.
 

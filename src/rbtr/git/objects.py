@@ -68,7 +68,7 @@ class LogEntry:
 def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
     """Resolve a ref (SHA, branch name, tag) to a Commit object.
 
-    Tries the bare ref first, then ``origin/<ref>`` for remote
+    Tries the bare ref first, then `origin/<ref>` for remote
     branches (common when reviewing PRs whose head branch only
     exists on the remote).
     """
@@ -90,10 +90,10 @@ def walk_tree(
     tree: pygit2.Tree,
     prefix: str,
 ) -> Iterator[tuple[str, pygit2.Blob]]:
-    """Recursively walk a git tree, yielding ``(path, blob)`` pairs.
+    """Recursively walk a git tree, yielding `(path, blob)` pairs.
 
-    Uses ``entry.type_str`` to dispatch without fetching the object
-    first — avoids an ``isinstance`` check on every entry.
+    Uses `entry.type_str` to dispatch without fetching the object
+    first — avoids an `isinstance` check on every entry.
     """
     for entry in tree:
         path = f"{prefix}{entry.name}" if not prefix else f"{prefix}/{entry.name}"
@@ -121,8 +121,8 @@ def list_files(
     Filtering is layered:
 
     1. *include* globs force-include paths even if they match
-       ``.gitignore`` (e.g. a vendored file you want indexed).
-    2. The repo's ``.gitignore`` (checked via ``repo.path_is_ignored``).
+       `.gitignore` (e.g. a vendored file you want indexed).
+    2. The repo's `.gitignore` (checked via `repo.path_is_ignored`).
     3. *exclude* globs.
 
     Binary files and files larger than *max_file_size* are also skipped.
@@ -151,7 +151,7 @@ def read_blob(
     ref: str,
     path: str,
 ) -> pygit2.Blob | None:
-    """Return the blob for *path* at *ref*, or ``None`` if not found.
+    """Return the blob for *path* at *ref*, or `None` if not found.
 
     Uses tree path lookup for O(log n) access instead of walking
     the entire tree.
@@ -182,7 +182,7 @@ def resolve_anchor(
     """Find *anchor* in the file at *ref*/*path* and return the line number.
 
     Returns the 1-indexed line number of the **last line** of the
-    match (suitable for GitHub's ``line`` parameter on single-line
+    match (suitable for GitHub's `line` parameter on single-line
     and multi-line comments).
 
     Returns an error string when the anchor cannot be resolved:
@@ -235,7 +235,7 @@ def translate_line(
 ) -> int | None:
     """Translate *old_line* from *old_ref* to *new_ref* via diff hunks.
 
-    Returns the corresponding line number in *new_ref*, or ``None``
+    Returns the corresponding line number in *new_ref*, or `None`
     if the line was deleted.
 
     The algorithm walks hunks sequentially, accumulating an offset
@@ -243,13 +243,13 @@ def translate_line(
 
     - Lines **before** the hunk: apply the accumulated offset.
     - Lines **inside** the hunk: scan individual diff lines.
-      Context lines map via ``new_lineno``; deleted lines
-      return ``None``.
+      Context lines map via `new_lineno`; deleted lines
+      return `None`.
     - Lines **after all hunks**: apply the final offset.
 
     If *path* has no changes between the two refs, returns
     *old_line* unchanged (identity).  If *path* was deleted,
-    returns ``None``.
+    returns `None`.
     """
     old_commit = resolve_commit(repo, old_ref)
     new_commit = resolve_commit(repo, new_ref)
@@ -351,10 +351,10 @@ def diff_single(
 
 
 def _build_diff_result(d: pygit2.Diff, path: str) -> DiffResult:
-    """Build a ``DiffResult`` from a pygit2 Diff.
+    """Build a `DiffResult` from a pygit2 Diff.
 
-    When *path* is given but has no changes, returns a ``DiffResult``
-    with an empty ``patch_lines`` list and zeroed stats.
+    When *path* is given but has no changes, returns a `DiffResult`
+    with an empty `patch_lines` list and zeroed stats.
     """
     if path:
         patches = [
@@ -390,7 +390,7 @@ type DiffLineRanges = dict[str, set[int]]
 """Mapping of file path → set of commentable line numbers."""
 
 type SideDiffRanges = tuple[DiffLineRanges, DiffLineRanges]
-"""Pair of ``(right_ranges, left_ranges)`` — HEAD and BASE sides."""
+"""Pair of `(right_ranges, left_ranges)` — HEAD and BASE sides."""
 
 
 def nearest_commentable_line(
@@ -398,9 +398,9 @@ def nearest_commentable_line(
     path: str,
     line: int,
 ) -> int | None:
-    """Return the commentable line closest to *line* in *path*, or ``None``.
+    """Return the commentable line closest to *line* in *path*, or `None`.
 
-    Returns ``None`` when *path* has no commentable lines in *ranges*.
+    Returns `None` when *path* has no commentable lines in *ranges*.
     """
     valid = ranges.get(path)
     if not valid:
@@ -415,9 +415,9 @@ def diff_line_ranges(
 ) -> SideDiffRanges:
     """Return commentable line ranges for both sides of the diff.
 
-    Returns ``(right_ranges, left_ranges)`` where *right* maps
-    head-side file paths → commentable ``new_lineno`` values, and
-    *left* maps base-side file paths → commentable ``old_lineno``
+    Returns `(right_ranges, left_ranges)` where *right* maps
+    head-side file paths → commentable `new_lineno` values, and
+    *left* maps base-side file paths → commentable `old_lineno`
     values.
 
     A line is "commentable" on GitHub if it appears in a diff hunk
@@ -464,11 +464,11 @@ def diff_line_ranges(
 
 
 HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-"""Regex matching unified diff hunk headers (``@@ -old,len +new,len @@``)."""
+"""Regex matching unified diff hunk headers (`@@ -old,len +new,len @@`)."""
 
 
 def patch_line_ranges(patch: str) -> tuple[set[int], set[int]]:
-    """Extract commentable ``(right_lines, left_lines)`` from a unified patch.
+    """Extract commentable `(right_lines, left_lines)` from a unified patch.
 
     GitHub accepts review comments on any line that appears in a
     diff hunk — changed lines *and* context lines.  Context lines
@@ -549,8 +549,8 @@ def commit_log_between(
 ) -> list[LogEntry]:
     """Return commits on *head_ref* not reachable from *base_ref*.
 
-    Uses ``walker.hide()`` to exclude the base — equivalent to
-    ``git log base..head``.  Commits are in reverse chronological
+    Uses `walker.hide()` to exclude the base — equivalent to
+    `git log base..head`.  Commits are in reverse chronological
     order.  Returns an empty list when the branches are identical.
 
     Raises:

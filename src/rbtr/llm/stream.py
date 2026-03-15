@@ -93,9 +93,9 @@ _LIMIT_SUMMARY_PROMPT = (
 
 
 def _persist_failed_request(ctx: LLMContext, message: str) -> str:
-    """Persist the user's prompt as a failed ``REQUEST_MESSAGE``.
+    """Persist the user's prompt as a failed `REQUEST_MESSAGE`.
 
-    Returns the message ID (used as ``turn_id`` in incident rows).
+    Returns the message ID (used as `turn_id` in incident rows).
     """
     request = ModelRequest(parts=[UserPromptPart(content=message)])
     ids = ctx.store.save_messages(
@@ -114,7 +114,7 @@ def _persist_failure(
     strategy: RecoveryStrategy,
     exc: BaseException,
 ) -> str:
-    """Persist an ``LLM_ATTEMPT_FAILED`` incident row.
+    """Persist an `LLM_ATTEMPT_FAILED` incident row.
 
     Returns the incident row ID.
     """
@@ -138,7 +138,7 @@ def _persist_history_repair(
     ctx: LLMContext,
     payload: HistoryRepair,
 ) -> str:
-    """Persist an ``LLM_HISTORY_REPAIR`` incident row.
+    """Persist an `LLM_HISTORY_REPAIR` incident row.
 
     Returns the incident row ID.
     """
@@ -160,10 +160,10 @@ def _retry_with_incidents(
 ) -> None:
     """Persist incident records, run *retry*, and record the outcome.
 
-    1. Persist the user's prompt as a failed ``REQUEST_MESSAGE``.
-    2. Persist an ``LLM_ATTEMPT_FAILED`` incident row.
-    3. Call *retry*.  On success → ``outcome = 'recovered'``.
-       On exception → ``outcome = 'failed'``, then re-raise.
+    1. Persist the user's prompt as a failed `REQUEST_MESSAGE`.
+    2. Persist an `LLM_ATTEMPT_FAILED` incident row.
+    3. Call *retry*.  On success → `outcome = 'recovered'`.
+       On exception → `outcome = 'failed'`, then re-raise.
     """
     turn_id = _persist_failed_request(ctx, message)
     incident_id = _persist_failure(
@@ -300,7 +300,7 @@ def _short_message(exc: ModelHTTPError) -> str:
 
 
 def _format_http_error(exc: ModelHTTPError) -> str:
-    """Format a ``ModelHTTPError`` with full detail for expansion."""
+    """Format a `ModelHTTPError` with full detail for expansion."""
     parts = [
         f"Status: {exc.status_code}",
         f"Model:  {exc.model_name}",
@@ -318,13 +318,13 @@ def _format_http_error(exc: ModelHTTPError) -> str:
 def _is_tool_args_error(exc: ValueError) -> bool:
     """Check if a ValueError is from malformed tool-call args.
 
-    Provider adapters call ``ToolCallPart.args_as_dict()`` which
-    uses ``pydantic_core.from_json``.  If the model produced
+    Provider adapters call `ToolCallPart.args_as_dict()` which
+    uses `pydantic_core.from_json`.  If the model produced
     invalid JSON for tool arguments during streaming (e.g. mixed
-    XML/JSON), the error surfaces here as a ``ValueError``.
+    XML/JSON), the error surfaces here as a `ValueError`.
 
-    Normally ``validate_tool_call_args`` catches these in
-    ``_prepare_turn``.  This handler is a fallback for edge cases
+    Normally `validate_tool_call_args` catches these in
+    `_prepare_turn`.  This handler is a fallback for edge cases
     (e.g. args corrupted after loading).
     """
     msg = str(exc).lower()
@@ -334,7 +334,7 @@ def _is_tool_args_error(exc: ValueError) -> bool:
 def _auto_compact_on_overflow(ctx: LLMContext, message: str) -> None:
     """Compact history and retry after a context-overflow error.
 
-    ``compact_history`` handles all edge cases internally (no LLM,
+    `compact_history` handles all edge cases internally (no LLM,
     too few messages, LLM failure).  If compaction doesn't help,
     the retry raises the same overflow and the caller handles it.
     """
@@ -350,9 +350,9 @@ def _auto_compact_on_overflow(ctx: LLMContext, message: str) -> None:
 def _finish_response_writer(writer: ResponseWriter, all_msgs: list[ModelMessage]) -> None:
     """Close a response writer with per-request token counts.
 
-    Extracts usage from the last ``ModelResponse`` (the one just
+    Extracts usage from the last `ModelResponse` (the one just
     streamed) for resilience — the final cost is added later by
-    ``_finalize_turn``.
+    `_finalize_turn`.
     """
     last = all_msgs[-1] if all_msgs else None
     if isinstance(last, ModelResponse):
@@ -384,7 +384,7 @@ async def _do_stream(
     prompt: str | None,
     msg_history: list[ModelMessage],
 ) -> _StreamResult:
-    """Execute one ``agent.iter()`` pass — stream model output and tool calls.
+    """Execute one `agent.iter()` pass — stream model output and tool calls.
 
     This is the single streaming loop shared by the main turn, mid-turn
     compaction resume, and the limit-hit summary.
@@ -495,11 +495,11 @@ def _prepare_turn(
 
     Repairs are transient — applied in memory only.  The DB retains
     the original conversation.  Level-0 repairs record a single
-    incident per session (deduplicated via ``has_repair_incident``).
+    incident per session (deduplicated via `has_repair_incident`).
     Level 1-2 repairs record an incident on every retry.
 
     Mutates engine state: emits warnings for repaired tool calls,
-    tracks ``effort_supported``, and snapshots the usage baseline
+    tracks `effort_supported`, and snapshots the usage baseline
     for the upcoming run.
     """
     history = ctx.store.load_messages(ctx.state.session_id)
@@ -707,9 +707,9 @@ def _save_new_requests(
     all_messages: list[ModelMessage],
     saved_count: int,
 ) -> int:
-    """Save new ``ModelRequest`` messages that appeared since *saved_count*.
+    """Save new `ModelRequest` messages that appeared since *saved_count*.
 
-    Responses are persisted incrementally via ``begin_response``.
+    Responses are persisted incrementally via `begin_response`.
     Returns the number of request messages saved.
     """
     new = all_messages[saved_count:]
@@ -722,10 +722,10 @@ def _save_new_requests(
 def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[str]:
     """Save messages to the store, logging failures instead of raising.
 
-    Relies on ``engine._sync_store_context()`` having been called at
+    Relies on `engine._sync_store_context()` having been called at
     task start — metadata is inherited from the stored context.
 
-    Returns the list of message-level row IDs, or ``[]`` on failure.
+    Returns the list of message-level row IDs, or `[]` on failure.
     """
     if not messages:
         return []
@@ -742,15 +742,15 @@ async def _run_with_cancel(
 ) -> None:
     """Run *coro* with a cancellation watcher using anyio cancel scopes.
 
-    A parallel task awaits an ``anyio.Event`` that the UI thread sets
-    via ``anyio.from_thread.run_sync(event.set, token=...)`` (zero-
+    A parallel task awaits an `anyio.Event` that the UI thread sets
+    via `anyio.from_thread.run_sync(event.set, token=...)` (zero-
     latency bridge).  When it fires, the shared cancel scope is
     cancelled, tearing down the streaming coroutine.  Raises
-    ``TaskCancelled`` so the engine can report the cancellation.
+    `TaskCancelled` so the engine can report the cancellation.
 
     Exceptions from *coro* are captured and re-raised **after** the task
     group exits cleanly, so they propagate as bare exceptions rather
-    than being wrapped in an ``ExceptionGroup``.
+    than being wrapped in an `ExceptionGroup`.
     """
     failure: BaseException | None = None
     cancelled = False
@@ -802,7 +802,7 @@ def _merge_results(first: _StreamResult, second: _StreamResult) -> _StreamResult
 
 
 def _merge_usage(a: RunUsage, b: RunUsage) -> RunUsage:
-    """Sum two ``RunUsage`` instances."""
+    """Sum two `RunUsage` instances."""
     return RunUsage(
         requests=a.requests + b.requests,
         input_tokens=a.input_tokens + b.input_tokens,
@@ -852,12 +852,12 @@ def _update_live_usage(
     """Snapshot mid-run usage into the session for live footer display.
 
     Called after each model request completes (before tool execution).
-    Uses cumulative ``run_usage`` for totals, and the per-request
-    ``response.usage.input_tokens`` for context-% so the footer
+    Uses cumulative `run_usage` for totals, and the per-request
+    `response.usage.input_tokens` for context-% so the footer
     updates progressively during a multi-tool-call turn.
 
-    Does **not** increment ``response_count`` or cost — the
-    authoritative ``record_run_usage`` at run-end handles those.
+    Does **not** increment `response_count` or cost — the
+    authoritative `record_run_usage` at run-end handles those.
     """
     usage = ctx.state.usage
     base = usage.live_base

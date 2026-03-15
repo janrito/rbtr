@@ -1,8 +1,8 @@
-"""Overhead data models for the ``data_json`` column.
+"""Overhead data models for the `data_json` column.
 
 Background LLM calls (compaction summaries, fact extraction)
 incur costs outside the main conversation.  These are tracked
-as overhead fragments with typed ``data_json`` payloads.
+as overhead fragments with typed `data_json` payloads.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class CompactionTrigger(StrEnum):
 
 
 class CompactionOverhead(BaseModel):
-    """``data_json`` for ``FragmentKind.OVERHEAD_COMPACTION``."""
+    """`data_json` for `FragmentKind.OVERHEAD_COMPACTION`."""
 
     trigger: CompactionTrigger
     old_messages: int
@@ -40,7 +40,7 @@ class FactExtractionSource(StrEnum):
 
 
 class FactExtractionOverhead(BaseModel):
-    """``data_json`` for ``FragmentKind.OVERHEAD_FACT_EXTRACTION``."""
+    """`data_json` for `FragmentKind.OVERHEAD_FACT_EXTRACTION`."""
 
     source: FactExtractionSource
     added: int = 0
@@ -51,4 +51,4 @@ class FactExtractionOverhead(BaseModel):
 
 
 Overhead = CompactionOverhead | FactExtractionOverhead
-"""Union of all overhead types for ``save_overhead``."""
+"""Union of all overhead types for `save_overhead`."""

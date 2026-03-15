@@ -2,7 +2,7 @@
 
 Registers two languages (one per tree-sitter grammar) sharing a
 common import extractor.  The only query difference is the class
-name node type: JS uses ``identifier``, TS uses ``type_identifier``.
+name node type: JS uses `identifier`, TS uses `type_identifier`.
 
 Extracted import examples::
 
@@ -70,32 +70,32 @@ _TS_QUERY = (
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract import data from a JS/TS ``import_statement`` node.
+    """Extract import data from a JS/TS `import_statement` node.
 
     Walks the tree-sitter AST handling four import forms:
 
-    **Named imports** — ``import { foo, bar } from './models'``::
+    **Named imports** — `import { foo, bar } from './models'`::
 
         >>> extract_import_meta(node)
         {"module": "models", "names": "foo,bar", "dots": "1"}
 
-    **Default import** — ``import React from 'react'``::
+    **Default import** — `import React from 'react'`::
 
         >>> extract_import_meta(node)
         {"module": "react", "names": "React"}
 
-    **Namespace import** — ``import * as utils from '../utils'``::
+    **Namespace import** — `import * as utils from '../utils'`::
 
         >>> extract_import_meta(node)
         {"module": "utils", "names": "utils", "dots": "2"}
 
-    **Side-effect import** — ``import './styles.css'``::
+    **Side-effect import** — `import './styles.css'`::
 
         >>> extract_import_meta(node)
         {"module": "styles", "dots": "1"}
 
-    Relative specifiers (``./``, ``../``) are parsed into ``dots``
-    via :func:`~rbtr.plugins.hookspec.parse_path_relative`.  File
+    Relative specifiers (`./`, `../`) are parsed into `dots`
+    via `parse_path_relative`.  File
     extensions are stripped to mirror bundler resolution behaviour.
     """
     meta: ImportMeta = {}
@@ -156,10 +156,10 @@ class JavaScriptPlugin:
     """JavaScript and TypeScript language support.
 
     Registers two languages with separate grammars but a shared
-    import extractor.  TypeScript requires ``grammar_entry=
-    "language_typescript"`` because the ``tree_sitter_typescript``
-    package exposes ``language_typescript()`` instead of the
-    standard ``language()``.
+    import extractor.  TypeScript requires `grammar_entry=
+    "language_typescript"` because the `tree_sitter_typescript`
+    package exposes `language_typescript()` instead of the
+    standard `language()`.
 
     Example registration output::
 

@@ -1,4 +1,4 @@
-"""Tests for ``rbtr.scrub`` — secret scrubbing."""
+"""Tests for `rbtr.scrub` — secret scrubbing."""
 
 from __future__ import annotations
 
@@ -69,5 +69,5 @@ from rbtr.sessions.scrub import scrub_secrets
     ],
 )
 def test_scrub_secrets(raw: str, expected: str) -> None:
-    """``scrub_secrets`` redacts API keys while preserving context."""
+    """`scrub_secrets` redacts API keys while preserving context."""
     assert scrub_secrets(raw) == expected

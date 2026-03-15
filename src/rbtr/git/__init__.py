@@ -2,14 +2,14 @@
 
 Submodules:
 
-- ``repo``    — repository lifecycle (open, status, branches, remotes, fetch).
-- ``objects`` — object-store reading (resolve refs, walk trees, diffs, logs).
-- ``filters`` — path filtering (gitignore, globs, binary detection).
+- `repo`    — repository lifecycle (open, status, branches, remotes, fetch).
+- `objects` — object-store reading (resolve refs, walk trees, diffs, logs).
+- `filters` — path filtering (gitignore, globs, binary detection).
 
 Only symbols that are used by multiple external modules are
-re-exported here.  Specialised types (``DiffResult``, ``DiffStats``,
-``LogEntry``) and single-caller functions (``diff_refs``,
-``diff_single``, ``commit_log_between``, ``read_blob``) should be
+re-exported here.  Specialised types (`DiffResult`, `DiffStats`,
+`LogEntry`) and single-caller functions (`diff_refs`,
+`diff_single`, `commit_log_between`, `read_blob`) should be
 imported from the submodule directly.
 """
 

@@ -1382,11 +1382,11 @@ def test_streaming_two_responses_in_sequence() -> None:
 
 
 def test_corrupt_tool_call_args_preserved_on_load() -> None:
-    """Corrupt tool-call args survive ``load_messages`` for upstream repair.
+    """Corrupt tool-call args survive `load_messages` for upstream repair.
 
     Args validation moved from the deserialisation layer to
-    ``_prepare_turn`` (via ``validate_tool_call_args``) so the
-    repair can be recorded as an incident.  ``load_messages``
+    `_prepare_turn` (via `validate_tool_call_args`) so the
+    repair can be recorded as an incident.  `load_messages`
     preserves the original corrupt value.
     """
     with SessionStore() as store:
@@ -1464,7 +1464,7 @@ def _insert_incident_row(
 
 
 def _mark_message_failed(store: SessionStore, message_id: str) -> None:
-    """Set ``status = 'failed'`` on a message and all its fragments."""
+    """Set `status = 'failed'` on a message and all its fragments."""
     store._con.execute(
         "UPDATE fragments SET status = ? WHERE message_id = ?",
         [FragmentStatus.FAILED.value, message_id],
@@ -1473,7 +1473,7 @@ def _mark_message_failed(store: SessionStore, message_id: str) -> None:
 
 
 def test_failed_messages_excluded_from_load() -> None:
-    """Messages with ``status = 'failed'`` are not returned by ``load_messages``."""
+    """Messages with `status = 'failed'` are not returned by `load_messages`."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("good"), _assistant("reply")])
@@ -1490,7 +1490,7 @@ def test_failed_messages_excluded_from_load() -> None:
 
 
 def test_failed_messages_excluded_from_load_with_ids() -> None:
-    """``load_messages_with_ids`` also excludes failed messages."""
+    """`load_messages_with_ids` also excludes failed messages."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("good"), _assistant("reply")])
@@ -1505,7 +1505,7 @@ def test_failed_messages_excluded_from_load_with_ids() -> None:
 
 
 def test_incident_kinds_excluded_from_load() -> None:
-    """Incident fragment kinds are never returned by ``load_messages``."""
+    """Incident fragment kinds are never returned by `load_messages`."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello"), _assistant("hi")])
@@ -1532,7 +1532,7 @@ def test_incident_kinds_excluded_from_load() -> None:
 def test_mixed_stream_load_order() -> None:
     """A session with normal, failed, and incident rows loads correctly.
 
-    ``load_messages`` returns only ``status = 'complete'`` message
+    `load_messages` returns only `status = 'complete'` message
     rows in chronological order. Failed messages and incident
     rows are excluded.
     """
@@ -1603,7 +1603,7 @@ def test_compaction_ignores_failed_and_incidents() -> None:
 
 
 def test_delete_session_removes_failed_and_incidents() -> None:
-    """``delete_session`` removes all rows including failed and incident."""
+    """`delete_session` removes all rows including failed and incident."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello"), _assistant("hi")])
@@ -1622,7 +1622,7 @@ def test_delete_session_removes_failed_and_incidents() -> None:
 
 
 def test_search_history_includes_failed_prompts() -> None:
-    """``search_history`` returns ``user_text`` from failed messages.
+    """`search_history` returns `user_text` from failed messages.
 
     Failed prompts must appear in up-arrow/search so the user
     can retry them with a minor edit.
@@ -1643,8 +1643,8 @@ def test_search_history_includes_failed_prompts() -> None:
 
 
 def test_streaming_status_lifecycle() -> None:
-    """``begin_response`` creates ``in_progress`` rows;
-    ``finish`` transitions to ``complete``.
+    """`begin_response` creates `in_progress` rows;
+    `finish` transitions to `complete`.
     """
     with SessionStore() as store:
         store.set_context("s1")
@@ -1677,7 +1677,7 @@ def test_streaming_status_lifecycle() -> None:
 def test_session_resume_with_failed_and_incidents() -> None:
     """A session with failed messages and incident rows resumes normally.
 
-    ``load_messages`` returns only the successful turns, forming a
+    `load_messages` returns only the successful turns, forming a
     valid conversation that can be passed to the LLM as history.
     """
     with SessionStore() as store:
@@ -1715,7 +1715,7 @@ def test_session_resume_with_failed_and_incidents() -> None:
 
 
 def test_list_sessions_excludes_failed_from_count() -> None:
-    """``list_sessions`` message count should not include failed messages."""
+    """`list_sessions` message count should not include failed messages."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("q1"), _assistant("a1")])
@@ -1731,7 +1731,7 @@ def test_list_sessions_excludes_failed_from_count() -> None:
 
 
 def test_token_stats_excludes_failed_turns() -> None:
-    """``token_stats`` turn count should not include failed messages."""
+    """`token_stats` turn count should not include failed messages."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("q1"), _assistant("a1")])
@@ -1751,7 +1751,7 @@ def test_token_stats_excludes_failed_turns() -> None:
 
 
 def test_incident_stats_empty_session() -> None:
-    """``incident_stats`` returns empty lists for an unknown session."""
+    """`incident_stats` returns empty lists for an unknown session."""
     with SessionStore() as store:
         stats = store.incident_stats("nonexistent")
     assert stats.failures == []
@@ -1760,7 +1760,7 @@ def test_incident_stats_empty_session() -> None:
 
 
 def test_incident_stats_failures() -> None:
-    """``incident_stats`` groups failures by kind with outcome counts."""
+    """`incident_stats` groups failures by kind with outcome counts."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello")])
@@ -1810,7 +1810,7 @@ def test_incident_stats_failures() -> None:
 
 
 def test_incident_stats_repairs() -> None:
-    """``incident_stats`` groups repairs by strategy with reason."""
+    """`incident_stats` groups repairs by strategy with reason."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello")])
@@ -1846,7 +1846,7 @@ def test_incident_stats_repairs() -> None:
 
 
 def test_incident_stats_mixed() -> None:
-    """``incident_stats`` returns both failures and repairs together."""
+    """`incident_stats` returns both failures and repairs together."""
     with SessionStore() as store:
         store.set_context("s1")
         store.save_messages("s1", [_user("hello")])
@@ -1876,7 +1876,7 @@ def test_incident_stats_mixed() -> None:
 
 
 def test_incident_stats_sessions_isolated() -> None:
-    """``incident_stats`` only returns incidents for the given session."""
+    """`incident_stats` only returns incidents for the given session."""
     with SessionStore() as store:
         store.set_context("s1")
         _insert_incident_row(

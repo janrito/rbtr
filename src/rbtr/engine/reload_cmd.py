@@ -16,7 +16,7 @@ def cmd_reload(engine: Engine) -> None:
     """Report which prompt source files are active.
 
     Templates are re-read from disk on every LLM turn (no
-    caching), so ``/reload`` is a visibility command — it
+    caching), so `/reload` is a visibility command — it
     confirms what the next turn will use.
     """
     lines: list[str] = []

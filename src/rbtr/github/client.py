@@ -94,7 +94,7 @@ class GitHubCtx:
 
 
 def _pull(ctx: GitHubCtx, pr_number: int) -> PullRequest:
-    """Fetch a pull request or raise ``RbtrError``."""
+    """Fetch a pull request or raise `RbtrError`."""
     try:
         repo = ctx.gh.get_repo(ctx.full_name)
         return repo.get_pull(pr_number)
@@ -135,7 +135,7 @@ def list_open_prs(ctx: GitHubCtx) -> list[PRSummary]:
 def list_unmerged_branches(ctx: GitHubCtx, open_pr_branches: set[str]) -> list[BranchSummary]:
     """List remote branches that have no open PR, excluding the default branch.
 
-    Returns at most ``config.github.max_branches`` results, sorted by
+    Returns at most `config.github.max_branches` results, sorted by
     most recently updated first.  Fetches branch pages incrementally
     and stops as soon as the limit is reached to avoid exhausting the
     full branch list on large repositories.
@@ -193,10 +193,10 @@ def validate_pr_number(ctx: GitHubCtx, pr_number: int) -> PRSummary:
 
 
 def get_pr_refs(ctx: GitHubCtx, pr_number: int) -> tuple[str, str]:
-    """Return ``(head_sha, base_sha)`` for a PR.
+    """Return `(head_sha, base_sha)` for a PR.
 
     Single API call.  Both values come from the PR object's
-    ``head.sha`` and ``base.sha`` — the current tip of each branch
+    `head.sha` and `base.sha` — the current tip of each branch
     as GitHub sees it.
     """
     pr = _pull(ctx, pr_number)
@@ -208,46 +208,46 @@ def get_pr_refs(ctx: GitHubCtx, pr_number: int) -> tuple[str, str]:
 # GITHUB API WORKAROUND — position ↔ line conversion
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # As of 2026-02, the per-review comments endpoint
-# ``GET /repos/{owner}/{repo}/pulls/{pr}/reviews/{id}/comments``
-# does NOT return the modern ``line``, ``original_line``, or ``side``
-# fields.  These are always ``null`` — even for submitted reviews,
-# even with ``X-GitHub-Api-Version: 2022-11-28``.  The per-PR
-# endpoint (``GET /pulls/{pr}/comments``) does return them, but
+# `GET /repos/{owner}/{repo}/pulls/{pr}/reviews/{id}/comments`
+# does NOT return the modern `line`, `original_line`, or `side`
+# fields.  These are always `null` — even for submitted reviews,
+# even with `X-GitHub-Api-Version: 2022-11-28`.  The per-PR
+# endpoint (`GET /pulls/{pr}/comments`) does return them, but
 # excludes pending review comments entirely.
 #
 # The only line-related data available for pending comments is the
-# deprecated ``position`` (1-based offset into the diff hunk) and
-# ``diff_hunk`` (hunk header through the commented line).
+# deprecated `position` (1-based offset into the diff hunk) and
+# `diff_hunk` (hunk header through the commented line).
 #
-# ``_walk_hunk`` / ``_position_to_line`` / ``_line_to_position``
+# `_walk_hunk` / `_position_to_line` / `_line_to_position`
 # exist solely to work around this gap.  If GitHub updates the
-# per-review endpoint to return ``line`` and ``side``, this
-# machinery can be removed and ``get_pending_review`` can read
-# those fields directly (the ``data.get("line")`` path already
+# per-review endpoint to return `line` and `side`, this
+# machinery can be removed and `get_pending_review` can read
+# those fields directly (the `data.get("line")` path already
 # takes priority — see the read logic below).
 #
 # Verified 2026-02-27 with direct httpx calls against both
-# endpoints using ``Accept: application/vnd.github+json`` and
-# ``X-GitHub-Api-Version: 2022-11-28``.  Both return
-# ``line: null, side: null`` for review comments fetched via
+# endpoints using `Accept: application/vnd.github+json` and
+# `X-GitHub-Api-Version: 2022-11-28`.  Both return
+# `line: null, side: null` for review comments fetched via
 # the per-review endpoint.
 #
 # Sync hashing
 # ~~~~~~~~~~~~
-# ``_comment_hash`` (in ``draft.py``) covers ``path``, ``line``,
-# ``body``, and ``suggestion``.  ``side`` and ``commit_id`` are
+# `_comment_hash` (in `draft.py`) covers `path`, `line`,
+# `body`, and `suggestion`.  `side` and `commit_id` are
 # excluded (resolution metadata not visible in the GitHub UI).
-# ``line`` IS included because the ``position`` ↔ ``line``
-# conversion is deterministic — ``_walk_hunk`` is the single
+# `line` IS included because the `position` ↔ `line`
+# conversion is deterministic — `_walk_hunk` is the single
 # source of truth for both directions.
 
 
 def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, DiffSide]]:
-    """Yield ``(position, line, side)`` for each diff line in *diff_hunk*.
+    """Yield `(position, line, side)` for each diff line in *diff_hunk*.
 
-    Skips ``\\ No newline at end of file`` markers.  ``position`` is
+    Skips `\\ No newline at end of file` markers.  `position` is
     1-based.  This is the single source of truth for mapping between
-    GitHub's deprecated ``position`` and ``(line, side)``.
+    GitHub's deprecated `position` and `(line, side)`.
     """
     lines = diff_hunk.split("\n")
 
@@ -285,10 +285,10 @@ def _walk_hunk(diff_hunk: str) -> Iterator[tuple[int, int, DiffSide]]:
 
 
 def _position_to_line(diff_hunk: str) -> tuple[int, DiffSide]:
-    """Recover ``(line, side)`` from a GitHub ``diff_hunk``.
+    """Recover `(line, side)` from a GitHub `diff_hunk`.
 
-    Pending review comments lack the ``line`` / ``side`` fields and
-    only provide the deprecated ``position`` plus the ``diff_hunk``
+    Pending review comments lack the `line` / `side` fields and
+    only provide the deprecated `position` plus the `diff_hunk`
     that runs from the hunk header through the commented line.  The
     last diff line determines the file line number and diff side.
     """
@@ -301,11 +301,11 @@ def _position_to_line(diff_hunk: str) -> tuple[int, DiffSide]:
 
 
 def _line_to_position(diff_hunk: str, line: int, side: DiffSide) -> int | None:
-    """Convert ``(line, side)`` to a diff position within *diff_hunk*.
+    """Convert `(line, side)` to a diff position within *diff_hunk*.
 
-    Returns the 1-based position, or ``None`` if the line/side pair
+    Returns the 1-based position, or `None` if the line/side pair
     is not present in the hunk.  This is the inverse of
-    ``_position_to_line``.
+    `_position_to_line`.
     """
     for pos, hunk_line, hunk_side in _walk_hunk(diff_hunk):
         if hunk_line == line and hunk_side == side:
@@ -337,11 +337,11 @@ def get_pr_diff_ranges(ctx: GitHubCtx, pr_number: int) -> SideDiffRanges:
 
 
 def get_pending_review(ctx: GitHubCtx, pr_number: int, username: str) -> ReviewDraft | None:
-    """Return the user's PENDING review on a PR, or ``None``.
+    """Return the user's PENDING review on a PR, or `None`.
 
     Fetches all reviews, finds the most recent one in PENDING state
-    belonging to *username*, and returns it as a ``ReviewDraft`` with
-    ``github_review_id`` set and hashes empty (not yet synced locally).
+    belonging to *username*, and returns it as a `ReviewDraft` with
+    `github_review_id` set and hashes empty (not yet synced locally).
     """
     pr = _pull(ctx, pr_number)
 
@@ -386,9 +386,9 @@ def get_review_comments(
 ) -> list[InlineComment]:
     """Fetch inline comments for a known review ID.
 
-    Lighter than :func:`get_pending_review` — skips the scan of
+    Lighter than `get_pending_review` — skips the scan of
     all reviews when the review ID is already known (e.g. after
-    ``push_pending_review``).
+    `push_pending_review`).
     """
     pr = _pull(ctx, pr_number)
     return _fetch_review_comments(pr, review_id)
@@ -398,9 +398,9 @@ def _fetch_review_comments(pr: Any, review_id: int) -> list[InlineComment]:
     """Fetch and parse inline comments for a specific review.
 
     Reads from the list-response raw data directly via the
-    base-class ``raw_data`` getter.  ``PullRequestComment``
+    base-class `raw_data` getter.  `PullRequestComment`
     properties trigger lazy-load completion against
-    ``GET /repos/{owner}/{repo}/pulls/comments/{id}``, but
+    `GET /repos/{owner}/{repo}/pulls/comments/{id}`, but
     pending review comments are NOT accessible at that endpoint
     (404).  The data we need is already present from the list call.
     """
@@ -411,9 +411,9 @@ def _fetch_review_comments(pr: Any, review_id: int) -> list[InlineComment]:
         body_raw = data.get("body") or ""
         body, suggestion = parse_comment_body(body_raw)
 
-        # Submitted reviews return ``line`` / ``original_line`` /
-        # ``side``.  Pending reviews omit those and only provide the
-        # deprecated ``position`` + ``diff_hunk``.  Recover the real
+        # Submitted reviews return `line` / `original_line` /
+        # `side`.  Pending reviews omit those and only provide the
+        # deprecated `position` + `diff_hunk`.  Recover the real
         # file line number (and side) from the hunk when necessary.
         line = data.get("line") or data.get("original_line") or 0
         side_raw = data.get("side") or ""
@@ -447,7 +447,7 @@ _SUGGESTION_FENCE = "```suggestion"
 
 
 def parse_comment_body(raw: str) -> tuple[str, str]:
-    """Split a GitHub comment body into ``(body, suggestion)``.
+    """Split a GitHub comment body into `(body, suggestion)`.
 
     GitHub stores suggestion blocks inline::
 
@@ -457,8 +457,8 @@ def parse_comment_body(raw: str) -> tuple[str, str]:
         replacement_code()
         ```
 
-    Returns ``(body_text, suggestion_code)`` with the fence removed.
-    If there is no suggestion block, *suggestion* is ``""``.
+    Returns `(body_text, suggestion_code)` with the fence removed.
+    If there is no suggestion block, *suggestion* is `""`.
     """
     idx = raw.find(_SUGGESTION_FENCE)
     if idx == -1:
@@ -488,7 +488,7 @@ def format_comment_body(comment: InlineComment) -> str:
 def _build_review_comments(draft: ReviewDraft) -> list[dict[str, Any]]:
     """Build the list of comment dicts for a GitHub API call.
 
-    File-level comments (``line == 0``) omit ``line`` and ``side``
+    File-level comments (`line == 0`) omit `line` and `side`
     so GitHub creates them as file-scoped rather than rejecting them.
     """
     result: list[dict[str, Any]] = []
@@ -505,10 +505,10 @@ def _build_review_comments(draft: ReviewDraft) -> list[dict[str, Any]]:
 
 
 def _resolve_commit(ctx: GitHubCtx, commit_id: str) -> Any:
-    """Fetch a ``Commit`` object by SHA for ``create_review``.
+    """Fetch a `Commit` object by SHA for `create_review`.
 
-    PyGithub's ``create_review`` asserts ``isinstance(commit,
-    Commit)`` so we cannot pass a lightweight stub.
+    PyGithub's `create_review` asserts `isinstance(commit,
+    Commit)` so we cannot pass a lightweight stub.
     """
     repo = ctx.gh.get_repo(ctx.full_name)
     return repo.get_commit(commit_id)

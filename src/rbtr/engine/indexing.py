@@ -24,10 +24,10 @@ log = logging.getLogger(__name__)
 def run_index(engine: Engine) -> None:
     """Start background indexing for the current review target.
 
-    Spawns a daemon thread so the calling command (``/review``)
+    Spawns a daemon thread so the calling command (`/review`)
     returns immediately.  The user can keep chatting while the
     index builds; tools that need the index are hidden until
-    ``IndexReady`` is emitted.
+    `IndexReady` is emitted.
     """
     t = threading.Thread(target=_build_index, args=(engine,), daemon=True)
     t.start()

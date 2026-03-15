@@ -24,12 +24,12 @@ class StartupOpts:
 def _configure_logging() -> None:
     """Set up rotating file logging — the TUI owns the terminal so we can't use stderr.
 
-    Only ``rbtr.*`` loggers use the configured level.  Third-party
+    Only `rbtr.*` loggers use the configured level.  Third-party
     libraries stay at WARNING to avoid flooding the log with Rich
     renders, httpx requests, etc.
 
-    Rotation: ``config.log.max_bytes`` per file, ``config.log.backup_count``
-    backups (e.g. ``rbtr.log``, ``rbtr.log.1``, ``rbtr.log.2``).
+    Rotation: `config.log.max_bytes` per file, `config.log.backup_count`
+    backups (e.g. `rbtr.log`, `rbtr.log.1`, `rbtr.log.2`).
     """
     Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 

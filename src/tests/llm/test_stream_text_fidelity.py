@@ -1,14 +1,14 @@
 """Tests that streamed TextDelta events match finalized message content.
 
-The key invariant: text accumulated from all ``TextDelta`` events
-(what the UI displays) must equal the ``TextPart.content`` in the
-finalized ``ModelResponse`` (what the DB stores).
+The key invariant: text accumulated from all `TextDelta` events
+(what the UI displays) must equal the `TextPart.content` in the
+finalized `ModelResponse` (what the DB stores).
 
-Tests use ``FunctionModel`` with controlled ``stream_function``
-implementations so the real ``_do_stream`` pipeline runs end-to-end
-— pydantic-ai's ``_parts_manager`` produces ``PartStartEvent`` /
-``PartDeltaEvent``, and rbtr's event mapping translates both into
-``TextDelta``.
+Tests use `FunctionModel` with controlled `stream_function`
+implementations so the real `_do_stream` pipeline runs end-to-end
+— pydantic-ai's `_parts_manager` produces `PartStartEvent` /
+`PartDeltaEvent`, and rbtr's event mapping translates both into
+`TextDelta`.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from rbtr.state import EngineState
 
 
 def _collect_text_deltas(events_q: queue.Queue[Event]) -> str:
-    """Drain the queue and concatenate all ``TextDelta`` payloads."""
+    """Drain the queue and concatenate all `TextDelta` payloads."""
     parts: list[str] = []
     while True:
         try:
@@ -45,7 +45,7 @@ def _collect_text_deltas(events_q: queue.Queue[Event]) -> str:
 
 
 def _final_text(messages: list[ModelMessage]) -> str:
-    """Extract concatenated text from all ``TextPart``s in responses."""
+    """Extract concatenated text from all `TextPart`s in responses."""
     parts: list[str] = []
     for msg in messages:
         if isinstance(msg, ModelResponse):
@@ -57,7 +57,7 @@ def _final_text(messages: list[ModelMessage]) -> str:
 
 @pytest.fixture
 def stream_ctx() -> Generator[tuple[LLMContext, AgentDeps, queue.Queue[Event]]]:
-    """Lightweight context for ``_do_stream`` backed by a real engine."""
+    """Lightweight context for `_do_stream` backed by a real engine."""
     state = EngineState()
     state.model_name = "test/test-model"
     events_q: queue.Queue[Event] = queue.Queue()
@@ -100,7 +100,7 @@ async def test_streamed_text_matches_final_message(
     chunks: list[str],
     expected: str,
 ) -> None:
-    """Accumulated ``TextDelta`` events equal the finalized ``TextPart.content``."""
+    """Accumulated `TextDelta` events equal the finalized `TextPart.content`."""
     ctx, deps, events_q = stream_ctx
 
     async def stream_fn(messages: list[ModelMessage], agent_info: AgentInfo) -> AsyncIterator[str]:
@@ -125,8 +125,8 @@ async def test_text_after_tool_calls_matches(
     """Text emitted after a tool-call round-trip is fully captured.
 
     The stream function yields a tool call first, then text.
-    The ``PartStartEvent`` for the post-tool-call text must emit
-    a ``TextDelta`` so no characters are lost.
+    The `PartStartEvent` for the post-tool-call text must emit
+    a `TextDelta` so no characters are lost.
     """
     ctx, deps, events_q = stream_ctx
 
@@ -181,7 +181,7 @@ async def test_text_before_and_after_tool_call(
 
     First model response has text + tool call.
     Second model response (after tool result) has only text.
-    Both text segments must appear in ``TextDelta`` events.
+    Both text segments must appear in `TextDelta` events.
     """
     ctx, deps, events_q = stream_ctx
 

@@ -5,8 +5,8 @@ conflicts.  Every chunk is semantically distinct and exercises
 a specific scoring signal: kind boost, file-category penalty,
 importance (inbound degree), and proximity (diff distance).
 
-All E2E search tests import the ``seeded_store`` fixture, which
-returns an :class:`IndexStore` pre-loaded with this dataset.
+All E2E search tests import the `seeded_store` fixture, which
+returns an `IndexStore` pre-loaded with this dataset.
 """
 
 from __future__ import annotations

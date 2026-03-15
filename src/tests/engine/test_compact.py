@@ -1,8 +1,8 @@
 """Tests for context compaction — history helpers and engine integration.
 
 Pure functions are tested with realistic message data.  Integration
-tests go through ``compact_history`` and check emitted events + state,
-mocking only the LLM call boundary (``_stream_summary``).
+tests go through `compact_history` and check emitted events + state,
+mocking only the LLM call boundary (`_stream_summary`).
 """
 
 from __future__ import annotations
@@ -900,8 +900,8 @@ def test_compact_with_command_inputs(
     """Compaction with interleaved command/shell inputs compacts the right messages.
 
     Command and shell inputs produce rows in the DB that are NOT
-    returned by ``load_messages``.  Compaction uses
-    ``load_messages_with_ids`` to get paired (id, message) tuples
+    returned by `load_messages`.  Compaction uses
+    `load_messages_with_ids` to get paired (id, message) tuples
     from a single query — no index-alignment risk.
     """
     mocker.patch(  # type: ignore[union-attr]
@@ -941,19 +941,19 @@ def test_compact_with_command_inputs(
 # ═══════════════════════════════════════════════════════════════════════
 
 # These tests exercise mid-turn compaction through the public
-# ``run_task("llm", ...)`` entry point.  The agent loop runs for real
-# with a ``FunctionModel`` that always calls tools on the first
-# request (regardless of history — unlike ``TestModel``).  The
-# compaction LLM call (``_stream_summary``) is mocked.
+# `run_task("llm", ...)` entry point.  The agent loop runs for real
+# with a `FunctionModel` that always calls tools on the first
+# request (regardless of history — unlike `TestModel`).  The
+# compaction LLM call (`_stream_summary`) is mocked.
 
 
 def _tool_then_text_model() -> FunctionModel:
-    """A ``FunctionModel`` that calls a tool on its first request,
+    """A `FunctionModel` that calls a tool on its first request,
     then returns text on the second.
 
     Stateful: each instance has its own call counter.  Works
-    correctly with message history (unlike ``TestModel``).
-    Provides both ``function`` and ``stream_function`` so the
+    correctly with message history (unlike `TestModel`).
+    Provides both `function` and `stream_function` so the
     agent's streaming iteration works.
     """
     from collections.abc import AsyncIterator
@@ -994,7 +994,7 @@ def _tool_then_text_model() -> FunctionModel:
 
 
 def _text_only_model() -> FunctionModel:
-    """A ``FunctionModel`` that always returns text, never tools."""
+    """A `FunctionModel` that always returns text, never tools."""
     from collections.abc import AsyncIterator
 
     from pydantic_ai.models.function import DeltaToolCall
@@ -1022,13 +1022,13 @@ def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:
 
 
 def _patch_for_mid_turn(engine: Engine, mocker: object) -> object:
-    """Patch ``build_model`` with a tool-calling ``FunctionModel`` and
+    """Patch `build_model` with a tool-calling `FunctionModel` and
     set up compaction mocks.
 
-    ``_update_live_usage`` is wrapped to shrink the context window
+    `_update_live_usage` is wrapped to shrink the context window
     after each model response, simulating high context usage.
 
-    Returns the ``_stream_summary`` mock for call-count assertions.
+    Returns the `_stream_summary` mock for call-count assertions.
     """
     from rbtr.llm.stream import _update_live_usage as _real_update
 
@@ -1163,7 +1163,7 @@ def test_no_mid_turn_compaction_without_tools(
 def test_mid_turn_compaction_blocks_reset(
     config_path: str, mocker: object, llm_engine: Engine
 ) -> None:
-    """``/compact reset`` is blocked after mid-turn compaction because
+    """`/compact reset` is blocked after mid-turn compaction because
     the model continues and adds messages after the summary.
     """
     _seed_llm_history(llm_engine)
@@ -1189,7 +1189,7 @@ def test_mid_turn_compaction_blocks_reset(
 def test_compact_reset_restores_messages(
     config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """``/compact reset`` un-marks compacted messages, summary stays."""
+    """`/compact reset` un-marks compacted messages, summary stays."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
         return_value=summary_result("Summary."),
@@ -1231,7 +1231,7 @@ def test_compact_reset_restores_messages(
 def test_compact_reset_no_existing_compaction(
     config_path: str, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """``/compact reset`` with no prior compaction says nothing to reset."""
+    """`/compact reset` with no prior compaction says nothing to reset."""
     _seed(engine, _turns(3))
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.model_name = "claude/claude-sonnet-4-20250514"
@@ -1246,7 +1246,7 @@ def test_compact_reset_no_existing_compaction(
 def test_compact_reset_only_latest(
     config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """``/compact reset`` undoes only the latest compaction, not all."""
+    """`/compact reset` undoes only the latest compaction, not all."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
         return_value=summary_result("Summary."),
@@ -1299,7 +1299,7 @@ def test_compact_reset_only_latest(
 def test_compact_reset_blocked_after_new_messages(
     config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """``/compact reset`` is blocked when messages were added after compaction."""
+    """`/compact reset` is blocked when messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
         return_value=summary_result("Summary."),
@@ -1339,7 +1339,7 @@ def test_compact_reset_blocked_after_new_messages(
 def test_compact_reset_allowed_immediately_after_compaction(
     config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """``/compact reset`` works when no messages were added after compaction."""
+    """`/compact reset` works when no messages were added after compaction."""
     mocker.patch(  # type: ignore[union-attr]
         "rbtr.llm.compact._stream_summary",
         return_value=summary_result("Summary."),
@@ -1505,7 +1505,7 @@ def test_compaction_across_tool_boundaries_no_orphans(
 def test_compact_reset_restores_original_messages_without_summary(
     config_path: str, mocker: object, engine: Engine, llm_ctx: LLMContext
 ) -> None:
-    """After ``/compact reset``, loaded messages are exactly the
+    """After `/compact reset`, loaded messages are exactly the
     originals — no summary injected, no orphaned tool returns,
     no interleaving artifacts.
     """

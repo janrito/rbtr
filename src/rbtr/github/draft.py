@@ -1,37 +1,37 @@
 """Review draft persistence and sync matching.
 
-The draft file (``.rbtr/drafts/<pr>.yaml``) is the local source
+The draft file (`.rbtr/drafts/<pr>.yaml`) is the local source
 of truth while building a review.  Every mutation persists
 immediately.
 
 Matching
 --------
 When syncing with GitHub, we need to match remote comments (which
-have ``github_id``) to local comments.  Two tiers:
+have `github_id`) to local comments.  Two tiers:
 
-**Tier 1 — ``github_id``:** If a local comment already has a
-``github_id`` from a previous sync, match by exact ID.
+**Tier 1 — `github_id`:** If a local comment already has a
+`github_id` from a previous sync, match by exact ID.
 
-**Tier 2 — ``(path, line, formatted_body)``:** For comments
-without a ``github_id`` (locally new), match by content against
+**Tier 2 — `(path, line, formatted_body)`:** For comments
+without a `github_id` (locally new), match by content against
 unmatched remote comments.  Pairs greedily, 1:1.
 
 All remaining unmatched remote comments are imported as new.
 
 Dirty detection uses content hashes stored directly on each
-comment (``comment_hash``) and on the draft (``summary_hash``).
+comment (`comment_hash`) and on the draft (`summary_hash`).
 No separate sync section — each entity tracks its own state.
 
 Tombstones
 ----------
-When a synced comment (has ``github_id``) is removed locally,
-it becomes a *tombstone*: ``body`` and ``suggestion`` are
-cleared but the ``github_id`` and ``comment_hash`` are
-preserved.  See ``is_tombstone()``.
+When a synced comment (has `github_id`) is removed locally,
+it becomes a *tombstone*: `body` and `suggestion` are
+cleared but the `github_id` and `comment_hash` are
+preserved.  See `is_tombstone()`.
 
 During sync, tombstones are:
 
-1. **Matched** to their remote counterpart by ``github_id``
+1. **Matched** to their remote counterpart by `github_id`
    (tier 1).  Three-way merge sees local as dirty → keeps
    the tombstone.
 2. **Excluded** from the pushed comments, so the remote
@@ -39,7 +39,7 @@ During sync, tombstones are:
 3. **Dropped** from the saved draft after the push.
 
 This prevents re-import of a comment the user deleted
-locally.  Comments without a ``github_id`` (never synced)
+locally.  Comments without a `github_id` (never synced)
 are removed immediately — no tombstone needed.
 """
 
@@ -76,12 +76,12 @@ log = logging.getLogger(__name__)
 def _comment_hash(c: InlineComment) -> str:
     """Deterministic hash of a comment's content fields.
 
-    Covers ``path``, ``line``, ``body``, and ``suggestion``.
-    ``side`` and ``commit_id`` are excluded — they are resolution
+    Covers `path`, `line`, `body`, and `suggestion`.
+    `side` and `commit_id` are excluded — they are resolution
     metadata not visible in the GitHub UI.
 
-    ``line`` IS included because the ``position`` ↔ ``line``
-    conversion via ``_position_to_line`` is deterministic (it
+    `line` IS included because the `position` ↔ `line`
+    conversion via `_position_to_line` is deterministic (it
     walks the diff hunk GitHub returns).
     """
     content = f"{c.path}\0{c.line}\0{c.body}\0{c.suggestion}"
@@ -128,8 +128,8 @@ def _yaml() -> YAML:
 def _literalize(obj: Any) -> Any:  # Any: recursive JSON value from model_dump
     """Walk a dict/list and wrap multiline strings as literal block scalars.
 
-    This makes ``ruamel.yaml`` emit ``|-`` blocks instead of
-    escaped ``\\n`` sequences — much more readable for markdown
+    This makes `ruamel.yaml` emit `|-` blocks instead of
+    escaped `\\n` sequences — much more readable for markdown
     bodies and code suggestions.
     """
     if isinstance(obj, str):
@@ -142,9 +142,9 @@ def _literalize(obj: Any) -> Any:  # Any: recursive JSON value from model_dump
 
 
 def load_draft(pr_number: int) -> ReviewDraft | None:
-    """Load a draft from disk, or ``None`` if it doesn't exist.
+    """Load a draft from disk, or `None` if it doesn't exist.
 
-    Raises :class:`~rbtr.exceptions.RbtrError` if the file exists
+    Raises `RbtrError` if the file exists
     but cannot be parsed, so the caller can surface a clear message
     instead of a cryptic traceback.
     """
@@ -165,9 +165,9 @@ def load_draft(pr_number: int) -> ReviewDraft | None:
 def save_draft(pr_number: int, draft: ReviewDraft) -> None:
     """Persist *draft* to disk.  Creates parent dirs if needed.
 
-    All non-``None`` fields are serialised explicitly — no
-    ``exclude_defaults`` or ``exclude_unset``, which are fragile
-    under ``model_copy`` roundtrips.  Validates the serialised
+    All non-`None` fields are serialised explicitly — no
+    `exclude_defaults` or `exclude_unset`, which are fragile
+    under `model_copy` roundtrips.  Validates the serialised
     YAML before writing and uses an atomic temp-file-plus-rename
     so concurrent readers never see a partial write.
     """
@@ -288,7 +288,7 @@ def _reconcile(
 ) -> InlineComment:
     """Reconcile a matched local/remote pair using three-way merge.
 
-    The comment's ``comment_hash`` is the common ancestor.
+    The comment's `comment_hash` is the common ancestor.
     """
     comment_hash = local.comment_hash
     if not comment_hash:
@@ -320,9 +320,9 @@ def _tier2_match(
     remote_by_id: dict[int, InlineComment],
     unmatched_ids: set[int],
 ) -> int | None:
-    """Try to match a local comment by ``(path, line, formatted_body)``.
+    """Try to match a local comment by `(path, line, formatted_body)`.
 
-    Returns the ``github_id`` of the matched remote, or ``None``.
+    Returns the `github_id` of the matched remote, or `None`.
     Only matches if exactly one candidate exists.
     """
     local_key = (local.path, local.line, format_comment_body(local))
@@ -338,7 +338,7 @@ def _tier2_match(
 
 
 def stamp_synced(draft: ReviewDraft) -> ReviewDraft:
-    """Set ``comment_hash`` on every comment and ``summary_hash`` on the draft.
+    """Set `comment_hash` on every comment and `summary_hash` on the draft.
 
     Called after a successful push to record what was sent to GitHub.
     """
@@ -354,8 +354,8 @@ def stamp_synced(draft: ReviewDraft) -> ReviewDraft:
 def is_tombstone(comment: InlineComment) -> bool:
     """True if *comment* is a local deletion marker.
 
-    A tombstone is a previously-synced comment (has ``github_id``)
-    whose ``body`` has been cleared.  It stays in the draft so
+    A tombstone is a previously-synced comment (has `github_id`)
+    whose `body` has been cleared.  It stays in the draft so
     the push excludes it (preventing re-import), then gets dropped
     after a successful sync.
     """
@@ -365,8 +365,8 @@ def is_tombstone(comment: InlineComment) -> bool:
 def comment_sync_status(comment: InlineComment) -> str:
     """Return a single-char status indicator for display.
 
-    ``✗`` tombstone (pending deletion), ``★`` new (never synced),
-    ``✎`` dirty (modified since sync), ``✓`` clean (matches synced hash).
+    `✗` tombstone (pending deletion), `★` new (never synced),
+    `✎` dirty (modified since sync), `✓` clean (matches synced hash).
     """
     if is_tombstone(comment):
         return "✗"
@@ -420,7 +420,7 @@ def snap_to_commentable_line(
 ) -> tuple[int, str | None, str]:
     """Ensure *line* is commentable, snapping to the nearest valid line if not.
 
-    Returns ``(line, error, note)`` where:
+    Returns `(line, error, note)` where:
 
     - *line* is the (possibly adjusted) commentable line.
     - *error* is set when the path is not in the diff (caller
@@ -453,11 +453,11 @@ def partition_comments(
     right_ranges: DiffLineRanges,
     left_ranges: DiffLineRanges,
 ) -> tuple[list[InlineComment], list[InlineComment]]:
-    """Split comments into ``(valid, invalid)`` based on side-aware ranges.
+    """Split comments into `(valid, invalid)` based on side-aware ranges.
 
-    File-level comments (``line == 0``) are always valid.
-    ``RIGHT`` comments validate against HEAD-side ranges,
-    ``LEFT`` comments validate against BASE-side ranges.
+    File-level comments (`line == 0`) are always valid.
+    `RIGHT` comments validate against HEAD-side ranges,
+    `LEFT` comments validate against BASE-side ranges.
     """
     valid: list[InlineComment] = []
     invalid: list[InlineComment] = []

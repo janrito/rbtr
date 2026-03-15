@@ -780,7 +780,7 @@ _MIXED_HISTORY: list[ModelMessage] = [
 
 
 def test_sanitize_skips_claude_ids() -> None:
-    """Claude-style IDs (``toolu_*``) are already valid."""
+    """Claude-style IDs (`toolu_*`) are already valid."""
     history: list[ModelMessage] = _MIXED_HISTORY[4:]  # Claude turns only.
     result, bad_ids = sanitize_tool_call_ids(history)
     assert bad_ids == []
@@ -788,7 +788,7 @@ def test_sanitize_skips_claude_ids() -> None:
 
 
 def test_sanitize_fixes_gemini_ids_preserves_pairing() -> None:
-    """Gemini ``functions.name:N`` IDs are sanitized; pairing holds."""
+    """Gemini `functions.name:N` IDs are sanitized; pairing holds."""
     result, bad_ids = sanitize_tool_call_ids(list(_MIXED_HISTORY))
     assert bad_ids == ["functions.grep:4", "functions.read_file:3"]
 
@@ -811,7 +811,7 @@ def test_sanitize_fixes_gemini_ids_preserves_pairing() -> None:
 
 
 def test_sanitize_handles_retry_prompt_part() -> None:
-    """``RetryPromptPart`` IDs are sanitized alongside tool returns."""
+    """`RetryPromptPart` IDs are sanitized alongside tool returns."""
     history: list[ModelMessage] = [
         ModelResponse(
             parts=[ToolCallPart(tool_name="grep", args={}, tool_call_id="functions.grep:7")],
@@ -841,7 +841,7 @@ def test_validate_args_skips_valid() -> None:
 
 
 def test_validate_args_repairs_corrupt_gemini_streaming() -> None:
-    """Corrupt args from a Gemini streaming failure are replaced with ``{}``."""
+    """Corrupt args from a Gemini streaming failure are replaced with `{}`."""
     history = list(_MIXED_HISTORY)
     repaired = validate_tool_call_args(history)
     assert repaired == [("grep", "functions.grep:4")]

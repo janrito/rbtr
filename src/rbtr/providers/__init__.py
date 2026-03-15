@@ -1,24 +1,24 @@
-"""Provider registry — dispatches ``build_model`` by provider prefix.
+"""Provider registry — dispatches `build_model` by provider prefix.
 
 All provider-specific knowledge (model types, settings classes,
 auth checks) is centralised here.  The rest of the engine uses
-``build_model``, ``model_settings``, and ``model_context_window``
+`build_model`, `model_settings`, and `model_context_window`
 without importing any provider module directly.
 
 Provider contract
 ~~~~~~~~~~~~~~~~~
 
-The ``Provider`` protocol defines the contract every builtin
-provider module must satisfy: ``GENAI_ID``, ``LABEL``,
-``is_connected``, ``list_models``, ``build_model``,
-``model_settings``, and ``context_window``.
+The `Provider` protocol defines the contract every builtin
+provider module must satisfy: `GENAI_ID`, `LABEL`,
+`is_connected`, `list_models`, `build_model`,
+`model_settings`, and `context_window`.
 
-The ``PROVIDERS`` dict maps each ``BuiltinProvider`` to its
+The `PROVIDERS` dict maps each `BuiltinProvider` to its
 module — the **single registration point**.  Adding a new
 provider means creating the module, adding a credential field
-to ``Creds``, and one entry in ``PROVIDERS``.
+to `Creds`, and one entry in `PROVIDERS`.
 
-API-key providers are wired through ``connect_cmd`` so the connect
+API-key providers are wired through `connect_cmd` so the connect
 command and setup auto-detect work without per-provider handlers.
 """
 
@@ -42,7 +42,7 @@ class Provider(Protocol):
     """Typed contract every builtin provider module must satisfy.
 
     Each module exposes these as module-level constants and functions.
-    The ``PROVIDERS`` dict stores the modules; attribute access goes
+    The `PROVIDERS` dict stores the modules; attribute access goes
     through the module at call time, so test mocks take effect.
     """
 
@@ -72,8 +72,8 @@ class BuiltinProvider(StrEnum):
 # ── Provider registry ────────────────────────────────────────────────
 #
 # Single registration point.  To add a new provider:
-#   1. Create ``providers/<name>.py`` satisfying the ``Provider`` protocol
-#   2. Add a credential field to ``Creds``
+#   1. Create `providers/<name>.py` satisfying the `Provider` protocol
+#   2. Add a credential field to `Creds`
 #   3. Add one entry below
 #
 # Everything else (connect command, setup auto-detect, model listing,
@@ -93,7 +93,7 @@ PROVIDERS: dict[BuiltinProvider, Provider] = {
 
 
 def build_model(model_name: str) -> Model:
-    """Build a model for ``<provider>/<model-id>``."""
+    """Build a model for `<provider>/<model-id>`."""
     prov, model_id = _resolve(model_name)
     return prov.build_model(model_id)
 
@@ -103,7 +103,7 @@ def model_settings(
     model: Model,
     effort: ThinkingEffort,
 ) -> ModelSettings | None:
-    """Dispatch to the provider's ``model_settings``."""
+    """Dispatch to the provider's `model_settings`."""
     if not model_name:
         return None
     prov, model_id = _resolve(model_name)
@@ -125,9 +125,9 @@ def model_context_window(model_name: str | None) -> int | None:
 
 
 def _resolve(model_name: str) -> tuple[Provider, str]:
-    """Split ``<prefix>/<model-id>`` and return ``(provider, model_id)``.
+    """Split `<prefix>/<model-id>` and return `(provider, model_id)`.
 
-    Raises ``RbtrError`` if the prefix is neither a builtin provider
+    Raises `RbtrError` if the prefix is neither a builtin provider
     nor a stored custom endpoint.
     """
     if "/" not in model_name:

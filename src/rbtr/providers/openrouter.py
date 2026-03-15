@@ -45,7 +45,7 @@ class OpenRouterProvider:
             raise RbtrError(f"Failed to list OpenRouter models: {e}") from e
 
     def build_model(self, model_name: str) -> Model:
-        """Build a model via ``OpenRouterProvider``."""
+        """Build a model via `OpenRouterProvider`."""
         # Deferred: openai SDK is heavy; only load when this provider is used.
         from pydantic_ai.models.openrouter import OpenRouterModel
         from pydantic_ai.providers.openrouter import OpenRouterProvider as _OpenRouterProvider
@@ -60,14 +60,14 @@ class OpenRouterProvider:
         """Build OpenRouter thinking-effort settings.
 
         OpenRouter proxies multiple backends; pass through the Chat
-        API ``reasoning_effort`` and let the backend decide.
+        API `reasoning_effort` and let the backend decide.
         """
         from rbtr.providers.shared import openai_chat_model_settings
 
         return openai_chat_model_settings(model, effort)
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window from ``genai-prices``."""
+        """Look up context window from `genai-prices`."""
         from rbtr.providers.shared import genai_prices_context_window
 
         return genai_prices_context_window(self.GENAI_ID, model_id)

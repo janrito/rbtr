@@ -2,12 +2,12 @@
 
 The store manages three tables:
 
-- ``file_snapshots`` maps a commit SHA to its file tree (path → blob SHA).
-- ``chunks`` holds indexed content, keyed by blob SHA so identical files
+- `file_snapshots` maps a commit SHA to its file tree (path → blob SHA).
+- `chunks` holds indexed content, keyed by blob SHA so identical files
   across commits are stored once.
-- ``edges`` records relationships between chunks, scoped per commit.
+- `edges` records relationships between chunks, scoped per commit.
 
-All commit-scoped queries join through ``file_snapshots`` to resolve
+All commit-scoped queries join through `file_snapshots` to resolve
 which chunks belong to a given snapshot.
 """
 
@@ -90,9 +90,9 @@ _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
 _EMBEDDING_SENTINEL = [0.0]
 """Lightweight marker for 'has embedding in DB but not loaded'.
 
-``Chunk.embedding`` is ``list[float]`` — empty means absent.
+`Chunk.embedding` is `list[float]` — empty means absent.
 Loading full 1024-float vectors for every chunk is wasteful;
-this single-element list is truthy (so ``_embed_missing`` skips
+this single-element list is truthy (so `_embed_missing` skips
 the chunk) without the memory cost.
 """
 
@@ -109,7 +109,7 @@ def _fetch_dicts(cursor: duckdb.DuckDBPyConnection) -> list[_Row]:
 
 
 def _row_to_chunk(row: _Row) -> Chunk:
-    """Convert a dict row to a ``Chunk`` model."""
+    """Convert a dict row to a `Chunk` model."""
     raw_meta = str(row["metadata"]) if row["metadata"] else "{}"
     meta: ImportMeta = json.loads(raw_meta)
 
@@ -138,9 +138,9 @@ def _row_to_chunk(row: _Row) -> Chunk:
 def _check_schema_version(db_path: Path) -> None:
     """Delete *db_path* if its schema version doesn't match.
 
-    Opens a temporary connection to read the ``meta`` table.  If the
+    Opens a temporary connection to read the `meta` table.  If the
     stored version is stale (or the table doesn't exist), the file is
-    removed so the next ``IndexStore.__init__`` creates a fresh DB.
+    removed so the next `IndexStore.__init__` creates a fresh DB.
     """
     if not db_path.exists():
         return
@@ -180,11 +180,11 @@ def _check_schema_version(db_path: Path) -> None:
 class IndexStore:
     """DuckDB-backed storage for the code index.
 
-    All public methods use ``_cur()`` which returns a fresh cursor
+    All public methods use `_cur()` which returns a fresh cursor
     for each operation.  DuckDB connections are **not** thread-safe,
-    but cursors obtained via ``connection.cursor()`` are isolated
+    but cursors obtained via `connection.cursor()` are isolated
     per-call, so the indexing daemon thread and the main UI thread
-    can safely share one ``IndexStore`` instance.
+    can safely share one `IndexStore` instance.
     """
 
     def __init__(self, db_path: Path | str | None = None) -> None:
@@ -249,8 +249,8 @@ class IndexStore:
         """Return a thread-local cursor — safe to call from any thread.
 
         Caches one cursor per thread to avoid the overhead of
-        ``connection.cursor()`` on every operation (which triggers
-        ``getcwd`` + ``stat`` syscalls in DuckDB).
+        `connection.cursor()` on every operation (which triggers
+        `getcwd` + `stat` syscalls in DuckDB).
         """
         cur = getattr(self._local, "cur", None)
         if cur is None:
@@ -283,10 +283,10 @@ class IndexStore:
         self._cur().execute(_DELETE_SNAPSHOTS_SQL, [commit_sha])
 
     def _bulk_insert(self, sql: str, table: pa.Table) -> None:
-        """Register *table* as ``_stg``, execute *sql*, then unregister.
+        """Register *table* as `_stg`, execute *sql*, then unregister.
 
-        All bulk-insert SQL files reference the fixed view name ``_stg``.
-        Cursor-scoped registration means each thread's ``_stg`` is
+        All bulk-insert SQL files reference the fixed view name `_stg`.
+        Cursor-scoped registration means each thread's `_stg` is
         isolated — no naming conflicts.
         """
         cur = self._cur()
@@ -297,7 +297,7 @@ class IndexStore:
             cur.unregister("_stg")
 
     def insert_snapshots(self, rows: list[tuple[str, str, str]]) -> None:
-        """Batch insert snapshot rows: ``[(commit_sha, file_path, blob_sha), ...]``."""
+        """Batch insert snapshot rows: `[(commit_sha, file_path, blob_sha), ...]`."""
         if not rows:
             return
         self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, snapshots_to_table(rows))
@@ -305,9 +305,9 @@ class IndexStore:
     def insert_chunks(self, chunks: list[Chunk]) -> None:
         """Batch insert chunks via DuckDB's columnar register API.
 
-        Conversion to PyArrow is handled by :func:`chunks_to_table`.
-        Embeddings are always ``NULL`` on initial insert — set later
-        via :meth:`update_embedding`.
+        Conversion to PyArrow is handled by `chunks_to_table`.
+        Embeddings are always `NULL` on initial insert — set later
+        via `update_embedding`.
         """
         if not chunks:
             return
@@ -331,7 +331,7 @@ class IndexStore:
     def update_embeddings(self, ids: list[str], embeddings: list[list[float]]) -> None:
         """Batch-update embedding vectors via PyArrow join.
 
-        Individual ``UPDATE ... WHERE id = ?`` costs ~67 ms/call due to
+        Individual `UPDATE ... WHERE id = ?` costs ~67 ms/call due to
         DuckDB per-statement overhead.  A single join-UPDATE from a
         registered PyArrow table costs ~0.03 ms/row — **2000x faster**.
         """
@@ -365,7 +365,7 @@ class IndexStore:
     def prune_orphans(self) -> tuple[int, int]:
         """Delete chunks and edges not referenced by any file snapshot.
 
-        Returns ``(chunks_deleted, edges_deleted)``.
+        Returns `(chunks_deleted, edges_deleted)`.
         """
         cur = self._cur()
         edge_row = cur.execute(_PRUNE_EDGES_SQL).fetchone()
@@ -452,7 +452,7 @@ class IndexStore:
     ) -> tuple[list[Chunk], list[Chunk], list[Chunk]]:
         """Compare chunks between two commits.
 
-        Returns ``(added, removed, modified)`` where *modified* means
+        Returns `(added, removed, modified)` where *modified* means
         the same file path exists in both but with a different blob SHA.
         """
         added = _fetch_dicts(self._cur().execute(_DIFF_ADDED_SQL, [head_sha, base_sha]))
@@ -477,7 +477,7 @@ class IndexStore:
     ) -> list[tuple[Chunk, float]]:
         """Find the *top_k* chunks most similar to *query_embedding*.
 
-        Uses DuckDB built-in ``list_cosine_similarity()``.
+        Uses DuckDB built-in `list_cosine_similarity()`.
         """
         rows = _fetch_dicts(
             self._cur().execute(_SEARCH_SIMILAR_SQL, [query_embedding, commit_sha, top_k])
@@ -492,7 +492,7 @@ class IndexStore:
     ) -> list[tuple[Chunk, float]]:
         """Semantic search: embed *query* then find similar chunks.
 
-        Convenience wrapper around ``search_similar()`` that handles
+        Convenience wrapper around `search_similar()` that handles
         embedding the query text.
         """
         from rbtr.index.embeddings import embed_text  # deferred: heavy native lib
@@ -505,14 +505,14 @@ class IndexStore:
     def rebuild_fts_index(self) -> None:
         """(Re)create the BM25 full-text search index on chunks.
 
-        Indexes the pre-tokenised ``name_tokens`` and
-        ``content_tokens`` columns with stemming and stopwords
+        Indexes the pre-tokenised `name_tokens` and
+        `content_tokens` columns with stemming and stopwords
         disabled — essential for code search where identifiers
         must survive intact.
 
         After building the index, IDF is neutralised by setting
         every term's document frequency to 1.  This prevents
-        common-but-important terms like ``config`` or ``model``
+        common-but-important terms like `config` or `model`
         from being suppressed, reducing BM25 to TF + length
         normalisation.
         """
@@ -539,7 +539,7 @@ class IndexStore:
         after inserting new chunks.
 
         Serialised with a lock because the DDL statements
-        (``drop_fts_index`` / ``create_fts_index``) trigger
+        (`drop_fts_index` / `create_fts_index`) trigger
         catalog writes that conflict under DuckDB's MVCC when
         executed concurrently from different cursors.
         """
@@ -558,9 +558,9 @@ class IndexStore:
     ) -> list[tuple[Chunk, float]]:
         """BM25 keyword search across chunk name and content.
 
-        The *query* is pre-tokenised with :func:`tokenise_code` so
-        that identifier queries (``AgentDeps`` → ``agentdeps agent
-        deps``) match the code-aware tokens stored in the index.
+        The *query* is pre-tokenised with `tokenise_code` so
+        that identifier queries (`AgentDeps` → `agentdeps agent
+        deps`) match the code-aware tokens stored in the index.
 
         Automatically rebuilds the FTS index if it is stale or was
         lost (DuckDB FTS indexes are in-memory only).
@@ -594,7 +594,7 @@ class IndexStore:
         Runs three retrieval channels, normalises and fuses their
         scores, then applies kind-boost, file-category, importance
         (inbound-degree), and proximity (diff distance) multipliers.
-        Returns up to *top_k* :class:`ScoredResult` objects with
+        Returns up to *top_k* `ScoredResult` objects with
         full signal breakdown.
 
         Falls back gracefully: if embeddings are unavailable, the

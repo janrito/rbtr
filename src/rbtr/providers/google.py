@@ -81,18 +81,18 @@ _MODEL_RE = re.compile(r"models/([^:/?]+)")
 def _extract_model_name(url: str) -> str:
     """Extract model name from a Vertex AI URL.
 
-    E.g. ``.../publishers/google/models/gemini-2.5-pro:streamGenerateContent``
-    → ``gemini-2.5-pro``.
+    E.g. `.../publishers/google/models/gemini-2.5-pro:streamGenerateContent`
+    → `gemini-2.5-pro`.
     """
     m = _MODEL_RE.search(url)
     return m.group(1) if m else ""
 
 
 class _CCAStream(httpx.AsyncByteStream):
-    """Transform CCA SSE events by unwrapping the ``response`` envelope.
+    """Transform CCA SSE events by unwrapping the `response` envelope.
 
-    CCA returns ``data: {"response": {…}}``; the google-genai SDK
-    expects ``data: {…}``.
+    CCA returns `data: {"response": {…}}`; the google-genai SDK
+    expects `data: {…}`.
     """
 
     def __init__(self, inner: httpx.AsyncByteStream) -> None:
@@ -126,8 +126,8 @@ class _CCATransport(httpx.AsyncBaseTransport):
 
     The SDK formats the request body for Vertex AI (camelCase, correct
     structure).  This transport wraps the body in the CCA envelope
-    ``{project, model, request: …}`` and rewrites the URL.  The SSE
-    response is unwrapped by :class:`_CCAStream`.
+    `{project, model, request: …}` and rewrites the URL.  The SSE
+    response is unwrapped by `_CCAStream`.
     """
 
     def __init__(self, project_id: str) -> None:
@@ -205,7 +205,7 @@ def _make_oauth(
     *,
     existing_refresh_token: str = "",
 ) -> OAuthCreds:
-    """Build ``OAuthCreds`` from a token endpoint response.
+    """Build `OAuthCreds` from a token endpoint response.
 
     *existing_refresh_token* is preserved when the response doesn't
     include a new refresh token (Google typically omits it on refresh).
@@ -406,7 +406,7 @@ class GoogleProvider:
         return oauth_is_set(creds.google)
 
     def list_models(self) -> list[str]:
-        """Return known Gemini models from the ``genai-prices`` snapshot."""
+        """Return known Gemini models from the `genai-prices` snapshot."""
         try:
             # Deferred: loads pricing snapshot from disk on first call.
             from genai_prices.data_snapshot import get_snapshot
@@ -428,10 +428,10 @@ class GoogleProvider:
     def build_model(self, model_name: str) -> Model:
         """Build a Google model routed through Cloud Code Assist.
 
-        Creates a google-genai Client with ``vertexai=True`` so the SDK
+        Creates a google-genai Client with `vertexai=True` so the SDK
         formats requests in the standard Gemini API structure.  The
-        actual HTTP is intercepted by :class:`_CCATransport` which wraps
-        the body and redirects to ``cloudcode-pa.googleapis.com``.
+        actual HTTP is intercepted by `_CCATransport` which wraps
+        the body and redirects to `cloudcode-pa.googleapis.com`.
         """
         # Deferred: google SDK is heavy; only load when this provider is used.
         from google.genai.client import Client
@@ -465,7 +465,7 @@ class GoogleProvider:
         return None
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window from ``genai-prices``."""
+        """Look up context window from `genai-prices`."""
         from rbtr.providers.shared import genai_prices_context_window
 
         return genai_prices_context_window(self.GENAI_ID, model_id)

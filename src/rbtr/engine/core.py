@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 
 
 async def _capture_token() -> anyio.lowlevel.EventLoopToken:
-    """Return the ``anyio`` token for the current event loop."""
+    """Return the `anyio` token for the current event loop."""
     return anyio.lowlevel.current_token()
 
 
@@ -154,8 +154,8 @@ class Engine:
     def _sync_store_context(self) -> None:
         """Push current engine metadata to the store context.
 
-        Called before each task so ``save_messages`` / ``save_input`` /
-        ``compact_session`` inherit metadata without explicit kwargs.
+        Called before each task so `save_messages` / `save_input` /
+        `compact_session` inherit metadata without explicit kwargs.
         """
         self.store.set_context(
             self.state.session_id,
@@ -169,7 +169,7 @@ class Engine:
     # ── LLM context ───────────────────────────────────────────────────
 
     def _llm_context(self) -> LLMContext:
-        """Build an :class:`LLMContext` for the LLM pipeline."""
+        """Build an `LLMContext` for the LLM pipeline."""
         return LLMContext(
             state=self.state,
             store=self.store,

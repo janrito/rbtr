@@ -2,22 +2,22 @@
 
 Extracts durable facts from conversation messages using a tool-less
 PydanticAI agent with structured output.  Each extracted fact is
-tagged by the LLM as ``new``, ``confirm``, or ``supersede`` — the
+tagged by the LLM as `new`, `confirm`, or `supersede` — the
 LLM sees all existing facts in the prompt and makes the dedup
 decision itself.
 
-The agent follows the same pattern as ``compact_agent`` and the
-main ``agent``: module-level ``Agent()``, ``@instructions``
+The agent follows the same pattern as `compact_agent` and the
+main `agent`: module-level `Agent()`, `@instructions`
 decorators for the static task prompt, model passed at each call
 site.
 
 Public API
 ----------
-- ``extract_facts_from_ctx`` — background-thread entry point.
-- ``apply_fact_extraction`` — async orchestrator (process, persist,
-  clarify).  Used by both ``extract_facts_from_ctx`` and
-  ``compact.py``.
-- ``process_extracted_facts`` — apply extracted facts to the store.
+- `extract_facts_from_ctx` — background-thread entry point.
+- `apply_fact_extraction` — async orchestrator (process, persist,
+  clarify).  Used by both `extract_facts_from_ctx` and
+  `compact.py`.
+- `process_extracted_facts` — apply extracted facts to the store.
 """
 
 from __future__ import annotations
@@ -64,10 +64,10 @@ class ExtractedFact(BaseModel):
 
     content: str
     scope: str = "repo"
-    """``'global'`` or ``'repo'``."""
+    """`'global'` or `'repo'`."""
     action: FactAction = FactAction.NEW
     existing_content: str | None = None
-    """Content of the existing fact when ``action`` is ``confirm`` or ``supersede``."""
+    """Content of the existing fact when `action` is `confirm` or `supersede`."""
 
 
 class FactExtractionResult(BaseModel):
@@ -138,8 +138,8 @@ drop the fact if none match.""",
 def _build_user_prompt(conversation: str) -> str:
     """Build the user prompt from conversation text.
 
-    Existing facts are injected via ``@fact_extract_agent.instructions``
-    (through ``FactExtractionDeps``).  The user prompt contains only the
+    Existing facts are injected via `@fact_extract_agent.instructions`
+    (through `FactExtractionDeps`).  The user prompt contains only the
     conversation to analyse.
     """
     return f"## Conversation\n\n{conversation}"
@@ -158,7 +158,7 @@ def render_facts_instruction(
 
     Loads active facts from global and repo scopes, most recently
     confirmed first.  Truncates to *max_facts* total and
-    *max_tokens* estimated tokens.  Returns ``""`` if there are
+    *max_tokens* estimated tokens.  Returns `""` if there are
     no facts or memory is disabled.
     """
     scopes = [GLOBAL_SCOPE]
@@ -208,7 +208,7 @@ def _estimate_tokens(text: str) -> int:
 def _resolve_scope(extracted: ExtractedFact, repo_scope: str | None) -> str | None:
     """Map extracted fact scope to a store scope value.
 
-    Returns ``None`` if repo scope is requested but no repo is connected.
+    Returns `None` if repo scope is requested but no repo is connected.
     """
     if extracted.scope == GLOBAL_SCOPE:
         return GLOBAL_SCOPE
@@ -217,14 +217,14 @@ def _resolve_scope(extracted: ExtractedFact, repo_scope: str | None) -> str | No
 
 @dataclass
 class ProcessResult:
-    """Counts and fact IDs from ``process_extracted_facts``."""
+    """Counts and fact IDs from `process_extracted_facts`."""
 
     added: int = 0
     confirmed: int = 0
     superseded: int = 0
     fact_ids: list[str] = field(default_factory=list)
     failed: list[ExtractedFact] = field(default_factory=list)
-    """Supersede/confirm facts whose ``existing_content`` didn't match."""
+    """Supersede/confirm facts whose `existing_content` didn't match."""
 
 
 def process_extracted_facts(
@@ -236,14 +236,14 @@ def process_extracted_facts(
     The LLM has already seen all existing facts in the fact extraction
     prompt and tagged each fact accordingly:
 
-    - ``confirm``: bump the existing fact's ``last_confirmed_at``.
-    - ``supersede``: insert new fact, mark old as superseded.
-    - ``new``: insert as a new fact.
+    - `confirm`: bump the existing fact's `last_confirmed_at`.
+    - `supersede`: insert new fact, mark old as superseded.
+    - `new`: insert as a new fact.
 
     No client-side dedup — the LLM makes the dedup decision.
-    Long-term cleanup is handled by ``/memory purge``.
+    Long-term cleanup is handled by `/memory purge`.
 
-    Returns a ``ProcessResult`` with counts and touched fact IDs.
+    Returns a `ProcessResult` with counts and touched fact IDs.
     """
     store = ctx.store
     session_id = ctx.state.session_id
@@ -311,7 +311,7 @@ async def run_fact_extraction(
 ) -> FactExtractionRun | None:
     """Run the fact extraction agent and return raw results.
 
-    Returns ``None`` if fact extraction is skipped (no messages, disabled,
+    Returns `None` if fact extraction is skipped (no messages, disabled,
     empty conversation, model error).  Does **not** process facts or
     persist overhead — callers handle that.
     """
@@ -395,7 +395,7 @@ async def _clarify_failed_facts(
     settings: ModelSettings | None,
     deps: FactExtractionDeps,
 ) -> _FactClarifyResult:
-    """Ask the model to correct misquoted ``existing_content``.
+    """Ask the model to correct misquoted `existing_content`.
 
     Continues the fact extraction conversation — the model already has
     the existing facts (via instructions) and conversation in its
@@ -439,12 +439,12 @@ async def apply_fact_extraction(
 ) -> ProcessResult:
     """Process a fact extraction run: apply facts, persist overhead, clarify.
 
-    Single async orchestrator used by both ``extract_facts_from_ctx``
-    (daemon thread, via ``portal.call``) and ``compact.py`` (already
+    Single async orchestrator used by both `extract_facts_from_ctx`
+    (daemon thread, via `portal.call`) and `compact.py` (already
     async).  Each step persists its overhead fragment immediately so
     work isn't lost on failure.
 
-    Returns the accumulated ``ProcessResult``.
+    Returns the accumulated `ProcessResult`.
     """
     if not run.facts:
         _persist_overhead(
@@ -518,13 +518,13 @@ def extract_facts_from_ctx(
     *,
     source: FactExtractionSource = FactExtractionSource.COMMAND,
 ) -> None:
-    """Extract facts using an ``LLMContext``, emitting status events.
+    """Extract facts using an `LLMContext`, emitting status events.
 
-    Runs ``run_fact_extraction`` then delegates to ``apply_fact_extraction``
+    Runs `run_fact_extraction` then delegates to `apply_fact_extraction`
     for processing, clarification, and overhead persistence.
 
     Designed to be called from a background daemon thread via
-    ``ctx.portal.call``.
+    `ctx.portal.call`.
     """
     if not config.memory.enabled:
         return

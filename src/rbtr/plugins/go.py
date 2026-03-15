@@ -41,7 +41,7 @@ _QUERY = """\
 
 
 def _extract_string(node: Node) -> str | None:
-    """Extract the content of an ``interpreted_string_literal`` node.
+    """Extract the content of an `interpreted_string_literal` node.
 
     Go string literals in the AST look like::
 
@@ -50,7 +50,7 @@ def _extract_string(node: Node) -> str | None:
           interpreted_string_literal_content "fmt"
           " (quote)
 
-    Returns the content text, or ``None``.
+    Returns the content text, or `None`.
     """
     for child in node.children:
         if child.type == "interpreted_string_literal_content" and child.text:
@@ -59,27 +59,27 @@ def _extract_string(node: Node) -> str | None:
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract import data from a Go ``import_declaration`` node.
+    """Extract import data from a Go `import_declaration` node.
 
     Handles both single and grouped import declarations.
 
-    **Single import** — ``import "fmt"``::
+    **Single import** — `import "fmt"`::
 
         >>> extract_import_meta(node)
         {"module": "fmt"}
 
-    **Grouped import** — ``import ("fmt"  "os/exec")``::
+    **Grouped import** — `import ("fmt"  "os/exec")`::
 
         >>> extract_import_meta(node)
         {"module": "fmt,os/exec"}
 
-    **Aliased import** — ``import alias "github.com/foo/bar"``::
+    **Aliased import** — `import alias "github.com/foo/bar"`::
 
         >>> extract_import_meta(node)
         {"module": "github.com/foo/bar"}
 
-    Grouped imports are joined with ``,`` since a single Go
-    ``import_declaration`` node may contain multiple specs.
+    Grouped imports are joined with `,` since a single Go
+    `import_declaration` node may contain multiple specs.
     """
     meta: ImportMeta = {}
     modules: list[str] = []
@@ -115,9 +115,9 @@ def extract_import_meta(node: Node) -> ImportMeta:
 class GoPlugin:
     """Go language support.
 
-    Uses ``type_spec`` for scope detection because Go's type
-    declarations (``type User struct { ... }``) nest the name
-    inside a ``type_spec`` node within the ``type_declaration``.
+    Uses `type_spec` for scope detection because Go's type
+    declarations (`type User struct { ... }`) nest the name
+    inside a `type_spec` node within the `type_declaration`.
     """
 
     @hookimpl

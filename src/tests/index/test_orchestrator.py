@@ -420,10 +420,10 @@ def test_build_index_empty_repo(tmp_path):
 def test_update_index_remote_only_head(git_repo, store, tmp_path):
     """update_index works when head is a remote-only branch (PR scenario).
 
-    Reproduces the real-world bug: ``/review 900`` sets ``head_branch``
-    to the PR's branch name (e.g. ``rewrite-mq``), which only exists
-    as ``origin/rewrite-mq``.  Without the remote fallback in
-    ``_resolve_commit``, ``update_index`` throws ``KeyError``.
+    Reproduces the real-world bug: `/review 900` sets `head_branch`
+    to the PR's branch name (e.g. `rewrite-mq`), which only exists
+    as `origin/rewrite-mq`.  Without the remote fallback in
+    `_resolve_commit`, `update_index` throws `KeyError`.
     """
     base_sha = str(git_repo.head.target)
 
@@ -464,7 +464,7 @@ def test_embed_failure_is_nonfatal(tmp_path, mocker):
     mocker.stopall()
 
     # Make the deferred import inside _embed_missing raise ImportError.
-    # Setting sys.modules[key] = None causes ``from key import ...`` to
+    # Setting sys.modules[key] = None causes `from key import ...` to
     # raise ImportError without touching builtins.__import__.
     import sys
 
@@ -508,8 +508,8 @@ def test_embed_batch_failure_skips_batch(tmp_path, mocker):
             raise RuntimeError("GPU OOM")
         return [[0.1] * 3 for _ in texts]
 
-    # Patch the function on the module so the deferred ``from ... import``
-    # inside ``_embed_missing`` picks up the mock.
+    # Patch the function on the module so the deferred `from ... import`
+    # inside `_embed_missing` picks up the mock.
     mocker.patch("rbtr.index.embeddings.embed_texts", _flaky_embed)
 
     repo = pygit2.init_repository(str(tmp_path / "batch_fail"), bare=False)
@@ -543,7 +543,7 @@ def test_embed_batch_failure_skips_batch(tmp_path, mocker):
 def test_query_cache_produces_identical_chunks(tmp_path):
     """Cached tree-sitter queries must produce the same chunks as fresh ones.
 
-    ``_get_query()`` caches compiled ``Query`` objects per language.
+    `_get_query()` caches compiled `Query` objects per language.
     This test creates many same-language files, builds twice (cold cache
     vs warm cache), and asserts identical extraction results.
     """

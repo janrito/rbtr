@@ -1,14 +1,14 @@
 """C language plugin.
 
 Provides symbol extraction (functions, structs, enums) and
-include directive capture.  C has no module system — ``#include``
+include directive capture.  C has no module system — `#include`
 directives are captured as import chunks with the header path
-in the ``module`` metadata field.
+in the `module` metadata field.
 
 Extracted include examples::
 
-    ``#include <stdio.h>``   → ``{"module": "stdio.h"}``
-    ``#include "mylib.h"``   → ``{"module": "mylib.h"}``
+    `#include <stdio.h>`   → `{"module": "stdio.h"}`
+    `#include "mylib.h"`   → `{"module": "mylib.h"}`
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ _QUERY = """
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract include path from a ``preproc_include`` node.
+    """Extract include path from a `preproc_include` node.
 
-    Handles both ``<header.h>`` (system) and ``"header.h"`` (local).
+    Handles both `<header.h>` (system) and `"header.h"` (local).
     """
     for child in node.children:
         if child.type == "system_lib_string" and child.text:

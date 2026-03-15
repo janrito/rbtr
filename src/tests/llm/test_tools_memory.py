@@ -1,4 +1,4 @@
-"""Tests for the ``remember`` tool."""
+"""Tests for the `remember` tool."""
 
 from __future__ import annotations
 

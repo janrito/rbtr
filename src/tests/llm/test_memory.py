@@ -1,6 +1,6 @@
 """Tests for cross-session memory extraction logic.
 
-Tests the pure processing layer (``process_extracted_facts``) and
+Tests the pure processing layer (`process_extracted_facts`) and
 prompt rendering without requiring an LLM.  The LLM makes the
 dedup decision — these tests verify we correctly apply what the
 LLM returns.
@@ -47,9 +47,9 @@ def _make_ctx(
     session_id: str = SESSION_ID,
     repo_scope: str | None = RBTR_KEY,
 ) -> LLMContext:
-    """Build a minimal ``LLMContext``-shaped object for ``process_extracted_facts``.
+    """Build a minimal `LLMContext`-shaped object for `process_extracted_facts`.
 
-    Only ``.store`` and ``.state.session_id`` / ``.state.repo_scope``
+    Only `.store` and `.state.session_id` / `.state.repo_scope`
     are accessed — the rest is stubbed out.
     """
     state = SimpleNamespace(session_id=session_id, repo_scope=repo_scope)
@@ -527,7 +527,7 @@ async def test_clarify_empty_response(mocker: MockerFixture) -> None:
 
 
 class _FakeAgentResult:
-    """Minimal stand-in for ``AgentRunResult``."""
+    """Minimal stand-in for `AgentRunResult`."""
 
     def __init__(self, output: FactExtractionResult) -> None:
         self.output = output

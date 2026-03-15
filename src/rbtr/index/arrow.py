@@ -1,12 +1,12 @@
 """PyArrow table builders for bulk-loading index data into DuckDB.
 
-DuckDB's ``executemany`` has ~1 ms/row overhead.  Registering a
-PyArrow table as a virtual view and running ``INSERT INTO … SELECT``
+DuckDB's `executemany` has ~1 ms/row overhead.  Registering a
+PyArrow table as a virtual view and running `INSERT INTO … SELECT`
 against it is orders of magnitude faster for large batches.
 
-Each builder converts a list of domain objects (``Chunk``, ``Edge``,
-or snapshot tuples) into a ``pyarrow.Table`` whose column names match
-the corresponding SQL staging view (``_stg``).
+Each builder converts a list of domain objects (`Chunk`, `Edge`,
+or snapshot tuples) into a `pyarrow.Table` whose column names match
+the corresponding SQL staging view (`_stg`).
 
 These are pure functions — they never touch DuckDB directly.
 """
@@ -21,14 +21,14 @@ from rbtr.index.models import Chunk, Edge
 
 
 def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
-    """Convert chunks to a PyArrow table for ``upsert_chunks.sql``.
+    """Convert chunks to a PyArrow table for `upsert_chunks.sql`.
 
-    Builds all columns in a single pass.  The ``embedding`` column is
-    omitted — embeddings are always ``NULL`` on initial insert and set
-    later via :func:`IndexStore.update_embedding`.
+    Builds all columns in a single pass.  The `embedding` column is
+    omitted — embeddings are always `NULL` on initial insert and set
+    later via `update_embedding`.
 
-    The ``content_tokens`` and ``name_tokens`` columns must be
-    pre-populated on each :class:`Chunk` via :func:`tokenise_code`
+    The `content_tokens` and `name_tokens` columns must be
+    pre-populated on each `Chunk` via `tokenise_code`
     before calling this function.
     """
     ids: list[str] = []
@@ -77,7 +77,7 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
 
 
 def edges_to_table(edges: list[Edge], commit_sha: str) -> pa.Table:
-    """Convert edges to a PyArrow table for ``insert_edges.sql``.
+    """Convert edges to a PyArrow table for `insert_edges.sql`.
 
     All edges in a batch share the same *commit_sha*.
     Builds all columns in a single pass.
@@ -102,9 +102,9 @@ def edges_to_table(edges: list[Edge], commit_sha: str) -> pa.Table:
 
 
 def snapshots_to_table(rows: list[tuple[str, str, str]]) -> pa.Table:
-    """Convert snapshot tuples to a PyArrow table for ``upsert_snapshots.sql``.
+    """Convert snapshot tuples to a PyArrow table for `upsert_snapshots.sql`.
 
-    Each tuple is ``(commit_sha, file_path, blob_sha)``.
+    Each tuple is `(commit_sha, file_path, blob_sha)`.
     Builds all columns in a single pass.
     """
     commit_shas: list[str] = []

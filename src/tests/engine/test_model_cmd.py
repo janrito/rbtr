@@ -1,6 +1,6 @@
 """Tests for /model — listing, setting, cache behaviour.
 
-Covers the untested paths in ``engine/model.py``: listing with
+Covers the untested paths in `engine/model.py`: listing with
 markers, invalid format, unknown provider, unknown model with
 suggestions, cache TTL, and fetch errors.
 """

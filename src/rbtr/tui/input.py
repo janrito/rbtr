@@ -1,7 +1,7 @@
 """Input handling for rbtr, powered by prompt_toolkit's parser and buffer.
 
 prompt_toolkit is used headlessly — it parses keystrokes and manages the
-editing buffer.  All rendering goes through Rich in ``tui.py``.
+editing buffer.  All rendering goes through Rich in `tui.py`.
 
 Architecture
 ~~~~~~~~~~~~
@@ -46,8 +46,8 @@ type Completions = list[tuple[str, str]]
 def replace_shell_word(text: str, replacement: str) -> str:
     """Replace the completable part of the last word in a shell command.
 
-    If the last word is a path (contains ``/``) and the replacement
-    looks like just a filename (no ``/`` prefix matching the original),
+    If the last word is a path (contains `/`) and the replacement
+    looks like just a filename (no `/` prefix matching the original),
     the directory prefix from the original word is preserved::
 
         replace_shell_word("ls src/rb", "rbtr/")  → "ls src/rbtr/"
@@ -66,14 +66,14 @@ def replace_shell_word(text: str, replacement: str) -> str:
 
 
 def complete_path(word: str) -> Completions:
-    """Complete a filesystem path.  Returns ``(full_path, "")`` pairs.
+    """Complete a filesystem path.  Returns `(full_path, "")` pairs.
 
     Values include the full path so callers can use them as direct
     replacements for the word being completed.
 
-    Handles ``~`` (home directory), absolute paths, and relative paths.
-    Hidden entries (starting with ``.``) are only shown when *word*
-    itself starts with a dot (or contains ``/.``).
+    Handles `~` (home directory), absolute paths, and relative paths.
+    Hidden entries (starting with `.`) are only shown when *word*
+    itself starts with a dot (or contains `/.`).
     """
     # Expand ~ to the real home directory for filesystem operations,
     # but keep the original prefix for display values.
@@ -116,7 +116,7 @@ def complete_path(word: str) -> Completions:
 
 
 def _bash_complete_script() -> str:
-    """Return the filesystem path to ``bash_complete.sh``."""
+    """Return the filesystem path to `bash_complete.sh`."""
     return str(resources.files("rbtr.scripts").joinpath("bash_complete.sh"))
 
 
@@ -125,8 +125,8 @@ def complete_bash(cmd_line: str) -> Completions:
 
     Searches well-known directories for bash-completion scripts, sources
     the appropriate one, calls the registered completion function with
-    the ``COMP_*`` variables set, and returns ``COMPREPLY`` entries as
-    ``(value, "")`` pairs.
+    the `COMP_*` variables set, and returns `COMPREPLY` entries as
+    `(value, "")` pairs.
 
     Returns an empty list when no completion script is found, the command
     has no registered completion function, or bash is not available.
@@ -170,10 +170,10 @@ def complete_bash(cmd_line: str) -> Completions:
 
 
 def complete_executables(prefix: str) -> Completions:
-    """Complete executable names from ``PATH``.
+    """Complete executable names from `PATH`.
 
-    Returns ``(name, "")`` pairs.  Includes exact matches (so ``git``
-    appears even when ``git-latexdiff`` also matches).  Deterministic
+    Returns `(name, "")` pairs.  Includes exact matches (so `git`
+    appears even when `git-latexdiff` also matches).  Deterministic
     and fast — no subprocess or pty involved.
     """
     seen: set[str] = set()
@@ -248,7 +248,7 @@ def completion_suffix(value: str, context_word: str = "") -> str:
     - non-path tokens      → " " (commands/options are always complete)
 
     *context_word* is the original word being completed (from the buffer).
-    If either the value or context contains ``/``, path semantics apply.
+    If either the value or context contains `/`, path semantics apply.
     """
     if value.endswith("/"):
         return ""
@@ -287,7 +287,7 @@ def make_paste_marker(content: str, existing: list[PasteRegion]) -> str:
     """Build a unique marker string for *content*.
 
     Uses line count for multiline, char count otherwise.
-    Appends ``#N`` when an identical marker already exists.
+    Appends `#N` when an identical marker already exists.
     """
     lines = content.count("\n") + 1
     base = f"[pasted {lines} lines]" if "\n" in content else f"[pasted {len(content)} chars]"
@@ -306,7 +306,7 @@ def make_paste_marker(content: str, existing: list[PasteRegion]) -> str:
 @dataclass
 class InputState:
     """Observable input state.  The UI reads fields for rendering;
-    the reader thread writes them from ``_on_key``."""
+    the reader thread writes them from `_on_key`."""
 
     buffer: Buffer = field(default_factory=lambda: Buffer(multiline=True))
     submitted: queue.Queue[str | None] = field(default_factory=queue.Queue)
@@ -338,12 +338,12 @@ class InputState:
 
     @property
     def text(self) -> str:
-        """Current buffer text (shorthand for ``buffer.document.text``)."""
+        """Current buffer text (shorthand for `buffer.document.text`)."""
         return self.buffer.text
 
     @property
     def cursor(self) -> int:
-        """Current cursor offset (shorthand for ``buffer.cursor_position``)."""
+        """Current cursor offset (shorthand for `buffer.cursor_position`)."""
         return self.buffer.cursor_position
 
     def reset(self) -> None:
@@ -422,9 +422,9 @@ class InputState:
         return prefix
 
     def marker_span_at(self, pos: int) -> MarkerSpan | None:
-        """Return the marker span containing *pos*, or ``None``.
+        """Return the marker span containing *pos*, or `None`.
 
-        A :data:`MarkerSpan` is ``(start, end, region)`` where *start*
+        A `MarkerSpan` is `(start, end, region)` where *start*
         is inclusive and *end* exclusive.
         """
         for span in self.marker_spans():
@@ -488,13 +488,13 @@ class InputState:
         self.set_text(new)
 
     def apply_completions(self, matches: Completions) -> None:
-        """Apply a list of ``(value, description)`` matches.
+        """Apply a list of `(value, description)` matches.
 
         - Single match → auto-accept (replace word + append suffix).
         - Multiple matches → extend common prefix, show menu.
         - No matches → clear menu.
 
-        Truncates to ``config.tui.max_completions`` before displaying.
+        Truncates to `config.tui.max_completions` before displaying.
         """
         if len(matches) == 1:
             self.accept_completion(matches[0][0], with_suffix=True)
@@ -528,7 +528,7 @@ class InputState:
 
 
 class InputReader:
-    """Reads keystrokes via ``Vt100Parser`` and drives a ``Buffer``.
+    """Reads keystrokes via `Vt100Parser` and drives a `Buffer`.
 
     Use as a context manager — it sets cbreak mode on entry and
     restores the terminal on exit.  History is written to disk on
@@ -601,9 +601,9 @@ class InputReader:
     def _loop(self) -> None:
         """Blocking read loop — runs in a daemon thread.
 
-        Uses ``os.read`` on the raw fd rather than ``sys.stdin.read``
-        so that ``select`` and ``read`` operate on the same kernel
-        buffer.  This ensures escape sequences (e.g. ``\\x1b[B`` for
+        Uses `os.read` on the raw fd rather than `sys.stdin.read`
+        so that `select` and `read` operate on the same kernel
+        buffer.  This ensures escape sequences (e.g. `\\x1b[B` for
         Down) arrive as a single chunk and are parsed correctly.
         """
         fd = self._fd

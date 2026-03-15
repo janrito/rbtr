@@ -1,10 +1,10 @@
 """Shared helpers and test data for engine tests.
 
 Provides:
-- ``engine`` fixture — default engine with auto-cleanup
-- ``repo_engine`` fixture — engine backed by a git repo in a temp dir
-- Event helpers (``drain``, ``output_texts``)
-- Git repo helpers (``make_repo_with_file``, ``wait_for_index``)
+- `engine` fixture — default engine with auto-cleanup
+- `repo_engine` fixture — engine backed by a git repo in a temp dir
+- Event helpers (`drain`, `output_texts`)
+- Git repo helpers (`make_repo_with_file`, `wait_for_index`)
 - Realistic, reusable model instances for PRs and branches
 """
 
@@ -37,7 +37,7 @@ from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-# Re-export top-level helpers so existing ``from .conftest import …``
+# Re-export top-level helpers so existing `from .conftest import …`
 # lines in this package keep working without change.
 from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
 
@@ -167,13 +167,13 @@ def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs
 
 
 def summary_result(text: str = "Summary.") -> _SummaryResult:
-    """Build a ``_SummaryResult`` with zero cost — for mocking ``_stream_summary``."""
+    """Build a `_SummaryResult` with zero cost — for mocking `_stream_summary`."""
     return _SummaryResult(text=text, input_tokens=0, output_tokens=0, cost=0.0)
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────
 
-# ``engine``, ``llm_ctx``, and ``llm_engine`` live in the root
+# `engine`, `llm_ctx`, and `llm_engine` live in the root
 # conftest — available to all test packages.
 
 
@@ -181,8 +181,8 @@ def summary_result(text: str = "Summary.") -> _SummaryResult:
 def repo_engine(tmp_path: Path) -> Generator[Engine]:
     """Engine backed by a git repo in a temp directory.
 
-    The repo has a single commit on ``main`` with ``hello.py``.
-    Tests can add branches/files via ``engine.state.repo``.
+    The repo has a single commit on `main` with `hello.py`.
+    Tests can add branches/files via `engine.state.repo`.
     """
     repo = pygit2.init_repository(str(tmp_path))
     sig = pygit2.Signature("Test", "test@test.com")

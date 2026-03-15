@@ -1,13 +1,13 @@
 """Ruby language plugin.
 
 Provides symbol extraction (methods, classes, modules) and
-structured import metadata from ``require`` / ``require_relative``.
+structured import metadata from `require` / `require_relative`.
 
 Extracted require examples::
 
-    ``require "json"``              → ``{"module": "json"}``
-    ``require "net/http"``          → ``{"module": "net/http"}``
-    ``require_relative "helpers"``  → ``{"module": "helpers", "dots": "1"}``
+    `require "json"`              → `{"module": "json"}`
+    `require "net/http"`          → `{"module": "net/http"}`
+    `require_relative "helpers"`  → `{"module": "helpers", "dots": "1"}`
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def _string_content(node: Node) -> str:
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract require/require_relative metadata from a ``call`` node."""
+    """Extract require/require_relative metadata from a `call` node."""
     method_name = ""
     arg_value = ""
     for child in node.children:

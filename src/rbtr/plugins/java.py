@@ -40,27 +40,27 @@ _QUERY = """\
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract import data from a Java ``import_declaration`` node.
+    """Extract import data from a Java `import_declaration` node.
 
-    Uses :func:`~rbtr.plugins.hookspec.collect_scoped_path` to walk
-    the nested ``scoped_identifier`` nodes.  The last segment is
+    Uses `collect_scoped_path` to walk
+    the nested `scoped_identifier` nodes.  The last segment is
     treated as the imported name, everything before it as the
     module path.
 
-    **Class import** — ``import java.util.HashMap;``::
+    **Class import** — `import java.util.HashMap;`::
 
         >>> extract_import_meta(node)
         {"module": "java.util", "names": "HashMap"}
 
-    **Wildcard import** — ``import com.example.models.*;``
-    (the ``*`` is a separate AST node; the last scoped segment
-    is ``"models"``)::
+    **Wildcard import** — `import com.example.models.*;`
+    (the `*` is a separate AST node; the last scoped segment
+    is `"models"`)::
 
         >>> extract_import_meta(node)
         {"module": "com.example", "names": "models"}
 
-    **Static import** — ``import static org.junit.Assert.assertEquals;``
-    (the ``static`` keyword is skipped; scoped path is walked
+    **Static import** — `import static org.junit.Assert.assertEquals;`
+    (the `static` keyword is skipped; scoped path is walked
     the same way)::
 
         >>> extract_import_meta(node)
@@ -86,10 +86,10 @@ def extract_import_meta(node: Node) -> ImportMeta:
 class JavaPlugin:
     """Java language support.
 
-    Note: Java uses ``method_declaration`` (not
-    ``function_declaration``) for all methods, including static
-    ones.  The query captures them as ``@method``, and
-    ``extract_symbols`` promotes to ``ChunkKind.METHOD`` when a
+    Note: Java uses `method_declaration` (not
+    `function_declaration`) for all methods, including static
+    ones.  The query captures them as `@method`, and
+    `extract_symbols` promotes to `ChunkKind.METHOD` when a
     scope is found.
     """
 

@@ -262,8 +262,8 @@ def _render_overhead(engine: Engine, oh: OverheadStats) -> None:
 def _render_facts(engine: Engine, *, all_scopes: bool = False) -> None:
     """Render fact counts.
 
-    *all_scopes*: show every scope (``/stats all``).
-    Otherwise show only global + current repo (``/stats``).
+    *all_scopes*: show every scope (`/stats all`).
+    Otherwise show only global + current repo (`/stats`).
     """
     if not config.memory.enabled:
         return

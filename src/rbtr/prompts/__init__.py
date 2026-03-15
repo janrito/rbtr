@@ -2,16 +2,16 @@
 
 Three templates, two concerns:
 
-- **System** (``system.md``) — identity, language, project
+- **System** (`system.md`) — identity, language, project
   instructions.  Shared by the main agent and the compaction
   agent.  No runtime state needed.
-- **Review task** (``review.md``) — review context, principles,
+- **Review task** (`review.md`) — review context, principles,
   strategy, two voices, format.  Main agent only.
-- **Compaction task** (``compact.md``) — what to preserve and
+- **Compaction task** (`compact.md`) — what to preserve and
   drop when summarising history.  Compaction agent only.
 
-Project-level instructions (``AGENTS.md`` etc.) and user-level
-extensions (``APPEND_SYSTEM.md``) are injected as plain text
+Project-level instructions (`AGENTS.md` etc.) and user-level
+extensions (`APPEND_SYSTEM.md`) are injected as plain text
 via template variables — they are not themselves templates.
 """
 
@@ -53,8 +53,8 @@ def _read_optional(path: Path) -> str:
 def _load_project_instructions() -> str:
     """Read and concatenate project instruction files from the repo root.
 
-    File names come from ``config.project_instructions`` (a list,
-    default ``["AGENTS.md"]``).  Missing files are silently skipped.
+    File names come from `config.project_instructions` (a list,
+    default `["AGENTS.md"]`).  Missing files are silently skipped.
     """
     parts: list[str] = []
     for name in config.project_instructions:
@@ -65,7 +65,7 @@ def _load_project_instructions() -> str:
 
 
 def _load_append_system() -> str:
-    """Read the append-system file from ``~/.config/rbtr/`` if configured."""
+    """Read the append-system file from `~/.config/rbtr/` if configured."""
     name = config.append_system
     if not name:
         return ""
@@ -73,7 +73,7 @@ def _load_append_system() -> str:
 
 
 def _load_system_override() -> str:
-    """Read the system prompt override from ``~/.config/rbtr/`` if configured.
+    """Read the system prompt override from `~/.config/rbtr/` if configured.
 
     When present, replaces the built-in system template.
     Review and compaction instructions are unaffected.
@@ -97,7 +97,7 @@ def _render(template: str, **ctx: Any) -> str:
 def render_system() -> str:
     """Render the system prompt (identity, language, project rules).
 
-    If ``~/.config/rbtr/SYSTEM.md`` exists, it replaces the
+    If `~/.config/rbtr/SYSTEM.md` exists, it replaces the
     built-in template.  The same template variables are available.
     """
     template = _load_system_override() or _load_template("system.md")
@@ -184,7 +184,7 @@ def render_index_status(*, status: str, tool_names: list[str]) -> str:
     """Render the index status instruction.
 
     Args:
-        status: ``"ready"``, ``"building"``, or ``""`` (no review target).
+        status: `"ready"`, `"building"`, or `""` (no review target).
         tool_names: Names of tools that require the index.
     """
     if not status:

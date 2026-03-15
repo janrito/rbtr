@@ -44,33 +44,33 @@ _QUERY = """\
 def extract_import_meta(node: Node) -> ImportMeta:
     """Extract structured import data from a Python import node.
 
-    Walks the tree-sitter AST for ``import_statement`` and
-    ``import_from_statement`` nodes.
+    Walks the tree-sitter AST for `import_statement` and
+    `import_from_statement` nodes.
 
     Examples:
 
-        ``import os.path`` — bare import::
+        `import os.path` — bare import::
 
             >>> extract_import_meta(node)
             {"module": "os.path"}
 
-        ``from pathlib import Path`` — absolute from-import::
+        `from pathlib import Path` — absolute from-import::
 
             >>> extract_import_meta(node)
             {"module": "pathlib", "names": "Path"}
 
-        ``from ..core import engine`` — relative from-import::
+        `from ..core import engine` — relative from-import::
 
             >>> extract_import_meta(node)
             {"dots": "2", "module": "core", "names": "engine"}
 
-        ``from .models import Chunk as C`` — aliased import
+        `from .models import Chunk as C` — aliased import
         (extracts the original name, not the alias)::
 
             >>> extract_import_meta(node)
             {"dots": "1", "module": "models", "names": "Chunk"}
 
-        ``from . import utils`` — bare relative (no module tail)::
+        `from . import utils` — bare relative (no module tail)::
 
             >>> extract_import_meta(node)
             {"dots": "1", "names": "utils"}
@@ -124,9 +124,9 @@ def extract_import_meta(node: Node) -> ImportMeta:
 class PythonPlugin:
     """Python language support.
 
-    Registers ``.py`` and ``.pyi`` files.  Uses
-    ``class_definition`` for scope detection (Python's AST uses
-    ``class_definition``, not ``class_declaration``).
+    Registers `.py` and `.pyi` files.  Uses
+    `class_definition` for scope detection (Python's AST uses
+    `class_definition`, not `class_declaration`).
     """
 
     @hookimpl

@@ -1,20 +1,20 @@
 """Tests for draft sync and comment matching — realistic API-shaped data.
 
-Exercises the full lifecycle that ``/draft sync`` performs:
+Exercises the full lifecycle that `/draft sync` performs:
 create → read → match → merge → delete → push → re-read.
 
 Test data is modelled on captured GitHub API responses.  Key
 properties from real fixtures:
 
-- Per-review endpoint returns ``line: null``, ``side: null`` for
+- Per-review endpoint returns `line: null`, `side: null` for
   ALL review comments (pending AND submitted).
-- ``position`` and ``diff_hunk`` are always present.
-- ``diff_hunk`` runs from the ``@@`` header through the commented
-  line — ``_position_to_line`` walks it to recover ``(line, side)``.
-- Pending comments return 404 on ``PATCH /pulls/comments/{id}``.
-- Pending comments CAN be individually ``DELETE``-d.
+- `position` and `diff_hunk` are always present.
+- `diff_hunk` runs from the `@@` header through the commented
+  line — `_position_to_line` walks it to recover `(line, side)`.
+- Pending comments return 404 on `PATCH /pulls/comments/{id}`.
+- Pending comments CAN be individually `DELETE`-d.
 - After delete-and-recreate, comment IDs change but content and
-  ``position``/``diff_hunk`` remain identical.
+  `position`/`diff_hunk` remain identical.
 
 These tests do NOT depend on fixture files on disk — they inline
 the data patterns.
@@ -87,8 +87,8 @@ def _pending_comment(
 ) -> FakeInlineComment:
     """Build a FakeInlineComment shaped like the real GitHub API.
 
-    Per-review endpoint returns ``line: null``, ``side: null``.
-    The production code falls back to ``_position_to_line(diff_hunk)``.
+    Per-review endpoint returns `line: null`, `side: null`.
+    The production code falls back to `_position_to_line(diff_hunk)`.
     """
     c = FakeInlineComment(
         comment_id=comment_id,

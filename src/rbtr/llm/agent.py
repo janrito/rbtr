@@ -1,15 +1,15 @@
 """Agent definition — pydantic-ai Agent with toolset-based tool registration.
 
 The agent is defined once at module level.  Instructions use
-``@agent.instructions`` decorators — stateless ones (system) are
+`@agent.instructions` decorators — stateless ones (system) are
 plain functions, stateful ones (review, index status, memory)
-receive ``RunContext``.
+receive `RunContext`.
 
-The model is provided at each call site via ``agent.iter(model=...)``,
+The model is provided at each call site via `agent.iter(model=...)`,
 not baked into the agent.
 
 Tools are organised into five `FunctionToolset` instances, each
-wrapped in a ``FilteredToolset`` that gates the entire group on
+wrapped in a `FilteredToolset` that gates the entire group on
 engine state.  Presentation order to the model follows toolset
 order x registration order within each toolset.
 """

@@ -56,7 +56,7 @@ skip_no_rust = pytest.mark.skipif(not _has_rust, reason="tree-sitter-rust not in
 
 
 def _collect_from_use(code: str) -> list[str]:
-    """Parse a Rust ``use`` declaration and collect scoped path parts."""
+    """Parse a Rust `use` declaration and collect scoped path parts."""
     import tree_sitter_rust  # deferred: optional grammar
     from tree_sitter import Language, Parser
 

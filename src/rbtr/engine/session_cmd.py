@@ -22,9 +22,9 @@ _UNIT_MAP: dict[str, str] = {
 
 
 def parse_duration(spec: str) -> timedelta | None:
-    """Parse a duration like ``7d``, ``2w``, ``24h``.
+    """Parse a duration like `7d`, `2w`, `24h`.
 
-    Returns ``None`` if the format is not recognised.
+    Returns `None` if the format is not recognised.
     """
     if len(spec) < 2:
         return None
@@ -215,8 +215,8 @@ def _find_session(engine: Engine, query: str) -> SessionSummary | None:
 
     Tries ID prefix first.  Falls back to case-insensitive label
     substring — when several sessions share a label the most
-    recent one wins (``list_sessions`` returns newest first).
-    Returns ``None`` (with a user-facing warning) on zero or
+    recent one wins (`list_sessions` returns newest first).
+    Returns `None` (with a user-facing warning) on zero or
     ambiguous ID-prefix matches.
     """
     sessions = engine.store.list_sessions(limit=200)
@@ -313,7 +313,7 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
 def _cmd_resume_last(engine: Engine) -> None:
     """Resume the most recent session for the current repo.
 
-    Used by ``rbtr -c`` at startup.  Silently does nothing when
+    Used by `rbtr -c` at startup.  Silently does nothing when
     there is no previous session to resume.
     """
     sessions = engine.store.list_sessions(

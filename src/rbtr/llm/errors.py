@@ -1,6 +1,6 @@
 """API error classification heuristics.
 
-Pure functions that inspect ``ModelHTTPError`` to decide whether the
+Pure functions that inspect `ModelHTTPError` to decide whether the
 error is a context overflow, unsupported-effort rejection, etc.
 """
 

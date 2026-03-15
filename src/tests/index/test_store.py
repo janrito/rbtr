@@ -493,7 +493,7 @@ def test_fulltext_auto_rebuilds_fts_on_first_call(store: IndexStore) -> None:
 
     Reproduces the real-world bug where the FTS index is lost after
     reopening a DuckDB file (FTS is in-memory only).  The lazy
-    ``_ensure_fts()`` must rebuild it transparently.
+    `_ensure_fts()` must rebuild it transparently.
     """
     _seed_store(store)
     # Do NOT call rebuild_fts_index — that's the point.
@@ -607,7 +607,7 @@ def test_checkpoint_makes_writes_visible_during_concurrent_work() -> None:
 
     Reproduces the real-world scenario: indexing inserts chunks +
     snapshots, calls checkpoint(), then starts embedding (slow UPDATEs).
-    ``/index status`` reads from the main thread during embedding.
+    `/index status` reads from the main thread during embedding.
     """
     import threading
 

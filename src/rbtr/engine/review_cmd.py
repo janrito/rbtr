@@ -284,11 +284,11 @@ def _review_snapshot(engine: Engine, ref: str) -> None:
 def _update_session_label(engine: Engine) -> None:
     """Auto-name the session after the review target, once only.
 
-    Only fires when ``session_label`` is empty — meaning no
-    previous ``/review`` or ``/session rename`` has set it.
+    Only fires when `session_label` is empty — meaning no
+    previous `/review` or `/session rename` has set it.
     The empty string is the persistent sentinel: it survives
-    in the DB across restarts, so ``/session resume`` followed
-    by ``/review`` does the right thing without extra state.
+    in the DB across restarts, so `/session resume` followed
+    by `/review` does the right thing without extra state.
     """
     if engine.state.session_label:
         return
@@ -308,7 +308,7 @@ def _update_session_label(engine: Engine) -> None:
 def _check_refs(engine: Engine, base_ref: str, head_ref: str) -> None:
     """Warn if either review ref cannot be resolved locally.
 
-    Called after ``fetch_pr_refs`` so that network-reachable refs
+    Called after `fetch_pr_refs` so that network-reachable refs
     are already fetched.  If a ref still can't be resolved, the
     user sees a clear warning instead of silently wrong diffs
     and commit logs.

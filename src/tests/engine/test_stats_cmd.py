@@ -2,7 +2,7 @@
 
 Data-first: a shared fixture seeds two sessions with realistic
 conversation data (tool calls, token usage, cost).  Tests verify
-behaviours against that data through ``engine.run_task()``.
+behaviours against that data through `engine.run_task()`.
 """
 
 from __future__ import annotations

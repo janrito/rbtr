@@ -39,8 +39,8 @@ type TokenData = dict[str, str | int]
 class PendingLogin:
     """State kept between the two phases of an OAuth login flow.
 
-    All OAuth providers store this between ``begin_login`` (phase 1)
-    and ``complete_login`` (phase 2).  ``state`` is used by providers
+    All OAuth providers store this between `begin_login` (phase 1)
+    and `complete_login` (phase 2).  `state` is used by providers
     that generate a separate random state parameter (e.g. ChatGPT);
     providers that use the verifier as state leave it empty.
     """
@@ -56,7 +56,7 @@ def deobfuscate(encoded: str) -> str:
     """Decode a base64-encoded constant (client IDs, secrets).
 
     All provider modules store OAuth client identifiers as base64 to
-    keep them out of casual ``grep`` results.  This function documents
+    keep them out of casual `grep` results.  This function documents
     that convention and provides a single decode path.
     """
     return base64.b64decode(encoded).decode()
@@ -102,10 +102,10 @@ def oauth_expired(oauth: OAuthCreds) -> bool:
 
 
 class OAuthCallbackServer(http.server.HTTPServer):
-    """Receives an OAuth redirect on ``localhost:<port><path>``.
+    """Receives an OAuth redirect on `localhost:<port><path>`.
 
-    After ``handle_request()`` completes, inspect ``code``, ``state``,
-    and ``error`` to determine what happened.
+    After `handle_request()` completes, inspect `code`, `state`,
+    and `error` to determine what happened.
     """
 
     code: str | None
@@ -163,7 +163,7 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
 
 def start_callback_server(port: int, callback_path: str) -> OAuthCallbackServer:
-    """Create and return a callback server, raising ``PortBusyError`` on failure."""
+    """Create and return a callback server, raising `PortBusyError` on failure."""
     try:
         return OAuthCallbackServer(port, callback_path)
     except OSError as e:
@@ -187,7 +187,7 @@ def run_oauth_flow(
 
     Opens the browser, starts a callback server, waits for the
     redirect, validates state, and returns the authorization code.
-    Raises ``PortBusyError`` if the port is taken.
+    Raises `PortBusyError` if the port is taken.
     """
     url = f"{auth_url}?{urlencode(params)}"
     server = start_callback_server(port, callback_path)
@@ -215,7 +215,7 @@ def run_oauth_flow(
 def build_login_url(auth_url: str, params: dict[str, str]) -> str:
     """Build the authorize URL and open it in the browser.
 
-    Used by the manual fallback flow (``begin_login``).
+    Used by the manual fallback flow (`begin_login`).
     """
     url = f"{auth_url}?{urlencode(params)}"
     threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
@@ -223,7 +223,7 @@ def build_login_url(auth_url: str, params: dict[str, str]) -> str:
 
 
 def parse_callback_url(raw: str) -> tuple[str, str]:
-    """Extract ``(code, state)`` from a callback URL or pasted string.
+    """Extract `(code, state)` from a callback URL or pasted string.
 
     Accepts a full redirect URL, a query string, or a bare code.
     """
@@ -291,10 +291,10 @@ def ensure_credentials(
 ) -> OAuthCreds:
     """Return valid OAuth credentials, refreshing if expired.
 
-    *field* is the attribute name on ``creds`` (e.g. ``"claude"``),
+    *field* is the attribute name on `creds` (e.g. `"claude"`),
     used both for reading/writing credentials and in error messages.
 
-    Raises ``RbtrError`` if not connected or refresh fails.
+    Raises `RbtrError` if not connected or refresh fails.
     """
     from rbtr.creds import creds  # deferred: avoid circular import at module level
 

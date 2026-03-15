@@ -62,7 +62,7 @@ class OpenAIProvider:
         return openai_responses_model_settings(model, effort)
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window from ``genai-prices``."""
+        """Look up context window from `genai-prices`."""
         from rbtr.providers.shared import genai_prices_context_window
 
         return genai_prices_context_window(self.GENAI_ID, model_id)

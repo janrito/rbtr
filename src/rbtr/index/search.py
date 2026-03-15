@@ -7,7 +7,7 @@ Post-fusion multipliers for chunk kind and file category adjust
 the final score.
 
 All scoring helpers are pure functions — easy to test in isolation.
-Orchestration lives in :meth:`IndexStore.search` (``store.py``).
+Orchestration lives in `search` (`store.py`).
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ def name_score(query: str, name: str) -> float:
     Checks whole-query matching first (exact > prefix > substring),
     then falls back to token-level matching: if every token in the
     query appears in the name, scores 0.4.  This handles multi-word
-    concept queries like ``"import edge"`` matching
-    ``"infer_import_edges"``.
+    concept queries like `"import edge"` matching
+    `"infer_import_edges"`.
 
     Returns:
         1.0  exact match (case-insensitive),
@@ -83,8 +83,8 @@ class QueryKind(StrEnum):
     PATTERN = "pattern"
 
 
-# Regex metacharacters that signal a pattern query.  Excludes ``.``
-# (used in dotted identifiers like ``a.b.c``) and ``_`` (used in
+# Regex metacharacters that signal a pattern query.  Excludes `.`
+# (used in dotted identifiers like `a.b.c`) and `_` (used in
 # snake_case identifiers).
 _PATTERN_CHARS = re.compile(r"[\\*+?\[\]{}^$|()]")
 
@@ -96,7 +96,7 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 def classify_query(query: str) -> QueryKind:
     """Classify *query* to select fusion weights.
 
-    - **pattern** — contains regex metacharacters (not ``.``).
+    - **pattern** — contains regex metacharacters (not `.`).
     - **identifier** — single token matching an identifier pattern.
     - **concept** — everything else (natural language, keywords).
     """
@@ -129,7 +129,7 @@ _KIND_WEIGHTS: dict[QueryKind, tuple[float, float, float]] = {
 
 
 def weights_for_query(query: str) -> tuple[float, float, float]:
-    """Return ``(alpha, beta, gamma)`` fusion weights for *query*."""
+    """Return `(alpha, beta, gamma)` fusion weights for *query*."""
     return _KIND_WEIGHTS[classify_query(query)]
 
 
@@ -232,7 +232,7 @@ def file_category_penalty(path: str) -> float:
 def importance_score(inbound_degree: int) -> float:
     """Ranking boost from inbound edge count.
 
-    Uses ``log2(1 + degree)`` scaled so that zero edges gives 1.0
+    Uses `log2(1 + degree)` scaled so that zero edges gives 1.0
     (neutral) and higher degree gives a multiplicative boost.
     Capped at 3.0 to avoid runaway dominance.
 
@@ -317,7 +317,7 @@ def fuse_scores(
 ) -> list[ScoredResult]:
     """Fuse three signal channels into a ranked result list.
 
-    Each ``*_scores`` dict maps chunk ID → raw score.  Scores
+    Each `*_scores` dict maps chunk ID → raw score.  Scores
     are normalised independently, then combined::
 
         base = a*semantic + b*lexical + g*name

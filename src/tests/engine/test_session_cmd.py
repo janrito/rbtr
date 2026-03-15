@@ -30,7 +30,7 @@ def double_seeded_engine(seeded_engine: Engine) -> Engine:
     """Seeded engine with a second session saved to the store.
 
     On return the engine is back on the *first* session.
-    The second session's ID is discoverable via ``list_sessions``.
+    The second session's ID is discoverable via `list_sessions`.
     """
     engine = seeded_engine
     first_id = engine.state.session_id

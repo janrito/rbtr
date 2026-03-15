@@ -1,8 +1,8 @@
-"""Round-trip tests for ``_position_to_line`` / ``_line_to_position``.
+"""Round-trip tests for `_position_to_line` / `_line_to_position`.
 
-Data-first: each ``DIFF_HUNK`` is a realistic diff excerpt (taken from
+Data-first: each `DIFF_HUNK` is a realistic diff excerpt (taken from
 real Git output or modelled on GitHub API responses).  Every
-``(position, line, side)`` triple in the hunk is enumerated so we can
+`(position, line, side)` triple in the hunk is enumerated so we can
 verify both conversion directions and prove they are inverses.
 """
 

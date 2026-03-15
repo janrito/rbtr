@@ -88,7 +88,7 @@ def ensure_gh_username(engine: Engine) -> str:
 def _make_session_label(owner: str, repo_name: str, repo: pygit2.Repository) -> str:
     """Build a human-readable session label from repo context.
 
-    Format: ``owner/repo — ref`` where *ref* is the current branch
+    Format: `owner/repo — ref` where *ref* is the current branch
     name or short commit hash.
     """
     ref = ""

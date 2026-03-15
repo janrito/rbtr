@@ -2,15 +2,15 @@
 
 Architecture: execution and display are fully separated.
 
-**Engine** (``rbtr.engine``, daemon threads): runs commands, produces typed
+**Engine** (`rbtr.engine`, daemon threads): runs commands, produces typed
 Events onto a queue. Knows nothing about Rich, Live, or Panels. Never
 touches the display.
 
 **UI** (this module, main thread): owns the Rich Live context, consumes
 Events, renders. Never runs commands or does I/O beyond rendering.
 
-They communicate through ``queue.Queue[Event]`` using Pydantic models
-defined in ``rbtr.events``.
+They communicate through `queue.Queue[Event]` using Pydantic models
+defined in `rbtr.events`.
 
 The terminal's native scroll buffer holds all history. The Live region
 is kept small — only the current panel + input chrome.
@@ -134,7 +134,7 @@ def _tail_renderable_lines(
     renderable: RenderableType,
     max_lines: int,
 ) -> RenderableType:
-    """Return the bottom ``max_lines`` of *renderable* for live viewporting."""
+    """Return the bottom `max_lines` of *renderable* for live viewporting."""
     if max_lines <= 0:
         return Text("")
 
@@ -306,7 +306,7 @@ class UI:
     def _complete_model(self, partial: str) -> None:
         """Complete a model ID argument for /model.
 
-        Uses the cached model list from ``state.cached_models``.
+        Uses the cached model list from `state.cached_models`.
         If the cache is empty, fetches in a background thread.
         """
         cached = self._engine.state.cached_models
@@ -338,7 +338,7 @@ class UI:
     def _complete_review(self, partial: str) -> None:
         """Complete a review target argument for /review.
 
-        Uses cached PR/branch data from the last ``/review`` list.
+        Uses cached PR/branch data from the last `/review` list.
         Falls back to local branches from the repo.
         """
         cached = self._engine.state.cached_review_targets
@@ -425,7 +425,7 @@ class UI:
         self.inp.apply_completions(matches)
 
     def _complete_stats(self, arg: str) -> None:
-        """Complete /stats arguments: ``all`` or session ID/label."""
+        """Complete /stats arguments: `all` or session ID/label."""
         matches: list[tuple[str, str]] = []
         if "all".startswith(arg):
             matches.append(("/stats all", "Stats across all sessions"))
@@ -443,7 +443,7 @@ class UI:
     def _complete_shell(self) -> None:
         """Complete a shell command in a background thread.
 
-        Delegates to ``query_shell_completions`` (bash completion →
+        Delegates to `query_shell_completions` (bash completion →
         filesystem → PATH search) and applies results to input state.
         Runs off the main thread so the UI stays responsive.
         """

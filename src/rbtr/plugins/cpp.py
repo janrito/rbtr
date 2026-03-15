@@ -2,13 +2,13 @@
 
 Provides symbol extraction (functions, classes, structs, enums,
 methods) and include directive capture.  Scope types include
-``class_specifier`` and ``struct_specifier`` so methods inside
+`class_specifier` and `struct_specifier` so methods inside
 classes are correctly scoped.
 
 Extracted include examples::
 
-    ``#include <iostream>``  → ``{"module": "iostream"}``
-    ``#include "mylib.h"``   → ``{"module": "mylib.h"}``
+    `#include <iostream>`  → `{"module": "iostream"}`
+    `#include "mylib.h"`   → `{"module": "mylib.h"}`
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ _QUERY = """
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract include path from a ``preproc_include`` node."""
+    """Extract include path from a `preproc_include` node."""
     for child in node.children:
         if child.type == "system_lib_string" and child.text:
             raw = child.text.decode()

@@ -74,15 +74,15 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _isolate_session_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect SESSIONS_DB_PATH to a temp dir so no test touches the
-    real user database at ``~/.config/rbtr/sessions.db``.
+    real user database at `~/.config/rbtr/sessions.db`.
 
-    Tests that create ``SessionStore()`` (no args) use ``:memory:``.
-    This guard catches ``Engine(state, q)`` without an explicit
-    ``store=`` kwarg — the fallback path will land in ``tmp_path``
+    Tests that create `SessionStore()` (no args) use `:memory:`.
+    This guard catches `Engine(state, q)` without an explicit
+    `store=` kwarg — the fallback path will land in `tmp_path`
     instead of the user's home directory.
 
     Both the canonical definition and every re-export must be patched
-    because ``from X import Y`` creates a separate binding.
+    because `from X import Y` creates a separate binding.
     """
     safe_path = tmp_path / "sessions.db"
     monkeypatch.setattr("rbtr.sessions.store.SESSIONS_DB_PATH", safe_path)
@@ -94,7 +94,7 @@ def _isolate_creds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     """Redirect credential storage to a temp file so no test leaks
     API keys into the singleton or touches the real creds file.
 
-    Applied globally — every test starts with a clean ``creds``
+    Applied globally — every test starts with a clean `creds`
     singleton and ends by restoring defaults.
     """
     path = tmp_path / "creds.toml"
@@ -107,7 +107,7 @@ def _isolate_creds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
 
 @pytest.fixture
 def creds_path(tmp_path: Path) -> Path:
-    """Return the temp creds path (already isolated by ``_isolate_creds``)."""
+    """Return the temp creds path (already isolated by `_isolate_creds`)."""
     return tmp_path / "creds.toml"
 
 
@@ -144,7 +144,7 @@ def llm_engine(creds_path: Path) -> Generator[Engine]:
     """Engine pre-wired for LLM tests (OpenAI connected, model set).
 
     Sets credentials, connects the OpenAI provider, assigns a model,
-    and syncs the store context — ready for ``handle_llm`` calls.
+    and syncs the store context — ready for `handle_llm` calls.
     """
     from rbtr.providers import BuiltinProvider
 

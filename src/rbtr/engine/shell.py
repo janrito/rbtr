@@ -97,7 +97,7 @@ def _emit_shell_context(
     stderr: str,
     returncode: int,
 ) -> None:
-    """Emit a ``ContextMarkerReady`` event summarising the shell command."""
+    """Emit a `ContextMarkerReady` event summarising the shell command."""
     rc = returncode
     marker = f"[! {cmd} — exit {rc}]"
 

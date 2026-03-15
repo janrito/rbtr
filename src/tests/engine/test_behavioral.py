@@ -1,6 +1,6 @@
 """End-to-end behavioral tests for session persistence.
 
-Uses ``pydantic_ai.models.test.TestModel`` for a real agent loop —
+Uses `pydantic_ai.models.test.TestModel` for a real agent loop —
 no mocks. These tests define the contract that must survive the
 part-level persistence refactor.
 

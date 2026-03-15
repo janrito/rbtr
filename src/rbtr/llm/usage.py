@@ -1,10 +1,10 @@
 """LLM usage reading and recording.
 
 Reads cost, token counts, and context-window metadata from
-PydanticAI ``ModelResponse`` objects.  Used by the conversation
-pipeline (``stream.py``), compaction, and fact extraction.
+PydanticAI `ModelResponse` objects.  Used by the conversation
+pipeline (`stream.py`), compaction, and fact extraction.
 
-Distinct from ``rbtr.usage`` which is a pure accumulator with no
+Distinct from `rbtr.usage` which is a pure accumulator with no
 LLM / pydantic_ai dependencies.
 """
 
@@ -19,9 +19,9 @@ from .context import LLMContext
 
 
 def extract_cost(messages: list[ModelMessage]) -> float:
-    """Sum cost from ``ModelResponse.cost()`` across *messages*.
+    """Sum cost from `ModelResponse.cost()` across *messages*.
 
-    Skips responses without a ``model_name`` (which can't be priced)
+    Skips responses without a `model_name` (which can't be priced)
     and silently handles pricing lookup failures.
     """
     total = 0.0
@@ -43,13 +43,13 @@ def record_run_usage(
 ) -> tuple[float, bool]:
     """Extract cost/context-window from new messages and update session usage.
 
-    Returns ``(run_cost, cost_available)`` so callers can persist cost.
+    Returns `(run_cost, cost_available)` so callers can persist cost.
 
-    ``run_usage.input_tokens`` is the **sum** across all requests in
+    `run_usage.input_tokens` is the **sum** across all requests in
     the run (PydanticAI accumulates).  For context-% we need the
     *last* request's input tokens — that's the actual prompt size the
     model received, reflecting the full conversation + tool results.
-    We pull it from the last ``ModelResponse.usage.input_tokens``.
+    We pull it from the last `ModelResponse.usage.input_tokens`.
     """
     run_cost = 0.0
     cost_available = False

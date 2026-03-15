@@ -42,7 +42,7 @@ def request_device_code() -> DeviceCodeResponse:
 def poll_for_token(device_code: str, interval: int, cancel: threading.Event | None = None) -> str:
     """Poll GitHub until the user authorizes or the code expires.
 
-    If *cancel* is set, raises ``RbtrError`` promptly.
+    If *cancel* is set, raises `RbtrError` promptly.
     """
     with httpx.Client() as client:
         while True:

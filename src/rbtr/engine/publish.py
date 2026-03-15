@@ -1,9 +1,9 @@
 """Review draft publishing — post, sync, and clear review drafts on GitHub.
 
 Orchestration layer between local draft persistence
-(:mod:`rbtr.github.draft`) and the GitHub API
-(:mod:`rbtr.github.client`).  Called by :mod:`rbtr.engine.draft_cmd`
-and :mod:`rbtr.engine.review_cmd`.
+(`draft`) and the GitHub API
+(`client`).  Called by `draft_cmd`
+and `review_cmd`.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ if TYPE_CHECKING:
 def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
     """Download the user's pending review from GitHub and merge into local draft.
 
-    Pull-only — called automatically on ``/review <n>`` to seed the
-    local draft.  For bidirectional sync, use ``sync_review_draft``.
+    Pull-only — called automatically on `/review <n>` to seed the
+    local draft.  For bidirectional sync, use `sync_review_draft`.
     """
     ctx = engine.state.gh_ctx
     gh_user = ensure_gh_username(engine)
@@ -97,8 +97,8 @@ def _sync_pending_draft(engine: Engine, pr_number: int) -> None:
 def _refresh_pr_refs(engine: Engine, pr_number: int) -> str:
     """Re-fetch live PR head and base SHAs, update local refs if changed.
 
-    Compares the live head against the stored ``PRTarget.head_sha``
-    and the live base against ``PRTarget.base_commit``.  When either
+    Compares the live head against the stored `PRTarget.head_sha`
+    and the live base against `PRTarget.base_commit`.  When either
     differs, fetches new git objects and updates the session's review
     target so translation, validation, and posting all use the
     current state.
@@ -153,10 +153,10 @@ def _refresh_pr_refs(engine: Engine, pr_number: int) -> str:
 def _local_diff_ranges(engine: Engine) -> SideDiffRanges | None:
     """Compute commentable line ranges for both diff sides from local git.
 
-    Returns ``None`` when the repo or target refs are unavailable.
+    Returns `None` when the repo or target refs are unavailable.
     Used for line translation and as a fallback when the GitHub API
     is unreachable.  For comment validation before push, prefer
-    :func:`_github_diff_ranges` — the local diff can diverge
+    `_github_diff_ranges` — the local diff can diverge
     from GitHub's (different merge-base resolution, diff algorithm,
     or incomplete fetch).
     """
@@ -174,7 +174,7 @@ def _github_diff_ranges(engine: Engine, pr_number: int) -> SideDiffRanges | None
     """Fetch commentable line ranges from GitHub's own patch data.
 
     This is the authoritative source for which lines the review
-    API will accept.  Returns ``None`` when the GitHub context is
+    API will accept.  Returns `None` when the GitHub context is
     unavailable or the API call fails.
     """
     ctx = engine.state.gh_ctx
@@ -210,7 +210,7 @@ def _github_error_strings(exc: GithubException) -> list[str]:
 
 
 def _is_line_resolution_error(exc: GithubException) -> bool:
-    """Return ``True`` for GitHub 422 "line could not be resolved" errors."""
+    """Return `True` for GitHub 422 "line could not be resolved" errors."""
     if exc.status != 422:
         return False
     return any("line could not be resolved" in err.lower() for err in _github_error_strings(exc))
@@ -291,13 +291,13 @@ def _translate_stale_comments(
     comments: list[InlineComment],
     target_sha: str,
 ) -> tuple[list[InlineComment], list[InlineComment]]:
-    """Translate comments whose ``commit_id`` differs from *target_sha*.
+    """Translate comments whose `commit_id` differs from *target_sha*.
 
-    Returns ``(translated, lost)`` where *translated* have updated
-    ``line`` and ``commit_id``, and *lost* are comments whose lines
+    Returns `(translated, lost)` where *translated* have updated
+    `line` and `commit_id`, and *lost* are comments whose lines
     were deleted in the newer commit.
 
-    Comments with an empty ``commit_id`` (legacy) or already matching
+    Comments with an empty `commit_id` (legacy) or already matching
     *target_sha* are returned as-is.
     """
     repo = engine.state.repo
@@ -331,7 +331,7 @@ def post_review_draft(
     unsynced comments, delete any existing pending review, translate
     and validate comments, post the submitted review, emit events,
     and clean up the local draft.  Raises
-    :class:`~rbtr.exceptions.RbtrError` on failure.
+    `RbtrError` on failure.
     """
     ctx = engine.state.gh_ctx
     gh_user = ensure_gh_username(engine)
@@ -462,7 +462,7 @@ def sync_review_draft(engine: Engine, pr_number: int) -> None:
     8. Re-fetch to learn new github_ids, update sync state.
 
     If there is no local draft and no remote pending review,
-    this is a no-op.  Raises :class:`~rbtr.exceptions.RbtrError`
+    this is a no-op.  Raises `RbtrError`
     on failure so the command is marked as failed.
     """
     ctx = engine.state.gh_ctx

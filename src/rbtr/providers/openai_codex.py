@@ -53,7 +53,7 @@ _JWT_CLAIM_PATH = "https://api.openai.com/auth"
 
 @dataclass
 class ModelMetadata:
-    """Metadata for a ChatGPT model, fetched from ``GET /models``."""
+    """Metadata for a ChatGPT model, fetched from `GET /models`."""
 
     context_window: int
 
@@ -66,7 +66,7 @@ _metadata_cache: dict[str, ModelMetadata | None] = {}
 
 
 def _read_account_id(access_token: str) -> str:
-    """Extract the ``chatgpt_account_id`` from the JWT payload."""
+    """Extract the `chatgpt_account_id` from the JWT payload."""
     try:
         parts = access_token.split(".")
         if len(parts) != 3:
@@ -101,7 +101,7 @@ def _build_auth_params(state: str, verifier: str) -> dict[str, str]:
 
 
 def _make_oauth(data: TokenData, *, existing_refresh_token: str = "") -> OAuthCreds:
-    """Build ``OAuthCreds`` from a token endpoint response.
+    """Build `OAuthCreds` from a token endpoint response.
 
     *existing_refresh_token* is preserved when the response doesn't
     include a new refresh token.
@@ -257,7 +257,7 @@ def fetch_model_metadata(model_id: str) -> ModelMetadata | None:
 
 
 class ChatGPTProvider:
-    """ChatGPT OAuth provider — satisfies the ``Provider`` protocol."""
+    """ChatGPT OAuth provider — satisfies the `Provider` protocol."""
 
     GENAI_ID = "openai"
     LABEL = "ChatGPT"
@@ -270,10 +270,10 @@ class ChatGPTProvider:
         """Fetch available models from the ChatGPT Codex backend.
 
         The Codex backend returns a non-standard response shape
-        (``models[].slug`` instead of ``data[].id``), so we call it
+        (`models[].slug` instead of `data[].id`), so we call it
         directly with httpx rather than through the OpenAI SDK.
 
-        Also populates :data:`_metadata_cache` for context-window lookups.
+        Also populates `_metadata_cache` for context-window lookups.
         """
         oauth = ensure_credentials()
         try:
@@ -344,7 +344,7 @@ class ChatGPTProvider:
         return openai_responses_model_settings(model, effort)
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window — Codex metadata first, then ``genai-prices``."""
+        """Look up context window — Codex metadata first, then `genai-prices`."""
         meta = fetch_model_metadata(model_id)
         if meta is not None:
             return meta.context_window

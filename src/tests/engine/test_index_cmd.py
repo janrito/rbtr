@@ -73,8 +73,8 @@ def test_index_status_with_index(indexed_engine: Engine) -> None:
 def test_index_status_falls_back_to_base_ref(repo_engine: Engine) -> None:
     """When head ref has no data, /index status shows base ref data.
 
-    Reproduces the real-world scenario: ``build_index("main")``
-    succeeds but ``update_index("main", "feature")`` hasn't run or
+    Reproduces the real-world scenario: `build_index("main")`
+    succeeds but `update_index("main", "feature")` hasn't run or
     failed.  Status should show the base data with a note.
     """
     engine = repo_engine

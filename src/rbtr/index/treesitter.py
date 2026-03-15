@@ -3,7 +3,7 @@
 Extracts structural chunks (functions, classes, methods, imports) from
 source files using tree-sitter queries.  Language-specific behaviour
 (queries, import extractors, scope types) is provided by plugins via
-the ``LanguageManager``.
+the `LanguageManager`.
 
 This module contains only language-agnostic extraction logic.
 """
@@ -55,7 +55,7 @@ _SCOPE_NAME_TYPES: frozenset[str] = frozenset(
 def _get_query(grammar: Language, query_str: str) -> Query:
     """Compile and cache a tree-sitter query.
 
-    ``Query()`` compilation is expensive (~0.6 ms each).  Caching
+    `Query()` compilation is expensive (~0.6 ms each).  Caching
     avoids recompiling the same query for every file of the same
     language — saves ~0.9 s on a 1 500-file Python repo.
     """
@@ -99,16 +99,16 @@ def extract_symbols(
         file_path:        Repo-relative path for the chunk IDs.
         blob_sha:         Git blob SHA for dedup.
         content:          Raw file bytes.
-        grammar:          Tree-sitter ``Language`` for the parser.
+        grammar:          Tree-sitter `Language` for the parser.
         query_str:        S-expression query (capture conventions:
-                          ``@function``/``@_fn_name``,
-                          ``@class``/``@_cls_name``,
-                          ``@method``/``@_method_name``,
-                          ``@import``).
+                          `@function`/`@_fn_name`,
+                          `@class`/`@_cls_name`,
+                          `@method`/`@_method_name`,
+                          `@import`).
         import_extractor: Optional callable to extract structured
-                          ``ImportMeta`` from import AST nodes.
+                          `ImportMeta` from import AST nodes.
         scope_types:      Node types that define naming scopes
-                          (e.g. ``class_definition``).
+                          (e.g. `class_definition`).
     """
     if not content:
         return []

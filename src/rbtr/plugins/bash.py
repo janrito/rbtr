@@ -8,9 +8,9 @@ Extracted symbol examples::
     "my_func() { echo hello; }"  → function "my_func"
     "function deploy { ... }"    → function "deploy"
 
-Matched file extensions: ``.sh``, ``.bash``, ``.zsh``.
-Matched filenames: ``Makefile``, ``Dockerfile``, ``.bashrc``,
-``.bash_profile``, ``.zshrc``, ``Bashrc``.
+Matched file extensions: `.sh`, `.bash`, `.zsh`.
+Matched filenames: `Makefile`, `Dockerfile`, `.bashrc`,
+`.bash_profile`, `.zshrc`, `Bashrc`.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _QUERY = """\
 class BashPlugin:
     """Bash / shell language support.
 
-    Provides function extraction only.  ``scope_types`` is empty
+    Provides function extraction only.  `scope_types` is empty
     because Bash has no class-like scoping constructs — all
     functions are top-level.
     """

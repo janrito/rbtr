@@ -1,4 +1,4 @@
-"""Edit tool — create and edit files matching ``editable_include`` globs."""
+"""Edit tool — create and edit files matching `editable_include` globs."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from rbtr.llm.tools.common import workspace_toolset
 
 
 def _is_editable(path: str) -> bool:
-    """Check whether *path* is writable by the ``edit`` tool.
+    """Check whether *path* is writable by the `edit` tool.
 
     A path is editable when it matches any pattern in
-    ``tools.editable_include``.
+    `tools.editable_include`.
     """
     return _matches_globs(path, config.tools.editable_include)
 

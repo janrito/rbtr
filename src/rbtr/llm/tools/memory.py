@@ -37,8 +37,8 @@ def remember(
 
     Args:
         content: The fact to remember — a single, clear statement.
-        scope: ``"global"`` for facts that apply everywhere, or
-            ``"repo"`` for facts specific to the current repository.
+        scope: `"global"` for facts that apply everywhere, or
+            `"repo"` for facts specific to the current repository.
         supersedes: The exact text of an existing fact to replace.
             Use when an older fact is outdated or incorrect.
     """

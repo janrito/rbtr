@@ -1,10 +1,10 @@
 """Custom OpenAI-compatible endpoint provider.
 
-Models are referenced as ``<endpoint-name>/<model-id>``.
+Models are referenced as `<endpoint-name>/<model-id>`.
 
-Storage functions (``save_endpoint``, ``load_endpoint``, etc.) manage
-the persisted connection details.  ``EndpointProvider`` wraps a stored
-endpoint as a ``Provider`` for uniform dispatch.
+Storage functions (`save_endpoint`, `load_endpoint`, etc.) manage
+the persisted connection details.  `EndpointProvider` wraps a stored
+endpoint as a `Provider` for uniform dispatch.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class Endpoint:
 
 @dataclass
 class ModelMetadata:
-    """Metadata for an endpoint model, fetched from ``GET /models``."""
+    """Metadata for an endpoint model, fetched from `GET /models`."""
 
     context_window: int
 
@@ -56,7 +56,7 @@ class ModelMetadata:
 
 
 def validate_name(name: str) -> None:
-    """Raise ``RbtrError`` if *name* is not a valid endpoint identifier."""
+    """Raise `RbtrError` if *name* is not a valid endpoint identifier."""
     if not _NAME_RE.match(name):
         raise RbtrError(
             f"Invalid endpoint name: {name!r}. "
@@ -74,7 +74,7 @@ def save_endpoint(name: str, base_url: str, api_key: str) -> None:
 
 
 def load_endpoint(name: str) -> Endpoint | None:
-    """Load a single endpoint by name.  Returns ``None`` if not found."""
+    """Load a single endpoint by name.  Returns `None` if not found."""
     ep_cfg = config.endpoints.get(name)
     if ep_cfg is None or not ep_cfg.base_url:
         return None
@@ -117,12 +117,12 @@ def remove_endpoint(name: str) -> None:
 
 # ── Model metadata cache ────────────────────────────────────────────
 
-# Process-lifetime cache: ``"endpoint_name/model_id"`` → metadata.
+# Process-lifetime cache: `"endpoint_name/model_id"` → metadata.
 _metadata_cache: dict[str, ModelMetadata | None] = {}
 
 
 def _cache_model_metadata(endpoint_name: str, model: object) -> None:
-    """Extract and cache metadata from an OpenAI SDK ``Model`` object."""
+    """Extract and cache metadata from an OpenAI SDK `Model` object."""
     model_id: str = getattr(model, "id", "")
     if not model_id:
         return
@@ -141,7 +141,7 @@ def _cache_model_metadata(endpoint_name: str, model: object) -> None:
 def fetch_model_metadata(endpoint_name: str, model_id: str) -> ModelMetadata | None:
     """Return cached metadata for an endpoint model.
 
-    On cache miss, falls back to a ``GET /models`` call that
+    On cache miss, falls back to a `GET /models` call that
     populates the cache for all models the endpoint offers.
     """
     cache_key = f"{endpoint_name}/{model_id}"
@@ -161,8 +161,8 @@ def fetch_model_metadata(endpoint_name: str, model_id: str) -> ModelMetadata | N
 def list_models(endpoint_name: str) -> list[str]:
     """Fetch available models from a custom endpoint.
 
-    Also populates :data:`_metadata_cache` for every model that
-    exposes ``context_length``, so :func:`fetch_model_metadata`
+    Also populates `_metadata_cache` for every model that
+    exposes `context_length`, so `fetch_model_metadata`
     can return instantly afterwards.
     """
     # Deferred: openai SDK is heavy; only load when this provider is used.
@@ -182,12 +182,12 @@ def list_models(endpoint_name: str) -> list[str]:
 
 
 def build_model(endpoint_name: str, model_id: str) -> Model:
-    """Build a pydantic-ai ``Model`` for a custom endpoint.
+    """Build a pydantic-ai `Model` for a custom endpoint.
 
     Uses the Chat Completions API (not Responses) since most
-    OpenAI-compatible endpoints only implement ``/chat/completions``.
+    OpenAI-compatible endpoints only implement `/chat/completions`.
 
-    The provider subclass overrides ``name`` so PydanticAI treats
+    The provider subclass overrides `name` so PydanticAI treats
     thinking parts from this endpoint as distinct from OpenAI's own
     Responses API — preventing cross-provider reasoning IDs from
     leaking as extra fields.
@@ -201,7 +201,7 @@ def build_model(endpoint_name: str, model_id: str) -> Model:
 
     # Defined inside build_model to keep the openai SDK import deferred.
     class _NamedProvider(OpenAIProvider):
-        """``OpenAIProvider`` whose ``name`` is the endpoint name."""
+        """`OpenAIProvider` whose `name` is the endpoint name."""
 
         @property
         def name(self) -> str:
@@ -216,7 +216,7 @@ def build_model(endpoint_name: str, model_id: str) -> Model:
 
 
 class EndpointProvider:
-    """Wraps a stored endpoint as a ``Provider`` for uniform dispatch."""
+    """Wraps a stored endpoint as a `Provider` for uniform dispatch."""
 
     def __init__(self, name: str) -> None:
         self._name = name
@@ -235,7 +235,7 @@ class EndpointProvider:
     def model_settings(
         self, model_id: str, model: Model, effort: ThinkingEffort
     ) -> ModelSettings | None:
-        """Effort settings + ``max_tokens`` from endpoint metadata."""
+        """Effort settings + `max_tokens` from endpoint metadata."""
         from rbtr.providers.shared import openai_chat_model_settings
 
         settings = openai_chat_model_settings(model, effort)
@@ -251,7 +251,7 @@ class EndpointProvider:
 
 
 def resolve(name: str) -> EndpointProvider | None:
-    """Return an ``EndpointProvider`` if *name* is a stored endpoint."""
+    """Return an `EndpointProvider` if *name* is a stored endpoint."""
     if load_endpoint(name) is None:
         return None
     return EndpointProvider(name)

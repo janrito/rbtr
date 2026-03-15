@@ -1,6 +1,6 @@
 """Tests for the facts (cross-session memory) layer of SessionStore.
 
-Data-first: realistic facts from ``fact_data`` seeded via a shared
+Data-first: realistic facts from `fact_data` seeded via a shared
 fixture.  Tests verify behaviours through the store's public fact
 API — insert, confirm, supersede, load, delete, FTS5 search.
 

@@ -1,12 +1,12 @@
 """E2E ranking tests for unified search.
 
 Each test asserts a specific ranking invariant against the shared
-dataset (see ``conftest.py``).  The invariants are drawn from the
+dataset (see `conftest.py`).  The invariants are drawn from the
 design doc (TODO-search.md) and verify that the correct signal
 resolves each ranking conflict.
 
 No mocking — these exercise the full pipeline through
-``IndexStore.search()``: BM25, name matching, kind boost,
+`IndexStore.search()`: BM25, name matching, kind boost,
 file-category penalty, and importance.
 """
 

@@ -49,13 +49,13 @@ def _get_diff_ranges(
 ) -> DiffLineRanges:
     """Return commentable line ranges for the current review target.
 
-    Tries GitHub's ``pull.get_files()`` patch data first (the
+    Tries GitHub's `pull.get_files()` patch data first (the
     authoritative source for which lines the review API accepts).
     Falls back to the local pygit2 three-dot diff when the GitHub
     context is unavailable or the API call fails.
 
-    Results are cached on ``state.diff_range_cache`` keyed by
-    ``(base_commit, head_commit)`` so repeated ``add_draft_comment``
+    Results are cached on `state.diff_range_cache` keyed by
+    `(base_commit, head_commit)` so repeated `add_draft_comment`
     calls in the same turn don't re-fetch.  The cache self-invalidates
     when the key changes (e.g. after a refs refresh).
     """
@@ -79,7 +79,7 @@ def _fetch_diff_ranges(
 ) -> tuple[DiffLineRanges, DiffLineRanges]:
     """Fetch diff ranges, preferring GitHub data over local git.
 
-    Returns ``(right_ranges, left_ranges)``.
+    Returns `(right_ranges, left_ranges)`.
     """
     # Try GitHub first — authoritative for what the review API accepts.
     gh_ctx = ctx.deps.state.gh_ctx

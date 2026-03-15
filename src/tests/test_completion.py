@@ -1,11 +1,11 @@
 """Tests for the completion pipeline.
 
-- Pure-function tests for ``replace_shell_word``, ``completion_suffix``,
-  ``shell_context_word``.
-- Unit tests for each completion tier: ``complete_bash``,
-  ``complete_path``, ``complete_executables``.
-- Orchestrator test for ``query_shell_completions`` (tier fallthrough).
-- Integration tests for ``_apply_completions`` and ``_complete_shell``
+- Pure-function tests for `replace_shell_word`, `completion_suffix`,
+  `shell_context_word`.
+- Unit tests for each completion tier: `complete_bash`,
+  `complete_path`, `complete_executables`.
+- Orchestrator test for `query_shell_completions` (tier fallthrough).
+- Integration tests for `_apply_completions` and `_complete_shell`
   in the UI layer.
 """
 

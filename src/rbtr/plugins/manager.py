@@ -1,13 +1,13 @@
 """Language plugin manager.
 
-Collects ``LanguageRegistration`` instances from all plugins,
+Collects `LanguageRegistration` instances from all plugins,
 builds lookup tables, and provides the public API for language
 detection, grammar loading, and import metadata extraction.
 
-The manager is a singleton accessed via :func:`get_manager`.
+The manager is a singleton accessed via `get_manager`.
 Built-in plugins are registered in precedence order (defaults
 first, then specific languages), and external plugins discovered
-via the ``rbtr.languages`` entry-point group override both.
+via the `rbtr.languages` entry-point group override both.
 
 Example usage::
 
@@ -52,14 +52,14 @@ if TYPE_CHECKING:
 class LanguageManager:
     """Central registry for language plugins.
 
-    Use :func:`get_manager` to obtain the cached singleton instead
+    Use `get_manager` to obtain the cached singleton instead
     of constructing directly.
 
     Precedence order (later overrides earlier):
 
-    1. ``DefaultsPlugin`` — detection-only and grammar-only languages.
+    1. `DefaultsPlugin` — detection-only and grammar-only languages.
     2. Built-in specific plugins (Python, JS/TS, Go, Rust, Java, Bash).
-    3. External plugins via ``rbtr.languages`` entry points.
+    3. External plugins via `rbtr.languages` entry points.
 
     Example — checking what's registered::
 
@@ -124,7 +124,7 @@ class LanguageManager:
         Later registrations override earlier ones (specific plugins
         override defaults, external plugins override built-ins).
 
-        Raises ``ValueError`` if a single plugin returns duplicate IDs.
+        Raises `ValueError` if a single plugin returns duplicate IDs.
         """
         results: list[list[LanguageRegistration]] = self._pm.hook.rbtr_register_languages()
         for batch in results:
@@ -145,7 +145,7 @@ class LanguageManager:
     def detect_language(self, file_path: str) -> str | None:
         """Detect the language of a file from its extension or filename.
 
-        Tries filename first (for files like ``Makefile``), then
+        Tries filename first (for files like `Makefile`), then
         falls back to extension.
 
         Examples::
@@ -166,7 +166,7 @@ class LanguageManager:
         return self._ext_map.get(p.suffix)
 
     def get_registration(self, language_id: str) -> LanguageRegistration | None:
-        """Return the registration for *language_id*, or ``None``.
+        """Return the registration for *language_id*, or `None`.
 
         Examples::
 
@@ -182,10 +182,10 @@ class LanguageManager:
     def load_grammar(self, language_id: str) -> Language | None:
         """Load the tree-sitter grammar for *language_id*.
 
-        Returns the ``Language`` object, or ``None`` if:
+        Returns the `Language` object, or `None` if:
 
         - No registration exists for *language_id*.
-        - The registration has no ``grammar_module``.
+        - The registration has no `grammar_module`.
         - The grammar package is not installed.
 
         Results are cached — repeated calls return the same object.
@@ -222,7 +222,7 @@ class LanguageManager:
     def get_query(self, language_id: str) -> str | None:
         """Return the tree-sitter query string for *language_id*.
 
-        Returns ``None`` if no registration exists or the
+        Returns `None` if no registration exists or the
         registration has no query.
 
         Examples::
@@ -240,9 +240,9 @@ class LanguageManager:
     def extract_import_meta(self, language_id: str, node: Node) -> ImportMeta:
         """Extract import metadata using the language's extractor.
 
-        Calls the ``import_extractor`` registered for *language_id*.
+        Calls the `import_extractor` registered for *language_id*.
         Returns an empty dict when no extractor is registered —
-        ``edges.py`` will fall back to text search.
+        `edges.py` will fall back to text search.
 
         Examples::
 
@@ -263,7 +263,7 @@ class LanguageManager:
     def get_scope_types(self, language_id: str) -> frozenset[str]:
         """Return the scope node types for *language_id*.
 
-        Used by ``extract_symbols`` to detect methods inside classes.
+        Used by `extract_symbols` to detect methods inside classes.
         Returns an empty frozenset for unregistered languages.
 
         Examples::
@@ -284,7 +284,7 @@ class LanguageManager:
     def get_language(self, file_path: str) -> tuple[str, Language] | None:
         """Detect language and load grammar in one step.
 
-        Returns ``(language_id, grammar)`` or ``None`` if the file
+        Returns `(language_id, grammar)` or `None` if the file
         type is unrecognised or the grammar is not installed.
 
         Examples::
@@ -307,10 +307,10 @@ class LanguageManager:
     def missing_grammar(self, language_id: str) -> bool:
         """Check whether a language *expects* a grammar but it's not installed.
 
-        Returns ``True`` only when the registration specifies a
-        ``grammar_module`` but loading it fails.  Languages that
+        Returns `True` only when the registration specifies a
+        `grammar_module` but loading it fails.  Languages that
         intentionally have no grammar (e.g. Markdown with a custom
-        chunker) return ``False``.
+        chunker) return `False`.
 
         Examples::
 
@@ -339,10 +339,10 @@ class LanguageManager:
 
 @lru_cache(1)
 def get_manager() -> LanguageManager:
-    """Return the cached singleton ``LanguageManager``.
+    """Return the cached singleton `LanguageManager`.
 
     The manager is created on first call and reused thereafter.
-    Call :func:`reset_manager` to force re-creation (testing only).
+    Call `reset_manager` to force re-creation (testing only).
 
     Example::
 
@@ -355,8 +355,8 @@ def get_manager() -> LanguageManager:
 
 
 def reset_manager() -> None:
-    """Clear the cached singleton so the next :func:`get_manager`
-    call creates a fresh ``LanguageManager``.
+    """Clear the cached singleton so the next `get_manager`
+    call creates a fresh `LanguageManager`.
 
     Intended for tests that register custom plugins or need a
     clean slate.

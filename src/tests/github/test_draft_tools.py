@@ -1,7 +1,7 @@
 """Tests for draft management LLM tools — add, edit, remove, set_summary.
 
-The ``add_draft_comment`` tests use a real git repo so that
-``resolve_anchor`` and diff-range validation work end-to-end.
+The `add_draft_comment` tests use a real git repo so that
+`resolve_anchor` and diff-range validation work end-to-end.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def _make_commit(
     return repo.create_commit(ref, sig, sig, "commit", tree_oid, parents or [])
 
 
-# File content — the diff adds ``validate(request)`` on line 2.
+# File content — the diff adds `validate(request)` on line 2.
 _BASE_HANDLER = b"def handle(request):\n    return 'ok'\n"
 _HEAD_HANDLER = b"def handle(request):\n    validate(request)\n    return 'ok'\n"
 _UTILS = b"def helper():\n    return 42\n"
@@ -84,8 +84,8 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def draft_repo(tmp_path: Path) -> tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid]:
     """A two-commit repo: base (main) → head (feature).
 
-    Changed file: ``src/handler.py`` (one line added).
-    Unchanged file: ``src/utils.py``.
+    Changed file: `src/handler.py` (one line added).
+    Unchanged file: `src/utils.py`.
     """
     repo = pygit2.init_repository(str(tmp_path / "repo"))
     base = _make_commit(
@@ -260,7 +260,7 @@ def test_snap_skips_when_no_ranges() -> None:
 def test_diff_range_cache_populated_on_first_add(
     workspace: Path, ctx: RunContext[AgentDeps]
 ) -> None:
-    """First ``add_draft_comment`` populates ``state.diff_range_cache``."""
+    """First `add_draft_comment` populates `state.diff_range_cache`."""
     state = ctx.deps.state
     assert state.diff_range_cache is None
 
@@ -315,7 +315,7 @@ def test_diff_range_cache_invalidated_on_key_change(
 
 
 def test_fresh_engine_state_has_no_cache() -> None:
-    """New ``EngineState`` starts with no diff range cache."""
+    """New `EngineState` starts with no diff range cache."""
     state = EngineState()
     assert state.diff_range_cache is None
 

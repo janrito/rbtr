@@ -15,7 +15,7 @@ from .conftest import drain, output_texts
 def prompt_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """Isolate RBTR_DIR and cwd so file-presence tests are deterministic.
 
-    Returns ``(config_dir, repo_dir)``.
+    Returns `(config_dir, repo_dir)`.
     """
     config_dir = tmp_path / "config"
     config_dir.mkdir()

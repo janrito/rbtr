@@ -3,12 +3,12 @@
 Verifies that file tools (read_file, grep, list_files) correctly
 apply the three-layer filter:
 
-1. ``config.index.include`` force-includes (overrides gitignore
+1. `config.index.include` force-includes (overrides gitignore
    and extend_exclude).
-2. ``.gitignore`` via ``repo.path_is_ignored``.
-3. ``config.index.extend_exclude`` globs.
+2. `.gitignore` via `repo.path_is_ignored`.
+3. `config.index.extend_exclude` globs.
 
-Also tests ``is_path_ignored`` directly for edge cases.
+Also tests `is_path_ignored` directly for edge cases.
 """
 
 from __future__ import annotations

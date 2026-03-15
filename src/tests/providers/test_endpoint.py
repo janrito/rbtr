@@ -102,10 +102,10 @@ def _clear_metadata_cache():
 
 
 def _mock_models_endpoint(mocker, models: list[MagicMock]) -> MagicMock:
-    """Patch ``openai.OpenAI`` so ``client.models.list()`` returns *models*.
+    """Patch `openai.OpenAI` so `client.models.list()` returns *models*.
 
-    ``list_models`` accesses ``.data`` on the page object, so we need
-    both ``.data`` and iteration to work.
+    `list_models` accesses `.data` on the page object, so we need
+    both `.data` and iteration to work.
     """
     page = MagicMock()
     page.data = models
@@ -202,11 +202,11 @@ def test_build_model_provider_uses_endpoint_name(
     creds_path: Path,
     config_path: Path,
 ) -> None:
-    """Endpoint provider ``name`` is the endpoint name, not ``'openai'``.
+    """Endpoint provider `name` is the endpoint name, not `'openai'`.
 
-    PydanticAI uses ``provider.name`` to decide whether thinking parts
+    PydanticAI uses `provider.name` to decide whether thinking parts
     from history belong to the same provider.  Endpoints must not
-    claim ``'openai'`` or cross-provider reasoning IDs leak through.
+    claim `'openai'` or cross-provider reasoning IDs leak through.
     """
     save_endpoint("fireworks", "https://api.fireworks.ai/inference/v1", "test-key")
     model = build_model("fireworks", "accounts/fireworks/models/llama-v3-70b")

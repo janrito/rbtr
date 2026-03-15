@@ -47,7 +47,7 @@ __all__ = ["CompactionTrigger", "compact_history", "compact_history_async", "res
 
 @dataclass(frozen=True, slots=True)
 class _SummaryResult:
-    """Internal result from ``_stream_summary``."""
+    """Internal result from `_stream_summary`."""
 
     text: str
     input_tokens: int
@@ -83,11 +83,11 @@ def compact_history(
 ) -> None:
     """Synchronous entry point — for daemon-thread callers.
 
-    Schedules :func:`compact_history_async` on the portal and blocks
+    Schedules `compact_history_async` on the portal and blocks
     until it completes.  Safe to call from any thread **except** the
     portal's async task (that would deadlock).
 
-    Used by ``/compact`` command and ``_auto_compact_on_overflow``.
+    Used by `/compact` command and `_auto_compact_on_overflow`.
     """
     ctx.portal.call(lambda: compact_history_async(ctx, extra_instructions, trigger=trigger))
 
@@ -118,16 +118,16 @@ async def compact_history_async(
 
     Splits history into old and kept turns, serialises the old part,
     sends it to the current model for summarisation, and replaces
-    history with ``[summary] + kept``.
+    history with `[summary] + kept`.
 
-    When there are fewer turns than ``keep_turns``, falls back to
+    When there are fewer turns than `keep_turns`, falls back to
     keeping only the last turn.  When the serialised old messages
     exceed the available context, only a prefix that fits is
     summarised — the rest is pushed into the kept portion.
 
-    This is an async function so it can be ``await``-ed from
+    This is an async function so it can be `await`-ed from
     coroutines already running on the portal (mid-turn and post-turn
-    compaction inside ``_stream_agent``).
+    compaction inside `_stream_agent`).
     """
     if not ctx.state.has_llm or not ctx.state.model_name:
         ctx.warn("No LLM connected — cannot compact.")
@@ -278,7 +278,7 @@ async def _stream_summary(
 ) -> _SummaryResult:
     """Stream the compaction summary from the model.
 
-    Returns a ``_SummaryResult`` with the summary text and overhead
+    Returns a `_SummaryResult` with the summary text and overhead
     cost info from the LLM call.
     """
     effort = ThinkingEffort.NONE if ctx.state.effort_supported is False else config.thinking_effort

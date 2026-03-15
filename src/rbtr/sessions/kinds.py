@@ -14,19 +14,19 @@ GLOBAL_SCOPE = "global"
 
 
 class FragmentKind(StrEnum):
-    """Row kind for the ``fragments`` table.
+    """Row kind for the `fragments` table.
 
     Five groups of values share a single TEXT column:
 
-    - **Message-level**: ``REQUEST_MESSAGE``, ``RESPONSE_MESSAGE``
-    - **PydanticAI parts**: values match ``part_kind`` strings so
-      ``FragmentKind(part.part_kind)`` works for any content part
-    - **User input**: ``COMMAND``, ``SHELL``
-    - **Incidents**: ``LLM_ATTEMPT_FAILED``, ``LLM_HISTORY_REPAIR``
-    - **Overhead**: ``OVERHEAD_COMPACTION``, ``OVERHEAD_FACT_EXTRACTION``
+    - **Message-level**: `REQUEST_MESSAGE`, `RESPONSE_MESSAGE`
+    - **PydanticAI parts**: values match `part_kind` strings so
+      `FragmentKind(part.part_kind)` works for any content part
+    - **User input**: `COMMAND`, `SHELL`
+    - **Incidents**: `LLM_ATTEMPT_FAILED`, `LLM_HISTORY_REPAIR`
+    - **Overhead**: `OVERHEAD_COMPACTION`, `OVERHEAD_FACT_EXTRACTION`
 
-    Use ``is_message``, ``is_input``, ``is_incident``,
-    ``is_overhead`` to test group membership.
+    Use `is_message`, `is_input`, `is_incident`,
+    `is_overhead` to test group membership.
     """
 
     # ── Message-level ────────────────────────────────────────────
@@ -87,17 +87,17 @@ _OVERHEAD_KINDS = frozenset(
 
 
 class FragmentStatus(StrEnum):
-    """Lifecycle status for a ``fragments`` row.
+    """Lifecycle status for a `fragments` row.
 
-    ``IN_PROGRESS``
+    `IN_PROGRESS`
         Streaming response being written incrementally via
-        ``ResponseWriter``.  Invisible to ``load_messages``.
-    ``COMPLETE``
-        Normal finished row.  Visible to ``load_messages``.
-    ``FAILED``
-        Failed LLM turn.  Visible in ``search_history``
+        `ResponseWriter`.  Invisible to `load_messages`.
+    `COMPLETE`
+        Normal finished row.  Visible to `load_messages`.
+    `FAILED`
+        Failed LLM turn.  Visible in `search_history`
         (user can retry via up-arrow) but excluded from
-        ``load_messages`` (not part of replay history).
+        `load_messages` (not part of replay history).
     """
 
     IN_PROGRESS = "in_progress"
@@ -119,10 +119,10 @@ class SessionContext:
 
 @dataclass(frozen=True, slots=True)
 class Fragment:
-    """All columns for a single ``fragments`` table row.
+    """All columns for a single `fragments` table row.
 
     Field order matches the SQL INSERT column order so
-    ``dataclasses.astuple(row)`` produces the right positional args.
+    `dataclasses.astuple(row)` produces the right positional args.
     """
 
     id: str

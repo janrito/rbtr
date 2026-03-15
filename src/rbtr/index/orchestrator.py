@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 # ── Types ────────────────────────────────────────────────────────────
 
 ProgressCallback = Callable[[int, int], None]
-"""``(files_done, total_files)`` — called after each file is processed."""
+"""`(files_done, total_files)` — called after each file is processed."""
 
 
 @dataclass
@@ -86,9 +86,9 @@ def _extract_file(entry: FileEntry) -> list[Chunk]:
 
 
 def _tokenise_chunks(chunks: list[Chunk]) -> None:
-    """Populate ``content_tokens`` and ``name_tokens`` on each chunk.
+    """Populate `content_tokens` and `name_tokens` on each chunk.
 
-    Mutates the chunks in-place.  Called before ``insert_chunks``
+    Mutates the chunks in-place.  Called before `insert_chunks`
     so the pre-tokenised text is stored alongside the raw content.
     """
     for c in chunks:
@@ -109,7 +109,7 @@ def build_index(
 ) -> IndexResult:
     """Build a full index for *commit_sha*.
 
-    Skips files whose ``blob_sha`` is already in the store (blob
+    Skips files whose `blob_sha` is already in the store (blob
     dedup).  After all files are processed, infers cross-file edges
     and embeds all un-embedded chunks.
 
@@ -117,9 +117,9 @@ def build_index(
         repo:              Open pygit2 repository.
         commit_sha:        Git ref or SHA to index.
         store:             DuckDB store (already initialised).
-        on_progress:       Optional callback ``(done, total)`` for file
+        on_progress:       Optional callback `(done, total)` for file
                            extraction progress.
-        on_embed_progress: Optional callback ``(done, total)`` for
+        on_embed_progress: Optional callback `(done, total)` for
                            embedding progress.
     """
     t0 = time.monotonic()
@@ -356,11 +356,11 @@ class SemanticDiff:
     """Symbols at the same path whose content changed."""
 
     stale_docs: list[tuple[Chunk, Chunk]] = field(default_factory=list)
-    """``(doc_chunk, code_chunk)`` where the code changed but
+    """`(doc_chunk, code_chunk)` where the code changed but
     the doc referencing it did not."""
 
     missing_tests: list[Chunk] = field(default_factory=list)
-    """New functions/methods with no ``TESTS`` edge."""
+    """New functions/methods with no `TESTS` edge."""
 
     broken_edges: list[Edge] = field(default_factory=list)
     """Import edges in head that pointed at symbols now removed."""

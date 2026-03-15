@@ -138,9 +138,9 @@ def get_models(engine: Engine, *, force: bool = False) -> list[tuple[str, list[s
 def _refresh_provider(engine: Engine, provider: str) -> None:
     """Refresh the model list for a single provider.
 
-    Does *not* update ``models_fetched_at`` — this is a partial
-    refresh so ``get_models`` will still do a full refresh on the
-    next ``/model`` call.
+    Does *not* update `models_fetched_at` — this is a partial
+    refresh so `get_models` will still do a full refresh on the
+    next `/model` call.
     """
     models = _fetch_provider_models(engine, provider)
 

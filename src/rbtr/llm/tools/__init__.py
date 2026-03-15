@@ -1,6 +1,6 @@
 """LLM tools — expose the code index and git history to the agent.
 
-Submodule imports below trigger ``@toolset.tool`` registration.
+Submodule imports below trigger `@toolset.tool` registration.
 Import order determines tool presentation order within
 cross-module toolsets (e.g. git on `diff_toolset`, file on
 `file_toolset`).

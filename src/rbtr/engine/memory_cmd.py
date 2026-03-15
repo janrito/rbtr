@@ -1,4 +1,4 @@
-"""Handler for ``/memory`` — list, extract, and purge facts."""
+"""Handler for `/memory` — list, extract, and purge facts."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def cmd_memory(engine: Engine, args: str) -> None:
-    """Dispatch ``/memory`` subcommands."""
+    """Dispatch `/memory` subcommands."""
     parts = args.split(maxsplit=1) if args else []
     sub = parts[0].lower() if parts else ""
 
@@ -35,8 +35,8 @@ def cmd_memory(engine: Engine, args: str) -> None:
 def _list_facts(engine: Engine, *, include_superseded: bool) -> None:
     """Print facts, optionally including superseded.
 
-    Bare ``/memory`` shows global + current repo.
-    ``/memory all`` shows every scope (all repos).
+    Bare `/memory` shows global + current repo.
+    `/memory all` shows every scope (all repos).
     """
     if not config.memory.enabled:
         engine._warn("Memory is disabled (config.memory.enabled = false).")

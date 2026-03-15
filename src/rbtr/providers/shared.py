@@ -2,7 +2,7 @@
 
 These functions are used by multiple provider modules to avoid
 duplicating SDK-specific effort mapping and pricing lookups.
-Kept separate from ``__init__`` so provider modules don't import
+Kept separate from `__init__` so provider modules don't import
 their own package init (which imports them).
 """
 
@@ -15,10 +15,10 @@ from rbtr.config import ThinkingEffort
 
 
 def openai_chat_model_settings(model: Model, effort: ThinkingEffort) -> ModelSettings | None:
-    """Build ``OpenAIChatModelSettings`` for *effort*.
+    """Build `OpenAIChatModelSettings` for *effort*.
 
-    Shared by all providers whose ``build_model`` returns an
-    ``OpenAIChatModel`` (Fireworks, OpenRouter, custom endpoints).
+    Shared by all providers whose `build_model` returns an
+    `OpenAIChatModel` (Fireworks, OpenRouter, custom endpoints).
     """
     # Deferred: openai SDK is heavy; only import when needed.
     from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
@@ -38,10 +38,10 @@ def openai_chat_model_settings(model: Model, effort: ThinkingEffort) -> ModelSet
 
 
 def openai_responses_model_settings(model: Model, effort: ThinkingEffort) -> ModelSettings | None:
-    """Build ``OpenAIResponsesModelSettings`` for *effort*.
+    """Build `OpenAIResponsesModelSettings` for *effort*.
 
-    Shared by providers whose ``build_model`` returns an
-    ``OpenAIResponsesModel`` (OpenAI, ChatGPT).
+    Shared by providers whose `build_model` returns an
+    `OpenAIResponsesModel` (OpenAI, ChatGPT).
     """
     # Deferred: openai SDK is heavy; only import when needed.
     from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
@@ -61,7 +61,7 @@ def openai_responses_model_settings(model: Model, effort: ThinkingEffort) -> Mod
 
 
 def genai_prices_context_window(genai_id: str, model_id: str) -> int | None:
-    """Look up context window from the ``genai-prices`` snapshot."""
+    """Look up context window from the `genai-prices` snapshot."""
     try:
         # Deferred: loads pricing snapshot from disk on first call.
         from genai_prices.data_snapshot import get_snapshot

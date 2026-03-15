@@ -1,6 +1,6 @@
 """E2E tests for structural search signals: importance and proximity.
 
-Uses the shared dataset (see ``conftest.py``) with its edges to
+Uses the shared dataset (see `conftest.py`) with its edges to
 verify that inbound-degree importance and diff proximity affect
 ranking as expected.
 """

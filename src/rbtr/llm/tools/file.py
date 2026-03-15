@@ -38,7 +38,7 @@ def _list_fs_files(prefix: str, repo: pygit2.Repository | None = None) -> list[s
     *prefix* is treated as a directory path.  Returns sorted
     relative paths for all regular files under that directory.
     Respects `.gitignore`, `include`, and `extend_exclude`
-    via :func:`is_path_ignored`.
+    via `is_path_ignored`.
     """
     base = Path(prefix) if prefix else Path(".")
     if not base.is_dir():
@@ -349,7 +349,7 @@ def _grep_filesystem(
     """Search local filesystem files under *path* for *needle*.
 
     Respects `.gitignore`, `include`, and `extend_exclude`
-    via :func:`is_path_ignored`.
+    via `is_path_ignored`.
     """
     # Check if path is an exact file first.
     p = Path(path)

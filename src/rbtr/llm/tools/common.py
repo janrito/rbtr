@@ -135,7 +135,7 @@ def resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
 
     Raises:
         RuntimeError: If `"base"` is used with a
-            :class:`SnapshotTarget` (no base commit exists).
+            `SnapshotTarget` (no base commit exists).
     """
     target = ctx.deps.state.review_target
     match ref:
@@ -160,7 +160,7 @@ def resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
 
 
 def validate_path(path: str) -> str | None:
-    """Return an error message if *path* is invalid, else ``None``."""
+    """Return an error message if *path* is invalid, else `None`."""
     if ".." in PurePosixPath(path).parts:
         return f"Path '{path}' contains '..' — must be relative to repo root."
     return None

@@ -3,10 +3,10 @@
 Sources are loaded in order (each overrides the previous via deep merge):
 
 1. Class defaults  — field defaults on the models below
-2. User settings   — ``~/.config/rbtr/config.toml``
-3. Workspace       — ``.rbtr/config.toml`` (relative to CWD)
+2. User settings   — `~/.config/rbtr/config.toml`
+3. Workspace       — `.rbtr/config.toml` (relative to CWD)
 
-The ``config`` instance reloads in place via ``__init__()``, so a direct
+The `config` instance reloads in place via `__init__()`, so a direct
 import is safe — identity never changes::
 
     from rbtr.config import config
@@ -45,9 +45,9 @@ WORKSPACE_PATH = WORKSPACE_DIR / "config.toml"
 class ThinkingEffort(StrEnum):
     """Thinking effort levels for LLM requests.
 
-    Maps to provider-specific settings (``anthropic_effort``,
-    ``openai_reasoning_effort``, etc.) in ``providers.__init__``.
-    ``NONE`` disables thinking/reasoning entirely.
+    Maps to provider-specific settings (`anthropic_effort`,
+    `openai_reasoning_effort`, etc.) in `providers.__init__`.
+    `NONE` disables thinking/reasoning entirely.
     """
 
     LOW = "low"
@@ -120,23 +120,23 @@ class ToolsConfig(BaseModel):
     """Default directory for review notes.
 
     Referenced in prompts so the LLM knows where to create notes.
-    The directory itself is editable because ``editable_include``
+    The directory itself is editable because `editable_include`
     contains a matching glob by default."""
     editable_include: list[str] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
-    """Glob patterns for files the ``edit`` tool may write.
+    """Glob patterns for files the `edit` tool may write.
 
-    Uses the same glob syntax as ``IndexConfig.include``
-    (``fnmatch`` + directory-prefix semantics)."""
+    Uses the same glob syntax as `IndexConfig.include`
+    (`fnmatch` + directory-prefix semantics)."""
     drafts_dir: str = str(WORKSPACE_DIR / "drafts")
     """Directory for review draft YAML files.
 
     Managed exclusively by the draft tools — not writable via
-    the ``edit`` tool."""
+    the `edit` tool."""
     max_requests_per_turn: int = 25
     turn_timeout: float = 300.0
     """Maximum seconds for a single LLM turn (including tool calls).
 
-    Set to ``0`` to disable.  Default is 5 minutes."""
+    Set to `0` to disable.  Default is 5 minutes."""
 
 
 class LogConfig(BaseModel):
@@ -176,10 +176,10 @@ class PaletteConfig(BaseModel):
     required (no defaults).
 
     Every field accepts any Rich style string (ANSI names, hex,
-    ``rgb()``, or combinations like ``"bold #FF0000 on #1A1A2E"``).
+    `rgb()`, or combinations like `"bold #FF0000 on #1A1A2E"`).
     Subclass to provide defaults for backgrounds and any text styles
     that need to differ per mode.
-    ``styles.py`` maps fields to ``rbtr.*`` Rich theme keys.
+    `styles.py` maps fields to `rbtr.*` Rich theme keys.
     """
 
     # ── Text styles (shared defaults) ────────────────────────────
@@ -252,8 +252,8 @@ class LightPalette(PaletteConfig):
 class ThemeConfig(BaseModel):
     """Theme configuration.
 
-    ``mode`` selects which palette is active.
-    ``[theme.dark]`` / ``[theme.light]`` override individual
+    `mode` selects which palette is active.
+    `[theme.dark]` / `[theme.light]` override individual
     fields within each palette.
     """
 
@@ -278,10 +278,10 @@ class Config(BaseSettings):
     model: str | None = None
     thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
     system_prompt_override: str = "SYSTEM.md"
-    """Filename in ``~/.config/rbtr/`` that replaces the built-in
+    """Filename in `~/.config/rbtr/` that replaces the built-in
     system prompt.  Empty string disables the override."""
     append_system: str = "APPEND_SYSTEM.md"
-    """Filename in ``~/.config/rbtr/`` whose content is appended to
+    """Filename in `~/.config/rbtr/` whose content is appended to
     the system prompt.  Empty string disables."""
     project_instructions: list[str] = ["AGENTS.md", ".rbtr/AGENTS.md"]
     """Filenames read relative to the repo root and injected into
@@ -306,7 +306,7 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
     """Recursively merge *updates* into *base*.
 
     An empty dict in *updates* replaces the base value (rather than
-    being a no-op), so ``endpoints={}`` clears the section.
+    being a no-op), so `endpoints={}` clears the section.
     """
     merged = base.copy()
     for key, value in updates.items():

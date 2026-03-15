@@ -15,8 +15,8 @@ from rbtr.exceptions import TaskCancelled
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-#: Mutable slot shared between ``Engine`` and ``LLMContext`` so the
-#: UI thread can signal an ``anyio.Event`` created inside the async
+#: Mutable slot shared between `Engine` and `LLMContext` so the
+#: UI thread can signal an `anyio.Event` created inside the async
 #: cancel watcher.  A 1-element list acts as a thread-safe pointer.
 type CancelSlot = list[anyio.Event | None]
 
@@ -27,7 +27,7 @@ class LLMContext:
 
     Created by the engine before each LLM or compaction call.
     Provides event emission, session persistence, and cancellation
-    without coupling to the ``Engine`` class.
+    without coupling to the `Engine` class.
     """
 
     state: EngineState

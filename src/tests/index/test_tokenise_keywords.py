@@ -1,14 +1,14 @@
 """Tests that language keywords survive tokenisation and FTS indexing.
 
-With the old ``stopwords='english'`` setting, Python keywords like
-``if``, ``for``, ``import``, ``in``, ``is``, ``not``, ``or``, ``and``,
-``as``, ``with`` were silently removed by DuckDB's FTS tokeniser.
-SQL keywords like ``SELECT``, ``INSERT INTO``, ``WHERE`` were even
+With the old `stopwords='english'` setting, Python keywords like
+`if`, `for`, `import`, `in`, `is`, `not`, `or`, `and`,
+`as`, `with` were silently removed by DuckDB's FTS tokeniser.
+SQL keywords like `SELECT`, `INSERT INTO`, `WHERE` were even
 worse — most are English stopwords.
 
 These tests verify that:
-1. ``tokenise_code`` preserves all language keywords.
-2. The FTS index with ``stopwords='none'`` can find them.
+1. `tokenise_code` preserves all language keywords.
+2. The FTS index with `stopwords='none'` can find them.
 """
 
 from __future__ import annotations

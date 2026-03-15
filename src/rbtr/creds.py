@@ -1,6 +1,6 @@
-"""Credential storage — ``~/.config/rbtr/creds.toml``.
+"""Credential storage — `~/.config/rbtr/creds.toml`.
 
-The ``creds`` instance reloads in place via ``__init__()``, so a direct
+The `creds` instance reloads in place via `__init__()`, so a direct
 import is safe — identity never changes::
 
     from rbtr.creds import creds
@@ -29,7 +29,7 @@ CREDS_PATH = RBTR_DIR / "creds.toml"
 
 
 class OAuthCreds(BaseModel):
-    """OAuth token set — pure data, persisted in ``creds.toml``."""
+    """OAuth token set — pure data, persisted in `creds.toml`."""
 
     access_token: str = ""
     refresh_token: str = ""

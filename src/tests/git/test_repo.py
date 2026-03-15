@@ -1,7 +1,7 @@
 """Tests for rbtr.git.repo — open, status, branches, remotes.
 
 Tests are organised around a shared multi-branch repository
-(``branched_repo``) with realistic commit history.  One-off
+(`branched_repo`) with realistic commit history.  One-off
 fixtures are used only for edge cases (empty repos, non-git dirs).
 
 Functions under test:

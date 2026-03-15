@@ -1,7 +1,7 @@
 """Claude provider — OAuth2 Authorization Code + PKCE flow.
 
 Uses Anthropic's hosted callback page — the user authorizes in the
-browser, copies the ``code#state`` string, and pastes it back into rbtr.
+browser, copies the `code#state` string, and pastes it back into rbtr.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def _make_oauth(
     *,
     existing_refresh_token: str = "",
 ) -> OAuthCreds:
-    """Build ``OAuthCreds`` from a token endpoint response.
+    """Build `OAuthCreds` from a token endpoint response.
 
     *existing_refresh_token* is preserved when the response doesn't
     include a new refresh token.
@@ -61,7 +61,7 @@ def _make_oauth(
 def begin_login() -> tuple[str, PendingLogin]:
     """Phase 1: generate PKCE, build the authorize URL, open the browser.
 
-    Returns ``(authorize_url, pending)`` where *pending* must be kept
+    Returns `(authorize_url, pending)` where *pending* must be kept
     until the user pastes the callback code.
     """
     verifier = make_verifier()
@@ -82,9 +82,9 @@ def begin_login() -> tuple[str, PendingLogin]:
 
 
 def parse_auth_code(raw: str) -> tuple[str, str]:
-    """Parse the ``code#state`` string the user pastes.
+    """Parse the `code#state` string the user pastes.
 
-    Returns ``(code, state)``.
+    Returns `(code, state)`.
     """
     raw = raw.strip()
     if "#" not in raw:
@@ -150,7 +150,7 @@ def ensure_credentials() -> OAuthCreds:
 
 
 class ClaudeProvider:
-    """Claude OAuth provider — satisfies the ``Provider`` protocol."""
+    """Claude OAuth provider — satisfies the `Provider` protocol."""
 
     GENAI_ID = "anthropic"
     LABEL = "Anthropic"
@@ -182,8 +182,8 @@ class ClaudeProvider:
     def build_model(self, model_name: str) -> Model:
         """Build an Anthropic model using stored OAuth credentials.
 
-        The token is sent as ``Authorization: Bearer <token>`` via the
-        Anthropic SDK's ``auth_token`` parameter.  The beta and user-agent
+        The token is sent as `Authorization: Bearer <token>` via the
+        Anthropic SDK's `auth_token` parameter.  The beta and user-agent
         headers are required for OAuth bearer auth.
         """
         # Deferred: anthropic SDK is heavy; only load when this provider is used.
@@ -223,7 +223,7 @@ class ClaudeProvider:
         return None
 
     def context_window(self, model_id: str) -> int | None:
-        """Look up context window from ``genai-prices``."""
+        """Look up context window from `genai-prices`."""
         from rbtr.providers.shared import genai_prices_context_window
 
         return genai_prices_context_window(self.GENAI_ID, model_id)

@@ -1,8 +1,8 @@
 """Read-only session analytics — token usage and tool frequency.
 
-Pure query functions over the ``fragments`` table.  Each takes a
-``sqlite3.Connection`` and returns frozen dataclasses.  The
-:class:`~rbtr.sessions.store.SessionStore` delegates to these via
+Pure query functions over the `fragments` table.  Each takes a
+`sqlite3.Connection` and returns frozen dataclasses.  The
+`SessionStore` delegates to these via
 thin wrapper methods.
 """
 
@@ -51,9 +51,9 @@ class ToolStat:
 class TokenStats:
     """Token usage for a session, split by compaction status.
 
-    ``total_*`` = lifetime (all messages ever).
-    ``active_*`` = non-compacted messages only.
-    Compacted = ``total - active``.
+    `total_*` = lifetime (all messages ever).
+    `active_*` = non-compacted messages only.
+    Compacted = `total - active`.
     """
 
     total_input_tokens: int
@@ -280,7 +280,7 @@ _EMPTY_OVERHEAD_STATS = OverheadStats(
 
 
 def _parse_overhead_row(row: sqlite3.Row | None) -> OverheadStats:
-    """Build ``OverheadStats`` from a SQL result row."""
+    """Build `OverheadStats` from a SQL result row."""
     if row is None or (row["compaction_count"] == 0 and row["fact_extraction_count"] == 0):
         return _EMPTY_OVERHEAD_STATS
     return OverheadStats(

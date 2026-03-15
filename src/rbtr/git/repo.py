@@ -51,9 +51,9 @@ def fetch_pr_refs(
 
     Fetches both in a single call:
 
-    - ``refs/pull/<number>/head`` — the PR head commit (works for
+    - `refs/pull/<number>/head` — the PR head commit (works for
       forks and same-repo PRs).
-    - ``refs/heads/<base_branch>`` → ``refs/remotes/origin/<base_branch>``
+    - `refs/heads/<base_branch>` → `refs/remotes/origin/<base_branch>`
       — keeps the remote-tracking ref for the base branch current so
       that diffs, commit logs, and changed-file lists reflect the
       real PR scope.
@@ -84,9 +84,9 @@ def fetch_pr_refs(
 
 
 def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
-    """Build ``RemoteCallbacks`` with credentials suitable for *url*.
+    """Build `RemoteCallbacks` with credentials suitable for *url*.
 
-    SSH URLs (``git@…`` or ``ssh://…``) → ``KeypairFromAgent``
+    SSH URLs (`git@…` or `ssh://…`) → `KeypairFromAgent`
     (delegates to the user's SSH agent).  Everything else uses
     pygit2's default credential discovery.
     """
@@ -100,9 +100,9 @@ def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
 def default_branch(repo: pygit2.Repository) -> str:
     """Return the name of the repository's default branch.
 
-    Tries ``refs/remotes/origin/HEAD`` first (set by ``git clone``),
-    then falls back to ``main`` or ``master`` if either exists locally.
-    Returns ``"main"`` as a last resort.
+    Tries `refs/remotes/origin/HEAD` first (set by `git clone`),
+    then falls back to `main` or `master` if either exists locally.
+    Returns `"main"` as a last resort.
     """
     # Try the symbolic ref that git clone sets.
     try:

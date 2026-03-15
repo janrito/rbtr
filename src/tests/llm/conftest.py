@@ -18,11 +18,11 @@ from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
 
 
 class FakeCtx:
-    """Minimal stand-in for ``RunContext[AgentDeps]`` in tool tests.
+    """Minimal stand-in for `RunContext[AgentDeps]` in tool tests.
 
-    Tools access ``ctx.deps.state`` and optionally ``ctx.deps.store``,
+    Tools access `ctx.deps.state` and optionally `ctx.deps.store`,
     so this duck type is sufficient without pulling in a real
-    ``Model`` instance.
+    `Model` instance.
     """
 
     def __init__(
@@ -57,7 +57,7 @@ def _tokenise_and_insert(store: IndexStore, chunks: list[Chunk]) -> None:
 def _build_index_store(*, embed: bool = False) -> IndexStore:
     """Single-branch index store — HTTP handler + math utils + tests + docs.
 
-    Eight chunks on the ``feature`` branch with realistic edges
+    Eight chunks on the `feature` branch with realistic edges
     (test→code, import, doc→code).  Optionally populates embedding
     vectors on orthogonal axes for clean similarity ranking.
     """
@@ -223,9 +223,9 @@ and delegates to `process_data` for validation.
 def _build_two_ref_store() -> IndexStore:
     """Two-branch index store — base (main) vs head (feature).
 
-    Models a realistic PR diff: ``parse_request`` is modified,
-    ``format_response`` unchanged, ``validate_schema`` added on
-    head, ``api_client`` removed from head, ``auth_middleware``
+    Models a realistic PR diff: `parse_request` is modified,
+    `format_response` unchanged, `validate_schema` added on
+    head, `api_client` removed from head, `auth_middleware`
     added on head.
     """
     store = IndexStore()
@@ -413,7 +413,7 @@ def _review_state(store: IndexStore) -> EngineState:
     return state
 
 
-# ``engine``, ``llm_ctx``, and ``llm_engine`` live in the root
+# `engine`, `llm_ctx`, and `llm_engine` live in the root
 # conftest — available to all test packages.
 
 
@@ -449,7 +449,7 @@ def two_ref_ctx() -> Generator[FakeCtx]:
 
 @pytest.fixture
 def two_ref_ctx_fts() -> Generator[FakeCtx]:
-    """Same as ``two_ref_ctx`` with the FTS index rebuilt for BM25."""
+    """Same as `two_ref_ctx` with the FTS index rebuilt for BM25."""
     store = _build_two_ref_store()
     store.rebuild_fts_index()
     yield FakeCtx(_review_state(store))

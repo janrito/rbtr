@@ -1,26 +1,26 @@
 """SQLite-backed session store for conversation persistence.
 
-Single ``fragments`` table: sessions are a grouping column
-(``session_id``), not a separate entity.  Each row is either a
-message-level fragment (``message_id = id``, self-referencing) or
-a content fragment (``message_id`` points to the message row).
-Aggregates are computed via ``GROUP BY``.
+Single `fragments` table: sessions are a grouping column
+(`session_id`), not a separate entity.  Each row is either a
+message-level fragment (`message_id = id`, self-referencing) or
+a content fragment (`message_id` points to the message row).
+Aggregates are computed via `GROUP BY`.
 
-Schema versioning uses ``PRAGMA user_version``.  Migrations are
+Schema versioning uses `PRAGMA user_version`.  Migrations are
 hand-written functions run sequentially on open.
 
 Public API
 ----------
-- **read**: ``load_messages``, ``load_message_ids``, ``list_sessions``,
-  ``search_history``
-- **write**: ``save_messages``, ``save_incident``, ``begin_response``,
-  ``compact_session``
-- **delete**: ``delete_session``, ``delete_old_sessions``
-- **lifecycle**: ``new_id``, ``close``
+- **read**: `load_messages`, `load_message_ids`, `list_sessions`,
+  `search_history`
+- **write**: `save_messages`, `save_incident`, `begin_response`,
+  `compact_session`
+- **delete**: `delete_session`, `delete_old_sessions`
+- **lifecycle**: `new_id`, `close`
 
-Message write methods accept ``ModelMessage`` objects — serialisation
-is fully internal.  Incident methods accept typed ``Incident``
-payloads from ``serialise.py``.
+Message write methods accept `ModelMessage` objects — serialisation
+is fully internal.  Incident methods accept typed `Incident`
+payloads from `serialise.py`.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ _sql_pkg = importlib.resources.files("rbtr.sessions") / "sql"
 
 
 def _load_sql(name: str) -> str:
-    """Read a ``.sql`` file from the ``sql/`` package directory."""
+    """Read a `.sql` file from the `sql/` package directory."""
     return (_sql_pkg / name).read_text(encoding="utf-8")
 
 
@@ -118,7 +118,7 @@ def _fts5_quote(text: str) -> str:
 
     Each whitespace-separated token is double-quoted so that
     punctuation (hyphens, dots, backticks) doesn't become an
-    FTS5 operator.  Tokens are joined with ``OR`` so any
+    FTS5 operator.  Tokens are joined with `OR` so any
     overlapping term contributes to the BM25 score.
     """
     cleaned = text.translate(_FTS5_STRIP)
@@ -183,11 +183,11 @@ class Fact:
 class ResponseWriter:
     """Incrementally persist a streaming model response.
 
-    Created by :meth:`SessionStore.begin_response`.  The engine
-    iterates PydanticAI stream events and calls :meth:`add_part`
-    / :meth:`finish_part`.  The response is invisible to
-    ``load_messages()`` until :meth:`finish` (or context-manager
-    exit) sets ``status = 'complete'``.
+    Created by `begin_response`.  The engine
+    iterates PydanticAI stream events and calls `add_part`
+    / `finish_part`.  The response is invisible to
+    `load_messages()` until `finish` (or context-manager
+    exit) sets `status = 'complete'`.
 
     Usage::
 
@@ -210,8 +210,8 @@ class ResponseWriter:
     def add_part(self, index: int, part: ModelResponsePart) -> None:
         """Insert an in-progress content fragment for *part* at *index*.
 
-        Called on ``PartStartEvent``.  The fragment has
-        ``status = 'in_progress'`` until :meth:`finish_part` is called.
+        Called on `PartStartEvent`.  The fragment has
+        `status = 'in_progress'` until `finish_part` is called.
         """
         row_id = self._store.new_id()
         row = prepare_part_row(
@@ -229,7 +229,7 @@ class ResponseWriter:
     def finish_part(self, index: int, part: ModelResponsePart) -> None:
         """Update the fragment at *index* with the final part data.
 
-        Called on ``PartEndEvent``.
+        Called on `PartEndEvent`.
         """
         fid = self._part_ids.get(index)
         if fid is None:
@@ -246,10 +246,10 @@ class ResponseWriter:
         cache_read_tokens: int | None = None,
         cache_write_tokens: int | None = None,
     ) -> None:
-        """Set ``status = 'complete'`` and record final metadata.
+        """Set `status = 'complete'` and record final metadata.
 
         Safe to call multiple times — the UPDATE is idempotent.
-        A later call with ``cost`` / token counts overwrites earlier values.
+        A later call with `cost` / token counts overwrites earlier values.
         """
         with self._store._lock, self._store._con:
             self._store._con.execute(
@@ -280,13 +280,13 @@ class ResponseWriter:
 class SessionStore:
     """SQLite-backed conversation store.
 
-    Thread-safe: a ``threading.Lock`` serialises all writes.  Reads
+    Thread-safe: a `threading.Lock` serialises all writes.  Reads
     use WAL mode for non-blocking concurrency.
 
     Parameters
     ----------
     db_path:
-        Path to the SQLite database file.  ``None`` creates an
+        Path to the SQLite database file.  `None` creates an
         in-memory database (useful for tests).
     """
 
@@ -324,7 +324,7 @@ class SessionStore:
             )
 
     def _migrate(self, from_version: int) -> None:
-        """Run migrations from *from_version* to ``_SCHEMA_VERSION``.
+        """Run migrations from *from_version* to `_SCHEMA_VERSION`.
 
         Known migrations are applied incrementally.  Unknown older
         versions are wiped and recreated.
@@ -400,20 +400,20 @@ class SessionStore:
         cost: float | None = None,
         status: FragmentStatus = FragmentStatus.COMPLETE,
     ) -> list[str]:
-        """Persist a list of ``ModelMessage`` objects.
+        """Persist a list of `ModelMessage` objects.
 
         Serialisation is handled internally.  *cost* is attributed to
-        the last ``ModelResponse`` in *messages*.
+        the last `ModelResponse` in *messages*.
 
         *status* sets the lifecycle state for all rows.  Use
-        ``FragmentStatus.FAILED`` to persist a failed user prompt
-        that should appear in ``search_history`` but not in
-        ``load_messages``.
+        `FragmentStatus.FAILED` to persist a failed user prompt
+        that should appear in `search_history` but not in
+        `load_messages`.
 
         Returns the list of message-level row IDs (one per message).
 
         When metadata kwargs are omitted, falls back to the context
-        set by :meth:`set_context`.
+        set by `set_context`.
         """
         if not messages:
             return []
@@ -462,14 +462,14 @@ class SessionStore:
     ) -> None:
         """Persist a command or shell input as a self-referencing row.
 
-        *kind* must be ``"command"`` or ``"shell"``.
+        *kind* must be `"command"` or `"shell"`.
 
-        The row has ``message_id = id``, ``fragment_index = 0``,
-        ``user_text = text``, no ``data_json``.  Visible in
-        ``search_history`` but excluded from ``load_messages``.
+        The row has `message_id = id`, `fragment_index = 0`,
+        `user_text = text`, no `data_json`.  Visible in
+        `search_history` but excluded from `load_messages`.
 
         When metadata kwargs are omitted, falls back to the context
-        set by :meth:`set_context`.
+        set by `set_context`.
         """
         fk = FragmentKind(kind)
         row_id = self.new_id()
@@ -493,14 +493,14 @@ class SessionStore:
     ) -> str:
         """Persist an incident (failure or history repair).
 
-        *payload* is serialised via ``prepare_incident_row`` into
-        ``data_json``.  Creates a self-referencing row
-        (``message_id = id``, ``fragment_index = 0``).  Returns
+        *payload* is serialised via `prepare_incident_row` into
+        `data_json`.  Creates a self-referencing row
+        (`message_id = id`, `fragment_index = 0`).  Returns
         the row ID.
 
-        Incident rows are excluded from ``load_messages`` (the SQL
-        only selects ``request-message`` and ``response-message``
-        kinds with ``status = 'complete'``).
+        Incident rows are excluded from `load_messages` (the SQL
+        only selects `request-message` and `response-message`
+        kinds with `status = 'complete'`).
         """
         row_id = self.new_id()
         row = prepare_incident_row(kind, payload, context=self._ctx, row_id=row_id)
@@ -522,9 +522,9 @@ class SessionStore:
 
         Creates a self-referencing row with token counts and cost
         from the background LLM call.  Overhead fragments are
-        excluded from ``load_messages`` (``is_message`` returns
-        ``False``) and from conversation stats SQL (which filters
-        by ``request-message`` / ``response-message``).
+        excluded from `load_messages` (`is_message` returns
+        `False`) and from conversation stats SQL (which filters
+        by `request-message` / `response-message`).
 
         Returns the row ID.
         """
@@ -543,9 +543,9 @@ class SessionStore:
         return row_id
 
     def update_incident_json(self, row_id: str, key: str, value: str) -> None:
-        """Set a top-level key in an incident row's ``data_json``.
+        """Set a top-level key in an incident row's `data_json`.
 
-        Uses SQLite's ``json_set`` for an atomic single-statement
+        Uses SQLite's `json_set` for an atomic single-statement
         update — no read-modify-write.
         """
         with self._lock, self._con:
@@ -586,10 +586,10 @@ class SessionStore:
     ) -> ResponseWriter:
         """Start streaming a model response.
 
-        Inserts an in-progress message header (``status = 'in_progress'``) and
-        returns a :class:`ResponseWriter` for adding parts
+        Inserts an in-progress message header (`status = 'in_progress'`) and
+        returns a `ResponseWriter` for adding parts
         incrementally.  The message is invisible to
-        ``load_messages()`` until the writer is finished.
+        `load_messages()` until the writer is finished.
         """
         row_id = self.new_id()
         placeholder = ModelResponse(parts=[], model_name=model_name)
@@ -621,11 +621,11 @@ class SessionStore:
 
         Kept messages are **not re-inserted** — they remain as-is
         in the DB.  Only the messages in *compact_ids* are marked.
-        The summary inherits the ``created_at`` of the earliest
+        The summary inherits the `created_at` of the earliest
         compacted message so it sorts before the kept messages.
 
         When metadata kwargs are omitted, falls back to the context
-        set by :meth:`set_context`.
+        set by `set_context`.
         """
         if not compact_ids:
             return
@@ -665,7 +665,7 @@ class SessionStore:
     def reset_latest_compaction(self, session_id: str) -> int:
         """Undo the most recent compaction for a session.
 
-        Sets ``compacted_by = NULL`` on all fragments that were
+        Sets `compacted_by = NULL` on all fragments that were
         marked by the most recent summary, then deletes the summary
         message.  The summary is removed because its timestamp
         would interleave with restored messages and break tool-call
@@ -673,7 +673,7 @@ class SessionStore:
 
         Returns the number of fragments restored, 0 if none existed.
 
-        Raises :class:`ValueError` if messages were added after the
+        Raises `ValueError` if messages were added after the
         compaction (the summary is already part of later context).
         """
         with self._lock, self._con:
@@ -709,10 +709,10 @@ class SessionStore:
     # ── Reads ────────────────────────────────────────────────────────
 
     def load_messages(self, session_id: str) -> list[ModelMessage]:
-        """Load active messages (``status = 'complete'``) for a session.
+        """Load active messages (`status = 'complete'`) for a session.
 
-        Reconstructs ``ModelMessage`` objects from fragment rows.
-        Returns ``list[ModelMessage]`` in chronological order.
+        Reconstructs `ModelMessage` objects from fragment rows.
+        Returns `list[ModelMessage]` in chronological order.
         Corrupt rows are logged and skipped.
         """
         return [msg for _id, msg in self._load_messages_paired(session_id)]
@@ -720,8 +720,8 @@ class SessionStore:
     def load_messages_with_ids(self, session_id: str) -> list[tuple[str, ModelMessage]]:
         """Load messages paired with their DB row IDs.
 
-        Same as :meth:`load_messages` but returns
-        ``list[(message_id, ModelMessage)]``.  Used by compaction
+        Same as `load_messages` but returns
+        `list[(message_id, ModelMessage)]`.  Used by compaction
         to get IDs from the same query that loads messages —
         no index-alignment with a separate query.
         """
@@ -825,7 +825,7 @@ class SessionStore:
     def session_started_at(self, session_id: str) -> float | None:
         """Return the wall-clock timestamp of the session's first message.
 
-        Returns ``None`` if the session has no messages.
+        Returns `None` if the session has no messages.
         """
         row = self._con.execute(_SESSION_STARTED_AT_SQL, [session_id]).fetchone()
         if row is None or row["started"] is None:
@@ -897,7 +897,7 @@ class SessionStore:
         )
 
     def get_fact(self, fact_id: str) -> Fact | None:
-        """Look up a single fact by ID, or ``None`` if not found."""
+        """Look up a single fact by ID, or `None` if not found."""
         row = self._con.execute(_GET_FACT_SQL, [fact_id]).fetchone()
         if row is None:
             return None
@@ -913,7 +913,7 @@ class SessionStore:
         )
 
     def find_fact_by_content(self, content: str, scope: str) -> Fact | None:
-        """Find an active fact by exact content and scope, or ``None``."""
+        """Find an active fact by exact content and scope, or `None`."""
         row = self._con.execute(_FIND_FACT_BY_CONTENT_SQL, [content, scope]).fetchone()
         if row is None:
             return None

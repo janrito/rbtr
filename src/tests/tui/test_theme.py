@@ -38,7 +38,7 @@ def test_palette_to_styles_has_all_fields() -> None:
 
 
 def test_style_keys_match_constants() -> None:
-    """Every theme key from ``palette_to_styles`` has a constant in ``styles``."""
+    """Every theme key from `palette_to_styles` has a constant in `styles`."""
     import rbtr.styles as s
 
     constants = {
@@ -81,7 +81,7 @@ def test_light_palette_adjusts_warning_for_readability() -> None:
 
 
 def test_partial_light_override_keeps_light_defaults() -> None:
-    """Overriding one field in ``[theme.light]`` doesn't pull dark defaults."""
+    """Overriding one field in `[theme.light]` doesn't pull dark defaults."""
     cfg = ThemeConfig.model_validate({"light": {"bg_succeeded": "on #E0FFE0"}})
     assert cfg.light.bg_succeeded == "on #E0FFE0"
     assert cfg.light.bg_failed == LightPalette().bg_failed

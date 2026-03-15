@@ -2,7 +2,7 @@
 """Mine session history for real search queries and replay them.
 
 Extracts search→read_symbol pairs from the sessions database,
-replays each query through the current unified ``search()``
+replays each query through the current unified `search()`
 pipeline, and reports how often the actually-read symbol appears
 in the top results.
 
@@ -67,7 +67,7 @@ class ReplayResult:
 def _parse_args(data_json: str) -> dict[str, Any]:
     """Extract the tool call arguments from a fragment's data_json.
 
-    The ``args`` field is itself a JSON-encoded string inside the
+    The `args` field is itself a JSON-encoded string inside the
     outer JSON object.  Returns untyped dict (JSON boundary).
     """
     outer = json.loads(data_json)
@@ -114,7 +114,7 @@ def _parse_search_result_names(content: str) -> set[str]:
 def extract_events(db_path: Path) -> list[SearchEvent]:
     """Scan the sessions DB for search calls and pair with read_symbol.
 
-    For each search tool-call, looks for a ``read_symbol`` tool-call
+    For each search tool-call, looks for a `read_symbol` tool-call
     in the same session that occurs *after* the search but *before*
     the next user-prompt or unrelated tool chain.  Only pairs where
     the read target is *directly* after the search (no more than 2
@@ -400,7 +400,7 @@ def _print_query_distribution(events: list[SearchEvent]) -> None:
 
 
 def _repo_matches(repo: pygit2.Repository, repo_key: str) -> bool:
-    """Check if *repo* matches *repo_key* (``owner/name``)."""
+    """Check if *repo* matches *repo_key* (`owner/name`)."""
     repo_name = repo_key.split("/")[-1] if "/" in repo_key else repo_key
     remote_str = " ".join(rm.url for rm in repo.remotes).lower()
     return repo_name.lower() in remote_str

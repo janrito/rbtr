@@ -1,20 +1,20 @@
 """Serialisation for session persistence.
 
-Translates between PydanticAI message types and ``Fragment``
-objects for the ``fragments`` table.
+Translates between PydanticAI message types and `Fragment`
+objects for the `fragments` table.
 
 Design
 ------
-Each ``ModelMessage`` produces **1 + N** rows:
+Each `ModelMessage` produces **1 + N** rows:
 
-- **1 message row** (``message_id = id``, ``fragment_index = 0``):
-  stores message-level metadata (everything except ``parts``).
-- **N content rows** (one per part, ``fragment_index`` ≥ 1):
-  stores each PydanticAI part as-is via its own ``TypeAdapter``.
+- **1 message row** (`message_id = id`, `fragment_index = 0`):
+  stores message-level metadata (everything except `parts`).
+- **N content rows** (one per part, `fragment_index` ≥ 1):
+  stores each PydanticAI part as-is via its own `TypeAdapter`.
 
 No custom intermediate models.  Message headers are serialised via
-PydanticAI's ``TypeAdapter[ModelMessage]`` (parts stripped).  Parts
-are serialised directly via their built-in ``part_kind`` discriminator.
+PydanticAI's `TypeAdapter[ModelMessage]` (parts stripped).  Parts
+are serialised directly via their built-in `part_kind` discriminator.
 
 All functions are pure — no I/O, no engine or UI imports.
 
@@ -58,12 +58,12 @@ log = logging.getLogger(__name__)
 
 # ── TypeAdapters ─────────────────────────────────────────────────────
 #
-# _message_ta:  Serialises full ModelMessage (we strip ``parts``
+# _message_ta:  Serialises full ModelMessage (we strip `parts`
 #               after dumping for the header row, and re-attach
 #               them from content rows when loading).
 #
 # _part_ta:     Serialises individual parts.  PydanticAI parts
-#               already carry ``part_kind`` as a Literal field,
+#               already carry `part_kind` as a Literal field,
 #               so the discriminated union just works.
 
 _message_ta: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
@@ -94,7 +94,7 @@ def _dump_header(msg: ModelMessage) -> str:
     """Serialise message metadata to JSON, excluding parts.
 
     Uses PydanticAI's own TypeAdapter so complex fields
-    (``RequestUsage``, ``FinishReason``, ``datetime``) are
+    (`RequestUsage`, `FinishReason`, `datetime`) are
     handled correctly.
     """
     data: dict[str, Any] = _message_ta.dump_python(msg, mode="json")
@@ -114,10 +114,10 @@ def prepare_message_row(
     row_id: str,
     status: FragmentStatus = FragmentStatus.COMPLETE,
 ) -> Fragment:
-    """Build a message-level ``Fragment``.
+    """Build a message-level `Fragment`.
 
-    Serialises the message metadata (everything except ``parts``)
-    into ``data_json``.
+    Serialises the message metadata (everything except `parts`)
+    into `data_json`.
     """
     now = datetime.now(UTC).isoformat()
 
@@ -173,7 +173,7 @@ def prepare_part_row(
     row_id: str,
     status: FragmentStatus = FragmentStatus.COMPLETE,
 ) -> Fragment:
-    """Build a content ``Fragment`` for a single message part."""
+    """Build a content `Fragment` for a single message part."""
     now = datetime.now(UTC).isoformat()
     fk = FragmentKind(part.part_kind)
 
@@ -217,7 +217,7 @@ def prepare_part_rows(
     context: SessionContext,
     status: FragmentStatus = FragmentStatus.COMPLETE,
 ) -> list[Fragment]:
-    """Build ``Fragment`` list for all parts in a message.
+    """Build `Fragment` list for all parts in a message.
 
     Generates row IDs via UUID7.  Fragment index starts at 1
     (0 is the message-level row).
@@ -248,10 +248,10 @@ def prepare_incident_row(
     context: SessionContext,
     row_id: str,
 ) -> Fragment:
-    """Build a self-referencing ``Fragment`` for an incident.
+    """Build a self-referencing `Fragment` for an incident.
 
-    The payload is serialised via ``model_dump_json(exclude_none=True)``
-    and stored in ``data_json``.
+    The payload is serialised via `model_dump_json(exclude_none=True)`
+    and stored in `data_json`.
     """
     now = datetime.now(UTC).isoformat()
     return Fragment(
@@ -289,11 +289,11 @@ def prepare_overhead_row(
     output_tokens: int | None = None,
     cost: float | None = None,
 ) -> Fragment:
-    """Build a self-referencing ``Fragment`` for overhead cost tracking.
+    """Build a self-referencing `Fragment` for overhead cost tracking.
 
-    Same pattern as ``prepare_incident_row`` — self-referencing with
-    ``message_id = id``, ``fragment_index = 0``.  Additionally
-    populates ``input_tokens``, ``output_tokens``, and ``cost``
+    Same pattern as `prepare_incident_row` — self-referencing with
+    `message_id = id`, `fragment_index = 0`.  Additionally
+    populates `input_tokens`, `output_tokens`, and `cost`
     columns from the overhead LLM call.
     """
     now = datetime.now(UTC).isoformat()
@@ -329,9 +329,9 @@ def prepare_input_row(
     context: SessionContext,
     row_id: str,
 ) -> Fragment:
-    """Build a self-referencing ``Fragment`` for a command/shell input.
+    """Build a self-referencing `Fragment` for a command/shell input.
 
-    Sets ``user_text`` for search; no ``data_json``.
+    Sets `user_text` for search; no `data_json`.
     """
     now = datetime.now(UTC).isoformat()
     return Fragment(
@@ -369,11 +369,11 @@ def reconstruct_message(
     header_json: str,
     part_jsons: list[str],
 ) -> ModelMessage:
-    """Rebuild a ``ModelMessage`` from its header JSON and part JSONs.
+    """Rebuild a `ModelMessage` from its header JSON and part JSONs.
 
     Merges the header dict (message-level metadata) with the
     deserialised parts, then validates through PydanticAI's
-    ``TypeAdapter[ModelMessage]``.
+    `TypeAdapter[ModelMessage]`.
     """
     data: dict[str, Any] = json.loads(header_json)
     data["parts"] = [json.loads(pj) for pj in part_jsons]

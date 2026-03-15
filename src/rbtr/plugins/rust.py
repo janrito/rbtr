@@ -1,7 +1,7 @@
 """Rust language plugin.
 
 Provides full support: functions, structs, enums, impl blocks,
-and ``use`` declaration extraction.
+and `use` declaration extraction.
 
 Extracted import examples::
 
@@ -52,9 +52,9 @@ _QUERY = """\
 def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
     """Convert collected Rust path segments into module/dots metadata.
 
-    Leading ``super`` segments are counted as relative dots using
-    the unified convention (each ``super`` = one extra level up,
-    plus 1 for the file itself).  ``crate`` is kept as a literal
+    Leading `super` segments are counted as relative dots using
+    the unified convention (each `super` = one extra level up,
+    plus 1 for the file itself).  `crate` is kept as a literal
     path segment — it's root-relative, not parent-relative.
 
     Examples::
@@ -91,28 +91,28 @@ def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
 
 
 def extract_import_meta(node: Node) -> ImportMeta:
-    """Extract import data from a Rust ``use_declaration`` node.
+    """Extract import data from a Rust `use_declaration` node.
 
-    Uses :func:`~rbtr.plugins.hookspec.collect_scoped_path` to walk
-    the nested ``scoped_identifier`` nodes.
+    Uses `collect_scoped_path` to walk
+    the nested `scoped_identifier` nodes.
 
-    **Simple scoped** — ``use std::collections::HashMap;``::
+    **Simple scoped** — `use std::collections::HashMap;`::
 
         >>> extract_import_meta(node)
         {"module": "std/collections", "names": "HashMap"}
 
     **Crate-relative with braces** —
-    ``use crate::models::{Chunk, Edge};``::
+    `use crate::models::{Chunk, Edge};`::
 
         >>> extract_import_meta(node)
         {"module": "crate/models", "names": "Chunk,Edge"}
 
-    **Super-relative** — ``use super::utils;``::
+    **Super-relative** — `use super::utils;`::
 
         >>> extract_import_meta(node)
         {"names": "utils", "dots": "2"}
 
-    **Self re-export** — ``use std::io::{self, Read};``::
+    **Self re-export** — `use std::io::{self, Read};`::
 
         >>> extract_import_meta(node)
         {"module": "std/io", "names": "self,Read"}
@@ -158,9 +158,9 @@ def extract_import_meta(node: Node) -> ImportMeta:
 class RustPlugin:
     """Rust language support.
 
-    Uses ``impl_item`` and ``struct_item`` for scope detection
-    because Rust methods are defined inside ``impl`` blocks, not
-    directly inside ``struct`` definitions.
+    Uses `impl_item` and `struct_item` for scope detection
+    because Rust methods are defined inside `impl` blocks, not
+    directly inside `struct` definitions.
     """
 
     @hookimpl

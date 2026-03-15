@@ -1,7 +1,7 @@
 """Token usage tracking and context-window awareness.
 
 Pure accumulator — all model metadata (context window, cost) comes from
-PydanticAI's ``ModelResponse``, which already calls ``genai-prices``
+PydanticAI's `ModelResponse`, which already calls `genai-prices`
 internally.  This module never imports provider or pricing libraries.
 """
 
@@ -33,7 +33,7 @@ class MessageCountStatus(StrEnum):
 class _LiveBase:
     """Snapshot of cumulative counters at the start of an agent run.
 
-    ``_update_live_usage`` adds the run's incremental ``RunUsage``
+    `_update_live_usage` adds the run's incremental `RunUsage`
     on top of these to produce accurate lifetime totals mid-run.
     """
 
@@ -47,9 +47,9 @@ class _LiveBase:
 class SessionUsage:
     """Cumulative token usage for the current conversation.
 
-    The engine calls :meth:`record_run` after each LLM interaction,
-    passing token counts from ``RunUsage`` and cost/context-window
-    from ``ModelResponse.cost()``.
+    The engine calls `record_run` after each LLM interaction,
+    passing token counts from `RunUsage` and cost/context-window
+    from `ModelResponse.cost()`.
     """
 
     input_tokens: int = 0
@@ -91,8 +91,8 @@ class SessionUsage:
         """Save current cumulative counters as the live-update baseline.
 
         Call this at the start of each agent run, before streaming.
-        ``_update_live_usage`` then adds the run's incremental
-        ``RunUsage`` on top to produce accurate lifetime totals
+        `_update_live_usage` then adds the run's incremental
+        `RunUsage` on top to produce accurate lifetime totals
         for the footer while tool calls are in progress.
         """
         self.live_base = _LiveBase(
@@ -121,15 +121,15 @@ class SessionUsage:
         the run (PydanticAI sums them).  *last_input_tokens* is the
         input tokens from the **last** request only — the actual prompt
         size that determines context-window consumption.  When
-        ``None``, falls back to *input_tokens* (assumes single-request
+        `None`, falls back to *input_tokens* (assumes single-request
         run).
 
-        *cost* and *context_window* come from ``ModelResponse.cost()``
+        *cost* and *context_window* come from `ModelResponse.cost()`
         and default to zero / unchanged when pricing is unavailable.
-        When *context_window* is ``None``, fall back to the default
+        When *context_window* is `None`, fall back to the default
         rather than carrying over a previous model's value.
 
-        *new_responses* is the number of ``ModelResponse`` messages
+        *new_responses* is the number of `ModelResponse` messages
         (LLM API calls) produced in this run.
         """
         self.turn_count += 1
@@ -263,7 +263,7 @@ class SessionUsage:
 
 
 def format_tokens(count: int) -> str:
-    """Format a token count for display: ``1.2k``, ``150k``, ``1.2M``."""
+    """Format a token count for display: `1.2k`, `150k`, `1.2M`."""
     if count < 1_000:
         return str(count)
     if count < 100_000:
