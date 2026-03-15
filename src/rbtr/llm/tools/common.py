@@ -156,6 +156,16 @@ def resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
             return ref
 
 
+# ── Output formatting ────────────────────────────────────────────────
+
+
+def number_lines(lines: list[str], start: int) -> str:
+    """Format *lines* with right-aligned line numbers starting at *start*."""
+    end = start + len(lines)
+    width = len(str(end))
+    return "\n".join(f"{start + i:{width}d}│ {line}" for i, line in enumerate(lines))
+
+
 # ── Output limiting ──────────────────────────────────────────────────
 
 

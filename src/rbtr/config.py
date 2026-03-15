@@ -116,6 +116,10 @@ class ToolsConfig(BaseModel):
     """Max match groups returned by grep."""
     grep_context_lines: int = 5
     """Lines of context above and below each grep match."""
+    max_search_hits: int = 50
+    """Max results returned by search."""
+    search_context_lines: int = 5
+    """Opening lines of each symbol to preview in search results."""
     notes_dir: str = str(WORKSPACE_DIR / "notes")
     """Default directory for review notes.
 

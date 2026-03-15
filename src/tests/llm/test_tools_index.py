@@ -39,9 +39,9 @@ def test_search_symbols_no_match(index_ctx: FakeCtx) -> None:
 def test_search_codebase_ranks_by_relevance(index_ctx: FakeCtx) -> None:
     """Searching 'variance' should rank math_stddev highest."""
     result = search(index_ctx, "variance")  # type: ignore[arg-type]
-    lines = result.strip().split("\n")
+    sections = result.strip().split("\n\n")
     # First result should be the stddev function (contains "variance").
-    assert "calculate_standard_deviation" in lines[0]
+    assert "calculate_standard_deviation" in sections[0]
 
 
 def test_search_codebase_finds_http_content(index_ctx: FakeCtx) -> None:
@@ -64,9 +64,9 @@ def test_search_similar_ranks_math_first(
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
     result = search(index_ctx_embedded, "statistics calculations")  # type: ignore[arg-type]
 
-    lines = result.strip().split("\n")
+    sections = result.strip().split("\n\n")
     # First results should be math-related (mean, stddev, StatisticsCalculator).
-    top_three = " ".join(lines[:3])
+    top_three = " ".join(sections[:3])
     assert "calculate_mean" in top_three or "calculate_standard_deviation" in top_three
     # HTTP handler should not be in the top results.
     assert "handle_request" not in top_three
@@ -79,8 +79,8 @@ def test_search_similar_ranks_http_first(
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
     result = search(index_ctx_embedded, "web request handling")  # type: ignore[arg-type]
 
-    lines = result.strip().split("\n")
-    top_two = " ".join(lines[:2])
+    sections = result.strip().split("\n\n")
+    top_two = " ".join(sections[:2])
     assert "handle_request" in top_two or "process_data" in top_two
 
 

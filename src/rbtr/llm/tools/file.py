@@ -11,7 +11,14 @@ from rbtr.config import config
 from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.git.objects import read_blob
 from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.common import file_toolset, get_repo, limited, resolve_tool_ref, validate_path
+from rbtr.llm.tools.common import (
+    file_toolset,
+    get_repo,
+    limited,
+    number_lines,
+    resolve_tool_ref,
+    validate_path,
+)
 
 
 def _read_fs_file(path: str) -> tuple[list[str], str | None]:
@@ -64,13 +71,6 @@ def _read_blob(repo: pygit2.Repository, ref: str, path: str) -> pygit2.Blob | st
     return blob
 
 
-def _number_lines(lines: list[str], start: int) -> str:
-    """Format *lines* with right-aligned line numbers starting at *start*."""
-    end = start + len(lines)
-    width = len(str(end))
-    return "\n".join(f"{start + i:{width}d}│ {line}" for i, line in enumerate(lines))
-
-
 def _format_file_page(path: str, all_lines: list[str], offset: int, max_lines: int) -> str:
     """Shared formatter for read_file — produces numbered output with pagination hint."""
     total = len(all_lines)
@@ -78,7 +78,7 @@ def _format_file_page(path: str, all_lines: list[str], offset: int, max_lines: i
     line_start = offset + 1  # 1-indexed display
 
     header = f"# {path}  (lines {line_start}-{line_start + len(selected) - 1} of {total})"
-    body = _number_lines(selected, line_start)
+    body = number_lines(selected, line_start)
     output = f"{header}\n{body}"
     shown_end = offset + len(selected)
     if shown_end < total:
@@ -317,7 +317,7 @@ def _grep_lines(
     header = f"# {path}  ({n_matches} match{'es' if n_matches != 1 else ''})"
     sections: list[str] = [header]
     for region_start, region_end in page:
-        sections.append(_number_lines(all_lines[region_start:region_end], region_start + 1))
+        sections.append(number_lines(all_lines[region_start:region_end], region_start + 1))
 
     result = "\n\n".join(sections)
     shown = offset + len(page)
@@ -413,7 +413,7 @@ def _grep_filesystem(
                 file_sections.append("\n\n".join(current_parts))
             current_parts = [f"# {fpath}"]
             current_file = fpath
-        current_parts.append(_number_lines(file_lines[rstart:rend], rstart + 1))
+        current_parts.append(number_lines(file_lines[rstart:rend], rstart + 1))
     if current_parts:
         file_sections.append("\n\n".join(current_parts))
 
@@ -506,7 +506,7 @@ def _grep_tree(
                 file_sections.append("\n\n".join(current_parts))
             current_parts = [f"# {entry_path}"]
             current_file = entry_path
-        current_parts.append(_number_lines(file_lines[rstart:rend], rstart + 1))
+        current_parts.append(number_lines(file_lines[rstart:rend], rstart + 1))
     if current_parts:
         file_sections.append("\n\n".join(current_parts))
 

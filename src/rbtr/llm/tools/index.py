@@ -13,6 +13,7 @@ from rbtr.llm.tools.common import (
     head_commit,
     index_toolset,
     limited,
+    number_lines,
     require_diff_target,
     resolve_tool_ref,
     validate_path,
@@ -25,30 +26,37 @@ def search(
     ctx: RunContext[AgentDeps],
     query: str,
     offset: int = 0,
-    max_results: int | None = None,
+    max_hits: int | None = None,
+    context_lines: int | None = None,
 ) -> str:
     """Explore the codebase by name, keyword, or concept.
 
     Use this as the first step when investigating code — it handles
     identifier names (`Config`), keyword queries (`retry timeout`),
     and natural-language questions (`how does auth work`) in a single
-    ranked result list.  Prefer `grep` only when you need an exact
-    literal substring match (e.g. an error message or config key).
+    ranked result list.  Each result includes a preview of the
+    symbol body so you can assess relevance without a follow-up call.
+    Prefer `grep` only when you need an exact literal substring
+    match (e.g. an error message or config key).
 
     Args:
         query: What to search for — an identifier name, keywords,
             or a natural-language description.
         offset: Number of results to skip (default 0).  Use to
             fetch the next page when a previous call was limited.
-        max_results: Maximum results to return per call
-            (defaults to `tools.max_results` config value).
+        max_hits: Maximum results to return per call
+            (defaults to `tools.max_search_hits` config value).
+        context_lines: Opening lines of each symbol to preview
+            (signature, docstring).  Set to 0 for a compact
+            listing without previews.
     """
     store = get_store(ctx)
     limit = (
-        min(max_results, config.tools.max_results)
-        if max_results is not None
-        else config.tools.max_results
+        min(max_hits, config.tools.max_search_hits)
+        if max_hits is not None
+        else config.tools.max_search_hits
     )
+    ctx_n = context_lines if context_lines is not None else config.tools.search_context_lines
     results = store.search(head_commit(ctx), query, top_k=offset + limit + 1)
     if not results:
         return f"No results for '{query}'."
@@ -56,12 +64,16 @@ def search(
     page = results[offset : offset + limit]
     if not page:
         return f"Offset {offset} exceeds {total} results."
-    lines: list[str] = []
+    sections: list[str] = []
     for r in page:
         c = r.chunk
         scope = f"{c.scope}." if c.scope else ""
-        lines.append(f"[{r.score:.3f}] {c.kind} {scope}{c.name}  ({c.file_path}:{c.line_start})")
-    result = "\n".join(lines)
+        header = f"[{r.score:.3f}] {c.kind} {scope}{c.name}  ({c.file_path}:{c.line_start})"
+        if ctx_n > 0 and c.content:
+            preview = c.content.splitlines()[:ctx_n]
+            header += "\n" + number_lines(preview, c.line_start)
+        sections.append(header)
+    result = "\n\n".join(sections)
     shown = offset + len(page)
     if shown < total:
         result += limited(shown, total, hint=f"offset={shown} to continue")
