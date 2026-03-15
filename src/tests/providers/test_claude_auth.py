@@ -185,3 +185,21 @@ def test_ensure_raises_when_expired_no_refresh_token(creds_path: Path) -> None:
     _store_oauth(creds_path, refresh_token="", expires_at=time.time() - 100)
     with pytest.raises(RbtrError, match="Not connected"):
         ensure_credentials()
+
+
+def test_ensure_clears_creds_on_refresh_failure(creds_path: Path, mocker) -> None:
+    """When the refresh token is rejected (e.g. expired or revoked),
+    stale credentials are cleared so `is_connected()` reflects reality."""
+    _store_oauth(creds_path, expires_at=time.time() - 100)
+    mocker.patch(
+        "rbtr.providers.claude._refresh",
+        side_effect=RbtrError("Token request failed (400): invalid_grant"),
+    )
+
+    with pytest.raises(RbtrError, match="Session expired"):
+        ensure_credentials()
+
+    # Credentials must be wiped — is_connected should return False.
+    assert not oauth_is_set(creds.claude)
+    assert creds.claude.access_token == ""
+    assert creds.claude.refresh_token == ""

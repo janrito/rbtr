@@ -294,6 +294,11 @@ def ensure_credentials(
     *field* is the attribute name on `creds` (e.g. `"claude"`),
     used both for reading/writing credentials and in error messages.
 
+    When refresh fails (e.g. the refresh token expired or was
+    revoked), the stale credentials are cleared so
+    `is_connected()` returns `False` and the user sees the
+    disconnected state immediately.
+
     Raises `RbtrError` if not connected or refresh fails.
     """
     from rbtr.creds import creds  # deferred: avoid circular import at module level
@@ -306,8 +311,19 @@ def ensure_credentials(
         return oauth
 
     if not oauth.refresh_token:
-        raise RbtrError(f"Access token expired and no refresh token. Use /connect {field}.")
+        raise RbtrError(f"Session expired. Use /connect {field} to re-authenticate.")
 
-    refreshed = refresh(oauth)
+    try:
+        refreshed = refresh(oauth)
+    except RbtrError:
+        # Refresh token is invalid or revoked — clear stale
+        # credentials so `is_connected()` reflects reality.
+        from rbtr.creds import OAuthCreds as OAuthCredsModel
+
+        creds.update(**{field: OAuthCredsModel()})
+        raise RbtrError(
+            f"Session expired (refresh token rejected). Use /connect {field} to re-authenticate."
+        ) from None
+
     creds.update(**{field: refreshed})
     return refreshed
