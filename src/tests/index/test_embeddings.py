@@ -221,7 +221,9 @@ def test_download_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
     # Force reimport to pick up the mock
     result = embeddings._download("org/repo", "model.gguf", "/cache")
     assert result == "/cached/model.gguf"
-    mock_dl.assert_called_once_with(repo_id="org/repo", filename="model.gguf", cache_dir="/cache")
+    mock_dl.assert_called_once_with(
+        repo_id="org/repo", filename="model.gguf", cache_dir="/cache", token=False
+    )
 
 
 def test_list_repo_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:

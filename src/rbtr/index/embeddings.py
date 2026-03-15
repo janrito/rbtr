@@ -65,7 +65,9 @@ def _download(repo_id: str, filename: str, cache_dir: str) -> str:
     """Download a file from HuggingFace Hub, returning local path."""
     from huggingface_hub import hf_hub_download  # heavy startup cost
 
-    return hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=cache_dir)
+    # token=False: the embedding model repo is public — explicitly
+    # opt out of auth to suppress the "unauthenticated requests" warning.
+    return hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=cache_dir, token=False)
 
 
 def _list_repo(repo_id: str) -> list[str]:
