@@ -15,6 +15,7 @@ from rbtr.llm.tools.common import (
     file_toolset,
     index_toolset,
     review_toolset,
+    shell_toolset,
     workspace_toolset,
 )
 
@@ -51,8 +52,12 @@ from rbtr.llm.tools.common import (
             workspace_toolset,
             ["edit", "remember"],
         ),
+        (
+            shell_toolset,
+            ["run_command"],
+        ),
     ],
-    ids=["index", "file", "diff", "review", "workspace"],
+    ids=["index", "file", "diff", "review", "workspace", "shell"],
 )
 def test_tool_registration_order(
     toolset: object,
@@ -67,13 +72,14 @@ def test_tool_registration_order(
 
 
 def test_total_tool_count() -> None:
-    """All 19 tools are registered across the five toolsets."""
+    """All 20 tools are registered across the six toolsets."""
     all_tools = (
         list(index_toolset.tools)
         + list(file_toolset.tools)
         + list(diff_toolset.tools)
         + list(review_toolset.tools)
         + list(workspace_toolset.tools)
+        + list(shell_toolset.tools)
     )
-    assert len(all_tools) == 19
-    assert len(set(all_tools)) == 19, "duplicate tool names across toolsets"
+    assert len(all_tools) == 20
+    assert len(set(all_tools)) == 20, "duplicate tool names across toolsets"

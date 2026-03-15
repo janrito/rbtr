@@ -12,6 +12,7 @@ from rbtr.config import config
 from rbtr.creds import creds
 from rbtr.exceptions import RbtrError
 from rbtr.providers import PROVIDERS, endpoint as endpoint_provider
+from rbtr.skills import load_skills
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -61,6 +62,14 @@ def run_setup(engine: Engine) -> None:
     saved_model = config.model
     if saved_model:
         engine.state.model_name = saved_model
+
+    # Discover skills from all default and configured directories.
+    repo = engine.state.repo
+    project_root = repo.workdir.rstrip("/") if repo and repo.workdir else None
+    registry = load_skills(config.skills, project_root=project_root)
+    engine.state.skill_registry = registry
+    if registry:
+        engine._out(f"Skills: {len(registry)} discovered")
 
     engine._out("Type a message for the LLM, /help for commands, !cmd for shell")
 

@@ -103,6 +103,34 @@ class ToolCallStarted(BaseModel):
     args: str
 
 
+class ToolCallOutput(BaseModel):
+    """Incremental output from a running tool call.
+
+    Emitted periodically while a long-running tool (e.g.
+    `run_command`) executes.  Carries enough state for the
+    TUI to render a progress view without buffering itself.
+    """
+
+    tool_name: str
+    head: str
+    """First few lines (frozen once captured)."""
+    tail: str
+    """Last few lines (rolling window)."""
+    total_lines: int
+    elapsed: float
+    """Seconds since the command started."""
+
+    @property
+    def head_lines(self) -> int:
+        """Number of lines in `head`."""
+        return self.head.count("\n") + 1 if self.head else 0
+
+    @property
+    def tail_lines(self) -> int:
+        """Number of lines in `tail`."""
+        return self.tail.count("\n") + 1 if self.tail else 0
+
+
 class ToolCallFinished(BaseModel):
     """A tool call has completed.
 
@@ -219,6 +247,7 @@ Event = (
     | FlushPanel
     | TaskFinished
     | ToolCallStarted
+    | ToolCallOutput
     | ToolCallFinished
     | IndexStarted
     | IndexProgress

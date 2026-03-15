@@ -30,6 +30,7 @@ from rbtr.constants import RBTR_DIR
 from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
 
 if TYPE_CHECKING:
+    from rbtr.skills.registry import Skill
     from rbtr.state import EngineState
 
 log = logging.getLogger(__name__)
@@ -212,3 +213,11 @@ def render_fact_extraction() -> str:
 def render_existing_facts(facts: list[str]) -> str:
     """Render existing facts for the fact extraction agent."""
     return _render(_load_template("memory_existing_facts.md"), facts=facts)
+
+
+# ── Skills catalog ────────────────────────────────────────────────────
+
+
+def render_skills(skills: list[Skill]) -> str:
+    """Render the available skills catalog for the system prompt."""
+    return _render(_load_template("skills.md"), skills=skills).strip()

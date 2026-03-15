@@ -8,7 +8,7 @@ from typing import no_type_check
 
 import pytest
 
-from rbtr.config import config
+from rbtr.config import SkillsConfig, config
 from rbtr.creds import Creds, creds
 from rbtr.engine import Engine
 from rbtr.events import Event, MarkdownOutput, Output
@@ -87,6 +87,17 @@ def _isolate_session_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     safe_path = tmp_path / "sessions.db"
     monkeypatch.setattr("rbtr.sessions.store.SESSIONS_DB_PATH", safe_path)
     monkeypatch.setattr("rbtr.engine.core.SESSIONS_DB_PATH", safe_path)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_skills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent skill discovery from scanning the developer's home directory.
+
+    Replaces `config.skills` with an empty `SkillsConfig` so no test
+    accidentally picks up real skills from `~/.pi/agent/skills/`,
+    `~/.claude/skills/`, etc.
+    """
+    monkeypatch.setattr(config, "skills", SkillsConfig(project_dirs=[], user_dirs=[]))
 
 
 @pytest.fixture(autouse=True)

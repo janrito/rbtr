@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import queue
+import threading
+from dataclasses import dataclass, field
 
+from rbtr.events import Event
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
@@ -14,3 +17,7 @@ class AgentDeps:
 
     state: EngineState
     store: SessionStore
+    events: queue.Queue[Event] = field(default_factory=queue.Queue)
+    """Event queue for streaming tool output to the TUI."""
+    cancel: threading.Event = field(default_factory=threading.Event)
+    """Cancellation signal shared with the engine."""

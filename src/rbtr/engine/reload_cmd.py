@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from rbtr.config import config
 from rbtr.constants import RBTR_DIR
+from rbtr.skills import load_skills
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -57,6 +58,16 @@ def cmd_reload(engine: Engine) -> None:
 
     if not found and not missing:
         lines.append("  project: (none configured)")
+
+    # Refresh skills.
+    repo = engine.state.repo
+    project_root = repo.workdir.rstrip("/") if repo and repo.workdir else None
+    registry = load_skills(config.skills, project_root=project_root)
+    engine.state.skill_registry = registry
+    if registry:
+        lines.append(f"  skills:  {len(registry)} discovered")
+    else:
+        lines.append("  skills:  (none found)")
 
     engine._out("Prompt sources:")
     for line in lines:

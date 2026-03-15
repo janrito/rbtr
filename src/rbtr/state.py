@@ -18,6 +18,7 @@ from rbtr.usage import SessionUsage
 
 if TYPE_CHECKING:
     from rbtr.index.store import IndexStore
+    from rbtr.skills.registry import SkillRegistry
 
 
 @dataclass
@@ -58,6 +59,8 @@ class EngineState:
     usage: SessionUsage = field(default_factory=SessionUsage)
     # Cached PR discussion — fetched once per PR, cleared on new /review.
     discussion_cache: list[DiscussionEntry] | None = None
+    # Discovered skills — populated at startup and on /reload.
+    skill_registry: SkillRegistry | None = None
     # Cached diff line ranges for review comment validation.
     # Tuple of `((base_commit, head_commit), right_ranges, left_ranges)`.
     # Self-invalidating: callers compare the key to the current target

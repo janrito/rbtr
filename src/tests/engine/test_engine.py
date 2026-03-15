@@ -23,7 +23,6 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 from rbtr.engine import Engine, TaskType
-from rbtr.engine.shell import _truncate_output
 from rbtr.events import (
     Event,
     FlushPanel,
@@ -40,6 +39,7 @@ from rbtr.events import (
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.models import BranchTarget, PRSummary, PRTarget, SnapshotTarget
 from rbtr.providers import BuiltinProvider
+from rbtr.shell_exec import truncate_output
 from rbtr.state import EngineState
 
 from .conftest import (
@@ -632,13 +632,13 @@ def test_500_falls_back_to_local_branches(mocker: MockerFixture, repo_engine: En
     assert tables[0].title == "Local Branches"
 
 
-# ── _truncate_output ─────────────────────────────────────────────────
+# ── truncate_output ─────────────────────────────────────────────────
 
 
 def test_truncate_short_output_unchanged() -> None:
 
     text = "line1\nline2\nline3"
-    result, hidden = _truncate_output(text, 5)
+    result, hidden = truncate_output(text, 5)
     assert result == text
     assert hidden == 0
 
@@ -646,7 +646,7 @@ def test_truncate_short_output_unchanged() -> None:
 def test_truncate_exact_limit_unchanged() -> None:
 
     text = "\n".join(f"line{i}" for i in range(25))
-    result, hidden = _truncate_output(text, 25)
+    result, hidden = truncate_output(text, 25)
     assert result == text
     assert hidden == 0
 
@@ -654,14 +654,14 @@ def test_truncate_exact_limit_unchanged() -> None:
 def test_truncate_over_limit() -> None:
 
     text = "\n".join(f"line{i}" for i in range(30))
-    result, hidden = _truncate_output(text, 25)
+    result, hidden = truncate_output(text, 25)
     assert result.count("\n") == 24  # 25 lines = 24 newlines
     assert hidden == 5
 
 
 def test_truncate_empty_input() -> None:
 
-    result, hidden = _truncate_output("", 25)
+    result, hidden = truncate_output("", 25)
     assert result == ""
     assert hidden == 0
 

@@ -24,6 +24,7 @@ from rbtr.git.objects import (
 from rbtr.git.repo import (
     default_branch,
     fetch_pr_refs,
+    find_git_root,
     list_local_branches,
     open_repo,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "changed_files",
     "default_branch",
     "fetch_pr_refs",
+    "find_git_root",
     "is_binary",
     "is_path_ignored",
     "list_files",

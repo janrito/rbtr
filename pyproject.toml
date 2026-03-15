@@ -36,6 +36,7 @@ dependencies = [
   "pluggy>=1.6.0",
   "uuid-utils>=0.14.1",
   "ruamel-yaml>=0.19.1",
+  "python-frontmatter>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -168,6 +169,10 @@ warn_redundant_casts = true
 warn_unused_configs = true
 
 exclude = ["^src/tests/"]
+
+[[tool.mypy.overrides]]
+module = "frontmatter"
+ignore_missing_imports = true
 
 
 # -- Pytest & Coverage --

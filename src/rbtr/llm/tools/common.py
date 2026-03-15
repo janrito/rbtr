@@ -36,6 +36,9 @@ review_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
 workspace_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
 """Persistent workspace tools — `edit`, `remember`."""
 
+shell_toolset: FunctionToolset[AgentDeps] = FunctionToolset()
+"""Shell tool — `run_command`.  Gated by `config.tools.shell.enabled`."""
+
 
 # ── Filter functions (used by FilteredToolset wrappers) ──────────────
 
@@ -63,6 +66,13 @@ def has_diff_target(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bo
 def has_pr_target(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bool:
     """True when a PR target is selected (no GitHub auth needed)."""
     return isinstance(ctx.deps.state.review_target, PRTarget)
+
+
+def has_shell(ctx: RunContext[AgentDeps], _tool_def: ToolDefinition) -> bool:
+    """True when shell execution is enabled in config."""
+    from rbtr.config import config
+
+    return config.tools.shell.enabled
 
 
 # ── Per-tool prepare functions (exceptions — only for stricter gates) ─

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pygit2
 
@@ -11,6 +12,14 @@ from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary
 
 log = logging.getLogger(__name__)
+
+
+def find_git_root(start: str = ".") -> str | None:
+    """Return the worktree root, or `None` if not in a repo."""
+    git_dir = pygit2.discover_repository(start)
+    if git_dir is None:
+        return None
+    return str(Path(git_dir).resolve().parent)
 
 
 def open_repo() -> pygit2.Repository:

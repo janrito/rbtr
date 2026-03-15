@@ -44,6 +44,7 @@ from .review_cmd import cmd_review
 from .session_cmd import cmd_session
 from .setup import run_setup
 from .shell import handle_shell
+from .skill_cmd import cmd_skill
 from .stats_cmd import cmd_stats
 from .types import Command, TaskType
 
@@ -261,6 +262,8 @@ class Engine:
                 cmd_stats(self, args)
             case Command.MEMORY:
                 cmd_memory(self, args)
+            case Command.SKILL:
+                cmd_skill(self, args)
             case Command.RELOAD:
                 cmd_reload(self)
             case Command.NEW:

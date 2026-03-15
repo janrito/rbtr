@@ -57,6 +57,7 @@ from rbtr.events import (
     TaskStarted,
     TextDelta,
     ToolCallFinished,
+    ToolCallOutput,
     ToolCallStarted,
 )
 from rbtr.providers import PROVIDERS
@@ -293,6 +294,8 @@ class UI:
                                 ("/compact reset", "Undo last compaction"),
                             ]
                         )
+                case Command.SKILL:
+                    self._complete_skill(arg)
                 case Command.STATS:
                     self._complete_stats(arg)
                 case Command.SESSION:
@@ -424,6 +427,18 @@ class UI:
         matches = [(f"/session {name}", desc) for name, desc in subs if name.startswith(arg)]
         self.inp.apply_completions(matches)
 
+    def _complete_skill(self, partial: str) -> None:
+        """Complete a skill name argument for `/skill`."""
+        registry = self._engine.state.skill_registry
+        if registry is None:
+            return
+        matches = [
+            (f"/skill {s.name}", s.description)
+            for s in registry.all()
+            if s.name.startswith(partial)
+        ]
+        self.inp.apply_completions(matches)
+
     def _complete_stats(self, arg: str) -> None:
         """Complete /stats arguments: `all` or session ID/label."""
         matches: list[tuple[str, str]] = []
@@ -553,6 +568,31 @@ class UI:
                 self._streaming_md = None
                 self._pending_tool_name = name
                 self._pending_tool_args = args
+            case ToolCallOutput() as tco:
+                # Live streaming display for long-running tools.
+                args = self._pending_tool_args
+                args_short = args[:80] + "…" if len(args) > 80 else args
+                header_text = f"⚙ {self._pending_tool_name}({args_short})"
+                lines: list[RenderableType] = [Text(header_text, style=MUTED)]
+                if tco.total_lines <= tco.head_lines + tco.tail_lines:
+                    # Few lines — show everything.
+                    combined = tco.head
+                    if tco.tail:
+                        combined = f"{tco.head}\n{tco.tail}" if tco.head else tco.tail
+                    if combined:
+                        lines.append(Text(combined, style=STYLE_DIM))
+                else:
+                    # Head / spacer / tail.
+                    if tco.head:
+                        lines.append(Text(tco.head, style=STYLE_DIM))
+                    hidden = tco.total_lines - tco.head_lines - tco.tail_lines
+                    spacer = f"  ⋯ {hidden} more lines ({tco.elapsed:.1f}s)"
+                    lines.append(Text(spacer, style=STYLE_DIM_ITALIC))
+                    if tco.tail:
+                        lines.append(Text(tco.tail, style=STYLE_DIM))
+                self._active_lines = lines
+                if self._live:
+                    self._live.update(self._render_view(), refresh=True)
             case ToolCallFinished(tool_name=_name, result=result, error=error):
                 # Finalize any previous pending panel (e.g. prior tool call).
                 self._finalize_pending()

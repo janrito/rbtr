@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path, PurePosixPath
 
 import pygit2
@@ -19,6 +20,20 @@ from rbtr.llm.tools.common import (
     resolve_tool_ref,
     validate_path,
 )
+
+
+def _read_absolute(ctx: RunContext[AgentDeps], path: str, offset: int, max_lines: int) -> str:
+    """Read an absolute path if it falls within a skill directory."""
+    registry = ctx.deps.state.skill_registry
+    allowed = {s.base_dir for s in registry.all()} if registry else set()
+    # Resolve symlinks to prevent escaping via symlink tricks.
+    resolved = os.path.realpath(path)
+    if not any(resolved.startswith(d) for d in allowed):
+        return f"Absolute path '{path}' is not within a skill directory."
+    lines, err = _read_fs_file(resolved)
+    if err:
+        return err
+    return _format_file_page(path, lines, offset, max_lines)
 
 
 def _read_fs_file(path: str) -> tuple[list[str], str | None]:
@@ -105,18 +120,24 @@ def read_file(
     Args:
         path: File path relative to repo root
             (e.g. `src/main.py`, `.rbtr/notes/plan.md`).
+            Absolute paths are accepted for files within
+            skill directories.
         ref: Which version of the codebase to read
             (defaults to `"head"`).
         offset: Number of lines to skip (0-indexed, default 0).
         max_lines: Maximum number of lines to return
             (defaults to `tools.max_lines` config value).
     """
-    if err := validate_path(path):
-        return err
-
     capped = (
         min(max_lines, config.tools.max_lines) if max_lines is not None else config.tools.max_lines
     )
+
+    # Absolute paths: allow if within a registered skill directory.
+    if os.path.isabs(path):
+        return _read_absolute(ctx, path, offset, capped)
+
+    if err := validate_path(path):
+        return err
 
     # Try git object store first.
     repo = get_repo(ctx)

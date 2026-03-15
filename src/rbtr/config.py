@@ -107,7 +107,46 @@ class CompactionConfig(BaseModel):
     """Max chars per tool result in the serialised summary input."""
 
 
+class SkillsConfig(BaseModel):
+    """Directories to scan for skill definitions."""
+
+    project_dirs: list[str] = [
+        ".rbtr/skills",
+        ".claude/skills",
+        ".pi/skills",
+        ".agents/skills",
+    ]
+    """Relative directory names checked in each ancestor from CWD
+    up to the project root.  Set to `[]` to disable project scanning."""
+
+    user_dirs: list[str] = [
+        "~/.config/rbtr/skills",
+        "~/.claude/skills",
+        "~/.pi/agent/skills",
+        "~/.agents/skills",
+    ]
+    """Absolute paths (tilde-expanded) checked for user-level skills.
+    Set to `[]` to disable user scanning."""
+
+    extra_dirs: list[str] = []
+    """Additional directories to scan on top of `project_dirs`
+    and `user_dirs`."""
+
+
+class ShellConfig(BaseModel):
+    """Configuration for the `run_command` tool."""
+
+    enabled: bool = True
+    """Whether the `run_command` tool is available to the LLM."""
+    timeout: int = 120
+    """Default timeout in seconds (0 = no limit)."""
+    max_output_lines: int = 2000
+    """Truncate output to this many lines."""
+
+
 class ToolsConfig(BaseModel):
+    shell: ShellConfig = ShellConfig()
+    """Settings for the `run_command` shell tool."""
     max_lines: int = 2000
     """Hard line cap for read_file, read_symbol, diff output."""
     max_results: int = 50
@@ -296,6 +335,7 @@ class Config(BaseSettings):
     index: IndexConfig = IndexConfig()
     memory: MemoryConfig = MemoryConfig()
     sessions: SessionsConfig = SessionsConfig()
+    skills: SkillsConfig = SkillsConfig()
     log: LogConfig = LogConfig()
     oauth: OAuthConfig = OAuthConfig()
     theme: ThemeConfig = ThemeConfig()

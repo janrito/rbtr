@@ -8,10 +8,10 @@ receive `RunContext`.
 The model is provided at each call site via `agent.iter(model=...)`,
 not baked into the agent.
 
-Tools are organised into five `FunctionToolset` instances, each
-wrapped in a `FilteredToolset` that gates the entire group on
-engine state.  Presentation order to the model follows toolset
-order x registration order within each toolset.
+Tools are organised into `FunctionToolset` instances, each wrapped
+in a `FilteredToolset` that gates the entire group on engine state.
+Presentation order to the model follows toolset order x registration
+order within each toolset.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from __future__ import annotations
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.toolsets import FilteredToolset
 
+import rbtr.llm.tools.shell as _shell_tools  # noqa: F401  # registers run_command on shell_toolset
 from rbtr.config import config
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.memory import render_facts_instruction
@@ -30,11 +31,13 @@ from rbtr.llm.tools.common import (
     has_index,
     has_pr_target,
     has_repo,
+    has_shell,
     index_toolset,
     review_toolset,
+    shell_toolset,
     workspace_toolset,
 )
-from rbtr.prompts import render_index_status, render_review, render_system
+from rbtr.prompts import render_index_status, render_review, render_skills, render_system
 
 agent: Agent[AgentDeps, str] = Agent(
     deps_type=AgentDeps,
@@ -43,6 +46,7 @@ agent: Agent[AgentDeps, str] = Agent(
         FilteredToolset(file_toolset, filter_func=has_repo),
         FilteredToolset(diff_toolset, filter_func=has_diff_target),
         FilteredToolset(review_toolset, filter_func=has_pr_target),
+        FilteredToolset(shell_toolset, filter_func=has_shell),
         workspace_toolset,
     ],
 )
@@ -81,3 +85,15 @@ def _memory(ctx: RunContext[AgentDeps]) -> str:
         max_facts=config.memory.max_injected_facts,
         max_tokens=config.memory.max_injected_tokens,
     )
+
+
+@agent.instructions
+def _skills(ctx: RunContext[AgentDeps]) -> str:
+    """Inject the available skills catalog."""
+    registry = ctx.deps.state.skill_registry
+    if registry is None:
+        return ""
+    skills = registry.visible()
+    if not skills:
+        return ""
+    return render_skills(skills)

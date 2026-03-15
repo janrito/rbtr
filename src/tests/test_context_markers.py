@@ -21,6 +21,7 @@ from rbtr.engine.shell import _emit_shell_context
 from rbtr.engine.types import TaskType
 from rbtr.events import ContextMarkerReady, Event
 from rbtr.sessions.store import SessionStore
+from rbtr.shell_exec import ShellResult
 from rbtr.state import EngineState
 from rbtr.tui.input import InputState, MarkerKind, PasteRegion
 
@@ -285,7 +286,7 @@ def test_shell_no_truncation_when_under_limit(shell_engine: Engine) -> None:
 
 
 def test_emit_shell_context_success_format(shell_engine: Engine) -> None:
-    _emit_shell_context(shell_engine, "git status", "clean", "", 0)
+    _emit_shell_context(shell_engine, "git status", ShellResult("clean", "", 0))
     markers = _context_events(shell_engine.events)
     assert len(markers) == 1
     assert markers[0].marker == "[! git status — exit 0]"
@@ -295,14 +296,14 @@ def test_emit_shell_context_success_format(shell_engine: Engine) -> None:
 
 
 def test_emit_shell_context_stderr_format(shell_engine: Engine) -> None:
-    _emit_shell_context(shell_engine, "bad", "", "not found", 127)
+    _emit_shell_context(shell_engine, "bad", ShellResult("", "not found", 127))
     markers = _context_events(shell_engine.events)
     assert markers[0].marker == "[! bad — exit 127]"
     assert "(stderr)\nnot found" in markers[0].content
 
 
 def test_emit_shell_context_empty_output(shell_engine: Engine) -> None:
-    _emit_shell_context(shell_engine, "true", "", "", 0)
+    _emit_shell_context(shell_engine, "true", ShellResult("", "", 0))
     markers = _context_events(shell_engine.events)
     assert len(markers) == 1
     assert "$ true" in markers[0].content
@@ -312,7 +313,7 @@ def test_emit_shell_context_truncation(
     shell_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(config.tui, "shell_context_max_chars", 30)
-    _emit_shell_context(shell_engine, "cmd", "x" * 100, "", 0)
+    _emit_shell_context(shell_engine, "cmd", ShellResult("x" * 100, "", 0))
     markers = _context_events(shell_engine.events)
     assert "… (truncated)" in markers[0].content
 
