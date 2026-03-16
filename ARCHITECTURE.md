@@ -1611,19 +1611,19 @@ function.
 
 ### File tools (`file_toolset`)
 
-| Tool         | Purpose                                                 |
-| ------------ | ------------------------------------------------------- |
-| `read_file`  | Read file content by path, with pagination              |
-| `grep`       | Substring search in one file, a directory, or repo-wide |
-| `list_files` | List files in the repository or a subdirectory          |
+| Tool         | Purpose                                            |
+| ------------ | -------------------------------------------------- |
+| `read_file`  | Read file content by path, with pagination         |
+| `grep`       | Substring search, scoped by pathspec glob/prefix   |
+| `list_files` | List files, scoped by pathspec glob/prefix         |
 
 ### Diff tools (`diff_toolset`)
 
-| Tool            | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `changed_files` | List file paths changed between base and head  |
-| `diff`          | Unified text diff, optionally filtered by path |
-| `commit_log`    | Commit log between base and head               |
+| Tool            | Purpose                                            |
+| --------------- | -------------------------------------------------- |
+| `changed_files` | List file paths changed between base and head      |
+| `diff`          | Unified text diff, scoped by pathspec glob or file |
+| `commit_log`    | Commit log between base and head                   |
 
 ### Index tools (`index_toolset`)
 
@@ -1663,6 +1663,12 @@ function.
 | ------------- | ------------------------------------------------- |
 | `run_command` | Run a shell command, stream output, return result |
 
+Primary use: executing scripts bundled with skills. The
+docstring steers the model away from codebase access — the
+working tree may not match the review target (different
+branch/commit), and should be treated as read-only. Bespoke
+tools read from the git object store at the correct ref.
+
 Delegates to `shell_exec.run_shell()` — the same subprocess
 core used by `!` shell commands. The tool adds streaming
 display via `ToolCallOutput` events: a `HeadTailBuffer`
@@ -1678,10 +1684,23 @@ the `include`/`extend_exclude` config. Tools that accept a
 snapshot (`"head"`, `"base"`, or a raw commit SHA), not the
 changes introduced by it.
 
+**Pathspec support.** `list_files`, `grep`, and `diff` accept
+a `pattern` parameter that works like a git pathspec. A plain
+string is a directory prefix or exact file path; glob
+metacharacters (`*`, `?`, `[`) activate pattern matching via
+`PurePosixPath.full_match`. Bare filename patterns (no `/`)
+are implicitly prefixed with `**/` so `*.py` matches at any
+depth. The shared `matches_pathspec()` helper in `common.py`
+implements the detection and matching.
+For `diff`, the glob is forwarded to the plumbing
+(`diff_refs`, `diff_single`) via a `match_fn` callback,
+keeping glob awareness out of `git/objects.py`.
+
 `llm/tools/common.py` provides shared helpers: toolset
-definitions, filter and prepare functions, pagination
-(offset/limit with a trailer telling the LLM how many results
-remain), output truncation, and `ref` parameter resolution.
+definitions, filter and prepare functions, pathspec matching,
+pagination (offset/limit with a trailer telling the LLM how
+many results remain), output truncation, and `ref` parameter
+resolution.
 Individual tool modules (`file.py`, `git.py`, `index.py`,
 `draft.py`, `discussion.py`, `notes.py`, `memory.py`,
 `shell.py`) each register their tools on the appropriate

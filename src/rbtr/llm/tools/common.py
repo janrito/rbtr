@@ -166,6 +166,34 @@ def resolve_tool_ref(ctx: RunContext[AgentDeps], ref: str) -> str:
             return ref
 
 
+# ── Pathspec matching ─────────────────────────────────────────────────
+
+
+def _has_glob(pattern: str) -> bool:
+    """True when `pattern` contains glob metacharacters."""
+    return bool(frozenset("*?[") & set(pattern))
+
+
+def matches_pathspec(path: str, pattern: str) -> bool:
+    """Match a file path against a git-style pathspec.
+
+    - Empty pattern → matches everything.
+    - No metacharacters → prefix match (directory scope).
+    - Metacharacters → `PurePosixPath.full_match`. Patterns
+      without a `/` are implicitly prefixed with `**/` so
+      `*.py` matches at any depth (like git pathspecs).
+    """
+    if not pattern:
+        return True
+    if not _has_glob(pattern):
+        # Plain prefix — `src/api` matches `src/api/foo.py` and `src/api` itself.
+        norm = pattern.rstrip("/")
+        return path == norm or path.startswith(norm + "/")
+    # Bare filename patterns (no `/`) match at any depth.
+    effective = f"**/{pattern}" if "/" not in pattern else pattern
+    return PurePosixPath(path).full_match(effective)
+
+
 # ── Output formatting ────────────────────────────────────────────────
 
 

@@ -238,7 +238,7 @@ def test_list_files_excludes_gitignored(
         (workdir / ".gitignore").write_text("*.pyc\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="local_dir")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="local_dir")  # type: ignore[arg-type]
         assert "visible.txt" in result
         assert "cache.pyc" not in result
 
@@ -259,7 +259,7 @@ def test_list_files_excludes_extend_exclude(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="data")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="data")  # type: ignore[arg-type]
         assert "notes.txt" in result
         assert "index.db" not in result
 
@@ -283,7 +283,7 @@ def test_list_files_includes_override_gitignore(
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
         assert "plan.md" in result
         assert "findings.md" in result
 
@@ -305,7 +305,7 @@ def test_list_files_include_overrides_extend_exclude(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="data")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="data")  # type: ignore[arg-type]
         assert "important.lock" in result
         assert "other.lock" not in result
         assert "app.py" in result
@@ -335,7 +335,7 @@ def test_list_files_excludes_nested_gitignored_dir(
         (workdir / ".gitignore").write_text("__pycache__/\nnode_modules/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="project")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
         assert "app.py" in result
         assert "__pycache__" not in result
         assert "node_modules" not in result
@@ -364,7 +364,7 @@ def test_grep_excludes_gitignored_files(
         (workdir / ".gitignore").write_text("*.pyc\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "MAGIC_MARKER", path="local_dir")  # type: ignore[arg-type]
+        result = grep(ctx, "MAGIC_MARKER", pattern="local_dir")  # type: ignore[arg-type]
         assert "visible.py" in result
         assert "cached.pyc" not in result
 
@@ -385,7 +385,7 @@ def test_grep_excludes_extend_exclude_files(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_TERM", path="logs")  # type: ignore[arg-type]
+        result = grep(ctx, "SEARCH_TERM", pattern="logs")  # type: ignore[arg-type]
         assert "app.py" in result
         assert "debug.log" not in result
 
@@ -408,7 +408,7 @@ def test_grep_includes_override_gitignore(
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_TARGET", path=".rbtr")  # type: ignore[arg-type]
+        result = grep(ctx, "SEARCH_TARGET", pattern=".rbtr")  # type: ignore[arg-type]
         assert "SEARCH_TARGET" in result
         assert "plan.md" in result
 
@@ -429,7 +429,7 @@ def test_grep_include_overrides_extend_exclude(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "FIND_ME", path="data")  # type: ignore[arg-type]
+        result = grep(ctx, "FIND_ME", pattern="data")  # type: ignore[arg-type]
         assert "important.lock" in result
         assert "other.lock" not in result
 
@@ -455,7 +455,7 @@ def test_grep_excludes_nested_gitignored_dirs(
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "UNIQUE_NEEDLE", path="project")  # type: ignore[arg-type]
+        result = grep(ctx, "UNIQUE_NEEDLE", pattern="project")  # type: ignore[arg-type]
         assert "app.py" in result
         assert ".mypy_cache" not in result
 
@@ -486,7 +486,7 @@ def test_grep_single_file_blocked_by_gitignore(
         # Single file grep — the file is not in git, falls back to fs.
         # _grep_filesystem checks is_file() first for exact paths,
         # which doesn't apply filtering. This documents current behaviour.
-        result = grep(ctx, "NEEDLE", path="ignored.pyc")  # type: ignore[arg-type]
+        result = grep(ctx, "NEEDLE", pattern="ignored.pyc")  # type: ignore[arg-type]
         # Currently this finds the file since single-file fallback
         # doesn't filter. We may want to change this in the future.
         assert "NEEDLE" in result
@@ -515,7 +515,7 @@ def test_mypy_cache_excluded_from_list_files(
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="project")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
         assert "main.py" in result
         assert ".mypy_cache" not in result
         assert "runs.data.json" not in result
@@ -540,7 +540,7 @@ def test_mypy_cache_excluded_from_grep(
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SECRET_TOKEN_12345", path="project")  # type: ignore[arg-type]
+        result = grep(ctx, "SECRET_TOKEN_12345", pattern="project")  # type: ignore[arg-type]
         assert "main.py" in result
         assert ".mypy_cache" not in result
         assert "data.json" not in result
@@ -576,7 +576,7 @@ def test_default_config_rbtr_included_index_excluded(
         assert "not found" in index.lower() or "cannot" in index.lower()
 
         # list_files should show notes but not index
-        listing = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
+        listing = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
         assert "plan.md" in listing
         # Only notes files should be listed, not the index
         lines = listing.splitlines()
@@ -603,7 +603,7 @@ def test_default_config_rbtr_listed_but_index_excluded(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
         assert "plan.md" in result
         assert "findings.md" in result
         # index dir and its contents should not appear
@@ -628,7 +628,7 @@ def test_default_config_grep_rbtr_excludes_index(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_ME", path=".rbtr")  # type: ignore[arg-type]
+        result = grep(ctx, "SEARCH_ME", pattern=".rbtr")  # type: ignore[arg-type]
         assert "plan.md" in result
         assert "data.db" not in result
 
@@ -674,7 +674,7 @@ def test_list_files_gitignore_various_patterns(
         (workdir / ".gitignore").write_text(f"{pattern}\n")
 
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="project")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
         assert Path(visible_file).name in result
         assert Path(ignored_file).name not in result
 
@@ -698,7 +698,7 @@ def test_list_files_all_ignored_returns_no_files(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, path="scratch")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="scratch")  # type: ignore[arg-type]
         assert "No files" in result
 
 
@@ -717,7 +717,7 @@ def test_grep_all_ignored_returns_no_matches(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
         ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "NEEDLE", path="scratch")  # type: ignore[arg-type]
+        result = grep(ctx, "NEEDLE", pattern="scratch")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
@@ -799,12 +799,12 @@ def test_gitignored_rbtr_notes_accessible(
         assert "not found" in idx.lower() or "cannot" in idx.lower()
 
         # list_files: shows notes files, not index
-        listing = list_files(ctx, path=".rbtr")  # type: ignore[arg-type]
+        listing = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
         assert "plan.md" in listing
         assert "findings.md" in listing
         assert "duckdb" not in listing
 
         # grep: finds in notes files, not in index
-        result = grep(ctx, "Bug found", path=".rbtr")  # type: ignore[arg-type]
+        result = grep(ctx, "Bug found", pattern=".rbtr")  # type: ignore[arg-type]
         assert "findings.md" in result
         assert "duckdb" not in result

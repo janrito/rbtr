@@ -260,22 +260,22 @@ def test_diff_truncation(config_path: Path) -> None:
         assert "offset=" in result
 
 
-# ── diff with path ───────────────────────────────────────────────────
+# ── diff with pattern ────────────────────────────────────────────────
 
 
-def test_diff_path_filters_to_single_file() -> None:
-    """path='a.py' shows only that file's diff."""
+def test_diff_pattern_filters_to_single_file() -> None:
+    """pattern='a.py' shows only that file's diff."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = FakeCtx(_git_state(repo))
-        result = diff(ctx, path="a.py")  # type: ignore[arg-type]
+        result = diff(ctx, pattern="a.py")  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" not in result
         assert "1 files changed" in result
 
 
-def test_diff_path_empty_shows_full() -> None:
-    """Empty path (default) shows the full diff as before."""
+def test_diff_pattern_empty_shows_full() -> None:
+    """Empty pattern (default) shows the full diff as before."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = FakeCtx(_git_state(repo))
@@ -285,33 +285,53 @@ def test_diff_path_empty_shows_full() -> None:
         assert "2 files changed" in result
 
 
-def test_diff_path_nonexistent() -> None:
-    """Nonexistent path returns empty diff."""
+def test_diff_pattern_nonexistent() -> None:
+    """Nonexistent pattern returns empty diff."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         ctx = FakeCtx(_git_state(repo))
-        result = diff(ctx, path="nonexistent.py")  # type: ignore[arg-type]
+        result = diff(ctx, pattern="nonexistent.py")  # type: ignore[arg-type]
         assert "0 files changed" in result
 
 
-def test_diff_path_with_single_ref() -> None:
-    """path also works in single-ref mode."""
+def test_diff_pattern_with_single_ref() -> None:
+    """pattern also works in single-ref mode."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, c2 = _make_repo_two_commits(tmp)
         ctx = FakeCtx(_git_state(repo))
-        result = diff(ctx, path="a.py", ref=c2[:8])  # type: ignore[arg-type]
+        result = diff(ctx, pattern="a.py", ref=c2[:8])  # type: ignore[arg-type]
         assert "a.py" in result
         assert "b.py" not in result
 
 
-def test_diff_path_with_range() -> None:
-    """path also works with range syntax."""
+def test_diff_pattern_with_range() -> None:
+    """pattern also works with range syntax."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, c2 = _make_repo_two_commits(tmp)
         ctx = FakeCtx(_git_state(repo))
-        result = diff(ctx, path="b.py", ref=f"{c1[:8]}..{c2[:8]}")  # type: ignore[arg-type]
+        result = diff(ctx, pattern="b.py", ref=f"{c1[:8]}..{c2[:8]}")  # type: ignore[arg-type]
         assert "b.py" in result
         assert "a.py" not in result
+
+
+def test_diff_glob_star() -> None:
+    """Glob `*.py` shows only Python file diffs."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_repo_two_commits(tmp)
+        ctx = FakeCtx(_git_state(repo))
+        result = diff(ctx, pattern="*.py")  # type: ignore[arg-type]
+        assert "a.py" in result
+        assert "b.py" in result
+        assert "2 files changed" in result
+
+
+def test_diff_glob_no_match() -> None:
+    """Glob with no matching files returns empty diff."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_repo_two_commits(tmp)
+        ctx = FakeCtx(_git_state(repo))
+        result = diff(ctx, pattern="*.rs")  # type: ignore[arg-type]
+        assert "0 files changed" in result
 
 
 # ── commit_log edge cases ────────────────────────────────────────────

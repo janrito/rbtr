@@ -140,12 +140,11 @@ workspace, and shell tools. Diff and draft tools are hidden
 The model reads changed files, referenced modules, tests,
 and config to understand context beyond the diff.
 
-| Tool         | Description                              |
-| ------------ | ---------------------------------------- |
-| `read_file`  | Read file contents, paginated by lines   |
-| `grep`       | Substring search in a file, directory,   |
-|              | or repo-wide                             |
-| `list_files` | List files in the repo or a subdirectory |
+| Tool         | Description                                |
+| ------------ | ------------------------------------------ |
+| `read_file`  | Read file contents, paginated by lines     |
+| `grep`       | Substring search, scoped by glob or prefix |
+| `list_files` | List files, scoped by glob or prefix       |
 
 ### Understanding changes
 
@@ -154,7 +153,7 @@ structured, and what the changes mean structurally.
 
 | Tool              | Description                          |
 | ----------------- | ------------------------------------ |
-| `diff`            | Unified diff (base→head), by file    |
+| `diff`            | Unified diff, scoped by glob or file |
 | `changed_files`   | Files changed in the PR              |
 | `commit_log`      | Commits between base and head        |
 | `changed_symbols` | Symbols added, removed, or modified. |
@@ -211,10 +210,12 @@ is `true` (the default).
 | ------------- | --------------------------------------- |
 | `run_command` | Execute a shell command, return output  |
 
-The tool is a fallback for tasks no bespoke tool covers —
-running build commands, linters, or external scripts. Its
-docstring steers the model towards `read_file`, `grep`, and
-other built-in tools when they fit.
+The primary use is executing scripts bundled with skills.
+The model is steered away from using it for codebase access
+— files under review live in a different branch or commit,
+so `read_file`, `grep`, and other bespoke tools are the
+correct choice (they read from the git object store at the
+right ref). The working tree is treated as read-only.
 
 Output is streamed to the TUI via a head/tail buffer
 (first 3 + last 5 lines, refreshed at ~30 fps). The full
@@ -227,6 +228,13 @@ enabled = true       # set false to disable entirely
 timeout = 120        # default timeout in seconds (0 = no limit)
 max_output_lines = 2000
 ```
+
+`list_files`, `grep`, and `diff` accept a `pattern` parameter
+that works like a git pathspec: a plain string is a directory
+prefix or file path, glob metacharacters (`*`, `?`, `[`)
+activate pattern matching, and `**` matches across
+directories. For example, `pattern="src/**/*.py"` scopes to
+Python files under `src/`.
 
 Tools that read code accept a `ref` parameter — `"head"`
 (default), `"base"`, or a raw commit SHA — so the model

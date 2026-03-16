@@ -314,7 +314,7 @@ def test_grep_single_match() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "CONTRIBUTING", path="docs/README.md")  # type: ignore[arg-type]
+        result = grep(ctx, "CONTRIBUTING", pattern="docs/README.md")  # type: ignore[arg-type]
         assert "1 match" in result
         assert "CONTRIBUTING" in result
         # Should include surrounding context.
@@ -327,7 +327,7 @@ def test_grep_multiple_matches() -> None:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
         # "handle_request" appears in both handler.py imports and the ROUTES list.
-        result = grep(ctx, "handle_request", path="src/api/routes.py")  # type: ignore[arg-type]
+        result = grep(ctx, "handle_request", pattern="src/api/routes.py")  # type: ignore[arg-type]
         assert "handle_request" in result
         # Should show match count.
         assert "2 matches" in result
@@ -339,7 +339,7 @@ def test_grep_overlapping_context_merge() -> None:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
         # In README, "handle_request" and "health_check" are on adjacent lines.
-        result = grep(ctx, "handle_request", path="docs/README.md", context_lines=3)  # type: ignore[arg-type]
+        result = grep(ctx, "handle_request", pattern="docs/README.md", context_lines=3)  # type: ignore[arg-type]
         # Count line number markers — should not have duplicate line numbers.
         numbered = [line for line in result.split("\n") if "│" in line]
         line_nums = [line.split("│")[0].strip() for line in numbered]
@@ -352,8 +352,8 @@ def test_grep_custom_context_lines() -> None:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
         # Search with tiny context (1 line) vs default (10).
-        small = grep(ctx, "CONTRIBUTING", path="docs/README.md", context_lines=1)  # type: ignore[arg-type]
-        large = grep(ctx, "CONTRIBUTING", path="docs/README.md", context_lines=10)  # type: ignore[arg-type]
+        small = grep(ctx, "CONTRIBUTING", pattern="docs/README.md", context_lines=1)  # type: ignore[arg-type]
+        large = grep(ctx, "CONTRIBUTING", pattern="docs/README.md", context_lines=10)  # type: ignore[arg-type]
         # Small context should have fewer lines.
         small_lines = [ln for ln in small.split("\n") if "│" in ln]
         large_lines = [ln for ln in large.split("\n") if "│" in ln]
@@ -365,7 +365,7 @@ def test_grep_no_match() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "zzz_nonexistent_zzz", path="docs/README.md")  # type: ignore[arg-type]
+        result = grep(ctx, "zzz_nonexistent_zzz", pattern="docs/README.md")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
@@ -374,7 +374,7 @@ def test_grep_case_insensitive() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "overview", path="docs/README.md")  # type: ignore[arg-type]
+        result = grep(ctx, "overview", pattern="docs/README.md")  # type: ignore[arg-type]
         # "## Overview" has capital O but search is lowercase.
         assert "Overview" in result
         assert "1 match" in result
@@ -386,7 +386,7 @@ def test_grep_rejects_traversal(bad_path: str) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "anything", path=bad_path)  # type: ignore[arg-type]
+        result = grep(ctx, "anything", pattern=bad_path)  # type: ignore[arg-type]
         assert "'..' " in result or "contains '..'" in result
 
 
@@ -395,7 +395,7 @@ def test_grep_binary_rejection() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "PNG", path="assets/logo.png")  # type: ignore[arg-type]
+        result = grep(ctx, "PNG", pattern="assets/logo.png")  # type: ignore[arg-type]
         assert "binary" in result.lower()
 
 
@@ -421,7 +421,7 @@ def test_grep_directory_prefix() -> None:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
         # Search only in src/ — should find handler.py and routes.py but not README.md.
-        result = grep(ctx, "handle_request", path="src/")  # type: ignore[arg-type]
+        result = grep(ctx, "handle_request", pattern="src/")  # type: ignore[arg-type]
         assert "src/api/handler.py" in result
         assert "src/api/routes.py" in result
         assert "README.md" not in result
@@ -432,7 +432,7 @@ def test_grep_exact_file_still_works() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "pool_size", path="config/settings.toml")  # type: ignore[arg-type]
+        result = grep(ctx, "pool_size", pattern="config/settings.toml")  # type: ignore[arg-type]
         assert "1 match" in result
         assert "pool_size" in result
         assert "config/settings.toml" in result
@@ -467,6 +467,35 @@ def test_grep_repo_wide_no_match() -> None:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
         result = grep(ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
+        assert "No matches" in result
+
+
+def test_grep_glob_star() -> None:
+    """Glob `*.py` searches only Python files."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = grep(ctx, "handle_request", pattern="*.py")  # type: ignore[arg-type]
+        assert "handle_request" in result
+        # Should not search .toml or .md files.
+        assert "settings.toml" not in result
+
+
+def test_grep_glob_scoped() -> None:
+    """Glob `src/**/*.py` scopes search to Python files under `src/`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = grep(ctx, "handle_request", pattern="src/**/*.py")  # type: ignore[arg-type]
+        assert "handle_request" in result
+
+
+def test_grep_glob_no_match() -> None:
+    """Glob pattern with no matching files returns a message."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = grep(ctx, "anything", pattern="*.rs")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
@@ -506,7 +535,7 @@ def test_list_files_directory_prefix() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path="src/api")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="src/api")  # type: ignore[arg-type]
         assert "handler.py" in result
         assert "routes.py" in result
         # Should NOT include files outside src/api.
@@ -519,7 +548,7 @@ def test_list_files_config_prefix() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path="config")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="config")  # type: ignore[arg-type]
         assert "settings.toml" in result
         assert "handler.py" not in result
 
@@ -562,7 +591,7 @@ def test_list_files_no_match() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_file_repo(tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path="nonexistent/dir")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="nonexistent/dir")  # type: ignore[arg-type]
         assert "No files" in result
 
 
@@ -573,6 +602,49 @@ def test_list_files_bad_ref() -> None:
         ctx = FakeCtx(_file_state(repo))
         result = list_files(ctx, ref="nonexistent_branch")  # type: ignore[arg-type]
         assert "not found" in result.lower()
+
+
+def test_list_files_glob_star() -> None:
+    """Glob `*.py` matches Python files at any depth."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = list_files(ctx, pattern="*.py")  # type: ignore[arg-type]
+        assert "handler.py" in result
+        assert "routes.py" in result
+        assert "settings.toml" not in result
+        assert "README.md" not in result
+        assert "logo.png" not in result
+
+
+def test_list_files_glob_scoped() -> None:
+    """Glob `src/**/*.py` matches only Python files under `src/`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = list_files(ctx, pattern="src/**/*.py")  # type: ignore[arg-type]
+        assert "src/api/handler.py" in result
+        assert "src/api/routes.py" in result
+        assert "settings.toml" not in result
+
+
+def test_list_files_glob_no_match() -> None:
+    """Glob with no matches returns a message."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = list_files(ctx, pattern="*.rs")  # type: ignore[arg-type]
+        assert "No files" in result
+
+
+def test_list_files_glob_single_level() -> None:
+    """Glob `src/api/*.py` matches only direct children."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _make_file_repo(tmp)
+        ctx = FakeCtx(_file_state(repo))
+        result = list_files(ctx, pattern="src/api/*.py")  # type: ignore[arg-type]
+        assert "handler.py" in result
+        assert "routes.py" in result
 
 
 # ── Workspace file access (.rbtr/) ──────────────────────────────────
@@ -655,7 +727,7 @@ def test_grep_workspace_single_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "null check", path=".rbtr/notes/findings.md")  # type: ignore[arg-type]
+        result = grep(ctx, "null check", pattern=".rbtr/notes/findings.md")  # type: ignore[arg-type]
         assert "null check" in result.lower()
         assert "findings.md" in result
 
@@ -668,7 +740,7 @@ def test_grep_workspace_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
         # "handler" appears in both plan and findings
-        result = grep(ctx, "handler", path=".rbtr/")  # type: ignore[arg-type]
+        result = grep(ctx, "handler", pattern=".rbtr/")  # type: ignore[arg-type]
         assert "handler" in result.lower()
         # Should show matches from at least one file
         assert "notes" in result
@@ -681,7 +753,7 @@ def test_grep_workspace_no_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "xyznonexistent", path=".rbtr/")  # type: ignore[arg-type]
+        result = grep(ctx, "xyznonexistent", pattern=".rbtr/")  # type: ignore[arg-type]
         assert "No matches" in result
 
 
@@ -692,7 +764,7 @@ def test_list_files_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path=".rbtr/")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern=".rbtr/")  # type: ignore[arg-type]
         assert "plan.md" in result
         assert "findings.md" in result
 
@@ -703,7 +775,7 @@ def test_list_files_workspace_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path=".rbtr/")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern=".rbtr/")  # type: ignore[arg-type]
         assert "No files" in result
 
 
@@ -727,7 +799,7 @@ def test_list_files_git_prefix_wins_over_filesystem(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path="src/api")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="src/api")  # type: ignore[arg-type]
         # Git files should be listed.
         assert "handler.py" in result
         # Filesystem-only file should NOT appear — git wins.
@@ -744,7 +816,7 @@ def test_list_files_falls_back_to_filesystem(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = list_files(ctx, path="local_dir")  # type: ignore[arg-type]
+        result = list_files(ctx, pattern="local_dir")  # type: ignore[arg-type]
         assert "notes.txt" in result
 
 
@@ -798,7 +870,7 @@ def test_grep_git_prefix_wins_over_filesystem(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "UNIQUE_LOCAL_MARKER", path="src/api")  # type: ignore[arg-type]
+        result = grep(ctx, "UNIQUE_LOCAL_MARKER", pattern="src/api")  # type: ignore[arg-type]
         # Git has files under src/api but none contain this marker.
         assert "No matches" in result
 
@@ -811,7 +883,7 @@ def test_grep_falls_back_to_filesystem(tmp_path: Path, monkeypatch: pytest.Monke
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "important", path="local_dir")  # type: ignore[arg-type]
+        result = grep(ctx, "important", pattern="local_dir")  # type: ignore[arg-type]
         assert "important finding" in result
         assert "notes.txt" in result
 
@@ -825,5 +897,5 @@ def test_grep_single_file_falls_back_to_filesystem(
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
         ctx = FakeCtx(_file_state(repo))
-        result = grep(ctx, "needle", path="local.txt")  # type: ignore[arg-type]
+        result = grep(ctx, "needle", pattern="local.txt")  # type: ignore[arg-type]
         assert "needle in haystack" in result

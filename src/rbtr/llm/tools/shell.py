@@ -75,12 +75,17 @@ def run_command(
 ) -> str:
     """Run a shell command and return its output.
 
-    Use this only when no bespoke tool fits — for running
-    external scripts, build commands, or CLI tools.
-    Prefer `read_file` over `cat`, `grep` over shell grep,
-    `list_files` over `ls`, `search` over ad-hoc grep chains.
-    The bespoke tools are faster, paginated, and read from the
-    git object store.
+    Primary use: executing scripts bundled with skills.
+
+    **Do not use for codebase access.** The working directory
+    may not match the review target — files under review
+    live in a different branch or commit. Use `read_file`,
+    `grep`, `list_files`, `search`, `read_symbol`, and other
+    bespoke tools instead — they read from the git object
+    store at the correct ref, are paginated, and are faster.
+
+    The repository should not be modified by commands run
+    here. Treat the working tree as read-only.
 
     Args:
         command: Shell command to execute.

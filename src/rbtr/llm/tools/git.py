@@ -14,7 +14,7 @@ from rbtr.git.objects import (
     diff_single,
 )
 from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.common import diff_toolset, get_repo, limited
+from rbtr.llm.tools.common import diff_toolset, get_repo, limited, matches_pathspec
 from rbtr.models import ReviewTarget
 
 
@@ -67,7 +67,7 @@ def changed_files(
 @diff_toolset.tool
 def diff(
     ctx: RunContext[AgentDeps],
-    path: str = "",
+    pattern: str = "",
     ref: str = "",
     offset: int = 0,
     max_lines: int | None = None,
@@ -79,9 +79,13 @@ def diff(
     `changed_symbols` when you first need to understand *what*
     changed structurally before diving into raw patches.
 
+    Works like a git pathspec: a plain string matches a file path,
+    glob metacharacters (`*`, `?`, `[`) activate pattern matching.
+    `**` matches across directories.
+
     Args:
-        path: File path to restrict the diff to
-            (e.g. `src/api/handler.py`).  Empty string
+        pattern: File path or glob pattern to restrict the diff to
+            (e.g. `src/api/handler.py`, `*.py`).  Empty string
             (default) shows the full diff.
         ref: A commit SHA, branch name, or `base..head` range.
             Empty string (default) diffs the review target.
@@ -100,12 +104,24 @@ def diff(
         if not ref:
             if not isinstance(target, ReviewTarget):
                 return "No diff target selected."
-            result = diff_refs(repo, target.base_commit, target.head_commit, path=path)
+            result = diff_refs(
+                repo,
+                target.base_commit,
+                target.head_commit,
+                pattern=pattern,
+                match_fn=matches_pathspec,
+            )
         elif ".." in ref:
             parts = ref.split("..", 1)
-            result = diff_refs(repo, parts[0], parts[1], path=path)
+            result = diff_refs(
+                repo,
+                parts[0],
+                parts[1],
+                pattern=pattern,
+                match_fn=matches_pathspec,
+            )
         else:
-            result = diff_single(repo, ref, path=path)
+            result = diff_single(repo, ref, pattern=pattern, match_fn=matches_pathspec)
     except (KeyError, ValueError) as exc:
         return exc.args[0] if exc.args else str(exc)
 
