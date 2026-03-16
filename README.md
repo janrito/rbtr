@@ -37,7 +37,7 @@ Fetching PR #42…
 ⟳ indexing 177 files…
 ```
 
-The model has 19 tools — it reads files, searches the index,
+The model has 20 tools — it reads files, searches the index,
 inspects the diff, and follows references across the codebase.
 Ask it anything about the changes:
 
@@ -114,18 +114,26 @@ you: /review main feature
 Reviewing branch: main → feature
 ```
 
-In snapshot mode the model has file tools (`read_file`,
-`list_files`, `grep`), index tools (`search`, `read_symbol`,
-`list_symbols`, `find_references`), and workspace tools
-(`edit`, `remember`). Diff and draft tools are hidden — there
-is no base to compare against.
-
 ## Tools
 
-The model has 19 tools for reading code, navigating the
-codebase, and writing review feedback. Tools are hidden
-until their prerequisites are met — the model never sees
-a tool it cannot use.
+The model has 20 tools for reading code, navigating the
+codebase, writing review feedback, and running shell
+commands. Tools appear and disappear based on session state
+— the model never sees a tool it cannot use.
+
+| Condition         | Tools available                          |
+| ----------------- | ---------------------------------------- |
+| Always            | `edit`, `remember`, `run_command`        |
+| Repo + any target | `read_file`, `list_files`, `grep`        |
+| Index ready       | `search`, `read_symbol`, `list_symbols`, |
+|                   | `find_references`                        |
+| PR or branch      | `diff`, `changed_files`, `commit_log`,   |
+|                   | `changed_symbols`                        |
+| PR only           | Draft tools, `get_pr_discussion`         |
+
+In snapshot mode (`/review <ref>`) the model has file, index,
+workspace, and shell tools. Diff and draft tools are hidden
+— there is no base to compare against.
 
 ### Reading code
 
@@ -194,6 +202,32 @@ writes notes to the workspace.
 | `edit`              | Create or modify `.rbtr/notes/` and |
 |                     | `.rbtr/AGENTS.md`                   |
 
+### Shell execution
+
+The model can run shell commands when `tools.shell.enabled`
+is `true` (the default).
+
+| Tool          | Description                             |
+| ------------- | --------------------------------------- |
+| `run_command` | Execute a shell command, return output  |
+
+The tool is a fallback for tasks no bespoke tool covers —
+running build commands, linters, or external scripts. Its
+docstring steers the model towards `read_file`, `grep`, and
+other built-in tools when they fit.
+
+Output is streamed to the TUI via a head/tail buffer
+(first 3 + last 5 lines, refreshed at ~30 fps). The full
+result returned to the model is truncated to
+`tools.shell.max_output_lines` (default 2000).
+
+```toml
+[tools.shell]
+enabled = true       # set false to disable entirely
+timeout = 120        # default timeout in seconds (0 = no limit)
+max_output_lines = 2000
+```
+
 Tools that read code accept a `ref` parameter — `"head"`
 (default), `"base"`, or a raw commit SHA — so the model
 can inspect the codebase at any point in time. File tools
@@ -225,6 +259,7 @@ model summarises its progress and asks whether to continue.
 | `/session`                | List, inspect, or delete sessions           | partial |
 | `/stats`                  | Show session token and cost statistics      | ✓       |
 | `/memory`                 | List, extract, or purge cross-session facts | partial |
+| `/skill`                  | List or load a skill                        | ✓       |
 | `/reload`                 | Show active prompt sources                  |         |
 | `/new`                    | Start a new conversation                    |         |
 | `/quit`                   | Exit (also `/q`)                            |         |
@@ -627,6 +662,58 @@ max_injected_tokens = 2000        # Token budget for injection
 max_extraction_facts = 200        # Existing facts shown to extraction agent
 fact_extraction_model = ""        # Override model (empty = session model)
 ```
+
+## Skills
+
+Skills are self-contained instruction packages — a markdown
+file with optional bundled scripts — that teach the model
+new capabilities. rbtr discovers skills automatically from
+multiple directories and presents them in the system prompt.
+
+rbtr scans the same skill directories as pi and Claude Code,
+so existing skills work with zero configuration:
+
+```text
+~/.config/rbtr/skills/      # user-level rbtr skills
+~/.claude/skills/           # Claude Code skills
+~/.pi/agent/skills/         # pi skills
+~/.agents/skills/           # Agent Skills standard
+.rbtr/skills/               # project-level (any ancestor to git root)
+.claude/skills/             # project-level Claude Code
+.pi/skills/                 # project-level pi
+.agents/skills/             # project-level Agent Skills
+```
+
+Skills use the [Agent Skills standard][agent-skills] format:
+a markdown file with YAML frontmatter (`name`, `description`).
+The model sees a catalog of available skills in its system
+prompt and reads the full skill file on demand via `read_file`.
+
+[agent-skills]: https://agentskills.io/specification
+
+### `/skill` command
+
+```text
+/skill                         List discovered skills
+/skill brave-search            Load a skill into context
+/skill brave-search "query"    Load with a follow-up message
+```
+
+Tab-completes skill names. Skills marked with
+`disable-model-invocation: true` are hidden from the prompt
+catalog but still loadable via `/skill`.
+
+### Configuration
+
+```toml
+[skills]
+project_dirs = [".rbtr/skills", ".claude/skills", ".pi/skills", ".agents/skills"]
+user_dirs = ["~/.config/rbtr/skills", "~/.claude/skills", "~/.pi/agent/skills", "~/.agents/skills"]
+extra_dirs = []
+```
+
+Set `project_dirs = []` or `user_dirs = []` to disable
+scanning. `extra_dirs` adds directories on top.
 
 ## Context compaction
 

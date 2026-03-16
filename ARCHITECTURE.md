@@ -1487,13 +1487,16 @@ The LLM receives instructions assembled from four templates in
 | `review.md`       | Main       | Review context, principles, format  |
 | `compact.md`      | Compaction | What to preserve/drop in summaries  |
 | `index_status.md` | Main       | Index availability, tool readiness  |
+| `skills.md`       | Main       | Available skills catalog (XML)      |
 
-**Main agent** receives three `@agent.instructions` decorators:
+**Main agent** receives `@agent.instructions` decorators:
+`_provider_identity(ctx)` prepends provider-specific text
+(e.g. the identity line required by Anthropic's OAuth),
 `_system()` renders `system.md`, `_review_task(ctx)` renders
-`review.md` with live state (date, repo, PR metadata), and
-`_index_status(ctx)` renders `index_status.md` with the current
-index state and the names of tools that require it. All three
-run on every turn.
+`review.md` with live state, `_index_status(ctx)` renders
+the index state, `_memory(ctx)` injects cross-session facts,
+and `_skills(ctx)` renders the skill catalog. All run on
+every turn.
 
 **Compaction agent** is a separate tool-less `Agent` instance
 in `llm/compact.py`. It receives two
@@ -1539,11 +1542,45 @@ Tool docstrings are the single source of truth for tool
 behaviour. The prompt templates describe capabilities
 conceptually without naming tools or parameters.
 
+### Skills
+
+Skills are self-contained instruction packages (markdown +
+optional scripts) that extend the model's capabilities. They
+are compatible with the [Agent Skills standard][agent-skills],
+pi, and Claude Code.
+
+[agent-skills]: https://agentskills.io/specification
+
+**Discovery.** `load_skills()` (`skills/discovery.py`) scans
+project directories (CWD up to the project root), user
+directories, and any extra configured paths. It parses YAML
+frontmatter via `python-frontmatter` and validates against the
+spec (name format, description presence). The caller provides
+the project root — the skills package has no git dependency.
+
+**Registry.** `SkillRegistry` (`skills/registry.py`) is a
+frozen-dataclass dict wrapper. First-registered wins on name
+collision. `visible()` excludes skills with
+`disable-model-invocation`. Zero rbtr imports — pure data.
+
+**Prompt injection.** An `@agent.instructions` block calls
+`registry.visible()` and renders `prompts/skills.md` — an XML
+catalog matching the Agent Skills standard format. The model
+reads skill files on demand via `read_file`, which allows
+absolute paths within registered skill base directories.
+
+**`/skill` command.** Lists skills grouped by source or loads
+a skill by name, injecting its content as a context marker.
+Tab-completes skill names.
+
+**Lifecycle.** Discovery runs at engine startup and on
+`/reload`. The registry is stored on `EngineState`.
+
 ---
 
 ## Tools
 
-19 tools registered across five toolsets in submodules under
+20 tools registered across six toolsets in submodules under
 `llm/tools/`. Each tool receives `RunContext[AgentDeps]` and
 returns a string result.
 
@@ -1562,6 +1599,7 @@ function.
 | `diff_toolset`      | `has_diff_target` | Repo + PR or branch target         |
 | `review_toolset`    | `has_pr_target`   | PR target selected                 |
 | `workspace_toolset` | _(none)_          | Always visible                     |
+| `shell_toolset`     | `has_shell`       | `config.tools.shell.enabled`       |
 
 ### Per-tool visibility
 
@@ -1619,6 +1657,19 @@ function.
 | ------ | -------------------------------------------------------- |
 | `edit` | Create or modify files matching `editable_include` globs |
 
+### Shell tools (`shell_toolset`)
+
+| Tool          | Purpose                                           |
+| ------------- | ------------------------------------------------- |
+| `run_command` | Run a shell command, stream output, return result |
+
+Delegates to `shell_exec.run_shell()` — the same subprocess
+core used by `!` shell commands. The tool adds streaming
+display via `ToolCallOutput` events: a `HeadTailBuffer`
+captures the first 3 and last 5 lines, emitting events to
+the TUI at ~30 fps. Output returned to the model is truncated
+to `config.tools.shell.max_output_lines`.
+
 File tools read from the git object store first and fall back
 to the local filesystem for untracked files (`.rbtr/notes/`,
 draft files). The filesystem fallback respects `.gitignore` and
@@ -1632,9 +1683,9 @@ definitions, filter and prepare functions, pagination
 (offset/limit with a trailer telling the LLM how many results
 remain), output truncation, and `ref` parameter resolution.
 Individual tool modules (`file.py`, `git.py`, `index.py`,
-`draft.py`, `discussion.py`, `notes.py`, `memory.py`) each
-register their tools on the appropriate toolset via
-`@<toolset>.tool`.
+`draft.py`, `discussion.py`, `notes.py`, `memory.py`,
+`shell.py`) each register their tools on the appropriate
+toolset via `@<toolset>.tool`.
 
 ---
 
