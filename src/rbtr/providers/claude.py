@@ -7,6 +7,7 @@ browser, copies the `code#state` string, and pastes it back into rbtr.
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 import httpx
 from pydantic_ai.models import Model
@@ -33,8 +34,8 @@ _AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 _TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"  # noqa: S105
 _REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 _SCOPES = "org:create_api_key user:profile user:inference"
-_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20"
-_OAUTH_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
+_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
+_OAUTH_USER_AGENT = "claude-cli/2.1.62 (external, cli)"
 
 
 # ── Two-phase login flow ─────────────────────────────────────────────
@@ -149,6 +150,16 @@ def ensure_credentials() -> OAuthCreds:
 # ── Provider ─────────────────────────────────────────────────────────
 
 
+# Required by Anthropic's OAuth endpoint — pi and Claude Code both
+# send this as the first system block.
+_OAUTH_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+
+def _is_adaptive_thinking(model_id: str) -> bool:
+    """Adaptive-thinking models use `thinking: { type: "adaptive" }` instead of budget-based."""
+    return "4-6" in model_id or "4.6" in model_id
+
+
 class ClaudeProvider:
     """Claude OAuth provider — satisfies the `Provider` protocol."""
 
@@ -206,21 +217,38 @@ class ClaudeProvider:
     def model_settings(
         self, model_id: str, model: Model, effort: ThinkingEffort
     ) -> ModelSettings | None:
-        """Build Anthropic thinking-effort settings."""
+        """Build Anthropic thinking-effort settings.
+
+        Adaptive-thinking models (4.6+) require `thinking: { type: "adaptive" }`
+        alongside `output_config.effort`. Older models use budget-based thinking.
+        """
         from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 
         if not isinstance(model, AnthropicModel):
             return None
-        match effort:
-            case ThinkingEffort.LOW:
-                return AnthropicModelSettings(anthropic_effort="low")
-            case ThinkingEffort.MEDIUM:
-                return AnthropicModelSettings(anthropic_effort="medium")
-            case ThinkingEffort.HIGH:
-                return AnthropicModelSettings(anthropic_effort="high")
-            case ThinkingEffort.MAX:
-                return AnthropicModelSettings(anthropic_effort="max")
-        return None
+
+        type EffortLevel = Literal["low", "medium", "high", "max"]
+        effort_map: dict[ThinkingEffort, EffortLevel] = {
+            ThinkingEffort.LOW: "low",
+            ThinkingEffort.MEDIUM: "medium",
+            ThinkingEffort.HIGH: "high",
+            ThinkingEffort.MAX: "max",
+        }
+        level = effort_map.get(effort)
+        if level is None:
+            return None
+
+        if _is_adaptive_thinking(model_id):
+            return AnthropicModelSettings(
+                anthropic_thinking={"type": "adaptive"},
+                anthropic_effort=level,
+            )
+
+        return AnthropicModelSettings(anthropic_effort=level)
+
+    def system_instructions(self, model_id: str) -> str | None:
+        """Anthropic OAuth requires a Claude Code identity prefix."""
+        return _OAUTH_IDENTITY
 
     def context_window(self, model_id: str) -> int | None:
         """Look up context window from `genai-prices`."""

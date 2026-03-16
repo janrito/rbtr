@@ -38,6 +38,7 @@ from rbtr.llm.tools.common import (
     workspace_toolset,
 )
 from rbtr.prompts import render_index_status, render_review, render_skills, render_system
+from rbtr.providers import system_instructions
 
 agent: Agent[AgentDeps, str] = Agent(
     deps_type=AgentDeps,
@@ -50,6 +51,12 @@ agent: Agent[AgentDeps, str] = Agent(
         workspace_toolset,
     ],
 )
+
+
+@agent.instructions
+def _provider_identity(ctx: RunContext[AgentDeps]) -> str:
+    """Provider-specific system text, prepended before everything else."""
+    return system_instructions(ctx.deps.state.model_name) or ""
 
 
 @agent.instructions

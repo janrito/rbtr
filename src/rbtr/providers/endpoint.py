@@ -245,6 +245,9 @@ class EndpointProvider:
             settings = {**(settings or {}), "max_tokens": max_tokens}
         return settings
 
+    def system_instructions(self, model_id: str) -> str | None:
+        return None
+
     def context_window(self, model_id: str) -> int | None:
         meta = fetch_model_metadata(self._name, model_id)
         return meta.context_window if meta else None

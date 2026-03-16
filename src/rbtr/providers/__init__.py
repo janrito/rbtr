@@ -57,6 +57,15 @@ class Provider(Protocol):
     ) -> ModelSettings | None: ...
     def context_window(self, model_id: str) -> int | None: ...
 
+    def system_instructions(self, model_id: str) -> str | None:
+        """Provider-specific text prepended to the system prompt.
+
+        Returns `None` (the default) when the provider has nothing
+        to inject.  Anthropic's OAuth endpoint requires a Claude Code
+        identity line; other providers return `None`.
+        """
+        ...
+
 
 class BuiltinProvider(StrEnum):
     """Known first-party provider prefixes."""
@@ -108,6 +117,17 @@ def model_settings(
         return None
     prov, model_id = _resolve(model_name)
     return prov.model_settings(model_id, model, effort)
+
+
+def system_instructions(model_name: str | None) -> str | None:
+    """Return provider-specific system instructions, if any."""
+    if not model_name:
+        return None
+    try:
+        prov, model_id = _resolve(model_name)
+    except RbtrError:
+        return None
+    return prov.system_instructions(model_id)
 
 
 def model_context_window(model_name: str | None) -> int | None:
