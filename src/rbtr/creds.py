@@ -1,6 +1,6 @@
 """Credential storage — `~/.config/rbtr/creds.toml`.
 
-The `creds` instance reloads in place via `__init__()`, so a direct
+The `creds` instance reloads in place via `reload()`, so a direct
 import is safe — identity never changes::
 
     from rbtr.creds import creds
@@ -12,6 +12,7 @@ import is safe — identity never changes::
 from __future__ import annotations
 
 import stat
+from pathlib import Path
 from typing import Any
 
 import tomli_w
@@ -23,9 +24,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr.constants import RBTR_DIR
-
-CREDS_PATH = RBTR_DIR / "creds.toml"
+from rbtr.config import config
 
 
 class OAuthCreds(BaseModel):
@@ -39,7 +38,7 @@ class OAuthCreds(BaseModel):
 
 
 class Creds(BaseSettings):
-    model_config = SettingsConfigDict(toml_file=str(CREDS_PATH))
+    model_config = SettingsConfigDict()
 
     github_token: str = ""
     claude: OAuthCreds = OAuthCreds()
@@ -59,16 +58,26 @@ class Creds(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # TOML first (persisted), then env vars as fallback.
-        return (TomlConfigSettingsSource(settings_cls), env_settings)
+        return (
+            TomlConfigSettingsSource(
+                settings_cls,
+                toml_file=str(Path(config.user_dir) / "creds.toml"),
+            ),
+            env_settings,
+        )
 
     def update(self, **kwargs: Any) -> None:
         """Set fields, persist to disk (0600), and reload in place."""
+        path = Path(config.user_dir) / "creds.toml"
         merged = self.model_copy(update=kwargs)
-        CREDS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CREDS_PATH.write_text(tomli_w.dumps(merged.model_dump(exclude_defaults=True)))
-        CREDS_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        self.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(tomli_w.dumps(merged.model_dump(exclude_defaults=True)))
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        self.reload()
+
+    def reload(self) -> None:
+        """Re-read credentials from disk in place."""
+        self.__init__()  # type: ignore[misc]  # pydantic re-init
 
 
 creds = Creds()

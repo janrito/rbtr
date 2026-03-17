@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
-from rbtr.constants import RBTR_DIR
 from rbtr.skills import load_skills
 
 if TYPE_CHECKING:
@@ -25,7 +24,7 @@ def cmd_reload(engine: Engine) -> None:
     # System prompt source.
     override_name = config.system_prompt_override
     if override_name:
-        override = RBTR_DIR / override_name
+        override = Path(config.user_dir) / override_name
         if override.is_file():
             lines.append(f"  system:  {override} (override)")
         else:
@@ -36,7 +35,7 @@ def cmd_reload(engine: Engine) -> None:
     # Append-system file.
     append_name = config.append_system
     if append_name:
-        append = RBTR_DIR / append_name
+        append = Path(config.user_dir) / append_name
         if append.is_file():
             lines.append(f"  append:  {append}")
 

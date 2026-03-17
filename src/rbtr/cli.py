@@ -4,12 +4,10 @@ import logging
 import logging.handlers
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
-from rbtr.config import WORKSPACE_DIR, config
+from rbtr.config import config
 from rbtr.tui.ui import run
-
-LOG_PATH = WORKSPACE_DIR / "rbtr.log"
+from rbtr.workspace import workspace_dir
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,10 +29,11 @@ def _configure_logging() -> None:
     Rotation: `config.log.max_bytes` per file, `config.log.backup_count`
     backups (e.g. `rbtr.log`, `rbtr.log.1`, `rbtr.log.2`).
     """
-    Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
+    log_path = workspace_dir() / "rbtr.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
 
     handler = logging.handlers.RotatingFileHandler(
-        str(LOG_PATH),
+        str(log_path),
         maxBytes=config.log.max_bytes,
         backupCount=config.log.backup_count,
     )

@@ -797,7 +797,10 @@ for the split algorithm, orphan handling, and reset mechanics.
 
 ## Configuration
 
-Two TOML files under `~/.config/rbtr/`:
+User-level files live in `~/.config/rbtr/` (override with
+`RBTR_USER_DIR`). A workspace overlay at `.rbtr/config.toml`
+can override per-project settings — the nearest `.rbtr/`
+walking from CWD to the git root wins (monorepo-friendly).
 
 - **`config.toml`** — model, endpoints, feature settings.
 - **`creds.toml`** — API keys and OAuth tokens (0600).

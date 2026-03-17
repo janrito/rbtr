@@ -6,7 +6,7 @@ Sources are loaded in order (each overrides the previous via deep merge):
 2. User settings   — `~/.config/rbtr/config.toml`
 3. Workspace       — `.rbtr/config.toml` (relative to CWD)
 
-The `config` instance reloads in place via `__init__()`, so a direct
+The `config` instance reloads in place via `reload()`, so a direct
 import is safe — identity never changes::
 
     from rbtr.config import config
@@ -18,9 +18,10 @@ import is safe — identity never changes::
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import tomli_w
 from pydantic import BaseModel, Field
@@ -31,13 +32,9 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr.constants import RBTR_DIR
+from rbtr import workspace  # module import so tests can patch workspace.workspace_dir once
 
-# ── Paths for the config layers ──────────────────────────────────────
-
-CONFIG_PATH = RBTR_DIR / "config.toml"
-WORKSPACE_DIR = Path(".rbtr")
-WORKSPACE_PATH = WORKSPACE_DIR / "config.toml"
+_DEFAULT_USER_DIR = str(Path.home() / ".config" / "rbtr")
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -61,35 +58,54 @@ class ThinkingEffort(StrEnum):
 
 
 class EndpointConfig(BaseModel):
-    base_url: str = ""
+    base_url: Annotated[str, Field(description="Base URL for the endpoint.")] = ""
 
 
 class GithubConfig(BaseModel):
-    timeout: int = 10
-    max_branches: int = 30
+    timeout: Annotated[int, Field(description="HTTP timeout in seconds.")] = 10
+    max_branches: Annotated[int, Field(description="Max branches shown in listings.")] = 30
 
 
 class IndexConfig(BaseModel):
-    enabled: bool = True
-    db_dir: str = str(WORKSPACE_DIR / "index")
-    model_cache_dir: str = str(RBTR_DIR / "models")
-    max_file_size: int = 512 * 1024  # 512 KiB
-    include: list[str] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
-    extend_exclude: list[str] = [".rbtr/"]
-    chunk_lines: int = 50
-    chunk_overlap: int = 5
-    embedding_model: str = "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"
-    embedding_batch_size: int = 32
+    enabled: Annotated[bool, Field(description="Enable code indexing.")] = True
+    db_dir: Annotated[
+        str, Field(description="Directory for the DuckDB index. Supports `${WORKSPACE}`.")
+    ] = "${WORKSPACE}/index"
+    max_file_size: Annotated[int, Field(description="Skip files larger than this (bytes).")] = (
+        512 * 1024
+    )
+    include: Annotated[
+        list[str], Field(description="Extra glob patterns to index (outside git tree).")
+    ] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
+    extend_exclude: Annotated[
+        list[str], Field(description="Glob patterns to exclude from indexing.")
+    ] = [".rbtr/"]
+    chunk_lines: Annotated[int, Field(description="Lines per index chunk.")] = 50
+    chunk_overlap: Annotated[int, Field(description="Overlap lines between adjacent chunks.")] = 5
+    embedding_model: Annotated[str, Field(description="HuggingFace model ID for embeddings.")] = (
+        "gpustack/bge-m3-GGUF/bge-m3-Q4_K_M.gguf"
+    )
+    embedding_batch_size: Annotated[
+        int, Field(description="Batch size for embedding inference.")
+    ] = 32
 
 
 class MemoryConfig(BaseModel):
-    enabled: bool = True
-    max_injected_facts: int = 20
-    max_injected_tokens: int = 2000
-    max_extraction_facts: int = 200
-    """Cap on existing facts shown to the extraction agent for dedup."""
-    fact_extraction_model: str = ""
-    """Empty string means use the current session model."""
+    enabled: Annotated[
+        bool, Field(description="Enable long-term memory (fact extraction and injection).")
+    ] = True
+    max_injected_facts: Annotated[
+        int, Field(description="Max facts injected into the system prompt.")
+    ] = 20
+    max_injected_tokens: Annotated[int, Field(description="Token budget for injected facts.")] = (
+        2000
+    )
+    max_extraction_facts: Annotated[
+        int, Field(description="Cap on existing facts shown to the extraction agent for dedup.")
+    ] = 200
+    fact_extraction_model: Annotated[
+        str, Field(description="Model for fact extraction. Empty string uses the session model.")
+    ] = ""
 
 
 class SessionsConfig(BaseModel):
@@ -97,118 +113,123 @@ class SessionsConfig(BaseModel):
 
 
 class CompactionConfig(BaseModel):
-    auto_compact_pct: int = 85
-    """Trigger auto-compaction when context usage exceeds this %."""
-    keep_turns: int = 2
-    """Number of recent user→assistant turns to preserve."""
-    reserve_tokens: int = 16_000
-    """Tokens reserved for the summary response."""
-    summary_max_chars: int = 2_000
-    """Max chars per tool result in the serialised summary input."""
+    auto_compact_pct: Annotated[
+        int, Field(description="Trigger auto-compaction when context usage exceeds this %.")
+    ] = 85
+    keep_turns: Annotated[
+        int, Field(description="Number of recent user→assistant turns to preserve.")
+    ] = 2
+    reserve_tokens: Annotated[
+        int, Field(description="Tokens reserved for the summary response.")
+    ] = 16_000
+    summary_max_chars: Annotated[
+        int, Field(description="Max chars per tool result in the serialised summary input.")
+    ] = 2_000
 
 
 class SkillsConfig(BaseModel):
-    """Directories to scan for skill definitions."""
-
-    project_dirs: list[str] = [
+    project_dirs: Annotated[
+        list[str],
+        Field(description="Relative dirs checked in each ancestor from CWD to project root."),
+    ] = [
         ".rbtr/skills",
         ".claude/skills",
         ".pi/skills",
         ".agents/skills",
     ]
-    """Relative directory names checked in each ancestor from CWD
-    up to the project root.  Set to `[]` to disable project scanning."""
-
-    user_dirs: list[str] = [
+    user_dirs: Annotated[
+        list[str], Field(description="Absolute paths (tilde-expanded) for user-level skills.")
+    ] = [
         "~/.config/rbtr/skills",
         "~/.claude/skills",
         "~/.pi/agent/skills",
         "~/.agents/skills",
     ]
-    """Absolute paths (tilde-expanded) checked for user-level skills.
-    Set to `[]` to disable user scanning."""
-
-    extra_dirs: list[str] = []
-    """Additional directories to scan on top of `project_dirs`
-    and `user_dirs`."""
+    extra_dirs: Annotated[list[str], Field(description="Additional directories to scan.")] = []
 
 
 class ShellConfig(BaseModel):
-    """Configuration for the `run_command` tool."""
-
-    enabled: bool = True
-    """Whether the `run_command` tool is available to the LLM."""
-    timeout: int = 120
-    """Default timeout in seconds (0 = no limit)."""
-    max_output_lines: int = 2000
-    """Truncate output to this many lines."""
+    enabled: Annotated[
+        bool, Field(description="Whether `run_command` is available to the LLM.")
+    ] = True
+    timeout: Annotated[int, Field(description="Default timeout in seconds (0 = no limit).")] = 120
+    max_output_lines: Annotated[int, Field(description="Truncate output to this many lines.")] = (
+        2000
+    )
 
 
 class ToolsConfig(BaseModel):
     shell: ShellConfig = ShellConfig()
-    """Settings for the `run_command` shell tool."""
-    max_lines: int = 2000
-    """Hard line cap for read_file, read_symbol, diff output."""
-    max_results: int = 50
-    """Hard entry cap for list/search/reference tools."""
-    max_grep_hits: int = 50
-    """Max match groups returned by grep."""
-    grep_context_lines: int = 5
-    """Lines of context above and below each grep match."""
-    max_search_hits: int = 50
-    """Max results returned by search."""
-    search_context_lines: int = 5
-    """Opening lines of each symbol to preview in search results."""
-    notes_dir: str = str(WORKSPACE_DIR / "notes")
-    """Default directory for review notes.
-
-    Referenced in prompts so the LLM knows where to create notes.
-    The directory itself is editable because `editable_include`
-    contains a matching glob by default."""
-    editable_include: list[str] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
-    """Glob patterns for files the `edit` tool may write.
-
-    Uses the same glob syntax as `IndexConfig.include`
-    (`fnmatch` + directory-prefix semantics)."""
-    drafts_dir: str = str(WORKSPACE_DIR / "drafts")
-    """Directory for review draft YAML files.
-
-    Managed exclusively by the draft tools — not writable via
-    the `edit` tool."""
-    max_requests_per_turn: int = 25
-    turn_timeout: float = 300.0
-    """Maximum seconds for a single LLM turn (including tool calls).
-
-    Set to `0` to disable.  Default is 5 minutes."""
+    max_lines: Annotated[
+        int, Field(description="Hard line cap for read_file, read_symbol, diff output.")
+    ] = 2000
+    max_results: Annotated[
+        int, Field(description="Hard entry cap for list/search/reference tools.")
+    ] = 50
+    max_grep_hits: Annotated[int, Field(description="Max match groups returned by grep.")] = 50
+    grep_context_lines: Annotated[
+        int, Field(description="Lines of context above and below each grep match.")
+    ] = 5
+    max_search_hits: Annotated[int, Field(description="Max results returned by search.")] = 50
+    search_context_lines: Annotated[
+        int, Field(description="Opening lines of each symbol to preview in search results.")
+    ] = 5
+    notes_dir: Annotated[
+        str, Field(description="Default directory for review notes. Supports `${WORKSPACE}`.")
+    ] = "${WORKSPACE}/notes"
+    editable_include: Annotated[
+        list[str], Field(description="Glob patterns for files the `edit` tool may write.")
+    ] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
+    drafts_dir: Annotated[
+        str, Field(description="Directory for review draft YAML files. Supports `${WORKSPACE}`.")
+    ] = "${WORKSPACE}/drafts"
+    max_requests_per_turn: Annotated[int, Field(description="Max tool calls per LLM turn.")] = 25
+    turn_timeout: Annotated[
+        float, Field(description="Max seconds for a single LLM turn. 0 = no limit.")
+    ] = 300.0
 
 
 class LogConfig(BaseModel):
-    level: str = "INFO"
-    max_bytes: int = 5 * 1024 * 1024  # 5 MB
-    backup_count: int = 3
+    level: Annotated[str, Field(description="Log level (DEBUG, INFO, WARNING, ERROR).")] = "INFO"
+    max_bytes: Annotated[int, Field(description="Max log file size before rotation.")] = (
+        5 * 1024 * 1024
+    )
+    backup_count: Annotated[int, Field(description="Number of rotated log files to keep.")] = 3
 
 
 class TuiConfig(BaseModel):
-    shell_max_lines: int = 25
-    shell_context_max_chars: int = 4_000
-    """Max chars of shell output included in a context marker."""
-    tool_max_lines: int = 15
-    tool_max_chars: int = 8_000
-    max_completions: int = 20
-    max_history: int = 500
-    """Max input history entries kept in memory for Up/Down navigation."""
-    paste_collapse_lines: int = 4
-    """Pastes with at least this many lines are collapsed to a marker."""
-    paste_collapse_chars: int = 200
-    """Single-line pastes longer than this are collapsed to a marker."""
-    shell_completion_timeout: float = 2.0
-    double_ctrl_c_window: float = 0.5
-    poll_interval: float = 1 / 30
-    refresh_per_second: int = 30
+    shell_max_lines: Annotated[int, Field(description="Max lines shown for `!` shell output.")] = 25
+    shell_context_max_chars: Annotated[
+        int, Field(description="Max chars of shell output in a context marker.")
+    ] = 4_000
+    tool_max_lines: Annotated[int, Field(description="Max lines shown for tool results.")] = 15
+    tool_max_chars: Annotated[int, Field(description="Max chars for tool results.")] = 8_000
+    max_completions: Annotated[int, Field(description="Max tab-completion suggestions.")] = 20
+    max_history: Annotated[
+        int, Field(description="Max input history entries for Up/Down navigation.")
+    ] = 500
+    paste_collapse_lines: Annotated[
+        int, Field(description="Pastes with this many+ lines are collapsed to a marker.")
+    ] = 4
+    paste_collapse_chars: Annotated[
+        int, Field(description="Single-line pastes longer than this are collapsed.")
+    ] = 200
+    shell_completion_timeout: Annotated[
+        float, Field(description="Timeout for shell tab-completion in seconds.")
+    ] = 2.0
+    double_ctrl_c_window: Annotated[
+        float, Field(description="Seconds between Ctrl+C presses to force-quit.")
+    ] = 0.5
+    poll_interval: Annotated[float, Field(description="Event queue poll interval in seconds.")] = (
+        1 / 30
+    )
+    refresh_per_second: Annotated[int, Field(description="Rich Live refresh rate.")] = 30
 
 
 class OAuthConfig(BaseModel):
-    refresh_buffer_seconds: int = 300
+    refresh_buffer_seconds: Annotated[
+        int, Field(description="Refresh tokens this many seconds before expiry.")
+    ] = 300
 
 
 # ── Theme / palette ──────────────────────────────────────────────────
@@ -316,21 +337,43 @@ def _toml_file(*paths: Path) -> list[str]:
 class Config(BaseSettings):
     """Schema and defaults — no file sources."""
 
-    model_config = SettingsConfigDict()
+    model_config = SettingsConfigDict(env_prefix="RBTR_")
 
-    model: str | None = None
-    thinking_effort: ThinkingEffort = ThinkingEffort.MEDIUM
-    system_prompt_override: str = "SYSTEM.md"
-    """Filename in `~/.config/rbtr/` that replaces the built-in
-    system prompt.  Empty string disables the override."""
-    append_system: str = "APPEND_SYSTEM.md"
-    """Filename in `~/.config/rbtr/` whose content is appended to
-    the system prompt.  Empty string disables."""
-    project_instructions: list[str] = ["AGENTS.md", ".rbtr/AGENTS.md"]
-    """Filenames read relative to the repo root and injected into
-    the system prompt.  Missing files are silently skipped."""
+    user_dir: Annotated[
+        str,
+        Field(
+            exclude=True,
+            description="User-level storage root. Override with `RBTR_USER_DIR` env var.",
+        ),
+    ] = _DEFAULT_USER_DIR
+    model: Annotated[str | None, Field(description="Default model in `provider/model` format.")] = (
+        None
+    )
+    thinking_effort: Annotated[
+        ThinkingEffort, Field(description="Thinking effort level for LLM requests.")
+    ] = ThinkingEffort.MEDIUM
+    system_prompt_override: Annotated[
+        str,
+        Field(
+            description="Filename in `user_dir` that replaces the built-in system prompt. Empty to disable."
+        ),
+    ] = "SYSTEM.md"
+    append_system: Annotated[
+        str,
+        Field(
+            description="Filename in `user_dir` appended to the system prompt. Empty to disable."
+        ),
+    ] = "APPEND_SYSTEM.md"
+    project_instructions: Annotated[
+        list[str],
+        Field(
+            description="Filenames read relative to repo root and injected into the system prompt."
+        ),
+    ] = ["AGENTS.md", ".rbtr/AGENTS.md"]
     compaction: CompactionConfig = CompactionConfig()
-    endpoints: dict[str, EndpointConfig] = {}
+    endpoints: Annotated[
+        dict[str, EndpointConfig], Field(description="Custom OpenAI-compatible endpoints.")
+    ] = {}
     github: GithubConfig = GithubConfig()
     index: IndexConfig = IndexConfig()
     memory: MemoryConfig = MemoryConfig()
@@ -373,13 +416,16 @@ class RenderedConfig(Config):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-
+        user_dir = Path(os.environ.get("RBTR_USER_DIR", _DEFAULT_USER_DIR))
         return (
             TomlConfigSettingsSource(
                 settings_cls,
-                toml_file=_toml_file(CONFIG_PATH, WORKSPACE_PATH),
+                toml_file=_toml_file(
+                    user_dir / "config.toml", workspace.workspace_dir() / "config.toml"
+                ),
                 deep_merge=True,
             ),
+            env_settings,
         )
 
     def update(self, **kwargs: Any) -> None:
@@ -388,7 +434,9 @@ class RenderedConfig(Config):
         Saves to workspace config if it exists, otherwise to user config.
         """
 
-        path = WORKSPACE_PATH if WORKSPACE_PATH.exists() else CONFIG_PATH
+        user_config = Path(self.user_dir) / "config.toml"
+        workspace_config = workspace.workspace_dir() / "config.toml"
+        path = workspace_config if workspace_config.exists() else user_config
 
         # load specific config file, deep-merge kwargs on top
         data = _deep_merge(TomlConfigSettingsSource(Config, toml_file=path).toml_data, kwargs)
@@ -404,7 +452,15 @@ class RenderedConfig(Config):
             )
         )
 
-        self.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
+        self.reload()
+
+    def reload(self) -> None:
+        """Re-read all sources (env vars, TOML files) in place.
+
+        Calls `__init__()` so the singleton identity is preserved —
+        all modules that imported `config` keep a valid reference.
+        """
+        self.__init__()  # type: ignore[misc]  # pydantic re-init
 
 
 config = RenderedConfig()

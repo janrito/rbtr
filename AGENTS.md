@@ -71,6 +71,8 @@ Agent rules. Short, imperative.
 
 ## Testing
 
+- **Red/green TDD.** Write a failing test first, then write
+  the code to make it pass. Run `just check` after each step.
 - **Parametrise over repetition.** One behaviour per test
   function, not one input value.
 - **Data-first test design.** Build tests around realistic

@@ -3,6 +3,7 @@
 import tomllib
 from pathlib import Path
 
+import pytest
 import tomli_w
 
 from rbtr.config import Config, EndpointConfig, _deep_merge, config
@@ -85,16 +86,21 @@ def test_deep_merge_does_not_mutate_base():
 
 def _setup(monkeypatch, tmp_path, *, user=None, ws=None):
     """Write user/workspace TOML files and point config at them."""
-    user_path = tmp_path / "user.toml"
-    ws_path = tmp_path / "ws.toml"
+    user_dir = tmp_path / "user"
+    user_dir.mkdir(exist_ok=True)
+    user_config = user_dir / "config.toml"
+    ws_dir = tmp_path / "ws"
+    ws_dir.mkdir(exist_ok=True)
+    ws_config = ws_dir / "config.toml"
     if user is not None:
-        user_path.write_text(tomli_w.dumps(user))
+        user_config.write_text(tomli_w.dumps(user))
     if ws is not None:
-        ws_path.write_text(tomli_w.dumps(ws))
-    monkeypatch.setattr("rbtr.config.CONFIG_PATH", user_path)
-    monkeypatch.setattr("rbtr.config.WORKSPACE_PATH", ws_path)
-    config.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
-    return user_path, ws_path
+        ws_config.write_text(tomli_w.dumps(ws))
+    mock_ws = lambda: ws_dir  # noqa: E731
+    monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
+    monkeypatch.setattr("rbtr.workspace.workspace_dir", mock_ws)
+    config.reload()
+    return user_config, ws_config
 
 
 def test_defaults_when_no_files(tmp_path: Path, monkeypatch):
@@ -173,13 +179,15 @@ def test_loading_complex_workspace(tmp_path: Path, monkeypatch):
 # ── model_dump excludes defaults ─────────────────────────────────────
 
 
-def test_dump_excludes_defaults():
+def test_dump_excludes_defaults(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("RBTR_USER_DIR", raising=False)
     c = Config(model="saved/model")
     data = c.model_dump(exclude_none=True, exclude_defaults=True, mode="json")
     assert data == {"model": "saved/model"}
 
 
-def test_dump_nested_excludes_defaults():
+def test_dump_nested_excludes_defaults(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("RBTR_USER_DIR", raising=False)
     c = Config(github={"timeout": 99})
     data = c.model_dump(exclude_none=True, exclude_defaults=True, mode="json")
     assert data == {"github": {"timeout": 99}}
@@ -438,7 +446,7 @@ def test_full_lifecycle_with_workspace(tmp_path: Path, monkeypatch):
 
     # Workspace appears
     ws_path.write_text(tomli_w.dumps({"tui": {"shell_max_lines": 100}}))
-    config.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
+    config.reload()
 
     # Now updates go to workspace, user file untouched
     user_before = user_path.read_text()

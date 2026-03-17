@@ -9,6 +9,7 @@ inspectable named data — not anonymous inline strings.
 import stat
 from pathlib import Path
 
+from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 
 # ── Shared test data ─────────────────────────────────────────────────
@@ -71,14 +72,12 @@ def test_update_sets_0600_permissions(creds_path: Path) -> None:
 
 
 def test_update_creates_parent_dirs(tmp_path: Path, monkeypatch) -> None:
-    from rbtr.creds import Creds
-
-    path = tmp_path / "nested" / "dir" / "creds.toml"
-    monkeypatch.setattr("rbtr.creds.CREDS_PATH", path)
-    monkeypatch.setitem(Creds.model_config, "toml_file", str(path))
-    creds.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
+    nested = tmp_path / "nested" / "dir"
+    monkeypatch.setenv("RBTR_USER_DIR", str(nested))
+    config.reload()
+    creds.reload()
     creds.update(github_token="x")
-    assert path.exists()
+    assert (nested / "creds.toml").exists()
 
 
 def test_identity_preserved_after_update(creds_path: Path) -> None:

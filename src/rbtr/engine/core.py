@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from pathlib import Path
 
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
@@ -31,7 +32,7 @@ from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
 from rbtr.llm.context import CancelSlot
 from rbtr.models import BranchTarget, PRTarget, SnapshotTarget, Target
 from rbtr.sessions.scrub import scrub_secrets
-from rbtr.sessions.store import SESSIONS_DB_PATH, SessionStore
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
 from .connect_cmd import cmd_connect
@@ -76,7 +77,9 @@ class Engine:
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
         # Session persistence store.
-        self.store = store if store is not None else SessionStore(SESSIONS_DB_PATH)
+        self.store = (
+            store if store is not None else SessionStore(Path(config.user_dir) / "sessions.db")
+        )
         state.session_id = self.store.new_id()
         # Async portal for LLM streaming (keeps httpx pools alive).
         self._portal_cm = start_blocking_portal(backend="asyncio")

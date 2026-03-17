@@ -90,7 +90,7 @@ def _resolve_model_path() -> Path:
     - `<org>/<repo>` — picks the first `.gguf` file in the repo.
     """
     model_id = config.index.embedding_model
-    cache_dir = config.index.model_cache_dir
+    cache_dir = str(Path(config.user_dir) / "models")
 
     parts = model_id.split("/")
     match len(parts):

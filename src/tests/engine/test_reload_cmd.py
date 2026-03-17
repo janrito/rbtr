@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rbtr.config import config
 from rbtr.engine import Engine, TaskType
 
 from .conftest import drain, output_texts
@@ -13,7 +14,7 @@ from .conftest import drain, output_texts
 
 @pytest.fixture
 def prompt_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
-    """Isolate RBTR_DIR and cwd so file-presence tests are deterministic.
+    """Isolate `user_dir` and cwd so file-presence tests are deterministic.
 
     Returns `(config_dir, repo_dir)`.
     """
@@ -21,7 +22,8 @@ def prompt_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, 
     config_dir.mkdir()
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    monkeypatch.setattr("rbtr.engine.reload_cmd.RBTR_DIR", config_dir)
+    monkeypatch.setenv("RBTR_USER_DIR", str(config_dir))
+    config.reload()
     monkeypatch.chdir(repo_dir)
     return config_dir, repo_dir
 

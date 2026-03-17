@@ -38,7 +38,6 @@ from pydantic import ValidationError
 from pydantic_ai.messages import ModelMessage, ModelResponse, ModelResponsePart
 from uuid_utils import uuid7
 
-from rbtr.constants import RBTR_DIR
 from rbtr.sessions.incidents import Incident
 from rbtr.sessions.kinds import Fragment, FragmentKind, FragmentStatus, SessionContext
 from rbtr.sessions.overhead import Overhead
@@ -69,7 +68,6 @@ from rbtr.sessions.stats import (
 
 log = logging.getLogger(__name__)
 
-SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 
 # Date-based schema version: YYYYMMDD0R where R is a release
 # counter for multiple migrations on the same day.  Fits in

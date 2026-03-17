@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 import minijinja
 
 from rbtr.config import config
-from rbtr.constants import RBTR_DIR
 from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
 
 if TYPE_CHECKING:
@@ -66,15 +65,15 @@ def _load_project_instructions() -> str:
 
 
 def _load_append_system() -> str:
-    """Read the append-system file from `~/.config/rbtr/` if configured."""
+    """Read the append-system file from `user_dir` if configured."""
     name = config.append_system
     if not name:
         return ""
-    return _read_optional(RBTR_DIR / name)
+    return _read_optional(Path(config.user_dir) / name)
 
 
 def _load_system_override() -> str:
-    """Read the system prompt override from `~/.config/rbtr/` if configured.
+    """Read the system prompt override from `user_dir` if configured.
 
     When present, replaces the built-in system template.
     Review and compaction instructions are unaffected.
@@ -82,7 +81,7 @@ def _load_system_override() -> str:
     name = config.system_prompt_override
     if not name:
         return ""
-    return _read_optional(RBTR_DIR / name)
+    return _read_optional(Path(config.user_dir) / name)
 
 
 def _render(template: str, **ctx: Any) -> str:

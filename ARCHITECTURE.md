@@ -1735,9 +1735,10 @@ Contains OAuth tokens (Claude, ChatGPT, Google), API keys
 (OpenAI, Fireworks, OpenRouter), endpoint keys, and the GitHub
 token.
 
-**`constants.py`** defines path constants: `RBTR_DIR`
-(`~/.config/rbtr/`) and `WORKSPACE_DIR` (`.rbtr/` in the repo
-root).
+**`workspace.py`** discovers the project workspace (`.rbtr/`)
+by walking from CWD to the git root — nearest wins, supporting
+monorepos. `resolve_path()` expands `${WORKSPACE}` placeholders
+in config values.
 
 ---
 
