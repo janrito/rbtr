@@ -1673,8 +1673,12 @@ Delegates to `shell_exec.run_shell()` — the same subprocess
 core used by `!` shell commands. The tool adds streaming
 display via `ToolCallOutput` events: a `HeadTailBuffer`
 captures the first 3 and last 5 lines, emitting events to
-the TUI at ~30 fps. Output returned to the model is truncated
-to `config.tools.shell.max_output_lines`.
+the TUI at ~30 fps. When the command path falls inside a
+skill's `base_dir`, `_format_tool_header` (TUI) renders
+`[skill · source]` instead of the raw JSON args — matching
+is done by `SkillRegistry.match_command()` (longest prefix
+wins). Output returned to the model is truncated to
+`config.tools.shell.max_output_lines`.
 
 File tools read from the git object store first and fall back
 to the local filesystem for untracked files (`.rbtr/notes/`,

@@ -16,6 +16,7 @@ The terminal's native scroll buffer holds all history. The Live region
 is kept small — only the current panel + input chrome.
 """
 
+import json
 import queue
 import threading
 import time
@@ -570,9 +571,7 @@ class UI:
                 self._pending_tool_args = args
             case ToolCallOutput() as tco:
                 # Live streaming display for long-running tools.
-                args = self._pending_tool_args
-                args_short = args[:80] + "…" if len(args) > 80 else args
-                header_text = f"⚙ {self._pending_tool_name}({args_short})"
+                header_text = self._format_tool_header("⚙")
                 lines: list[RenderableType] = [Text(header_text, style=MUTED)]
                 if tco.total_lines <= tco.head_lines + tco.tail_lines:
                     # Few lines — show everything.
@@ -599,13 +598,11 @@ class UI:
                 self._active_lines = []
                 self._streaming_text = ""
                 self._streaming_md = None
-                args = self._pending_tool_args
-                args_short = args[:80] + "…" if len(args) > 80 else args
                 failed = error is not None
                 icon = "✗" if failed else "⚙"
                 body = error or result
                 body_style = STYLE_ERROR if failed else STYLE_DIM
-                header_text = f"{icon} {self._pending_tool_name}({args_short})"
+                header_text = self._format_tool_header(icon)
                 tool_lines: list[RenderableType] = [Text(header_text, style=MUTED)]
                 hidden = 0
                 if body:
@@ -908,6 +905,32 @@ class UI:
         if margin_top:
             console.print()
         console.print(renderable)
+
+    def _format_tool_header(self, icon: str) -> str:
+        """Build the `⚙ name(args)` header for a tool call.
+
+        For `run_command`, detects skill execution and shows
+        `[skill · source] relative_cmd` instead of raw JSON.
+        """
+        name = self._pending_tool_name
+        args = self._pending_tool_args
+
+        # Skill-aware shortening for run_command.
+        if name == "run_command":
+            registry = self._engine.state.skill_registry
+            if registry:
+                try:
+                    command = json.loads(args).get("command", "")
+                except (json.JSONDecodeError, AttributeError):
+                    command = ""
+                if command:
+                    match = registry.match_command(command)
+                    if match:
+                        skill, rel = match
+                        return f"{icon} [{skill.name} · {skill.source}] {rel}"
+
+        args_short = args[:80] + "…" if len(args) > 80 else args
+        return f"{icon} {name}({args_short})"
 
     def _finalize_pending(self) -> None:
         """Print the pending panel to scrollback and clear it.

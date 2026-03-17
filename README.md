@@ -218,8 +218,11 @@ correct choice (they read from the git object store at the
 right ref). The working tree is treated as read-only.
 
 Output is streamed to the TUI via a head/tail buffer
-(first 3 + last 5 lines, refreshed at ~30 fps). The full
-result returned to the model is truncated to
+(first 3 + last 5 lines, refreshed at ~30 fps). When the
+command executes a skill script, the header shows the skill
+name and source instead of raw JSON args
+(e.g. `⚙ [brave-search · user] search.sh "query"`). The
+full result returned to the model is truncated to
 `tools.shell.max_output_lines` (default 2000).
 
 ```toml
