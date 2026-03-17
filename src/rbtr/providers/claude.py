@@ -1,17 +1,21 @@
 """Claude provider — OAuth2 Authorization Code + PKCE flow.
 
-Uses Anthropic's hosted callback page — the user authorizes in the
-browser, copies the `code#state` string, and pastes it back into rbtr.
+Uses a localhost callback server for the redirect (automatic flow),
+with a manual paste-the-URL fallback when the port is busy.
 """
 
 from __future__ import annotations
 
+import threading
 import time
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
 
 from rbtr.config import ThinkingEffort
 from rbtr.creds import OAuthCreds, creds
@@ -24,6 +28,8 @@ from rbtr.oauth import (
     make_challenge,
     make_verifier,
     oauth_is_set,
+    parse_callback_url,
+    run_oauth_flow,
     token_request,
 )
 
@@ -31,14 +37,26 @@ from rbtr.oauth import (
 
 _CLIENT_ID = deobfuscate("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl")
 _AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
-_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"  # noqa: S105
-_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
-_SCOPES = "org:create_api_key user:profile user:inference"
+_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"  # noqa: S105
+_SCOPES = " ".join(
+    [
+        "org:create_api_key",
+        "user:profile",
+        "user:inference",
+        "user:sessions:claude_code",
+        "user:mcp_servers",
+        "user:file_upload",
+    ]
+)
 _OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
-_OAUTH_USER_AGENT = "claude-cli/2.1.62 (external, cli)"
+_OAUTH_USER_AGENT = "claude-cli/2.1.76 (external, cli)"
+_REDIRECT_PORT = 53692
+_REDIRECT_PATH = "/callback"
+_REDIRECT_URI = f"http://localhost:{_REDIRECT_PORT}{_REDIRECT_PATH}"
+_CALLBACK_TIMEOUT_SECONDS = 300
 
 
-# ── Two-phase login flow ─────────────────────────────────────────────
+# ── Login flow ────────────────────────────────────────────────────────
 
 
 def _make_oauth(
@@ -59,16 +77,10 @@ def _make_oauth(
     )
 
 
-def begin_login() -> tuple[str, PendingLogin]:
-    """Phase 1: generate PKCE, build the authorize URL, open the browser.
-
-    Returns `(authorize_url, pending)` where *pending* must be kept
-    until the user pastes the callback code.
-    """
-    verifier = make_verifier()
+def _build_auth_params(verifier: str) -> dict[str, str]:
+    """Build the authorize URL parameters for PKCE."""
     challenge = make_challenge(verifier)
-
-    params = {
+    return {
         "code": "true",
         "client_id": _CLIENT_ID,
         "response_type": "code",
@@ -78,51 +90,56 @@ def begin_login() -> tuple[str, PendingLogin]:
         "code_challenge_method": "S256",
         "state": verifier,
     }
-    url = build_login_url(_AUTHORIZE_URL, params)
-    return url, PendingLogin(code_verifier=verifier)
 
 
-def parse_auth_code(raw: str) -> tuple[str, str]:
-    """Parse the `code#state` string the user pastes.
-
-    Returns `(code, state)`.
-    """
-    raw = raw.strip()
-    if "#" not in raw:
-        raise RbtrError(
-            "Invalid authorization code format. "
-            "Expected code#state — paste the full value from the browser."
-        )
-    code, state = raw.split("#", 1)
-    if not code or not state:
-        raise RbtrError(
-            "Invalid authorization code format. "
-            "Expected code#state — paste the full value from the browser."
-        )
-    return code, state
-
-
-def complete_login(code: str, state: str, pending: PendingLogin) -> OAuthCreds:
-    """Phase 2: exchange the authorization code for credentials.
-
-    *state* from the callback is validated against the PKCE verifier.
-    """
-    if state != pending.code_verifier:
-        raise RbtrError("OAuth state mismatch — possible CSRF attack.")
-
+def _exchange_code(code: str, verifier: str) -> OAuthCreds:
+    """Exchange an authorization code for credentials."""
     data = token_request(
         _TOKEN_URL,
         {
             "grant_type": "authorization_code",
             "client_id": _CLIENT_ID,
             "code": code,
-            "state": state,
+            "state": verifier,
             "redirect_uri": _REDIRECT_URI,
-            "code_verifier": pending.code_verifier,
+            "code_verifier": verifier,
         },
         as_json=True,
     )
     return _make_oauth(data)
+
+
+def authenticate(cancel: threading.Event | None = None) -> OAuthCreds:
+    """Run the full OAuth + PKCE flow with localhost callback."""
+    verifier = make_verifier()
+    params = _build_auth_params(verifier)
+    code = run_oauth_flow(
+        auth_url=_AUTHORIZE_URL,
+        params=params,
+        port=_REDIRECT_PORT,
+        callback_path=_REDIRECT_PATH,
+        expected_state=verifier,
+        cancel=cancel,
+        timeout=_CALLBACK_TIMEOUT_SECONDS,
+    )
+    return _exchange_code(code, verifier)
+
+
+# ── Manual fallback (two-phase) ──────────────────────────────────────
+
+
+def begin_login() -> tuple[str, PendingLogin]:
+    """Phase 1: build authorize URL, open browser."""
+    verifier = make_verifier()
+    params = _build_auth_params(verifier)
+    url = build_login_url(_AUTHORIZE_URL, params)
+    return url, PendingLogin(code_verifier=verifier)
+
+
+def complete_login(raw_input: str, pending: PendingLogin) -> OAuthCreds:
+    """Phase 2: exchange the pasted redirect URL for credentials."""
+    code, _state = parse_callback_url(raw_input)
+    return _exchange_code(code, pending.code_verifier)
 
 
 def _refresh(oauth: OAuthCreds) -> OAuthCreds:
@@ -150,14 +167,48 @@ def ensure_credentials() -> OAuthCreds:
 # ── Provider ─────────────────────────────────────────────────────────
 
 
-# Required by Anthropic's OAuth endpoint — pi and Claude Code both
-# send this as the first system block.
+# Required by Anthropic's OAuth endpoint as a **separate first system
+# block** — the API rejects non-Haiku models if this text is missing
+# or concatenated into a single block with other instructions.
 _OAUTH_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
 
 
 def _is_adaptive_thinking(model_id: str) -> bool:
     """Adaptive-thinking models use `thinking: { type: "adaptive" }` instead of budget-based."""
     return "4-6" in model_id or "4.6" in model_id
+
+
+def _build_oauth_client(access_token: str) -> AsyncAnthropic:
+    """Build an Anthropic client that prepends the OAuth identity block.
+
+    The OAuth endpoint rejects non-Haiku models unless the identity
+    is a separate first text block in the `system` array.
+    """
+    # Deferred: anthropic SDK is heavy; only load when this provider is used.
+    from anthropic import AsyncAnthropic
+
+    class _OAuthAnthropic(AsyncAnthropic):
+        async def post(self, path: str, *, body: object = None, **kwargs: object) -> object:  # type: ignore[override]  # wrapping SDK method
+            if isinstance(body, dict) and "system" in body:
+                system = body["system"]
+                if isinstance(system, str) and system:
+                    body = {
+                        **body,
+                        "system": [
+                            {"type": "text", "text": _OAUTH_IDENTITY},
+                            {"type": "text", "text": system},
+                        ],
+                    }
+            return await super().post(path, body=body, **kwargs)  # type: ignore[call-overload]  # signature widened
+
+    return _OAuthAnthropic(
+        auth_token=access_token,
+        default_headers={
+            "anthropic-beta": _OAUTH_BETA,
+            "user-agent": _OAUTH_USER_AGENT,
+            "x-app": "cli",
+        },
+    )
 
 
 class ClaudeProvider:
@@ -191,26 +242,13 @@ class ClaudeProvider:
             raise RbtrError(f"Failed to list Claude models ({client.base_url}): {e}") from e
 
     def build_model(self, model_name: str) -> Model:
-        """Build an Anthropic model using stored OAuth credentials.
-
-        The token is sent as `Authorization: Bearer <token>` via the
-        Anthropic SDK's `auth_token` parameter.  The beta and user-agent
-        headers are required for OAuth bearer auth.
-        """
+        """Build an Anthropic model using stored OAuth credentials."""
         # Deferred: anthropic SDK is heavy; only load when this provider is used.
-        from anthropic import AsyncAnthropic
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
 
         oauth = ensure_credentials()
-        client = AsyncAnthropic(
-            auth_token=oauth.access_token,
-            default_headers={
-                "anthropic-beta": _OAUTH_BETA,
-                "user-agent": _OAUTH_USER_AGENT,
-                "x-app": "cli",
-            },
-        )
+        client = _build_oauth_client(oauth.access_token)
         provider = AnthropicProvider(anthropic_client=client)
         return AnthropicModel(model_name, provider=provider)
 
@@ -247,8 +285,8 @@ class ClaudeProvider:
         return AnthropicModelSettings(anthropic_effort=level)
 
     def system_instructions(self, model_id: str) -> str | None:
-        """Anthropic OAuth requires a Claude Code identity prefix."""
-        return _OAUTH_IDENTITY
+        """Not used — identity is prepended at the HTTP layer."""
+        return None
 
     def context_window(self, model_id: str) -> int | None:
         """Look up context window from `genai-prices`."""

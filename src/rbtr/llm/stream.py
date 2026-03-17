@@ -682,8 +682,11 @@ async def _stream_agent_inner(
             extra_instructions="The model is mid-turn with active tool calls.",
             trigger=CompactionTrigger.MID_TURN,
         )
-        # Reload from DB after compaction.
+        # Reload from DB after compaction.  Apply the same transient
+        # repairs as `_prepare_turn` — compaction may have placed a
+        # cancelled tool-call at the boundary of kept messages.
         history = ctx.store.load_messages(ctx.state.session_id)
+        history, _, _ = repair_dangling_tool_calls(history)
         ctx.state.usage.snapshot_base()
 
         resume = await _do_stream(ctx, model, deps, settings, None, history)

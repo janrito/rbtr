@@ -31,7 +31,7 @@ import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -98,6 +98,7 @@ _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 _SESSION_HISTORY_SQL = _load_sql("session_history.sql")
 _GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
 _COMPLETE_MESSAGE_SQL = _load_sql("complete_message.sql")
+_FIRST_KEPT_TS_SQL = _load_sql("first_kept_timestamp.sql")
 _FIND_LATEST_SUMMARY_SQL = _load_sql("find_latest_summary.sql")
 _RESET_COMPACTION_SQL = _load_sql("reset_compaction.sql")
 _HAS_MESSAGES_AFTER_SQL = _load_sql("has_messages_after.sql")
@@ -642,13 +643,26 @@ class SessionStore:
             *prepare_part_rows(summary, message_id=summary_id, context=ctx),
         ]
 
-        # Use the earliest compacted message's created_at for the
-        # summary so it sorts before the kept messages.
-        first_id = compact_ids[0]
-        row = self._con.execute(_GET_CREATED_AT_SQL, [first_id]).fetchone()
-        if row is not None:
-            earliest = row["created_at"]
-            summary_rows = [dataclasses.replace(r, created_at=earliest) for r in summary_rows]
+        # Place the summary just before the first kept message.
+        # Using the earliest compacted timestamp can collide with
+        # non-compacted messages that share it (e.g. a ModelResponse
+        # that wasn't included in old_ids).  Instead, find the
+        # first kept message's timestamp and subtract 1 µs.
+        placeholders = ",".join("?" for _ in compact_ids)
+        sql = _FIRST_KEPT_TS_SQL.replace("/*compact_ids*/", placeholders)
+        row = self._con.execute(sql, [session_id, *compact_ids]).fetchone()
+        if row is not None and row["ts"]:
+            kept_ts = datetime.fromisoformat(row["ts"])
+            summary_ts = (kept_ts - timedelta(microseconds=1)).isoformat()
+            summary_rows = [dataclasses.replace(r, created_at=summary_ts) for r in summary_rows]
+        else:
+            # Fallback: use the earliest compacted message's timestamp.
+            first_id = compact_ids[0]
+            fallback = self._con.execute(_GET_CREATED_AT_SQL, [first_id]).fetchone()
+            if fallback is not None:
+                summary_rows = [
+                    dataclasses.replace(r, created_at=fallback["created_at"]) for r in summary_rows
+                ]
 
         with self._lock, self._con:
             self._con.executemany(

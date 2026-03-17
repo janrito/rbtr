@@ -91,16 +91,37 @@ def test_connect_unknown_service_warns(engine: Engine) -> None:
 # ── /connect claude ──────────────────────────────────────────────────
 
 _CLAUDE_PENDING = PendingLogin(code_verifier="test-verifier")
-_AUTHORIZE_URL = "https://console.anthropic.com/oauth/authorize?code=test"
+_CLAUDE_AUTH_URL = "https://claude.ai/oauth/authorize?code=test"
 
 
-def test_connect_claude_phase1_emits_link(
+def test_connect_claude_auto_flow(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
+    """Automatic localhost callback flow → sets connected."""
+    mocker.patch(
+        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        return_value=CLAUDE_OAUTH,
+    )
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
+
+    engine.run_task(TaskType.COMMAND, "/connect claude")
+    drained_events = drain(engine.events)
+
+    assert BuiltinProvider.CLAUDE in engine.state.connected_providers
+    assert creds.claude.access_token == CLAUDE_OAUTH.access_token
+    texts = output_texts(drained_events)
+    assert any("Connected to Anthropic" in t for t in texts)
+
+
+def test_connect_claude_port_busy_falls_back_to_manual(
     creds_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
-    """Phase 1: begin_login → stores pending, emits link."""
+    """Port busy → falls back to manual URL paste flow."""
+    mocker.patch(
+        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        side_effect=PortBusyError("port busy"),
+    )
     mocker.patch(
         "rbtr.engine.connect_cmd.claude_provider.begin_login",
-        return_value=(_AUTHORIZE_URL, _CLAUDE_PENDING),
+        return_value=(_CLAUDE_AUTH_URL, _CLAUDE_PENDING),
     )
 
     engine.run_task(TaskType.COMMAND, "/connect claude")
@@ -112,69 +133,44 @@ def test_connect_claude_phase1_emits_link(
     assert any("/connect claude" in t for t in texts)
 
 
-def test_connect_claude_phase2_completes_login(
+def test_connect_claude_manual_phase2_completes(
     creds_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
-    """Phase 2: parse code → complete login → sets connected."""
+    """Manual fallback phase 2: paste URL → complete login."""
     engine.state.pending_logins[BuiltinProvider.CLAUDE] = _CLAUDE_PENDING
 
-    mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.parse_auth_code",
-        return_value=("auth-code", "state-value"),
-    )
     mocker.patch(
         "rbtr.engine.connect_cmd.claude_provider.complete_login",
         return_value=CLAUDE_OAUTH,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
-    engine.run_task(TaskType.COMMAND, "/connect claude auth-code#state-value")
-    drained_events = drain(engine.events)
-
-    assert BuiltinProvider.CLAUDE in engine.state.connected_providers
-    assert engine.state.pending_logins.get(BuiltinProvider.CLAUDE) is None
-    assert creds.claude.access_token == CLAUDE_OAUTH.access_token
-    texts = output_texts(drained_events)
-    assert any("Connected to Anthropic" in t for t in texts)
-
-
-def test_connect_claude_phase2_without_pending_warns(engine: Engine) -> None:
-    """Phase 2 without pending login warns."""
-    assert engine.state.pending_logins.get(BuiltinProvider.CLAUDE) is None
-
-    engine.run_task(TaskType.COMMAND, "/connect claude some-code")
-    texts = output_texts(drain(engine.events))
-
-    assert any("No pending" in t for t in texts)
-
-
-def test_connect_claude_phase2_failure_clears_pending(
-    mocker: MockerFixture, engine: Engine
-) -> None:
-    """Phase 2 failure warns and clears pending state."""
-    engine.state.pending_logins[BuiltinProvider.CLAUDE] = _CLAUDE_PENDING
-
-    mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.parse_auth_code",
-        side_effect=ValueError("bad code"),
+    engine.run_task(
+        TaskType.COMMAND, "/connect claude http://localhost:53692/callback?code=abc&state=xyz"
     )
 
-    engine.run_task(TaskType.COMMAND, "/connect claude bad-code")
-    texts = output_texts(drain(engine.events))
-
-    assert engine.state.pending_logins.get(BuiltinProvider.CLAUDE) is None
-    assert any("failed" in t.lower() for t in texts)
+    assert BuiltinProvider.CLAUDE in engine.state.connected_providers
+    assert creds.claude.access_token == CLAUDE_OAUTH.access_token
 
 
-def test_connect_claude_already_connected(creds_path: Path, engine: Engine) -> None:
-    """/connect claude when already authenticated says so."""
+def test_connect_claude_already_connected_restarts_login(
+    creds_path: Path, mocker: MockerFixture, engine: Engine
+) -> None:
+    """/connect claude when already authenticated restarts the login flow."""
     creds.update(claude=CLAUDE_OAUTH)
+
+    mocker.patch(
+        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        return_value=CLAUDE_OAUTH,
+    )
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect claude")
     texts = output_texts(drain(engine.events))
 
     assert BuiltinProvider.CLAUDE in engine.state.connected_providers
-    assert any("Already connected" in t for t in texts)
+    assert any("Connected to" in t for t in texts)
+    assert not any("Already connected" in t for t in texts)
 
 
 # ── /connect chatgpt ─────────────────────────────────────────────────
@@ -306,15 +302,25 @@ def test_connect_chatgpt_phase2_failure_clears_pending(
     assert any("failed" in t.lower() for t in texts)
 
 
-def test_connect_chatgpt_already_connected(creds_path: Path, engine: Engine) -> None:
-    """/connect chatgpt when already authenticated says so."""
+def test_connect_chatgpt_already_connected_restarts_login(
+    creds_path: Path, mocker: MockerFixture, engine: Engine
+) -> None:
+    """/connect chatgpt when already authenticated restarts the login flow."""
     creds.update(chatgpt=CHATGPT_OAUTH)
+
+    mocker.patch(
+        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        return_value=CHATGPT_OAUTH,
+    )
+    mocker.patch("rbtr.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt")
     texts = output_texts(drain(engine.events))
 
+    # Should re-authenticate, not short-circuit.
     assert BuiltinProvider.CHATGPT in engine.state.connected_providers
-    assert any("Already connected" in t for t in texts)
+    assert any("Connected to" in t for t in texts)
+    assert not any("Already connected" in t for t in texts)
 
 
 # ── /connect endpoint ────────────────────────────────────────────────

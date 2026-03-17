@@ -1,4 +1,4 @@
-"""Tests for rbtr.providers.claude — PKCE, credential persistence, token refresh, code parsing."""
+"""Tests for rbtr.providers.claude — PKCE, credential persistence, token refresh."""
 
 import base64
 import hashlib
@@ -16,7 +16,6 @@ from rbtr.providers.claude import (
     _CLIENT_ID,
     begin_login,
     ensure_credentials,
-    parse_auth_code,
 )
 
 # ── PKCE ─────────────────────────────────────────────────────────────
@@ -61,36 +60,6 @@ def test_begin_login_opens_browser(mocker) -> None:
 
     time.sleep(0.1)
     mock_open.assert_called_once_with(url)
-
-
-# ── parse_auth_code ──────────────────────────────────────────────────
-
-
-def test_parse_auth_code_valid() -> None:
-    code, state = parse_auth_code("abc123#xyz789")
-    assert code == "abc123"
-    assert state == "xyz789"
-
-
-def test_parse_auth_code_strips_whitespace() -> None:
-    code, state = parse_auth_code("  abc#xyz  \n")
-    assert code == "abc"
-    assert state == "xyz"
-
-
-def test_parse_auth_code_rejects_no_hash() -> None:
-    with pytest.raises(RbtrError, match="Invalid authorization code"):
-        parse_auth_code("nohashhere")
-
-
-def test_parse_auth_code_rejects_empty_code() -> None:
-    with pytest.raises(RbtrError, match="Invalid authorization code"):
-        parse_auth_code("#state-only")
-
-
-def test_parse_auth_code_rejects_empty_state() -> None:
-    with pytest.raises(RbtrError, match="Invalid authorization code"):
-        parse_auth_code("code-only#")
 
 
 # ── Credential persistence ───────────────────────────────────────────

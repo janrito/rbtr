@@ -147,9 +147,9 @@ async def compact_history_async(
         ctx.out("Nothing to compact — conversation is short enough.")
         return
 
-    # Collect IDs for old messages.  split_history may move orphaned
-    # tool returns from kept into old, so positional slicing is wrong —
-    # match by object identity instead.
+    # Collect DB row IDs for messages in `old`.  Repair may have
+    # inserted synthetic messages (no DB ID) or replaced existing
+    # ones, so match by object identity against the originals.
     old_set = {id(msg) for msg in old}
     old_ids = [mid for mid, msg in paired if id(msg) in old_set]
 

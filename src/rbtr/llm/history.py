@@ -581,6 +581,27 @@ def repair_dangling_tool_calls(
 _SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
 
 
+def _tool_ids(messages: list[ModelMessage]) -> tuple[set[str], set[str]]:
+    """Return `(call_ids, result_ids)` from *messages*."""
+    call_ids: set[str] = set()
+    result_ids: set[str] = set()
+    for msg in messages:
+        match msg:
+            case ModelResponse():
+                for p in msg.parts:
+                    match p:
+                        case ToolCallPart(tool_call_id=tid) if tid:
+                            call_ids.add(tid)
+            case ModelRequest():
+                for p in msg.parts:  # type: ignore[assignment]  # request vs response part types
+                    match p:
+                        case (
+                            ToolReturnPart(tool_call_id=tid) | RetryPromptPart(tool_call_id=tid)
+                        ) if tid:
+                            result_ids.add(tid)
+    return call_ids, result_ids
+
+
 def _has_user_prompt(msg: ModelMessage) -> bool:
     """True if *msg* is a `ModelRequest` containing a `UserPromptPart`."""
     return isinstance(msg, ModelRequest) and any(isinstance(p, UserPromptPart) for p in msg.parts)
@@ -599,9 +620,13 @@ def split_history(
     turns and `old` has everything before.  If the history has
     `keep_turns` or fewer turns, `old` is empty.
 
-    After splitting, any tool-return-only `ModelRequest` messages in
-    `kept` whose `tool_call_id` has no matching `ToolCallPart`
-    in `kept` are moved to `old` to prevent orphaned tool returns.
+    After the initial split, messages with broken tool-call pairing
+    are moved from `kept` to `old`:
+
+    - Tool-return-only requests whose call IDs have no matching
+      `ToolCallPart` in `kept` (orphaned results).
+    - `ModelResponse` messages with `ToolCallPart`s that have no
+      matching result in `kept` (cancelled turns).
     """
     turn_starts = [i for i, msg in enumerate(history) if _has_user_prompt(msg)]
 
@@ -611,27 +636,31 @@ def split_history(
     cut = turn_starts[-keep_turns]
     old, kept = list(history[:cut]), list(history[cut:])
 
-    # Collect tool-call IDs present in the kept partition.
-    kept_call_ids = {
-        part.tool_call_id
-        for msg in kept
-        if isinstance(msg, ModelResponse)
-        for part in msg.parts
-        if isinstance(part, ToolCallPart) and part.tool_call_id
-    }
-
-    # Move orphaned tool-return-only requests to old.
-    clean: list[ModelMessage] = []
-    for msg in kept:
-        return_ids = (
-            {p.tool_call_id for p in msg.parts if isinstance(p, ToolReturnPart) and p.tool_call_id}
-            if isinstance(msg, ModelRequest) and not _has_user_prompt(msg)
-            else set()
-        )
-        if return_ids and return_ids.isdisjoint(kept_call_ids):
-            old.append(msg)
-        else:
-            clean.append(msg)
+    # Move unpaired tool messages from kept to old until stable.
+    # Each pass may expose new orphans (moving a result orphans
+    # the call, and vice versa), so repeat until nothing moves.
+    clean = kept
+    while True:
+        call_ids, result_ids = _tool_ids(clean)
+        moved: list[ModelMessage] = []
+        remaining: list[ModelMessage] = []
+        for msg in clean:
+            match msg:
+                case ModelRequest() if not _has_user_prompt(msg):
+                    _, rids = _tool_ids([msg])
+                    if rids and rids.isdisjoint(call_ids):
+                        moved.append(msg)
+                        continue
+                case ModelResponse():
+                    cids, _ = _tool_ids([msg])
+                    if cids and cids.isdisjoint(result_ids):
+                        moved.append(msg)
+                        continue
+            remaining.append(msg)
+        if not moved:
+            break
+        old.extend(moved)
+        clean = remaining
 
     return old, clean
 
