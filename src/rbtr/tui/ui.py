@@ -708,9 +708,10 @@ class UI:
                     and self._streaming_text
                     and not self._active_had_error
                 )
+                is_setup = self._current_task_type == "setup"
                 variant: Literal["response", "succeeded", "failed"] = (
                     "response"
-                    if is_llm_response
+                    if is_llm_response or is_setup
                     else ("failed" if self._active_had_error else "succeeded")
                 )
                 has_active = bool(self._active_lines)
