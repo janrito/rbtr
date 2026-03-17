@@ -1,9 +1,5 @@
 # AGENTS.md
 
-Agent rules. Short, imperative.
-
----
-
 ## Project
 
 - The project is **rbtr** — always lowercase.
@@ -62,7 +58,7 @@ Agent rules. Short, imperative.
 - Every `# type: ignore` must have a reason on the same line.
 - **Markdown-style backticks in docs.** Use single backticks
   (`` ` ``) in docstrings, comments, and documentation.
-  Never use rST double-backtick (``` `` ```) literals.
+  Never use rST double-backtick (` `` `) literals.
 - **Reference-style links for long URLs.** When an inline
   link would exceed the line-length limit, use a markdown
   reference link with the definition immediately after the

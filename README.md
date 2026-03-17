@@ -1,6 +1,6 @@
 # rbtr
 
-A terminal-based code review harness powered by LLMs. rbtr
+An agentic code review harness in the terminal. rbtr
 indexes your repository, reads the diff, understands the
 structure of the code — commit messages, PR description,
 existing discussion — and helps you reason through the
