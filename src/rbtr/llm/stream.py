@@ -924,18 +924,32 @@ def _emit_tool_event(
     """Emit a ToolCallStarted or ToolCallFinished event."""
     match event:
         case FunctionToolCallEvent(part=part):
-            ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=format_tool_args(part.args)))
+            ctx.emit(
+                ToolCallStarted(
+                    tool_name=part.tool_name,
+                    args=format_tool_args(part.args),
+                    tool_call_id=part.tool_call_id,
+                )
+            )
         case FunctionToolResultEvent(result=ToolReturnPart() as result):
             text = str(result.content)
             max_chars = config.tui.tool_max_chars
             if len(text) > max_chars:
                 text = text[:max_chars] + "…"
-            ctx.emit(ToolCallFinished(tool_name=result.tool_name, result=text))
+            ctx.emit(
+                ToolCallFinished(
+                    tool_name=result.tool_name,
+                    tool_call_id=result.tool_call_id,
+                    result=text,
+                )
+            )
         case FunctionToolResultEvent(result=result):
             tool_name = getattr(result, "tool_name", None) or "?"
+            tool_call_id = getattr(result, "tool_call_id", None) or ""
             ctx.emit(
                 ToolCallFinished(
                     tool_name=tool_name,
+                    tool_call_id=tool_call_id,
                     result="",
                     error=str(result.content),
                 )

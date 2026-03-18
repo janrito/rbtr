@@ -941,8 +941,12 @@ def test_tool_call_events_serialize() -> None:
     """ToolCallStarted and ToolCallFinished are valid Event union members."""
     from rbtr.events import ToolCallFinished, ToolCallStarted
 
-    started = ToolCallStarted(tool_name="search_symbols", args='{"name": "greet"}')
-    finished = ToolCallFinished(tool_name="search_symbols", result="function greet (src/app.py:1)")
+    started = ToolCallStarted(
+        tool_name="search_symbols", args='{"name": "greet"}', tool_call_id="tc1"
+    )
+    finished = ToolCallFinished(
+        tool_name="search_symbols", tool_call_id="tc1", result="function greet (src/app.py:1)"
+    )
 
     assert started.tool_name == "search_symbols"
     assert finished.result.startswith("function greet")

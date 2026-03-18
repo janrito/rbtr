@@ -206,7 +206,8 @@ class TuiConfig(BaseModel):
     shell_context_max_chars: Annotated[
         int, Field(description="Max chars of shell output in a context marker.")
     ] = 4_000
-    tool_max_lines: Annotated[int, Field(description="Max lines shown for tool results.")] = 15
+    tool_head_lines: Annotated[int, Field(description="Head lines shown for tool results.")] = 3
+    tool_tail_lines: Annotated[int, Field(description="Tail lines shown for tool results.")] = 12
     tool_max_chars: Annotated[int, Field(description="Max chars for tool results.")] = 8_000
     max_completions: Annotated[int, Field(description="Max tab-completion suggestions.")] = 20
     max_history: Annotated[

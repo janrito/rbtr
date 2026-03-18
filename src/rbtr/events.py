@@ -101,6 +101,7 @@ class ToolCallStarted(BaseModel):
 
     tool_name: str
     args: str
+    tool_call_id: str
 
 
 class ToolCallOutput(BaseModel):
@@ -112,6 +113,7 @@ class ToolCallOutput(BaseModel):
     """
 
     tool_name: str
+    tool_call_id: str
     head: str
     """First few lines (frozen once captured)."""
     tail: str
@@ -143,6 +145,7 @@ class ToolCallFinished(BaseModel):
     """
 
     tool_name: str
+    tool_call_id: str
     result: str
     error: str | None = None
 

@@ -11,7 +11,7 @@ from rich.text import Text
 from rbtr.state import EngineState
 from rbtr.styles import THEME
 from rbtr.tui.input import PasteRegion
-from rbtr.tui.ui import UI, _render_lines, _tail_renderable_lines
+from rbtr.tui.ui import UI, _LivePanel, _render_lines, _tail_renderable_lines
 
 
 def _plain_lines(console: Console, renderable: RenderableType) -> list[str]:
@@ -52,8 +52,11 @@ def test_render_view_keeps_input_visible_with_tall_pending_panel(mocker: MockerF
     engine._last_shell_full_output = None
     ui = UI(console, state, queue.Queue(), engine)
 
-    ui._pending_lines = [Text("\n".join(f"pending {n}" for n in range(1, 60)))]
-    ui._pending_variant = "succeeded"
+    ui._live_panels["_task"] = _LivePanel(
+        lines=[Text("\n".join(f"pending {n}" for n in range(1, 60)))],
+        variant="succeeded",
+        done=True,
+    )
 
     lines = _plain_lines(console, ui._render_view())
 

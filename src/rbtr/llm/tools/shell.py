@@ -32,7 +32,7 @@ class HeadTailBuffer:
     """
 
     head_max: int = 3
-    tail_max: int = 5
+    tail_max: int = 12
     head: list[str] = field(default_factory=list)
     tail: deque[str] = field(default_factory=deque)
     total_lines: int = 0
@@ -53,10 +53,11 @@ class HeadTailBuffer:
         """Seconds since the buffer was created."""
         return time.monotonic() - self.started_at
 
-    def to_event(self, tool_name: str) -> ToolCallOutput:
+    def to_event(self, tool_name: str, tool_call_id: str) -> ToolCallOutput:
         """Build a `ToolCallOutput` event from the current state."""
         return ToolCallOutput(
             tool_name=tool_name,
+            tool_call_id=tool_call_id,
             head="\n".join(self.head),
             tail="\n".join(self.tail),
             total_lines=self.total_lines,
@@ -94,6 +95,7 @@ def run_command(
     shell_cfg = config.tools.shell
     effective_timeout = timeout if timeout is not None else shell_cfg.timeout
     events_queue = ctx.deps.events
+    call_id = ctx.tool_call_id or ""
 
     buf = HeadTailBuffer()
     last_emit = 0.0
@@ -103,7 +105,7 @@ def run_command(
         buf.add_line(line)
         now = time.monotonic()
         if (now - last_emit) >= 0.033:  # ~30 fps
-            events_queue.put(buf.to_event("run_command"))
+            events_queue.put(buf.to_event("run_command", call_id))
             last_emit = now
 
     result = run_shell(
@@ -114,7 +116,7 @@ def run_command(
     )
 
     # Final event so the TUI shows the complete state.
-    events_queue.put(buf.to_event("run_command"))
+    events_queue.put(buf.to_event("run_command", call_id))
 
     # Format the result for the model.
     parts: list[str] = []
