@@ -55,6 +55,9 @@
   reason and a comment explaining why.
 - Never embed multi-line code in another language as string
   literals. Write it to its own file and load at runtime.
+- **No implicit string concatenation.** Use `\` line
+  continuation or triple-quoted strings for long strings.
+  Never rely on adjacent-literal concatenation.
 - Every `# type: ignore` must have a reason on the same line.
 - **Markdown-style backticks in docs.** Use single backticks
   (`` ` ``) in docstrings, comments, and documentation.

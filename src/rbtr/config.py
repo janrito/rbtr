@@ -184,6 +184,10 @@ class ToolsConfig(BaseModel):
         str, Field(description="Directory for review draft YAML files. Supports `${WORKSPACE}`.")
     ] = "${WORKSPACE}/drafts"
     max_requests_per_turn: Annotated[int, Field(description="Max tool calls per LLM turn.")] = 25
+    max_continuations: Annotated[
+        int,
+        Field(description="Max continuation retries when the model response is interrupted."),
+    ] = 2
     turn_timeout: Annotated[
         float, Field(description="Max seconds for a single LLM turn. 0 = no limit.")
     ] = 300.0
