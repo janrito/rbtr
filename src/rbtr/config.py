@@ -153,9 +153,10 @@ class ShellConfig(BaseModel):
         bool, Field(description="Whether `run_command` is available to the LLM.")
     ] = True
     timeout: Annotated[int, Field(description="Default timeout in seconds (0 = no limit).")] = 120
-    max_output_lines: Annotated[int, Field(description="Truncate output to this many lines.")] = (
-        2000
-    )
+    max_output_lines: Annotated[
+        int, Field(description="Max lines returned to the agent (head + tail).")
+    ] = 2000
+    max_output_bytes: Annotated[int, Field(description="Max bytes returned to the agent.")] = 51_200
 
 
 class ToolsConfig(BaseModel):

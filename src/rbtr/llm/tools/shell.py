@@ -17,7 +17,7 @@ from rbtr.config import config
 from rbtr.events import ToolCallOutput
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import shell_toolset
-from rbtr.shell_exec import run_shell, truncate_output
+from rbtr.shell_exec import run_shell, truncate_for_agent
 
 # ── Streaming display buffer ─────────────────────────────────────────
 
@@ -121,13 +121,18 @@ def run_command(
     # Format the result for the model.
     parts: list[str] = []
     if result.stdout:
-        stdout, hidden = truncate_output(result.stdout, shell_cfg.max_output_lines)
-        parts.append(stdout)
-        if hidden:
-            parts.append(f"\n… {hidden} lines truncated")
+        parts.append(result.stdout)
     if result.stderr:
         parts.append(f"(stderr)\n{result.stderr}")
     if result.returncode != 0:
         parts.append(f"exit code {result.returncode}")
 
-    return "\n".join(parts) if parts else "(no output)"
+    if not parts:
+        return "(no output)"
+
+    full = "\n".join(parts)
+    return truncate_for_agent(
+        full,
+        max_lines=shell_cfg.max_output_lines,
+        max_bytes=shell_cfg.max_output_bytes,
+    )
