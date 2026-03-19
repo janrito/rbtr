@@ -19,7 +19,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,

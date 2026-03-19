@@ -20,7 +20,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import CompactionFinished, CompactionStarted, Output, OutputLevel, TaskFinished
 from rbtr.llm.compact import compact_history, find_fit_count, reset_compaction
 from rbtr.llm.context import LLMContext

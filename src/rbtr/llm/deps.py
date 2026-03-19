@@ -5,10 +5,13 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from rbtr.events import Event
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+
+if TYPE_CHECKING:
+    from rbtr.sessions.store import SessionStore
+    from rbtr.state import EngineState
 
 
 @dataclass

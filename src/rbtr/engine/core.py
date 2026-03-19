@@ -1,4 +1,10 @@
-"""Engine — runs commands in daemon threads, emits Events."""
+"""Engine — runs commands in daemon threads, emits Events.
+
+Heavy dependencies (`pydantic_ai`, `PyGithub`, `duckdb`, etc.)
+are imported lazily inside methods — not at module level — so
+that importing `engine.core` doesn't trigger the full dependency
+chain.  See ``todo/TODO-startup-time.md`` Phase 3c.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ import sys
 import threading
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 from anyio.from_thread import BlockingPortal, start_blocking_portal
@@ -28,26 +35,17 @@ from rbtr.events import (
     TaskStarted,
 )
 from rbtr.exceptions import RbtrError, TaskCancelled
-from rbtr.llm import LLMContext, compact_history, handle_llm, reset_compaction
-from rbtr.llm.context import CancelSlot
+from rbtr.llm.types import CancelSlot
 from rbtr.models import BranchTarget, PRTarget, SnapshotTarget, Target
 from rbtr.sessions.scrub import scrub_secrets
-from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .connect_cmd import cmd_connect
-from .draft_cmd import cmd_draft
-from .index_cmd import cmd_index
-from .memory_cmd import cmd_memory
-from .model_cmd import cmd_model
-from .reload_cmd import cmd_reload
-from .review_cmd import cmd_review
-from .session_cmd import cmd_session
-from .setup import run_setup
 from .shell import handle_shell
-from .skill_cmd import cmd_skill
-from .stats_cmd import cmd_stats
 from .types import Command, TaskType
+
+if TYPE_CHECKING:
+    from rbtr.llm.context import LLMContext
+    from rbtr.sessions.store import SessionStore
 
 log = logging.getLogger(__name__)
 
@@ -77,9 +75,13 @@ class Engine:
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
         # Session persistence store.
-        self.store = (
-            store if store is not None else SessionStore(Path(config.user_dir) / "sessions.db")
-        )
+        if store is None:
+            from rbtr.sessions.store import (
+                SessionStore,  # deferred: avoids pydantic_ai at import time
+            )
+
+            store = SessionStore(Path(config.user_dir) / "sessions.db")
+        self.store = store
         state.session_id = self.store.new_id()
         # Async portal for LLM streaming (keeps httpx pools alive).
         self._portal_cm = start_blocking_portal(backend="asyncio")
@@ -174,6 +176,8 @@ class Engine:
 
     def _llm_context(self) -> LLMContext:
         """Build an `LLMContext` for the LLM pipeline."""
+        from rbtr.llm.context import LLMContext  # deferred: avoids pydantic_ai at import time
+
         return LLMContext(
             state=self.state,
             store=self.store,
@@ -195,6 +199,8 @@ class Engine:
         try:
             match task_type:
                 case TaskType.SETUP:
+                    from .setup import run_setup  # deferred: avoids PyGithub at import time
+
                     run_setup(self)
                 case TaskType.COMMAND:
                     if persist:
@@ -204,6 +210,8 @@ class Engine:
                     self._persist_input(f"!{arg}", "shell")
                     handle_shell(self, arg)
                 case TaskType.LLM:
+                    from rbtr.llm import handle_llm  # deferred: avoids pydantic_ai at import time
+
                     handle_llm(self._llm_context(), arg)
         except TaskCancelled:
             success = False
@@ -238,16 +246,28 @@ class Engine:
             case Command.HELP:
                 self._cmd_help()
             case Command.REVIEW:
+                from .review_cmd import cmd_review
+
                 cmd_review(self, args)
             case Command.DRAFT:
+                from .draft_cmd import cmd_draft
+
                 cmd_draft(self, args)
             case Command.CONNECT:
+                from .connect_cmd import cmd_connect
+
                 cmd_connect(self, args)
             case Command.MODEL:
+                from .model_cmd import cmd_model
+
                 cmd_model(self, args)
             case Command.INDEX:
+                from .index_cmd import cmd_index
+
                 cmd_index(self, args)
             case Command.COMPACT:
+                from rbtr.llm import compact_history, reset_compaction
+
                 ctx = self._llm_context()
                 sub = args.split(maxsplit=1)[0].lower() if args else ""
                 if sub == "reset":
@@ -260,14 +280,24 @@ class Engine:
                         f"Compacted conversation history (keeping {config.compaction.keep_turns} recent turns).",
                     )
             case Command.SESSION:
+                from .session_cmd import cmd_session
+
                 cmd_session(self, args)
             case Command.STATS:
+                from .stats_cmd import cmd_stats
+
                 cmd_stats(self, args)
             case Command.MEMORY:
+                from .memory_cmd import cmd_memory
+
                 cmd_memory(self, args)
             case Command.SKILL:
+                from .skill_cmd import cmd_skill
+
                 cmd_skill(self, args)
             case Command.RELOAD:
+                from .reload_cmd import cmd_reload
+
                 cmd_reload(self)
             case Command.NEW:
                 self._cmd_new()

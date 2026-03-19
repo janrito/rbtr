@@ -5,7 +5,7 @@ from __future__ import annotations
 import pygit2
 import pytest
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.setup import _make_session_label
 
 from .conftest import drain, make_repo_with_file

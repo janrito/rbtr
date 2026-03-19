@@ -22,7 +22,8 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
-from rbtr.engine import Engine, TaskType
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.events import (
     Event,
     FlushPanel,

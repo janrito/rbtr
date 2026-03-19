@@ -16,12 +16,14 @@ The terminal's native scroll buffer holds all history. The Live region
 is kept small — only the current panel + input chrome.
 """
 
+from __future__ import annotations
+
 import json
 import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -34,8 +36,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
-from rbtr.engine import Command, Engine, Service, TaskType
-from rbtr.engine.model_cmd import get_models
+from rbtr.engine.types import Command, Service, TaskType
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
@@ -61,7 +62,6 @@ from rbtr.events import (
     ToolCallOutput,
     ToolCallStarted,
 )
-from rbtr.providers import PROVIDERS
 from rbtr.state import EngineState
 from rbtr.styles import (
     BG_ACTIVE,
@@ -99,6 +99,9 @@ from rbtr.tui.input import (
     PasteRegion,
     query_shell_completions,
 )
+
+if TYPE_CHECKING:
+    from rbtr.engine.core import Engine
 
 _SPINNER = SPINNERS["dots8"]
 _SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # rich Spinner dict has untyped values
@@ -302,6 +305,10 @@ class UI:
             arg = parts[1] if len(parts) == 2 else ""
             match cmd:
                 case Command.CONNECT:
+                    from rbtr.providers import (
+                        PROVIDERS,  # deferred: avoids pydantic_ai at import time
+                    )
+
                     matches = [
                         (f"/connect {p.value}", prov.LABEL)
                         for p, prov in PROVIDERS.items()
@@ -385,6 +392,10 @@ class UI:
             if self.inp.text != snapshot:
                 return
             try:
+                from rbtr.engine.model_cmd import (
+                    get_models,  # deferred: avoids loading core.py at import time
+                )
+
                 all_models = get_models(self._engine)
             except Exception:
                 return
@@ -1275,6 +1286,8 @@ def run(
     continue_session: bool = False,
 ) -> None:
     """Launch the rbtr interactive session."""
+    from rbtr.engine.core import Engine  # deferred: avoids pydantic_ai/PyGithub at import time
+
     theme = build_theme(config.theme)
     console = Console(markup=True, highlight=False, theme=theme)
     state = EngineState()

@@ -8,7 +8,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import IndexCleared, IndexReady, TableOutput

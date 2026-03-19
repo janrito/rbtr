@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.engine import Engine, TaskType
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.events import ContextMarkerReady
 from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
 

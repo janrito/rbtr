@@ -20,7 +20,7 @@ import pytest
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import Event, TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.llm.context import LLMContext
 from rbtr.llm.deps import AgentDeps

@@ -18,7 +18,7 @@ import pytest
 from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.github.client import GitHubCtx
 from rbtr.llm.deps import AgentDeps
 from rbtr.models import PRTarget

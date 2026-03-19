@@ -15,7 +15,7 @@ import pygit2
 import pytest
 from pydantic_ai import RunContext
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.draft_cmd import _show_draft
 from rbtr.engine.publish import post_review_draft, sync_review_draft
 from rbtr.exceptions import RbtrError

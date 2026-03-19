@@ -7,7 +7,8 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 
 from rbtr.creds import creds
-from rbtr.engine import Engine, TaskType
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.events import LinkOutput
 from rbtr.exceptions import PortBusyError, RbtrError
 from rbtr.oauth import PendingLogin

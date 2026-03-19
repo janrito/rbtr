@@ -8,7 +8,7 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.session_cmd import _format_age, parse_duration
 from rbtr.providers import BuiltinProvider
 

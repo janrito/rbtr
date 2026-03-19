@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.test import TestModel
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
 
 from .conftest import drain, has_event_type, output_texts, summary_result

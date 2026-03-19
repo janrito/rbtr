@@ -10,7 +10,7 @@ import pytest
 
 from rbtr.config import SkillsConfig, config
 from rbtr.creds import creds
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import Event, MarkdownOutput, Output
 from rbtr.llm.agent import register_tools
 from rbtr.llm.context import LLMContext

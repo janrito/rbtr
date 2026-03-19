@@ -12,7 +12,8 @@ from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine, TaskType
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.exceptions import RbtrError
 from rbtr.providers import BuiltinProvider, claude
 

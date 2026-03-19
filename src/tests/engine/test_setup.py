@@ -14,7 +14,8 @@ import pytest
 
 from rbtr.config import config
 from rbtr.creds import creds
-from rbtr.engine import Engine, TaskType
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.providers import BuiltinProvider
 
 from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, output_texts
@@ -155,10 +156,10 @@ def test_run_task_unexpected_error_emits_failure(config_path: Path, engine: Engi
     def _explode(eng, args):
         raise RuntimeError("kaboom")
 
-    import rbtr.engine.core as core_mod
+    import rbtr.engine.connect_cmd as connect_mod
 
-    original = core_mod.cmd_connect
-    core_mod.cmd_connect = _explode
+    original = connect_mod.cmd_connect
+    connect_mod.cmd_connect = _explode
     try:
         engine.run_task(TaskType.COMMAND, "/connect claude")
         drained_events = drain(engine.events)
@@ -168,7 +169,7 @@ def test_run_task_unexpected_error_emits_failure(config_path: Path, engine: Engi
         texts = output_texts(drained_events)
         assert any("kaboom" in t for t in texts)
     finally:
-        core_mod.cmd_connect = original
+        connect_mod.cmd_connect = original
 
 
 def test_copy_to_clipboard_does_not_raise() -> None:

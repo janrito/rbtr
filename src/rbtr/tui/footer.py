@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.console import Group
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
 from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
-from rbtr.state import EngineState
+
+if TYPE_CHECKING:
+    from rbtr.state import EngineState
 from rbtr.styles import (
     ERROR,
     FOOTER,

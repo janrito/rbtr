@@ -30,7 +30,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.creds import OAuthCreds
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import Event, IndexReady, Output
 from rbtr.llm.compact import _SummaryResult
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget

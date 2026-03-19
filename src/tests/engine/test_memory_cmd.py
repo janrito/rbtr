@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from rbtr.config import config
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.events import CompactionFinished
 from rbtr.llm.compact import compact_history
 from rbtr.llm.context import LLMContext

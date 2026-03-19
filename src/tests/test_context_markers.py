@@ -16,7 +16,7 @@ from collections.abc import Generator
 import pytest
 
 from rbtr.config import config
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.shell import _emit_shell_context
 from rbtr.engine.types import TaskType
 from rbtr.events import ContextMarkerReady, Event
