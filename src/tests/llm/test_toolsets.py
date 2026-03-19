@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-# Importing agent triggers all side-effect registrations.
-from rbtr.llm.agent import agent  # noqa: F401
 from rbtr.llm.tools.common import (
     diff_toolset,
     file_toolset,

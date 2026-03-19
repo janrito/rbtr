@@ -50,7 +50,7 @@ from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.scrub import scrub_secrets
 
 from . import operational_prompts
-from .agent import agent
+from .agent import get_agent
 from .compact import CompactionTrigger, compact_history, compact_history_async
 from .context import LLMContext
 from .deps import AgentDeps
@@ -395,7 +395,7 @@ async def _do_stream(
     interrupted: str | None = None
     truncated: _Interrupted | None = None
 
-    async with agent.iter(
+    async with get_agent().iter(
         prompt,
         model=model,
         deps=deps,

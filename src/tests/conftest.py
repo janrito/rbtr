@@ -12,9 +12,16 @@ from rbtr.config import SkillsConfig, config
 from rbtr.creds import creds
 from rbtr.engine import Engine
 from rbtr.events import Event, MarkdownOutput, Output
+from rbtr.llm.agent import register_tools
 from rbtr.llm.context import LLMContext
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+
+# Register all tool submodules in the correct order before any test
+# runs.  Tests that directly import a single tool module would
+# otherwise register tools out of order, breaking ordering assertions
+# in test_toolsets.
+register_tools()
 
 # ── Event helpers ────────────────────────────────────────────────────
 

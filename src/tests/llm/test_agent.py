@@ -2,67 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
-
-from rbtr.llm.agent import _index_status as index_status
-from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import _index_tool_names
-from rbtr.models import BranchTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
-
-
-@dataclass
-class _FakeCtx:
-    """Minimal RunContext substitute for testing instructions."""
-
-    deps: AgentDeps
-
-
-_NOW = datetime.now(tz=UTC)
-
-
-def _make_ctx(*, review_target=None, index_ready: bool = False) -> _FakeCtx:
-    state = EngineState()
-    state.review_target = review_target
-    state.index_ready = index_ready
-    return _FakeCtx(deps=AgentDeps(state=state, store=SessionStore()))
-
-
-def test_no_review_target_empty() -> None:
-    """When no review target is set, index status is empty."""
-    ctx = _make_ctx()
-    result = index_status(ctx)  # type: ignore[arg-type]
-    assert result == ""
+from rbtr.prompts import render_index_status
 
 
 def test_index_ready_mentions_tools() -> None:
     """When the index is ready, the prompt encourages tool use."""
-    target = BranchTarget(
-        base_branch="main",
-        head_branch="feature",
-        base_commit="main",
-        head_commit="feature",
-        updated_at=_NOW,
-    )
-    ctx = _make_ctx(review_target=target, index_ready=True)
-    result = index_status(ctx)  # type: ignore[arg-type]
+    result = render_index_status(status="ready", tool_names=_index_tool_names())
     assert "ready" in result.lower()
     assert "search" in result
 
 
 def test_index_not_ready_warns() -> None:
     """When the index is still building, the prompt warns about unavailable tools."""
-    target = BranchTarget(
-        base_branch="main",
-        head_branch="feature",
-        base_commit="main",
-        head_commit="feature",
-        updated_at=_NOW,
-    )
-    ctx = _make_ctx(review_target=target, index_ready=False)
-    result = index_status(ctx)  # type: ignore[arg-type]
+    result = render_index_status(status="building", tool_names=_index_tool_names())
     assert "still building" in result.lower()
     assert "wait" in result.lower()
     assert "search" in result
@@ -83,17 +36,10 @@ def test_index_tool_names_matches_registered_tools() -> None:
 
 def test_all_index_tools_appear_in_prompt() -> None:
     """Every introspected index tool name appears in both ready and not-ready prompts."""
-    target = BranchTarget(
-        base_branch="main",
-        head_branch="feature",
-        base_commit="main",
-        head_commit="feature",
-        updated_at=_NOW,
-    )
     names = _index_tool_names()
 
-    ready = index_status(_make_ctx(review_target=target, index_ready=True))  # type: ignore[arg-type]
-    not_ready = index_status(_make_ctx(review_target=target, index_ready=False))  # type: ignore[arg-type]
+    ready = render_index_status(status="ready", tool_names=names)
+    not_ready = render_index_status(status="building", tool_names=names)
     for name in names:
         assert name in ready, f"{name} missing from ready prompt"
         assert name in not_ready, f"{name} missing from not-ready prompt"

@@ -7,14 +7,17 @@ formatting shared across tool modules.
 from __future__ import annotations
 
 from pathlib import PurePosixPath
+from typing import TYPE_CHECKING
 
 import pygit2
 from pydantic_ai import FunctionToolset, RunContext
 from pydantic_ai.tools import ToolDefinition
 
-from rbtr.index.store import IndexStore
 from rbtr.llm.deps import AgentDeps
 from rbtr.models import PRTarget, SnapshotTarget
+
+if TYPE_CHECKING:
+    from rbtr.index.store import IndexStore
 
 # ── Toolset instances ────────────────────────────────────────────────
 #
