@@ -2770,6 +2770,7 @@ languages = [
 debug = [
     { name = "ipython" },
     { name = "scalene" },
+    { name = "vulture" },
 ]
 dev = [
     { name = "mypy" },
@@ -2830,6 +2831,7 @@ provides-extras = ["languages"]
 debug = [
     { name = "ipython", specifier = ">=9.10.0" },
     { name = "scalene", specifier = ">=2.1" },
+    { name = "vulture", specifier = ">=2.14" },
 ]
 dev = [
     { name = "mypy" },
@@ -3825,6 +3827,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e3/ad/4a96c425be6fb67e0621e62d86c402b4a17ab2be7f7c055d9bd2f638b9e2/uvicorn-0.42.0.tar.gz", hash = "sha256:9b1f190ce15a2dd22e7758651d9b6d12df09a13d51ba5bf4fc33c383a48e1775", size = 85393, upload-time = "2026-03-16T06:19:50.077Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/89/f8827ccff89c1586027a105e5630ff6139a64da2515e24dafe860bd9ae4d/uvicorn-0.42.0-py3-none-any.whl", hash = "sha256:96c30f5c7abe6f74ae8900a70e92b85ad6613b745d4879eb9b16ccad15645359", size = 68830, upload-time = "2026-03-16T06:19:48.325Z" },
+]
+
+[[package]]
+name = "vulture"
+version = "2.15"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/c6/4f147b621b4c0899eb1770f98113334bb706ebd251ac2be979316b1985fa/vulture-2.15.tar.gz", hash = "sha256:f9d8b4ce29c69950d323f21dceab4a4d6c694403dffbed7713c4691057e561fe", size = 52438, upload-time = "2026-03-04T21:41:39.096Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1c/f3/07cf122e145bc6df976030e9935123124c3fcb5044cf407b5e71e85821b4/vulture-2.15-py3-none-any.whl", hash = "sha256:a3d8ebef918694326620eb128fa783486c8d285b23381c2b457d864ac056ef8d", size = 26895, upload-time = "2026-03-04T21:41:39.878Z" },
 ]
 
 [[package]]

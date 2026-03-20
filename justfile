@@ -33,6 +33,11 @@ test:
 build:
     uv build
 
+# ── dead code detection (requires `uv sync --group debug`) ──
+
+dead-code:
+    uv run --group debug vulture
+
 # ── profiling (requires `uv sync --group debug`) ──
 # Benchmark indexing + query latency (no embedding).
 
