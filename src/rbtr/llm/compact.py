@@ -25,6 +25,7 @@ from rbtr.sessions.overhead import (
 )
 
 from .context import LLMContext
+from .costs import extract_cost
 from .history import (
     build_summary_message,
     estimate_tokens,
@@ -33,7 +34,6 @@ from .history import (
     split_history,
 )
 from .memory import FactExtractionRun, apply_fact_extraction, run_fact_extraction
-from .usage import extract_cost
 
 log = logging.getLogger(__name__)
 

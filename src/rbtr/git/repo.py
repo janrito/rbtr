@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pygit2
 
@@ -12,14 +11,6 @@ from rbtr.exceptions import RbtrError
 from rbtr.models import BranchSummary
 
 log = logging.getLogger(__name__)
-
-
-def find_git_root(start: str = ".") -> str | None:
-    """Return the worktree root, or `None` if not in a repo."""
-    git_dir = pygit2.discover_repository(start)
-    if git_dir is None:
-        return None
-    return str(Path(git_dir).resolve().parent)
 
 
 def open_repo() -> pygit2.Repository:
@@ -104,31 +95,6 @@ def _make_fetch_callbacks(url: str) -> pygit2.RemoteCallbacks:
             credentials=pygit2.KeypairFromAgent("git"),
         )
     return pygit2.RemoteCallbacks()
-
-
-def default_branch(repo: pygit2.Repository) -> str:
-    """Return the name of the repository's default branch.
-
-    Tries `refs/remotes/origin/HEAD` first (set by `git clone`),
-    then falls back to `main` or `master` if either exists locally.
-    Returns `"main"` as a last resort.
-    """
-    # Try the symbolic ref that git clone sets.
-    try:
-        ref = repo.references.get("refs/remotes/origin/HEAD")
-        if ref is not None:
-            target = ref.resolve().shorthand
-            # target looks like "origin/main" — strip the remote prefix.
-            return target.split("/", 1)[-1]
-    except (pygit2.GitError, AttributeError):
-        pass
-
-    # Fall back to well-known names.
-    for name in ("main", "master"):
-        if name in repo.branches.local:
-            return name
-
-    return "main"
 
 
 def list_local_branches(repo: pygit2.Repository) -> list[BranchSummary]:

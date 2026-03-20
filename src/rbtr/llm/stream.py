@@ -53,6 +53,7 @@ from . import operational_prompts
 from .agent import get_agent
 from .compact import CompactionTrigger, compact_history, compact_history_async
 from .context import LLMContext
+from .costs import record_run_usage
 from .deps import AgentDeps
 from .errors import is_context_overflow, is_effort_unsupported
 from .history import (
@@ -65,7 +66,6 @@ from .history import (
     sanitize_tool_call_ids,
     validate_tool_call_args,
 )
-from .usage import record_run_usage
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter

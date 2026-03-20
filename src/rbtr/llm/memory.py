@@ -38,8 +38,8 @@ from rbtr.config import config
 from rbtr.events import FactExtractionFinished, FactExtractionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
+from rbtr.llm.costs import extract_cost
 from rbtr.llm.history import serialise_for_summary
-from rbtr.llm.usage import extract_cost
 from rbtr.prompts import render_existing_facts, render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
 from rbtr.sessions.kinds import GLOBAL_SCOPE, Fact, FragmentKind

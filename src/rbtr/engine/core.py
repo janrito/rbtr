@@ -210,7 +210,9 @@ class Engine:
                     self._persist_input(f"!{arg}", "shell")
                     handle_shell(self, arg)
                 case TaskType.LLM:
-                    from rbtr.llm import handle_llm  # deferred: avoids pydantic_ai at import time
+                    from rbtr.llm.stream import (
+                        handle_llm,  # deferred: avoids pydantic_ai at import time
+                    )
 
                     handle_llm(self._llm_context(), arg)
         except TaskCancelled:
@@ -266,7 +268,7 @@ class Engine:
 
                 cmd_index(self, args)
             case Command.COMPACT:
-                from rbtr.llm import compact_history, reset_compaction
+                from rbtr.llm.compact import compact_history, reset_compaction
 
                 ctx = self._llm_context()
                 sub = args.split(maxsplit=1)[0].lower() if args else ""

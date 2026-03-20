@@ -22,9 +22,7 @@ from rbtr.git.objects import (
     walk_tree,
 )
 from rbtr.git.repo import (
-    default_branch,
     fetch_pr_refs,
-    find_git_root,
     list_local_branches,
     open_repo,
 )
@@ -32,9 +30,7 @@ from rbtr.git.repo import (
 __all__ = [
     "FileEntry",
     "changed_files",
-    "default_branch",
     "fetch_pr_refs",
-    "find_git_root",
     "is_binary",
     "is_path_ignored",
     "list_files",

@@ -32,12 +32,12 @@ from pytest_mock import MockerFixture
 from rbtr.engine.core import Engine
 from rbtr.events import ToolCallFinished, ToolCallStarted
 from rbtr.llm.context import LLMContext
+from rbtr.llm.costs import record_run_usage
 from rbtr.llm.stream import (
     _auto_compact_on_overflow,
     _emit_tool_event,
     _update_live_usage,
 )
-from rbtr.llm.usage import record_run_usage
 from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
