@@ -5,10 +5,8 @@ from __future__ import annotations
 import pygit2
 import pytest
 
-from rbtr.index.models import ChunkKind, EdgeKind
+from rbtr.index.models import ChunkKind, EdgeKind, IndexResult, SemanticDiff
 from rbtr.index.orchestrator import (
-    IndexResult,
-    SemanticDiff,
     build_index,
     compute_diff,
     update_index,

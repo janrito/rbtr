@@ -1,7 +1,8 @@
-"""Fragment kinds, status, context, scope constants, and the Fragment dataclass.
+"""Session data types — kinds, status, context, and result types.
 
 These are the core types that define the schema's type system.
-Every other sessions module depends on these.
+Every other sessions module depends on these. Pure data types
+with no heavy dependencies (no `pydantic_ai`, `duckdb`, etc.).
 """
 
 from __future__ import annotations
@@ -146,3 +147,32 @@ class Fragment:
     tool_name: str | None
     compacted_by: str | None
     status: FragmentStatus
+
+
+@dataclass(frozen=True, slots=True)
+class SessionSummary:
+    """Lightweight session listing — no message bodies."""
+
+    session_id: str
+    session_label: str | None
+    last_active: str
+    message_count: int
+    total_cost: float
+    model_name: str | None
+    review_target: str | None
+    repo_owner: str | None
+    repo_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Fact:
+    """A single cross-session memory fact."""
+
+    id: str
+    scope: str
+    content: str
+    source_session_id: str
+    created_at: str
+    last_confirmed_at: str
+    confirm_count: int
+    superseded_by: str | None = None

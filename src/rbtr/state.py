@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from rbtr.github.client import GitHubCtx
     from rbtr.index.store import IndexStore
-    from rbtr.providers import BuiltinProvider
+    from rbtr.providers.types import BuiltinProvider
     from rbtr.skills.registry import SkillRegistry
 
 

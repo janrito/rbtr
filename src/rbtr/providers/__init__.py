@@ -24,59 +24,13 @@ command and setup auto-detect work without per-provider handlers.
 
 from __future__ import annotations
 
-from enum import StrEnum
-from typing import Protocol, runtime_checkable
-
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
 from rbtr.config import ThinkingEffort
 from rbtr.exceptions import RbtrError
 from rbtr.providers import claude, endpoint, fireworks, google, openai, openai_codex, openrouter
-
-# ── Provider contract ────────────────────────────────────────────────
-
-
-@runtime_checkable
-class Provider(Protocol):
-    """Typed contract every builtin provider module must satisfy.
-
-    Each module exposes these as module-level constants and functions.
-    The `PROVIDERS` dict stores the modules; attribute access goes
-    through the module at call time, so test mocks take effect.
-    """
-
-    GENAI_ID: str
-    LABEL: str
-
-    def is_connected(self) -> bool: ...
-    def list_models(self) -> list[str]: ...
-    def build_model(self, model_name: str) -> Model: ...
-    def model_settings(
-        self, model_id: str, model: Model, effort: ThinkingEffort
-    ) -> ModelSettings | None: ...
-    def context_window(self, model_id: str) -> int | None: ...
-
-    def system_instructions(self, model_id: str) -> str | None:
-        """Provider-specific text prepended to the system prompt.
-
-        Returns `None` (the default) when the provider has nothing
-        to inject.  Anthropic's OAuth endpoint requires a Claude Code
-        identity line; other providers return `None`.
-        """
-        ...
-
-
-class BuiltinProvider(StrEnum):
-    """Known first-party provider prefixes."""
-
-    CLAUDE = "claude"
-    CHATGPT = "chatgpt"
-    OPENAI = "openai"
-    GOOGLE = "google"
-    FIREWORKS = "fireworks"
-    OPENROUTER = "openrouter"
-
+from rbtr.providers.types import BuiltinProvider, Provider
 
 # ── Provider registry ────────────────────────────────────────────────
 #

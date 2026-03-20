@@ -25,7 +25,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from rbtr.sessions.store import Fact, SessionStore
+from rbtr.sessions.kinds import Fact
+from rbtr.sessions.store import SessionStore
 
 from .fact_data import (
     ALL_BASELINE,

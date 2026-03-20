@@ -30,7 +30,6 @@ import importlib.resources
 import logging
 import sqlite3
 import threading
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -39,7 +38,14 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, ModelResponsePart
 from uuid_utils import uuid7
 
 from rbtr.sessions.incidents import Incident
-from rbtr.sessions.kinds import Fragment, FragmentKind, FragmentStatus, SessionContext
+from rbtr.sessions.kinds import (
+    Fact,
+    Fragment,
+    FragmentKind,
+    FragmentStatus,
+    SessionContext,
+    SessionSummary,
+)
 from rbtr.sessions.overhead import Overhead
 from rbtr.sessions.serialise import (
     dump_part,
@@ -142,38 +148,6 @@ _FACT_COUNTS_SQL = _load_sql("fact_counts.sql")
 _FACT_SCOPES_SQL = _load_sql("fact_scopes.sql")
 
 _SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
-
-
-# ── Result types ─────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True)
-class SessionSummary:
-    """Lightweight session listing — no message bodies."""
-
-    session_id: str
-    session_label: str | None
-    last_active: str
-    message_count: int
-    total_cost: float
-    model_name: str | None
-    review_target: str | None
-    repo_owner: str | None
-    repo_name: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Fact:
-    """A single cross-session memory fact."""
-
-    id: str
-    scope: str
-    content: str
-    source_session_id: str
-    created_at: str
-    last_confirmed_at: str
-    confirm_count: int
-    superseded_by: str | None = None
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────

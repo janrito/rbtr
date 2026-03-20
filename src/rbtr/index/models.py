@@ -1,5 +1,8 @@
 """Data models and enums for the code index."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TypedDict
 
@@ -122,3 +125,38 @@ class IndexStatus(BaseModel):
     skipped_files: int = 0
     stats: IndexStats | None = None
     error: str = ""
+
+
+# ── Pipeline result types ────────────────────────────────────────────
+
+
+@dataclass
+class IndexResult:
+    """Outcome of an index build or update."""
+
+    stats: IndexStats = field(default_factory=IndexStats)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SemanticDiff:
+    """Structural differences between two indexed commits."""
+
+    added: list[Chunk] = field(default_factory=list)
+    """Symbols that exist in head but not in base."""
+
+    removed: list[Chunk] = field(default_factory=list)
+    """Symbols that exist in base but not in head."""
+
+    modified: list[Chunk] = field(default_factory=list)
+    """Symbols at the same path whose content changed."""
+
+    stale_docs: list[tuple[Chunk, Chunk]] = field(default_factory=list)
+    """`(doc_chunk, code_chunk)` where the code changed but
+    the doc referencing it did not."""
+
+    missing_tests: list[Chunk] = field(default_factory=list)
+    """New functions/methods with no `TESTS` edge."""
+
+    broken_edges: list[Edge] = field(default_factory=list)
+    """Import edges in head that pointed at symbols now removed."""

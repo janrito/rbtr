@@ -42,9 +42,9 @@ from rbtr.llm.history import serialise_for_summary
 from rbtr.llm.usage import extract_cost
 from rbtr.prompts import render_existing_facts, render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
-from rbtr.sessions.kinds import GLOBAL_SCOPE, FragmentKind
+from rbtr.sessions.kinds import GLOBAL_SCOPE, Fact, FragmentKind
 from rbtr.sessions.overhead import FactExtractionOverhead, FactExtractionSource
-from rbtr.sessions.store import Fact, SessionStore
+from rbtr.sessions.store import SessionStore
 
 log = logging.getLogger(__name__)
 
