@@ -10,8 +10,7 @@ from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import ContextMarkerReady
 from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
-
-from .conftest import drain, has_event_type, output_texts
+from tests.helpers import drain, has_event_type, output_texts
 
 
 def _skill(

@@ -6,7 +6,7 @@ The `add_draft_comment` tests use a real git repo so that
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -29,121 +29,38 @@ from rbtr.models import InlineComment, PRTarget, ReviewDraft
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-# ── Repo builder (minimal copy from git/conftest) ────────────────────
-
-
-def _build_tree(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-) -> pygit2.Oid:
-    subtrees: dict[str, dict[str, bytes]] = {}
-    blobs: dict[str, bytes] = {}
-    for path, content in files.items():
-        if "/" in path:
-            top, rest = path.split("/", 1)
-            subtrees.setdefault(top, {})[rest] = content
-        else:
-            blobs[path] = content
-    tb = repo.TreeBuilder()
-    for name, data in blobs.items():
-        tb.insert(name, repo.create_blob(data), pygit2.GIT_FILEMODE_BLOB)
-    for name, sub_files in subtrees.items():
-        tb.insert(name, _build_tree(repo, sub_files), pygit2.GIT_FILEMODE_TREE)
-    return tb.write()
-
-
-def _make_commit(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-    *,
-    parents: list[pygit2.Oid] | None = None,
-    ref: str = "refs/heads/main",
-) -> pygit2.Oid:
-    tree_oid = _build_tree(repo, files)
-    sig = pygit2.Signature("Test", "test@test.com")
-    return repo.create_commit(ref, sig, sig, "commit", tree_oid, parents or [])
-
-
-# File content — the diff adds `validate(request)` on line 2.
-_BASE_HANDLER = b"def handle(request):\n    return 'ok'\n"
-_HEAD_HANDLER = b"def handle(request):\n    validate(request)\n    return 'ok'\n"
-_UTILS = b"def helper():\n    return 42\n"
-
-
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
-def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point drafts_dir at a temp directory."""
-    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
-    return tmp_path
-
-
-@pytest.fixture
-def draft_repo(tmp_path: Path) -> tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid]:
-    """A two-commit repo: base (main) → head (feature).
-
-    Changed file: `src/handler.py` (one line added).
-    Unchanged file: `src/utils.py`.
-    """
-    repo = pygit2.init_repository(str(tmp_path / "repo"))
-    base = _make_commit(
-        repo,
-        {"src/handler.py": _BASE_HANDLER, "src/utils.py": _UTILS},
-    )
-    head = _make_commit(
-        repo,
-        {"src/handler.py": _HEAD_HANDLER, "src/utils.py": _UTILS},
-        parents=[base],
-        ref="refs/heads/feature",
-    )
-    return repo, base, head
-
-
-@pytest.fixture
-def pr_target(draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid]) -> PRTarget:
-    _, base, head = draft_repo
-    return PRTarget(
-        number=42,
-        title="Test PR",
-        author="alice",
-        base_branch=str(base),
-        head_branch="feature",
-        base_commit=str(base),
-        head_commit=str(head),
-        head_sha=str(head),
-        updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-    )
-
-
-@pytest.fixture
 def ctx(
-    pr_target: PRTarget,
+    draft_pr_target: PRTarget,
     draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid],
-) -> RunContext[AgentDeps]:
+) -> Generator[RunContext[AgentDeps]]:
     """RunContext with a real repo and PR target."""
     repo, _, _ = draft_repo
 
     # Each test gets a fresh EngineState — no global cache to reset.
     state = EngineState()
-    state.review_target = pr_target
+    state.review_target = draft_pr_target
     state.repo = repo
-    deps = AgentDeps(state=state, store=SessionStore())
-    mock_ctx = MagicMock(spec=RunContext)
-    mock_ctx.deps = deps
-    return mock_ctx
+    with SessionStore() as store:
+        deps = AgentDeps(state=state, store=store)
+        mock_ctx = MagicMock(spec=RunContext)
+        mock_ctx.deps = deps
+        yield mock_ctx
 
 
 @pytest.fixture
-def ctx_no_repo(pr_target: PRTarget) -> RunContext[AgentDeps]:
+def ctx_no_repo(draft_pr_target: PRTarget) -> Generator[RunContext[AgentDeps]]:
     """RunContext with a PR target but no repo (for edit/remove tests)."""
     state = EngineState()
-    state.review_target = pr_target
-    deps = AgentDeps(state=state, store=SessionStore())
-    mock_ctx = MagicMock(spec=RunContext)
-    mock_ctx.deps = deps
-    return mock_ctx
+    state.review_target = draft_pr_target
+    with SessionStore() as store:
+        deps = AgentDeps(state=state, store=store)
+        mock_ctx = MagicMock(spec=RunContext)
+        mock_ctx.deps = deps
+        yield mock_ctx
 
 
 # ── add_draft_comment ───────────────────────────────────────────────
@@ -349,7 +266,9 @@ def test_add_comment_file_not_found(workspace: Path, ctx: RunContext[AgentDeps])
 # ── edit_draft_comment ──────────────────────────────────────────────
 
 
-def _seed_draft(pr_number: int) -> None:
+@pytest.fixture
+def seeded_draft(workspace: Path) -> ReviewDraft:
+    """Save and return a two-comment draft for edit/remove tests."""
     draft = ReviewDraft(
         summary="Review.",
         comments=[
@@ -357,11 +276,13 @@ def _seed_draft(pr_number: int) -> None:
             InlineComment(path="b.py", line=20, body="Also original."),
         ],
     )
-    save_draft(pr_number, draft)
+    save_draft(42, draft)
+    return draft
 
 
-def test_edit_comment_body(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
-    _seed_draft(42)
+def test_edit_comment_body(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], seeded_draft: ReviewDraft
+) -> None:
     result = edit_draft_comment(ctx_no_repo, "a.py", "Original", body="Updated body.")
     assert "updated" in result.lower()
 
@@ -386,8 +307,9 @@ def test_edit_comment_clear_suggestion(workspace: Path, ctx_no_repo: RunContext[
     assert loaded.comments[0].suggestion == ""
 
 
-def test_edit_comment_not_found(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
-    _seed_draft(42)
+def test_edit_comment_not_found(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], seeded_draft: ReviewDraft
+) -> None:
     result = edit_draft_comment(ctx_no_repo, "a.py", "nonexistent", body="Nope.")
     assert "Cannot edit" in result
 
@@ -415,8 +337,9 @@ def test_edit_comment_empty_draft(workspace: Path, ctx_no_repo: RunContext[Agent
 # ── remove_draft_comment ────────────────────────────────────────────
 
 
-def test_remove_comment(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
-    _seed_draft(42)
+def test_remove_comment(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], seeded_draft: ReviewDraft
+) -> None:
     result = remove_draft_comment(ctx_no_repo, "a.py", "Original")
     assert "Removed" in result
 
@@ -442,8 +365,9 @@ def test_remove_last_comment(workspace: Path, ctx_no_repo: RunContext[AgentDeps]
     assert loaded.summary == "Summary."
 
 
-def test_remove_not_found(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> None:
-    _seed_draft(42)
+def test_remove_not_found(
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], seeded_draft: ReviewDraft
+) -> None:
     result = remove_draft_comment(ctx_no_repo, "a.py", "nonexistent")
     assert "Cannot remove" in result
 
@@ -505,9 +429,8 @@ def test_set_summary(workspace: Path, ctx_no_repo: RunContext[AgentDeps]) -> Non
 
 
 def test_set_summary_preserves_comments(
-    workspace: Path, ctx_no_repo: RunContext[AgentDeps]
+    workspace: Path, ctx_no_repo: RunContext[AgentDeps], seeded_draft: ReviewDraft
 ) -> None:
-    _seed_draft(42)
     set_draft_summary(ctx_no_repo, "New summary.")
 
     draft = load_draft(42)
@@ -659,3 +582,123 @@ def test_read_draft_content_survives_full_lifecycle(
     raw2 = read_draft(ctx)
     assert "Not a bug, my mistake." in raw2
     assert "Bug here." not in raw2
+
+
+# ── Anchor comments — side + commit_id ───────────────────────────────
+#
+# These tests use `tool_ctx` from conftest (not the local `ctx`)
+# because they need the conftest `draft_repo` which has a deleted
+# file (readme.md) for LEFT-side anchor testing.
+
+
+@pytest.fixture
+def mixed_draft(workspace: Path) -> ReviewDraft:
+    """Seed and return a draft with LEFT and RIGHT comments."""
+    draft = ReviewDraft(
+        summary="Mixed review.",
+        comments=[
+            InlineComment(
+                path="a.py",
+                line=10,
+                side="LEFT",
+                commit_id="aaa",
+                body="Old code issue.",
+            ),
+            InlineComment(
+                path="b.py",
+                line=20,
+                side="RIGHT",
+                commit_id="bbb",
+                body="New code issue.",
+            ),
+            InlineComment(
+                path="c.py",
+                line=30,
+                side="RIGHT",
+                commit_id="ccc",
+                body="Third finding.",
+            ),
+        ],
+    )
+    save_draft(42, draft)
+    return draft
+
+
+def test_add_head_anchor_right_side(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
+    """Anchor on head file → RIGHT side, commit_id = head SHA."""
+    add_draft_comment(tool_ctx, "src/handler.py", "validate(request)", "Bug.")
+    draft = load_draft(42)
+    assert draft is not None
+    c = draft.comments[0]
+    assert c.side == "RIGHT"
+    assert c.commit_id == tool_ctx.deps.state.review_target.head_sha  # type: ignore[union-attr]
+    assert c.line == 2
+
+
+def test_add_base_anchor_left_side(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
+    """Anchor with ref='base' → LEFT side, resolves against base."""
+    add_draft_comment(tool_ctx, "src/handler.py", "return 'ok'", "Old code.", ref="base")
+    draft = load_draft(42)
+    assert draft is not None
+    c = draft.comments[0]
+    assert c.side == "LEFT"
+    assert c.line == 2
+
+
+def test_add_head_anchor_shifted_line(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
+    """Same code at different line numbers on each side."""
+    add_draft_comment(tool_ctx, "src/handler.py", "return 'ok'", "Now line 3.")
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.comments[0].line == 3
+
+
+def test_add_base_anchor_deleted_file(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
+    """readme.md deleted at head — can still comment on base side."""
+    result = add_draft_comment(tool_ctx, "readme.md", "# Project", "Why deleted?", ref="base")
+    assert "Comment added" in result
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.comments[0].side == "LEFT"
+    assert draft.comments[0].path == "readme.md"
+
+
+def test_edit_preserves_side_and_commit_id(
+    workspace: Path, tool_ctx: RunContext[AgentDeps], mixed_draft: ReviewDraft
+) -> None:
+    edit_draft_comment(tool_ctx, "a.py", "Old code", body="Updated body.")
+    draft = load_draft(42)
+    assert draft is not None
+    c = draft.comments[0]
+    assert c.body == "Updated body."
+    assert c.side == "LEFT"
+    assert c.commit_id == "aaa"
+    assert c.line == 10
+
+
+def test_remove_preserves_remaining(
+    workspace: Path, tool_ctx: RunContext[AgentDeps], mixed_draft: ReviewDraft
+) -> None:
+    remove_draft_comment(tool_ctx, "b.py", "New code")
+    draft = load_draft(42)
+    assert draft is not None
+    assert len(draft.comments) == 2
+    assert draft.comments[0].path == "a.py"
+    assert draft.comments[1].path == "c.py"
+    assert draft.summary == "Mixed review."
+
+
+def test_full_add_edit_remove_cycle(workspace: Path, tool_ctx: RunContext[AgentDeps]) -> None:
+    """Add → edit → remove cycle preserves metadata throughout."""
+    add_draft_comment(tool_ctx, "src/handler.py", "validate(request)", "Initial.")
+    edit_draft_comment(tool_ctx, "src/handler.py", "Initial", body="Revised.")
+
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.comments[0].body == "Revised."
+    assert draft.comments[0].side == "RIGHT"
+
+    remove_draft_comment(tool_ctx, "src/handler.py", "Revised")
+    draft = load_draft(42)
+    assert draft is not None
+    assert draft.comments == []

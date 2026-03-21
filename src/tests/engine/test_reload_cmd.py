@@ -9,8 +9,7 @@ import pytest
 from rbtr.config import config
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
-
-from .conftest import drain, output_texts
+from tests.helpers import drain, output_texts
 
 
 @pytest.fixture

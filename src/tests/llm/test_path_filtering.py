@@ -18,27 +18,20 @@ from pathlib import Path
 
 import pygit2
 import pytest
+from pydantic_ai import RunContext
 
 from rbtr.config import config
 from rbtr.git import is_path_ignored
 from rbtr.git.filters import _matches_globs
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.file import grep, list_files, read_file
 from rbtr.models import BranchTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
+from .ctx import tool_ctx
+
 # ── Helpers ──────────────────────────────────────────────────────────
-
-
-class _FakeCtx:
-    """Minimal stand-in for RunContext[AgentDeps] in tool tests."""
-
-    def __init__(self, state: EngineState) -> None:
-        self.deps = _FakeDeps(state)
-
-
-class _FakeDeps:
-    def __init__(self, state: EngineState) -> None:
-        self.state = state
 
 
 def _make_repo(tmp: str) -> tuple[pygit2.Repository, str]:
@@ -67,6 +60,22 @@ def _state(repo: pygit2.Repository) -> EngineState:
     return state
 
 
+@pytest.fixture
+def path_repo(tmp_path: Path) -> tuple[pygit2.Repository, str]:
+    """Single-commit repo for path filtering tests."""
+    return _make_repo(str(tmp_path))
+
+
+@pytest.fixture
+def ctx(
+    path_repo: tuple[pygit2.Repository, str],
+    store: SessionStore,
+) -> RunContext[AgentDeps]:
+    """RunContext wired to the path-filtering repo."""
+    repo, _ = path_repo
+    return tool_ctx(_state(repo), store)
+
+
 # ── is_path_ignored unit tests ───────────────────────────────────────
 
 
@@ -74,7 +83,7 @@ def test_is_path_ignored_gitignore() -> None:
     """Paths matching .gitignore are ignored when repo is provided."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _ = _make_repo(tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n__pycache__/\n")
 
         assert is_path_ignored(".mypy_cache/foo.json", repo, include=[], exclude=[])
@@ -100,7 +109,7 @@ def test_is_path_ignored_include_overrides_gitignore() -> None:
     """Include patterns override gitignore."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _ = _make_repo(tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\nnode_modules/\n")
 
         # .rbtr/ is gitignored but force-included
@@ -137,7 +146,7 @@ def test_is_path_ignored_include_and_exclude_interplay() -> None:
 
 
 def test_read_file_blocks_gitignored_fs_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """read_file refuses to read gitignored files from the filesystem."""
     config.index.include = []
@@ -151,16 +160,16 @@ def test_read_file_blocks_gitignored_fs_file(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = read_file(ctx, ".mypy_cache/3.12/data.json")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = read_file(ctx, ".mypy_cache/3.12/data.json")
         assert "not found" in result.lower() or "cannot" in result.lower()
 
 
 def test_read_file_blocks_extend_exclude_fs_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """read_file refuses to read files matching extend_exclude."""
     config.index.include = []
@@ -172,13 +181,13 @@ def test_read_file_blocks_extend_exclude_fs_file(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = read_file(ctx, ".rbtr/index")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = read_file(ctx, ".rbtr/index")
         assert "not found" in result.lower() or "cannot" in result.lower()
 
 
 def test_read_file_allows_included_despite_gitignore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """read_file reads force-included files even when gitignored."""
     config.index.include = [".rbtr/*"]
@@ -190,17 +199,17 @@ def test_read_file_allows_included_despite_gitignore(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = read_file(ctx, ".rbtr/notes/plan.md")
         assert "# Plan" in result
         assert "Step 1" in result
 
 
 def test_read_file_allows_non_ignored_fs_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """read_file still reads untracked files that aren't ignored."""
     config.index.include = []
@@ -211,8 +220,8 @@ def test_read_file_allows_non_ignored_fs_file(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = read_file(ctx, "notes.txt")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = read_file(ctx, "notes.txt")
         assert "important notes" in result
 
 
@@ -220,7 +229,7 @@ def test_read_file_allows_non_ignored_fs_file(
 
 
 def test_list_files_excludes_gitignored(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """list_files omits gitignored paths in filesystem fallback."""
     config.index.include = []
@@ -234,17 +243,17 @@ def test_list_files_excludes_gitignored(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="local_dir")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="local_dir")
         assert "visible.txt" in result
         assert "cache.pyc" not in result
 
 
 def test_list_files_excludes_extend_exclude(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """list_files omits paths matching extend_exclude in filesystem fallback."""
     config.index.include = []
@@ -258,14 +267,14 @@ def test_list_files_excludes_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="data")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="data")
         assert "notes.txt" in result
         assert "index.db" not in result
 
 
 def test_list_files_includes_override_gitignore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """list_files shows force-included files even when gitignored."""
     config.index.include = [".rbtr/*"]
@@ -279,17 +288,17 @@ def test_list_files_includes_override_gitignore(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in result
         assert "findings.md" in result
 
 
 def test_list_files_include_overrides_extend_exclude(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """Include beats extend_exclude for list_files filesystem fallback."""
     config.index.include = ["data/important.lock"]
@@ -304,15 +313,15 @@ def test_list_files_include_overrides_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="data")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="data")
         assert "important.lock" in result
         assert "other.lock" not in result
         assert "app.py" in result
 
 
 def test_list_files_excludes_nested_gitignored_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """list_files omits entire gitignored directories."""
     config.index.include = []
@@ -331,11 +340,11 @@ def test_list_files_excludes_nested_gitignored_dir(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("__pycache__/\nnode_modules/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="project")
         assert "app.py" in result
         assert "__pycache__" not in result
         assert "node_modules" not in result
@@ -346,7 +355,7 @@ def test_list_files_excludes_nested_gitignored_dir(
 
 
 def test_grep_excludes_gitignored_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep skips gitignored files in filesystem fallback."""
     config.index.include = []
@@ -360,17 +369,17 @@ def test_grep_excludes_gitignored_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "MAGIC_MARKER", pattern="local_dir")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "MAGIC_MARKER", pattern="local_dir")
         assert "visible.py" in result
         assert "cached.pyc" not in result
 
 
 def test_grep_excludes_extend_exclude_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep skips files matching extend_exclude in filesystem fallback."""
     config.index.include = []
@@ -384,14 +393,14 @@ def test_grep_excludes_extend_exclude_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_TERM", pattern="logs")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "SEARCH_TERM", pattern="logs")
         assert "app.py" in result
         assert "debug.log" not in result
 
 
 def test_grep_includes_override_gitignore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep finds matches in force-included files even when gitignored."""
     config.index.include = [".rbtr/*"]
@@ -404,17 +413,17 @@ def test_grep_includes_override_gitignore(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_TARGET", pattern=".rbtr")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "SEARCH_TARGET", pattern=".rbtr")
         assert "SEARCH_TARGET" in result
         assert "plan.md" in result
 
 
 def test_grep_include_overrides_extend_exclude(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """Include beats extend_exclude for grep filesystem fallback."""
     config.index.include = ["data/important.lock"]
@@ -428,14 +437,14 @@ def test_grep_include_overrides_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "FIND_ME", pattern="data")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "FIND_ME", pattern="data")
         assert "important.lock" in result
         assert "other.lock" not in result
 
 
 def test_grep_excludes_nested_gitignored_dirs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep skips entire gitignored directories."""
     config.index.include = []
@@ -451,17 +460,17 @@ def test_grep_excludes_nested_gitignored_dirs(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "UNIQUE_NEEDLE", pattern="project")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "UNIQUE_NEEDLE", pattern="project")
         assert "app.py" in result
         assert ".mypy_cache" not in result
 
 
 def test_grep_single_file_blocked_by_gitignore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep on an exact gitignored file path returns no match.
 
@@ -479,14 +488,14 @@ def test_grep_single_file_blocked_by_gitignore(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = _FakeCtx(_state(repo))
+        ctx = tool_ctx(_state(repo), store)
         # Single file grep — the file is not in git, falls back to fs.
         # _grep_filesystem checks is_file() first for exact paths,
         # which doesn't apply filtering. This documents current behaviour.
-        result = grep(ctx, "NEEDLE", pattern="ignored.pyc")  # type: ignore[arg-type]
+        result = grep(ctx, "NEEDLE", pattern="ignored.pyc")
         # Currently this finds the file since single-file fallback
         # doesn't filter. We may want to change this in the future.
         assert "NEEDLE" in result
@@ -496,7 +505,7 @@ def test_grep_single_file_blocked_by_gitignore(
 
 
 def test_mypy_cache_excluded_from_list_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """The exact scenario that prompted this fix: .mypy_cache files
     should not appear in list_files."""
@@ -511,18 +520,18 @@ def test_mypy_cache_excluded_from_list_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="project")
         assert "main.py" in result
         assert ".mypy_cache" not in result
         assert "runs.data.json" not in result
 
 
 def test_mypy_cache_excluded_from_grep(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep should not search inside .mypy_cache."""
     config.index.include = []
@@ -536,11 +545,11 @@ def test_mypy_cache_excluded_from_grep(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SECRET_TOKEN_12345", pattern="project")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "SECRET_TOKEN_12345", pattern="project")
         assert "main.py" in result
         assert ".mypy_cache" not in result
         assert "data.json" not in result
@@ -550,7 +559,7 @@ def test_mypy_cache_excluded_from_grep(
 
 
 def test_default_config_rbtr_included_index_excluded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """With default config, .rbtr/notes files are accessible but .rbtr/index is not."""
     # The config_path fixture resets config; set defaults explicitly
@@ -565,18 +574,18 @@ def test_default_config_rbtr_included_index_excluded(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
+        ctx = tool_ctx(_state(repo), store)
 
         # Notes file should be readable
-        plan = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
+        plan = read_file(ctx, ".rbtr/notes/plan.md")
         assert "# Plan" in plan
 
         # index file should be blocked
-        index = read_file(ctx, ".rbtr/index")  # type: ignore[arg-type]
+        index = read_file(ctx, ".rbtr/index")
         assert "not found" in index.lower() or "cannot" in index.lower()
 
         # list_files should show notes but not index
-        listing = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
+        listing = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in listing
         # Only notes files should be listed, not the index
         lines = listing.splitlines()
@@ -585,7 +594,7 @@ def test_default_config_rbtr_included_index_excluded(
 
 
 def test_default_config_rbtr_listed_but_index_excluded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """list_files on .rbtr shows notes files, omits the index database."""
     config.index.include = [".rbtr/notes/*"]
@@ -602,8 +611,8 @@ def test_default_config_rbtr_listed_but_index_excluded(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in result
         assert "findings.md" in result
         # index dir and its contents should not appear
@@ -611,7 +620,7 @@ def test_default_config_rbtr_listed_but_index_excluded(
 
 
 def test_default_config_grep_rbtr_excludes_index(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """grep on .rbtr/ does not search inside .rbtr/index/."""
     config.index.include = [".rbtr/notes/*"]
@@ -627,8 +636,8 @@ def test_default_config_grep_rbtr_excludes_index(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "SEARCH_ME", pattern=".rbtr")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "SEARCH_ME", pattern=".rbtr")
         assert "plan.md" in result
         assert "data.db" not in result
 
@@ -651,6 +660,7 @@ def test_list_files_gitignore_various_patterns(
     pattern: str,
     ignored_file: str,
     visible_file: str,
+    store: SessionStore,
 ) -> None:
     """list_files respects various .gitignore pattern types."""
     config.index.include = []
@@ -670,11 +680,11 @@ def test_list_files_gitignore_various_patterns(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(f"{pattern}\n")
 
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="project")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="project")
         assert Path(visible_file).name in result
         assert Path(ignored_file).name not in result
 
@@ -683,7 +693,7 @@ def test_list_files_gitignore_various_patterns(
 
 
 def test_list_files_all_ignored_returns_no_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """When all filesystem files are ignored, returns no-files message."""
     config.index.include = []
@@ -697,13 +707,13 @@ def test_list_files_all_ignored_returns_no_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = list_files(ctx, pattern="scratch")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = list_files(ctx, pattern="scratch")
         assert "No files" in result
 
 
 def test_grep_all_ignored_returns_no_matches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """When all filesystem files are ignored, grep returns no-matches."""
     config.index.include = []
@@ -716,8 +726,8 @@ def test_grep_all_ignored_returns_no_matches(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = _FakeCtx(_state(repo))
-        result = grep(ctx, "NEEDLE", pattern="scratch")  # type: ignore[arg-type]
+        ctx = tool_ctx(_state(repo), store)
+        result = grep(ctx, "NEEDLE", pattern="scratch")
         assert "No matches" in result
 
 
@@ -764,7 +774,7 @@ def test_matches_globs_empty_patterns() -> None:
 
 
 def test_gitignored_rbtr_notes_accessible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_path: Path, store: SessionStore
 ) -> None:
     """When .rbtr/ is gitignored, notes files are still accessible
     via include = [".rbtr/notes/*"]."""
@@ -782,29 +792,29 @@ def test_gitignored_rbtr_notes_accessible(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        workdir = Path(repo.workdir)  # type: ignore[arg-type]
+        workdir = Path(repo.workdir)
         # .rbtr is in .gitignore — as it would be in a real project
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = _FakeCtx(_state(repo))
+        ctx = tool_ctx(_state(repo), store)
 
         # read_file: notes files readable
-        plan = read_file(ctx, ".rbtr/notes/plan.md")  # type: ignore[arg-type]
+        plan = read_file(ctx, ".rbtr/notes/plan.md")
         assert "# Plan" in plan
-        findings = read_file(ctx, ".rbtr/notes/findings.md")  # type: ignore[arg-type]
+        findings = read_file(ctx, ".rbtr/notes/findings.md")
         assert "Bug found" in findings
 
         # read_file: index blocked
-        idx = read_file(ctx, ".rbtr/index/rbtr.duckdb")  # type: ignore[arg-type]
+        idx = read_file(ctx, ".rbtr/index/rbtr.duckdb")
         assert "not found" in idx.lower() or "cannot" in idx.lower()
 
         # list_files: shows notes files, not index
-        listing = list_files(ctx, pattern=".rbtr")  # type: ignore[arg-type]
+        listing = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in listing
         assert "findings.md" in listing
         assert "duckdb" not in listing
 
         # grep: finds in notes files, not in index
-        result = grep(ctx, "Bug found", pattern=".rbtr")  # type: ignore[arg-type]
+        result = grep(ctx, "Bug found", pattern=".rbtr")
         assert "findings.md" in result
         assert "duckdb" not in result

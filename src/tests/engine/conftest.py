@@ -1,12 +1,4 @@
-"""Shared helpers and test data for engine tests.
-
-Provides:
-- `engine` fixture — default engine with auto-cleanup
-- `repo_engine` fixture — engine backed by a git repo in a temp dir
-- Event helpers (`drain`, `output_texts`)
-- Git repo helpers (`make_repo_with_file`, `wait_for_index`)
-- Realistic, reusable model instances for PRs and branches
-"""
+"""Shared fixtures for engine tests."""
 
 from __future__ import annotations
 
@@ -18,157 +10,106 @@ from pathlib import Path
 
 import pygit2
 import pytest
-from pydantic_ai.messages import (
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    ThinkingPart,
-    ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
-from pydantic_ai.usage import RequestUsage
 
 from rbtr.creds import OAuthCreds
 from rbtr.engine.core import Engine
 from rbtr.events import Event, IndexReady, Output
-from rbtr.llm.compact import _SummaryResult
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from tests.helpers import drain
 
-# Re-export top-level helpers so existing `from .conftest import …`
-# lines in this package keep working without change.
-from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
-
-# ── Shared test data ─────────────────────────────────────────────────
-#
-# Realistic, semantically distinct review targets so every test that
-# needs a PR or branch uses named constants instead of inline construction.
-
-PR_FIX_BUG = PRSummary(
-    number=1,
-    title="Fix bug",
-    author="alice",
-    base_branch="main",
-    head_branch="fix-bug",
-    updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-)
-
-PR_ADD_FEATURE = PRSummary(
-    number=42,
-    title="Add feature",
-    author="bob",
-    base_branch="main",
-    head_branch="add-feature",
-    updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-)
-
-PR_REFACTOR = PRSummary(
-    number=10,
-    title="Refactor",
-    author="alice",
-    base_branch="develop",
-    head_branch="refactor-x",
-    updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-)
-
-BRANCH_FEATURE_X = BranchSummary(
-    name="feature-x",
-    last_commit_sha="abc123",
-    last_commit_message="wip",
-    updated_at=datetime(2025, 1, 2, tzinfo=UTC),
-)
-
-TARGET_PR_42 = PRTarget(
-    number=42,
-    title="Add feature",
-    author="bob",
-    base_branch="main",
-    head_branch="add-feature",
-    base_commit="main",
-    head_commit="add-feature",
-    updated_at=datetime(2025, 6, 1, tzinfo=UTC),
-)
-
-TARGET_BRANCH = BranchTarget(
-    base_branch="main",
-    head_branch="feature-x",
-    base_commit="main",
-    head_commit="feature-x",
-    updated_at=datetime(2025, 1, 1, tzinfo=UTC),
-)
-
-# ── Shared credential data ───────────────────────────────────────────
-
-CLAUDE_OAUTH = OAuthCreds(
-    access_token="test-bearer-token",
-    refresh_token="ref",
-    expires_at=9999999999,
-)
-
-CHATGPT_OAUTH = OAuthCreds(
-    access_token="jwt-token",
-    refresh_token="ref",
-    expires_at=9999999999,
-    account_id="acct_123",
-)
+# ── Data fixtures ────────────────────────────────────────────────────
 
 
-# ── Message data builders ────────────────────────────────────────────
-
-_USAGE = RequestUsage(input_tokens=0, output_tokens=0)
-
-
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
-def _assistant(text: str) -> ModelResponse:
-    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
-
-
-def _tool_return(name: str, content: str, *, call_id: str | None = None) -> ModelRequest:
-    return ModelRequest(
-        parts=[ToolReturnPart(tool_name=name, content=content, tool_call_id=call_id)]
+@pytest.fixture
+def pr_fix_bug() -> PRSummary:
+    return PRSummary(
+        number=1,
+        title="Fix bug",
+        author="alice",
+        base_branch="main",
+        head_branch="fix-bug",
+        updated_at=datetime(2025, 1, 1, tzinfo=UTC),
     )
 
 
-def _tool_call(
-    name: str, args: dict[str, str] | None = None, *, call_id: str | None = None
-) -> ModelResponse:
-    return ModelResponse(
-        parts=[ToolCallPart(tool_name=name, args=args or {}, tool_call_id=call_id)],
-        usage=_USAGE,
-        model_name="test",
+@pytest.fixture
+def pr_add_feature() -> PRSummary:
+    return PRSummary(
+        number=42,
+        title="Add feature",
+        author="bob",
+        base_branch="main",
+        head_branch="add-feature",
+        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
     )
 
 
-def _thinking(text: str) -> ModelResponse:
-    return ModelResponse(parts=[ThinkingPart(content=text)], usage=_USAGE, model_name="test")
+@pytest.fixture
+def pr_refactor() -> PRSummary:
+    return PRSummary(
+        number=10,
+        title="Refactor",
+        author="alice",
+        base_branch="develop",
+        head_branch="refactor-x",
+        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
+    )
 
 
-def _turns(n: int) -> list[ModelRequest | ModelResponse]:
-    """Create *n* user→assistant turn pairs."""
-    msgs: list[ModelRequest | ModelResponse] = []
-    for i in range(n):
-        msgs.append(_user(f"question {i}"))
-        msgs.append(_assistant(f"answer {i}"))
-    return msgs
+@pytest.fixture
+def branch_feature_x() -> BranchSummary:
+    return BranchSummary(
+        name="feature-x",
+        last_commit_sha="abc123",
+        last_commit_message="wip",
+        updated_at=datetime(2025, 1, 2, tzinfo=UTC),
+    )
 
 
-def _seed(engine: Engine, messages: list[ModelRequest | ModelResponse], **kwargs: object) -> None:
-    """Seed messages into the engine's store."""
-    engine._sync_store_context()
-    engine.store.save_messages(engine.state.session_id, messages, **kwargs)  # type: ignore[arg-type]
+@pytest.fixture
+def target_pr_42() -> PRTarget:
+    return PRTarget(
+        number=42,
+        title="Add feature",
+        author="bob",
+        base_branch="main",
+        head_branch="add-feature",
+        base_commit="main",
+        head_commit="add-feature",
+        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
+    )
 
 
-# ── Compaction helpers ────────────────────────────────────────────────
+@pytest.fixture
+def target_branch() -> BranchTarget:
+    return BranchTarget(
+        base_branch="main",
+        head_branch="feature-x",
+        base_commit="main",
+        head_commit="feature-x",
+        updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
 
 
-def summary_result(text: str = "Summary.") -> _SummaryResult:
-    """Build a `_SummaryResult` with zero cost — for mocking `_stream_summary`."""
-    return _SummaryResult(text=text, input_tokens=0, output_tokens=0, cost=0.0)
+@pytest.fixture
+def claude_oauth() -> OAuthCreds:
+    return OAuthCreds(
+        access_token="test-bearer-token",
+        refresh_token="ref",
+        expires_at=9999999999,
+    )
+
+
+@pytest.fixture
+def chatgpt_oauth() -> OAuthCreds:
+    return OAuthCreds(
+        access_token="jwt-token",
+        refresh_token="ref",
+        expires_at=9999999999,
+        account_id="acct_123",
+    )
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────

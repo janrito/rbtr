@@ -406,28 +406,37 @@ def test_path_values_are_full_paths(tmp_path):
     assert results[0][0] == str(sub / "main.py")
 
 
-def test_path_tilde_expands_home():
+def test_path_tilde_expands_home(tmp_path, monkeypatch):
     """~ expands to the home directory but display values keep ~."""
+    (tmp_path / "Documents").mkdir()
+    (tmp_path / "Downloads").mkdir()
+    (tmp_path / "file.txt").write_text("x")
+    monkeypatch.setattr("os.path.expanduser", lambda p: p.replace("~", str(tmp_path), 1))
     results = complete_path("~/")
     assert len(results) > 0
     assert all(r[0].startswith("~/") for r in results)
-    # At least one common home directory entry should be present
     names = [r[0] for r in results]
-    assert any(n.startswith("~/D") for n in names)  # Desktop, Documents, Downloads
+    assert any(n.startswith("~/D") for n in names)
 
 
-def test_path_tilde_partial():
+def test_path_tilde_partial(tmp_path, monkeypatch):
     """~/D completes to home directory entries starting with D."""
+    (tmp_path / "Documents").mkdir()
+    (tmp_path / "Downloads").mkdir()
+    (tmp_path / "other").mkdir()
+    monkeypatch.setattr("os.path.expanduser", lambda p: p.replace("~", str(tmp_path), 1))
     results = complete_path("~/D")
     assert len(results) > 0
     assert all(r[0].startswith("~/D") for r in results)
 
 
-def test_path_absolute_root():
-    """Absolute paths like /Use complete against the root filesystem."""
-    results = complete_path("/Use")
+def test_path_absolute_root(tmp_path):
+    """Absolute paths complete against the filesystem."""
+    (tmp_path / "Users").mkdir()
+    prefix = str(tmp_path / "Use")
+    results = complete_path(prefix)
     assert len(results) == 1
-    assert results[0][0] == "/Users/"
+    assert results[0][0] == str(tmp_path / "Users") + "/"
 
 
 # ── complete_executables — PATH search ───────────────────────────────

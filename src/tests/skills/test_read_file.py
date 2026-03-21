@@ -9,9 +9,10 @@ import pytest
 
 from rbtr.llm.tools.file import read_file
 from rbtr.models import BranchTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
 from rbtr.state import EngineState
-from tests.llm.conftest import FakeCtx
+from tests.llm.ctx import tool_ctx
 
 
 @pytest.fixture
@@ -59,27 +60,33 @@ def state_with_skills(tmp_path: Path, skill_dir: Path) -> EngineState:
     return state
 
 
-def test_read_absolute_skill_file(state_with_skills: EngineState, skill_dir: Path) -> None:
-    ctx = FakeCtx(state_with_skills)
-    result = read_file(ctx, str(skill_dir / "SKILL.md"))  # type: ignore[arg-type]
+def test_read_absolute_skill_file(
+    state_with_skills: EngineState, skill_dir: Path, store: SessionStore
+) -> None:
+    ctx = tool_ctx(state_with_skills, store)
+    result = read_file(ctx, str(skill_dir / "SKILL.md"))
     assert "My Skill" in result
 
 
-def test_read_absolute_skill_helper(state_with_skills: EngineState, skill_dir: Path) -> None:
-    ctx = FakeCtx(state_with_skills)
-    result = read_file(ctx, str(skill_dir / "helper.sh"))  # type: ignore[arg-type]
+def test_read_absolute_skill_helper(
+    state_with_skills: EngineState, skill_dir: Path, store: SessionStore
+) -> None:
+    ctx = tool_ctx(state_with_skills, store)
+    result = read_file(ctx, str(skill_dir / "helper.sh"))
     assert "echo hello" in result
 
 
-def test_read_absolute_outside_skill_dir(state_with_skills: EngineState, tmp_path: Path) -> None:
-    ctx = FakeCtx(state_with_skills)
+def test_read_absolute_outside_skill_dir(
+    state_with_skills: EngineState, tmp_path: Path, store: SessionStore
+) -> None:
+    ctx = tool_ctx(state_with_skills, store)
     outside = tmp_path / "outside.txt"
     outside.write_text("secret")
-    result = read_file(ctx, str(outside))  # type: ignore[arg-type]
+    result = read_file(ctx, str(outside))
     assert "not within a skill directory" in result
 
 
-def test_read_absolute_no_registry(tmp_path: Path) -> None:
+def test_read_absolute_no_registry(tmp_path: Path, store: SessionStore) -> None:
     """Absolute paths are rejected when no skill registry exists."""
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -97,6 +104,6 @@ def test_read_absolute_no_registry(tmp_path: Path) -> None:
         head_commit=str(c),
         updated_at=0,
     )
-    ctx = FakeCtx(state)
-    result = read_file(ctx, "/some/absolute/path.md")  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = read_file(ctx, "/some/absolute/path.md")
     assert "not within a skill directory" in result

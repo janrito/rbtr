@@ -45,7 +45,7 @@ from rbtr.llm.stream import _do_stream
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .conftest import assert_messages_match, assert_ordering, assert_tool_pairing
+from .assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 

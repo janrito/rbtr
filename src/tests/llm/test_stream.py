@@ -46,8 +46,7 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind
-
-from .conftest import drain
+from tests.helpers import drain
 
 # ── Shared data ──────────────────────────────────────────────────────
 

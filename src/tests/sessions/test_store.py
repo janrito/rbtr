@@ -2404,7 +2404,7 @@ def test_lifecycle_conversation_roundtrip() -> None:
     """Full multi-turn conversation with signed thinking + tool calls
     round-trips losslessly: fidelity, tool pairing, and alternation.
     """
-    from .conftest import assert_messages_match, assert_ordering, assert_tool_pairing
+    from .assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
     with SessionStore() as store:
         store.save_messages("s1", LIFECYCLE_CONVERSATION)

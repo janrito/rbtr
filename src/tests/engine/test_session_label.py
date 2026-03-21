@@ -7,8 +7,9 @@ import pytest
 
 from rbtr.engine.core import Engine
 from rbtr.engine.setup import _make_session_label
+from tests.helpers import drain
 
-from .conftest import drain, make_repo_with_file
+from .conftest import make_repo_with_file
 
 
 def test_label_with_branch(tmp_path: pytest.TempPathFactory) -> None:

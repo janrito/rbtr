@@ -4,52 +4,50 @@ from pathlib import Path
 
 import pytest
 
+from rbtr.engine.draft_cmd import _resolve_event
+from rbtr.git.objects import DiffLineRanges
+from rbtr.github.client import format_comment_body, parse_comment_body
 from rbtr.github.draft import (
     _comment_hash,
     comment_sync_status,
     delete_draft,
+    is_tombstone,
     load_draft,
     match_comments,
+    partition_comments,
     save_draft,
     stamp_synced,
 )
-from rbtr.models import InlineComment, ReviewDraft
+from rbtr.models import InlineComment, ReviewDraft, ReviewEvent
 
-# ── Test data ────────────────────────────────────────────────────────
-
-COMMENT_A = InlineComment(
-    path="src/handler.py",
-    line=42,
-    body="This will throw on an empty list.",
-)
-
-COMMENT_B = InlineComment(
-    path="src/handler.py",
-    line=87,
-    body="Consider extracting this.",
-    suggestion="def _parse(raw):\n    return Item(raw)",
-)
-
-COMMENT_C = InlineComment(
-    path="src/utils.py",
-    line=10,
-    body="Unused import.",
-)
-
-DRAFT = ReviewDraft(
-    summary="Overall good, a few issues.",
-    comments=[COMMENT_A, COMMENT_B],
-)
+# ── Fixtures ─────────────────────────────────────────────────────────
 
 
-def _h(c: InlineComment) -> str:
-    """Shortcut for _comment_hash in tests."""
-    return _comment_hash(c)
+@pytest.fixture
+def comment_a() -> InlineComment:
+    return InlineComment(
+        path="src/handler.py",
+        line=42,
+        body="This will throw on an empty list.",
+    )
 
 
-def _synced(c: InlineComment) -> InlineComment:
-    """Return a copy with comment_hash set (as if after a push)."""
-    return c.model_copy(update={"comment_hash": _h(c)})
+@pytest.fixture
+def comment_b() -> InlineComment:
+    return InlineComment(
+        path="src/handler.py",
+        line=87,
+        body="Consider extracting this.",
+        suggestion="def _parse(raw):\n    return Item(raw)",
+    )
+
+
+@pytest.fixture
+def draft(comment_a: InlineComment, comment_b: InlineComment) -> ReviewDraft:
+    return ReviewDraft(
+        summary="Overall good, a few issues.",
+        comments=[comment_a, comment_b],
+    )
 
 
 @pytest.fixture
@@ -63,51 +61,63 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 # ── Roundtrip ────────────────────────────────────────────────────────
 
 
-def test_save_and_load_roundtrip(workspace: Path) -> None:
-    save_draft(99, DRAFT)
+def test_save_and_load_roundtrip(
+    workspace: Path, comment_a: InlineComment, comment_b: InlineComment, draft: ReviewDraft
+) -> None:
+    save_draft(99, draft)
     loaded = load_draft(99)
     assert loaded is not None
-    assert loaded.summary == DRAFT.summary
-    assert len(loaded.comments) == len(DRAFT.comments)
-    assert loaded.comments[0].body == COMMENT_A.body
-    assert loaded.comments[1].suggestion == COMMENT_B.suggestion
+    assert loaded.summary == draft.summary
+    assert len(loaded.comments) == len(draft.comments)
+    assert loaded.comments[0].body == comment_a.body
+    assert loaded.comments[1].suggestion == comment_b.suggestion
 
 
-def test_load_nonexistent_returns_none(workspace: Path) -> None:
+def test_load_nonexistent_returns_none(workspace: Path, draft: ReviewDraft) -> None:
     assert load_draft(999) is None
 
 
-def test_save_creates_parent_dirs(workspace: Path) -> None:
-    save_draft(1, DRAFT)
+def test_save_creates_parent_dirs(
+    workspace: Path, comment_b: InlineComment, draft: ReviewDraft
+) -> None:
+    save_draft(1, draft)
     assert (workspace / "1.yaml").exists()
 
 
-def test_yaml_is_human_readable(workspace: Path) -> None:
-    save_draft(42, DRAFT)
+def test_yaml_is_human_readable(
+    workspace: Path, comment_b: InlineComment, draft: ReviewDraft
+) -> None:
+    save_draft(42, draft)
     content = (workspace / "42.yaml").read_text()
     assert "src/handler.py" in content
     assert "- path:" in content
     assert "This will throw on an empty list." in content
 
 
-def test_roundtrip_preserves_suggestion(workspace: Path) -> None:
-    save_draft(1, DRAFT)
+def test_roundtrip_preserves_suggestion(
+    workspace: Path, comment_a: InlineComment, comment_b: InlineComment, draft: ReviewDraft
+) -> None:
+    save_draft(1, draft)
     loaded = load_draft(1)
     assert loaded is not None
-    assert loaded.comments[1].suggestion == COMMENT_B.suggestion
+    assert loaded.comments[1].suggestion == comment_b.suggestion
 
 
-def test_save_overwrites_existing(workspace: Path) -> None:
-    save_draft(1, DRAFT)
-    updated = DRAFT.model_copy(update={"summary": "Revised."})
+def test_save_overwrites_existing(
+    workspace: Path, comment_a: InlineComment, draft: ReviewDraft
+) -> None:
+    save_draft(1, draft)
+    updated = draft.model_copy(update={"summary": "Revised."})
     save_draft(1, updated)
     loaded = load_draft(1)
     assert loaded is not None
     assert loaded.summary == "Revised."
 
 
-def test_roundtrip_preserves_github_id(workspace: Path) -> None:
-    c = COMMENT_A.model_copy(update={"github_id": 12345})
+def test_roundtrip_preserves_github_id(
+    workspace: Path, comment_a: InlineComment, draft: ReviewDraft
+) -> None:
+    c = comment_a.model_copy(update={"github_id": 12345})
     draft = ReviewDraft(comments=[c])
     save_draft(1, draft)
     loaded = load_draft(1)
@@ -115,7 +125,7 @@ def test_roundtrip_preserves_github_id(workspace: Path) -> None:
     assert loaded.comments[0].github_id == 12345
 
 
-def test_roundtrip_preserves_sync_fields(workspace: Path) -> None:
+def test_roundtrip_preserves_sync_fields(workspace: Path, draft: ReviewDraft) -> None:
     c = InlineComment(path="a.py", line=5, body="Fix.", github_id=100, comment_hash="abc123")
     draft = ReviewDraft(
         summary="Old summary.",
@@ -134,8 +144,8 @@ def test_roundtrip_preserves_sync_fields(workspace: Path) -> None:
 # ── Delete ───────────────────────────────────────────────────────────
 
 
-def test_delete_existing(workspace: Path) -> None:
-    save_draft(1, DRAFT)
+def test_delete_existing(workspace: Path, draft: ReviewDraft) -> None:
+    save_draft(1, draft)
     assert delete_draft(1) is True
     assert load_draft(1) is None
 
@@ -149,7 +159,8 @@ def test_delete_nonexistent(workspace: Path) -> None:
 
 def test_match_by_github_id() -> None:
     """Tier 1: local and remote share the same github_id."""
-    c = _synced(InlineComment(path="a.py", line=10, body="Local.", github_id=100))
+    c = InlineComment(path="a.py", line=10, body="Local.", github_id=100)
+    c = c.model_copy(update={"comment_hash": _comment_hash(c)})
     local = [c]
     remote = [InlineComment(path="a.py", line=10, body="Local.", github_id=100)]
 
@@ -161,7 +172,8 @@ def test_match_by_github_id() -> None:
 
 def test_match_detects_remote_edit() -> None:
     """Remote body changed, local clean → accept remote edit."""
-    original = _synced(InlineComment(path="a.py", line=10, body="Original.", github_id=100))
+    original = InlineComment(path="a.py", line=10, body="Original.", github_id=100)
+    original = original.model_copy(update={"comment_hash": _comment_hash(original)})
     local = [original]
     remote = [InlineComment(path="a.py", line=10, body="Edited on GitHub.", github_id=100)]
 
@@ -173,7 +185,7 @@ def test_match_detects_remote_edit() -> None:
 def test_match_keeps_local_edit() -> None:
     """Local body changed, remote unchanged → keep local."""
     original = InlineComment(path="a.py", line=10, body="Original.", github_id=100)
-    synced_h = _h(original)
+    synced_h = _comment_hash(original)
     local = [
         InlineComment(
             path="a.py",
@@ -193,7 +205,7 @@ def test_match_keeps_local_edit() -> None:
 def test_match_conflict_keeps_local() -> None:
     """Both sides changed → conflict, keep local, warn."""
     original = InlineComment(path="a.py", line=10, body="Original.", github_id=100)
-    synced_h = _h(original)
+    synced_h = _comment_hash(original)
     local = [
         InlineComment(
             path="a.py",
@@ -214,7 +226,8 @@ def test_match_conflict_keeps_local() -> None:
 
 def test_match_remote_deletion() -> None:
     """Local has github_id with comment_hash, but remote doesn't → deleted."""
-    c = _synced(InlineComment(path="a.py", line=10, body="Deleted.", github_id=100))
+    c = InlineComment(path="a.py", line=10, body="Deleted.", github_id=100)
+    c = c.model_copy(update={"comment_hash": _comment_hash(c)})
     local = [c]
     remote: list[InlineComment] = []
 
@@ -297,7 +310,8 @@ def test_new_local_kept() -> None:
 
 def test_mixed_match_and_import() -> None:
     """Mix of matched, locally-new, and remotely-new comments."""
-    matched = _synced(InlineComment(path="a.py", line=10, body="Matched.", github_id=100))
+    matched = InlineComment(path="a.py", line=10, body="Matched.", github_id=100)
+    matched = matched.model_copy(update={"comment_hash": _comment_hash(matched)})
     local = [
         matched,
         InlineComment(path="b.py", line=20, body="Locally new."),
@@ -316,7 +330,7 @@ def test_mixed_match_and_import() -> None:
 # ── stamp_synced ─────────────────────────────────────────────────────
 
 
-def test_stamp_synced() -> None:
+def test_stamp_synced(draft: ReviewDraft) -> None:
     comments = [
         InlineComment(path="a.py", line=10, body="Fix.", github_id=100),
         InlineComment(path="b.py", line=20, body="Nit.", suggestion="better()", github_id=200),
@@ -328,7 +342,7 @@ def test_stamp_synced() -> None:
     assert stamped.summary_hash != ""
     # Every comment gets a comment_hash, even those without github_id.
     for c in stamped.comments:
-        assert c.comment_hash == _h(c)
+        assert c.comment_hash == _comment_hash(c)
 
 
 # ── comment_sync_status ──────────────────────────────────────────────
@@ -340,14 +354,15 @@ def test_status_new() -> None:
 
 
 def test_status_clean() -> None:
-    c = _synced(InlineComment(path="a.py", line=1, body="Clean.", github_id=100))
+    c = InlineComment(path="a.py", line=1, body="Clean.", github_id=100)
+    c = c.model_copy(update={"comment_hash": _comment_hash(c)})
     assert comment_sync_status(c) == "✓"
 
 
 def test_status_dirty_body() -> None:
     original = InlineComment(path="a.py", line=1, body="Original.", github_id=100)
     edited = InlineComment(
-        path="a.py", line=1, body="Edited.", github_id=100, comment_hash=_h(original)
+        path="a.py", line=1, body="Edited.", github_id=100, comment_hash=_comment_hash(original)
     )
     assert comment_sync_status(edited) == "✎"
 
@@ -355,7 +370,7 @@ def test_status_dirty_body() -> None:
 def test_status_dirty_line() -> None:
     original = InlineComment(path="a.py", line=1, body="Same.", github_id=100)
     moved = InlineComment(
-        path="a.py", line=99, body="Same.", github_id=100, comment_hash=_h(original)
+        path="a.py", line=99, body="Same.", github_id=100, comment_hash=_comment_hash(original)
     )
     assert comment_sync_status(moved) == "✎"
 
@@ -365,16 +380,205 @@ def test_status_dirty_line() -> None:
 
 def test_hash_deterministic() -> None:
     c = InlineComment(path="a.py", line=1, body="Fix.")
-    assert _h(c) == _h(c)
+    assert _comment_hash(c) == _comment_hash(c)
 
 
-def test_hash_differs_on_body() -> None:
+def test_hash_differs_on_body(comment_b: InlineComment) -> None:
     a = InlineComment(path="a.py", line=1, body="Fix.")
     b = InlineComment(path="a.py", line=1, body="Different.")
-    assert _h(a) != _h(b)
+    assert _comment_hash(a) != _comment_hash(b)
 
 
-def test_hash_differs_on_line() -> None:
+def test_hash_differs_on_line(comment_b: InlineComment) -> None:
     a = InlineComment(path="a.py", line=1, body="Fix.")
     b = InlineComment(path="a.py", line=2, body="Fix.")
-    assert _h(a) != _h(b)
+    assert _comment_hash(a) != _comment_hash(b)
+
+
+def test_hash_excludes_side_and_commit_id(comment_b: InlineComment) -> None:
+    base = InlineComment(path="a.py", line=1, body="Fix.")
+    with_side = base.model_copy(update={"side": "LEFT", "commit_id": "abc123"})
+    assert _comment_hash(base) == _comment_hash(with_side)
+
+
+# ── parse_comment_body / format_comment_body ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_body", "expected_suggestion"),
+    [
+        ("Fix this bug.", "Fix this bug.", ""),
+        (
+            "Use this instead.\n\n```suggestion\nbetter()\n```",
+            "Use this instead.",
+            "better()",
+        ),
+        (
+            "Fix.\n\n```suggestion\nline1\nline2\n```",
+            "Fix.",
+            "line1\nline2",
+        ),
+        (
+            "Fix.\n\n```suggestion\norphan code",
+            "Fix.",
+            "orphan code",
+        ),
+    ],
+    ids=["plain", "single-line", "multiline", "unclosed-fence"],
+)
+def test_parse_comment_body(raw: str, expected_body: str, expected_suggestion: str) -> None:
+    body, suggestion = parse_comment_body(raw)
+    assert body == expected_body
+    assert suggestion == expected_suggestion
+
+
+@pytest.mark.parametrize(
+    ("body", "suggestion", "expected_contains"),
+    [
+        ("Fix this.", "", "Fix this."),
+        ("Use this.", "better()", "```suggestion\nbetter()\n```"),
+    ],
+    ids=["plain", "with-suggestion"],
+)
+def test_format_comment_body(body: str, suggestion: str, expected_contains: str) -> None:
+    c = InlineComment(path="a.py", line=1, body=body, suggestion=suggestion)
+    result = format_comment_body(c)
+    assert expected_contains in result
+
+
+def test_format_comment_body_empty_suggestion() -> None:
+    c = InlineComment(path="a.py", line=1, body="Comment.", suggestion="")
+    assert format_comment_body(c) == "Comment."
+
+
+def test_format_and_parse_roundtrip_plain(comment_b: InlineComment) -> None:
+    c = InlineComment(path="a.py", line=1, body="Fix this.")
+    body, suggestion = parse_comment_body(format_comment_body(c))
+    assert body == "Fix this."
+    assert suggestion == ""
+
+
+def test_format_and_parse_roundtrip_with_suggestion(comment_b: InlineComment) -> None:
+    c = InlineComment(path="a.py", line=1, body="Use this.", suggestion="better()")
+    body, suggestion = parse_comment_body(format_comment_body(c))
+    assert body == "Use this."
+    assert suggestion == "better()"
+
+
+# ── partition_comments ───────────────────────────────────────────────
+
+
+def test_partition_empty_ranges_reject_line_comments() -> None:
+    comments = [InlineComment(path="a.py", line=10, body="x")]
+    valid, invalid = partition_comments(comments, {}, {})
+    assert valid == []
+    assert invalid == comments
+
+
+def test_partition_valid_comment_passes() -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+    comments = [InlineComment(path="a.py", line=10, body="x")]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 1
+    assert len(invalid) == 0
+
+
+@pytest.mark.parametrize(
+    ("path", "line", "reason"),
+    [
+        ("a.py", 99, "wrong line"),
+        ("b.py", 5, "wrong path"),
+    ],
+    ids=["wrong-line", "wrong-path"],
+)
+def test_partition_invalid_comment(path: str, line: int, reason: str) -> None:
+    ranges: DiffLineRanges = {"a.py": {5, 10, 15}}
+    comments = [InlineComment(path=path, line=line, body="x")]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert len(valid) == 0
+    assert len(invalid) == 1
+
+
+def test_partition_mixed_valid_and_invalid() -> None:
+    ranges: DiffLineRanges = {"a.py": {10}, "b.py": {20}}
+    comments = [
+        InlineComment(path="a.py", line=10, body="ok"),
+        InlineComment(path="a.py", line=99, body="stale"),
+        InlineComment(path="b.py", line=20, body="ok2"),
+        InlineComment(path="c.py", line=1, body="gone"),
+    ]
+    valid, invalid = partition_comments(comments, ranges, {})
+    assert {c.body for c in valid} == {"ok", "ok2"}
+    assert {c.body for c in invalid} == {"stale", "gone"}
+
+
+def test_partition_left_side_uses_left_ranges() -> None:
+    comments = [InlineComment(path="a.py", line=7, side="LEFT", body="old")]
+    valid, invalid = partition_comments(comments, {"a.py": {10}}, {"a.py": {7}})
+    assert len(valid) == 1
+    assert len(invalid) == 0
+
+
+def test_partition_file_level_always_valid() -> None:
+    comments = [InlineComment(path="a.py", line=0, body="file-level")]
+    valid, invalid = partition_comments(comments, {}, {})
+    assert len(valid) == 1
+    assert len(invalid) == 0
+
+
+# ── is_tombstone ─────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("body", "github_id", "expected"),
+    [
+        ("", 100, True),
+        ("Fix.", 100, False),
+        ("", None, False),
+    ],
+    ids=["tombstone", "has-body", "no-github-id"],
+)
+def test_is_tombstone(body: str, github_id: int | None, expected: bool) -> None:
+    c = InlineComment(path="a.py", line=1, body=body, github_id=github_id)
+    assert is_tombstone(c) is expected
+
+
+def test_tombstone_sync_status() -> None:
+    c = InlineComment(path="a.py", line=1, body="", github_id=100, comment_hash="abc")
+    assert comment_sync_status(c) == "✗"
+
+
+def test_match_tombstone_beats_remote() -> None:
+    """Tombstoned local comment wins over remote version."""
+    local = [
+        InlineComment(path="a.py", line=1, body="", github_id=50, comment_hash="abc"),
+    ]
+    remote = [
+        InlineComment(path="a.py", line=1, body="Remote content.", github_id=50),
+    ]
+    result = match_comments(local, remote)
+    assert len(result.comments) == 1
+    assert result.comments[0].body == ""
+    assert result.comments[0].github_id == 50
+
+
+# ── _resolve_event ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("arg", "expected"),
+    [
+        ("", ReviewEvent.COMMENT),
+        ("comment", ReviewEvent.COMMENT),
+        ("approve", ReviewEvent.APPROVE),
+        ("request_changes", ReviewEvent.REQUEST_CHANGES),
+        ("changes", ReviewEvent.REQUEST_CHANGES),
+    ],
+)
+def test_resolve_event(arg: str, expected: ReviewEvent) -> None:
+    assert _resolve_event(arg) == expected
+
+
+@pytest.mark.parametrize("arg", ["merge", "yolo"])
+def test_resolve_event_invalid(arg: str) -> None:
+    assert _resolve_event(arg) is None

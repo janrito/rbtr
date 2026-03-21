@@ -2,55 +2,58 @@
 
 from __future__ import annotations
 
+from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
+from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.index import changed_symbols, find_references, list_symbols, read_symbol, search
 from rbtr.models import BranchTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .conftest import FakeCtx
+from .ctx import tool_ctx
 
 # ── search_symbols ───────────────────────────────────────────────────
 
 
-def test_search_symbols_finds_exact_name(index_ctx: FakeCtx) -> None:
-    result = search(index_ctx, "handle_request")  # type: ignore[arg-type]
+def test_search_symbols_finds_exact_name(index_ctx: RunContext[AgentDeps]) -> None:
+    result = search(index_ctx, "handle_request")
     assert "handle_request" in result
     assert "src/api/handler.py:10" in result
 
 
-def test_search_symbols_finds_partial_name(index_ctx: FakeCtx) -> None:
-    result = search(index_ctx, "calculate")  # type: ignore[arg-type]
+def test_search_symbols_finds_partial_name(index_ctx: RunContext[AgentDeps]) -> None:
+    result = search(index_ctx, "calculate")
     # Should find both math functions.
     assert "calculate_mean" in result
     assert "calculate_standard_deviation" in result
 
 
-def test_search_symbols_no_match(index_ctx: FakeCtx) -> None:
-    result = search(index_ctx, "zzz_nonexistent_zzz")  # type: ignore[arg-type]
+def test_search_symbols_no_match(index_ctx: RunContext[AgentDeps]) -> None:
+    result = search(index_ctx, "zzz_nonexistent_zzz")
     assert "No results" in result
 
 
 # ── search_codebase (BM25) ───────────────────────────────────────────
 
 
-def test_search_codebase_ranks_by_relevance(index_ctx: FakeCtx) -> None:
+def test_search_codebase_ranks_by_relevance(index_ctx: RunContext[AgentDeps]) -> None:
     """Searching 'variance' should rank math_stddev highest."""
-    result = search(index_ctx, "variance")  # type: ignore[arg-type]
+    result = search(index_ctx, "variance")
     sections = result.strip().split("\n\n")
     # First result should be the stddev function (contains "variance").
     assert "calculate_standard_deviation" in sections[0]
 
 
-def test_search_codebase_finds_http_content(index_ctx: FakeCtx) -> None:
-    result = search(index_ctx, "Response status")  # type: ignore[arg-type]
+def test_search_codebase_finds_http_content(index_ctx: RunContext[AgentDeps]) -> None:
+    result = search(index_ctx, "Response status")
     assert "handle_request" in result
 
 
-def test_search_codebase_no_match(index_ctx: FakeCtx) -> None:
-    result = search(index_ctx, "zzz_gibberish_xyz_999")  # type: ignore[arg-type]
+def test_search_codebase_no_match(index_ctx: RunContext[AgentDeps]) -> None:
+    result = search(index_ctx, "zzz_gibberish_xyz_999")
     assert "No results" in result
 
 
@@ -58,11 +61,11 @@ def test_search_codebase_no_match(index_ctx: FakeCtx) -> None:
 
 
 def test_search_similar_ranks_math_first(
-    index_ctx_embedded: FakeCtx, mocker: MockerFixture
+    index_ctx_embedded: RunContext[AgentDeps], mocker: MockerFixture
 ) -> None:
     """Query near the math axis ranks math chunks above HTTP."""
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
-    result = search(index_ctx_embedded, "statistics calculations")  # type: ignore[arg-type]
+    result = search(index_ctx_embedded, "statistics calculations")
 
     sections = result.strip().split("\n\n")
     # First results should be math-related (mean, stddev, StatisticsCalculator).
@@ -73,31 +76,33 @@ def test_search_similar_ranks_math_first(
 
 
 def test_search_similar_ranks_http_first(
-    index_ctx_embedded: FakeCtx, mocker: MockerFixture
+    index_ctx_embedded: RunContext[AgentDeps], mocker: MockerFixture
 ) -> None:
     """Query near the HTTP axis ranks HTTP chunks above math."""
     mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
-    result = search(index_ctx_embedded, "web request handling")  # type: ignore[arg-type]
+    result = search(index_ctx_embedded, "web request handling")
 
     sections = result.strip().split("\n\n")
     top_two = " ".join(sections[:2])
     assert "handle_request" in top_two or "process_data" in top_two
 
 
-def test_search_similar_no_embeddings(index_ctx: FakeCtx, mocker: MockerFixture) -> None:
+def test_search_similar_no_embeddings(
+    index_ctx: RunContext[AgentDeps], mocker: MockerFixture
+) -> None:
     """Unified search still returns results when embeddings are unavailable."""
     mocker.patch("rbtr.index.embeddings.embed_text", side_effect=RuntimeError("no model"))
     # Without embeddings, search falls back to BM25 + name match.
-    result = search(index_ctx, "handle_request")  # type: ignore[arg-type]
+    result = search(index_ctx, "handle_request")
     assert "handle_request" in result
 
 
 # ── find_references ──────────────────────────────────────────────────
 
 
-def test_find_references_all_edges(index_ctx: FakeCtx) -> None:
+def test_find_references_all_edges(index_ctx: RunContext[AgentDeps]) -> None:
     """handle_request has import, test, and doc edges — all returned."""
-    result = find_references(index_ctx, "handle_request")  # type: ignore[arg-type]
+    result = find_references(index_ctx, "handle_request")
     assert "[imports]" in result
     assert "process_data" in result
     assert "[tests]" in result
@@ -106,9 +111,9 @@ def test_find_references_all_edges(index_ctx: FakeCtx) -> None:
     assert "API Reference" in result
 
 
-def test_find_references_filter_imports(index_ctx: FakeCtx) -> None:
+def test_find_references_filter_imports(index_ctx: RunContext[AgentDeps]) -> None:
     """kind=IMPORTS returns only import edges."""
-    result = find_references(index_ctx, "handle_request", kind=EdgeKind.IMPORTS)  # type: ignore[arg-type]
+    result = find_references(index_ctx, "handle_request", kind=EdgeKind.IMPORTS)
     assert "process_data" in result
     assert "[imports]" in result
     # Should NOT include test or doc edges.
@@ -116,53 +121,53 @@ def test_find_references_filter_imports(index_ctx: FakeCtx) -> None:
     assert "[documents]" not in result
 
 
-def test_find_references_filter_tests(index_ctx: FakeCtx) -> None:
+def test_find_references_filter_tests(index_ctx: RunContext[AgentDeps]) -> None:
     """kind=TESTS returns only test edges."""
-    result = find_references(index_ctx, "handle_request", kind=EdgeKind.TESTS)  # type: ignore[arg-type]
+    result = find_references(index_ctx, "handle_request", kind=EdgeKind.TESTS)
     assert "test_handle_request" in result
     assert "[tests]" in result
     assert "[imports]" not in result
 
 
-def test_find_references_filter_documents(index_ctx: FakeCtx) -> None:
+def test_find_references_filter_documents(index_ctx: RunContext[AgentDeps]) -> None:
     """kind=DOCUMENTS returns only doc edges."""
-    result = find_references(index_ctx, "handle_request", kind=EdgeKind.DOCUMENTS)  # type: ignore[arg-type]
+    result = find_references(index_ctx, "handle_request", kind=EdgeKind.DOCUMENTS)
     assert "API Reference" in result
     assert "[documents]" in result
     assert "[tests]" not in result
 
 
-def test_find_references_imports_mean(index_ctx: FakeCtx) -> None:
+def test_find_references_imports_mean(index_ctx: RunContext[AgentDeps]) -> None:
     """calculate_standard_deviation imports calculate_mean."""
-    result = find_references(index_ctx, "calculate_mean", kind=EdgeKind.IMPORTS)  # type: ignore[arg-type]
+    result = find_references(index_ctx, "calculate_mean", kind=EdgeKind.IMPORTS)
     assert "calculate_standard_deviation" in result
 
 
-def test_find_references_no_match(index_ctx: FakeCtx) -> None:
+def test_find_references_no_match(index_ctx: RunContext[AgentDeps]) -> None:
     """Symbol with no inbound edges returns clear message."""
-    result = find_references(index_ctx, "calculate_standard_deviation")  # type: ignore[arg-type]
+    result = find_references(index_ctx, "calculate_standard_deviation")
     assert "No references" in result
 
 
-def test_find_references_no_match_with_kind(index_ctx: FakeCtx) -> None:
+def test_find_references_no_match_with_kind(index_ctx: RunContext[AgentDeps]) -> None:
     """StatisticsCalculator has no test edges."""
-    result = find_references(index_ctx, "StatisticsCalculator", kind=EdgeKind.TESTS)  # type: ignore[arg-type]
+    result = find_references(index_ctx, "StatisticsCalculator", kind=EdgeKind.TESTS)
     assert "No 'tests' references" in result
 
 
-def test_find_references_unknown_symbol(index_ctx: FakeCtx) -> None:
-    result = find_references(index_ctx, "zzz_nonexistent")  # type: ignore[arg-type]
+def test_find_references_unknown_symbol(index_ctx: RunContext[AgentDeps]) -> None:
+    result = find_references(index_ctx, "zzz_nonexistent")
     assert "not found" in result
 
 
 # ── Index ref tests ──────────────────────────────────────────────────
 
 
-def test_find_references_ref_base_vs_head(two_ref_ctx: FakeCtx) -> None:
+def test_find_references_ref_base_vs_head(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """Base has api_client importing parse_request; head has auth_middleware."""
 
-    base_result = find_references(two_ref_ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="base")  # type: ignore[arg-type]
-    head_result = find_references(two_ref_ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="head")  # type: ignore[arg-type]
+    base_result = find_references(two_ref_ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="base")
+    head_result = find_references(two_ref_ctx, "parse_request", kind=EdgeKind.IMPORTS, ref="head")
 
     # Base: api_client imports parse_request.
     assert "api_client" in base_result
@@ -185,21 +190,23 @@ def test_find_references_ref_base_vs_head(two_ref_ctx: FakeCtx) -> None:
 # Unchanged:    format_response, test_parse_request
 
 
-def test_ref_scoping_search_symbols_base_excludes_head_only(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_search_symbols_base_excludes_head_only(
+    two_ref_ctx: RunContext[AgentDeps],
+) -> None:
     """search_symbols at base must not find head-only symbols."""
     # search_symbols always uses head — verify it finds head-only symbols.
-    result = search(two_ref_ctx, "validate_schema")  # type: ignore[arg-type]
+    result = search(two_ref_ctx, "validate_schema")
     assert "validate_schema" in result
     # Now verify via read_symbol that validate_schema is invisible at base.
-    base_result = read_symbol(two_ref_ctx, "validate_schema", ref="base")  # type: ignore[arg-type]
+    base_result = read_symbol(two_ref_ctx, "validate_schema", ref="base")
     assert "No symbol" in base_result
 
 
-def test_ref_scoping_list_symbols_removed_file(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_list_symbols_removed_file(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """client.py exists at base but not head — list_symbols reflects this."""
 
-    base_result = list_symbols(two_ref_ctx, "src/api/client.py", ref="base")  # type: ignore[arg-type]
-    head_result = list_symbols(two_ref_ctx, "src/api/client.py", ref="head")  # type: ignore[arg-type]
+    base_result = list_symbols(two_ref_ctx, "src/api/client.py", ref="base")
+    head_result = list_symbols(two_ref_ctx, "src/api/client.py", ref="head")
 
     # Base: client.py has api_client.
     assert "api_client" in base_result
@@ -209,11 +216,11 @@ def test_ref_scoping_list_symbols_removed_file(two_ref_ctx: FakeCtx) -> None:
     assert "No symbols" in head_result
 
 
-def test_ref_scoping_list_symbols_added_file(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_list_symbols_added_file(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """middleware.py exists at head but not base — list_symbols reflects this."""
 
-    base_result = list_symbols(two_ref_ctx, "src/api/middleware.py", ref="base")  # type: ignore[arg-type]
-    head_result = list_symbols(two_ref_ctx, "src/api/middleware.py", ref="head")  # type: ignore[arg-type]
+    base_result = list_symbols(two_ref_ctx, "src/api/middleware.py", ref="base")
+    head_result = list_symbols(two_ref_ctx, "src/api/middleware.py", ref="head")
 
     # Base: middleware.py doesn't exist.
     assert "No symbols" in base_result
@@ -222,11 +229,11 @@ def test_ref_scoping_list_symbols_added_file(two_ref_ctx: FakeCtx) -> None:
     assert "auth_middleware" in head_result
 
 
-def test_ref_scoping_read_symbol_content_matches_ref(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_read_symbol_content_matches_ref(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """Modified symbol returns different content per ref — not a mix."""
 
-    base_result = read_symbol(two_ref_ctx, "parse_request", ref="base")  # type: ignore[arg-type]
-    head_result = read_symbol(two_ref_ctx, "parse_request", ref="head")  # type: ignore[arg-type]
+    base_result = read_symbol(two_ref_ctx, "parse_request", ref="base")
+    head_result = read_symbol(two_ref_ctx, "parse_request", ref="head")
 
     # Base content: simple two-line function.
     assert "return json.loads(raw)" in base_result
@@ -244,13 +251,13 @@ def test_ref_scoping_read_symbol_content_matches_ref(two_ref_ctx: FakeCtx) -> No
     assert "return json.loads(raw)\n" not in head_result
 
 
-def test_ref_scoping_find_references_edges_isolated(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_find_references_edges_isolated(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """Edges are scoped per commit — base and head edges don't mix."""
 
     # All references at base.
-    base_all = find_references(two_ref_ctx, "parse_request", ref="base")  # type: ignore[arg-type]
+    base_all = find_references(two_ref_ctx, "parse_request", ref="base")
     # All references at head.
-    head_all = find_references(two_ref_ctx, "parse_request", ref="head")  # type: ignore[arg-type]
+    head_all = find_references(two_ref_ctx, "parse_request", ref="head")
 
     # Base edges: test_parse_request (TESTS) + api_client (IMPORTS).
     assert "test_parse_request" in base_all
@@ -263,11 +270,11 @@ def test_ref_scoping_find_references_edges_isolated(two_ref_ctx: FakeCtx) -> Non
     assert "api_client" not in head_all
 
 
-def test_ref_scoping_unchanged_symbol_same_at_both_refs(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_unchanged_symbol_same_at_both_refs(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """format_response is unchanged — same content at both refs."""
 
-    base_result = read_symbol(two_ref_ctx, "format_response", ref="base")  # type: ignore[arg-type]
-    head_result = read_symbol(two_ref_ctx, "format_response", ref="head")  # type: ignore[arg-type]
+    base_result = read_symbol(two_ref_ctx, "format_response", ref="base")
+    head_result = read_symbol(two_ref_ctx, "format_response", ref="head")
 
     # Both should contain the same implementation.
     assert "json.dumps(data)" in base_result
@@ -277,30 +284,32 @@ def test_ref_scoping_unchanged_symbol_same_at_both_refs(two_ref_ctx: FakeCtx) ->
     assert "13-15" in head_result
 
 
-def test_ref_scoping_search_symbols_only_returns_head(two_ref_ctx: FakeCtx) -> None:
+def test_ref_scoping_search_symbols_only_returns_head(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """search_symbols always queries head — finds head-only, misses base-only."""
 
     # validate_schema only exists at head — search_symbols must find it.
-    result = search(two_ref_ctx, "validate_schema")  # type: ignore[arg-type]
+    result = search(two_ref_ctx, "validate_schema")
     assert "validate_schema" in result
 
     # api_client only exists at base — search must NOT find it.
-    result = search(two_ref_ctx, "api_client")  # type: ignore[arg-type]
+    result = search(two_ref_ctx, "api_client")
     assert "No results" in result
 
 
-def test_ref_scoping_search_codebase_only_returns_head(two_ref_ctx_fts: FakeCtx) -> None:
+def test_ref_scoping_search_codebase_only_returns_head(
+    two_ref_ctx_fts: RunContext[AgentDeps],
+) -> None:
     """search_codebase (BM25) always queries head — misses base-only content."""
     # "missing key" only appears in validate_schema (head-only).
-    result = search(two_ref_ctx_fts, "missing key")  # type: ignore[arg-type]
+    result = search(two_ref_ctx_fts, "missing key")
     assert "validate_schema" in result
 
     # "send_to" only appears in api_client (base-only) — must not be found.
-    result = search(two_ref_ctx_fts, "send_to")  # type: ignore[arg-type]
+    result = search(two_ref_ctx_fts, "send_to")
     assert "No results" in result
 
 
-def test_ref_scoping_find_references_edge_without_visible_source() -> None:
+def test_ref_scoping_find_references_edge_without_visible_source(store: SessionStore) -> None:
     """Edge source chunk not in current ref's snapshots is silently skipped."""
     store = IndexStore()
     state = EngineState()
@@ -345,8 +354,8 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
         "feature",
     )
 
-    ctx = FakeCtx(state)
-    result = find_references(ctx, "target_fn", ref="head")  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = find_references(ctx, "target_fn", ref="head")
 
     # orphan_caller should NOT appear — its chunk isn't in head's snapshots.
     # get_chunks(resolved) won't return it, so all_chunks won't contain it.
@@ -368,7 +377,7 @@ def test_ref_scoping_find_references_edge_without_visible_source() -> None:
 # only current-review data.
 
 
-def test_stale_review_data_does_not_leak() -> None:
+def test_stale_review_data_does_not_leak(store: SessionStore) -> None:
     """Chunks and edges from an older, unrelated review are invisible."""
     store = IndexStore()
     state = EngineState()
@@ -446,33 +455,33 @@ def handle_request(req):
         ]
     )
 
-    ctx = FakeCtx(state)
+    ctx = tool_ctx(state, store)
 
     # search (always head) must not find stale symbols.
-    sym_result = search(ctx, "generate_invoice")  # type: ignore[arg-type]
+    sym_result = search(ctx, "generate_invoice")
     assert "No results" in sym_result
 
-    sym_result = search(ctx, "monthly_report")  # type: ignore[arg-type]
+    sym_result = search(ctx, "monthly_report")
     assert "No results" in sym_result
 
-    sym_result = search(ctx, "handle_request")  # type: ignore[arg-type]
+    sym_result = search(ctx, "handle_request")
     assert "handle_request" in sym_result
 
     # read_symbol at both refs must not find stale symbols.
     for ref in ("base", "head"):
-        rs = read_symbol(ctx, "generate_invoice", ref=ref)  # type: ignore[arg-type]
+        rs = read_symbol(ctx, "generate_invoice", ref=ref)
         assert "No symbol" in rs
 
     # list_symbols for stale file paths must return nothing.
-    ls = list_symbols(ctx, "src/billing/invoice.py", ref="head")  # type: ignore[arg-type]
+    ls = list_symbols(ctx, "src/billing/invoice.py", ref="head")
     assert "No symbols" in ls
 
     # find_references must not find stale edges.
-    fr = find_references(ctx, "generate_invoice", ref="head")  # type: ignore[arg-type]
+    fr = find_references(ctx, "generate_invoice", ref="head")
     assert "not found" in fr
 
     # Current data is accessible.
-    rs = read_symbol(ctx, "handle_request", ref="head")  # type: ignore[arg-type]
+    rs = read_symbol(ctx, "handle_request", ref="head")
     assert "Response(200" in rs
 
     store.close()
@@ -481,30 +490,30 @@ def handle_request(req):
 # ── read_symbol ──────────────────────────────────────────────────────
 
 
-def test_read_symbol_returns_full_source(index_ctx: FakeCtx) -> None:
-    result = read_symbol(index_ctx, "handle_request")  # type: ignore[arg-type]
+def test_read_symbol_returns_full_source(index_ctx: RunContext[AgentDeps]) -> None:
+    result = read_symbol(index_ctx, "handle_request")
     assert "async def handle_request" in result
     assert "Response(status=200" in result
     assert "src/api/handler.py:10-14" in result
 
 
-def test_read_symbol_prefers_code_over_tests(index_ctx: FakeCtx) -> None:
+def test_read_symbol_prefers_code_over_tests(index_ctx: RunContext[AgentDeps]) -> None:
     """When both a function and its test match, return the function."""
-    result = read_symbol(index_ctx, "handle_request")  # type: ignore[arg-type]
+    result = read_symbol(index_ctx, "handle_request")
     # Should be the function, not the test.
     assert "src/api/handler.py" in result
 
 
-def test_read_symbol_not_found(index_ctx: FakeCtx) -> None:
-    result = read_symbol(index_ctx, "zzz_nonexistent")  # type: ignore[arg-type]
+def test_read_symbol_not_found(index_ctx: RunContext[AgentDeps]) -> None:
+    result = read_symbol(index_ctx, "zzz_nonexistent")
     assert "No symbol" in result
 
 
-def test_read_symbol_ref_base_vs_head(two_ref_ctx: FakeCtx) -> None:
+def test_read_symbol_ref_base_vs_head(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """Base parse_request has simple body; head has schema validation."""
 
-    base_result = read_symbol(two_ref_ctx, "parse_request", ref="base")  # type: ignore[arg-type]
-    head_result = read_symbol(two_ref_ctx, "parse_request", ref="head")  # type: ignore[arg-type]
+    base_result = read_symbol(two_ref_ctx, "parse_request", ref="base")
+    head_result = read_symbol(two_ref_ctx, "parse_request", ref="head")
 
     # Base: simple json.loads.
     assert "json.loads(raw)" in base_result
@@ -517,11 +526,11 @@ def test_read_symbol_ref_base_vs_head(two_ref_ctx: FakeCtx) -> None:
     assert "src/api/handler.py:5-10" in head_result
 
 
-def test_read_symbol_ref_base_not_found(two_ref_ctx: FakeCtx) -> None:
+def test_read_symbol_ref_base_not_found(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """validate_schema only exists in head → base returns not-found."""
 
-    base_result = read_symbol(two_ref_ctx, "validate_schema", ref="base")  # type: ignore[arg-type]
-    head_result = read_symbol(two_ref_ctx, "validate_schema", ref="head")  # type: ignore[arg-type]
+    base_result = read_symbol(two_ref_ctx, "validate_schema", ref="base")
+    head_result = read_symbol(two_ref_ctx, "validate_schema", ref="head")
 
     assert "No symbol" in base_result
     assert "validate_schema" in head_result
@@ -531,9 +540,9 @@ def test_read_symbol_ref_base_not_found(two_ref_ctx: FakeCtx) -> None:
 # ── list_symbols ─────────────────────────────────────────────────────
 
 
-def test_list_symbols_shows_symbols(index_ctx: FakeCtx) -> None:
+def test_list_symbols_shows_symbols(index_ctx: RunContext[AgentDeps]) -> None:
     """Indexed file shows symbols with line numbers."""
-    result = list_symbols(index_ctx, "src/api/handler.py")  # type: ignore[arg-type]
+    result = list_symbols(index_ctx, "src/api/handler.py")
     assert "2 symbols" in result
     assert "handle_request" in result
     assert "process_data" in result
@@ -541,32 +550,32 @@ def test_list_symbols_shows_symbols(index_ctx: FakeCtx) -> None:
     assert "20" in result  # line number
 
 
-def test_list_symbols_math_file(index_ctx: FakeCtx) -> None:
+def test_list_symbols_math_file(index_ctx: RunContext[AgentDeps]) -> None:
     """Math file shows all three symbols (2 functions + 1 class)."""
-    result = list_symbols(index_ctx, "src/stats/math_utils.py")  # type: ignore[arg-type]
+    result = list_symbols(index_ctx, "src/stats/math_utils.py")
     assert "3 symbols" in result
     assert "calculate_mean" in result
     assert "calculate_standard_deviation" in result
     assert "StatisticsCalculator" in result
 
 
-def test_list_symbols_no_symbols(index_ctx: FakeCtx) -> None:
+def test_list_symbols_no_symbols(index_ctx: RunContext[AgentDeps]) -> None:
     """File with no indexed code symbols returns clear message."""
-    result = list_symbols(index_ctx, "config/settings.toml")  # type: ignore[arg-type]
+    result = list_symbols(index_ctx, "config/settings.toml")
     assert "No symbols" in result
 
 
-def test_list_symbols_path_traversal_rejected(index_ctx: FakeCtx) -> None:
+def test_list_symbols_path_traversal_rejected(index_ctx: RunContext[AgentDeps]) -> None:
     """Paths with '..' are rejected."""
-    result = list_symbols(index_ctx, "../etc/passwd")  # type: ignore[arg-type]
+    result = list_symbols(index_ctx, "../etc/passwd")
     assert "'..' " in result or "contains '..'" in result
 
 
-def test_list_symbols_ref_base_vs_head(two_ref_ctx: FakeCtx) -> None:
+def test_list_symbols_ref_base_vs_head(two_ref_ctx: RunContext[AgentDeps]) -> None:
     """Base handler.py has 2 symbols; head has 3 (validate_schema added)."""
 
-    base_result = list_symbols(two_ref_ctx, "src/api/handler.py", ref="base")  # type: ignore[arg-type]
-    head_result = list_symbols(two_ref_ctx, "src/api/handler.py", ref="head")  # type: ignore[arg-type]
+    base_result = list_symbols(two_ref_ctx, "src/api/handler.py", ref="base")
+    head_result = list_symbols(two_ref_ctx, "src/api/handler.py", ref="head")
 
     # Base: parse_request + format_response.
     assert "2 symbols" in base_result
@@ -686,29 +695,29 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
     return state, store
 
 
-def test_changed_symbols_detects_added_symbol() -> None:
+def test_changed_symbols_detects_added_symbol(store: SessionStore) -> None:
     state, store = _make_diff_state()
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Added" in result
     assert "new_endpoint" in result
     store.close()
 
 
-def test_changed_symbols_detects_modified_symbol() -> None:
+def test_changed_symbols_detects_modified_symbol(store: SessionStore) -> None:
     state, store = _make_diff_state()
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Modified" in result
     assert "handle_request" in result
     store.close()
 
 
-def test_changed_symbols_reports_missing_tests() -> None:
+def test_changed_symbols_reports_missing_tests(store: SessionStore) -> None:
     """new_endpoint has no test edge → reported as missing."""
     state, store = _make_diff_state()
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Missing tests" in result
     assert "new_endpoint" in result
     # test_handle_request is a test function — should NOT be flagged.
@@ -717,7 +726,7 @@ def test_changed_symbols_reports_missing_tests() -> None:
     store.close()
 
 
-def test_changed_symbols_no_changes() -> None:
+def test_changed_symbols_no_changes(store: SessionStore) -> None:
     """Same blob at base and head → no structural differences."""
     store = IndexStore()
     state = EngineState()
@@ -748,8 +757,8 @@ def test_changed_symbols_no_changes() -> None:
         ]
     )
 
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "No structural differences" in result
     store.close()
 
@@ -757,32 +766,34 @@ def test_changed_symbols_no_changes() -> None:
 # ── search_similar edge cases ────────────────────────────────────────
 
 
-def test_search_similar_embedding_error(index_ctx: FakeCtx, mocker: MockerFixture) -> None:
+def test_search_similar_embedding_error(
+    index_ctx: RunContext[AgentDeps], mocker: MockerFixture, store: SessionStore
+) -> None:
     """Embedding model failure gracefully falls back to BM25 + name."""
     mocker.patch(
         "rbtr.index.store.IndexStore.search_by_text",
         side_effect=RuntimeError("model not loaded"),
     )
     # Unified search falls back to BM25 + name match without crashing.
-    result = search(index_ctx, "handle_request")  # type: ignore[arg-type]
+    result = search(index_ctx, "handle_request")
     assert "handle_request" in result
 
 
 # ── changed_symbols edge cases ─────────────────────────────────────────
 
 
-def test_changed_symbols_no_review_target() -> None:
+def test_changed_symbols_no_review_target(store: SessionStore) -> None:
     """changed_symbols without a target returns message."""
     store = IndexStore()
     state = EngineState()
     state.index = store
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "No diff target" in result
     store.close()
 
 
-def test_changed_symbols_detects_removed_symbol() -> None:
+def test_changed_symbols_detects_removed_symbol(store: SessionStore) -> None:
     """A symbol present in base but not head is reported as removed."""
     store = IndexStore()
     state = EngineState()
@@ -832,14 +843,14 @@ def test_changed_symbols_detects_removed_symbol() -> None:
     store.insert_chunks([head_a])
     store.insert_snapshot("feature", "src/a.py", "b2")
 
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Removed" in result
     assert "func_b" in result
     store.close()
 
 
-def test_changed_symbols_detects_stale_docs() -> None:
+def test_changed_symbols_detects_stale_docs(store: SessionStore) -> None:
     """Doc that references a modified symbol is flagged as stale."""
     store = IndexStore()
     state = EngineState()
@@ -898,14 +909,14 @@ def test_changed_symbols_detects_stale_docs() -> None:
         "feature",
     )
 
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Stale docs" in result
     assert "API" in result
     store.close()
 
 
-def test_changed_symbols_detects_broken_edges() -> None:
+def test_changed_symbols_detects_broken_edges(store: SessionStore) -> None:
     """Import edge pointing at a removed symbol is flagged as broken."""
     store = IndexStore()
     state = EngineState()
@@ -964,7 +975,7 @@ def test_changed_symbols_detects_broken_edges() -> None:
         "feature",
     )
 
-    ctx = FakeCtx(state)
-    result = changed_symbols(ctx)  # type: ignore[arg-type]
+    ctx = tool_ctx(state, store)
+    result = changed_symbols(ctx)
     assert "Broken edges" in result
     store.close()

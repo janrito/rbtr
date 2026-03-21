@@ -6,21 +6,14 @@ from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from rbtr.creds import creds
+from rbtr.creds import OAuthCreds, creds
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import LinkOutput
 from rbtr.exceptions import PortBusyError, RbtrError
 from rbtr.oauth import PendingLogin
 from rbtr.providers import BuiltinProvider
-
-from .conftest import (
-    CHATGPT_OAUTH,
-    CLAUDE_OAUTH,
-    drain,
-    has_event_type,
-    output_texts,
-)
+from tests.helpers import drain, has_event_type, output_texts
 
 # ── /connect openai ───────────────────────────────────────────────────
 
@@ -74,7 +67,7 @@ def test_connect_openai_replaces_existing_key(creds_path: Path, engine: Engine) 
 # ── /connect dispatch ────────────────────────────────────────────────
 
 
-def test_connect_no_args_shows_usage(engine: Engine) -> None:
+def test_connect_no_args_shows_usage(engine: Engine, claude_oauth: OAuthCreds) -> None:
     engine.run_task(TaskType.COMMAND, "/connect")
     texts = output_texts(drain(engine.events))
 
@@ -82,7 +75,7 @@ def test_connect_no_args_shows_usage(engine: Engine) -> None:
     assert any("github" in t for t in texts)
 
 
-def test_connect_unknown_service_warns(engine: Engine) -> None:
+def test_connect_unknown_service_warns(engine: Engine, claude_oauth: OAuthCreds) -> None:
     engine.run_task(TaskType.COMMAND, "/connect bogus")
     texts = output_texts(drain(engine.events))
 
@@ -95,11 +88,13 @@ _CLAUDE_PENDING = PendingLogin(code_verifier="test-verifier")
 _CLAUDE_AUTH_URL = "https://claude.ai/oauth/authorize?code=test"
 
 
-def test_connect_claude_auto_flow(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
+def test_connect_claude_auto_flow(
+    creds_path: Path, mocker: MockerFixture, engine: Engine, claude_oauth: OAuthCreds
+) -> None:
     """Automatic localhost callback flow → sets connected."""
     mocker.patch(
         "rbtr.engine.connect_cmd.claude_provider.authenticate",
-        return_value=CLAUDE_OAUTH,
+        return_value=claude_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
@@ -107,13 +102,13 @@ def test_connect_claude_auto_flow(creds_path: Path, mocker: MockerFixture, engin
     drained_events = drain(engine.events)
 
     assert BuiltinProvider.CLAUDE in engine.state.connected_providers
-    assert creds.claude.access_token == CLAUDE_OAUTH.access_token
+    assert creds.claude.access_token == claude_oauth.access_token
     texts = output_texts(drained_events)
     assert any("Connected to Anthropic" in t for t in texts)
 
 
 def test_connect_claude_port_busy_falls_back_to_manual(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path, mocker: MockerFixture, engine: Engine, claude_oauth: OAuthCreds
 ) -> None:
     """Port busy → falls back to manual URL paste flow."""
     mocker.patch(
@@ -135,14 +130,14 @@ def test_connect_claude_port_busy_falls_back_to_manual(
 
 
 def test_connect_claude_manual_phase2_completes(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path, mocker: MockerFixture, engine: Engine, claude_oauth: OAuthCreds
 ) -> None:
     """Manual fallback phase 2: paste URL → complete login."""
     engine.state.pending_logins[BuiltinProvider.CLAUDE] = _CLAUDE_PENDING
 
     mocker.patch(
         "rbtr.engine.connect_cmd.claude_provider.complete_login",
-        return_value=CLAUDE_OAUTH,
+        return_value=claude_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
@@ -151,18 +146,22 @@ def test_connect_claude_manual_phase2_completes(
     )
 
     assert BuiltinProvider.CLAUDE in engine.state.connected_providers
-    assert creds.claude.access_token == CLAUDE_OAUTH.access_token
+    assert creds.claude.access_token == claude_oauth.access_token
 
 
 def test_connect_claude_already_connected_restarts_login(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path,
+    mocker: MockerFixture,
+    engine: Engine,
+    chatgpt_oauth: OAuthCreds,
+    claude_oauth: OAuthCreds,
 ) -> None:
     """/connect claude when already authenticated restarts the login flow."""
-    creds.update(claude=CLAUDE_OAUTH)
+    creds.update(claude=claude_oauth)
 
     mocker.patch(
         "rbtr.engine.connect_cmd.claude_provider.authenticate",
-        return_value=CLAUDE_OAUTH,
+        return_value=claude_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
@@ -180,12 +179,14 @@ _CHATGPT_PENDING = PendingLogin(code_verifier="test-verifier", state="test-state
 _CHATGPT_AUTH_URL = "https://auth.openai.com/authorize?code=test"
 
 
-def test_connect_chatgpt_auto_flow(creds_path: Path, mocker: MockerFixture, engine: Engine) -> None:
+def test_connect_chatgpt_auto_flow(
+    creds_path: Path, mocker: MockerFixture, engine: Engine, chatgpt_oauth: OAuthCreds
+) -> None:
     """Automatic localhost callback flow → sets connected."""
 
     mocker.patch(
         "rbtr.engine.connect_cmd.codex_provider.authenticate",
-        return_value=CHATGPT_OAUTH,
+        return_value=chatgpt_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
@@ -193,7 +194,7 @@ def test_connect_chatgpt_auto_flow(creds_path: Path, mocker: MockerFixture, engi
     drained_events = drain(engine.events)
 
     assert BuiltinProvider.CHATGPT in engine.state.connected_providers
-    assert creds.chatgpt.access_token == CHATGPT_OAUTH.access_token
+    assert creds.chatgpt.access_token == chatgpt_oauth.access_token
     texts = output_texts(drained_events)
     assert any("Connected to ChatGPT" in t for t in texts)
 
@@ -239,7 +240,7 @@ def test_connect_chatgpt_non_port_error_warns(
 
 
 def test_connect_chatgpt_generic_error_warns(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path, mocker: MockerFixture, engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """Generic exception warns without fallback."""
 
@@ -256,14 +257,14 @@ def test_connect_chatgpt_generic_error_warns(
 
 
 def test_connect_chatgpt_phase2_completes_login(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path, mocker: MockerFixture, engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """Phase 2: user pastes redirect URL → completes login."""
     engine.state.pending_logins[BuiltinProvider.CHATGPT] = _CHATGPT_PENDING
 
     mocker.patch(
         "rbtr.engine.connect_cmd.codex_provider.complete_login",
-        return_value=CHATGPT_OAUTH,
+        return_value=chatgpt_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 
@@ -286,7 +287,7 @@ def test_connect_chatgpt_phase2_without_pending_warns(engine: Engine) -> None:
 
 
 def test_connect_chatgpt_phase2_failure_clears_pending(
-    mocker: MockerFixture, engine: Engine
+    mocker: MockerFixture, engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """Phase 2 failure warns and clears pending state."""
     engine.state.pending_logins[BuiltinProvider.CHATGPT] = _CHATGPT_PENDING
@@ -304,14 +305,14 @@ def test_connect_chatgpt_phase2_failure_clears_pending(
 
 
 def test_connect_chatgpt_already_connected_restarts_login(
-    creds_path: Path, mocker: MockerFixture, engine: Engine
+    creds_path: Path, mocker: MockerFixture, engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """/connect chatgpt when already authenticated restarts the login flow."""
-    creds.update(chatgpt=CHATGPT_OAUTH)
+    creds.update(chatgpt=chatgpt_oauth)
 
     mocker.patch(
         "rbtr.engine.connect_cmd.codex_provider.authenticate",
-        return_value=CHATGPT_OAUTH,
+        return_value=chatgpt_oauth,
     )
     mocker.patch("rbtr.engine.connect_cmd.get_models")
 

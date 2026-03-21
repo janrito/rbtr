@@ -24,8 +24,7 @@ from rbtr.sessions.store import SessionStore
 from rbtr.shell_exec import ShellResult
 from rbtr.state import EngineState
 from rbtr.tui.input import InputState, MarkerKind, PasteRegion
-
-from .conftest import drain
+from tests.helpers import drain
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -329,12 +328,12 @@ def test_expanded_message_round_trips() -> None:
     state.paste_regions.append(_context_region("[/review → PR #42]", "Selected PR #42."))
     text = state.expand_markers(state.text)
 
-    store = SessionStore()
-    sid = "test-session"
-    store.set_context(sid)
-    msg = ModelRequest(parts=[UserPromptPart(content=text)])
-    store.save_messages(sid, [msg])
-    loaded = store.load_messages(sid)
+    with SessionStore() as store:
+        sid = "test-session"
+        store.set_context(sid)
+        msg = ModelRequest(parts=[UserPromptPart(content=text)])
+        store.save_messages(sid, [msg])
+        loaded = store.load_messages(sid)
 
-    assert len(loaded) == 1
-    assert loaded[0].parts[0].content == text  # type: ignore[union-attr]  # UserPromptPart.content
+        assert len(loaded) == 1
+        assert loaded[0].parts[0].content == text  # type: ignore[union-attr]  # UserPromptPart.content

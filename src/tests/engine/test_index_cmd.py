@@ -13,8 +13,9 @@ from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import IndexCleared, IndexReady, TableOutput
 from rbtr.models import BranchTarget
+from tests.helpers import drain, output_texts
 
-from .conftest import drain, output_texts, wait_for_index
+from .conftest import wait_for_index
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

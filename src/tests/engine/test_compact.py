@@ -33,9 +33,7 @@ from rbtr.llm.history import (
     split_history,
 )
 from rbtr.providers import BuiltinProvider
-from tests.engine.conftest import summary_result
-
-from .conftest import (
+from tests.engine.builders import (
     _USAGE,
     _assistant,
     _seed,
@@ -44,10 +42,9 @@ from .conftest import (
     _tool_return,
     _turns,
     _user,
-    drain,
-    has_event_type,
-    output_texts,
+    summary_result,
 )
+from tests.helpers import drain, has_event_type, output_texts
 
 # ── Test data ────────────────────────────────────────────────────────
 
@@ -1045,7 +1042,7 @@ def _patch_for_mid_turn(engine: Engine, mocker: object) -> object:
     )
 
     def _inflating_update(eng: Engine, run_usage: object, response: object) -> None:
-        _real_update(eng, run_usage, response)  # type: ignore[arg-type]
+        _real_update(eng, run_usage, response)  # type: ignore[arg-type]  # Engine duck-types LLMContext here
         eng.state.usage.context_window = 50
         eng.state.usage.context_window_known = True
 

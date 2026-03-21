@@ -17,19 +17,11 @@ from rbtr.engine.core import Engine
 from rbtr.events import CompactionFinished
 from rbtr.llm.compact import compact_history
 from rbtr.llm.context import LLMContext
+from rbtr.models import PRTarget
 from rbtr.providers import BuiltinProvider
 from rbtr.sessions.kinds import GLOBAL_SCOPE
-
-from .conftest import (
-    TARGET_PR_42,
-    _assistant,
-    _seed,
-    _turns,
-    _user,
-    drain,
-    output_texts,
-    summary_result,
-)
+from tests.engine.builders import _assistant, _seed, _turns, _user, summary_result
+from tests.helpers import drain, output_texts
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -210,6 +202,7 @@ def test_compaction_extraction_failure_non_fatal(
 def test_draft_post_triggers_extraction(
     mem_engine: Engine,
     mocker: object,
+    target_pr_42: PRTarget,
 ) -> None:
     """/draft post calls extraction after posting."""
     mock_extract = mocker.patch(  # type: ignore[union-attr]
@@ -224,7 +217,7 @@ def test_draft_post_triggers_extraction(
     )
     _seed(mem_engine, [_user("review this"), _assistant("LGTM")])
 
-    mem_engine.state.review_target = TARGET_PR_42
+    mem_engine.state.review_target = target_pr_42
     mem_engine._handle_command("/draft post")
     mock_extract.assert_called_once()
 

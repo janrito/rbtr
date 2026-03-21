@@ -24,8 +24,8 @@ from pydantic_ai.models.test import TestModel
 
 from rbtr.engine.core import Engine
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
-
-from .conftest import drain, has_event_type, output_texts, summary_result
+from tests.engine.builders import summary_result
+from tests.helpers import drain, has_event_type, output_texts
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture

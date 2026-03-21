@@ -6,6 +6,9 @@ Tests the `save_overhead` method on `SessionStore` and the
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from unittest.mock import MagicMock
+
 import pytest
 
 from rbtr.sessions.kinds import FragmentKind
@@ -23,10 +26,10 @@ SESSION_B = "session-b"
 
 
 @pytest.fixture
-def store() -> SessionStore:
-    s = SessionStore(":memory:")
-    s.set_context(session_id=SESSION_A)
-    return s
+def store() -> Generator[SessionStore]:
+    with SessionStore(":memory:") as s:
+        s.set_context(session_id=SESSION_A)
+        yield s
 
 
 # ── save_overhead persists fragments ─────────────────────────────────
@@ -352,16 +355,13 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
     state = EngineState()
     state.session_id = SESSION_A
 
-    class _FakeCtx:
-        def __init__(self) -> None:
-            self.store = store
-            self.state = state
-
-    ctx = _FakeCtx()
+    ctx = MagicMock()
+    ctx.store = store
+    ctx.state = state
 
     # Main extraction overhead.
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]
+        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
         FactExtractionOverhead(
             source=FactExtractionSource.COMPACTION,
             added=1,
@@ -376,7 +376,7 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
 
     # Clarification overhead.
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]
+        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
         FactExtractionOverhead(
             source=FactExtractionSource.COMPACTION,
             model_name="test-model",
@@ -401,15 +401,12 @@ def test_no_clarification_single_fragment(store: SessionStore) -> None:
     state = EngineState()
     state.session_id = SESSION_A
 
-    class _FakeCtx:
-        def __init__(self) -> None:
-            self.store = store
-            self.state = state
-
-    ctx = _FakeCtx()
+    ctx = MagicMock()
+    ctx.store = store
+    ctx.state = state
 
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]
+        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
         FactExtractionOverhead(
             source=FactExtractionSource.COMMAND,
             added=2,

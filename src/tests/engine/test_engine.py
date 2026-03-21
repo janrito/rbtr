@@ -38,25 +38,16 @@ from rbtr.events import (
     TextDelta,
 )
 from rbtr.exceptions import RbtrError, TaskCancelled
-from rbtr.models import BranchTarget, PRSummary, PRTarget, SnapshotTarget
+from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget, SnapshotTarget
 from rbtr.providers import BuiltinProvider
 from rbtr.shell_exec import truncate_output
 from rbtr.state import EngineState
-
-from .conftest import (
-    BRANCH_FEATURE_X,
-    PR_ADD_FEATURE,
-    PR_FIX_BUG,
-    PR_REFACTOR,
-    drain,
-    has_event_type,
-    output_texts,
-)
+from tests.helpers import drain, has_event_type, output_texts
 
 # ── /help ────────────────────────────────────────────────────────────
 
 
-def test_help_lists_all_commands(engine: Engine) -> None:
+def test_help_lists_all_commands(engine: Engine, pr_fix_bug: PRSummary) -> None:
     engine.run_task(TaskType.COMMAND, "/help")
     drained_events = drain(engine.events)
 
@@ -69,7 +60,9 @@ def test_help_lists_all_commands(engine: Engine) -> None:
     assert len(commands_mentioned) >= 3
 
 
-def test_unknown_command_warns(engine: Engine) -> None:
+def test_unknown_command_warns(
+    engine: Engine, branch_feature_x: BranchSummary, pr_fix_bug: PRSummary
+) -> None:
     engine.run_task(TaskType.COMMAND, "/nonexistent")
     drained_events = drain(engine.events)
 
@@ -81,13 +74,15 @@ def test_unknown_command_warns(engine: Engine) -> None:
 # ── /review (list mode) ─────────────────────────────────────────────
 
 
-def test_list_with_github_prs(mocker: MockerFixture, engine: Engine) -> None:
+def test_list_with_github_prs(
+    mocker: MockerFixture, engine: Engine, branch_feature_x: BranchSummary, pr_fix_bug: PRSummary
+) -> None:
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[pr_fix_bug])
     mocker.patch(
-        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[branch_feature_x]
     )
     engine.run_task(TaskType.COMMAND, "/review")
 
@@ -116,7 +111,9 @@ def test_list_without_auth_falls_back_to_local(repo_engine: Engine) -> None:
     assert tables[0].title == "Local Branches"
 
 
-def test_list_no_prs_no_branches(mocker: MockerFixture, engine: Engine) -> None:
+def test_list_no_prs_no_branches(
+    mocker: MockerFixture, engine: Engine, branch_feature_x: BranchSummary, pr_fix_bug: PRSummary
+) -> None:
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
@@ -132,14 +129,16 @@ def test_list_no_prs_no_branches(mocker: MockerFixture, engine: Engine) -> None:
 # ── /review completion cache ──────────────────────────────────────────
 
 
-def test_list_caches_review_targets_github(mocker: MockerFixture, engine: Engine) -> None:
+def test_list_caches_review_targets_github(
+    mocker: MockerFixture, engine: Engine, branch_feature_x: BranchSummary, pr_fix_bug: PRSummary
+) -> None:
     """After listing, engine.state.cached_review_targets has PRs and branches."""
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[pr_fix_bug])
     mocker.patch(
-        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[branch_feature_x]
     )
     engine.run_task(TaskType.COMMAND, "/review")
     drain(engine.events)
@@ -193,7 +192,7 @@ def test_list_always_refetches(mocker: MockerFixture, engine: Engine) -> None:
     assert mock_list.call_count == 2
 
 
-def test_list_caches_review_targets_local(repo_engine: Engine) -> None:
+def test_list_caches_review_targets_local(repo_engine: Engine, pr_add_feature: PRSummary) -> None:
     """After listing local branches, cached_review_targets is populated."""
     engine = repo_engine
     repo = engine.state.repo
@@ -211,12 +210,14 @@ def test_list_caches_review_targets_local(repo_engine: Engine) -> None:
 # ── /review <target> ────────────────────────────────────────────────
 
 
-def test_review_pr_by_number(mocker: MockerFixture, engine: Engine) -> None:
+def test_review_pr_by_number(
+    mocker: MockerFixture, engine: Engine, pr_add_feature: PRSummary
+) -> None:
     mocker.patch("rbtr.engine.review_cmd.run_index")
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_ADD_FEATURE)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=pr_add_feature)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
     drained_events = drain(engine.events)
@@ -304,7 +305,7 @@ def test_review_branch_two_args(mocker: MockerFixture, repo_engine: Engine) -> N
     assert any("develop" in t and "feature-x" in t for t in texts)
 
 
-def test_review_branch_bad_base_warns(repo_engine: Engine) -> None:
+def test_review_branch_bad_base_warns(repo_engine: Engine, pr_refactor: PRSummary) -> None:
     """/review nonexistent target warns about missing base."""
     engine = repo_engine
     repo = engine.state.repo
@@ -318,7 +319,7 @@ def test_review_branch_bad_base_warns(repo_engine: Engine) -> None:
     assert any("nonexistent" in t and "not found" in t for t in texts)
 
 
-def test_review_branch_too_many_args_warns(engine: Engine) -> None:
+def test_review_branch_too_many_args_warns(engine: Engine, pr_refactor: PRSummary) -> None:
     """/review a b c shows usage."""
     engine.run_task(TaskType.COMMAND, "/review a b c")
     drained_events = drain(engine.events)
@@ -326,12 +327,14 @@ def test_review_branch_too_many_args_warns(engine: Engine) -> None:
     assert any("Usage" in t for t in texts)
 
 
-def test_review_pr_has_base_branch(mocker: MockerFixture, engine: Engine) -> None:
+def test_review_pr_has_base_branch(
+    mocker: MockerFixture, engine: Engine, pr_refactor: PRSummary
+) -> None:
     """PR review populates base_branch from the PR data."""
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_REFACTOR)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=pr_refactor)
     engine.run_task(TaskType.COMMAND, "/review 10")
 
     drained_events = drain(engine.events)
@@ -721,7 +724,7 @@ def test_cancel_check_raises(engine: Engine) -> None:
         engine._check_cancel()
 
 
-def test_cancel_does_not_lose_partial_output(engine: Engine) -> None:
+def test_cancel_does_not_lose_partial_output(engine: Engine, pr_fix_bug: PRSummary) -> None:
     """Output emitted before cancellation is preserved in events."""
 
     def cancel_after_start() -> None:
@@ -741,12 +744,14 @@ def test_cancel_does_not_lose_partial_output(engine: Engine) -> None:
 # ── FlushPanel ───────────────────────────────────────────────────────
 
 
-def test_list_clears_fetching_message(mocker: MockerFixture, engine: Engine) -> None:
+def test_list_clears_fetching_message(
+    mocker: MockerFixture, engine: Engine, branch_feature_x: BranchSummary, pr_fix_bug: PRSummary
+) -> None:
     """The 'Fetching…' message is discarded before results appear."""
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[pr_fix_bug])
     mocker.patch("rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[])
     engine.run_task(TaskType.COMMAND, "/review")
 
@@ -755,14 +760,20 @@ def test_list_clears_fetching_message(mocker: MockerFixture, engine: Engine) -> 
     assert any(f.discard is True for f in flush_events)
 
 
-def test_list_flushes_between_tables(mocker: MockerFixture, engine: Engine) -> None:
+def test_list_flushes_between_tables(
+    mocker: MockerFixture,
+    engine: Engine,
+    branch_feature_x: BranchSummary,
+    pr_add_feature: PRSummary,
+    pr_fix_bug: PRSummary,
+) -> None:
     """PR table and branch table are separated by a FlushPanel."""
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[PR_FIX_BUG])
+    mocker.patch("rbtr.engine.review_cmd.client.list_open_prs", return_value=[pr_fix_bug])
     mocker.patch(
-        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[BRANCH_FEATURE_X]
+        "rbtr.engine.review_cmd.client.list_unmerged_branches", return_value=[branch_feature_x]
     )
     engine.run_task(TaskType.COMMAND, "/review")
 
@@ -778,12 +789,14 @@ def test_list_flushes_between_tables(mocker: MockerFixture, engine: Engine) -> N
     assert isinstance(tables_and_flushes[2], TableOutput)
 
 
-def test_review_pr_clears_fetching_message(mocker: MockerFixture, engine: Engine) -> None:
+def test_review_pr_clears_fetching_message(
+    mocker: MockerFixture, engine: Engine, pr_add_feature: PRSummary
+) -> None:
     """The 'Fetching PR #N…' message is discarded before result."""
     mock_gh = mocker.MagicMock()
     engine.state.gh = mock_gh
 
-    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=PR_ADD_FEATURE)
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=pr_add_feature)
     engine.run_task(TaskType.COMMAND, "/review 42")
 
     drained_events = drain(engine.events)

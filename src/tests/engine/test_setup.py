@@ -13,12 +13,11 @@ from pathlib import Path
 import pytest
 
 from rbtr.config import config
-from rbtr.creds import creds
+from rbtr.creds import OAuthCreds, creds
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.providers import BuiltinProvider
-
-from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, output_texts
+from tests.helpers import drain, output_texts
 
 
 @pytest.fixture
@@ -71,10 +70,10 @@ def test_setup_detects_github_token(
 
 
 def test_setup_detects_claude_oauth(
-    creds_path: Path, config_path: Path, setup_engine: Engine
+    creds_path: Path, config_path: Path, setup_engine: Engine, claude_oauth: OAuthCreds
 ) -> None:
     """Setup with stored Claude OAuth marks provider as connected."""
-    creds.update(claude=CLAUDE_OAUTH)
+    creds.update(claude=claude_oauth)
     engine = setup_engine
 
     engine.run_task(TaskType.SETUP, "")
@@ -85,10 +84,10 @@ def test_setup_detects_claude_oauth(
 
 
 def test_setup_detects_chatgpt_oauth(
-    creds_path: Path, config_path: Path, setup_engine: Engine
+    creds_path: Path, config_path: Path, setup_engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """Setup with stored ChatGPT OAuth marks provider as connected."""
-    creds.update(chatgpt=CHATGPT_OAUTH)
+    creds.update(chatgpt=chatgpt_oauth)
     engine = setup_engine
 
     engine.run_task(TaskType.SETUP, "")

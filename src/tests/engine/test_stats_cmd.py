@@ -28,8 +28,8 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind
-
-from .conftest import _user, drain, output_texts
+from tests.engine.builders import _user
+from tests.helpers import drain, output_texts
 
 # ── Shared test data ─────────────────────────────────────────────────
 

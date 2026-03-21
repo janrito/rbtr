@@ -11,8 +11,8 @@ from pytest_mock import MockerFixture
 from rbtr.engine.core import Engine
 from rbtr.engine.session_cmd import _format_age, parse_duration
 from rbtr.providers import BuiltinProvider
-
-from .conftest import _assistant, _seed, _user, drain, output_texts, summary_result
+from tests.engine.builders import _assistant, _seed, _user, summary_result
+from tests.helpers import drain, output_texts
 
 
 @pytest.fixture

@@ -16,8 +16,9 @@ from rbtr.events import (
     Output,
 )
 from rbtr.models import BranchTarget
+from tests.helpers import drain
 
-from .conftest import drain, wait_for_index
+from .conftest import wait_for_index
 
 
 @pytest.fixture(autouse=True)

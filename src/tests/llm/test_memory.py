@@ -18,7 +18,6 @@ Organisation:
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from types import SimpleNamespace
 
 import pytest
@@ -54,19 +53,6 @@ def _make_ctx(
     """
     state = SimpleNamespace(session_id=session_id, repo_scope=repo_scope)
     return SimpleNamespace(store=store, state=state)  # type: ignore[return-value]
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Fixtures
-# ═══════════════════════════════════════════════════════════════════════
-
-
-@pytest.fixture
-def store() -> Generator[SessionStore]:
-    """Empty in-memory store."""
-    s = SessionStore()
-    yield s
-    s.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════

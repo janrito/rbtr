@@ -1,4 +1,4 @@
-"""Shared test fixtures and helpers."""
+"""Shared test fixtures."""
 
 import queue
 import socket
@@ -11,7 +11,6 @@ import pytest
 from rbtr.config import SkillsConfig, config
 from rbtr.creds import creds
 from rbtr.engine.core import Engine
-from rbtr.events import Event, MarkdownOutput, Output
 from rbtr.llm.agent import register_tools
 from rbtr.llm.context import LLMContext
 from rbtr.sessions.store import SessionStore
@@ -22,33 +21,6 @@ from rbtr.state import EngineState
 # otherwise register tools out of order, breaking ordering assertions
 # in test_toolsets.
 register_tools()
-
-# ── Event helpers ────────────────────────────────────────────────────
-
-
-def drain(events: queue.Queue[Event]) -> list[Event]:
-    """Drain all events from the queue into a list."""
-    result: list[Event] = []
-    while True:
-        try:
-            result.append(events.get_nowait())
-        except queue.Empty:
-            break
-    return result
-
-
-def output_texts(events: list[Event]) -> list[str]:
-    """Extract text from Output and MarkdownOutput events."""
-    texts: list[str] = []
-    for e in events:
-        if isinstance(e, (Output, MarkdownOutput)):
-            texts.append(e.text)
-    return texts
-
-
-def has_event_type(events: list[Event], event_type: type) -> bool:
-    """Check whether any event matches the given type."""
-    return any(isinstance(e, event_type) for e in events)
 
 
 # ── Network safety net ───────────────────────────────────────────────
@@ -116,6 +88,16 @@ def creds_path(tmp_path: Path) -> Path:
 def config_path(tmp_path: Path) -> Path:
     """Return the temp user config path (already isolated by `_isolate_config`)."""
     return tmp_path / "rbtr" / "config.toml"
+
+
+# ── Session store ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def store() -> Generator[SessionStore]:
+    """Empty in-memory session store."""
+    with SessionStore() as s:
+        yield s
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────

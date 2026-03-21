@@ -19,9 +19,10 @@ from rbtr.llm.tools.common import (
     require_pr,
 )
 from rbtr.models import BranchTarget, PRTarget
+from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .conftest import FakeCtx
+from .ctx import tool_ctx
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -60,11 +61,7 @@ _TOOL_DEF = ToolDefinition(name="test_tool")
     ],
     ids=["no_index", "no_target", "neither", "both"],
 )
-def test_has_index(
-    has_idx: bool,
-    has_target: bool,
-    expected: bool,
-) -> None:
+def test_has_index(has_idx: bool, has_target: bool, expected: bool, store: SessionStore) -> None:
     """Filter returns True only when both index and review target exist."""
     state = EngineState()
     store: IndexStore | None = None
@@ -74,7 +71,7 @@ def test_has_index(
     if has_target:
         state.review_target = _BRANCH_TARGET
 
-    result = has_index(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+    result = has_index(tool_ctx(state, store), _TOOL_DEF)
     assert result is expected
 
     if store is not None:
@@ -94,11 +91,7 @@ def test_has_index(
     ],
     ids=["no_repo", "no_target", "neither", "both"],
 )
-def test_has_repo(
-    has_rp: bool,
-    has_target: bool,
-    expected: bool,
-) -> None:
+def test_has_repo(has_rp: bool, has_target: bool, expected: bool, store: SessionStore) -> None:
     """Filter returns True only when both repo and review target exist."""
     with tempfile.TemporaryDirectory() as tmp:
         state = EngineState()
@@ -107,7 +100,7 @@ def test_has_repo(
         if has_target:
             state.review_target = _BRANCH_TARGET
 
-        result = has_repo(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+        result = has_repo(tool_ctx(state, store), _TOOL_DEF)
         assert result is expected
 
 
@@ -130,6 +123,7 @@ async def test_require_pr(
     target: object,
     expected_visible: bool,
     mocker: MockerFixture,
+    store: SessionStore,
 ) -> None:
     """Tool is visible only when both GitHub auth and a PR target exist."""
     state = EngineState()
@@ -138,7 +132,7 @@ async def test_require_pr(
         state.gh_username = "reviewer"
     state.review_target = target  # type: ignore[assignment]
 
-    result = await require_pr(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+    result = await require_pr(tool_ctx(state, store), _TOOL_DEF)
 
     if expected_visible:
         assert result is _TOOL_DEF
@@ -158,15 +152,12 @@ async def test_require_pr(
     ],
     ids=["no_target", "branch_target", "pr_target"],
 )
-def test_has_pr_target(
-    target: object,
-    expected: bool,
-) -> None:
+def test_has_pr_target(target: object, expected: bool, store: SessionStore) -> None:
     """Filter returns True when a PR target is selected."""
     state = EngineState()
     state.review_target = target  # type: ignore[assignment]
 
-    result = has_pr_target(FakeCtx(state), _TOOL_DEF)  # type: ignore[arg-type]
+    result = has_pr_target(tool_ctx(state, store), _TOOL_DEF)
     assert result is expected
 
 
