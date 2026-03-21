@@ -405,6 +405,8 @@ async def _do_stream(
     ) as run:
         try:
             async for node in run:
+                pending_req_id: str | None = None
+
                 match node:
                     # ── Model response: stream text deltas, persist parts ──
                     case ModelRequestNode():
@@ -418,6 +420,19 @@ async def _do_stream(
                             )
                             truncated = None
 
+                        # Persist the request as in_progress BEFORE
+                        # the response row so its created_at is
+                        # earlier — preserving logical order on
+                        # reload.  _prepare_request (inside
+                        # node.stream) mutates the request; we
+                        # finalize with the post-mutation version.
+                        req_ids = _save_messages_safe(
+                            ctx,
+                            [node.request],
+                            status=FragmentStatus.IN_PROGRESS,
+                        )
+                        pending_req_id = req_ids[0] if req_ids else None
+
                         writer = ctx.store.begin_response(
                             ctx.state.session_id,
                             model_name=ctx.state.model_name,
@@ -425,6 +440,15 @@ async def _do_stream(
                         last_writer = writer
 
                         async with node.stream(run.ctx) as stream:
+                            # _prepare_request has run — finalize
+                            # the request with post-mutation data.
+                            if pending_req_id is not None:
+                                ctx.store.finalize_request(
+                                    pending_req_id,
+                                    node.request,
+                                )
+                                saved_request_count += 1
+
                             async for event in stream:
                                 match event:
                                     case PartStartEvent(index=idx, part=part):
@@ -463,8 +487,9 @@ async def _do_stream(
 
                 # ── Persist after every node ──
                 all_msgs = run.all_messages()
-                n = _save_new_requests(ctx, all_msgs, saved_count)
-                saved_request_count += n
+                if pending_req_id is None:
+                    n = _save_new_requests(ctx, all_msgs, saved_count)
+                    saved_request_count += n
                 saved_count = len(all_msgs)
 
                 if compact_needed:
@@ -761,7 +786,12 @@ def _save_new_requests(
     return len(requests)
 
 
-def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[str]:
+def _save_messages_safe(
+    ctx: LLMContext,
+    messages: list[ModelMessage],
+    *,
+    status: FragmentStatus = FragmentStatus.COMPLETE,
+) -> list[str]:
     """Save messages to the store, logging failures instead of raising.
 
     Relies on `engine._sync_store_context()` having been called at
@@ -772,7 +802,7 @@ def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[s
     if not messages:
         return []
     try:
-        return ctx.store.save_messages(ctx.state.session_id, messages)
+        return ctx.store.save_messages(ctx.state.session_id, messages, status=status)
     except OSError:
         log.warning("sessions: failed to persist messages", exc_info=True)
         return []

@@ -173,12 +173,26 @@ Sessions are a `session_id` column, not a separate table.
 
 ### Streaming writes and crash recovery
 
-`ResponseWriter` inserts parts as they stream from the
-model. Each part starts as `IN_PROGRESS` and is set to
-`COMPLETE` when the full content arrives.
+Requests and responses use the same two-phase pattern:
+insert as `IN_PROGRESS`, set to `COMPLETE` when finished.
 `load_messages()` filters `WHERE status = 'COMPLETE'`,
-so a crash mid-stream leaves no corrupt state — the
-incomplete parts are invisible on next load.
+so a crash mid-turn leaves no corrupt state — incomplete
+fragments are invisible on next load.
+
+For each model request node, the persistence order is:
+
+1. Save the request as `IN_PROGRESS` via `save_messages`.
+2. Create the response row via `begin_response`.
+3. Stream response parts (`add_part` / `finish_part`).
+4. Finalize the request (`finalize_request` — updates
+   the header with post-mutation data, sets `COMPLETE`).
+5. Finish the response (`ResponseWriter.finish`).
+
+The request row is created before the response row so its
+`created_at` is earlier. `load_messages` orders by
+`created_at`, so the request always precedes its response
+on reload — preserving the logical conversation order
+across session resume and provider switches.
 
 ### Cost and usage tracking
 

@@ -449,7 +449,8 @@ Colours shift from green to yellow to red as context fills.
 Every conversation is saved to a local SQLite database at
 `~/.config/rbtr/sessions.db`. Messages are persisted as they
 stream — if rbtr crashes, the conversation survives up to the
-last received part.
+last received part. Requests are always persisted before their
+responses, so resumed sessions load in the correct order.
 
 ### Persistence
 
