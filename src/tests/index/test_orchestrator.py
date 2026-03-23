@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Generator
+from pathlib import Path
+
 import pygit2
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.index.models import ChunkKind, EdgeKind, IndexResult, SemanticDiff
 from rbtr.index.orchestrator import (
@@ -12,18 +17,19 @@ from rbtr.index.orchestrator import (
     update_index,
 )
 from rbtr.index.store import IndexStore
+from rbtr.index.treesitter import _get_query
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture(autouse=True)
-def _mock_embeddings(mocker):
+def _mock_embeddings(mocker: MockerFixture) -> None:
     """Stub out the embedding step — no GGUF model needed in tests."""
     mocker.patch("rbtr.index.orchestrator._embed_missing")
 
 
 @pytest.fixture
-def git_repo(tmp_path):
+def git_repo(tmp_path: Path) -> pygit2.Repository:
     """Create a git repo with a few Python files and a commit."""
     repo = pygit2.init_repository(str(tmp_path), bare=False)
 
@@ -52,7 +58,7 @@ def git_repo(tmp_path):
 
 
 @pytest.fixture
-def store():
+def store() -> Generator[IndexStore]:
     """In-memory DuckDB store."""
     s = IndexStore()
     yield s
@@ -60,7 +66,7 @@ def store():
 
 
 @pytest.fixture
-def commit_sha(git_repo):
+def commit_sha(git_repo: pygit2.Repository) -> str:
     """SHA of the initial commit."""
     return str(git_repo.head.target)
 
@@ -68,7 +74,9 @@ def commit_sha(git_repo):
 # ── build_index tests ────────────────────────────────────────────────
 
 
-def test_build_index_creates_chunks(git_repo, store, commit_sha):
+def test_build_index_creates_chunks(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     result = build_index(git_repo, commit_sha, store)
 
     assert isinstance(result, IndexResult)
@@ -77,7 +85,9 @@ def test_build_index_creates_chunks(git_repo, store, commit_sha):
     assert not result.errors
 
 
-def test_build_index_creates_snapshots(git_repo, store, commit_sha):
+def test_build_index_creates_snapshots(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     build_index(git_repo, commit_sha, store)
 
     chunks = store.get_chunks(commit_sha)
@@ -88,7 +98,9 @@ def test_build_index_creates_snapshots(git_repo, store, commit_sha):
     assert "src/utils.py" in file_paths
 
 
-def test_build_index_extracts_symbols(git_repo, store, commit_sha):
+def test_build_index_extracts_symbols(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     build_index(git_repo, commit_sha, store)
 
     chunks = store.get_chunks(commit_sha)
@@ -100,7 +112,9 @@ def test_build_index_extracts_symbols(git_repo, store, commit_sha):
     assert "run" in names
 
 
-def test_build_index_creates_edges(git_repo, store, commit_sha):
+def test_build_index_creates_edges(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     build_index(git_repo, commit_sha, store)
 
     edges = store.get_edges(commit_sha)
@@ -111,7 +125,9 @@ def test_build_index_creates_edges(git_repo, store, commit_sha):
     assert EdgeKind.IMPORTS in edge_kinds
 
 
-def test_build_index_markdown_chunking(git_repo, store, commit_sha):
+def test_build_index_markdown_chunking(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     build_index(git_repo, commit_sha, store)
 
     chunks = store.get_chunks(commit_sha, file_path="README.md")
@@ -120,7 +136,9 @@ def test_build_index_markdown_chunking(git_repo, store, commit_sha):
     assert ChunkKind.DOC_SECTION in kinds
 
 
-def test_build_index_progress_callback(git_repo, store, commit_sha):
+def test_build_index_progress_callback(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     calls = []
     build_index(git_repo, commit_sha, store, on_progress=lambda d, t: calls.append((d, t)))
 
@@ -130,7 +148,9 @@ def test_build_index_progress_callback(git_repo, store, commit_sha):
     assert done == total
 
 
-def test_build_index_cache_hit(git_repo, store, commit_sha):
+def test_build_index_cache_hit(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """Second build should hit the cache for all files."""
     build_index(git_repo, commit_sha, store)
     r2 = build_index(git_repo, commit_sha, store)
@@ -139,7 +159,9 @@ def test_build_index_cache_hit(git_repo, store, commit_sha):
     assert r2.stats.parsed_files == 0
 
 
-def test_build_index_fts_available(git_repo, store, commit_sha):
+def test_build_index_fts_available(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """FTS index should be rebuilt after build."""
     build_index(git_repo, commit_sha, store)
 
@@ -147,7 +169,9 @@ def test_build_index_fts_available(git_repo, store, commit_sha):
     assert len(results) > 0
 
 
-def test_build_index_idempotent_edges(git_repo, store, commit_sha):
+def test_build_index_idempotent_edges(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """Re-building should not duplicate edges."""
     build_index(git_repo, commit_sha, store)
     e1 = store.get_edges(commit_sha)
@@ -158,12 +182,14 @@ def test_build_index_idempotent_edges(git_repo, store, commit_sha):
     assert len(e1) == len(e2)
 
 
-def test_build_index_replaces_snapshots_for_same_ref(git_repo, store, tmp_path):
+def test_build_index_replaces_snapshots_for_same_ref(
+    git_repo: pygit2.Repository, store: IndexStore, tmp_path: Path
+) -> None:
     """Re-indexing the same ref removes files deleted since older reviews."""
     head = git_repo.head.peel(pygit2.Commit)
     git_repo.branches.local.create("review-head", head)
     git_repo.set_head("refs/heads/review-head")
-    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)
+    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
 
     # First index pass includes src/main.py.
     build_index(git_repo, "review-head", store)
@@ -179,6 +205,7 @@ def test_build_index_replaces_snapshots_for_same_ref(git_repo, store, tmp_path):
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Remove main", tree_oid, [parent.id])
 
     # Second pass at the same ref should not leak deleted-file chunks.
@@ -188,7 +215,9 @@ def test_build_index_replaces_snapshots_for_same_ref(git_repo, store, tmp_path):
     assert "src/utils.py" in after_paths
 
 
-def test_build_index_metadata_round_trip(git_repo, store, commit_sha):
+def test_build_index_metadata_round_trip(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """Import metadata should survive store round-trip."""
     build_index(git_repo, commit_sha, store)
 
@@ -205,7 +234,7 @@ def test_build_index_metadata_round_trip(git_repo, store, commit_sha):
 
 
 @pytest.fixture
-def two_commits(git_repo, tmp_path):
+def two_commits(git_repo: pygit2.Repository, tmp_path: Path) -> tuple[str, str]:
     """Add a second commit that modifies utils.py and adds a new file."""
     base_sha = str(git_repo.head.target)
 
@@ -227,13 +256,16 @@ def two_commits(git_repo, tmp_path):
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Add new_func and service", tree_oid, [parent.id])
 
     head_sha = str(git_repo.head.target)
     return base_sha, head_sha
 
 
-def test_update_index_incremental(git_repo, store, two_commits):
+def test_update_index_incremental(
+    git_repo: pygit2.Repository, store: IndexStore, two_commits: tuple[str, str]
+) -> None:
     base_sha, head_sha = two_commits
 
     # Build base first.
@@ -253,7 +285,9 @@ def test_update_index_incremental(git_repo, store, two_commits):
     assert "serve" in names
 
 
-def test_update_index_preserves_unchanged(git_repo, store, two_commits):
+def test_update_index_preserves_unchanged(
+    git_repo: pygit2.Repository, store: IndexStore, two_commits: tuple[str, str]
+) -> None:
     base_sha, head_sha = two_commits
 
     build_index(git_repo, base_sha, store)
@@ -269,7 +303,9 @@ def test_update_index_preserves_unchanged(git_repo, store, two_commits):
     assert "Order" in names
 
 
-def test_update_index_replaces_head_snapshots_for_reused_ref(git_repo, store, tmp_path):
+def test_update_index_replaces_head_snapshots_for_reused_ref(
+    git_repo: pygit2.Repository, store: IndexStore, tmp_path: Path
+) -> None:
     """Head ref re-index does not leak deleted files from older reviews."""
     base = git_repo.head.peel(pygit2.Commit)
     try:
@@ -286,7 +322,7 @@ def test_update_index_replaces_head_snapshots_for_reused_ref(git_repo, store, tm
 
     # Feature commit 1: add a temporary file/symbol.
     git_repo.set_head("refs/heads/feature")
-    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)
+    git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
     legacy_path = tmp_path / "src" / "legacy.py"
     legacy_path.write_text(
         """\
@@ -302,6 +338,7 @@ def legacy_only():
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Add legacy file", tree_oid, [parent.id])
 
     update_index(git_repo, "main", "feature", store)
@@ -315,6 +352,7 @@ def legacy_only():
     index.write()
     tree_oid = index.write_tree()
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Remove legacy file", tree_oid, [parent.id])
 
     update_index(git_repo, "main", "feature", store)
@@ -325,7 +363,9 @@ def legacy_only():
 # ── compute_diff tests ───────────────────────────────────────────────
 
 
-def test_compute_diff_added(git_repo, store, two_commits):
+def test_compute_diff_added(
+    git_repo: pygit2.Repository, store: IndexStore, two_commits: tuple[str, str]
+) -> None:
     base_sha, head_sha = two_commits
 
     build_index(git_repo, base_sha, store)
@@ -338,7 +378,9 @@ def test_compute_diff_added(git_repo, store, two_commits):
     assert "new_func" in added_names or "serve" in added_names
 
 
-def test_compute_diff_removed(git_repo, store, tmp_path):
+def test_compute_diff_removed(
+    git_repo: pygit2.Repository, store: IndexStore, tmp_path: Path
+) -> None:
     """Removing a function should show up in diff.removed."""
     base_sha = str(git_repo.head.target)
 
@@ -352,6 +394,7 @@ def test_compute_diff_removed(git_repo, store, tmp_path):
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Remove Order", tree_oid, [parent.id])
     head_sha = str(git_repo.head.target)
 
@@ -364,7 +407,9 @@ def test_compute_diff_removed(git_repo, store, tmp_path):
     assert "Order" in removed_names
 
 
-def test_compute_diff_missing_tests(git_repo, store, two_commits):
+def test_compute_diff_missing_tests(
+    git_repo: pygit2.Repository, store: IndexStore, two_commits: tuple[str, str]
+) -> None:
     """New functions without test edges should appear in missing_tests."""
     base_sha, head_sha = two_commits
 
@@ -378,7 +423,9 @@ def test_compute_diff_missing_tests(git_repo, store, two_commits):
     assert "serve" in missing_names or "new_func" in missing_names
 
 
-def test_compute_diff_empty_when_same(git_repo, store, commit_sha):
+def test_compute_diff_empty_when_same(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """Diffing a commit against itself should produce empty results."""
     build_index(git_repo, commit_sha, store)
 
@@ -392,7 +439,7 @@ def test_compute_diff_empty_when_same(git_repo, store, commit_sha):
 # ── Edge cases ───────────────────────────────────────────────────────
 
 
-def test_build_index_empty_repo(tmp_path):
+def test_build_index_empty_repo(tmp_path: Path) -> None:
     """Index an empty repo (no files)."""
     repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False)
 
@@ -415,7 +462,9 @@ def test_build_index_empty_repo(tmp_path):
         store.close()
 
 
-def test_update_index_remote_only_head(git_repo, store, tmp_path):
+def test_update_index_remote_only_head(
+    git_repo: pygit2.Repository, store: IndexStore, tmp_path: Path
+) -> None:
     """update_index works when head is a remote-only branch (PR scenario).
 
     Reproduces the real-world bug: `/review 900` sets `head_branch`
@@ -436,6 +485,7 @@ def test_update_index_remote_only_head(git_repo, store, tmp_path):
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
+    assert parent is not None
     head_oid = git_repo.create_commit(None, sig, sig, "Feature work", tree_oid, [parent.id])
 
     # Put the head commit on a remote-only ref (no local branch).
@@ -452,7 +502,7 @@ def test_update_index_remote_only_head(git_repo, store, tmp_path):
     assert any(c.name == "new_func" for c in chunks)
 
 
-def test_embed_failure_is_nonfatal(tmp_path, mocker):
+def test_embed_failure_is_nonfatal(tmp_path: Path, mocker: MockerFixture) -> None:
     """When the embedding model cannot load, indexing still succeeds.
 
     The structural index (chunks, edges, FTS) should be fully usable;
@@ -464,7 +514,6 @@ def test_embed_failure_is_nonfatal(tmp_path, mocker):
     # Make the deferred import inside _embed_missing raise ImportError.
     # Setting sys.modules[key] = None causes `from key import ...` to
     # raise ImportError without touching builtins.__import__.
-    import sys
 
     mocker.patch.dict(sys.modules, {"rbtr.index.embeddings": None})
 
@@ -493,13 +542,13 @@ def test_embed_failure_is_nonfatal(tmp_path, mocker):
         store.close()
 
 
-def test_embed_batch_failure_skips_batch(tmp_path, mocker):
+def test_embed_batch_failure_skips_batch(tmp_path: Path, mocker: MockerFixture) -> None:
     """When a single embedding batch fails, other batches still succeed."""
     mocker.stopall()
 
     call_count = 0
 
-    def _flaky_embed(texts):
+    def _flaky_embed(texts: list[str]) -> list[list[float]]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -538,7 +587,7 @@ def test_embed_batch_failure_skips_batch(tmp_path, mocker):
         store.close()
 
 
-def test_query_cache_produces_identical_chunks(tmp_path):
+def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     """Cached tree-sitter queries must produce the same chunks as fresh ones.
 
     `_get_query()` caches compiled `Query` objects per language.
@@ -564,7 +613,6 @@ def test_query_cache_produces_identical_chunks(tmp_path):
     sha = str(repo.head.target)
 
     # Clear the query cache to ensure a cold start.
-    from rbtr.index.treesitter import _get_query
 
     _get_query.cache_clear()
 
@@ -590,7 +638,9 @@ def test_query_cache_produces_identical_chunks(tmp_path):
         store2.close()
 
 
-def test_deferred_fts_rebuild(git_repo, store, commit_sha):
+def test_deferred_fts_rebuild(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
     """FTS lazily rebuilds on first search_fulltext, not during build."""
     build_index(git_repo, commit_sha, store)
 
@@ -603,7 +653,7 @@ def test_deferred_fts_rebuild(git_repo, store, commit_sha):
     assert not store._fts_dirty
 
 
-def test_build_index_unknown_language(tmp_path):
+def test_build_index_unknown_language(tmp_path: Path) -> None:
     """Files with unknown extensions should get plaintext chunking."""
     repo = pygit2.init_repository(str(tmp_path / "unknown"), bare=False)
 

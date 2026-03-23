@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from rbtr.config import config
-from rbtr.models import BranchTarget, PRTarget
+from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.prompts import render_review, render_system
 from rbtr.state import EngineState
 
@@ -63,13 +62,15 @@ _BRANCH_TARGET = BranchTarget(
 )
 
 
-def _make_engine_state(**kwargs: Any) -> EngineState:
-    defaults = {
-        "owner": "acme",
-        "repo_name": "widgets",
-    }
-    defaults.update(kwargs)
-    return EngineState(**defaults)
+def _make_engine_state(
+    *,
+    owner: str = "acme",
+    repo_name: str = "widgets",
+    review_target: Target | None = None,
+) -> EngineState:
+    state = EngineState(owner=owner, repo_name=repo_name)
+    state.review_target = review_target
+    return state
 
 
 # ── System — builtin loads ───────────────────────────────────────────

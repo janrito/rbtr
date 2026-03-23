@@ -343,9 +343,6 @@ class ChatGPTProvider:
 
         return openai_responses_model_settings(model, effort)
 
-    def system_instructions(self, model_id: str) -> str | None:
-        return None
-
     def context_window(self, model_id: str) -> int | None:
         """Look up context window — Codex metadata first, then `genai-prices`."""
         meta = fetch_model_metadata(model_id)

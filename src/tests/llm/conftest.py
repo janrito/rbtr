@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import UTC, datetime
 
 import pytest
 from pydantic_ai import RunContext
@@ -15,7 +16,7 @@ from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 from tests.helpers import drain, has_event_type, output_texts  # noqa: F401
-from tests.llm.ctx import tool_ctx
+from tests.llm.ctx import build_tool_ctx
 
 # ── Store helpers ────────────────────────────────────────────────────
 
@@ -382,7 +383,7 @@ def _review_state(store: IndexStore) -> EngineState:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     return state
 
@@ -399,7 +400,7 @@ def index_ctx() -> Generator[RunContext[AgentDeps]]:
     """RunContext with the single-branch index dataset (no embeddings)."""
     index_store = _build_index_store()
     with SessionStore() as session_store:
-        yield tool_ctx(_review_state(index_store), session_store)
+        yield build_tool_ctx(_review_state(index_store), session_store)
     index_store.close()
 
 
@@ -408,7 +409,7 @@ def index_ctx_embedded() -> Generator[RunContext[AgentDeps]]:
     """RunContext with the single-branch index dataset + embeddings."""
     index_store = _build_index_store(embed=True)
     with SessionStore() as session_store:
-        yield tool_ctx(_review_state(index_store), session_store)
+        yield build_tool_ctx(_review_state(index_store), session_store)
     index_store.close()
 
 
@@ -420,7 +421,7 @@ def two_ref_ctx() -> Generator[RunContext[AgentDeps]]:
     """RunContext with base/head snapshots for ref-scoping tests."""
     index_store = _build_two_ref_store()
     with SessionStore() as session_store:
-        yield tool_ctx(_review_state(index_store), session_store)
+        yield build_tool_ctx(_review_state(index_store), session_store)
     index_store.close()
 
 
@@ -430,5 +431,5 @@ def two_ref_ctx_fts() -> Generator[RunContext[AgentDeps]]:
     index_store = _build_two_ref_store()
     index_store.rebuild_fts_index()
     with SessionStore() as session_store:
-        yield tool_ctx(_review_state(index_store), session_store)
+        yield build_tool_ctx(_review_state(index_store), session_store)
     index_store.close()

@@ -43,13 +43,15 @@ def _lines(n: int) -> str:
 
 
 def _drain(engine: Engine) -> list[ToolCallStarted | ToolCallFinished]:
-    """Drain all events from the engine's event queue."""
+    """Drain all tool-call events from the engine's event queue."""
     events: list[ToolCallStarted | ToolCallFinished] = []
     while True:
         try:
-            events.append(engine.events.get_nowait())
+            ev = engine.events.get_nowait()
         except _queue.Empty:
             break
+        if isinstance(ev, (ToolCallStarted, ToolCallFinished)):
+            events.append(ev)
     return events
 
 
@@ -115,6 +117,7 @@ def test_render_no_hidden_single_text() -> None:
     parts = _render_head_tail("content", 0, "", "dim")
     assert len(parts) == 1
     assert isinstance(parts[0], Text)
+    assert isinstance(parts[0], Text)
     assert parts[0].plain == "content"
 
 
@@ -125,31 +128,39 @@ def test_render_empty_head_no_hidden() -> None:
 def test_render_hidden_three_parts() -> None:
     parts = _render_head_tail("head", 5, "tail", "dim")
     assert len(parts) == 3
+    assert isinstance(parts[0], Text)
     assert parts[0].plain == "head"
+    assert isinstance(parts[1], Text)
     assert "5 more lines" in parts[1].plain
+    assert isinstance(parts[2], Text)
     assert parts[2].plain == "tail"
 
 
 def test_render_elapsed_in_spacer() -> None:
     parts = _render_head_tail("head", 5, "tail", "dim", elapsed=1.5)
+    assert isinstance(parts[1], Text)
     assert "1.5s" in parts[1].plain
 
 
 def test_render_no_elapsed_in_spacer() -> None:
     parts = _render_head_tail("head", 5, "tail", "dim")
+    assert isinstance(parts[1], Text)
     assert "s)" not in parts[1].plain
 
 
 def test_render_hidden_empty_tail() -> None:
     parts = _render_head_tail("head", 5, "", "dim")
     assert len(parts) == 2
+    assert isinstance(parts[1], Text)
     assert "5 more lines" in parts[1].plain
 
 
 def test_render_hidden_empty_head() -> None:
     parts = _render_head_tail("", 5, "tail", "dim")
     assert len(parts) == 2
+    assert isinstance(parts[0], Text)
     assert "5 more lines" in parts[0].plain
+    assert isinstance(parts[1], Text)
     assert parts[1].plain == "tail"
 
 

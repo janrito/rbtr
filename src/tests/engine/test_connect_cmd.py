@@ -9,10 +9,11 @@ from pytest_mock import MockerFixture
 from rbtr.creds import OAuthCreds, creds
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
-from rbtr.events import LinkOutput
+from rbtr.events import LinkOutput, TaskFinished
 from rbtr.exceptions import PortBusyError, RbtrError
 from rbtr.oauth import PendingLogin
 from rbtr.providers import BuiltinProvider
+from rbtr.providers.endpoint import load_endpoint, save_endpoint
 from tests.helpers import drain, has_event_type, output_texts
 
 # ── /connect openai ───────────────────────────────────────────────────
@@ -21,6 +22,7 @@ from tests.helpers import drain, has_event_type, output_texts
 def test_connect_openai_saves_key(creds_path: Path, engine: Engine) -> None:
     engine.run_task(TaskType.COMMAND, "/connect openai sk-test-key-123")
     drained_events = drain(engine.events)
+    assert isinstance(drained_events[-1], TaskFinished)
     assert drained_events[-1].success is True
     assert BuiltinProvider.OPENAI in engine.state.connected_providers
     assert creds.openai_api_key == "sk-test-key-123"
@@ -32,6 +34,7 @@ def test_connect_openai_already_connected(creds_path: Path, engine: Engine) -> N
     creds.update(openai_api_key="sk-existing")
     engine.run_task(TaskType.COMMAND, "/connect openai")
     drained_events = drain(engine.events)
+    assert isinstance(drained_events[-1], TaskFinished)
     assert drained_events[-1].success is True
     assert BuiltinProvider.OPENAI in engine.state.connected_providers
     texts = output_texts(drained_events)
@@ -41,6 +44,7 @@ def test_connect_openai_already_connected(creds_path: Path, engine: Engine) -> N
 def test_connect_openai_rejects_bad_key(creds_path: Path, engine: Engine) -> None:
     engine.run_task(TaskType.COMMAND, "/connect openai bad-key-format")
     drained_events = drain(engine.events)
+    assert isinstance(drained_events[-1], TaskFinished)
     assert drained_events[-1].success is True
     assert BuiltinProvider.OPENAI not in engine.state.connected_providers
     texts = output_texts(drained_events)
@@ -59,6 +63,7 @@ def test_connect_openai_replaces_existing_key(creds_path: Path, engine: Engine) 
     creds.update(openai_api_key="sk-old")
     engine.run_task(TaskType.COMMAND, "/connect openai sk-new-key")
     drained_events = drain(engine.events)
+    assert isinstance(drained_events[-1], TaskFinished)
     assert drained_events[-1].success is True
     assert BuiltinProvider.OPENAI in engine.state.connected_providers
     assert creds.openai_api_key == "sk-new-key"
@@ -355,7 +360,6 @@ def test_connect_endpoint_saves_and_confirms(
     assert "myendpoint" in engine.state.connected_providers
 
     # Verify persistence
-    from rbtr.providers.endpoint import load_endpoint
 
     ep = load_endpoint("myendpoint")
     assert ep is not None
@@ -379,7 +383,6 @@ def test_connect_endpoint_lists_existing(
     config_path: Path, creds_path: Path, engine: Engine
 ) -> None:
     """/connect endpoint with no args lists existing endpoints."""
-    from rbtr.providers.endpoint import save_endpoint
 
     save_endpoint("myep", "http://localhost:11434/v1", "")
 

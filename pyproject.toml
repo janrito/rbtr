@@ -67,6 +67,7 @@ dev = [
   "mypy",
   "pytest",
   "pytest-cov",
+  "pytest-httpx>=0.36.0",
   "pytest-mock",
   "ruff",
   "rumdl>=0.1.43",
@@ -168,8 +169,6 @@ show_error_codes = true
 warn_redundant_casts = true
 warn_unused_configs = true
 
-exclude = ["^src/tests/"]
-
 [[tool.mypy.overrides]]
 module = "frontmatter"
 ignore_missing_imports = true
@@ -198,14 +197,14 @@ show_missing = true
 min_confidence = 80
 paths = ["src/rbtr"]
 ignore_names = [
-  "init_settings",      # pydantic_settings settings_customise_sources
-  "dotenv_settings",    # pydantic_settings settings_customise_sources
+  "init_settings",        # pydantic_settings settings_customise_sources
+  "dotenv_settings",      # pydantic_settings settings_customise_sources
   "file_secret_settings", # pydantic_settings settings_customise_sources
-  "exc_type",           # __exit__ signature
-  "exc_val",            # __exit__ signature
-  "exc_tb",             # __exit__ signature
-  "user_data",          # llama_cpp log callback signature
-  "format",             # http.server log_message signature
+  "exc_type",             # __exit__ signature
+  "exc_val",              # __exit__ signature
+  "exc_tb",               # __exit__ signature
+  "user_data",            # llama_cpp log callback signature
+  "format",               # http.server log_message signature
 ]
 
 # -- Versioning --

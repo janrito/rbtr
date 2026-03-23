@@ -7,6 +7,7 @@ import pytest
 
 from rbtr.engine.core import Engine
 from rbtr.engine.setup import _make_session_label
+from rbtr.engine.types import TaskType
 from tests.helpers import drain
 
 from .conftest import make_repo_with_file
@@ -36,7 +37,7 @@ def test_review_snapshot_updates_label(repo_engine: Engine) -> None:
     assert repo is not None
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-    engine.run_task("command", "/review feature")
+    engine.run_task(TaskType.COMMAND, "/review feature")
     drain(engine.events)
 
     assert "feature" in engine.state.session_label
@@ -50,7 +51,7 @@ def test_review_branch_updates_label(repo_engine: Engine) -> None:
     assert repo is not None
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-    engine.run_task("command", "/review main feature")
+    engine.run_task(TaskType.COMMAND, "/review main feature")
     drain(engine.events)
 
     assert "main" in engine.state.session_label
@@ -66,11 +67,11 @@ def test_second_review_keeps_label(repo_engine: Engine) -> None:
     repo.branches.local.create("feature-a", repo.head.peel(pygit2.Commit))
     repo.branches.local.create("feature-b", repo.head.peel(pygit2.Commit))
 
-    engine.run_task("command", "/review feature-a")
+    engine.run_task(TaskType.COMMAND, "/review feature-a")
     drain(engine.events)
     first_label = engine.state.session_label
 
-    engine.run_task("command", "/review feature-b")
+    engine.run_task(TaskType.COMMAND, "/review feature-b")
     drain(engine.events)
 
     assert engine.state.session_label == first_label
@@ -84,10 +85,10 @@ def test_rename_survives_review(repo_engine: Engine) -> None:
     assert repo is not None
     repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-    engine.run_task("command", "/session rename my notes")
+    engine.run_task(TaskType.COMMAND, "/session rename my notes")
     drain(engine.events)
 
-    engine.run_task("command", "/review feature")
+    engine.run_task(TaskType.COMMAND, "/review feature")
     drain(engine.events)
 
     assert engine.state.session_label == "my notes"

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import pytest
+import tree_sitter_rust
+from tree_sitter import Language, Node, Parser
 
+from rbtr.index.models import ImportMeta
 from rbtr.plugins.hookspec import (
     DEFAULT_SCOPE_TYPES,
     LanguageRegistration,
@@ -57,8 +60,6 @@ skip_no_rust = pytest.mark.skipif(not _has_rust, reason="tree-sitter-rust not in
 
 def _collect_from_use(code: str) -> list[str]:
     """Parse a Rust `use` declaration and collect scoped path parts."""
-    import tree_sitter_rust  # deferred: optional grammar
-    from tree_sitter import Language, Parser
 
     lang = Language(tree_sitter_rust.language())
     parser = Parser(lang)
@@ -119,7 +120,7 @@ def test_registration_scope_types(scope_types: frozenset[str]) -> None:
 
 
 def test_registration_with_all_fields() -> None:
-    def dummy_extractor(node):
+    def dummy_extractor(node: Node) -> ImportMeta:
         return {}
 
     reg = LanguageRegistration(

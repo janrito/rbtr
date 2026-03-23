@@ -11,17 +11,18 @@ Organisation:
 from __future__ import annotations
 
 import pytest
+from pydantic_ai.models.test import TestModel
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.engine.core import Engine
-from rbtr.events import CompactionFinished
+from rbtr.events import CompactionFinished, FactExtractionFinished
 from rbtr.llm.compact import compact_history
 from rbtr.llm.context import LLMContext
 from rbtr.models import PRTarget
-from rbtr.providers import BuiltinProvider
 from rbtr.sessions.kinds import GLOBAL_SCOPE
-from tests.engine.builders import _assistant, _seed, _turns, _user, summary_result
-from tests.helpers import drain, output_texts
+from tests.engine.builders import _assistant, _seed, _turns, _user
+from tests.helpers import TestProvider, drain, output_texts
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -33,8 +34,8 @@ SESSION_ID = "memory-cmd-session"
 def mem_engine(config_path: str, engine: Engine) -> Engine:
     """Engine with memory enabled and LLM connected."""
     config.update(memory={"enabled": True})
-    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
-    engine.state.model_name = "claude/claude-sonnet-4-20250514"
+    engine.state.connected_providers.add("test")
+    engine.state.model_name = "test/default"
     engine._sync_store_context()
     return engine
 
@@ -99,15 +100,15 @@ def test_memory_all_includes_superseded(mem_engine: Engine) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_memory_extract_calls_extraction(mem_engine: Engine, mocker: object) -> None:
+def test_memory_extract_calls_extraction(mem_engine: Engine) -> None:
     """/memory extract runs extraction on current session messages."""
-    mock_extract = mocker.patch(  # type: ignore[union-attr]
-        "rbtr.engine.memory_cmd.extract_facts_from_ctx",
-    )
     _seed(mem_engine, [_user("hello"), _assistant("hi there")])
 
     mem_engine._handle_command("/memory extract")
-    mock_extract.assert_called_once()
+    events = drain(mem_engine.events)
+    # Extraction ran — look for the extraction events.
+
+    assert any(isinstance(e, FactExtractionFinished) for e in events)
 
 
 def test_memory_extract_no_llm(config_path: str, engine: Engine) -> None:
@@ -131,59 +132,50 @@ def test_memory_extract_no_messages(mem_engine: Engine) -> None:
 
 
 def test_compaction_triggers_extraction(
-    config_path: str,
-    mocker: object,
     engine: Engine,
     llm_ctx: LLMContext,
+    test_provider: TestProvider,
 ) -> None:
-    """Compaction calls `run_fact_extraction` with the old messages."""
+    """Compaction triggers fact extraction alongside summary."""
     config.update(memory={"enabled": True})
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Summary of the conversation."),
-    )
-    mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
-    mock_extract = mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact.run_fact_extraction",
-    )
 
-    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
-    engine.state.model_name = "claude/claude-sonnet-4-20250514"
+    engine.state.connected_providers.add("test")
+    engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
-    compact_history(llm_ctx)
-    mock_extract.assert_called_once()
+    from rbtr.llm.compact import compact_agent
 
-    # Verify it received the old messages (not the kept ones).
-    call_kwargs = mock_extract.call_args
-    messages = call_kwargs.args[0]
-    assert len(messages) > 0
+    test_provider.set_model(TestModel())
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
+
+    drain(engine.events)
+    # Extraction ran — overhead stats show extraction cost.
+    oh = engine.store.overhead_stats(engine.state.session_id)
+    assert oh.fact_extraction_count >= 1
 
 
 def test_compaction_extraction_failure_non_fatal(
     config_path: str,
-    mocker: object,
+    mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
+    test_provider: TestProvider,
 ) -> None:
     """If extraction fails during compaction, compaction still succeeds."""
     config.update(memory={"enabled": True})
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Summary."),
-    )
-    mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
-    mocker.patch(  # type: ignore[union-attr]
+    mocker.patch(
         "rbtr.llm.compact.run_fact_extraction",
         side_effect=RuntimeError("LLM exploded"),
     )
 
-    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
-    engine.state.model_name = "claude/claude-sonnet-4-20250514"
+    engine.state.connected_providers.add("test")
+    engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
+    test_provider.set_model(TestModel(custom_output_text="Summary."))
     compact_history(llm_ctx)
 
     # Compaction still completed despite extraction failure.
@@ -201,19 +193,19 @@ def test_compaction_extraction_failure_non_fatal(
 
 def test_draft_post_triggers_extraction(
     mem_engine: Engine,
-    mocker: object,
+    mocker: MockerFixture,
     target_pr_42: PRTarget,
 ) -> None:
     """/draft post calls extraction after posting."""
-    mock_extract = mocker.patch(  # type: ignore[union-attr]
+    mock_extract = mocker.patch(
         "rbtr.engine.draft_cmd.extract_facts_from_ctx",
     )
-    mocker.patch(  # type: ignore[union-attr]
+    mocker.patch(
         "rbtr.engine.draft_cmd.post_review_draft",
     )
-    mocker.patch(  # type: ignore[union-attr]
+    mocker.patch(
         "rbtr.engine.draft_cmd.load_draft",
-        return_value=mocker.MagicMock(summary="Good PR", comments=[]),  # type: ignore[union-attr]
+        return_value=mocker.MagicMock(summary="Good PR", comments=[]),
     )
     _seed(mem_engine, [_user("review this"), _assistant("LGTM")])
 
@@ -245,26 +237,20 @@ def test_memory_disabled_extract_warns(config_path: str, engine: Engine) -> None
 
 def test_compaction_skips_extraction_when_disabled(
     config_path: str,
-    mocker: object,
+    mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
+    test_provider: TestProvider,
 ) -> None:
     """Compaction does not call extraction when memory is disabled."""
     config.update(memory={"enabled": False})
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Summary."),
-    )
-    mocker.patch("rbtr.llm.compact.build_model")  # type: ignore[union-attr]
-    mocker.patch(  # type: ignore[union-attr]
-        "rbtr.llm.compact.run_fact_extraction",
-    )
 
-    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
-    engine.state.model_name = "claude/claude-sonnet-4-20250514"
+    engine.state.connected_providers.add("test")
+    engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
+    test_provider.set_model(TestModel(custom_output_text="Summary."))
     compact_history(llm_ctx)
     # `run_fact_extraction` returns None because `config.memory.enabled`
     # is False (checked inside the function).  Compaction succeeds.

@@ -6,12 +6,14 @@ import queue
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pygit2
 import pytest
 from github import Github
+from github.IssueComment import IssueComment
 from github.PullRequest import PullRequest
+from github.PullRequestComment import PullRequestComment
+from github.PullRequestReview import PullRequestReview
 from github.Repository import Repository
 from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
@@ -21,6 +23,11 @@ from rbtr.llm.deps import AgentDeps
 from rbtr.models import PRTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from tests.llm.ctx import build_tool_ctx
+
+type MockReview = PullRequestReview
+type MockIssueComment = IssueComment
+type MockPRComment = PullRequestComment
 
 # ── Git helpers ──────────────────────────────────────────────────────
 
@@ -79,7 +86,7 @@ def mock_pr(gh: Github, mocker: MockerFixture) -> PullRequest:
     Tests override return values directly on the mock.
     """
     pr = mocker.create_autospec(PullRequest, instance=True)
-    gh.get_repo.return_value.get_pull.return_value = pr
+    gh.get_repo.return_value.get_pull.return_value = pr  # type: ignore[attr-defined]  # mock attrs on autospecced PyGithub type
     pr.get_reviews.return_value = []
     pr.get_review_comments.return_value = []
     pr.get_issue_comments.return_value = []
@@ -95,16 +102,17 @@ def mock_pr(gh: Github, mocker: MockerFixture) -> PullRequest:
     return pr
 
 
-def mock_review(
+def make_review(
+    mocker: MockerFixture,
     review_id: int = 1,
     body: str = "LGTM",
     state: str = "APPROVED",
     user: str = "alice",
     user_type: str = "User",
     submitted_at: datetime | None = None,
-) -> MagicMock:
-    """Build a MagicMock resembling a PyGithub PullRequestReview."""
-    r = MagicMock()
+) -> MockReview:
+    """Build a mock PullRequestReview."""
+    r = mocker.MagicMock()
     r.id = review_id
     r.body = body
     r.state = state
@@ -114,16 +122,17 @@ def mock_review(
     return r
 
 
-def mock_issue_comment(
+def make_issue_comment(
+    mocker: MockerFixture,
     comment_id: int = 20,
     body: str = "General comment.",
     user: str = "alice",
     user_type: str = "User",
     created_at: datetime | None = None,
-    reactions: list[MagicMock] | None = None,
-) -> MagicMock:
-    """Build a MagicMock resembling a PyGithub IssueComment."""
-    c = MagicMock()
+    reactions: list[object] | None = None,
+) -> MockIssueComment:
+    """Build a mock IssueComment."""
+    c = mocker.MagicMock()
     c.id = comment_id
     c.body = body
     c.user.login = user
@@ -133,7 +142,8 @@ def mock_issue_comment(
     return c
 
 
-def mock_comment(
+def make_comment(
+    mocker: MockerFixture,
     comment_id: int = 200,
     path: str = "a.py",
     line: int | None = 10,
@@ -145,10 +155,10 @@ def mock_comment(
     user_type: str = "User",
     created_at: datetime | None = None,
     in_reply_to_id: int | None = None,
-    reactions: list[MagicMock] | None = None,
-) -> MagicMock:
-    """Build a MagicMock resembling a PyGithub PullRequestComment."""
-    c = MagicMock()
+    reactions: list[object] | None = None,
+) -> MockPRComment:
+    """Build a mock PullRequestComment."""
+    c = mocker.MagicMock()
     c.id = comment_id
     c.path = path
     c.line = line
@@ -172,18 +182,13 @@ def mock_comment(
 
 
 @pytest.fixture
-def pending_review(mock_pr: PullRequest) -> MagicMock:
+def pending_review(mock_pr: PullRequest, mocker: MockerFixture) -> MockReview:
     """Configure mock_pr to have one PENDING review by `reviewer`.
 
     Returns the review mock so tests can customise `.body` etc.
     """
-    review = MagicMock()
-    review.id = 99
-    review.state = "PENDING"
-    review.body = ""
-    review.user.login = "reviewer"
-    review.user.type = "User"
-    mock_pr.get_reviews.return_value = [review]
+    review = make_review(mocker, review_id=99, state="PENDING", body="", user="reviewer")
+    mock_pr.get_reviews.return_value = [review]  # type: ignore[attr-defined]  # mock attrs on autospecced PyGithub type
     return review
 
 
@@ -304,7 +309,6 @@ def draft_pr_target(
 def tool_ctx(
     draft_pr_target: PRTarget,
     draft_repo: tuple[pygit2.Repository, pygit2.Oid, pygit2.Oid],
-    mocker: MockerFixture,
 ) -> Generator[RunContext[AgentDeps]]:
     """RunContext wired to the draft_repo — for LLM tool calls."""
     repo, _, _ = draft_repo
@@ -313,7 +317,4 @@ def tool_ctx(
     state.review_target = draft_pr_target
     state.repo = repo
     with SessionStore() as store:
-        deps = AgentDeps(state=state, store=store)
-        ctx = mocker.MagicMock(spec=RunContext)
-        ctx.deps = deps
-        yield ctx
+        yield build_tool_ctx(state, store)

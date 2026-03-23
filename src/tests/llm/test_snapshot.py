@@ -9,6 +9,7 @@ import pygit2
 import pytest
 from pydantic_ai.tools import ToolDefinition
 
+from rbtr.index.store import IndexStore
 from rbtr.llm.tools.common import (
     has_diff_target,
     has_index,
@@ -18,12 +19,12 @@ from rbtr.llm.tools.common import (
     resolve_tool_ref,
 )
 from rbtr.llm.tools.git import changed_files, commit_log, diff
-from rbtr.models import BranchTarget, PRTarget, SnapshotTarget
+from rbtr.models import BranchTarget, PRTarget, SnapshotTarget, Target
 from rbtr.prompts import render_review
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ _BRANCH = BranchTarget(
     head_branch="feature",
     base_commit="main",
     head_commit="feature",
-    updated_at=0,
+    updated_at=datetime.min.replace(tzinfo=UTC),
 )
 
 _PR = PRTarget(
@@ -49,7 +50,7 @@ _PR = PRTarget(
     head_branch="fix",
     base_commit="abc",
     head_commit="def",
-    updated_at=0,
+    updated_at=datetime.min.replace(tzinfo=UTC),
 )
 
 _TOOL_DEF = ToolDefinition(name="test_tool")
@@ -94,7 +95,7 @@ def test_snapshot_has_no_base_fields(store: SessionStore) -> None:
 def test_resolve_tool_ref_head(store: SessionStore) -> None:
     """'head' resolves to the snapshot's commit."""
     state = _snapshot_state()
-    result = resolve_tool_ref(tool_ctx(state, store), "head")
+    result = resolve_tool_ref(build_tool_ctx(state, store), "head")
     assert result == "abc123def456"
 
 
@@ -102,7 +103,7 @@ def test_resolve_tool_ref_base_raises(store: SessionStore) -> None:
     """'base' raises RuntimeError for snapshots."""
     state = _snapshot_state()
     with pytest.raises(RuntimeError, match="no base commit"):
-        resolve_tool_ref(tool_ctx(state, store), "base")
+        resolve_tool_ref(build_tool_ctx(state, store), "base")
 
 
 # ── Filter functions ─────────────────────────────────────────────────
@@ -111,7 +112,7 @@ def test_resolve_tool_ref_base_raises(store: SessionStore) -> None:
 def test_has_repo_true_for_snapshot(store: SessionStore) -> None:
     """has_repo returns True when repo + SnapshotTarget exist."""
     state = _snapshot_state(with_repo=True)
-    assert has_repo(tool_ctx(state, store), _TOOL_DEF) is True
+    assert has_repo(build_tool_ctx(state, store), _TOOL_DEF) is True
 
 
 @pytest.mark.parametrize(
@@ -124,13 +125,13 @@ def test_has_repo_true_for_snapshot(store: SessionStore) -> None:
     ],
     ids=["snapshot", "branch", "pr", "none"],
 )
-def test_has_diff_target(target: object, expected: bool, store: SessionStore) -> None:
+def test_has_diff_target(target: Target | None, expected: bool, store: SessionStore) -> None:
     """has_diff_target excludes SnapshotTarget and None."""
     with tempfile.TemporaryDirectory() as tmp:
         state = EngineState()
         state.repo = pygit2.init_repository(tmp)
-        state.review_target = target  # type: ignore[assignment]
-        result = has_diff_target(tool_ctx(state, store), _TOOL_DEF)
+        state.review_target = target
+        result = has_diff_target(build_tool_ctx(state, store), _TOOL_DEF)
         assert result is expected
 
 
@@ -138,24 +139,23 @@ def test_has_diff_target_no_repo(store: SessionStore) -> None:
     """has_diff_target returns False when no repo."""
     state = EngineState()
     state.review_target = _BRANCH
-    assert has_diff_target(tool_ctx(state, store), _TOOL_DEF) is False
+    assert has_diff_target(build_tool_ctx(state, store), _TOOL_DEF) is False
 
 
 def test_has_index_true_for_snapshot(store: SessionStore) -> None:
     """has_index works with SnapshotTarget."""
-    from rbtr.index.store import IndexStore
 
     state = _snapshot_state()
-    store = IndexStore()
-    state.index = store
-    assert has_index(tool_ctx(state, store), _TOOL_DEF) is True
-    store.close()
+    index_store = IndexStore()
+    state.index = index_store
+    assert has_index(build_tool_ctx(state, store), _TOOL_DEF) is True
+    index_store.close()
 
 
 def test_has_pr_target_false_for_snapshot(store: SessionStore) -> None:
     """has_pr_target rejects SnapshotTarget."""
     state = _snapshot_state()
-    assert has_pr_target(tool_ctx(state, store), _TOOL_DEF) is False
+    assert has_pr_target(build_tool_ctx(state, store), _TOOL_DEF) is False
 
 
 # ── require_diff_target (per-tool prepare) ───────────────────────────
@@ -172,11 +172,13 @@ def test_has_pr_target_false_for_snapshot(store: SessionStore) -> None:
     ],
     ids=["snapshot", "branch", "pr", "none"],
 )
-async def test_require_diff_target(target: object, visible: bool, store: SessionStore) -> None:
+async def test_require_diff_target(
+    target: Target | None, visible: bool, store: SessionStore
+) -> None:
     """require_diff_target hides tool for SnapshotTarget and None."""
     state = EngineState()
-    state.review_target = target  # type: ignore[assignment]
-    result = await require_diff_target(tool_ctx(state, store), _TOOL_DEF)
+    state.review_target = target
+    result = await require_diff_target(build_tool_ctx(state, store), _TOOL_DEF)
     if visible:
         assert result is _TOOL_DEF
     else:
@@ -191,7 +193,7 @@ def test_diff_no_diff_target_for_snapshot(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         state = _snapshot_state()
         state.repo = pygit2.init_repository(tmp)
-        result = diff(tool_ctx(state, store))
+        result = diff(build_tool_ctx(state, store))
         assert "No diff target" in result
 
 
@@ -200,7 +202,7 @@ def test_changed_files_no_diff_target_for_snapshot(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         state = _snapshot_state()
         state.repo = pygit2.init_repository(tmp)
-        result = changed_files(tool_ctx(state, store))
+        result = changed_files(build_tool_ctx(state, store))
         assert "No diff target" in result
 
 
@@ -209,7 +211,7 @@ def test_commit_log_no_diff_target_for_snapshot(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         state = _snapshot_state()
         state.repo = pygit2.init_repository(tmp)
-        result = commit_log(tool_ctx(state, store))
+        result = commit_log(build_tool_ctx(state, store))
         assert "No diff target" in result
 
 

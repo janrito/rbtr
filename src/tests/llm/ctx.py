@@ -11,7 +11,7 @@ from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
 
-def tool_ctx(state: EngineState, store: SessionStore) -> RunContext[AgentDeps]:
+def build_tool_ctx(state: EngineState, store: SessionStore) -> RunContext[AgentDeps]:
     """Build a `RunContext[AgentDeps]` for direct tool-function calls."""
     return RunContext[AgentDeps](
         deps=AgentDeps(state=state, store=store),

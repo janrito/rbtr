@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 import pytest
 
 from rbtr.sessions.kinds import Fact
-from rbtr.sessions.store import SessionStore
+from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
 
 from .fact_data import (
     ALL_BASELINE,
@@ -400,7 +400,6 @@ def test_empty_store_search(store: SessionStore) -> None:
 
 def test_migration_preserves_sessions() -> None:
     """Migrating from v2026030301 adds facts without touching fragments."""
-    from rbtr.sessions.store import _SCHEMA_VERSION
 
     with SessionStore() as store:
         # Roll back to the pre-facts schema: drop facts objects, reset version.

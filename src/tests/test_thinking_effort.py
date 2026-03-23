@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from rbtr.config import ThinkingEffort, config
+from rbtr.config import Config, ThinkingEffort, config
 
 # ── Enum basics ──────────────────────────────────────────────────────
 
@@ -37,7 +39,7 @@ def test_none_is_falsy_in_bool_context() -> None:
 
 
 @pytest.mark.parametrize("effort", list(ThinkingEffort))
-def test_config_roundtrip(config_path, effort) -> None:
+def test_config_roundtrip(config_path: Path, effort: ThinkingEffort) -> None:
     """Every effort level survives config.update → reload."""
     config.update(thinking_effort=effort)
     assert config.thinking_effort == effort
@@ -45,7 +47,6 @@ def test_config_roundtrip(config_path, effort) -> None:
 
 def test_default_is_medium() -> None:
     """Default thinking effort is MEDIUM."""
-    from rbtr.config import Config
 
     fresh = Config()
     assert fresh.thinking_effort == ThinkingEffort.MEDIUM
@@ -54,7 +55,7 @@ def test_default_is_medium() -> None:
 # ── Rotation logic ───────────────────────────────────────────────────
 
 
-def test_rotation_cycles_all_members(config_path) -> None:
+def test_rotation_cycles_all_members(config_path: Path) -> None:
     """Rotating len(members) times returns to the starting effort."""
     members = list(ThinkingEffort)
     config.update(thinking_effort=ThinkingEffort.LOW)
@@ -72,7 +73,7 @@ def test_rotation_cycles_all_members(config_path) -> None:
     assert config.thinking_effort == ThinkingEffort.LOW
 
 
-def test_rotation_order(config_path) -> None:
+def test_rotation_order(config_path: Path) -> None:
     """Rotation follows enum declaration order: low → medium → high → max → none."""
     members = list(ThinkingEffort)
     config.update(thinking_effort=members[0])

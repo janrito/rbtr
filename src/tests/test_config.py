@@ -2,11 +2,31 @@
 
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tomli_w
 
-from rbtr.config import Config, EndpointConfig, _deep_merge, config
+from rbtr.config import Config, EndpointConfig, GithubConfig, _deep_merge, config
+
+# ── Fixtures ─────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def config_dirs(tmp_path: Path) -> tuple[Path, Path]:
+    """Return ``(user_config_path, ws_config_path)`` inside the
+    already-isolated dirs created by the global ``_isolate_config``
+    fixture.  Neither file exists yet — tests write whichever they
+    need via `tomli_w`.
+    """
+    return tmp_path / "rbtr" / "config.toml", tmp_path / "ws" / "config.toml"
+
+
+def _write(path: Path, data: dict[str, Any]) -> None:
+    """Write a TOML dict to *path* and reload config."""
+    path.write_text(tomli_w.dumps(data))
+    config.reload()
+
 
 # ── Keystroke latency target ─────────────────────────────────────────
 #
@@ -16,26 +36,24 @@ from rbtr.config import Config, EndpointConfig, _deep_merge, config
 #
 # Target: under 100ms.  Perceptible typing lag starts around 100ms.
 
-_MAX_KEYSTROKE_LATENCY = 0.100  # seconds
 
-
-def test_poll_interval_is_positive():
+def test_poll_interval_is_positive() -> None:
     assert config.tui.poll_interval > 0
 
 
-def test_refresh_rate_is_positive():
+def test_refresh_rate_is_positive() -> None:
     assert config.tui.refresh_per_second > 0
 
 
-def test_worst_case_keystroke_latency():
+def test_worst_case_keystroke_latency() -> None:
+    max_latency = 0.100  # seconds
     worst_case = config.tui.poll_interval + 1 / config.tui.refresh_per_second
-    assert worst_case < _MAX_KEYSTROKE_LATENCY, (
-        f"Worst-case latency {worst_case * 1000:.0f}ms exceeds "
-        f"{_MAX_KEYSTROKE_LATENCY * 1000:.0f}ms target"
+    assert worst_case < max_latency, (
+        f"Worst-case latency {worst_case * 1000:.0f}ms exceeds {max_latency * 1000:.0f}ms target"
     )
 
 
-def test_poll_interval_not_faster_than_refresh():
+def test_poll_interval_not_faster_than_refresh() -> None:
     """No point polling faster than Rich can repaint."""
     assert config.tui.poll_interval >= 1 / config.tui.refresh_per_second - 0.001
 
@@ -43,12 +61,12 @@ def test_poll_interval_not_faster_than_refresh():
 # ── Other timing invariants ──────────────────────────────────────────
 
 
-def test_completion_timeout_is_bounded():
+def test_completion_timeout_is_bounded() -> None:
     """Completion subprocess must not block longer than a few seconds."""
     assert 0 < config.tui.shell_completion_timeout <= 5.0
 
 
-def test_double_ctrl_c_window_is_reasonable():
+def test_double_ctrl_c_window_is_reasonable() -> None:
     """Window must be short enough to feel responsive, long enough to be intentional."""
     assert 0.2 <= config.tui.double_ctrl_c_window <= 1.0
 
@@ -56,26 +74,26 @@ def test_double_ctrl_c_window_is_reasonable():
 # ── _deep_merge unit tests ───────────────────────────────────────────
 
 
-def test_deep_merge_flat():
+def test_deep_merge_flat() -> None:
     assert _deep_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
 
 
-def test_deep_merge_overwrite_scalar():
+def test_deep_merge_overwrite_scalar() -> None:
     assert _deep_merge({"a": 1}, {"a": 2}) == {"a": 2}
 
 
-def test_deep_merge_nested():
+def test_deep_merge_nested() -> None:
     base = {"s": {"x": 1, "y": 2}}
     assert _deep_merge(base, {"s": {"x": 99}}) == {"s": {"x": 99, "y": 2}}
 
 
-def test_deep_merge_empty_dict_replaces():
+def test_deep_merge_empty_dict_replaces() -> None:
     """An empty dict clears the section (doesn't silently keep old keys)."""
     base = {"ep": {"a": {"url": "http://a"}}}
     assert _deep_merge(base, {"ep": {}}) == {"ep": {}}
 
 
-def test_deep_merge_does_not_mutate_base():
+def test_deep_merge_does_not_mutate_base() -> None:
     base = {"s": {"x": 1}}
     _deep_merge(base, {"s": {"x": 2}})
     assert base == {"s": {"x": 1}}
@@ -84,78 +102,55 @@ def test_deep_merge_does_not_mutate_base():
 # ── Layered loading ──────────────────────────────────────────────────
 
 
-def _setup(monkeypatch, tmp_path, *, user=None, ws=None):
-    """Write user/workspace TOML files and point config at them."""
-    user_dir = tmp_path / "user"
-    user_dir.mkdir(exist_ok=True)
-    user_config = user_dir / "config.toml"
-    ws_dir = tmp_path / "ws"
-    ws_dir.mkdir(exist_ok=True)
-    ws_config = ws_dir / "config.toml"
-    if user is not None:
-        user_config.write_text(tomli_w.dumps(user))
-    if ws is not None:
-        ws_config.write_text(tomli_w.dumps(ws))
-    mock_ws = lambda: ws_dir  # noqa: E731
-    monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
-    monkeypatch.setattr("rbtr.workspace.workspace_dir", mock_ws)
-    config.reload()
-    return user_config, ws_config
-
-
-def test_defaults_when_no_files(tmp_path: Path, monkeypatch):
+def test_defaults_when_no_files(config_dirs: tuple[Path, Path]) -> None:
     """All values fall back to class defaults when no files exist."""
-    _setup(monkeypatch, tmp_path)
-
     assert config.model is None
     assert config.endpoints == {}
     assert config.github.timeout == 10
     assert config.github.max_branches == 30
 
 
-def test_user_file_overrides_defaults(tmp_path: Path, monkeypatch):
-    _setup(monkeypatch, tmp_path, user={"github": {"timeout": 42}})
+def test_user_file_overrides_defaults(config_dirs: tuple[Path, Path]) -> None:
+    user_path, _ = config_dirs
+    _write(user_path, {"github": {"timeout": 42}})
 
     assert config.github.timeout == 42
     assert config.github.max_branches == 30
 
 
-def test_workspace_overrides_user(tmp_path: Path, monkeypatch):
+def test_workspace_overrides_user(config_dirs: tuple[Path, Path]) -> None:
     """Workspace wins on conflict; user's non-conflicting keys survive."""
-    _setup(
-        monkeypatch,
-        tmp_path,
-        user={"github": {"timeout": 20, "max_branches": 50}},
-        ws={"github": {"timeout": 99}},
-    )
+    user_path, ws_path = config_dirs
+    _write(user_path, {"github": {"timeout": 20, "max_branches": 50}})
+    _write(ws_path, {"github": {"timeout": 99}})
 
     assert config.github.timeout == 99
     assert config.github.max_branches == 50
 
 
-def test_workspace_overrides_user_top_level(tmp_path: Path, monkeypatch):
+def test_workspace_overrides_user_top_level(config_dirs: tuple[Path, Path]) -> None:
     """Workspace model overrides user model."""
-    _setup(
-        monkeypatch,
-        tmp_path,
-        user={"model": "user/model"},
-        ws={"model": "ws/model"},
-    )
+    user_path, ws_path = config_dirs
+    _write(user_path, {"model": "user/model"})
+    _write(ws_path, {"model": "ws/model"})
 
     assert config.model == "ws/model"
 
 
-def test_loading_complex_workspace(tmp_path: Path, monkeypatch):
+def test_loading_complex_workspace(config_dirs: tuple[Path, Path]) -> None:
     """Complex nested workspace settings load and merge correctly."""
-    _setup(
-        monkeypatch,
-        tmp_path,
-        user={
+    user_path, ws_path = config_dirs
+    _write(
+        user_path,
+        {
             "model": "user/model",
             "endpoints": {"alpha": {"base_url": "https://alpha.example.com"}},
             "github": {"timeout": 20},
         },
-        ws={
+    )
+    _write(
+        ws_path,
+        {
             "model": "ws/model",
             "endpoints": {"beta": {"base_url": "https://beta.example.com"}},
             "github": {"max_branches": 100},
@@ -179,16 +174,16 @@ def test_loading_complex_workspace(tmp_path: Path, monkeypatch):
 # ── model_dump excludes defaults ─────────────────────────────────────
 
 
-def test_dump_excludes_defaults(monkeypatch: pytest.MonkeyPatch):
+def test_dump_excludes_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("RBTR_USER_DIR", raising=False)
     c = Config(model="saved/model")
     data = c.model_dump(exclude_none=True, exclude_defaults=True, mode="json")
     assert data == {"model": "saved/model"}
 
 
-def test_dump_nested_excludes_defaults(monkeypatch: pytest.MonkeyPatch):
+def test_dump_nested_excludes_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("RBTR_USER_DIR", raising=False)
-    c = Config(github={"timeout": 99})
+    c = Config(github=GithubConfig(timeout=99))
     data = c.model_dump(exclude_none=True, exclude_defaults=True, mode="json")
     assert data == {"github": {"timeout": 99}}
 
@@ -196,8 +191,8 @@ def test_dump_nested_excludes_defaults(monkeypatch: pytest.MonkeyPatch):
 # ── update() routing ─────────────────────────────────────────────────
 
 
-def test_update_saves_to_user_when_no_workspace(tmp_path: Path, monkeypatch):
-    user_path, ws_path = _setup(monkeypatch, tmp_path)
+def test_update_saves_to_user_when_no_workspace(config_dirs: tuple[Path, Path]) -> None:
+    user_path, ws_path = config_dirs
 
     config.update(model="to-user")
 
@@ -206,22 +201,22 @@ def test_update_saves_to_user_when_no_workspace(tmp_path: Path, monkeypatch):
     assert tomllib.loads(user_path.read_text())["model"] == "to-user"
 
 
-def test_update_saves_to_workspace_when_it_exists(tmp_path: Path, monkeypatch):
-    _, ws_path = _setup(monkeypatch, tmp_path, ws={"model": "old-ws"})
+def test_update_saves_to_workspace_when_it_exists(config_dirs: tuple[Path, Path]) -> None:
+    _, ws_path = config_dirs
+    _write(ws_path, {"model": "old-ws"})
 
     config.update(model="new-ws")
 
     assert tomllib.loads(ws_path.read_text())["model"] == "new-ws"
 
 
-def test_update_does_not_write_user_when_workspace_exists(tmp_path: Path, monkeypatch):
+def test_update_does_not_write_user_when_workspace_exists(
+    config_dirs: tuple[Path, Path],
+) -> None:
     """When workspace exists, update only touches the workspace file."""
-    user_path, _ws_path = _setup(
-        monkeypatch,
-        tmp_path,
-        user={"model": "user-model"},
-        ws={"github": {"timeout": 5}},
-    )
+    user_path, ws_path = config_dirs
+    _write(user_path, {"model": "user-model"})
+    _write(ws_path, {"github": {"timeout": 5}})
 
     user_mtime = user_path.stat().st_mtime
     config.update(model="changed")
@@ -233,22 +228,17 @@ def test_update_does_not_write_user_when_workspace_exists(tmp_path: Path, monkey
 # ── update() reload ──────────────────────────────────────────────────
 
 
-def test_update_reloads_merged_state(tmp_path: Path, monkeypatch):
-    _setup(monkeypatch, tmp_path)
-
+def test_update_reloads_merged_state(config_dirs: tuple[Path, Path]) -> None:
     assert config.model is None
     config.update(model="after-update")
     assert config.model == "after-update"
 
 
-def test_update_reload_merges_both_files(tmp_path: Path, monkeypatch):
+def test_update_reload_merges_both_files(config_dirs: tuple[Path, Path]) -> None:
     """After updating workspace, config still sees user settings."""
-    _setup(
-        monkeypatch,
-        tmp_path,
-        user={"model": "user/model", "github": {"timeout": 77}},
-        ws={"tui": {"shell_max_lines": 50}},
-    )
+    user_path, ws_path = config_dirs
+    _write(user_path, {"model": "user/model", "github": {"timeout": 77}})
+    _write(ws_path, {"tui": {"shell_max_lines": 50}})
 
     config.update(tui={"max_completions": 5})
 
@@ -264,12 +254,14 @@ def test_update_reload_merges_both_files(tmp_path: Path, monkeypatch):
 # ── update() preserves / clears ──────────────────────────────────────
 
 
-def test_update_preserves_unrelated_keys_in_target_file(tmp_path: Path, monkeypatch):
+def test_update_preserves_unrelated_keys_in_target_file(
+    config_dirs: tuple[Path, Path],
+) -> None:
     """Updating one key doesn't clobber other overrides in the same file."""
-    user_path, _ = _setup(
-        monkeypatch,
-        tmp_path,
-        user={
+    user_path, _ = config_dirs
+    _write(
+        user_path,
+        {
             "model": "keep-me",
             "endpoints": {"custom": {"base_url": "https://example.com"}},
         },
@@ -288,12 +280,14 @@ def test_update_preserves_unrelated_keys_in_target_file(tmp_path: Path, monkeypa
     assert "new" in data["endpoints"]
 
 
-def test_update_preserves_ws_keys_when_updating_ws(tmp_path: Path, monkeypatch):
+def test_update_preserves_ws_keys_when_updating_ws(
+    config_dirs: tuple[Path, Path],
+) -> None:
     """Updating workspace preserves other workspace overrides."""
-    _, ws_path = _setup(
-        monkeypatch,
-        tmp_path,
-        ws={
+    _, ws_path = config_dirs
+    _write(
+        ws_path,
+        {
             "model": "ws-model",
             "endpoints": {"ep": {"base_url": "https://ep.example.com"}},
             "github": {"timeout": 42, "max_branches": 99},
@@ -309,8 +303,9 @@ def test_update_preserves_ws_keys_when_updating_ws(tmp_path: Path, monkeypatch):
     assert ws_data["github"]["max_branches"] == 99
 
 
-def test_update_can_clear_to_default(tmp_path: Path, monkeypatch):
-    user_path, _ = _setup(monkeypatch, tmp_path, user={"model": "will-be-cleared"})
+def test_update_can_clear_to_default(config_dirs: tuple[Path, Path]) -> None:
+    user_path, _ = config_dirs
+    _write(user_path, {"model": "will-be-cleared"})
 
     config.update(model=None)
 
@@ -319,11 +314,11 @@ def test_update_can_clear_to_default(tmp_path: Path, monkeypatch):
     assert config.model is None
 
 
-def test_update_remove_endpoint(tmp_path: Path, monkeypatch):
-    user_path, _ = _setup(
-        monkeypatch,
-        tmp_path,
-        user={"endpoints": {"ep1": {"base_url": "https://ep1.example.com"}}},
+def test_update_remove_endpoint(config_dirs: tuple[Path, Path]) -> None:
+    user_path, _ = config_dirs
+    _write(
+        user_path,
+        {"endpoints": {"ep1": {"base_url": "https://ep1.example.com"}}},
     )
 
     assert "ep1" in config.endpoints
@@ -334,9 +329,9 @@ def test_update_remove_endpoint(tmp_path: Path, monkeypatch):
     assert "endpoints" not in data
 
 
-def test_update_only_saves_non_defaults_to_file(tmp_path: Path, monkeypatch):
+def test_update_only_saves_non_defaults_to_file(config_dirs: tuple[Path, Path]) -> None:
     """update() never writes default values to disk."""
-    user_path, _ = _setup(monkeypatch, tmp_path)
+    user_path, _ = config_dirs
 
     config.update(model="my/model")
 
@@ -345,9 +340,11 @@ def test_update_only_saves_non_defaults_to_file(tmp_path: Path, monkeypatch):
     assert data == {"model": "my/model"}
 
 
-def test_update_only_saves_non_defaults_to_workspace(tmp_path: Path, monkeypatch):
+def test_update_only_saves_non_defaults_to_workspace(config_dirs: tuple[Path, Path]) -> None:
     """Same as above but for workspace file."""
-    _, ws_path = _setup(monkeypatch, tmp_path, ws={})
+    _, ws_path = config_dirs
+    ws_path.write_text("")  # create empty ws config so updates go there
+    config.reload()
 
     config.update(model="ws/model")
 
@@ -358,13 +355,10 @@ def test_update_only_saves_non_defaults_to_workspace(tmp_path: Path, monkeypatch
 # ── update() deep merge in target file ───────────────────────────────
 
 
-def test_update_deep_merges_nested_section(tmp_path: Path, monkeypatch):
+def test_update_deep_merges_nested_section(config_dirs: tuple[Path, Path]) -> None:
     """Updating one nested key preserves sibling keys in the file."""
-    user_path, _ = _setup(
-        monkeypatch,
-        tmp_path,
-        user={"github": {"timeout": 77, "max_branches": 99}},
-    )
+    user_path, _ = config_dirs
+    _write(user_path, {"github": {"timeout": 77, "max_branches": 99}})
 
     config.update(github={"timeout": 5})
 
@@ -373,13 +367,10 @@ def test_update_deep_merges_nested_section(tmp_path: Path, monkeypatch):
     assert data["github"]["max_branches"] == 99
 
 
-def test_update_deep_merges_endpoints(tmp_path: Path, monkeypatch):
+def test_update_deep_merges_endpoints(config_dirs: tuple[Path, Path]) -> None:
     """Adding an endpoint preserves existing ones in the file via deep merge."""
-    user_path, _ = _setup(
-        monkeypatch,
-        tmp_path,
-        user={"endpoints": {"old": {"base_url": "https://old.example.com"}}},
-    )
+    user_path, _ = config_dirs
+    _write(user_path, {"endpoints": {"old": {"base_url": "https://old.example.com"}}})
 
     config.update(endpoints={"new": {"base_url": "https://new.example.com"}})
 
@@ -388,13 +379,10 @@ def test_update_deep_merges_endpoints(tmp_path: Path, monkeypatch):
     assert data["endpoints"]["new"]["base_url"] == "https://new.example.com"
 
 
-def test_update_ws_deep_merges_nested_section(tmp_path: Path, monkeypatch):
+def test_update_ws_deep_merges_nested_section(config_dirs: tuple[Path, Path]) -> None:
     """Deep merge works on workspace file too."""
-    _, ws_path = _setup(
-        monkeypatch,
-        tmp_path,
-        ws={"github": {"timeout": 77, "max_branches": 99}, "model": "ws/m"},
-    )
+    _, ws_path = config_dirs
+    _write(ws_path, {"github": {"timeout": 77, "max_branches": 99}, "model": "ws/m"})
 
     config.update(github={"timeout": 5})
 
@@ -407,9 +395,9 @@ def test_update_ws_deep_merges_nested_section(tmp_path: Path, monkeypatch):
 # ── End-to-end scenario ──────────────────────────────────────────────
 
 
-def test_full_lifecycle(tmp_path: Path, monkeypatch):
+def test_full_lifecycle(config_dirs: tuple[Path, Path]) -> None:
     """add endpoint → change model → remove endpoint → verify files."""
-    user_path, _ = _setup(monkeypatch, tmp_path)
+    user_path, _ = config_dirs
 
     # 1. Add endpoint
     config.update(endpoints={"api": {"base_url": "https://api.example.com"}})
@@ -432,13 +420,10 @@ def test_full_lifecycle(tmp_path: Path, monkeypatch):
     assert data["model"] == "test/model"
 
 
-def test_full_lifecycle_with_workspace(tmp_path: Path, monkeypatch):
+def test_full_lifecycle_with_workspace(config_dirs: tuple[Path, Path]) -> None:
     """User has settings, workspace appears, updates go to workspace."""
-    user_path, ws_path = _setup(
-        monkeypatch,
-        tmp_path,
-        user={"model": "user/model", "github": {"timeout": 30}},
-    )
+    user_path, ws_path = config_dirs
+    _write(user_path, {"model": "user/model", "github": {"timeout": 30}})
 
     # No workspace yet — update goes to user
     config.update(model="updated/model")

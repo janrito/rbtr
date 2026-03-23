@@ -18,12 +18,12 @@ Organisation:
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models.test import TestModel
 from pytest_mock import MockerFixture
 
-from rbtr.llm.context import LLMContext
 from rbtr.llm.memory import (
     ExtractedFact,
     FactAction,
@@ -32,10 +32,13 @@ from rbtr.llm.memory import (
     _build_clarify_prompt,
     _build_user_prompt,
     _clarify_failed_facts,
+    fact_extract_agent,
     process_extracted_facts,
     render_facts_instruction,
 )
 from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
+from tests.helpers import MemCtx
 from tests.sessions.fact_data import GLOBAL, RBTR_KEY
 
 SESSION_ID = "extract-session-001"
@@ -45,14 +48,11 @@ def _make_ctx(
     store: SessionStore,
     session_id: str = SESSION_ID,
     repo_scope: str | None = RBTR_KEY,
-) -> LLMContext:
-    """Build a minimal `LLMContext`-shaped object for `process_extracted_facts`.
-
-    Only `.store` and `.state.session_id` / `.state.repo_scope`
-    are accessed — the rest is stubbed out.
-    """
-    state = SimpleNamespace(session_id=session_id, repo_scope=repo_scope)
-    return SimpleNamespace(store=store, state=state)  # type: ignore[return-value]
+) -> MemCtx:
+    """Build a minimal `MemoryContext` for `process_extracted_facts`."""
+    owner, _, repo_name = (repo_scope or "").partition("/")
+    state = EngineState(session_id=session_id, owner=owner, repo_name=repo_name)
+    return MemCtx(store=store, state=state)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -440,8 +440,8 @@ def test_clarify_prompt_lists_failures() -> None:
 
 
 @pytest.mark.anyio
-async def test_clarify_returns_corrected_facts(mocker: MockerFixture) -> None:
-    """Clarification uses fact_extract_agent with message_history and returns corrections."""
+async def test_clarify_returns_corrected_facts() -> None:
+    """Clarification uses fact_extract_agent and returns corrections."""
     corrected = FactExtractionResult(
         facts=[
             ExtractedFact(
@@ -452,10 +452,6 @@ async def test_clarify_returns_corrected_facts(mocker: MockerFixture) -> None:
             ),
         ]
     )
-    mock_run = mocker.patch(
-        "rbtr.llm.memory.fact_extract_agent.run",
-        return_value=_FakeAgentResult(corrected),
-    )
     failed = [
         ExtractedFact(
             content="Uses pytest with coverage.",
@@ -465,66 +461,43 @@ async def test_clarify_returns_corrected_facts(mocker: MockerFixture) -> None:
         ),
     ]
     deps = FactExtractionDeps(existing_facts=[])
-    history: list[object] = []  # Simulates result.all_messages() from first run.
-    result = await _clarify_failed_facts(failed, history, mocker.MagicMock(), None, deps)
+    history: list[ModelMessage] = []
+    with fact_extract_agent.override(
+        model=TestModel(custom_output_args=corrected.model_dump()),
+    ):
+        result = await _clarify_failed_facts(failed, history, TestModel(), None, deps)
     assert len(result.facts) == 1
     assert result.facts[0].existing_content == "Uses pytest."
-    mock_run.assert_called_once()
-    # Verify message_history and deps were passed.
-    _, kwargs = mock_run.call_args
-    assert kwargs["message_history"] is history
-    assert kwargs["deps"] is deps
 
 
 @pytest.mark.anyio
 async def test_clarify_model_failure_returns_empty(mocker: MockerFixture) -> None:
     """Model error during clarification returns empty result."""
-    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    mocker.patch(
-        "rbtr.llm.memory.fact_extract_agent.run",
-        side_effect=ModelHTTPError(status_code=500, model_name="test", body="fail"),
-    )
+    def _fail(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        raise ModelHTTPError(status_code=500, model_name="test", body="fail")
+
     deps = FactExtractionDeps(existing_facts=[])
-    result = await _clarify_failed_facts([], [], mocker.MagicMock(), None, deps)
+    with fact_extract_agent.override(model=FunctionModel(_fail)):
+        result = await _clarify_failed_facts([], [], FunctionModel(_fail), None, deps)
     assert result.facts == []
     assert result.input_tokens == 0
 
 
 @pytest.mark.anyio
-async def test_clarify_empty_response(mocker: MockerFixture) -> None:
+async def test_clarify_empty_response() -> None:
     """Model returns no corrected facts."""
-    mocker.patch(
-        "rbtr.llm.memory.fact_extract_agent.run",
-        return_value=_FakeAgentResult(FactExtractionResult()),
-    )
+    empty = FactExtractionResult()
     deps = FactExtractionDeps(existing_facts=[])
-    result = await _clarify_failed_facts(
-        [ExtractedFact(content="X.", action=FactAction.SUPERSEDE, existing_content="Y.")],
-        [],
-        mocker.MagicMock(),
-        None,
-        deps,
-    )
+    with fact_extract_agent.override(
+        model=TestModel(custom_output_args=empty.model_dump()),
+    ):
+        result = await _clarify_failed_facts(
+            [ExtractedFact(content="X.", action=FactAction.SUPERSEDE, existing_content="Y.")],
+            [],
+            TestModel(),
+            None,
+            deps,
+        )
     assert result.facts == []
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-class _FakeAgentResult:
-    """Minimal stand-in for `AgentRunResult`."""
-
-    def __init__(self, output: FactExtractionResult) -> None:
-        self.output = output
-
-    def usage(self) -> _FakeUsage:
-        return _FakeUsage()
-
-    def new_messages(self) -> list[object]:
-        return []
-
-
-class _FakeUsage:
-    input_tokens: int = 100
-    output_tokens: int = 50

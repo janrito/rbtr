@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 
 import pygit2
 import pytest
@@ -18,11 +19,11 @@ from rbtr.llm.tools.common import (
     matches_pathspec,
     require_pr,
 )
-from rbtr.models import BranchTarget, PRTarget
+from rbtr.models import BranchTarget, PRTarget, Target
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ _BRANCH_TARGET = BranchTarget(
     head_branch="feature",
     base_commit="main",
     head_commit="feature",
-    updated_at=0,
+    updated_at=datetime.min.replace(tzinfo=UTC),
 )
 
 _PR_TARGET = PRTarget(
@@ -42,7 +43,7 @@ _PR_TARGET = PRTarget(
     head_branch="feature",
     base_commit="abc",
     head_commit="def",
-    updated_at=0,
+    updated_at=datetime.min.replace(tzinfo=UTC),
 )
 
 _TOOL_DEF = ToolDefinition(name="test_tool")
@@ -64,18 +65,18 @@ _TOOL_DEF = ToolDefinition(name="test_tool")
 def test_has_index(has_idx: bool, has_target: bool, expected: bool, store: SessionStore) -> None:
     """Filter returns True only when both index and review target exist."""
     state = EngineState()
-    store: IndexStore | None = None
+    idx: IndexStore | None = None
     if has_idx:
-        store = IndexStore()
-        state.index = store
+        idx = IndexStore()
+        state.index = idx
     if has_target:
         state.review_target = _BRANCH_TARGET
 
-    result = has_index(tool_ctx(state, store), _TOOL_DEF)
+    result = has_index(build_tool_ctx(state, store), _TOOL_DEF)
     assert result is expected
 
-    if store is not None:
-        store.close()
+    if idx is not None:
+        idx.close()
 
 
 # ── has_repo ─────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ def test_has_repo(has_rp: bool, has_target: bool, expected: bool, store: Session
         if has_target:
             state.review_target = _BRANCH_TARGET
 
-        result = has_repo(tool_ctx(state, store), _TOOL_DEF)
+        result = has_repo(build_tool_ctx(state, store), _TOOL_DEF)
         assert result is expected
 
 
@@ -120,7 +121,7 @@ def test_has_repo(has_rp: bool, has_target: bool, expected: bool, store: Session
 )
 async def test_require_pr(
     has_gh: bool,
-    target: object,
+    target: Target | None,
     expected_visible: bool,
     mocker: MockerFixture,
     store: SessionStore,
@@ -130,9 +131,9 @@ async def test_require_pr(
     if has_gh:
         state.gh = mocker.create_autospec(Github, instance=True)
         state.gh_username = "reviewer"
-    state.review_target = target  # type: ignore[assignment]
+    state.review_target = target
 
-    result = await require_pr(tool_ctx(state, store), _TOOL_DEF)
+    result = await require_pr(build_tool_ctx(state, store), _TOOL_DEF)
 
     if expected_visible:
         assert result is _TOOL_DEF
@@ -152,12 +153,12 @@ async def test_require_pr(
     ],
     ids=["no_target", "branch_target", "pr_target"],
 )
-def test_has_pr_target(target: object, expected: bool, store: SessionStore) -> None:
+def test_has_pr_target(target: Target | None, expected: bool, store: SessionStore) -> None:
     """Filter returns True when a PR target is selected."""
     state = EngineState()
-    state.review_target = target  # type: ignore[assignment]
+    state.review_target = target
 
-    result = has_pr_target(tool_ctx(state, store), _TOOL_DEF)
+    result = has_pr_target(build_tool_ctx(state, store), _TOOL_DEF)
     assert result is expected
 
 

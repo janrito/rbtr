@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pygit2
 import pytest
 from pytest_mock import MockerFixture
@@ -42,7 +44,7 @@ def review_engine(repo_engine: Engine) -> Engine:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=repo.head.peel(pygit2.Commit).commit_time,
+        updated_at=datetime.fromtimestamp(repo.head.peel(pygit2.Commit).commit_time, tz=UTC),
     )
     return engine
 
@@ -143,7 +145,7 @@ def test_index_warns_missing_grammars(
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=repo.head.peel(pygit2.Commit).commit_time,
+        updated_at=datetime.fromtimestamp(repo.head.peel(pygit2.Commit).commit_time, tz=UTC),
     )
 
     _build_index(engine)

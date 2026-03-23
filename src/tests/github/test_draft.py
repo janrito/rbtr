@@ -18,7 +18,7 @@ from rbtr.github.draft import (
     save_draft,
     stamp_synced,
 )
-from rbtr.models import InlineComment, ReviewDraft, ReviewEvent
+from rbtr.models import DiffSide, InlineComment, ReviewDraft, ReviewEvent
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -513,7 +513,7 @@ def test_partition_mixed_valid_and_invalid() -> None:
 
 
 def test_partition_left_side_uses_left_ranges() -> None:
-    comments = [InlineComment(path="a.py", line=7, side="LEFT", body="old")]
+    comments = [InlineComment(path="a.py", line=7, side=DiffSide.LEFT, body="old")]
     valid, invalid = partition_comments(comments, {"a.py": {10}}, {"a.py": {7}})
     assert len(valid) == 1
     assert len(invalid) == 0

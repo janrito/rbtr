@@ -19,7 +19,9 @@ import json
 import pytest
 from pydantic_ai.messages import (
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    ModelResponsePart,
     RetryPromptPart,
     TextPart,
     ThinkingPart,
@@ -179,7 +181,7 @@ def test_reconstruct_message_roundtrip() -> None:
 
 def test_dump_part_json_valid() -> None:
     """dump_part produces valid JSON for each part type."""
-    parts = [
+    parts: list[ModelRequestPart | ModelResponsePart] = [
         UserPromptPart(content="hi"),
         TextPart(content="hello"),
         ToolCallPart(tool_name="f", args={"x": 1}, tool_call_id="tc1"),

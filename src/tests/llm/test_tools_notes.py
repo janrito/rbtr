@@ -12,7 +12,7 @@ from rbtr.llm.tools.notes import edit
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── edit tool ────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ from .ctx import tool_ctx
 @pytest.fixture
 def ctx(store: SessionStore) -> RunContext[AgentDeps]:
     """Empty-state context — edit doesn't need repo or index."""
-    return tool_ctx(EngineState(), store)
+    return build_tool_ctx(EngineState(), store)
 
 
 def test_edit_create_new_file(

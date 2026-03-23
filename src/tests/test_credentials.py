@@ -9,6 +9,8 @@ inspectable named data — not anonymous inline strings.
 import stat
 from pathlib import Path
 
+import pytest
+
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
 
@@ -71,7 +73,7 @@ def test_update_sets_0600_permissions(creds_path: Path) -> None:
     assert stat.S_IMODE(creds_path.stat().st_mode) == 0o600
 
 
-def test_update_creates_parent_dirs(tmp_path: Path, monkeypatch) -> None:
+def test_update_creates_parent_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     nested = tmp_path / "nested" / "dir"
     monkeypatch.setenv("RBTR_USER_DIR", str(nested))
     config.reload()

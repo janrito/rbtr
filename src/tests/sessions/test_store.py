@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import time
+import time as _time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
     BuiltinToolCallPart,
     BuiltinToolReturnPart,
     FilePart,
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
@@ -43,8 +45,17 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from uuid_utils import uuid7
 
+from rbtr.llm.history import (
+    consolidate_tool_returns,
+    demote_thinking,
+    flatten_tool_exchanges,
+    repair_dangling_tool_calls,
+    sanitize_tool_call_ids,
+    validate_tool_call_args,
+)
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
+from tests.sessions.assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
 # ═══════════════════════════════════════════════════════════════════════
 # Shared test data
@@ -476,7 +487,7 @@ def test_search_respects_limit() -> None:
 
 def test_compact_hides_old_messages() -> None:
     """Compacted messages disappear; summary + kept remain."""
-    msgs = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
+    msgs: list[ModelMessage] = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
 
     with SessionStore() as store:
         store.save_messages("s1", msgs)
@@ -504,7 +515,7 @@ def test_compact_then_save_more() -> None:
 @pytest.mark.parametrize("compact_count", [5, 4, 2])
 def test_compact_varying_counts(compact_count: int) -> None:
     with SessionStore() as store:
-        msgs = [_user(f"q{i}") for i in range(5)]
+        msgs: list[ModelMessage] = [_user(f"q{i}") for i in range(5)]
         store.save_messages("s1", msgs)
         all_ids = store.load_message_ids("s1")
         store.compact_session("s1", summary=_user("[summary]"), compact_ids=all_ids[:compact_count])
@@ -654,7 +665,6 @@ def test_migration_fixes_inverted_message_ordering(tmp_path: Path) -> None:
     The migration swaps `created_at` values for each inverted
     pair.  After reopening the DB, request comes first.
     """
-    import time as _time
 
     db_path = tmp_path / "inverted.db"
 
@@ -721,7 +731,6 @@ def test_migration_fixes_tool_pairing_cascade(tmp_path: Path) -> None:
     After migration: request sorts first → tool call and return
     are adjacent → valid history.
     """
-    import time as _time
 
     db_path = tmp_path / "cascade.db"
 
@@ -913,7 +922,9 @@ def test_delete_session_cascades_through_compacted_rows() -> None:
     """
     with SessionStore() as store:
         # 6 messages: 3 turns of Q/A.
-        msgs = [_user(f"q{i}") for i in range(3)] + [_assistant(f"a{i}") for i in range(3)]
+        msgs: list[ModelMessage] = [_user(f"q{i}") for i in range(3)] + [
+            _assistant(f"a{i}") for i in range(3)
+        ]
         store.save_messages("s1", msgs)
 
         # Compact first 4 messages (turns 1 & 2).
@@ -941,7 +952,7 @@ def test_compaction_cascade_delete_summary_removes_marked_rows() -> None:
     cascade-deleted too (FK ON DELETE CASCADE on compacted_by).
     """
     with SessionStore() as store:
-        msgs = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
+        msgs: list[ModelMessage] = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
         store.save_messages("s1", msgs)
 
         all_ids = store.load_message_ids("s1")
@@ -981,13 +992,13 @@ def test_nested_compaction() -> None:
     """
     with SessionStore() as store:
         # Round 1: 4 messages, compact all.
-        msgs1 = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
+        msgs1: list[ModelMessage] = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
         store.save_messages("s1", msgs1)
         ids1 = store.load_message_ids("s1")
         store.compact_session("s1", summary=_user("[summary 1]"), compact_ids=ids1)
 
         # Round 2: add more messages.
-        msgs2 = [_user("q3"), _assistant("a3"), _user("q4"), _assistant("a4")]
+        msgs2: list[ModelMessage] = [_user("q3"), _assistant("a3"), _user("q4"), _assistant("a4")]
         store.save_messages("s1", msgs2)
 
         # Compact again: summary1 + 4 new messages → keep last 2, compact the rest.
@@ -1012,7 +1023,7 @@ def test_listing_counts_all_messages_including_compacted() -> None:
     total lifetime messages, not just active ones.
     """
     with SessionStore() as store:
-        msgs = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
+        msgs: list[ModelMessage] = [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")]
         store.save_messages("s1", msgs)
 
         all_ids = store.load_message_ids("s1")
@@ -1603,7 +1614,6 @@ def _insert_incident_row(
     data_json: str | None = None,
 ) -> str:
     """Insert a self-referencing incident row directly."""
-    from datetime import UTC, datetime
 
     row_id = store.new_id()
     now = datetime.now(UTC).isoformat()
@@ -2404,7 +2414,6 @@ def test_lifecycle_conversation_roundtrip() -> None:
     """Full multi-turn conversation with signed thinking + tool calls
     round-trips losslessly: fidelity, tool pairing, and alternation.
     """
-    from .assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
     with SessionStore() as store:
         store.save_messages("s1", LIFECYCLE_CONVERSATION)
@@ -2426,7 +2435,6 @@ def test_dangling_tool_call_repaired_after_load() -> None:
     follows.  After load, `repair_dangling_tool_calls` injects
     synthetic `(cancelled)` returns.
     """
-    from rbtr.llm.history import repair_dangling_tool_calls
 
     with SessionStore() as store:
         store.set_context("s1")
@@ -2474,7 +2482,6 @@ def test_consolidate_tool_returns_after_load() -> None:
     request than expected (e.g. after compaction or cross-provider
     resume).
     """
-    from rbtr.llm.history import consolidate_tool_returns
 
     with SessionStore() as store:
         store.set_context("s1")
@@ -2546,7 +2553,6 @@ def test_demote_thinking_after_load() -> None:
     support thinking blocks.  Verifies that content is preserved
     as `<thinking>` tags and signatures are dropped.
     """
-    from rbtr.llm.history import demote_thinking
 
     with SessionStore() as store:
         store.set_context("s1")
@@ -2580,7 +2586,6 @@ def test_flatten_tool_exchanges_after_load() -> None:
     Last-resort repair: tool-call/return structure removed,
     content preserved as readable text.
     """
-    from rbtr.llm.history import flatten_tool_exchanges
 
     with SessionStore() as store:
         store.set_context("s1")
@@ -2614,7 +2619,6 @@ def test_flatten_tool_exchanges_after_load() -> None:
 
 def test_validate_tool_call_args_after_load() -> None:
     """Corrupt tool-call args saved to DB are repaired in memory."""
-    from rbtr.llm.history import validate_tool_call_args
 
     with SessionStore() as store:
         store.set_context("s1")
@@ -2661,7 +2665,6 @@ def test_sanitize_tool_call_ids_after_load() -> None:
     rejected by Anthropic.  Sanitization replaces them with `_`
     and preserves pairing.
     """
-    from rbtr.llm.history import sanitize_tool_call_ids
 
     with SessionStore() as store:
         store.set_context("s1")

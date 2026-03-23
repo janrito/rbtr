@@ -62,7 +62,7 @@ def test_tool_registration_order(
     expected_order: list[str],
 ) -> None:
     """Tools within each toolset appear in the intended presentation order."""
-    actual = list(toolset.tools.keys())  # type: ignore[union-attr]
+    actual = list(toolset.tools.keys())  # type: ignore[attr-defined]  # accessing agent internals
     assert actual == expected_order
 
 

@@ -7,9 +7,11 @@ Skipped when tree-sitter-go is not installed.
 from __future__ import annotations
 
 import pytest
+from tree_sitter import Language
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.treesitter import extract_symbols
+from rbtr.plugins.hookspec import ImportExtractor, LanguageRegistration
 from rbtr.plugins.manager import get_manager
 
 # ── Grammar availability ─────────────────────────────────────────────
@@ -23,40 +25,47 @@ pytestmark = skip_no_go
 
 
 @pytest.fixture
-def grammar():
+def grammar() -> Language:
     g = _mgr.load_grammar("go")
     assert g is not None
     return g
 
 
 @pytest.fixture
-def registration():
+def registration() -> LanguageRegistration:
     reg = _mgr.get_registration("go")
     assert reg is not None
     return reg
 
 
 @pytest.fixture
-def query(registration):
+def query(registration: LanguageRegistration) -> str:
     assert registration.query is not None
     return registration.query
 
 
 @pytest.fixture
-def extractor(registration):
+def extractor(registration: LanguageRegistration) -> ImportExtractor:
     assert registration.import_extractor is not None
     return registration.import_extractor
 
 
 @pytest.fixture
-def scope_types(registration):
+def scope_types(registration: LanguageRegistration) -> frozenset[str]:
     return registration.scope_types
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _extract(source, grammar, query, extractor, scope_types, file_path="main.go"):
+def _extract(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "main.go",
+) -> list[Chunk]:
     return extract_symbols(
         file_path,
         "sha1",
@@ -68,14 +77,28 @@ def _extract(source, grammar, query, extractor, scope_types, file_path="main.go"
     )
 
 
-def _symbols(source, grammar, query, extractor, scope_types, file_path="main.go"):
+def _symbols(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "main.go",
+) -> list[tuple[str, str, str]]:
     return [
         (c.kind, c.name, c.scope)
         for c in _extract(source, grammar, query, extractor, scope_types, file_path)
     ]
 
 
-def _imports(source, grammar, query, extractor, scope_types, file_path="main.go"):
+def _imports(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "main.go",
+) -> list[Chunk]:
     return [
         c
         for c in _extract(source, grammar, query, extractor, scope_types, file_path)
@@ -86,26 +109,28 @@ def _imports(source, grammar, query, extractor, scope_types, file_path="main.go"
 # ── Registration ─────────────────────────────────────────────────────
 
 
-def test_registration_exists(registration) -> None:
+def test_registration_exists(registration: LanguageRegistration) -> None:
     assert registration.id == "go"
 
 
-def test_extensions(registration) -> None:
+def test_extensions(registration: LanguageRegistration) -> None:
     assert ".go" in registration.extensions
 
 
-def test_grammar_module(registration) -> None:
+def test_grammar_module(registration: LanguageRegistration) -> None:
     assert registration.grammar_module == "tree_sitter_go"
 
 
-def test_scope_types_contain_type_spec(registration) -> None:
+def test_scope_types_contain_type_spec(registration: LanguageRegistration) -> None:
     assert "type_spec" in registration.scope_types
 
 
 # ── Function extraction ──────────────────────────────────────────────
 
 
-def test_extract_function(grammar, query, extractor, scope_types) -> None:
+def test_extract_function(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -115,7 +140,9 @@ func hello() {}
     assert ("function", "hello", "") in syms
 
 
-def test_extract_function_with_params(grammar, query, extractor, scope_types) -> None:
+def test_extract_function_with_params(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -125,7 +152,9 @@ func add(a int, b int) int { return a + b }
     assert ("function", "add", "") in syms
 
 
-def test_extract_multiple_functions(grammar, query, extractor, scope_types) -> None:
+def test_extract_multiple_functions(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -142,7 +171,9 @@ func baz() {}
 # ── Method extraction ────────────────────────────────────────────────
 
 
-def test_extract_method(grammar, query, extractor, scope_types) -> None:
+def test_extract_method(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -154,7 +185,9 @@ func (u User) Name() string { return u.name }
     assert ("method", "Name", "") in syms
 
 
-def test_extract_pointer_receiver_method(grammar, query, extractor, scope_types) -> None:
+def test_extract_pointer_receiver_method(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -169,7 +202,9 @@ func (s *Svc) Start() {}
 # ── Type declaration extraction ──────────────────────────────────────
 
 
-def test_extract_struct(grammar, query, extractor, scope_types) -> None:
+def test_extract_struct(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -181,7 +216,9 @@ type User struct {
     assert ("class", "User", "") in syms
 
 
-def test_extract_interface(grammar, query, extractor, scope_types) -> None:
+def test_extract_interface(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -193,7 +230,9 @@ type Reader interface {
     assert ("class", "Reader", "") in syms
 
 
-def test_extract_type_alias(grammar, query, extractor, scope_types) -> None:
+def test_extract_type_alias(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -203,7 +242,9 @@ type ID string
     assert ("class", "ID", "") in syms
 
 
-def test_extract_multiple_types(grammar, query, extractor, scope_types) -> None:
+def test_extract_multiple_types(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -218,7 +259,9 @@ type Bar struct{}
 # ── Import: single ───────────────────────────────────────────────────
 
 
-def test_import_single(grammar, query, extractor, scope_types) -> None:
+def test_import_single(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import "fmt"
@@ -227,7 +270,9 @@ import "fmt"
     assert imp.metadata == {"module": "fmt"}
 
 
-def test_import_single_nested(grammar, query, extractor, scope_types) -> None:
+def test_import_single_nested(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import "os/exec"
@@ -236,7 +281,9 @@ import "os/exec"
     assert imp.metadata == {"module": "os/exec"}
 
 
-def test_import_single_url(grammar, query, extractor, scope_types) -> None:
+def test_import_single_url(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import "github.com/user/repo"
@@ -248,7 +295,9 @@ import "github.com/user/repo"
 # ── Import: grouped ──────────────────────────────────────────────────
 
 
-def test_import_grouped(grammar, query, extractor, scope_types) -> None:
+def test_import_grouped(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import (
@@ -260,7 +309,9 @@ import (
     assert imp.metadata == {"module": "fmt,os"}
 
 
-def test_import_grouped_with_paths(grammar, query, extractor, scope_types) -> None:
+def test_import_grouped_with_paths(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import (
@@ -276,7 +327,9 @@ import (
     assert "net/http" in modules
 
 
-def test_import_grouped_single_item(grammar, query, extractor, scope_types) -> None:
+def test_import_grouped_single_item(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import (
@@ -290,7 +343,9 @@ import (
 # ── Import: aliased ──────────────────────────────────────────────────
 
 
-def test_import_aliased(grammar, query, extractor, scope_types) -> None:
+def test_import_aliased(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 import f "fmt"
@@ -302,7 +357,9 @@ import f "fmt"
 # ── Mixed extraction ─────────────────────────────────────────────────
 
 
-def test_full_module(grammar, query, extractor, scope_types) -> None:
+def test_full_module(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 package main
 
@@ -329,6 +386,8 @@ func main() {
     assert ChunkKind.FUNCTION in kinds
 
 
-def test_empty_source(grammar, query, extractor, scope_types) -> None:
+def test_empty_source(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     chunks = _extract("", grammar, query, extractor, scope_types)
     assert chunks == []

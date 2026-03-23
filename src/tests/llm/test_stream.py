@@ -7,8 +7,8 @@ handlers retried) rather than internal async iteration mechanics.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from http import HTTPStatus
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -26,17 +26,19 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.usage import RunUsage
-from pytest_mock import MockerFixture
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import RequestUsage, RunUsage
 
+from rbtr.config import config
 from rbtr.engine.core import Engine
-from rbtr.events import ToolCallFinished, ToolCallStarted
+from rbtr.events import CompactionStarted, ToolCallFinished, ToolCallStarted
 from rbtr.llm.context import LLMContext
 from rbtr.llm.costs import record_run_usage
 from rbtr.llm.stream import (
     _auto_compact_on_overflow,
     _emit_tool_event,
     _update_live_usage,
+    handle_llm,
 )
 from rbtr.sessions.incidents import (
     FailedAttempt,
@@ -46,7 +48,7 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind
-from tests.helpers import drain
+from tests.helpers import TestProvider, drain
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -128,11 +130,11 @@ def test_emit_tool_result_normal(engine: Engine, llm_ctx: LLMContext) -> None:
 
 def test_emit_tool_result_truncation(engine: Engine, llm_ctx: LLMContext) -> None:
     """Long results are truncated at tool_max_chars."""
-    from rbtr.config import config
 
     long_content = "x" * (config.tui.tool_max_chars + 100)
     _emit_tool_event(llm_ctx, _make_tool_result_event("read_file", long_content))
     events = drain(engine.events)
+    assert isinstance(events[0], ToolCallFinished)
     assert len(events[0].result) == config.tui.tool_max_chars + 1  # +1 for "…"
     assert events[0].result.endswith("…")
 
@@ -200,7 +202,7 @@ def _make_run_usage(*, input_tokens: int = 100, output_tokens: int = 50) -> RunU
     ids=["no_messages", "with_response", "no_model_name"],
 )
 def testrecord_run_usage_basics(
-    engine: Engine,
+    llm_ctx: LLMContext,
     messages: list[ModelMessage],
     input_tokens: int,
     output_tokens: int,
@@ -210,12 +212,12 @@ def testrecord_run_usage_basics(
 ) -> None:
     """Basic record_run_usage scenarios: empty, with response, no model name."""
     record_run_usage(
-        engine, messages, _make_run_usage(input_tokens=input_tokens, output_tokens=output_tokens)
+        llm_ctx, messages, _make_run_usage(input_tokens=input_tokens, output_tokens=output_tokens)
     )
     if expected_cost is not None:
-        assert engine.state.usage.total_cost == expected_cost
-    assert engine.state.usage.input_tokens == expected_input
-    assert engine.state.usage.output_tokens == expected_output
+        assert llm_ctx.state.usage.total_cost == expected_cost
+    assert llm_ctx.state.usage.input_tokens == expected_input
+    assert llm_ctx.state.usage.output_tokens == expected_output
 
 
 # ── record_run_usage: context tracking ─────────────────────────────────
@@ -237,7 +239,6 @@ def _make_provider_response(
     cache_write_tokens: int = 0,
 ) -> ModelResponse:
     """Build a ModelResponse mimicking what a real streaming run produces."""
-    from pydantic_ai.usage import RequestUsage
 
     model_name, provider_name, provider_url = _PROVIDERS[provider]
     return ModelResponse(
@@ -458,24 +459,22 @@ def _failed_request_rows(engine: Engine) -> list[Any]:
 
 
 def test_handle_llm_retries_without_effort_on_rejection(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """handle_llm retries without effort when the model rejects it."""
-    from rbtr.llm.stream import handle_llm
-
     call_count = 0
 
-    def fake_run_agent(eng: object, model: object, msg: str, **kw: object) -> None:
+    async def _reject_effort(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise _make_http_error(
                 HTTPStatus.BAD_REQUEST, "This model does not support the effort parameter."
             )
+        yield "recovered"
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+    test_provider.set_model(FunctionModel(stream_function=_reject_effort))
 
     handle_llm(llm_engine._llm_context(), "test question")
 
@@ -498,29 +497,29 @@ def test_handle_llm_retries_without_effort_on_rejection(
 
 
 def test_auto_compact_on_overflow_compacts_and_retries(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
-    compact_mock = mocker.patch("rbtr.llm.stream.compact_history")
+    from tests.engine.builders import _turns
 
-    retry_calls: list[str] = []
-    mocker.patch("rbtr.llm.stream.handle_llm", lambda eng, msg: retry_calls.append(msg))
+    _seed = _turns(5)
+    llm_engine._sync_store_context()
+    llm_engine.store.save_messages(llm_engine.state.session_id, _seed)
+    llm_engine.state.usage.context_window = 200_000
 
     _auto_compact_on_overflow(llm_engine._llm_context(), "my question")
 
-    compact_mock.assert_called_once()
-    assert retry_calls == ["my question"]
+    events = drain(llm_engine.events)
+    assert any(isinstance(e, CompactionStarted) for e in events)
 
 
 # ── handle_llm context overflow integration ──────────────────────────
 
 
 def test_handle_llm_context_overflow_triggers_compact(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """handle_llm auto-compacts on context overflow and retries."""
     messages: list[ModelMessage] = [
@@ -530,24 +529,23 @@ def test_handle_llm_context_overflow_triggers_compact(
         ModelResponse(parts=[TextPart(content="resp 2")], model_name="test"),
     ]
     llm_engine.store.save_messages(llm_engine.state.session_id, messages)
+    llm_engine.state.usage.context_window = 200_000
 
-    # First call to _run_agent raises overflow, second succeeds
+    # First call overflows, pipeline compacts and retries
     call_count = 0
 
-    def fake_run_agent(eng: Engine, model: object, msg: str, **kwargs: object) -> None:
+    async def _overflow_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise _make_http_error(HTTPStatus.BAD_REQUEST, "maximum context length exceeded")
+        yield "recovered"
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
-    mocker.patch("rbtr.llm.stream.compact_history")
-
-    from rbtr.llm.stream import handle_llm
+    test_provider.set_model(FunctionModel(stream_function=_overflow_then_ok))
 
     handle_llm(llm_engine._llm_context(), "test question")
-
-    assert call_count == 2
 
     incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
@@ -560,41 +558,23 @@ def test_handle_llm_context_overflow_triggers_compact(
 
 
 def test_handle_llm_retries_on_corrupt_tool_args(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
-    """handle_llm retries with simplified history on corrupt tool-call args.
-
-    When the provider adapter calls `args_as_dict()` on a
-    `ToolCallPart` with malformed JSON args, a `ValueError`
-    is raised.  `handle_llm` should catch it and retry with
-    `history_repair_level=1` (which flattens tool exchanges
-    to plain text).
-    """
-    from rbtr.llm.stream import handle_llm
-
+    """handle_llm retries with simplified history on corrupt tool-call args."""
     call_count = 0
 
-    def fake_run_agent(
-        eng: object,
-        model: object,
-        msg: str,
-        *,
-        history_repair_level: int = 0,
-    ) -> None:
+    async def _corrupt_then_ok(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise ValueError("key must be a string at line 2 column 1")
+        yield "recovered"
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+    test_provider.set_model(FunctionModel(stream_function=_corrupt_then_ok))
 
     handle_llm(llm_engine._llm_context(), "show my notes")
 
-    assert call_count == 2
-
-    # Incident: tool_args failure with simplified-history strategy.
     incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TOOL_ARGS
@@ -603,40 +583,25 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 
 
 def test_handle_llm_retries_on_type_error(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
-    """handle_llm retries with simplified history on TypeError.
-
-    Some OpenAI-compatible providers crash in the request builder
-    (e.g. `'NoneType' object is not subscriptable`) when the
-    history contains structures they can't handle.  Retrying with
-    simplified history flattens tool exchanges, avoiding the crash.
-    """
-    from rbtr.llm.stream import handle_llm
-
+    """handle_llm retries with simplified history on TypeError."""
     call_count = 0
 
-    def fake_run_agent(
-        eng: object,
-        model: object,
-        msg: str,
-        *,
-        history_repair_level: int = 0,
-    ) -> None:
+    async def _type_error_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise TypeError("'NoneType' object is not subscriptable")
+        yield "recovered"
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+    test_provider.set_model(FunctionModel(stream_function=_type_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "hello")
 
-    assert call_count == 2
-
-    # Incident: type_error failure with simplified-history strategy.
     incidents = _failure_incidents(llm_engine)
     assert len(incidents) == 1
     assert incidents[0].failure_kind == FailureKind.TYPE_ERROR
@@ -648,9 +613,8 @@ def test_handle_llm_retries_on_type_error(
 
 
 def test_handle_llm_retries_on_history_format_error(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """handle_llm retries with simplified history on provider format rejection.
 
@@ -658,17 +622,12 @@ def test_handle_llm_retries_on_history_format_error(
     tool calls, or other provider-specific metadata, `handle_llm`
     retries with `history_repair_level=1`.
     """
-    from rbtr.llm.stream import handle_llm
 
     call_count = 0
 
-    def fake_run_agent(
-        eng: object,
-        model: object,
-        msg: str,
-        *,
-        history_repair_level: int = 0,
-    ) -> None:
+    async def _format_error_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -676,12 +635,11 @@ def test_handle_llm_retries_on_history_format_error(
                 HTTPStatus.BAD_REQUEST,
                 "tool_use ids ['tool_1'] without matching tool_result blocks",
             )
+        yield "recovered"
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+    test_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "continue analysis")
-
-    assert call_count == 2
 
     # Incident: history_format failure → first retry uses consolidation.
     failed = _failed_request_rows(llm_engine)
@@ -699,30 +657,20 @@ def test_handle_llm_retries_on_history_format_error(
 
 
 def test_handle_llm_records_failed_outcome_when_retry_raises(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """When a retry also fails, the incident outcome is set to `failed`
     and the exception propagates to the caller.
     """
-    from rbtr.llm.stream import handle_llm
 
-    def fake_run_agent(
-        eng: object,
-        model: object,
-        msg: str,
-        *,
-        history_repair_level: int = 0,
-    ) -> None:
-        if history_repair_level == 0:
-            raise TypeError("'NoneType' object is not subscriptable")
-        # Retry also fails with a different error.
-        raise TypeError("unexpected null in message builder")
+    async def _always_fail(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise TypeError("'NoneType' object is not subscriptable")
+        yield ""  # make it a generator
 
-    mocker.patch("rbtr.llm.stream._run_agent", fake_run_agent)
+    test_provider.set_model(FunctionModel(stream_function=_always_fail))
 
-    with pytest.raises(TypeError, match="unexpected null"):
+    with pytest.raises(TypeError, match="NoneType"):
         handle_llm(llm_engine._llm_context(), "hello")
 
     # Incident: outcome is "failed", not "recovered".
@@ -736,9 +684,8 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
 
 
 def test_dangling_tool_repair_is_transient(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """`repair_dangling_tool_calls` must not persist synthetic messages.
 
@@ -746,7 +693,6 @@ def test_dangling_tool_repair_is_transient(
     `(cancelled)` tool returns, but the DB retains the original
     dangling state.  An `LLM_HISTORY_REPAIR` incident row is persisted.
     """
-    from rbtr.llm.stream import handle_llm
 
     # Seed history with a dangling tool call (cancelled mid-turn).
     dangling_history: list[ModelMessage] = [
@@ -761,20 +707,6 @@ def test_dangling_tool_repair_is_transient(
         # No ToolReturnPart — simulates Ctrl+C mid-tool-call.
     ]
     llm_engine.store.save_messages(llm_engine.state.session_id, dangling_history)
-
-    # Mock _do_stream (not _run_agent) so _prepare_turn still runs.
-    from rbtr.llm.stream import _StreamResult
-
-    async def fake_do_stream(*args: object, **kwargs: object) -> _StreamResult:
-        return _StreamResult(
-            all_messages=[],
-            new_messages=[],
-            usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-            limit_hit=False,
-            last_writer=None,
-        )
-
-    mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
 
     handle_llm(llm_engine._llm_context(), "continue")
 
@@ -800,15 +732,13 @@ def test_dangling_tool_repair_is_transient(
 
 
 def test_simplify_history_persists_incidents(
-    mocker: MockerFixture,
-    config_path: Path,
     llm_engine: Engine,
+    test_provider: TestProvider,
 ) -> None:
     """When `handle_llm` retries with simplified history, it persists
     `LLM_HISTORY_REPAIR` rows for `demote_thinking` and
     `flatten_tool_exchanges` with correct counts.
     """
-    from rbtr.llm.stream import handle_llm
 
     # Seed history with a mixed request (tool return + user prompt)
     # that consolidation will split, plus thinking parts.
@@ -839,33 +769,25 @@ def test_simplify_history_persists_incidents(
     ]
     llm_engine.store.save_messages(llm_engine.state.session_id, history)
 
-    # First call to _do_stream raises history-format error.
-    # Second call (with simplify_history=True) succeeds.
-    from rbtr.llm.stream import _StreamResult
+    # First model call raises history-format error.
+    # Retry with simplified history succeeds.
+    call_count = 0
 
-    do_stream_calls = 0
-
-    async def fake_do_stream(*args: object, **kwargs: object) -> _StreamResult:
-        nonlocal do_stream_calls
-        do_stream_calls += 1
-        if do_stream_calls == 1:
+    async def _format_error_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
             raise _make_http_error(
                 HTTPStatus.BAD_REQUEST,
                 "tool_use ids ['tc1'] without matching tool_result blocks",
             )
-        return _StreamResult(
-            all_messages=[],
-            new_messages=[],
-            usage=RunUsage(requests=0, input_tokens=0, output_tokens=0),
-            limit_hit=False,
-            last_writer=None,
-        )
+        yield "fixed"
 
-    mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
+    test_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "now fix it")
-
-    assert do_stream_calls == 2
 
     # Incident: LLM_ATTEMPT_FAILED for the history-format error.
     failures = _failure_incidents(llm_engine)

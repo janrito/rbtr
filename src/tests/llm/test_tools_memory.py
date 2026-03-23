@@ -15,7 +15,7 @@ from rbtr.sessions.kinds import GLOBAL_SCOPE
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 SESSION = "test-session"
 
@@ -32,7 +32,7 @@ def ctx(store: SessionStore) -> RunContext[AgentDeps]:
     """RunContext with a repo connected (owner/repo)."""
     state = EngineState(owner="acme", repo_name="widgets")
     state.session_id = SESSION
-    return tool_ctx(state, store)
+    return build_tool_ctx(state, store)
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def ctx_no_repo(store: SessionStore) -> RunContext[AgentDeps]:
     """RunContext without a repository."""
     state = EngineState()
     state.session_id = SESSION
-    return tool_ctx(state, store)
+    return build_tool_ctx(state, store)
 
 
 # ── prepare: visibility ──────────────────────────────────────────────

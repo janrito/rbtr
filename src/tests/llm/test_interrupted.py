@@ -12,12 +12,15 @@ paths:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic_ai.messages import (
+    FinishReason,
     ModelResponse,
+    ModelResponsePart,
     RetryPromptPart,
     TextPart,
     ToolCallPart,
@@ -30,6 +33,7 @@ from rbtr.llm.stream import (
     _check_interrupted_response,
     _replace_truncated_retry_prompts,
     _StreamResult,
+    handle_llm,
 )
 
 # ── Shared data ──────────────────────────────────────────────────────
@@ -42,8 +46,8 @@ _VALID_ARGS = {"path": "notes.md", "new_text": "done"}
 
 def _response(
     *,
-    finish_reason: str | None = "stop",
-    parts: list[object] | None = None,
+    finish_reason: FinishReason | None = "stop",
+    parts: Sequence[ModelResponsePart] | None = None,
 ) -> ModelResponse:
     """Build a `ModelResponse` with the given finish reason and parts."""
     if parts is None:
@@ -83,7 +87,7 @@ def _interrupted_result() -> _StreamResult:
     ["stop", "tool_call", None],
     ids=["stop", "tool_call", "none"],
 )
-def test_normal_finish_returns_none(finish_reason: str | None) -> None:
+def test_normal_finish_returns_none(finish_reason: FinishReason | None) -> None:
     """`stop`, `tool_call`, and `None` are not interrupted."""
     resp = _response(finish_reason=finish_reason)
     assert _check_interrupted_response(resp) is None
@@ -97,7 +101,7 @@ def test_normal_finish_returns_none(finish_reason: str | None) -> None:
     ["length", "content_filter", "error"],
     ids=["length", "content_filter", "error"],
 )
-def test_interrupted_text_only(finish_reason: str) -> None:
+def test_interrupted_text_only(finish_reason: FinishReason) -> None:
     """Text-only response with interrupted finish reason is detected."""
     resp = _response(
         finish_reason=finish_reason,
@@ -135,7 +139,7 @@ def test_interrupted_with_valid_tool_args() -> None:
     ["length", "content_filter", "error"],
     ids=["length", "content_filter", "error"],
 )
-def test_truncated_tool_args_detected(finish_reason: str) -> None:
+def test_truncated_tool_args_detected(finish_reason: FinishReason) -> None:
     """Truncated tool-call args are detected and IDs collected."""
     resp = _response(
         finish_reason=finish_reason,
@@ -338,8 +342,6 @@ def test_text_continuation_retries_with_prompt(
 
     mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
 
-    from rbtr.llm.stream import handle_llm
-
     handle_llm(llm_engine._llm_context(), "analyse the code")
 
     assert len(call_prompts) == 2
@@ -370,8 +372,6 @@ def test_text_continuation_stops_after_max_retries(
 
     mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
 
-    from rbtr.llm.stream import handle_llm
-
     handle_llm(llm_engine._llm_context(), "write the review")
 
     # 1 initial + max_continuations (default 2) = 3 total.
@@ -399,8 +399,6 @@ def test_text_continuation_not_triggered_on_normal_completion(
         return _ok_result()
 
     mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
-
-    from rbtr.llm.stream import handle_llm
 
     handle_llm(llm_engine._llm_context(), "hello")
 

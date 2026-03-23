@@ -11,8 +11,10 @@
 
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.tui.input import (
     InputState,
@@ -46,57 +48,57 @@ def _make_ui(buffer: str = "") -> UI:
 # ── replace_shell_word ──────────────────────────────────────────────
 
 
-def test_replace_single_word():
+def test_replace_single_word() -> None:
     assert replace_shell_word("git", "grep") == "grep"
 
 
-def test_replace_multi_word():
+def test_replace_multi_word() -> None:
     assert replace_shell_word("git sta", "status") == "git status"
 
 
-def test_replace_empty_string():
+def test_replace_empty_string() -> None:
     assert replace_shell_word("", "status") == "status"
 
 
-def test_replace_trailing_spaces_starts_new_word():
+def test_replace_trailing_spaces_starts_new_word() -> None:
     assert replace_shell_word("git ", "log") == "git log"
 
 
-def test_replace_three_words():
+def test_replace_three_words() -> None:
     assert replace_shell_word("docker compose u", "up") == "docker compose up"
 
 
-def test_replace_path_preserves_prefix():
+def test_replace_path_preserves_prefix() -> None:
     assert replace_shell_word("ls src/rb", "rbtr/") == "ls src/rbtr/"
 
 
-def test_replace_path_full_replacement():
+def test_replace_path_full_replacement() -> None:
     assert replace_shell_word("ls src/rb", "src/rbtr/") == "ls src/rbtr/"
 
 
-def test_replace_path_at_start():
+def test_replace_path_at_start() -> None:
     assert replace_shell_word("src/rb", "rbtr/") == "src/rbtr/"
 
 
-def test_replace_nested_path():
+def test_replace_nested_path() -> None:
     assert replace_shell_word("cat src/rbtr/tu", "tui.py") == "cat src/rbtr/tui.py"
 
 
-def test_replace_no_path_no_prefix():
+def test_replace_no_path_no_prefix() -> None:
     assert replace_shell_word("ls REA", "README.md") == "ls README.md"
 
 
 # ── _apply_completions — slash commands ──────────────────────────────
 
 
-def test_slash_single_match_auto_accepts():
+def test_slash_single_match_auto_accepts() -> None:
     state = _make_state("/hel")
     state.apply_completions([("/help", "Show help")])
     assert state.text == "/help "
     assert state.completions == []
 
 
-def test_slash_multiple_matches_shows_menu():
+def test_slash_multiple_matches_shows_menu() -> None:
     state = _make_state("/re")
     matches = [("/review", "Review a PR"), ("/refresh", "Refresh")]
     state.apply_completions(matches)
@@ -105,14 +107,14 @@ def test_slash_multiple_matches_shows_menu():
     assert state.completion_index == -1
 
 
-def test_slash_multiple_matches_extends_prefix():
+def test_slash_multiple_matches_extends_prefix() -> None:
     state = _make_state("/r")
     matches = [("/review", "Review a PR"), ("/refresh", "Refresh")]
     state.apply_completions(matches)
     assert state.text == "/re"
 
 
-def test_slash_no_matches_clears():
+def test_slash_no_matches_clears() -> None:
     state = _make_state("/xyz")
     state.apply_completions([])
     assert state.completions == []
@@ -121,43 +123,43 @@ def test_slash_no_matches_clears():
 # ── completion_suffix ────────────────────────────────────────────────
 
 
-def test_suffix_regular_word_gets_space():
+def test_suffix_regular_word_gets_space() -> None:
     assert completion_suffix("status") == " "
 
 
-def test_suffix_option_gets_space():
+def test_suffix_option_gets_space() -> None:
     assert completion_suffix("--verbose") == " "
 
 
-def test_suffix_trailing_slash_gets_nothing():
+def test_suffix_trailing_slash_gets_nothing() -> None:
     assert completion_suffix("src/") == ""
 
 
-def test_suffix_real_directory_gets_slash(tmp_path):
+def test_suffix_real_directory_gets_slash(tmp_path: Path) -> None:
     d = tmp_path / "mydir"
     d.mkdir()
     assert completion_suffix(str(d)) == "/"
 
 
-def test_suffix_real_file_gets_space(tmp_path):
+def test_suffix_real_file_gets_space(tmp_path: Path) -> None:
     f = tmp_path / "myfile.txt"
     f.write_text("hello")
     assert completion_suffix(str(f)) == " "
 
 
-def test_suffix_nonexistent_path_gets_empty():
+def test_suffix_nonexistent_path_gets_empty() -> None:
     assert completion_suffix("/no/such/path/xyzzy") == ""
 
 
-def test_suffix_nonexistent_non_path_gets_space():
+def test_suffix_nonexistent_non_path_gets_space() -> None:
     assert completion_suffix("xyzzy_nonexistent") == " "
 
 
-def test_suffix_path_context_triggers_path_mode(tmp_path):
+def test_suffix_path_context_triggers_path_mode(tmp_path: Path) -> None:
     assert completion_suffix("partial_name", context_word="src/partial") == ""
 
 
-def test_suffix_path_context_existing_file(tmp_path):
+def test_suffix_path_context_existing_file(tmp_path: Path) -> None:
     f = tmp_path / "real.txt"
     f.write_text("hello")
     assert completion_suffix(str(f), context_word=str(tmp_path) + "/re") == " "
@@ -166,19 +168,19 @@ def test_suffix_path_context_existing_file(tmp_path):
 # ── _apply_completions — shell commands (! prefix) ───────────────────
 
 
-def test_shell_single_match_replaces_last_word():
+def test_shell_single_match_replaces_last_word() -> None:
     state = _make_state("!git sta")
     state.apply_completions([("status", "")])
     assert state.text == "!git status "
 
 
-def test_shell_single_match_first_word():
+def test_shell_single_match_first_word() -> None:
     state = _make_state("!gi")
     state.apply_completions([("git", "")])
     assert state.text == "!git "
 
 
-def test_shell_multiple_matches_extends_prefix():
+def test_shell_multiple_matches_extends_prefix() -> None:
     state = _make_state("!git st")
     matches = [("status", ""), ("stash", "")]
     state.apply_completions(matches)
@@ -186,7 +188,7 @@ def test_shell_multiple_matches_extends_prefix():
     assert state.completions == matches
 
 
-def test_shell_multiple_no_prefix_extension():
+def test_shell_multiple_no_prefix_extension() -> None:
     state = _make_state("!git s")
     matches = [("status", ""), ("stash", ""), ("show", "")]
     state.apply_completions(matches)
@@ -194,7 +196,7 @@ def test_shell_multiple_no_prefix_extension():
     assert state.completions == matches
 
 
-def test_shell_single_match_directory_gets_slash(tmp_path):
+def test_shell_single_match_directory_gets_slash(tmp_path: Path) -> None:
     d = tmp_path / "mydir"
     d.mkdir()
     state = _make_state("!ls myd")
@@ -203,7 +205,7 @@ def test_shell_single_match_directory_gets_slash(tmp_path):
     assert state.completions == []
 
 
-def test_shell_single_match_trailing_slash_no_double():
+def test_shell_single_match_trailing_slash_no_double() -> None:
     state = _make_state("!cd sr")
     state.apply_completions([("src/", "")])
     assert state.text == "!cd src/"
@@ -213,13 +215,15 @@ def test_shell_single_match_trailing_slash_no_double():
 # ── query_shell_completions — orchestrator ───────────────────────────
 
 
-def test_query_bash_is_preferred(mocker):
+def test_query_bash_is_preferred(mocker: MockerFixture) -> None:
     mocker.patch("rbtr.tui.input.complete_bash", return_value=[("status", ""), ("stash", "")])
     results = query_shell_completions("git sta")
     assert results == [("status", ""), ("stash", "")]
 
 
-def test_query_path_fallback_for_later_word(tmp_path, monkeypatch, mocker):
+def test_query_path_fallback_for_later_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "api").mkdir()
     mocker.patch("rbtr.tui.input.complete_bash", return_value=[])
@@ -228,25 +232,27 @@ def test_query_path_fallback_for_later_word(tmp_path, monkeypatch, mocker):
     assert results[0][0] == "api/"
 
 
-def test_query_executable_fallback_for_first_word(mocker):
+def test_query_executable_fallback_for_first_word(mocker: MockerFixture) -> None:
     mocker.patch("rbtr.tui.input.complete_bash", return_value=[])
     mocker.patch("rbtr.tui.input.complete_executables", return_value=[("git", ""), ("gist", "")])
     results = query_shell_completions("gi")
     assert results == [("git", ""), ("gist", "")]
 
 
-def test_query_empty_returns_empty():
+def test_query_empty_returns_empty() -> None:
     assert query_shell_completions("") == []
 
 
-def test_query_max_results_caps_output(mocker):
+def test_query_max_results_caps_output(mocker: MockerFixture) -> None:
     many = [(f"cmd{i}", "") for i in range(50)]
     mocker.patch("rbtr.tui.input.complete_bash", return_value=many)
     results = query_shell_completions("x ", max_results=10)
     assert len(results) == 10
 
 
-def test_query_no_path_fallback_for_first_word(tmp_path, monkeypatch, mocker):
+def test_query_no_path_fallback_for_first_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture
+) -> None:
     """First word uses executables, not filesystem paths."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "src").mkdir()
@@ -259,7 +265,7 @@ def test_query_no_path_fallback_for_first_word(tmp_path, monkeypatch, mocker):
 # ── _complete_shell — UI threading / staleness ───────────────────────
 
 
-def _wait_for_completion(ui, timeout=2.0):
+def _wait_for_completion(ui: UI, timeout: float = 2.0) -> None:
     snapshot = ui.inp.text
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -269,7 +275,7 @@ def _wait_for_completion(ui, timeout=2.0):
         time.sleep(0.02)
 
 
-def test_complete_shell_applies_results(mocker):
+def test_complete_shell_applies_results(mocker: MockerFixture) -> None:
     ui = _make_ui("!git sta")
     mocker.patch(
         "rbtr.tui.ui.query_shell_completions", return_value=[("status", ""), ("stash", "")]
@@ -279,11 +285,16 @@ def test_complete_shell_applies_results(mocker):
     assert ui.inp.completions == [("status", ""), ("stash", "")]
 
 
-def test_complete_shell_does_not_block(mocker):
+def test_complete_shell_does_not_block(mocker: MockerFixture) -> None:
     ui = _make_ui("!git sta")
+
+    def _slow_query(cmd_line: str, max_results: int = 20) -> list[tuple[str, str]]:
+        time.sleep(5)
+        return []
+
     mocker.patch(
         "rbtr.tui.ui.query_shell_completions",
-        side_effect=lambda *a, **kw: time.sleep(5) or [],
+        side_effect=_slow_query,
     )
     start = time.monotonic()
     ui._complete_shell()
@@ -291,10 +302,10 @@ def test_complete_shell_does_not_block(mocker):
     assert elapsed < 0.5
 
 
-def test_complete_shell_discards_stale_results(mocker):
+def test_complete_shell_discards_stale_results(mocker: MockerFixture) -> None:
     ui = _make_ui("!git sta")
 
-    def slow_query(*a, **kw):
+    def slow_query(cmd_line: str, max_results: int = 20) -> list[tuple[str, str]]:
         time.sleep(0.1)
         return [("status", "")]
 
@@ -307,7 +318,7 @@ def test_complete_shell_discards_stale_results(mocker):
     assert ui.inp.completions == []
 
 
-def test_complete_shell_empty_cmd_is_noop():
+def test_complete_shell_empty_cmd_is_noop() -> None:
     ui = _make_ui("!")
     ui._complete_shell()
     time.sleep(0.1)
@@ -317,26 +328,26 @@ def test_complete_shell_empty_cmd_is_noop():
 # ── shell_context_word ───────────────────────────────────────────────
 
 
-def test_context_word_returns_last_word():
+def test_context_word_returns_last_word() -> None:
     assert shell_context_word("git status --short") == "--short"
 
 
-def test_context_word_single_word():
+def test_context_word_single_word() -> None:
     assert shell_context_word("git") == "git"
 
 
-def test_context_word_empty_string():
+def test_context_word_empty_string() -> None:
     assert shell_context_word("") == ""
 
 
-def test_context_word_trailing_space():
+def test_context_word_trailing_space() -> None:
     assert shell_context_word("git status ") == "status"
 
 
 # ── complete_path — filesystem path completion ───────────────────────
 
 
-def test_path_lists_directory_contents(tmp_path):
+def test_path_lists_directory_contents(tmp_path: Path) -> None:
     (tmp_path / "foo.txt").write_text("x")
     (tmp_path / "bar").mkdir()
     results = complete_path(str(tmp_path) + "/")
@@ -345,7 +356,7 @@ def test_path_lists_directory_contents(tmp_path):
     assert str(tmp_path / "foo.txt") in names
 
 
-def test_path_partial_match(tmp_path):
+def test_path_partial_match(tmp_path: Path) -> None:
     (tmp_path / "alpha.py").write_text("x")
     (tmp_path / "beta.py").write_text("x")
     results = complete_path(str(tmp_path) + "/al")
@@ -353,7 +364,7 @@ def test_path_partial_match(tmp_path):
     assert results[0][0] == str(tmp_path / "alpha.py")
 
 
-def test_path_nested_directory(tmp_path):
+def test_path_nested_directory(tmp_path: Path) -> None:
     nested = tmp_path / "api" / "start"
     nested.mkdir(parents=True)
     (nested / "start.sh").write_text("x")
@@ -362,14 +373,14 @@ def test_path_nested_directory(tmp_path):
     assert results[0][0].endswith("start.sh")
 
 
-def test_path_directory_gets_trailing_slash(tmp_path):
+def test_path_directory_gets_trailing_slash(tmp_path: Path) -> None:
     (tmp_path / "subdir").mkdir()
     results = complete_path(str(tmp_path) + "/")
     dirs = [r[0] for r in results if r[0].endswith("/")]
     assert any("subdir/" in d for d in dirs)
 
 
-def test_path_hidden_files_skipped_by_default(tmp_path):
+def test_path_hidden_files_skipped_by_default(tmp_path: Path) -> None:
     (tmp_path / ".hidden").write_text("x")
     (tmp_path / "visible").write_text("x")
     results = complete_path(str(tmp_path) + "/")
@@ -377,19 +388,19 @@ def test_path_hidden_files_skipped_by_default(tmp_path):
     assert not any(".hidden" in n for n in names)
 
 
-def test_path_hidden_files_shown_when_dot_prefix(tmp_path):
+def test_path_hidden_files_shown_when_dot_prefix(tmp_path: Path) -> None:
     (tmp_path / ".hidden").write_text("x")
     results = complete_path(str(tmp_path) + "/.")
     names = [r[0] for r in results]
     assert any(".hidden" in n for n in names)
 
 
-def test_path_nonexistent_directory_returns_empty():
+def test_path_nonexistent_directory_returns_empty() -> None:
     results = complete_path("/no/such/path/xyzzy/")
     assert results == []
 
 
-def test_path_empty_word_lists_cwd(monkeypatch, tmp_path):
+def test_path_empty_word_lists_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "afile.txt").write_text("x")
     monkeypatch.chdir(tmp_path)
     results = complete_path("")
@@ -397,7 +408,7 @@ def test_path_empty_word_lists_cwd(monkeypatch, tmp_path):
     assert "afile.txt" in names
 
 
-def test_path_values_are_full_paths(tmp_path):
+def test_path_values_are_full_paths(tmp_path: Path) -> None:
     """Completion values include the directory prefix."""
     sub = tmp_path / "src"
     sub.mkdir()
@@ -406,7 +417,7 @@ def test_path_values_are_full_paths(tmp_path):
     assert results[0][0] == str(sub / "main.py")
 
 
-def test_path_tilde_expands_home(tmp_path, monkeypatch):
+def test_path_tilde_expands_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """~ expands to the home directory but display values keep ~."""
     (tmp_path / "Documents").mkdir()
     (tmp_path / "Downloads").mkdir()
@@ -419,7 +430,7 @@ def test_path_tilde_expands_home(tmp_path, monkeypatch):
     assert any(n.startswith("~/D") for n in names)
 
 
-def test_path_tilde_partial(tmp_path, monkeypatch):
+def test_path_tilde_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """~/D completes to home directory entries starting with D."""
     (tmp_path / "Documents").mkdir()
     (tmp_path / "Downloads").mkdir()
@@ -430,7 +441,7 @@ def test_path_tilde_partial(tmp_path, monkeypatch):
     assert all(r[0].startswith("~/D") for r in results)
 
 
-def test_path_absolute_root(tmp_path):
+def test_path_absolute_root(tmp_path: Path) -> None:
     """Absolute paths complete against the filesystem."""
     (tmp_path / "Users").mkdir()
     prefix = str(tmp_path / "Use")
@@ -442,7 +453,7 @@ def test_path_absolute_root(tmp_path):
 # ── complete_executables — PATH search ───────────────────────────────
 
 
-def test_executables_finds_on_path(tmp_path, mocker):
+def test_executables_finds_on_path(tmp_path: Path, mocker: MockerFixture) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     exe = bin_dir / "mycommand"
@@ -454,7 +465,7 @@ def test_executables_finds_on_path(tmp_path, mocker):
     assert "mycommand" in names
 
 
-def test_executables_includes_exact_match(tmp_path, mocker):
+def test_executables_includes_exact_match(tmp_path: Path, mocker: MockerFixture) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name in ("git", "git-lfs", "git-latexdiff"):
@@ -468,7 +479,7 @@ def test_executables_includes_exact_match(tmp_path, mocker):
     assert "git-lfs" in names
 
 
-def test_executables_skips_non_executable(tmp_path, mocker):
+def test_executables_skips_non_executable(tmp_path: Path, mocker: MockerFixture) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "notexe").write_text("data")
@@ -477,7 +488,7 @@ def test_executables_skips_non_executable(tmp_path, mocker):
     assert results == []
 
 
-def test_executables_no_matches_returns_empty(tmp_path, mocker):
+def test_executables_no_matches_returns_empty(tmp_path: Path, mocker: MockerFixture) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     mocker.patch.dict("os.environ", {"PATH": str(bin_dir)})
@@ -500,30 +511,30 @@ _needs_bash_completion = pytest.mark.skipif(
 
 
 @_needs_bash_completion
-def test_bash_git_subcommands():
+def test_bash_git_subcommands() -> None:
     results = complete_bash("git sta")
     names = [r[0].strip() for r in results]
     assert "status" in names
 
 
 @_needs_bash_completion
-def test_bash_git_flags():
+def test_bash_git_flags() -> None:
     results = complete_bash("git status --")
     names = [r[0].strip() for r in results]
     assert any(n.startswith("--") for n in names)
 
 
-def test_bash_no_completion_returns_empty():
+def test_bash_no_completion_returns_empty() -> None:
     results = complete_bash("zzz_no_such_command_12345 ")
     assert results == []
 
 
-def test_bash_empty_input_returns_empty():
+def test_bash_empty_input_returns_empty() -> None:
     results = complete_bash("")
     assert results == []
 
 
-def test_bash_timeout_does_not_raise(mocker):
+def test_bash_timeout_does_not_raise(mocker: MockerFixture) -> None:
     """Even if bash hangs, we get an empty list (no exception)."""
     mocker.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("bash", 2))
     results = complete_bash("git sta")

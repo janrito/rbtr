@@ -5,6 +5,7 @@ code chunks and verify that queries return correct results with
 proper ranking.
 """
 
+import threading
 from pathlib import Path
 
 import duckdb
@@ -12,7 +13,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import EMBEDDING_VERSION, SCHEMA_VERSION, IndexStore
+from rbtr.index.store import EMBEDDING_VERSION, SCHEMA_VERSION, IndexStore, _check_schema_version
 from rbtr.index.tokenise import tokenise_code
 
 
@@ -572,7 +573,6 @@ def test_delete_snapshots_removes_ref_visibility(store: IndexStore) -> None:
 
 def test_concurrent_write_then_read() -> None:
     """Writes from a background thread are visible after join."""
-    import threading
 
     store = IndexStore()
     store.insert_chunks([_MATH_FUNC, _HTTP_FUNC, _STRING_FUNC])
@@ -609,7 +609,6 @@ def test_checkpoint_makes_writes_visible_during_concurrent_work() -> None:
     snapshots, calls checkpoint(), then starts embedding (slow UPDATEs).
     `/index status` reads from the main thread during embedding.
     """
-    import threading
 
     store = IndexStore()
     checkpoint_done = threading.Event()
@@ -1002,7 +1001,6 @@ def test_fts_content_tokens_roundtrip(store: IndexStore) -> None:
 def test_schema_check_skips_when_db_already_open(tmp_path: Path) -> None:
     """_check_schema_version returns without error when the DB is already
     open with a read-write connection (different config than read_only=True)."""
-    from rbtr.index.store import _check_schema_version
 
     db_path = tmp_path / "index.duckdb"
     # First store opens a read-write connection.

@@ -27,14 +27,14 @@ def _assistant(text: str) -> ModelResponse:
     return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
 
 
-def _tool_return(name: str, content: str, *, call_id: str | None = None) -> ModelRequest:
+def _tool_return(name: str, content: str, *, call_id: str = "call_0") -> ModelRequest:
     return ModelRequest(
         parts=[ToolReturnPart(tool_name=name, content=content, tool_call_id=call_id)]
     )
 
 
 def _tool_call(
-    name: str, args: dict[str, str] | None = None, *, call_id: str | None = None
+    name: str, args: dict[str, str] | None = None, *, call_id: str = "call_0"
 ) -> ModelResponse:
     return ModelResponse(
         parts=[ToolCallPart(tool_name=name, args=args or {}, tool_call_id=call_id)],

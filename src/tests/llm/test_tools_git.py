@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
 import pytest
 from pydantic_ai import RunContext
 
+from rbtr.config import config as cfg
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.git import changed_files, commit_log, diff
 from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── Git tool helpers ─────────────────────────────────────────────────
 
@@ -48,7 +50,7 @@ def _git_state(repo: pygit2.Repository) -> EngineState:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     return state
 
@@ -63,7 +65,7 @@ def git_repo(tmp_path: Path) -> tuple[pygit2.Repository, str, str]:
 def ctx(git_repo: tuple[pygit2.Repository, str, str], store: SessionStore) -> RunContext[AgentDeps]:
     """RunContext wired to the standard git-tool repo."""
     repo, _, _ = git_repo
-    return tool_ctx(_git_state(repo), store)
+    return build_tool_ctx(_git_state(repo), store)
 
 
 # ── diff ─────────────────────────────────────────────────────────────
@@ -80,7 +82,7 @@ def test_diff_shows_both_changed_files(ctx: RunContext[AgentDeps]) -> None:
 def test_diff_single_ref_shows_commit(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, c2 = _make_repo_two_commits(tmp)
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = diff(ctx, ref=c2[:8])
         assert "files changed" in result
         assert "a.py" in result
@@ -89,7 +91,7 @@ def test_diff_single_ref_shows_commit(store: SessionStore) -> None:
 def test_diff_range_syntax(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, c2 = _make_repo_two_commits(tmp)
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = diff(ctx, ref=f"{c1[:8]}..{c2[:8]}")
         assert "files changed" in result
 
@@ -103,7 +105,7 @@ def test_diff_no_target(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         state = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = diff(ctx)
         assert "No diff target" in result
 
@@ -139,7 +141,7 @@ def test_changed_files_includes_deleted(store: SessionStore) -> None:
         tb2.insert("keep.py", b1, pygit2.GIT_FILEMODE_BLOB)
         repo.create_commit("refs/heads/feature", sig, sig, "delete", tb2.write(), [c1])
 
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = changed_files(ctx)
         assert "remove.py" in result
         assert "keep.py" not in result  # unchanged — should not appear
@@ -155,7 +157,7 @@ def test_changed_files_identical_branches(store: SessionStore) -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = changed_files(ctx)
         assert "No files changed" in result
 
@@ -165,7 +167,7 @@ def test_changed_files_no_target(store: SessionStore) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, _ = _make_repo_two_commits(tmp)
         state = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = changed_files(ctx)
         assert "No diff target" in result
 
@@ -187,7 +189,7 @@ def test_commit_log_identical_branches(store: SessionStore) -> None:
         repo.set_head("refs/heads/main")
         repo.branches.local.create("feature", repo.head.peel(pygit2.Commit))
 
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = commit_log(ctx)
         assert "No commits" in result or "identical" in result.lower()
 
@@ -201,7 +203,7 @@ def test_commit_log_no_target(store: SessionStore) -> None:
         repo.set_head("refs/heads/main")
 
         state = EngineState(repo=repo, owner="o", repo_name="r")
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = commit_log(ctx)
         assert "No diff target" in result
 
@@ -221,7 +223,7 @@ def test_diff_initial_commit(store: SessionStore) -> None:
         repo.set_head("refs/heads/main")
 
         state = _git_state(repo)
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = diff(ctx, ref=str(c)[:8])
         assert "no parent" in result or "initial commit" in result
 
@@ -234,7 +236,6 @@ def test_diff_bad_range_refs(ctx: RunContext[AgentDeps]) -> None:
 
 def test_diff_truncation(config_path: Path, store: SessionStore) -> None:
     """Large diffs are limited at max_lines."""
-    from rbtr.config import config as cfg
 
     cfg.tools.max_lines = 5  # tiny limit for test
 
@@ -256,7 +257,7 @@ def test_diff_truncation(config_path: Path, store: SessionStore) -> None:
         repo.create_commit("refs/heads/feature", sig, sig, "big", tb2.write(), [c1])
 
         state = _git_state(repo)
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = diff(ctx)
         assert "... limited" in result
         assert "offset=" in result
@@ -291,7 +292,7 @@ def test_diff_pattern_with_single_ref(store: SessionStore) -> None:
     """pattern also works in single-ref mode."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, _, c2 = _make_repo_two_commits(tmp)
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = diff(ctx, pattern="a.py", ref=c2[:8])
         assert "a.py" in result
         assert "b.py" not in result
@@ -301,7 +302,7 @@ def test_diff_pattern_with_range(store: SessionStore) -> None:
     """pattern also works with range syntax."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, c2 = _make_repo_two_commits(tmp)
-        ctx = tool_ctx(_git_state(repo), store)
+        ctx = build_tool_ctx(_git_state(repo), store)
         result = diff(ctx, pattern="b.py", ref=f"{c1[:8]}..{c2[:8]}")
         assert "b.py" in result
         assert "a.py" not in result
@@ -339,16 +340,15 @@ def test_commit_log_bad_refs(store: SessionStore) -> None:
             head_branch="nonexistent",
             base_commit="main",
             head_commit="nonexistent",
-            updated_at=0,
+            updated_at=datetime.min.replace(tzinfo=UTC),
         )
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = commit_log(ctx)
         assert "Cannot resolve ref" in result
 
 
 def test_commit_log_truncation(config_path: Path, store: SessionStore) -> None:
     """Long commit log is limited at max_results."""
-    from rbtr.config import config as cfg
 
     cfg.tools.max_results = 2  # tiny limit
 
@@ -372,7 +372,7 @@ def test_commit_log_truncation(config_path: Path, store: SessionStore) -> None:
             )
 
         state = _git_state(repo)
-        ctx = tool_ctx(state, store)
+        ctx = build_tool_ctx(state, store)
         result = commit_log(ctx)
         assert "... limited" in result
         assert "offset=" in result

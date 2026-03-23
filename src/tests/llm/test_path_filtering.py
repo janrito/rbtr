@@ -14,6 +14,7 @@ Also tests `is_path_ignored` directly for edge cases.
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
@@ -29,7 +30,7 @@ from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ def _state(repo: pygit2.Repository) -> EngineState:
         head_branch="main",
         base_commit="main",
         head_commit="main",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     return state
 
@@ -73,7 +74,7 @@ def ctx(
 ) -> RunContext[AgentDeps]:
     """RunContext wired to the path-filtering repo."""
     repo, _ = path_repo
-    return tool_ctx(_state(repo), store)
+    return build_tool_ctx(_state(repo), store)
 
 
 # ── is_path_ignored unit tests ───────────────────────────────────────
@@ -163,7 +164,7 @@ def test_read_file_blocks_gitignored_fs_file(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = read_file(ctx, ".mypy_cache/3.12/data.json")
         assert "not found" in result.lower() or "cannot" in result.lower()
 
@@ -181,7 +182,7 @@ def test_read_file_blocks_extend_exclude_fs_file(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = read_file(ctx, ".rbtr/index")
         assert "not found" in result.lower() or "cannot" in result.lower()
 
@@ -202,7 +203,7 @@ def test_read_file_allows_included_despite_gitignore(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = read_file(ctx, ".rbtr/notes/plan.md")
         assert "# Plan" in result
         assert "Step 1" in result
@@ -220,7 +221,7 @@ def test_read_file_allows_non_ignored_fs_file(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = read_file(ctx, "notes.txt")
         assert "important notes" in result
 
@@ -246,7 +247,7 @@ def test_list_files_excludes_gitignored(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="local_dir")
         assert "visible.txt" in result
         assert "cache.pyc" not in result
@@ -267,7 +268,7 @@ def test_list_files_excludes_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="data")
         assert "notes.txt" in result
         assert "index.db" not in result
@@ -291,7 +292,7 @@ def test_list_files_includes_override_gitignore(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in result
         assert "findings.md" in result
@@ -313,7 +314,7 @@ def test_list_files_include_overrides_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="data")
         assert "important.lock" in result
         assert "other.lock" not in result
@@ -343,7 +344,7 @@ def test_list_files_excludes_nested_gitignored_dir(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("__pycache__/\nnode_modules/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="project")
         assert "app.py" in result
         assert "__pycache__" not in result
@@ -372,7 +373,7 @@ def test_grep_excludes_gitignored_files(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "MAGIC_MARKER", pattern="local_dir")
         assert "visible.py" in result
         assert "cached.pyc" not in result
@@ -393,7 +394,7 @@ def test_grep_excludes_extend_exclude_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "SEARCH_TERM", pattern="logs")
         assert "app.py" in result
         assert "debug.log" not in result
@@ -416,7 +417,7 @@ def test_grep_includes_override_gitignore(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "SEARCH_TARGET", pattern=".rbtr")
         assert "SEARCH_TARGET" in result
         assert "plan.md" in result
@@ -437,7 +438,7 @@ def test_grep_include_overrides_extend_exclude(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "FIND_ME", pattern="data")
         assert "important.lock" in result
         assert "other.lock" not in result
@@ -463,7 +464,7 @@ def test_grep_excludes_nested_gitignored_dirs(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "UNIQUE_NEEDLE", pattern="project")
         assert "app.py" in result
         assert ".mypy_cache" not in result
@@ -491,7 +492,7 @@ def test_grep_single_file_blocked_by_gitignore(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text("*.pyc\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         # Single file grep — the file is not in git, falls back to fs.
         # _grep_filesystem checks is_file() first for exact paths,
         # which doesn't apply filtering. This documents current behaviour.
@@ -523,7 +524,7 @@ def test_mypy_cache_excluded_from_list_files(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="project")
         assert "main.py" in result
         assert ".mypy_cache" not in result
@@ -548,7 +549,7 @@ def test_mypy_cache_excluded_from_grep(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(".mypy_cache/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "SECRET_TOKEN_12345", pattern="project")
         assert "main.py" in result
         assert ".mypy_cache" not in result
@@ -574,7 +575,7 @@ def test_default_config_rbtr_included_index_excluded(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
 
         # Notes file should be readable
         plan = read_file(ctx, ".rbtr/notes/plan.md")
@@ -611,7 +612,7 @@ def test_default_config_rbtr_listed_but_index_excluded(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern=".rbtr")
         assert "plan.md" in result
         assert "findings.md" in result
@@ -636,7 +637,7 @@ def test_default_config_grep_rbtr_excludes_index(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "SEARCH_ME", pattern=".rbtr")
         assert "plan.md" in result
         assert "data.db" not in result
@@ -683,7 +684,7 @@ def test_list_files_gitignore_various_patterns(
         workdir = Path(repo.workdir)
         (workdir / ".gitignore").write_text(f"{pattern}\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="project")
         assert Path(visible_file).name in result
         assert Path(ignored_file).name not in result
@@ -707,7 +708,7 @@ def test_list_files_all_ignored_returns_no_files(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = list_files(ctx, pattern="scratch")
         assert "No files" in result
 
@@ -726,7 +727,7 @@ def test_grep_all_ignored_returns_no_matches(
 
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _ = _make_repo(repo_tmp)
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
         result = grep(ctx, "NEEDLE", pattern="scratch")
         assert "No matches" in result
 
@@ -796,7 +797,7 @@ def test_gitignored_rbtr_notes_accessible(
         # .rbtr is in .gitignore — as it would be in a real project
         (workdir / ".gitignore").write_text(".rbtr/\n")
 
-        ctx = tool_ctx(_state(repo), store)
+        ctx = build_tool_ctx(_state(repo), store)
 
         # read_file: notes files readable
         plan = read_file(ctx, ".rbtr/notes/plan.md")

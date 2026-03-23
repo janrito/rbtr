@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
@@ -13,7 +15,7 @@ from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── search_symbols ───────────────────────────────────────────────────
 
@@ -311,15 +313,15 @@ def test_ref_scoping_search_codebase_only_returns_head(
 
 def test_ref_scoping_find_references_edge_without_visible_source(store: SessionStore) -> None:
     """Edge source chunk not in current ref's snapshots is silently skipped."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     # Target visible at head.
@@ -344,17 +346,17 @@ def test_ref_scoping_find_references_edge_without_visible_source(store: SessionS
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([target, orphan_source])
-    store.insert_snapshot("feature", "src/lib.py", "b1")
+    index_store.insert_chunks([target, orphan_source])
+    index_store.insert_snapshot("feature", "src/lib.py", "b1")
     # Deliberately NOT inserting snapshot for orphan_source.
 
     # Edge points from orphan → target.
-    store.insert_edges(
+    index_store.insert_edges(
         [Edge(source_id="orphan", target_id="tgt", kind=EdgeKind.IMPORTS)],
         "feature",
     )
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = find_references(ctx, "target_fn", ref="head")
 
     # orphan_caller should NOT appear — its chunk isn't in head's snapshots.
@@ -362,7 +364,7 @@ def test_ref_scoping_find_references_edge_without_visible_source(store: SessionS
     assert "orphan_caller" not in result
     # The edge exists but source is invisible → effectively no references.
     assert "No references" in result
-    store.close()
+    index_store.close()
 
 
 # ── Stale data from unrelated reviews ────────────────────────────────
@@ -379,9 +381,9 @@ def test_ref_scoping_find_references_edge_without_visible_source(store: SessionS
 
 def test_stale_review_data_does_not_leak(store: SessionStore) -> None:
     """Chunks and edges from an older, unrelated review are invisible."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
 
     # ── Old review residue (old-base / old-head) ─────────────────
     stale_chunk = Chunk(
@@ -412,15 +414,15 @@ def monthly_report():
         line_start=1,
         line_end=3,
     )
-    store.insert_chunks([stale_chunk, stale_caller])
-    store.insert_snapshots(
+    index_store.insert_chunks([stale_chunk, stale_caller])
+    index_store.insert_snapshots(
         [
             ("old-base", "src/billing/invoice.py", "stale_blob"),
             ("old-head", "src/billing/invoice.py", "stale_blob"),
             ("old-head", "src/billing/reports.py", "stale_blob2"),
         ]
     )
-    store.insert_edges(
+    index_store.insert_edges(
         [Edge(source_id="stale_caller", target_id="stale_fn", kind=EdgeKind.IMPORTS)],
         "old-head",
     )
@@ -431,7 +433,7 @@ def monthly_report():
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     current_fn = Chunk(
@@ -447,15 +449,15 @@ def handle_request(req):
         line_start=1,
         line_end=2,
     )
-    store.insert_chunks([current_fn])
-    store.insert_snapshots(
+    index_store.insert_chunks([current_fn])
+    index_store.insert_snapshots(
         [
             ("main", "src/api/handler.py", "cur_blob"),
             ("feature", "src/api/handler.py", "cur_blob"),
         ]
     )
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
 
     # search (always head) must not find stale symbols.
     sym_result = search(ctx, "generate_invoice")
@@ -601,15 +603,15 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
               new_endpoint (added). handler's test exists but
               new_endpoint has no test.
     """
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     # Base versions.
@@ -633,8 +635,8 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([base_handler, base_math])
-    store.insert_snapshots(
+    index_store.insert_chunks([base_handler, base_math])
+    index_store.insert_snapshots(
         [
             ("main", "src/api/handler.py", "blob_base"),
             ("main", "src/math.py", "blob_math"),
@@ -662,8 +664,8 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
         line_start=10,
         line_end=10,
     )
-    store.insert_chunks([head_handler, new_endpoint])
-    store.insert_snapshots(
+    index_store.insert_chunks([head_handler, new_endpoint])
+    index_store.insert_snapshots(
         [
             ("feature", "src/api/handler.py", "blob_head"),
             ("feature", "src/math.py", "blob_math"),
@@ -681,62 +683,62 @@ def _make_diff_state() -> tuple[EngineState, IndexStore]:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([test_chunk])
-    store.insert_snapshots(
+    index_store.insert_chunks([test_chunk])
+    index_store.insert_snapshots(
         [
             ("feature", "tests/test_handler.py", "blob_test"),
         ]
     )
-    store.insert_edges(
+    index_store.insert_edges(
         [Edge(source_id="t_handler", target_id="h_head", kind=EdgeKind.TESTS)],
         "feature",
     )
 
-    return state, store
+    return state, index_store
 
 
 def test_changed_symbols_detects_added_symbol(store: SessionStore) -> None:
-    state, store = _make_diff_state()
-    ctx = tool_ctx(state, store)
+    state, index_store = _make_diff_state()
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Added" in result
     assert "new_endpoint" in result
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_detects_modified_symbol(store: SessionStore) -> None:
-    state, store = _make_diff_state()
-    ctx = tool_ctx(state, store)
+    state, index_store = _make_diff_state()
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Modified" in result
     assert "handle_request" in result
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_reports_missing_tests(store: SessionStore) -> None:
     """new_endpoint has no test edge → reported as missing."""
-    state, store = _make_diff_state()
-    ctx = tool_ctx(state, store)
+    state, index_store = _make_diff_state()
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Missing tests" in result
     assert "new_endpoint" in result
     # test_handle_request is a test function — should NOT be flagged.
     missing_section = result[result.index("Missing tests") :]
     assert "test_handle_request" not in missing_section
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_no_changes(store: SessionStore) -> None:
     """Same blob at base and head → no structural differences."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     chunk = Chunk(
@@ -749,18 +751,18 @@ def test_changed_symbols_no_changes(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([chunk])
-    store.insert_snapshots(
+    index_store.insert_chunks([chunk])
+    index_store.insert_snapshots(
         [
             ("main", "src/app.py", "b1"),
             ("feature", "src/app.py", "b1"),
         ]
     )
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "No structural differences" in result
-    store.close()
+    index_store.close()
 
 
 # ── search_similar edge cases ────────────────────────────────────────
@@ -784,26 +786,26 @@ def test_search_similar_embedding_error(
 
 def test_changed_symbols_no_review_target(store: SessionStore) -> None:
     """changed_symbols without a target returns message."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
-    ctx = tool_ctx(state, store)
+    state.index = index_store
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "No diff target" in result
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_detects_removed_symbol(store: SessionStore) -> None:
     """A symbol present in base but not head is reported as removed."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     # Base has two functions; head has only one.
@@ -827,8 +829,8 @@ def test_changed_symbols_detects_removed_symbol(store: SessionStore) -> None:
         line_start=5,
         line_end=5,
     )
-    store.insert_chunks([base_a, base_b])
-    store.insert_snapshot("main", "src/a.py", "b1")
+    index_store.insert_chunks([base_a, base_b])
+    index_store.insert_snapshot("main", "src/a.py", "b1")
 
     head_a = Chunk(
         id="a_head",
@@ -840,27 +842,27 @@ def test_changed_symbols_detects_removed_symbol(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([head_a])
-    store.insert_snapshot("feature", "src/a.py", "b2")
+    index_store.insert_chunks([head_a])
+    index_store.insert_snapshot("feature", "src/a.py", "b2")
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Removed" in result
     assert "func_b" in result
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_detects_stale_docs(store: SessionStore) -> None:
     """Doc that references a modified symbol is flagged as stale."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     # Base: handler v1 + doc
@@ -884,9 +886,9 @@ def test_changed_symbols_detects_stale_docs(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([base_handler, doc])
-    store.insert_snapshot("main", "src/h.py", "blob_b")
-    store.insert_snapshot("main", "docs/api.md", "blob_doc")
+    index_store.insert_chunks([base_handler, doc])
+    index_store.insert_snapshot("main", "src/h.py", "blob_b")
+    index_store.insert_snapshot("main", "docs/api.md", "blob_doc")
 
     # Head: handler v2 (modified), doc unchanged
     head_handler = Chunk(
@@ -899,34 +901,34 @@ def test_changed_symbols_detects_stale_docs(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([head_handler])
-    store.insert_snapshot("feature", "src/h.py", "blob_h")
-    store.insert_snapshot("feature", "docs/api.md", "blob_doc")
+    index_store.insert_chunks([head_handler])
+    index_store.insert_snapshot("feature", "src/h.py", "blob_h")
+    index_store.insert_snapshot("feature", "docs/api.md", "blob_doc")
 
     # Doc → handler edge
-    store.insert_edges(
+    index_store.insert_edges(
         [Edge(source_id="doc_b", target_id="h_h", kind=EdgeKind.DOCUMENTS)],
         "feature",
     )
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Stale docs" in result
     assert "API" in result
-    store.close()
+    index_store.close()
 
 
 def test_changed_symbols_detects_broken_edges(store: SessionStore) -> None:
     """Import edge pointing at a removed symbol is flagged as broken."""
-    store = IndexStore()
+    index_store = IndexStore()
     state = EngineState()
-    state.index = store
+    state.index = index_store
     state.review_target = BranchTarget(
         base_branch="main",
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
 
     # Base: two modules that import each other
@@ -950,9 +952,9 @@ def test_changed_symbols_detects_broken_edges(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([base_a, base_b])
-    store.insert_snapshot("main", "src/a.py", "b1")
-    store.insert_snapshot("main", "src/b.py", "b2")
+    index_store.insert_chunks([base_a, base_b])
+    index_store.insert_snapshot("main", "src/a.py", "b1")
+    index_store.insert_snapshot("main", "src/b.py", "b2")
 
     # Head: func_a removed, func_b unchanged, edge still points at a_b
     head_b = Chunk(
@@ -965,17 +967,17 @@ def test_changed_symbols_detects_broken_edges(store: SessionStore) -> None:
         line_start=1,
         line_end=1,
     )
-    store.insert_chunks([head_b])
-    store.insert_snapshot("feature", "src/b.py", "b2")
+    index_store.insert_chunks([head_b])
+    index_store.insert_snapshot("feature", "src/b.py", "b2")
     # No src/a.py in feature snapshot — it's deleted
 
     # Edge from b→a (a is removed in head)
-    store.insert_edges(
+    index_store.insert_edges(
         [Edge(source_id="b_h", target_id="a_b", kind=EdgeKind.IMPORTS)],
         "feature",
     )
 
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = changed_symbols(ctx)
     assert "Broken edges" in result
-    store.close()
+    index_store.close()

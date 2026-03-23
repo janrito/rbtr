@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from tree_sitter import Language, Parser
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
 from rbtr.plugins.ruby import RubyPlugin, extract_import_meta
 
@@ -23,8 +23,9 @@ except ImportError:
 needs_grammar = pytest.mark.skipif(not _HAS_GRAMMAR, reason="tree-sitter-ruby not installed")
 
 
-def _extract(code: str):
+def _extract(code: str) -> list[Chunk]:
     reg = RubyPlugin().rbtr_register_languages()[0]
+    assert reg.query is not None
     return extract_symbols(
         "test.rb",
         "abc123",
@@ -36,7 +37,7 @@ def _extract(code: str):
     )
 
 
-def _parse_require(code: str):
+def _parse_require(code: str) -> ImportMeta:
     """Parse code and extract import metadata from the first require."""
     parser = Parser(_LANG)
     tree = parser.parse(code.encode())
@@ -51,7 +52,7 @@ def _parse_require(code: str):
 # ── Registration ─────────────────────────────────────────────────────
 
 
-def test_registration():
+def test_registration() -> None:
     regs = RubyPlugin().rbtr_register_languages()
     assert len(regs) == 1
     reg = regs[0]
@@ -78,12 +79,12 @@ def test_registration():
     ],
     ids=["simple", "nested-path", "relative", "relative-nested"],
 )
-def test_require_meta(code: str, expected: dict):
+def test_require_meta(code: str, expected: ImportMeta) -> None:
     assert _parse_require(code) == expected
 
 
 @needs_grammar
-def test_multiple_requires():
+def test_multiple_requires() -> None:
     chunks = _extract("""\
 require "json"
 require_relative "helpers"
@@ -120,7 +121,7 @@ end
     ],
     ids=["no-args", "with-args"],
 )
-def test_top_level_function(code: str, expected_name: str):
+def test_top_level_function(code: str, expected_name: str) -> None:
     fns = [c for c in _extract(code) if c.kind == ChunkKind.FUNCTION]
     assert len(fns) == 1
     assert fns[0].name == expected_name
@@ -128,7 +129,7 @@ def test_top_level_function(code: str, expected_name: str):
 
 
 @needs_grammar
-def test_multiple_functions():
+def test_multiple_functions() -> None:
     chunks = _extract("""\
 def foo
   1
@@ -173,7 +174,7 @@ end
     ],
     ids=["class", "module", "class-with-superclass"],
 )
-def test_class_like(code: str, expected_name: str):
+def test_class_like(code: str, expected_name: str) -> None:
     classes = [c for c in _extract(code) if c.kind == ChunkKind.CLASS]
     assert any(c.name == expected_name for c in classes)
 
@@ -182,7 +183,7 @@ def test_class_like(code: str, expected_name: str):
 
 
 @needs_grammar
-def test_method_scoped_to_class():
+def test_method_scoped_to_class() -> None:
     chunks = _extract("""\
 class Foo
   def bar
@@ -197,7 +198,7 @@ end
 
 
 @needs_grammar
-def test_singleton_method_scoped():
+def test_singleton_method_scoped() -> None:
     chunks = _extract("""\
 class Factory
   def self.build
@@ -212,7 +213,7 @@ end
 
 
 @needs_grammar
-def test_method_scoped_to_module():
+def test_method_scoped_to_module() -> None:
     chunks = _extract("""\
 module Helpers
   def format(s)
@@ -227,7 +228,7 @@ end
 
 
 @needs_grammar
-def test_nested_class_in_module():
+def test_nested_class_in_module() -> None:
     chunks = _extract("""\
 module Utils
   class Parser
@@ -254,7 +255,7 @@ end
 
 
 @needs_grammar
-def test_top_level_function_not_scoped():
+def test_top_level_function_not_scoped() -> None:
     """Functions outside classes/modules should not be methods."""
     chunks = _extract("""\
 class C
@@ -274,7 +275,7 @@ end
 
 
 @needs_grammar
-def test_full_ruby_file():
+def test_full_ruby_file() -> None:
     chunks = _extract("""\
 require "json"
 require_relative "config"

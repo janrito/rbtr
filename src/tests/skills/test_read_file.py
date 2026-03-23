@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
@@ -12,7 +13,7 @@ from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
 from rbtr.state import EngineState
-from tests.llm.ctx import tool_ctx
+from tests.llm.ctx import build_tool_ctx
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def state_with_skills(tmp_path: Path, skill_dir: Path) -> EngineState:
         head_branch="main",
         base_commit=str(c),
         head_commit=str(c),
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     registry = SkillRegistry()
     registry.add(
@@ -63,7 +64,7 @@ def state_with_skills(tmp_path: Path, skill_dir: Path) -> EngineState:
 def test_read_absolute_skill_file(
     state_with_skills: EngineState, skill_dir: Path, store: SessionStore
 ) -> None:
-    ctx = tool_ctx(state_with_skills, store)
+    ctx = build_tool_ctx(state_with_skills, store)
     result = read_file(ctx, str(skill_dir / "SKILL.md"))
     assert "My Skill" in result
 
@@ -71,7 +72,7 @@ def test_read_absolute_skill_file(
 def test_read_absolute_skill_helper(
     state_with_skills: EngineState, skill_dir: Path, store: SessionStore
 ) -> None:
-    ctx = tool_ctx(state_with_skills, store)
+    ctx = build_tool_ctx(state_with_skills, store)
     result = read_file(ctx, str(skill_dir / "helper.sh"))
     assert "echo hello" in result
 
@@ -79,7 +80,7 @@ def test_read_absolute_skill_helper(
 def test_read_absolute_outside_skill_dir(
     state_with_skills: EngineState, tmp_path: Path, store: SessionStore
 ) -> None:
-    ctx = tool_ctx(state_with_skills, store)
+    ctx = build_tool_ctx(state_with_skills, store)
     outside = tmp_path / "outside.txt"
     outside.write_text("secret")
     result = read_file(ctx, str(outside))
@@ -102,8 +103,8 @@ def test_read_absolute_no_registry(tmp_path: Path, store: SessionStore) -> None:
         head_branch="main",
         base_commit=str(c),
         head_commit=str(c),
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
-    ctx = tool_ctx(state, store)
+    ctx = build_tool_ctx(state, store)
     result = read_file(ctx, "/some/absolute/path.md")
     assert "not within a skill directory" in result

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pygit2
 import pytest
 from pydantic_ai import RunContext
 
 from rbtr.git.objects import DiffLineRanges
-from rbtr.github.draft import load_draft, save_draft, snap_to_commentable_line
+from rbtr.github.draft import draft_path, load_draft, save_draft, snap_to_commentable_line
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.draft import (
     _get_diff_ranges,
@@ -25,9 +24,10 @@ from rbtr.llm.tools.draft import (
     remove_draft_comment,
     set_draft_summary,
 )
-from rbtr.models import InlineComment, PRTarget, ReviewDraft
+from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from tests.llm.ctx import build_tool_ctx
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -45,10 +45,7 @@ def ctx(
     state.review_target = draft_pr_target
     state.repo = repo
     with SessionStore() as store:
-        deps = AgentDeps(state=state, store=store)
-        mock_ctx = MagicMock(spec=RunContext)
-        mock_ctx.deps = deps
-        yield mock_ctx
+        yield build_tool_ctx(state, store)
 
 
 @pytest.fixture
@@ -57,10 +54,7 @@ def ctx_no_repo(draft_pr_target: PRTarget) -> Generator[RunContext[AgentDeps]]:
     state = EngineState()
     state.review_target = draft_pr_target
     with SessionStore() as store:
-        deps = AgentDeps(state=state, store=store)
-        mock_ctx = MagicMock(spec=RunContext)
-        mock_ctx.deps = deps
-        yield mock_ctx
+        yield build_tool_ctx(state, store)
 
 
 # ── add_draft_comment ───────────────────────────────────────────────
@@ -536,7 +530,6 @@ def test_read_draft_pagination(
     assert read_draft(ctx_no_repo, offset=3, max_lines=3).strip()
 
     # Full file fits with a large limit.
-    from rbtr.github.draft import draft_path
 
     total_lines = len(draft_path(42).read_text().splitlines())
     full = read_draft(ctx_no_repo, max_lines=total_lines + 10)
@@ -600,21 +593,21 @@ def mixed_draft(workspace: Path) -> ReviewDraft:
             InlineComment(
                 path="a.py",
                 line=10,
-                side="LEFT",
+                side=DiffSide.LEFT,
                 commit_id="aaa",
                 body="Old code issue.",
             ),
             InlineComment(
                 path="b.py",
                 line=20,
-                side="RIGHT",
+                side=DiffSide.RIGHT,
                 commit_id="bbb",
                 body="New code issue.",
             ),
             InlineComment(
                 path="c.py",
                 line=30,
-                side="RIGHT",
+                side=DiffSide.RIGHT,
                 commit_id="ccc",
                 body="Third finding.",
             ),

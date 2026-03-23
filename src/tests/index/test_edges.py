@@ -10,7 +10,7 @@ from rbtr.index.edges import (
     infer_import_edges,
     infer_test_edges,
 )
-from rbtr.index.models import Chunk, ChunkKind, EdgeKind
+from rbtr.index.models import Chunk, ChunkKind, EdgeKind, ImportMeta
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ def _chunk(
     line_start: int = 1,
     line_end: int = 1,
     scope: str = "",
-    metadata: dict[str, str] | None = None,
+    metadata: ImportMeta | None = None,
 ) -> Chunk:
     return Chunk(
         id=chunk_id,

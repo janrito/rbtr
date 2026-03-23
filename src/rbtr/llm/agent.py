@@ -39,7 +39,6 @@ from rbtr.llm.tools.common import (
     workspace_toolset,
 )
 from rbtr.prompts import render_index_status, render_review, render_skills, render_system
-from rbtr.providers import system_instructions
 
 
 def register_tools() -> None:
@@ -83,10 +82,6 @@ def get_agent() -> Agent[AgentDeps, str]:
             workspace_toolset,
         ],
     )
-
-    @agent.instructions
-    def _provider_identity(ctx: RunContext[AgentDeps]) -> str:
-        return system_instructions(ctx.deps.state.model_name) or ""
 
     @agent.instructions
     def _system() -> str:

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.creds import OAuthCreds, creds
@@ -43,7 +44,7 @@ def test_challenge_is_s256() -> None:
 # ── begin_login ──────────────────────────────────────────────────────
 
 
-def test_begin_login_returns_url_and_pending(mocker) -> None:
+def test_begin_login_returns_url_and_pending(mocker: MockerFixture) -> None:
     mocker.patch("rbtr.oauth.webbrowser.open")
     url, pending = begin_login()
     assert url.startswith(_AUTHORIZE_URL)
@@ -53,10 +54,9 @@ def test_begin_login_returns_url_and_pending(mocker) -> None:
     assert pending.code_verifier
 
 
-def test_begin_login_opens_browser(mocker) -> None:
+def test_begin_login_opens_browser(mocker: MockerFixture) -> None:
     mock_open = mocker.patch("rbtr.oauth.webbrowser.open")
     url, _ = begin_login()
-    import time
 
     time.sleep(0.1)
     mock_open.assert_called_once_with(url)
@@ -124,7 +124,7 @@ def test_ensure_returns_creds_when_no_expiry(creds_path: Path) -> None:
     assert oauth.access_token == "tok"
 
 
-def test_ensure_refreshes_expired_token(creds_path: Path, mocker) -> None:
+def test_ensure_refreshes_expired_token(creds_path: Path, mocker: MockerFixture) -> None:
     _store_oauth(
         creds_path, access_token="old-tok", refresh_token="ref-tok", expires_at=time.time() - 100
     )
@@ -136,7 +136,7 @@ def test_ensure_refreshes_expired_token(creds_path: Path, mocker) -> None:
     assert creds.claude.access_token == "new-tok"
 
 
-def test_ensure_refreshes_within_buffer(creds_path: Path, mocker) -> None:
+def test_ensure_refreshes_within_buffer(creds_path: Path, mocker: MockerFixture) -> None:
     _store_oauth(creds_path, expires_at=time.time() + config.oauth.refresh_buffer_seconds - 10)
     refreshed = _make_oauth(access_token="refreshed")
     mocker.patch("rbtr.providers.claude._refresh", return_value=refreshed)
@@ -156,7 +156,7 @@ def test_ensure_raises_when_expired_no_refresh_token(creds_path: Path) -> None:
         ensure_credentials()
 
 
-def test_ensure_clears_creds_on_refresh_failure(creds_path: Path, mocker) -> None:
+def test_ensure_clears_creds_on_refresh_failure(creds_path: Path, mocker: MockerFixture) -> None:
     """When the refresh token is rejected (e.g. expired or revoked),
     stale credentials are cleared so `is_connected()` reflects reality."""
     _store_oauth(creds_path, expires_at=time.time() - 100)

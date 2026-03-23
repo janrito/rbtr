@@ -14,6 +14,7 @@ import queue
 from collections.abc import Generator
 
 import pytest
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from rbtr.config import config
 from rbtr.engine.core import Engine
@@ -322,7 +323,6 @@ def test_emit_shell_context_truncation(
 
 def test_expanded_message_round_trips() -> None:
     """Expanded context in user messages round-trips through the store."""
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
 
     state = _inp("[/review → PR #42] what changed?")
     state.paste_regions.append(_context_region("[/review → PR #42]", "Selected PR #42."))

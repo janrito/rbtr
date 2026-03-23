@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
 import pytest
 from pydantic_ai import RunContext
 
+from rbtr.config import config as cfg
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.file import grep, list_files, read_file
 from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 
-from .ctx import tool_ctx
+from .ctx import build_tool_ctx
 
 # ── File tools — shared fixture ──────────────────────────────────────
 #
@@ -198,7 +200,7 @@ def _file_state(repo: pygit2.Repository) -> EngineState:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     return state
 
@@ -215,7 +217,7 @@ def ctx(
 ) -> RunContext[AgentDeps]:
     """RunContext wired to the standard file-tool repo."""
     repo, _, _ = file_repo
-    return tool_ctx(_file_state(repo), store)
+    return build_tool_ctx(_file_state(repo), store)
 
 
 # ── read_file ────────────────────────────────────────────────────────
@@ -257,7 +259,7 @@ def test_read_file_raw_ref(store: SessionStore) -> None:
     """Raw commit SHA resolves correctly."""
     with tempfile.TemporaryDirectory() as tmp:
         repo, c1, _ = _make_file_repo(tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = read_file(ctx, "src/api/handler.py", ref=c1[:8])
         # c1 is the base commit — should have v1 content.
         assert "require_auth" not in result
@@ -265,7 +267,7 @@ def test_read_file_raw_ref(store: SessionStore) -> None:
 
 
 @pytest.mark.parametrize("bad_path", ["../etc/passwd", "src/../../../secret", "foo/../../bar"])
-def test_read_file_rejects_traversal(bad_path: str) -> None:
+def test_read_file_rejects_traversal(ctx: RunContext[AgentDeps], bad_path: str) -> None:
     """Paths with '..' are rejected."""
     result = read_file(ctx, bad_path)
     assert "'..' " in result or "traversal" in result.lower() or "contains '..'" in result
@@ -285,7 +287,6 @@ def test_read_file_not_found(ctx: RunContext[AgentDeps]) -> None:
 
 def test_read_file_truncation(config_path: Path, ctx: RunContext[AgentDeps]) -> None:
     """Files exceeding max_lines are limited with pagination hint."""
-    from rbtr.config import config as cfg
 
     cfg.tools.max_lines = 3  # tiny limit
 
@@ -357,7 +358,7 @@ def test_grep_case_insensitive(ctx: RunContext[AgentDeps]) -> None:
 
 
 @pytest.mark.parametrize("bad_path", ["../etc/passwd", "src/../../../secret"])
-def test_grep_rejects_traversal(bad_path: str) -> None:
+def test_grep_rejects_traversal(ctx: RunContext[AgentDeps], bad_path: str) -> None:
     """Paths with '..' are rejected."""
     result = grep(ctx, "anything", pattern=bad_path)
     assert "'..' " in result or "contains '..'" in result
@@ -444,7 +445,6 @@ def test_grep_glob_no_match(ctx: RunContext[AgentDeps]) -> None:
 
 def test_grep_repo_wide_truncation(config_path: Path, ctx: RunContext[AgentDeps]) -> None:
     """Repo-wide results are limited at max_grep_hits."""
-    from rbtr.config import config as cfg
 
     cfg.tools.max_grep_hits = 1  # tiny limit — only one match group
 
@@ -499,7 +499,6 @@ def test_list_files_head_ref_includes_new_files(ctx: RunContext[AgentDeps]) -> N
 
 def test_list_files_truncation(config_path: Path, ctx: RunContext[AgentDeps]) -> None:
     """More than max_results entries triggers limitation."""
-    from rbtr.config import config as cfg
 
     cfg.tools.max_results = 2  # tiny limit
 
@@ -597,7 +596,7 @@ def test_read_file_workspace(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = read_file(ctx, ".rbtr/notes/plan.md")
         assert "# Review Plan" in result
         assert "Phase 1" in result
@@ -611,7 +610,7 @@ def test_read_file_workspace_not_found(
     monkeypatch.chdir(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = read_file(ctx, ".rbtr/notes/nonexistent.md")
         assert "not found" in result.lower()
 
@@ -624,7 +623,7 @@ def test_read_file_workspace_ignores_ref(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         # ref="base" would fail for git files, but is ignored for .rbtr/
         result = read_file(ctx, ".rbtr/notes/plan.md", ref="base")
         assert "# Review Plan" in result
@@ -638,7 +637,7 @@ def test_grep_workspace_single_file(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = grep(ctx, "null check", pattern=".rbtr/notes/findings.md")
         assert "null check" in result.lower()
         assert "findings.md" in result
@@ -652,7 +651,7 @@ def test_grep_workspace_directory(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         # "handler" appears in both plan and findings
         result = grep(ctx, "handler", pattern=".rbtr/")
         assert "handler" in result.lower()
@@ -668,7 +667,7 @@ def test_grep_workspace_no_match(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = grep(ctx, "xyznonexistent", pattern=".rbtr/")
         assert "No matches" in result
 
@@ -681,7 +680,7 @@ def test_list_files_workspace(
     _make_workspace(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = list_files(ctx, pattern=".rbtr/")
         assert "plan.md" in result
         assert "findings.md" in result
@@ -694,7 +693,7 @@ def test_list_files_workspace_empty(
     monkeypatch.chdir(tmp_path)
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = list_files(ctx, pattern=".rbtr/")
         assert "No files" in result
 
@@ -718,7 +717,7 @@ def test_list_files_git_prefix_wins_over_filesystem(
     (tmp_path / "src" / "api" / "local_only.py").write_text("# local\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = list_files(ctx, pattern="src/api")
         # Git files should be listed.
         assert "handler.py" in result
@@ -735,7 +734,7 @@ def test_list_files_falls_back_to_filesystem(
     (tmp_path / "local_dir" / "notes.txt").write_text("hello\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = list_files(ctx, pattern="local_dir")
         assert "notes.txt" in result
 
@@ -750,7 +749,7 @@ def test_read_file_git_blob_wins_over_filesystem(
     (tmp_path / "src" / "api" / "handler.py").write_text("# FILESYSTEM VERSION\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = read_file(ctx, "src/api/handler.py")
         # Git content has handle_request; filesystem has "FILESYSTEM VERSION".
         assert "handle_request" in result
@@ -765,7 +764,7 @@ def test_read_file_falls_back_to_filesystem(
     (tmp_path / "untracked.txt").write_text("local content here\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = read_file(ctx, "untracked.txt")
         assert "local content here" in result
 
@@ -788,7 +787,7 @@ def test_grep_git_prefix_wins_over_filesystem(
     (tmp_path / "src" / "api" / "local.py").write_text("UNIQUE_LOCAL_MARKER\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = grep(ctx, "UNIQUE_LOCAL_MARKER", pattern="src/api")
         # Git has files under src/api but none contain this marker.
         assert "No matches" in result
@@ -803,7 +802,7 @@ def test_grep_falls_back_to_filesystem(
     (tmp_path / "local_dir" / "notes.txt").write_text("important finding\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = grep(ctx, "important", pattern="local_dir")
         assert "important finding" in result
         assert "notes.txt" in result
@@ -817,6 +816,6 @@ def test_grep_single_file_falls_back_to_filesystem(
     (tmp_path / "local.txt").write_text("needle in haystack\n")
     with tempfile.TemporaryDirectory() as repo_tmp:
         repo, _, _ = _make_file_repo(repo_tmp)
-        ctx = tool_ctx(_file_state(repo), store)
+        ctx = build_tool_ctx(_file_state(repo), store)
         result = grep(ctx, "needle", pattern="local.txt")
         assert "needle in haystack" in result

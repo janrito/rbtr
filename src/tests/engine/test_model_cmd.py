@@ -13,6 +13,7 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 
 from rbtr.engine.core import Engine
+from rbtr.engine.model_cmd import get_models
 from rbtr.engine.types import TaskType
 from rbtr.exceptions import RbtrError
 from rbtr.providers import BuiltinProvider, claude
@@ -172,7 +173,6 @@ def test_get_models_returns_cached_when_fresh(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models returns cached data when TTL hasn't expired."""
-    from rbtr.engine.model_cmd import get_models
 
     expected = [("claude", list(_CLAUDE_MODELS))]
     _seed_cache(engine, providers=expected)
@@ -192,7 +192,6 @@ def test_get_models_force_refreshes(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models(force=True) refreshes even with a fresh cache."""
-    from rbtr.engine.model_cmd import get_models
 
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     _seed_cache(engine, providers=[("claude", ["claude/old-model"])])
@@ -211,7 +210,6 @@ def test_get_models_stale_cache_refreshes(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """get_models refreshes when the cache TTL has expired."""
-    from rbtr.engine.model_cmd import get_models
 
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.cached_models = [("claude", ["claude/old-model"])]
@@ -231,7 +229,6 @@ def test_fetch_provider_models_error_warns(
     config_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """API error during model listing warns and returns empty."""
-    from rbtr.engine.model_cmd import get_models
 
     engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
     engine.state.cached_models = []

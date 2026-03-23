@@ -13,8 +13,11 @@ from rbtr.creds import creds
 from rbtr.engine.core import Engine
 from rbtr.llm.agent import register_tools
 from rbtr.llm.context import LLMContext
+from rbtr.providers import endpoint as endpoint_mod
+from rbtr.providers.types import Provider
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from tests.helpers import TestProvider
 
 # Register all tool submodules in the correct order before any test
 # runs.  Tests that directly import a single tool module would
@@ -73,9 +76,41 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
     config.reload()
     monkeypatch.setattr(config, "skills", SkillsConfig(project_dirs=[], user_dirs=[]))
     creds.reload()
+
+    # Register the test provider so `build_model("test/...")` works
+    # without credentials or network access.  Hooks into the endpoint
+    # resolution path — `_resolve` checks `BuiltinProvider` first,
+    # then `endpoint.resolve`, which we patch to recognise "test".
+    _test_provider = TestProvider()
+    _original_resolve = endpoint_mod.resolve
+
+    def _resolve_with_test(name: str) -> Provider | None:
+        if name == "test":
+            return _test_provider
+        return _original_resolve(name)
+
+    monkeypatch.setattr(endpoint_mod, "resolve", _resolve_with_test)
+
     yield
+    _test_provider.reset()
     config.reload()
     creds.reload()
+
+
+@pytest.fixture
+def test_provider() -> TestProvider:
+    """Access the test provider to configure model responses per-test.
+
+    Example::
+
+        def test_compact(test_provider, engine, llm_ctx):
+            test_provider.set_model(TestModel(custom_output_text="Summary."))
+            engine.state.model_name = "test/default"
+            compact_history(llm_ctx)
+    """
+    prov = endpoint_mod.resolve("test")
+    assert isinstance(prov, TestProvider)
+    return prov
 
 
 @pytest.fixture
@@ -118,18 +153,15 @@ def llm_ctx(engine: Engine) -> LLMContext:
 
 
 @pytest.fixture
-def llm_engine(creds_path: Path) -> Generator[Engine]:
-    """Engine pre-wired for LLM tests (OpenAI connected, model set).
+def llm_engine() -> Generator[Engine]:
+    """Engine pre-wired for LLM tests (test provider connected, model set).
 
-    Sets credentials, connects the OpenAI provider, assigns a model,
-    and syncs the store context — ready for `handle_llm` calls.
+    Uses the test provider so no credentials or network access needed.
+    Ready for `handle_llm` calls.
     """
-    from rbtr.providers import BuiltinProvider
-
-    creds.update(openai_api_key="sk-test")
     state = EngineState(owner="testowner", repo_name="testrepo")
-    state.connected_providers.add(BuiltinProvider.OPENAI)
-    state.model_name = "openai/gpt-4o"
+    state.connected_providers.add("test")
+    state.model_name = "test/default"
     with Engine(state, queue.Queue(), store=SessionStore()) as eng:
         eng._sync_store_context()
         yield eng

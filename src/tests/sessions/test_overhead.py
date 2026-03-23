@@ -7,10 +7,12 @@ Tests the `save_overhead` method on `SessionStore` and the
 from __future__ import annotations
 
 from collections.abc import Generator
-from unittest.mock import MagicMock
 
 import pytest
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.usage import RequestUsage
 
+from rbtr.llm.memory import _persist_overhead
 from rbtr.sessions.kinds import FragmentKind
 from rbtr.sessions.overhead import (
     CompactionOverhead,
@@ -19,7 +21,9 @@ from rbtr.sessions.overhead import (
     FactExtractionSource,
 )
 from rbtr.sessions.store import SessionStore
+from rbtr.state import EngineState
 from rbtr.usage import SessionUsage
+from tests.helpers import MemCtx
 
 SESSION_A = "session-a"
 SESSION_B = "session-b"
@@ -30,6 +34,12 @@ def store() -> Generator[SessionStore]:
     with SessionStore(":memory:") as s:
         s.set_context(session_id=SESSION_A)
         yield s
+
+
+@pytest.fixture
+def memory_ctx(store: SessionStore) -> MemCtx:
+    """Minimal `MemoryContext` for `_persist_overhead` calls."""
+    return MemCtx(store=store, state=EngineState(session_id=SESSION_A))
 
 
 # ── save_overhead persists fragments ─────────────────────────────────
@@ -94,7 +104,6 @@ def test_extraction_overhead_persisted(store: SessionStore) -> None:
 
 def test_load_messages_skips_overhead(store: SessionStore) -> None:
     """`load_messages` does not return overhead fragments."""
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
 
     # Insert a real message.
     store.save_messages(SESSION_A, [ModelRequest(parts=[UserPromptPart(content="hello")])])
@@ -120,8 +129,6 @@ def test_load_messages_skips_overhead(store: SessionStore) -> None:
 
 def test_conversation_stats_exclude_overhead(store: SessionStore) -> None:
     """Token stats only count `request-message`/`response-message` fragments."""
-    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-    from pydantic_ai.usage import RequestUsage
 
     store.save_messages(
         SESSION_A,
@@ -347,21 +354,14 @@ def test_message_kinds_are_not_overhead() -> None:
 # ── Clarification produces second fragment ───────────────────────────
 
 
-def test_clarification_produces_second_extraction_fragment(store: SessionStore) -> None:
+def test_clarification_produces_second_extraction_fragment(
+    store: SessionStore, memory_ctx: MemCtx
+) -> None:
     """Extraction + clarification retry produces two overhead fragments."""
-    from rbtr.llm.memory import _persist_overhead
-    from rbtr.state import EngineState
-
-    state = EngineState()
-    state.session_id = SESSION_A
-
-    ctx = MagicMock()
-    ctx.store = store
-    ctx.state = state
 
     # Main extraction overhead.
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
+        memory_ctx,
         FactExtractionOverhead(
             source=FactExtractionSource.COMPACTION,
             added=1,
@@ -376,7 +376,7 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
 
     # Clarification overhead.
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
+        memory_ctx,
         FactExtractionOverhead(
             source=FactExtractionSource.COMPACTION,
             model_name="test-model",
@@ -393,20 +393,11 @@ def test_clarification_produces_second_extraction_fragment(store: SessionStore) 
     assert oh.fact_extraction_cost == pytest.approx(0.003)
 
 
-def test_no_clarification_single_fragment(store: SessionStore) -> None:
+def test_no_clarification_single_fragment(store: SessionStore, memory_ctx: MemCtx) -> None:
     """Extraction without clarification produces one overhead fragment."""
-    from rbtr.llm.memory import _persist_overhead
-    from rbtr.state import EngineState
-
-    state = EngineState()
-    state.session_id = SESSION_A
-
-    ctx = MagicMock()
-    ctx.store = store
-    ctx.state = state
 
     _persist_overhead(
-        ctx,  # type: ignore[arg-type]  # MagicMock duck-types LLMContext
+        memory_ctx,
         FactExtractionOverhead(
             source=FactExtractionSource.COMMAND,
             added=2,

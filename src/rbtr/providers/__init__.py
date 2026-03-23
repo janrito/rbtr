@@ -73,17 +73,6 @@ def model_settings(
     return prov.model_settings(model_id, model, effort)
 
 
-def system_instructions(model_name: str | None) -> str | None:
-    """Return provider-specific system instructions, if any."""
-    if not model_name:
-        return None
-    try:
-        prov, model_id = _resolve(model_name)
-    except RbtrError:
-        return None
-    return prov.system_instructions(model_id)
-
-
 def model_context_window(model_name: str | None) -> int | None:
     """Return the context window for *model_name*."""
     if not model_name or "/" not in model_name:
