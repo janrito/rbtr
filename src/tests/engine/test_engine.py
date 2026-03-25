@@ -33,6 +33,7 @@ from rbtr.events import (
     IndexReady,
     IndexStarted,
     LinkOutput,
+    MarkdownOutput,
     Output,
     TableOutput,
     TaskFinished,
@@ -232,6 +233,46 @@ def test_review_pr_by_number(
     assert drained_events[-1].success is True
     assert isinstance(engine.state.review_target, PRTarget)
     assert engine.state.review_target.number == 42
+
+
+def test_review_pr_prints_description(mocker: MockerFixture, engine: Engine) -> None:
+    """/review <number> emits the PR body as markdown."""
+    mocker.patch("rbtr.engine.review_cmd.run_index")
+    mock_gh = mocker.MagicMock()
+    engine.state.gh = mock_gh
+
+    pr_with_body = PRSummary(
+        number=7,
+        title="Cool PR",
+        author="alice",
+        body="## Summary\nFixes the thing.",
+        base_branch="main",
+        head_branch="fix-thing",
+        updated_at=datetime(2025, 6, 1, tzinfo=UTC),
+    )
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=pr_with_body)
+    engine.run_task(TaskType.COMMAND, "/review 7")
+
+    drained_events = drain(engine.events)
+    md_events = [e for e in drained_events if isinstance(e, MarkdownOutput)]
+    assert len(md_events) == 1
+    assert md_events[0].text == "## Summary\nFixes the thing."
+
+
+def test_review_pr_no_description_skips_markdown(
+    mocker: MockerFixture, engine: Engine, pr_add_feature: PRSummary
+) -> None:
+    """/review <number> omits markdown when the PR body is empty."""
+    mocker.patch("rbtr.engine.review_cmd.run_index")
+    mock_gh = mocker.MagicMock()
+    engine.state.gh = mock_gh
+
+    mocker.patch("rbtr.engine.review_cmd.client.validate_pr_number", return_value=pr_add_feature)
+    engine.run_task(TaskType.COMMAND, "/review 42")
+
+    drained_events = drain(engine.events)
+    md_events = [e for e in drained_events if isinstance(e, MarkdownOutput)]
+    assert len(md_events) == 0
 
 
 def test_review_without_arg_lists(repo_engine: Engine) -> None:
