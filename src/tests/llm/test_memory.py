@@ -21,6 +21,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pytest_mock import MockerFixture
 
@@ -473,7 +474,6 @@ async def test_clarify_returns_corrected_facts() -> None:
 @pytest.mark.anyio
 async def test_clarify_model_failure_returns_empty(mocker: MockerFixture) -> None:
     """Model error during clarification returns empty result."""
-    from pydantic_ai.models.function import AgentInfo, FunctionModel
 
     def _fail(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         raise ModelHTTPError(status_code=500, model_name="test", body="fail")

@@ -25,11 +25,12 @@ from pydantic_ai.models.test import TestModel
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
-from tests.engine.builders import summary_result
+from rbtr.llm.compact import compact_agent
 from tests.helpers import TestProvider, drain, has_event_type, output_texts
+from tests.sessions.assertions import assert_ordering
 
 if TYPE_CHECKING:
-    from pytest_mock import MockerFixture
+    pass
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -51,9 +52,7 @@ def _assert_task_succeeded(events: list[Event]) -> None:
 # ── Multi-turn with tools ───────────────────────────────────────────
 
 
-def test_multi_turn_roundtrip(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_multi_turn_roundtrip(llm_engine: Engine, test_provider: TestProvider) -> None:
     """Run 3 user turns, verify store.load_messages() returns the
     full conversation and messages round-trip correctly.
     """
@@ -90,9 +89,7 @@ def test_multi_turn_roundtrip(
     assert all("test response" in t for t in response_texts)
 
 
-def test_multi_turn_with_tool_calls(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_multi_turn_with_tool_calls(llm_engine: Engine, test_provider: TestProvider) -> None:
     """Run a turn with tool calls, verify tool call and return parts
     are persisted in the store.
     """
@@ -133,9 +130,7 @@ def test_multi_turn_with_tool_calls(
 # ── Session listing ──────────────────────────────────────────────────
 
 
-def test_session_listing_after_turns(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_session_listing_after_turns(llm_engine: Engine, test_provider: TestProvider) -> None:
     """After a multi-turn run, list_sessions shows correct metadata."""
     test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
@@ -154,9 +149,7 @@ def test_session_listing_after_turns(
 # ── History search ───────────────────────────────────────────────────
 
 
-def test_history_search_finds_user_prompts(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_history_search_finds_user_prompts(llm_engine: Engine, test_provider: TestProvider) -> None:
     """search_history returns user prompts from the conversation."""
     test_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
 
@@ -173,9 +166,7 @@ def test_history_search_finds_user_prompts(
 # ── Session resume ───────────────────────────────────────────────────
 
 
-def test_session_resume_loads_messages(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_session_resume_loads_messages(llm_engine: Engine, test_provider: TestProvider) -> None:
     """Save a conversation, start a new session, resume the old one —
     verify loaded messages match.
     """
@@ -201,13 +192,27 @@ def test_session_resume_loads_messages(
     assert llm_engine.state.session_id == session_a_id
     assert len(llm_engine.store.load_messages(session_a_id)) == len(messages_a)
 
+    # Send another turn after resume — conversation continues.
+    events = _run_llm_turn(llm_engine, "follow-up after resume")
+    _assert_task_succeeded(events)
+
+    loaded = llm_engine.store.load_messages(session_a_id)
+    assert_ordering(loaded)
+    user_texts = [
+        p.content
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+        if isinstance(p, UserPromptPart) and isinstance(p.content, str)
+    ]
+    assert "hello" in user_texts
+    assert "follow-up after resume" in user_texts
+
 
 # ── Compaction + resume ──────────────────────────────────────────────
 
 
-def test_compaction_reduces_history(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_compaction_reduces_history(llm_engine: Engine, test_provider: TestProvider) -> None:
     """Run enough turns to compact, verify history is shorter after."""
     test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
@@ -219,31 +224,29 @@ def test_compaction_reduces_history(
     pre_compact_count = len(llm_engine.store.load_messages(llm_engine.state.session_id))
     assert pre_compact_count == 30  # 15 turns x 2
 
-    # Mock the summary LLM call (compaction uses its own agent).
-    mocker.patch(
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Summary: discussed 15 questions."),
-    )
-
     llm_engine.state.usage.context_window = 200_000
-    llm_engine.run_task(TaskType.COMMAND, "/compact")
+    with compact_agent.override(
+        model=TestModel(custom_output_text="Summary: discussed 15 questions.")
+    ):
+        llm_engine.run_task(TaskType.COMMAND, "/compact")
     drain(llm_engine.events)
 
     post_compact = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert len(post_compact) < pre_compact_count
+    assert_ordering(post_compact)
 
-    # Summary message is present.
+    # Summary message is present with the configured text.
     first = post_compact[0]
     assert isinstance(first, ModelRequest)
     assert any(
-        isinstance(p, UserPromptPart) and isinstance(p.content, str) and "Summary" in p.content
+        isinstance(p, UserPromptPart)
+        and isinstance(p.content, str)
+        and "discussed 15 questions" in p.content
         for p in first.parts
     )
 
 
-def test_compaction_then_resume(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_compaction_then_resume(llm_engine: Engine, test_provider: TestProvider) -> None:
     """After compaction, resume from a different session and verify
     the compacted state loads correctly.
     """
@@ -254,13 +257,9 @@ def test_compaction_then_resume(
         _run_llm_turn(llm_engine, f"q{i}")
         drain(llm_engine.events)
 
-    mocker.patch(
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Compacted summary."),
-    )
-
     llm_engine.state.usage.context_window = 200_000
-    llm_engine.run_task(TaskType.COMMAND, "/compact")
+    with compact_agent.override(model=TestModel(custom_output_text="Compacted summary.")):
+        llm_engine.run_task(TaskType.COMMAND, "/compact")
     drain(llm_engine.events)
 
     compacted_session_id = llm_engine.state.session_id
@@ -276,15 +275,25 @@ def test_compaction_then_resume(
     assert any("Resumed" in t for t in output_texts(events))
 
     # Loaded messages match the compacted state.
-    assert len(llm_engine.store.load_messages(compacted_session_id)) == len(compacted_messages)
+    resumed = llm_engine.store.load_messages(compacted_session_id)
+    assert len(resumed) == len(compacted_messages)
+    assert_ordering(resumed)
+
+    # Summary text survived the resume.
+    assert any(
+        isinstance(p, UserPromptPart)
+        and isinstance(p.content, str)
+        and "Compacted summary" in p.content
+        for msg in resumed
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+    )
 
 
 # ── Compaction preserves continuity ──────────────────────────────────
 
 
-def test_compaction_preserves_continuity(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
-) -> None:
+def test_compaction_preserves_continuity(llm_engine: Engine, test_provider: TestProvider) -> None:
     """After compaction, sending another message works — the agent
     can respond using the compacted history.
     """
@@ -294,13 +303,11 @@ def test_compaction_preserves_continuity(
         _run_llm_turn(llm_engine, f"q{i}")
         drain(llm_engine.events)
 
-    mocker.patch(
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Compacted summary of earlier conversation."),
-    )
-
     llm_engine.state.usage.context_window = 200_000
-    llm_engine.run_task(TaskType.COMMAND, "/compact")
+    with compact_agent.override(
+        model=TestModel(custom_output_text="Compacted summary of earlier conversation.")
+    ):
+        llm_engine.run_task(TaskType.COMMAND, "/compact")
     drain(llm_engine.events)
 
     # Send another message after compaction.
@@ -317,13 +324,17 @@ def test_compaction_preserves_continuity(
         if isinstance(p, UserPromptPart) and isinstance(p.content, str)
     ]
     assert "follow-up question" in user_texts
+    assert_ordering(loaded)
+
+    # Summary from compaction is still present.
+    assert any("Compacted summary" in t for t in user_texts)
 
 
 # ── Command/shell rows don't pollute history ─────────────────────────
 
 
 def test_command_shell_rows_excluded_from_history(
-    mocker: MockerFixture, llm_engine: Engine, test_provider: TestProvider
+    llm_engine: Engine, test_provider: TestProvider
 ) -> None:
     """Command and shell rows stored between LLM turns don't appear
     in load_messages().

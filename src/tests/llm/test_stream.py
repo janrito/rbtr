@@ -48,6 +48,7 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind
+from tests.engine.builders import _turns
 from tests.helpers import TestProvider, drain
 
 # ── Shared data ──────────────────────────────────────────────────────
@@ -490,6 +491,15 @@ def test_handle_llm_retries_without_effort_on_rejection(
     assert incidents[0].failure_kind == FailureKind.EFFORT_UNSUPPORTED
     assert incidents[0].strategy == RecoveryStrategy.EFFORT_OFF
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
+
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "test question"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
     assert incidents[0].turn_id == failed[0]["message_id"]
 
 
@@ -501,7 +511,6 @@ def test_auto_compact_on_overflow_compacts_and_retries(
     test_provider: TestProvider,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
-    from tests.engine.builders import _turns
 
     _seed = _turns(5)
     llm_engine._sync_store_context()
@@ -553,6 +562,15 @@ def test_handle_llm_context_overflow_triggers_compact(
     assert incidents[0].strategy == RecoveryStrategy.COMPACT_THEN_RETRY
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
 
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "test question"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
+
 
 # ── ValueError from corrupt tool-call args ───────────────────────────
 
@@ -581,6 +599,15 @@ def test_handle_llm_retries_on_corrupt_tool_args(
     assert incidents[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
 
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "show my notes"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
+
 
 def test_handle_llm_retries_on_type_error(
     llm_engine: Engine,
@@ -607,6 +634,15 @@ def test_handle_llm_retries_on_type_error(
     assert incidents[0].failure_kind == FailureKind.TYPE_ERROR
     assert incidents[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
+
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "hello"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
 
 
 # ── handle_llm: history-format retry ────────────────────────────────
@@ -650,6 +686,15 @@ def test_handle_llm_retries_on_history_format_error(
     assert incidents[0].failure_kind == FailureKind.HISTORY_FORMAT
     assert incidents[0].strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS
     assert incidents[0].outcome == IncidentOutcome.RECOVERED
+
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "continue analysis"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
     assert incidents[0].status_code == HTTPStatus.BAD_REQUEST
 
 

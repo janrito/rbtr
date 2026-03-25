@@ -17,7 +17,7 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.engine.core import Engine
 from rbtr.events import CompactionFinished, FactExtractionFinished
-from rbtr.llm.compact import compact_history
+from rbtr.llm.compact import compact_agent, compact_history
 from rbtr.llm.context import LLMContext
 from rbtr.models import PRTarget
 from rbtr.sessions.kinds import GLOBAL_SCOPE
@@ -143,8 +143,6 @@ def test_compaction_triggers_extraction(
     engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
-
-    from rbtr.llm.compact import compact_agent
 
     test_provider.set_model(TestModel())
     with compact_agent.override(model=TestModel(custom_output_text="Summary.")):

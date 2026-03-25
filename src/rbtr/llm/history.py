@@ -15,13 +15,18 @@ require `ToolCallPart.args` to be valid JSON.  Providers also
 encode tool exchanges in incompatible wire formats and reject
 history containing metadata from other providers.
 
-Eight mechanisms enforce these invariants at three stages.  All
+Nine mechanisms enforce these invariants at three stages.  All
 repairs are **transient** — applied in memory on each load.
 The persisted history is never modified.  See the *History
 repair* section in the README for user-facing documentation.
 
 Before each API call (level 0):
 
+- `strip_orphaned_tool_returns` -- removes `ToolReturnPart`\\s
+  whose `tool_call_id` has no matching `ToolCallPart` in the
+  history.  Handles legacy sessions compacted before the
+  `split_history` fix.  Recorded as ``strip_orphaned_returns``
+  strategy.
 - `validate_tool_call_args` -- repairs unparseable
   `ToolCallPart.args` to `{}`.
 - `sanitize_tool_call_ids` -- replaces characters in
@@ -50,6 +55,9 @@ On retry (after a provider rejection, two levels):
 On compaction (when splitting history):
 
 - `split_history` -- moves orphaned tool returns into *old*.
+  When a `ModelRequest` contains both a `UserPromptPart` (turn
+  boundary) and orphaned `ToolReturnPart`\\s, the orphaned parts
+  are stripped from the request.
 - `snap_to_safe_boundary` -- adjusts split point to avoid
   separating tool-call / tool-result pairs.
 """
@@ -483,6 +491,54 @@ def flatten_tool_exchanges(history: list[ModelMessage]) -> FlattenResult:
 # ── Dangling tool-call repair ────────────────────────────────────────
 
 
+def strip_orphaned_tool_returns(
+    history: list[ModelMessage],
+) -> tuple[list[ModelMessage], list[str]]:
+    """Remove `ToolReturnPart`s that have no matching `ToolCallPart`.
+
+    **When this fires:** Orphaned returns appear in sessions that
+    were compacted before the `split_history` fix that strips
+    orphaned parts during the split.  The scenario: a tool call
+    in turn N has its return in a mixed `ModelRequest` (containing
+    both `ToolReturnPart` and `UserPromptPart`) at the start of
+    turn N+1.  Compaction removes turn N (including the call) but
+    keeps turn N+1 (because it has the user prompt).  The return
+    is left without a matching call.
+
+    **Why it still runs:** `split_history` now prevents new orphans,
+    but sessions compacted by older code may have orphaned returns
+    persisted in the DB.  Since history is immutable (never modified
+    on disk), this load-time repair strips them transiently.  An
+    ``LLM_HISTORY_REPAIR`` incident with strategy
+    ``STRIP_ORPHANED_RETURNS`` is recorded when stripping occurs.
+
+    Returns ``(repaired_history, stripped_call_ids)`` — does not
+    mutate the originals.
+    """
+    call_ids: set[str] = set()
+    for msg in history:
+        if isinstance(msg, ModelResponse):
+            for p in msg.parts:
+                if isinstance(p, ToolCallPart) and p.tool_call_id:
+                    call_ids.add(p.tool_call_id)
+
+    stripped: list[str] = []
+    result: list[ModelMessage] = []
+    for msg in history:
+        if isinstance(msg, ModelRequest):
+            cleaned: list[ModelRequestPart] = []
+            for req_part in msg.parts:
+                if isinstance(req_part, ToolReturnPart) and req_part.tool_call_id not in call_ids:
+                    stripped.append(req_part.tool_call_id)
+                else:
+                    cleaned.append(req_part)
+            if len(cleaned) != len(msg.parts):
+                result.append(ModelRequest(parts=cleaned))
+                continue
+        result.append(msg)
+    return result, stripped
+
+
 def repair_dangling_tool_calls(
     history: list[ModelMessage],
 ) -> tuple[list[ModelMessage], list[str], list[str]]:
@@ -644,20 +700,43 @@ def split_history(
         call_ids, result_ids = _tool_ids(clean)
         moved: list[ModelMessage] = []
         remaining: list[ModelMessage] = []
+        changed = False
         for msg in clean:
             match msg:
                 case ModelRequest() if not _has_user_prompt(msg):
                     _, rids = _tool_ids([msg])
                     if rids and rids.isdisjoint(call_ids):
                         moved.append(msg)
+                        changed = True
+                        continue
+                case ModelRequest() if _has_user_prompt(msg):
+                    # Mixed request with both UserPromptPart and
+                    # orphaned ToolReturnParts: strip orphaned parts.
+                    # Creates a new ModelRequest to preserve the
+                    # original for DB identity matching.
+                    _, rids = _tool_ids([msg])
+                    orphaned = rids - call_ids
+                    if orphaned:
+                        cleaned = ModelRequest(
+                            parts=[
+                                p
+                                for p in msg.parts
+                                if not (
+                                    isinstance(p, ToolReturnPart) and p.tool_call_id in orphaned
+                                )
+                            ]
+                        )
+                        remaining.append(cleaned)
+                        changed = True
                         continue
                 case ModelResponse():
                     cids, _ = _tool_ids([msg])
                     if cids and cids.isdisjoint(result_ids):
                         moved.append(msg)
+                        changed = True
                         continue
             remaining.append(msg)
-        if not moved:
+        if not changed:
             break
         old.extend(moved)
         clean = remaining

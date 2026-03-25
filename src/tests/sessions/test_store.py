@@ -55,6 +55,7 @@ from rbtr.llm.history import (
 )
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
+from tests.engine.test_compact import ALL_HISTORIES
 from tests.sessions.assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -110,10 +111,18 @@ def _thinking_response(thinking: str, text: str) -> ModelResponse:
 
 
 # A realistic multi-turn conversation with tool calls and thinking.
+# Each ModelResponse matches real LLM output — text + tool call in
+# one message, thinking + text in one message.
 CONVERSATION: list[ModelRequest | ModelResponse] = [
     _user("review src/tui.py"),
-    _assistant("I'll read the file."),
-    _tool_call_response("read_file", {"path": "src/tui.py"}),
+    ModelResponse(
+        parts=[
+            TextPart(content="I'll read the file."),
+            ToolCallPart(tool_name="read_file", args={"path": "src/tui.py"}, tool_call_id="tc1"),
+        ],
+        usage=_USAGE_LARGE,
+        model_name="test-model",
+    ),
     _tool_return_request("read_file", "class TUI:\n    pass"),
     _thinking_response("The TUI class is minimal...", "Here's my analysis."),
     _user("any security issues?"),
@@ -149,6 +158,21 @@ def test_roundtrip_full_conversation() -> None:
     assert len(loaded) == len(CONVERSATION)
     for original, restored in zip(CONVERSATION, loaded, strict=True):
         assert restored == original
+
+
+@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+def test_roundtrip_all_history_shapes(name: str) -> None:
+    """Every realistic history shape round-trips losslessly through the DB."""
+    history = ALL_HISTORIES[name]
+    with SessionStore() as store:
+        store.save_messages("s1", list(history))
+        loaded = store.load_messages("s1")
+
+    assert len(loaded) == len(history)
+    for original, restored in zip(history, loaded, strict=True):
+        assert restored == original
+    assert_ordering(loaded)
+    assert_tool_pairing(loaded)
 
 
 @pytest.mark.parametrize(
@@ -2771,3 +2795,68 @@ def test_compaction_preserves_tool_pairing() -> None:
             if isinstance(p, (ToolReturnPart, RetryPromptPart))
         }
         assert call_ids == return_ids
+
+
+def test_compaction_preserves_parallel_tool_pairing() -> None:
+    """After compaction, parallel tool calls in kept messages stay paired.
+
+    The kept turn has two tool calls in one response — both returns
+    must survive compaction with correct pairing.
+    """
+    with SessionStore() as store:
+        store.set_context("s1")
+        # Turn 1: will be compacted.
+        store.save_messages("s1", [_user("old"), _assistant("old reply")])
+        # Turn 2: parallel tool calls, will be kept.
+        store.save_messages(
+            "s1",
+            [
+                _user("check both files"),
+                ModelResponse(
+                    parts=[
+                        TextPart(content="Checking…"),
+                        ToolCallPart(
+                            tool_name="read_file",
+                            args={"path": "a.py"},
+                            tool_call_id="tc_a",
+                        ),
+                        ToolCallPart(
+                            tool_name="read_file",
+                            args={"path": "b.py"},
+                            tool_call_id="tc_b",
+                        ),
+                    ],
+                    model_name="test",
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="read_file",
+                            content="def a(): ...",
+                            tool_call_id="tc_a",
+                        ),
+                        ToolReturnPart(
+                            tool_name="read_file",
+                            content="def b(): ...",
+                            tool_call_id="tc_b",
+                        ),
+                    ]
+                ),
+                _assistant("Both files read."),
+            ],
+        )
+
+        all_ids = store.load_message_ids("s1")
+        store.compact_session("s1", summary=_user("[Summary]"), compact_ids=all_ids[:2])
+
+        loaded = store.load_messages("s1")
+
+    assert_ordering(loaded)
+    assert_tool_pairing(loaded)
+
+    # Both tool call IDs survive.
+    for msg in loaded:
+        if isinstance(msg, ModelResponse):
+            call_ids = {p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)}
+            if call_ids:
+                assert call_ids == {"tc_a", "tc_b"}

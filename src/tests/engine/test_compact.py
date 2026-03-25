@@ -16,7 +16,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -39,40 +41,264 @@ from rbtr.llm.history import (
     serialise_for_summary,
     snap_to_safe_boundary,
     split_history,
+    strip_orphaned_tool_returns,
 )
 from tests.engine.builders import (
     _USAGE,
     _assistant,
     _seed,
-    _thinking,
-    _tool_call,
-    _tool_return,
+    _tool_call_only,
+    _tool_result,
+    _tool_turn,
     _turns,
     _user,
 )
 from tests.helpers import TestProvider, drain, has_event_type, output_texts
+from tests.sessions.assertions import assert_ordering
+
+
+@pytest.fixture(autouse=True)
+def _disable_memory() -> None:
+    """Compact tests focus on compaction logic, not fact extraction."""
+    config.memory.enabled = False
+
 
 # ── Test data ────────────────────────────────────────────────────────
 
-# A realistic multi-turn conversation with tool calls.
-REALISTIC_HISTORY: list[ModelRequest | ModelResponse] = [
+# ── Realistic conversation histories ──────────────────────────────────
+#
+# Each history is structurally valid: alternates Request/Response,
+# tool calls have matching returns, combined parts in single messages.
+# Uses _user/_assistant/_tool_return for single-part messages.
+# Uses _resp/ModelRequest(parts=[...]) for multi-part messages.
+
+
+def _resp(*parts: TextPart | ToolCallPart | ThinkingPart) -> ModelResponse:
+    """Build a ModelResponse with multiple parts — matches real LLM output."""
+    return ModelResponse(parts=list(parts), usage=_USAGE, model_name="test")
+
+
+# 1. Text-only multi-turn.
+HISTORY_TEXT_ONLY: list[ModelMessage] = [
     _user("Review PR #42"),
     _assistant("I'll start by looking at the diff."),
-    _tool_call("diff", {"base": "main", "head": "feature"}),
-    _tool_return("diff", "--- a/foo.py\n+++ b/foo.py\n@@ -1,3 +1,5 @@\n+import os\n def main():"),
-    _assistant("The diff adds an `import os`. Let me check callers."),
-    _tool_call("get_callers", {"symbol": "main"}),
-    _tool_return("get_callers", "bar.py:10  baz.py:20"),
-    _assistant("Two callers found. Both look fine."),
     _user("What about test coverage?"),
-    _thinking("Let me search for tests..."),
-    _assistant("Let me check the test files."),
-    _tool_call("search_codebase", {"query": "test_main"}),
-    _tool_return("search_codebase", "test_foo.py:5  test_bar.py:15"),
-    _assistant("Tests exist in test_foo.py and test_bar.py. Coverage looks adequate."),
+    _assistant("Tests look adequate."),
     _user("Any security concerns?"),
-    _assistant("The `import os` is unused — it should be removed. No security issues otherwise."),
+    _assistant("The import os is unused."),
+    _user("Thanks, ship it."),
+    _assistant("LGTM, approved."),
 ]
+
+# 2. Single tool call per turn — the common case.
+HISTORY_SINGLE_TOOL: list[ModelMessage] = [
+    _user("Read foo.py"),
+    _resp(
+        TextPart(content="Let me read that."),
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="c1"),
+    ),
+    _tool_result("read_file", "def main(): pass", call_id="c1"),
+    _assistant("foo.py has one function."),
+    _user("Now check bar.py"),
+    _resp(
+        TextPart(content="Reading bar.py."),
+        ToolCallPart(tool_name="read_file", args={"path": "bar.py"}, tool_call_id="c2"),
+    ),
+    _tool_result("read_file", "import foo", call_id="c2"),
+    _assistant("bar.py imports foo."),
+    _user("Any issues?"),
+    _assistant("No issues found."),
+]
+
+# 3. Parallel tool calls (2 calls in one response).
+HISTORY_PARALLEL_TOOLS: list[ModelMessage] = [
+    _user("Check both files"),
+    _resp(
+        TextPart(content="Reading both."),
+        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
+        ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2"),
+    ),
+    ModelRequest(
+        parts=[
+            ToolReturnPart(tool_name="read_file", content="def a(): ...", tool_call_id="c1"),
+            ToolReturnPart(tool_name="read_file", content="def b(): ...", tool_call_id="c2"),
+        ]
+    ),
+    _assistant("Both files read successfully."),
+    _user("Any differences?"),
+    _assistant("They have different functions."),
+    _user("Thanks"),
+    _assistant("You're welcome."),
+]
+
+# 4. Chained tool calls (call -> return -> call -> return in one turn).
+HISTORY_CHAINED_TOOLS: list[ModelMessage] = [
+    _user("Find TODOs and read the files"),
+    _resp(
+        TextPart(content="Searching for TODOs."),
+        ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="c1"),
+    ),
+    _tool_result("grep", "foo.py:10 TODO fix this", call_id="c1"),
+    _resp(
+        TextPart(content="Found one. Reading the file."),
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="c2"),
+    ),
+    _tool_result("read_file", "def main(): pass  # TODO fix this", call_id="c2"),
+    _assistant("The TODO is in main()."),
+    _user("Fix it"),
+    _assistant("Done."),
+    _user("Verify"),
+    _assistant("All clean."),
+]
+
+# 5. Failed tool (RetryPromptPart).
+HISTORY_TOOL_FAILURE: list[ModelMessage] = [
+    _user("Read secret.py"),
+    _resp(
+        TextPart(content="Reading."),
+        ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c1"),
+    ),
+    ModelRequest(
+        parts=[
+            RetryPromptPart(
+                content="Permission denied: secret.py",
+                tool_name="read_file",
+                tool_call_id="c1",
+            ),
+        ]
+    ),
+    _assistant("I can't read secret.py — permission denied."),
+    _user("Try config.py instead"),
+    _resp(
+        ToolCallPart(tool_name="read_file", args={"path": "config.py"}, tool_call_id="c2"),
+    ),
+    _tool_result("read_file", "DEBUG=True", call_id="c2"),
+    _assistant("config.py sets DEBUG=True."),
+]
+
+# 6. Thinking + tool call + text in one response.
+HISTORY_THINKING_WITH_TOOLS: list[ModelMessage] = [
+    _user("Analyse the codebase"),
+    _resp(
+        ThinkingPart(content="Let me think about the structure..."),
+        TextPart(content="I'll start with the main module."),
+        ToolCallPart(tool_name="read_file", args={"path": "main.py"}, tool_call_id="c1"),
+    ),
+    _tool_result("read_file", "from app import run\nrun()", call_id="c1"),
+    _resp(
+        ThinkingPart(content="Simple entry point..."),
+        TextPart(content="Now checking app.py."),
+        ToolCallPart(tool_name="read_file", args={"path": "app.py"}, tool_call_id="c2"),
+    ),
+    _tool_result("read_file", "def run(): print('hello')", call_id="c2"),
+    _assistant("The app is a simple hello-world."),
+    _user("Any improvements?"),
+    _assistant("Consider adding error handling."),
+]
+
+# 7. Returns in different order than calls.
+HISTORY_REORDERED_RETURNS: list[ModelMessage] = [
+    _user("Read both files"),
+    _resp(
+        TextPart(content="Reading both."),
+        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
+        ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2"),
+    ),
+    ModelRequest(
+        parts=[
+            ToolReturnPart(tool_name="read_file", content="def b(): ...", tool_call_id="c2"),
+            ToolReturnPart(tool_name="read_file", content="def a(): ...", tool_call_id="c1"),
+        ]
+    ),
+    _assistant("Both read. b.py returned first."),
+    _user("Why?"),
+    _assistant("Async execution order."),
+    _user("Ok"),
+    _assistant("Moving on."),
+]
+
+# 8. Tool call with no text preamble (model goes straight to tool).
+HISTORY_TOOL_NO_PREAMBLE: list[ModelMessage] = [
+    _user("Read a.py"),
+    _resp(
+        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
+    ),
+    _tool_result("read_file", "content", call_id="c1"),
+    _assistant("Here it is."),
+    _user("Thanks"),
+    _assistant("Done."),
+]
+
+# 9. Single turn — minimum viable conversation.
+HISTORY_SINGLE_TURN: list[ModelMessage] = [
+    _user("hello"),
+    _assistant("Hi there!"),
+]
+
+# 10. Post-compaction — summary message + kept turns.
+HISTORY_POST_COMPACTION: list[ModelMessage] = [
+    ModelRequest(
+        parts=[
+            UserPromptPart(
+                content="[Context summary — earlier conversation was compacted]\n\n"
+                "Discussed PR #42. Found unused import."
+            )
+        ]
+    ),
+    _assistant("Continuing from the summary."),
+    _user("Any other issues?"),
+    _assistant("No, looks clean."),
+    _user("Ship it"),
+    _assistant("LGTM, approved."),
+]
+
+# 11. Parallel tools — one succeeds, one fails.
+HISTORY_MIXED_PARALLEL_OUTCOME: list[ModelMessage] = [
+    _user("Read both files"),
+    _resp(
+        TextPart(content="Reading both."),
+        ToolCallPart(tool_name="read_file", args={"path": "ok.py"}, tool_call_id="c1"),
+        ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c2"),
+    ),
+    ModelRequest(
+        parts=[
+            ToolReturnPart(tool_name="read_file", content="def ok(): ...", tool_call_id="c1"),
+            RetryPromptPart(
+                content="Permission denied: secret.py",
+                tool_name="read_file",
+                tool_call_id="c2",
+            ),
+        ]
+    ),
+    _assistant("ok.py read successfully. secret.py is not accessible."),
+    _user("Just use ok.py then"),
+    _assistant("Will do."),
+]
+
+# 12. Tool call with empty args.
+HISTORY_EMPTY_TOOL_ARGS: list[ModelMessage] = [
+    _user("List all files"),
+    _tool_turn("list_files", {}, preamble="Listing.", call_id="c1"),
+    _tool_result("list_files", "a.py\nb.py", call_id="c1"),
+    _assistant("Found 2 files."),
+    _user("Thanks"),
+    _assistant("Done."),
+]
+
+ALL_HISTORIES: dict[str, list[ModelMessage]] = {
+    "text_only": HISTORY_TEXT_ONLY,
+    "single_tool": HISTORY_SINGLE_TOOL,
+    "parallel_tools": HISTORY_PARALLEL_TOOLS,
+    "chained_tools": HISTORY_CHAINED_TOOLS,
+    "tool_failure": HISTORY_TOOL_FAILURE,
+    "thinking_with_tools": HISTORY_THINKING_WITH_TOOLS,
+    "reordered_returns": HISTORY_REORDERED_RETURNS,
+    "tool_no_preamble": HISTORY_TOOL_NO_PREAMBLE,
+    "single_turn": HISTORY_SINGLE_TURN,
+    "post_compaction": HISTORY_POST_COMPACTION,
+    "mixed_parallel_outcome": HISTORY_MIXED_PARALLEL_OUTCOME,
+    "empty_tool_args": HISTORY_EMPTY_TOOL_ARGS,
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -109,8 +335,8 @@ def test_split_history_tool_requests_not_turn_boundaries() -> None:
     """Tool-return-only ModelRequests don't start new turns."""
     history: list[ModelMessage] = [
         _user("q1"),
-        _tool_call("read_file", {"path": "a.py"}),
-        _tool_return("read_file", "content"),
+        _tool_call_only("read_file", {"path": "a.py"}),
+        _tool_result("read_file", "content"),
         _assistant("a1"),
         _user("q2"),
         _assistant("a2"),
@@ -121,17 +347,35 @@ def test_split_history_tool_requests_not_turn_boundaries() -> None:
 
 
 def test_split_history_realistic() -> None:
-    """Split the realistic conversation — 3 user turns, keep 1."""
-    old, kept = split_history(REALISTIC_HISTORY, keep_turns=1)
-    # Last user turn starts at "Any security concerns?"
+    """Split the realistic conversation — keep 1 turn, compact the rest."""
+    old, kept = split_history(HISTORY_SINGLE_TOOL, keep_turns=1)
+    # Last user turn starts at "Any issues?"
     last_user_idx = next(
         i
-        for i in reversed(range(len(REALISTIC_HISTORY)))
-        if isinstance(REALISTIC_HISTORY[i], ModelRequest)
-        and any(isinstance(p, UserPromptPart) for p in REALISTIC_HISTORY[i].parts)
+        for i in reversed(range(len(HISTORY_SINGLE_TOOL)))
+        if isinstance(HISTORY_SINGLE_TOOL[i], ModelRequest)
+        and any(isinstance(p, UserPromptPart) for p in HISTORY_SINGLE_TOOL[i].parts)
     )
-    assert kept == REALISTIC_HISTORY[last_user_idx:]
-    assert old == REALISTIC_HISTORY[:last_user_idx]
+    assert kept == HISTORY_SINGLE_TOOL[last_user_idx:]
+    assert old == HISTORY_SINGLE_TOOL[:last_user_idx]
+
+
+@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+def test_split_history_all_shapes(name: str) -> None:
+    """split_history produces valid old + kept for every history shape."""
+    history = ALL_HISTORIES[name]
+    old, kept = split_history(history, keep_turns=1)
+
+    # old + kept = original (no messages lost or duplicated).
+    assert old + kept == history
+
+    # kept is structurally valid if non-empty.
+    if kept:
+        assert_ordering(kept)
+
+    # old is structurally valid if non-empty.
+    if old:
+        assert_ordering(old)
 
 
 # ── Orphaned tool return tests ───────────────────────────────────────
@@ -170,8 +414,8 @@ def test_orphan_single_tool_return_at_boundary() -> None:
     """
     history: list[ModelMessage] = [
         _user("turn 1"),  # [0]
-        _tool_call("grep", call_id="call_A"),  # [1]
-        _tool_return("grep", "result", call_id="call_A"),  # [2] — orphan candidate
+        _tool_call_only("grep", call_id="call_A"),  # [1]
+        _tool_result("grep", "result", call_id="call_A"),  # [2] — orphan candidate
         _assistant("answer 1"),  # [3]
         _user("turn 2"),  # [4]
         _assistant("answer 2"),  # [5]
@@ -198,8 +442,8 @@ def test_orphan_multiple_consecutive_returns() -> None:
             usage=_USAGE,
             model_name="test",
         ),
-        _tool_return("grep", "result", call_id="call_A"),
-        _tool_return("read", "result", call_id="call_B"),
+        _tool_result("grep", "result", call_id="call_A"),
+        _tool_result("read", "result", call_id="call_B"),
         _assistant("done"),
         _user("turn 2"),
         _assistant("answer 2"),
@@ -221,8 +465,8 @@ def test_orphan_not_moved_when_call_in_kept() -> None:
         _user("turn 1"),
         _assistant("answer 1"),
         _user("turn 2"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("answer 2"),
     ]
     old, kept = split_history(history, keep_turns=1)
@@ -239,12 +483,12 @@ def test_orphan_mixed_orphaned_and_paired() -> None:
     """
     history: list[ModelMessage] = [
         _user("turn 1"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("answer 1"),
         _user("turn 2"),
-        _tool_call("read", call_id="call_B"),
-        _tool_return("read", "result", call_id="call_B"),
+        _tool_call_only("read", call_id="call_B"),
+        _tool_result("read", "result", call_id="call_B"),
         _assistant("answer 2"),
     ]
     old, kept = split_history(history, keep_turns=1)
@@ -266,12 +510,12 @@ def test_orphan_chain_across_turns() -> None:
     """
     history: list[ModelMessage] = [
         _user("turn 1"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("answer 1"),
         _user("turn 2"),
-        _tool_call("read", call_id="call_B"),
-        _tool_return("read", "result", call_id="call_B"),
+        _tool_call_only("read", call_id="call_B"),
+        _tool_result("read", "result", call_id="call_B"),
         _assistant("answer 2"),
         _user("turn 3"),
         _assistant("answer 3"),
@@ -289,8 +533,8 @@ def test_orphan_with_response_between_return_and_next_turn() -> None:
     """
     history: list[ModelMessage] = [
         _user("turn 1"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("continuation"),  # response after tool return, same turn
         _user("turn 2"),
         _assistant("answer 2"),
@@ -333,8 +577,8 @@ def test_orphan_user_prompt_stops_migration() -> None:
     """
     history: list[ModelMessage] = [
         _user("turn 1"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("answer 1"),
         _user("turn 2"),
         _assistant("answer 2"),
@@ -358,10 +602,10 @@ def test_orphan_multi_step_tool_chain_within_turn() -> None:
         _user("turn 1"),
         _assistant("simple"),
         _user("turn 2"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
-        _tool_call("read", call_id="call_B"),
-        _tool_return("read", "result", call_id="call_B"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
+        _tool_call_only("read", call_id="call_B"),
+        _tool_result("read", "result", call_id="call_B"),
         _assistant("done"),
     ]
     _old, kept = split_history(history, keep_turns=1)
@@ -373,8 +617,8 @@ def test_orphan_all_messages_kept_no_change() -> None:
     """When nothing is compacted, no orphan cleanup is needed."""
     history: list[ModelMessage] = [
         _user("turn 1"),
-        _tool_call("grep", call_id="call_A"),
-        _tool_return("grep", "result", call_id="call_A"),
+        _tool_call_only("grep", call_id="call_A"),
+        _tool_result("grep", "result", call_id="call_A"),
         _assistant("answer"),
     ]
     old, kept = split_history(history, keep_turns=5)
@@ -400,17 +644,17 @@ def test_orphan_reproduces_real_bug() -> None:
     history: list[ModelMessage] = [
         # Earlier turns — will be compacted.
         _user("review the PR"),
-        _tool_call("diff", call_id="call_111"),
-        _tool_return("diff", "result", call_id="call_111"),
+        _tool_call_only("diff", call_id="call_111"),
+        _tool_result("diff", "result", call_id="call_111"),
         _assistant("Here's the diff."),
-        _tool_call("list_files", call_id="call_xJJ"),
+        _tool_call_only("list_files", call_id="call_xJJ"),
         # ↑ This response has the tool call for list_files.
         # ↓ The user prompt starts a new turn, splitting here.
         _user("check notes"),
         _assistant("No notes found."),
         # The tool return for call_xJJ arrives AFTER the user prompt
         # (pydantic-ai structures it as a separate ModelRequest).
-        _tool_return("list_files", "result", call_id="call_xJJ"),
+        _tool_result("list_files", "result", call_id="call_xJJ"),
         # Another turn.
         _user("any security concerns?"),
         _assistant("No issues."),
@@ -436,19 +680,17 @@ def test_orphan_reproduces_real_bug() -> None:
 
 def test_serialise_realistic_conversation() -> None:
     """Serialise the full realistic history and check all section types."""
-    result = serialise_for_summary(REALISTIC_HISTORY)
-    assert "## User\nReview PR #42" in result
-    assert "## Assistant\nI'll start by looking at the diff." in result
-    assert '## Tool call: diff({"base": "main", "head": "feature"})' in result
-    assert "## Tool result: diff\n--- a/foo.py" in result
-    # ThinkingPart should be omitted
-    assert "Let me search for tests" not in result
+    result = serialise_for_summary(HISTORY_SINGLE_TOOL)
+    assert "## User\nRead foo.py" in result
+    assert "## Assistant\nLet me read that." in result
+    assert '## Tool call: read_file({"path": "foo.py"})' in result
+    assert "## Tool result: read_file\ndef main(): pass" in result
 
 
 def test_serialise_truncates_tool_results() -> None:
     """Tool results exceeding max_tool_chars are truncated."""
     long_diff = "x" * 5_000
-    messages: list[ModelMessage] = [_tool_return("diff", long_diff)]
+    messages: list[ModelMessage] = [_tool_result("diff", long_diff)]
     result = serialise_for_summary(messages, max_tool_chars=100)
     assert "…[truncated]" in result
     # The truncated result should be ~100 chars of content + marker
@@ -538,9 +780,9 @@ def test_find_fit_count_partial() -> None:
 def test_find_fit_count_with_tool_results() -> None:
     """Tool result truncation affects what fits."""
     messages: list[ModelRequest | ModelResponse] = [
-        _tool_return("diff", "x" * 8_000),
-        _tool_return("read_file", "y" * 8_000),
-        _tool_return("search", "z" * 8_000),
+        _tool_result("diff", "x" * 8_000),
+        _tool_result("read_file", "y" * 8_000),
+        _tool_result("search", "z" * 8_000),
     ]
     # With max_tool_chars=100, each result is small
     count_small = find_fit_count(messages, available_tokens=500, max_tool_chars=100)
@@ -570,8 +812,8 @@ def test_snap_backs_up_from_tool_call_response() -> None:
     """Splitting right after a tool-call response would orphan its results."""
     messages: list[ModelMessage] = [
         _user("do stuff"),
-        _tool_call("read_file", {"path": "a.py"}, call_id="tc1"),
-        _tool_return("read_file", "contents", call_id="tc1"),
+        _tool_call_only("read_file", {"path": "a.py"}, call_id="tc1"),
+        _tool_result("read_file", "contents", call_id="tc1"),
         _assistant("done"),
     ]
     # count=2 → split after _tool_call → unsafe
@@ -585,10 +827,10 @@ def test_snap_backs_up_through_consecutive_tool_calls() -> None:
     messages: list[ModelMessage] = [
         _user("q1"),
         _assistant("a1"),
-        _tool_call("grep", call_id="tc1"),
-        _tool_return("grep", "result", call_id="tc1"),
-        _tool_call("diff", call_id="tc2"),
-        _tool_return("diff", "result", call_id="tc2"),
+        _tool_call_only("grep", call_id="tc1"),
+        _tool_result("grep", "result", call_id="tc1"),
+        _tool_call_only("diff", call_id="tc2"),
+        _tool_result("diff", "result", call_id="tc2"),
         _assistant("summary"),
     ]
     # count=3 → after first tool_call → back up to 2
@@ -602,15 +844,15 @@ def test_snap_backs_up_through_consecutive_tool_calls() -> None:
 def test_snap_returns_zero_when_all_unsafe() -> None:
     """When the only message is a tool-call response, returns 0."""
     messages: list[ModelMessage] = [
-        _tool_call("read_file", call_id="tc1"),
-        _tool_return("read_file", "contents", call_id="tc1"),
+        _tool_call_only("read_file", call_id="tc1"),
+        _tool_result("read_file", "contents", call_id="tc1"),
     ]
     assert snap_to_safe_boundary(messages, 1) == 0
 
 
 def test_snap_zero_stays_zero() -> None:
     """count=0 is always returned as-is."""
-    messages: list[ModelMessage] = [_tool_call("read_file", call_id="tc1")]
+    messages: list[ModelMessage] = [_tool_call_only("read_file", call_id="tc1")]
     assert snap_to_safe_boundary(messages, 0) == 0
 
 
@@ -619,8 +861,8 @@ def test_snap_text_response_is_safe() -> None:
     messages: list[ModelMessage] = [
         _user("hello"),
         _assistant("thinking..."),
-        _tool_call("grep", call_id="tc1"),
-        _tool_return("grep", "found", call_id="tc1"),
+        _tool_call_only("grep", call_id="tc1"),
+        _tool_result("grep", "found", call_id="tc1"),
     ]
     # count=2 → after _assistant (text only) → safe
     assert snap_to_safe_boundary(messages, 2) == 2
@@ -630,12 +872,12 @@ def test_snap_realistic_mid_turn() -> None:
     """Realistic mid-turn pattern: multiple tool rounds in one turn."""
     messages: list[ModelMessage] = [
         _user("review PR"),  # 0
-        _tool_call("diff", call_id="tc1"),  # 1
-        _tool_return("diff", "...", call_id="tc1"),  # 2
-        _tool_call("read_file", call_id="tc2"),  # 3
-        _tool_return("read_file", "...", call_id="tc2"),  # 4
-        _tool_call("grep", call_id="tc3"),  # 5
-        _tool_return("grep", "...", call_id="tc3"),  # 6
+        _tool_call_only("diff", call_id="tc1"),  # 1
+        _tool_result("diff", "...", call_id="tc1"),  # 2
+        _tool_call_only("read_file", call_id="tc2"),  # 3
+        _tool_result("read_file", "...", call_id="tc2"),  # 4
+        _tool_call_only("grep", call_id="tc3"),  # 5
+        _tool_result("grep", "...", call_id="tc3"),  # 6
         _assistant("Here is the review."),  # 7
     ]
     # Safe boundaries: 0, 1, 3, 5, 7, 8
@@ -684,8 +926,8 @@ def test_compact_fewer_turns_than_keep_falls_back(
     _seed(engine, _turns(2))
     engine.state.usage.context_window = 200_000
 
-    test_provider.set_model(TestModel(custom_output_text="Summary of turn 1."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary of turn 1.")):
+        compact_history(llm_ctx)
 
     all_events = drain(engine.events)
 
@@ -705,12 +947,12 @@ def test_compact_replaces_history(
     """After compaction, history = [summary_msg] + kept turns."""
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
-    _seed(engine, list(REALISTIC_HISTORY))
+    _seed(engine, list(HISTORY_SINGLE_TOOL))
     engine.state.usage.context_window = 200_000
 
     summary_text = "Reviewed PR #42. Found unused import in foo.py."
-    test_provider.set_model(TestModel(custom_output_text=summary_text))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text=summary_text)):
+        compact_history(llm_ctx)
 
     # Load from DB — the source of truth.
     loaded = engine.store.load_messages(engine.state.session_id)
@@ -724,13 +966,14 @@ def test_compact_replaces_history(
     assert _SUMMARY_MARKER in part.content
     assert "Reviewed PR #42" in part.content
 
-    # History is shorter than before
-    assert len(loaded) < len(REALISTIC_HISTORY)
+    # History is shorter than before, structurally valid.
+    assert len(loaded) < len(HISTORY_SINGLE_TOOL)
+    assert_ordering(loaded)
 
     # Last message is preserved (the last assistant response)
     last = loaded[-1]
     assert isinstance(last, ModelResponse)
-    assert any(isinstance(p, TextPart) and "import os" in p.content for p in last.parts)
+    assert any(isinstance(p, TextPart) and "No issues found" in p.content for p in last.parts)
 
 
 def test_compact_emits_both_events(
@@ -746,8 +989,8 @@ def test_compact_emits_both_events(
     _seed(engine, _turns(15))
     engine.state.usage.context_window = 200_000
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     all_events = drain(engine.events)
     assert has_event_type(all_events, CompactionStarted)
     assert has_event_type(all_events, CompactionFinished)
@@ -803,8 +1046,8 @@ def test_compact_over_limit_shrinks_old(
     # 9 turns ≈ 22.5k tokens. Set available to ~7.5k so only ~3 turns fit.
     engine.state.usage.context_window = 23_500  # minus 16k reserve = 7.5k available
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     all_events = drain(engine.events)
 
     started = [e for e in all_events if isinstance(e, CompactionStarted)]
@@ -892,8 +1135,8 @@ def test_compact_leaves_last_input_tokens_unchanged(
     engine.state.usage.context_window = 200_000
     engine.state.usage.last_input_tokens = 150_000  # simulate high usage
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
 
     # last_input_tokens untouched — no inaccurate estimate
     assert engine.state.usage.last_input_tokens == 150_000
@@ -932,8 +1175,8 @@ def test_compact_with_command_inputs(
     assert len(paired) == 10
     assert all(isinstance(mid, str) and len(mid) > 0 for mid, _ in paired)
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
 
     # After compaction, kept messages are valid — no orphaned parts.
     kept = engine.store.load_messages(engine.state.session_id)
@@ -1047,6 +1290,10 @@ def test_mid_turn_compaction_fires(mid_turn_engine: Engine) -> None:
     assert any(isinstance(e, CompactionStarted) for e in events)
     assert any(isinstance(e, CompactionFinished) for e in events)
 
+    # Verify DB history is structurally valid after mid-turn compaction.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
+
 
 def test_mid_turn_compaction_produces_summary_in_db(mid_turn_engine: Engine) -> None:
     """After mid-turn compaction the DB contains a summary message."""
@@ -1065,6 +1312,10 @@ def test_mid_turn_compaction_produces_summary_in_db(mid_turn_engine: Engine) -> 
         for msg in loaded
     )
 
+    # Verify DB history is structurally valid after mid-turn compaction.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
+
 
 def test_mid_turn_compaction_only_once_per_turn(mid_turn_engine: Engine) -> None:
     """Mid-turn compaction fires at most once — the resume run does not
@@ -1077,6 +1328,10 @@ def test_mid_turn_compaction_only_once_per_turn(mid_turn_engine: Engine) -> None
 
     compaction_count = sum(1 for e in events if isinstance(e, CompactionFinished))
     assert compaction_count == 1
+
+    # Verify DB history is structurally valid after mid-turn compaction.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
 
 
 def test_mid_turn_compaction_preserves_continuity(
@@ -1105,6 +1360,10 @@ def test_mid_turn_compaction_preserves_continuity(
     ]
     assert "follow up" in user_texts
 
+    # Verify DB history is structurally valid after mid-turn compaction.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
+
 
 def test_no_mid_turn_compaction_without_tools(
     config_path: Path, mocker: MockerFixture, mid_turn_engine: Engine, test_provider: TestProvider
@@ -1124,6 +1383,10 @@ def test_no_mid_turn_compaction_without_tools(
 
     assert not any("mid-turn" in t.lower() for t in texts)
 
+    # DB history is still valid.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
+
 
 def test_mid_turn_compaction_blocks_reset(mid_turn_engine: Engine) -> None:
     """`/compact reset` is blocked after mid-turn compaction because
@@ -1142,10 +1405,13 @@ def test_mid_turn_compaction_blocks_reset(mid_turn_engine: Engine) -> None:
 
     assert any("Cannot reset" in t for t in texts)
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # /compact reset
+    # ═══════════════════════════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════════════════════════
-# /compact reset
-# ═══════════════════════════════════════════════════════════════════════
+    # Verify DB history is structurally valid after mid-turn compaction.
+    loaded = mid_turn_engine.store.load_messages(mid_turn_engine.state.session_id)
+    assert_ordering(loaded)
 
 
 def test_compact_reset_restores_messages(
@@ -1163,8 +1429,8 @@ def test_compact_reset_restores_messages(
     engine.state.usage.context_window = 200_000
 
     # Compact — some messages now marked.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
     compacted_count = len(engine.store.load_messages(engine.state.session_id))
     assert compacted_count < len(original)
@@ -1179,6 +1445,7 @@ def test_compact_reset_restores_messages(
     # All original messages are active again, summary deleted.
     restored = engine.store.load_messages(engine.state.session_id)
     assert len(restored) == len(original)
+    assert_ordering(restored)
     # Summary is gone.
     assert not any(
         isinstance(m, ModelRequest)
@@ -1187,6 +1454,10 @@ def test_compact_reset_restores_messages(
         )
         for m in restored
     )
+    # Original content recovered — first prompt matches.
+    first_req = restored[0]
+    assert isinstance(first_req, ModelRequest)
+    assert any(isinstance(p, UserPromptPart) and p.content == "question 0" for p in first_req.parts)
 
 
 def test_compact_reset_no_existing_compaction(
@@ -1220,8 +1491,8 @@ def test_compact_reset_only_latest(
     _seed(engine, _turns(20))
 
     # First compaction.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
     after_first = len(engine.store.load_messages(engine.state.session_id))
 
@@ -1270,8 +1541,8 @@ def test_compact_reset_blocked_after_new_messages(
     engine.state.usage.context_window = 200_000
 
     # Compact.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
 
     # Add new messages after compaction.
@@ -1309,8 +1580,8 @@ def test_compact_reset_allowed_immediately_after_compaction(
     engine.state.usage.context_window = 200_000
 
     # Compact then immediately reset — no new messages in between.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
 
     reset_compaction(llm_ctx)
@@ -1343,34 +1614,47 @@ def test_compact_reset_allowed_immediately_after_compaction(
 #
 # With keep_turns=2, the cut falls before turn 4.  The response
 # containing call_DDD is in old, but return_DDD is in kept.
-TOOL_BOUNDARY_HISTORY: list[ModelRequest | ModelResponse] = [
-    # Turn 1
+TOOL_BOUNDARY_HISTORY: list[ModelMessage] = [
+    # Turn 1: single tool call
     _user("find all TODO comments"),
-    _tool_call("grep", {"pattern": "TODO"}, call_id="call_AAA"),
-    _tool_return("grep", "foo.py:10 TODO\nbar.py:3 TODO", call_id="call_AAA"),
+    _resp(
+        TextPart(content="Searching..."),
+        ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="call_AAA"),
+    ),
+    _tool_result("grep", "foo.py:10 TODO\nbar.py:3 TODO", call_id="call_AAA"),
     _assistant("Found 2 TODOs."),
-    # Turn 2
+    # Turn 2: chained tool calls
     _user("show me foo.py"),
-    _tool_call("read_file", {"path": "foo.py"}, call_id="call_BBB"),
-    _tool_return("read_file", "def main(): pass", call_id="call_BBB"),
-    _tool_call("grep", {"pattern": "main"}, call_id="call_CCC"),
-    _tool_return("grep", "foo.py:1 def main()", call_id="call_CCC"),
+    _resp(
+        TextPart(content="Reading foo.py."),
+        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="call_BBB"),
+    ),
+    _tool_result("read_file", "def main(): pass", call_id="call_BBB"),
+    _resp(
+        TextPart(content="Checking references."),
+        ToolCallPart(tool_name="grep", args={"pattern": "main"}, tool_call_id="call_CCC"),
+    ),
+    _tool_result("grep", "foo.py:1 def main()", call_id="call_CCC"),
     _assistant("foo.py has one function."),
-    # Turn 3: model responds with text + tool call in one response
+    # Turn 3: text + tool call in one response
     _user("what other files?"),
-    ModelResponse(
-        parts=[
-            TextPart(content="Let me check."),
-            ToolCallPart(tool_name="list_files", args={"path": "."}, tool_call_id="call_DDD"),
-        ],
-        usage=RequestUsage(input_tokens=0, output_tokens=0),
-        model_name="test",
+    _resp(
+        TextPart(content="Let me check."),
+        ToolCallPart(tool_name="list_files", args={"path": "."}, tool_call_id="call_DDD"),
     ),
     # ---- cut falls here with keep_turns=2 ----
-    # Turn 4: user prompt starts, but return_DDD arrives after it
-    _user("any security concerns?"),
+    # Turn 4: tool return from previous turn arrives alongside new user prompt.
+    # This simulates the straddling case — call_DDD's return is in a later
+    # request, separated from its call by a turn boundary.
+    ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name="list_files", content="foo.py\nbar.py", tool_call_id="call_DDD"
+            ),
+            UserPromptPart(content="any security concerns?"),
+        ]
+    ),
     _assistant("No issues."),
-    _tool_return("list_files", "foo.py\nbar.py", call_id="call_DDD"),
     # Turn 5
     _user("summarise"),
     _assistant("All good."),
@@ -1429,12 +1713,17 @@ def _assert_valid_history(messages: list[ModelMessage]) -> None:
 
 
 def _assert_loaded_valid(engine: Engine) -> None:
-    """Assert load_messages returns a structurally valid conversation."""
-    _assert_valid_history(engine.store.load_messages(engine.state.session_id))
+    """Assert load_messages — with transient repair — returns valid history."""
+
+    loaded, _ = strip_orphaned_tool_returns(engine.store.load_messages(engine.state.session_id))
+    _assert_valid_history(loaded)
 
 
 def test_compaction_across_tool_boundaries_no_orphans(
-    config_path: Path, mocker: MockerFixture, engine: Engine, llm_ctx: LLMContext
+    config_path: Path,
+    engine: Engine,
+    llm_ctx: LLMContext,
+    test_provider: TestProvider,
 ) -> None:
     """Compacting a conversation where a tool return straddles the
     turn boundary produces no orphaned tool returns.
@@ -1449,9 +1738,19 @@ def test_compaction_across_tool_boundaries_no_orphans(
     engine.state.usage.context_window = 200_000
 
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
-    compact_history(llm_ctx)  # keep_turns=2 from config
+    with compact_agent.override(model=TestModel(custom_output_text="Tool boundary summary.")):
+        compact_history(llm_ctx)  # keep_turns=2 from config
     drain(engine.events)
     _assert_loaded_valid(engine)
+
+    # Summary text is in the compacted history.
+    loaded = engine.store.load_messages(engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and "Tool boundary summary" in str(p.content)
+        for msg in loaded
+        if isinstance(msg, ModelRequest)
+        for p in msg.parts
+    )
 
 
 def test_compact_reset_restores_original_messages_without_summary(
@@ -1475,8 +1774,8 @@ def test_compact_reset_restores_original_messages_without_summary(
     assert len(original) == len(TOOL_BOUNDARY_HISTORY)
 
     # Compact.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
     compacted = engine.store.load_messages(engine.state.session_id)
     assert len(compacted) < len(original)
@@ -1523,8 +1822,8 @@ def test_compaction_reset_and_recompact_no_orphans(
     _seed(engine, list(TOOL_BOUNDARY_HISTORY))
 
     # First compaction.
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
-    compact_history(llm_ctx)
+    with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
+        compact_history(llm_ctx)
     drain(engine.events)
     _assert_loaded_valid(engine)
     after_compact = len(engine.store.load_messages(engine.state.session_id))

@@ -64,6 +64,7 @@ from .history import (
     is_history_format_error,
     repair_dangling_tool_calls,
     sanitize_tool_call_ids,
+    strip_orphaned_tool_returns,
     validate_tool_call_args,
 )
 
@@ -591,6 +592,21 @@ def _prepare_turn(
                     strategy=RecoveryStrategy.SANITIZE_FIELDS,
                     fingerprint=fp,
                     reason="invalid_tool_call_id_chars",
+                ),
+            )
+
+    history, stripped_ids = strip_orphaned_tool_returns(history)
+    if stripped_ids and history_repair_level == 0:
+        fp = ",".join(sorted(stripped_ids))
+        if not ctx.store.has_repair_incident(sid, RecoveryStrategy.STRIP_ORPHANED_RETURNS, fp):
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.STRIP_ORPHANED_RETURNS,
+                    fingerprint=fp,
+                    call_count=len(stripped_ids),
+                    tool_names=[],
+                    reason="orphaned_returns_after_compaction",
                 ),
             )
 

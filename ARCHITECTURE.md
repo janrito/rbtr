@@ -288,6 +288,15 @@ Repairs run in `_prepare_turn()` at three escalating levels:
 
 **Level 0 — structural repair (every turn):**
 
+- `strip_orphaned_tool_returns` — removes `ToolReturnPart`s
+  whose `tool_call_id` has no matching `ToolCallPart` in the
+  history. Handles legacy sessions compacted before the
+  `split_history` fix that strips orphaned parts during
+  compaction. New sessions are protected by `split_history`
+  itself; this repair exists for data written by older code.
+- `validate_tool_call_args` — repairs unparseable
+  `ToolCallPart.args` (e.g. truncated JSON from streaming)
+  to `{}`.
 - `sanitize_tool_call_ids` — replaces characters in
   `tool_call_id` values that violate provider patterns
   (e.g. Anthropic requires `^[a-zA-Z0-9_-]+$`). IDs from
@@ -399,7 +408,11 @@ After splitting, `split_history()` scans the _kept_ partition
 for orphaned tool returns — `ToolReturnPart`s whose matching
 `ToolCallPart` (by `tool_call_id`) ended up in _old_. These
 are moved to _old_ to prevent API errors from mismatched
-tool-call IDs.
+tool-call IDs. When a `ModelRequest` at a turn boundary
+contains both a `UserPromptPart` and orphaned `ToolReturnPart`s
+(the "straddling" case), the orphaned parts are stripped from
+the request — the `UserPromptPart` stays in _kept_, the
+orphaned returns are discarded.
 
 ### Safe boundary snapping
 

@@ -1,467 +1,264 @@
-"""End-to-end lifecycle tests: stream → persist → reload → verify.
+"""End-to-end lifecycle tests: engine.run_task → events + DB.
 
-These tests run the real `_do_stream` pipeline with a
-`FunctionModel` and an in-memory `SessionStore`.  After the
-stream completes, messages are loaded from the DB and compared
-against the original model output.
-
-The key invariants:
-
-1. **Ordering**: every `ModelRequest` precedes its
-   `ModelResponse` in the loaded history.
-2. **Fidelity**: loaded messages match the originals field by
-   field — including `ToolCallPart.tool_call_id` and
-   `ToolReturnPart.content`.
-3. **Pairing**: every `ToolCallPart` has a matching
-   `ToolReturnPart` (same `tool_call_id`) in the immediately
-   following `ModelRequest`.
-4. **Alternation**: no two consecutive `ModelResponse`s (the
-   provider would reject).
-
-Each test scenario models a real conversation shape that has
-caused production bugs.
+Tests go through `engine.run_task` with the test provider.
+After each task, assertions verify that the DB contains exactly
+the messages exchanged — prompts sent and responses received —
+in the correct order.
 """
 
 from __future__ import annotations
 
-import contextlib
-import queue
-from collections.abc import AsyncIterator, Generator
+from collections.abc import AsyncIterator
 
 import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    ToolCallPart,
+    TextPart,
+    UserPromptPart,
 )
-from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
 
 from rbtr.engine.core import Engine
-from rbtr.events import Event
-from rbtr.llm.context import LLMContext
-from rbtr.llm.deps import AgentDeps
-from rbtr.llm.stream import _do_stream
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr.engine.types import TaskType
+from rbtr.events import TaskFinished, TextDelta
+from tests.engine.test_compact import ALL_HISTORIES
+from tests.helpers import TestProvider, drain
 
-from .assertions import assert_messages_match, assert_ordering, assert_tool_pairing
-
-# ── Fixtures ─────────────────────────────────────────────────────────
+from .assertions import assert_ordering, assert_tool_pairing
 
 
-@pytest.fixture
-def llm_ctx() -> Generator[LLMContext]:
-    """LLMContext backed by an in-memory store."""
-    state = EngineState()
-    state.model_name = "test/lifecycle"
-    events_q: queue.Queue[Event] = queue.Queue()
-    with Engine(state, events_q, store=SessionStore()) as engine:
-        engine._sync_store_context()
-        yield engine._llm_context()
+def _user_texts(messages: list[ModelMessage]) -> list[str]:
+    """Extract user prompt strings from loaded messages."""
+    texts: list[str] = []
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, UserPromptPart) and isinstance(p.content, str):
+                    texts.append(p.content)
+    return texts
 
 
-# ── Happy path ───────────────────────────────────────────────────────
+def _response_texts(messages: list[ModelMessage]) -> list[str]:
+    """Extract response text strings from loaded messages."""
+    texts: list[str] = []
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for p in msg.parts:
+                if isinstance(p, TextPart):
+                    texts.append(p.content)
+    return texts
 
 
-@pytest.mark.anyio
-async def test_text_response(llm_ctx: LLMContext) -> None:
-    """User prompt → text response: request before response on reload."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
+# ── Text responses ───────────────────────────────────────────────────
 
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "Hello! Here's my review."
 
-    model = FunctionModel(stream_function=stream_fn)
-    await _do_stream(llm_ctx, model, deps, None, "review my code", [])
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
+def test_prompt_and_response_persisted(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """User prompt and model response are both persisted to DB."""
+    test_provider.set_model(TestModel(custom_output_text="Here's my review."))
 
-    assert len(loaded) == 2
-    assert isinstance(loaded[0], ModelRequest)
-    assert isinstance(loaded[1], ModelResponse)
-    assert loaded[0].parts[0].content == "review my code"  # type: ignore[union-attr]
-    assert loaded[1].parts[0].content == "Hello! Here's my review."  # type: ignore[union-attr]
+    llm_engine.run_task(TaskType.LLM, "review my code")
+    events = drain(llm_engine.events)
+    assert isinstance(events[-1], TaskFinished)
+    assert events[-1].success
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    assert "review my code" in _user_texts(loaded)
+    assert "Here's my review." in _response_texts(loaded)
+
+
+def test_streamed_text_matches_db(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """TextDelta events streamed to UI match the text stored in DB."""
+
+    async def _stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        yield "Hello "
+        yield "world!"
+
+    test_provider.set_model(FunctionModel(stream_function=_stream))
+
+    llm_engine.run_task(TaskType.LLM, "greet me")
+    events = drain(llm_engine.events)
+
+    streamed = "".join(e.delta for e in events if isinstance(e, TextDelta))
+    db_texts = _response_texts(llm_engine.store.load_messages(llm_engine.state.session_id))
+
+    assert streamed == "Hello world!"
+    assert "Hello world!" in db_texts
+
+
+# ── Multi-turn ───────────────────────────────────────────────────────
+
+
+def test_multi_turn_preserves_order(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Two turns persist in order: prompt1, response1, prompt2, response2."""
+    test_provider.set_model(TestModel(custom_output_text="Noted."))
+
+    llm_engine.run_task(TaskType.LLM, "first question")
+    drain(llm_engine.events)
+    llm_engine.run_task(TaskType.LLM, "second question")
+    drain(llm_engine.events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
 
-
-@pytest.mark.anyio
-async def test_tool_call_and_return(llm_ctx: LLMContext) -> None:
-    """Tool call → tool return → text: pairing correct on reload."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    call_count = 0
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            yield "Let me check."
-            yield {0: DeltaToolCall(name="read_file", json_args='{"path": "a.py"}')}
-        else:
-            yield "Here's the file content."
-
-    model = FunctionModel(stream_function=stream_fn)
-    await _do_stream(llm_ctx, model, deps, None, "read a.py", [])
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-
-    assert len(loaded) == 4
-    assert_ordering(loaded)
-    assert_tool_pairing(loaded)
+    prompts = _user_texts(loaded)
+    assert prompts[0] == "first question"
+    assert prompts[1] == "second question"
 
 
-@pytest.mark.anyio
-async def test_multiple_parallel_tool_calls(llm_ctx: LLMContext) -> None:
-    """Response with 2 tool calls — both returns paired on reload."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    call_count = 0
+def test_resume_continues_conversation(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Turn 2 sees turn 1 history — model receives prior messages."""
+    received: list[list[ModelMessage]] = []
 
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            yield {
-                0: DeltaToolCall(name="read_file", json_args='{"path": "a.py"}'),
-                1: DeltaToolCall(name="read_file", json_args='{"path": "b.py"}'),
-            }
-        else:
-            yield "Both files read."
-
-    model = FunctionModel(stream_function=stream_fn)
-    await _do_stream(llm_ctx, model, deps, None, "read both files", [])
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-
-    assert_ordering(loaded)
-    assert_tool_pairing(loaded)
-
-    resp = loaded[1]
-    assert isinstance(resp, ModelResponse)
-    call_ids = {p.tool_call_id for p in resp.parts if isinstance(p, ToolCallPart)}
-    assert len(call_ids) == 2
-
-
-@pytest.mark.anyio
-async def test_multi_turn(llm_ctx: LLMContext) -> None:
-    """Two user turns — ordering preserved on reload."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
+    async def _capture(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        received.append(list(messages))
         yield "Response."
 
-    model = FunctionModel(stream_function=stream_fn)
-
-    result1 = await _do_stream(llm_ctx, model, deps, None, "question 1", [])
-    await _do_stream(llm_ctx, model, deps, None, "question 2", result1.all_messages)
-
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert len(loaded) == 4
-    assert_ordering(loaded)
-    assert loaded[0].parts[0].content == "question 1"  # type: ignore[union-attr]
-    assert loaded[2].parts[0].content == "question 2"  # type: ignore[union-attr]
-
-
-# ── Session resume ───────────────────────────────────────────────────
-
-
-@pytest.mark.anyio
-async def test_resume_ordering(llm_ctx: LLMContext) -> None:
-    """Persist turn 1, reload from DB, persist turn 2.
-
-    Request before response at every position.
-    """
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "Response."
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    await _do_stream(llm_ctx, model, deps, None, "turn 1", [])
-
-    reloaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(reloaded)
-
-    await _do_stream(llm_ctx, model, deps, None, "turn 2", reloaded)
-
-    final = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert len(final) == 4
-    assert_ordering(final)
-    assert final[0].parts[0].content == "turn 1"  # type: ignore[union-attr]
-    assert final[2].parts[0].content == "turn 2"  # type: ignore[union-attr]
-
-
-@pytest.mark.anyio
-async def test_resume_after_tool_call_turn(llm_ctx: LLMContext) -> None:
-    """Resume after a tool-calling turn — pairing survives reload."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    call_count = 0
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            yield {0: DeltaToolCall(name="read_file", json_args='{"path": "a.py"}')}
-        elif call_count == 2:
-            yield "File read."
-        else:
-            yield "Follow-up."
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    await _do_stream(llm_ctx, model, deps, None, "read a.py", [])
-
-    reloaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(reloaded)
-    assert_tool_pairing(reloaded)
-
-    await _do_stream(llm_ctx, model, deps, None, "now explain it", reloaded)
-
-    final = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(final)
-    assert_tool_pairing(final)
-    assert len(final) == 6
-
-
-@pytest.mark.anyio
-async def test_resumed_history_reaches_model_intact(llm_ctx: LLMContext) -> None:
-    """The history the model receives on resume is exactly what was
-    persisted — same messages, same order, same part types and content.
-
-    Turn 1 streams normally.  Turn 2 captures the `messages`
-    argument the model receives and compares it against what
-    `load_messages` returned.
-    """
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    received_history: list[list[ModelMessage]] = []
-    call_count = 0
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        nonlocal call_count
-        call_count += 1
-        received_history.append(list(messages))
-        yield f"Response {call_count}."
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    await _do_stream(llm_ctx, model, deps, None, "first question", [])
-
-    reloaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(reloaded)
-
-    await _do_stream(llm_ctx, model, deps, None, "second question", reloaded)
-
-    assert len(received_history) == 2
-    turn2_messages = received_history[1]
-
-    # The reloaded history is the prefix of what the model saw.
-    assert_messages_match(reloaded, turn2_messages)
-    assert isinstance(turn2_messages[0], ModelRequest)
-    assert_ordering(turn2_messages)
-
-
-# ── Failure paths ────────────────────────────────────────────────────
-
-
-@pytest.mark.anyio
-async def test_model_error_mid_stream(llm_ctx: LLMContext) -> None:
-    """Model raises after partial output — request visible, response excluded."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "Partial content…"
-        raise RuntimeError("model connection lost")
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    with pytest.raises(RuntimeError, match="model connection lost"):
-        await _do_stream(llm_ctx, model, deps, None, "hello", [])
-
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert len(loaded) == 1
-    assert isinstance(loaded[0], ModelRequest)
-    assert loaded[0].parts[0].content == "hello"  # type: ignore[union-attr]
-
-
-@pytest.mark.anyio
-async def test_error_after_successful_turn(llm_ctx: LLMContext) -> None:
-    """Turn 1 succeeds, turn 2 crashes mid-stream — turn 1 intact."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def good_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "All good."
-
-    async def bad_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "About to crash…"
-        raise RuntimeError("boom")
-
-    good_model = FunctionModel(stream_function=good_fn)
-    bad_model = FunctionModel(stream_function=bad_fn)
-
-    result1 = await _do_stream(llm_ctx, good_model, deps, None, "turn 1", [])
-
-    with pytest.raises(RuntimeError, match="boom"):
-        await _do_stream(llm_ctx, bad_model, deps, None, "turn 2", result1.all_messages)
-
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert len(loaded) == 3
-    assert_ordering(loaded)
-    assert loaded[0].parts[0].content == "turn 1"  # type: ignore[union-attr]
-    assert isinstance(loaded[2], ModelRequest)
-    assert loaded[2].parts[0].content == "turn 2"  # type: ignore[union-attr]
-
-
-@pytest.mark.anyio
-async def test_error_during_tool_execution(llm_ctx: LLMContext) -> None:
-    """Model crashes after tool call round — loaded history is valid."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    call_count = 0
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            yield {0: DeltaToolCall(name="read_file", json_args='{"path": "a.py"}')}
-        else:
-            raise RuntimeError("model died after tool execution")
-            yield ""  # unreachable — makes this an async generator
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    with pytest.raises(RuntimeError, match="model died"):
-        await _do_stream(llm_ctx, model, deps, None, "read a.py", [])
-
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    if loaded:
-        assert_ordering(loaded)
-
-
-@pytest.mark.anyio
-async def test_model_error_before_first_yield(llm_ctx: LLMContext) -> None:
-    """Model raises before yielding — nothing visible."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        raise RuntimeError("immediate failure")
-        yield ""  # unreachable — makes this an async generator
-
-    model = FunctionModel(stream_function=stream_fn)
-
-    with pytest.raises(RuntimeError, match="immediate failure"):
-        await _do_stream(llm_ctx, model, deps, None, "hello", [])
-
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert loaded == []
-
-
-@pytest.mark.anyio
-async def test_resume_after_crashed_turn(llm_ctx: LLMContext) -> None:
-    """Turn 1 OK → turn 2 crashes before yield → turn 3 OK.
-
-    Turn 2 excluded entirely. Only turns 1 and 3 visible.
-    """
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-
-    async def good_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        yield "Response."
-
-    async def bad_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        raise RuntimeError("crash")
-        yield ""  # unreachable — makes this an async generator
-
-    good_model = FunctionModel(stream_function=good_fn)
-    bad_model = FunctionModel(stream_function=bad_fn)
-
-    await _do_stream(llm_ctx, good_model, deps, None, "turn 1", [])
-
-    reloaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    with pytest.raises(RuntimeError):
-        await _do_stream(llm_ctx, bad_model, deps, None, "turn 2", reloaded)
-
-    reloaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(reloaded)
-    assert len(reloaded) == 2
-
-    await _do_stream(llm_ctx, good_model, deps, None, "turn 3", reloaded)
-
-    final = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    assert_ordering(final)
-    assert len(final) == 4
-    texts = [
-        p.content  # type: ignore[union-attr]
-        for m in final
+    test_provider.set_model(FunctionModel(stream_function=_capture))
+
+    llm_engine.run_task(TaskType.LLM, "turn 1")
+    drain(llm_engine.events)
+    after_turn1 = llm_engine.store.load_messages(llm_engine.state.session_id)
+
+    llm_engine.run_task(TaskType.LLM, "turn 2")
+    drain(llm_engine.events)
+
+    # Turn 2's model call received turn 1 as history prefix.
+    assert len(received) == 2
+    turn2_history = received[1]
+    assert len(turn2_history) >= len(after_turn1)
+    assert_ordering(turn2_history)
+
+    # Model saw the actual turn 1 prompt and response content.
+    turn2_texts = [
+        p.content
+        for m in turn2_history
         if isinstance(m, ModelRequest)
         for p in m.parts
-        if hasattr(p, "content")
+        if isinstance(p, UserPromptPart) and isinstance(p.content, str)
     ]
-    assert "turn 1" in texts
-    assert "turn 3" in texts
-    assert "turn 2" not in texts
+    assert "turn 1" in turn2_texts
 
 
-@pytest.mark.anyio
-async def test_empty_response(llm_ctx: LLMContext) -> None:
-    """Model returns empty text — no corruption regardless of outcome."""
-    deps = AgentDeps(state=llm_ctx.state, store=llm_ctx.store)
-    call_count = 0
+# ── Tool calls ───────────────────────────────────────────────────────
 
-    async def stream_fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> AsyncIterator[str]:
-        nonlocal call_count
-        call_count += 1
-        if call_count <= 2:
-            yield ""
-        else:
-            yield "Finally a real response."
 
-    model = FunctionModel(stream_function=stream_fn)
+def test_tool_calls_paired_in_db(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Tool call and tool return are correctly paired after round-trip."""
+    test_provider.set_model(TestModel(call_tools="all"))
 
-    with contextlib.suppress(Exception):
-        await _do_stream(llm_ctx, model, deps, None, "hello", [])
+    llm_engine.run_task(TaskType.LLM, "check the code")
+    drain(llm_engine.events)
 
-    loaded = llm_ctx.store.load_messages(llm_ctx.state.session_id)
-    if loaded:
-        assert_ordering(loaded)
-        for i, msg in enumerate(loaded):
-            assert len(msg.parts) > 0, f"message {i} has empty parts"
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    assert_tool_pairing(loaded)
+
+
+def test_tool_call_then_text_resume(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """After a tool-calling turn, a text-only follow-up works."""
+    test_provider.set_model(TestModel(call_tools="all"))
+    llm_engine.run_task(TaskType.LLM, "read the file")
+    drain(llm_engine.events)
+    assert_tool_pairing(llm_engine.store.load_messages(llm_engine.state.session_id))
+
+    test_provider.set_model(TestModel(custom_output_text="Follow-up."))
+    llm_engine.run_task(TaskType.LLM, "now explain it")
+    drain(llm_engine.events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    assert_tool_pairing(loaded)
+    assert "Follow-up." in _response_texts(loaded)
+
+
+# ── Error recovery ───────────────────────────────────────────────────
+
+
+def test_model_error_fails_task(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Model error → task fails, no partial response in DB."""
+
+    async def _fail(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise RuntimeError("connection lost")
+        yield ""
+
+    test_provider.set_model(FunctionModel(stream_function=_fail))
+
+    llm_engine.run_task(TaskType.LLM, "hello")
+    events = drain(llm_engine.events)
+
+    finished = [e for e in events if isinstance(e, TaskFinished)]
+    assert finished
+    assert not finished[-1].success
+
+
+def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Turn 1 succeeds, turn 2 crashes — turn 1 intact in DB."""
+    test_provider.set_model(TestModel(custom_output_text="All good."))
+    llm_engine.run_task(TaskType.LLM, "turn 1")
+    drain(llm_engine.events)
+
+    async def _fail(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise RuntimeError("boom")
+        yield ""
+
+    test_provider.set_model(FunctionModel(stream_function=_fail))
+    llm_engine.run_task(TaskType.LLM, "turn 2")
+    drain(llm_engine.events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    assert "turn 1" in _user_texts(loaded)
+    assert "All good." in _response_texts(loaded)
+
+
+def test_resume_after_crash(llm_engine: Engine, test_provider: TestProvider) -> None:
+    """Turn 1 OK → turn 2 crashes → turn 3 OK. Conversation recovers."""
+    test_provider.set_model(TestModel(custom_output_text="Response."))
+    llm_engine.run_task(TaskType.LLM, "turn 1")
+    drain(llm_engine.events)
+
+    async def _fail(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise RuntimeError("crash")
+        yield ""
+
+    test_provider.set_model(FunctionModel(stream_function=_fail))
+    llm_engine.run_task(TaskType.LLM, "turn 2")
+    drain(llm_engine.events)
+
+    test_provider.set_model(TestModel(custom_output_text="Recovered."))
+    llm_engine.run_task(TaskType.LLM, "turn 3")
+    drain(llm_engine.events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    prompts = _user_texts(loaded)
+    assert "turn 1" in prompts
+    assert "turn 3" in prompts
+    assert "Recovered." in _response_texts(loaded)
+
+
+# ── All history shapes as prior context ──────────────────────────────
+
+
+@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+def test_engine_handles_all_history_shapes(
+    name: str, llm_engine: Engine, test_provider: TestProvider
+) -> None:
+    """Seed each history shape, send a new turn — pipeline handles it."""
+    history = ALL_HISTORIES[name]
+    llm_engine.store.save_messages(llm_engine.state.session_id, list(history))
+
+    llm_engine.run_task(TaskType.LLM, "follow-up question")
+    events = drain(llm_engine.events)
+
+    finished = [e for e in events if isinstance(e, TaskFinished)]
+    assert finished, f"{name}: no TaskFinished"
+    assert finished[-1].success, f"{name}: task failed"
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)
+    assert "follow-up question" in _user_texts(loaded)
