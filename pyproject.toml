@@ -69,6 +69,7 @@ dev = [
   "pytest-cov",
   "pytest-httpx>=0.36.0",
   "pytest-mock",
+  "pytest-xdist>=3.8.0",
   "ruff",
   "rumdl>=0.1.43",
   "sqlfluff>=4.0.4",
@@ -182,6 +183,7 @@ minversion = "6.0"
 addopts = [
   "--strict-markers",
   "--import-mode=importlib",
+  "-n", "auto",
 ]
 
 [tool.coverage.run]

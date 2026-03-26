@@ -124,7 +124,7 @@ from rbtr.index.tokenise import tokenise_code
         ("while read line; do process; done", {"while", "read", "line", "do", "done"}),
         ("case $1 in start) ;; esac", {"case", "in", "start", "esac"}),
     ],
-    ids=lambda val: str(val)[:50],
+    ids=lambda val: str(sorted(val) if isinstance(val, set) else val)[:50],
 )
 def test_keywords_survive_tokenisation(code: str, expected_keywords: set[str]) -> None:
     """Language keywords are preserved by tokenise_code."""
