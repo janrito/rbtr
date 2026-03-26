@@ -16,7 +16,20 @@ loses context.
 
 ```bash
 # Requires Python 3.13+
-uv tool install -e .
+uv pip install rbtr        # install into the active environment
+uv add rbtr                # add as a project dependency
+```
+
+Or run without installing:
+
+```bash
+uvx rbtr                   # run directly from PyPI
+```
+
+For development:
+
+```bash
+uv tool install -e .       # editable install from a local clone
 ```
 
 ## Your first review
@@ -999,6 +1012,33 @@ Available fields are defined in `PaletteConfig` in
 uv sync        # Install dependencies
 just check     # Lint + typecheck + test
 just fmt       # Auto-fix and format
+```
+
+### Releasing
+
+Versions use calendar versioning (`YYYY.MM.NUM`). Dev builds
+append `-devN`. Two `just` recipes handle the full flow:
+
+```bash
+just pre-release           # bump to next dev version, branch, tag, push
+just release               # bump to stable version, branch, tag, push
+```
+
+Each recipe:
+
+1. Bumps the version in `pyproject.toml` via `bump-my-version`.
+2. Creates a branch (`pre-release-v*` or `release-v*`).
+3. Commits, tags, and pushes.
+
+CI picks up the branch, runs `just check`, builds the package,
+creates a GitHub release (pre-releases are marked as such), and
+publishes to PyPI.
+
+Bump only (no branch/push):
+
+```bash
+just bump-pre-release      # version bump only
+just bump-release          # version bump only
 ```
 
 ### Architecture reference
