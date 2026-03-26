@@ -1,13 +1,10 @@
 """Entry point for rbtr."""
 
-import logging
-import logging.handlers
 import sys
 from dataclasses import dataclass
 
-from rbtr.config import config
+from rbtr import log
 from rbtr.tui.ui import run
-from rbtr.workspace import workspace_dir
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,46 +16,10 @@ class StartupOpts:
     continue_session: bool = False
 
 
-def _configure_logging() -> None:
-    """Set up rotating file logging — the TUI owns the terminal so we can't use stderr.
-
-    Only `rbtr.*` loggers use the configured level.  Third-party
-    libraries stay at WARNING to avoid flooding the log with Rich
-    renders, httpx requests, etc.
-
-    Rotation: `config.log.max_bytes` per file, `config.log.backup_count`
-    backups (e.g. `rbtr.log`, `rbtr.log.1`, `rbtr.log.2`).
-    """
-    log_path = workspace_dir() / "rbtr.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    handler = logging.handlers.RotatingFileHandler(
-        str(log_path),
-        maxBytes=config.log.max_bytes,
-        backupCount=config.log.backup_count,
-    )
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-
-    rbtr_level = getattr(logging, config.log.level.upper(), logging.INFO)
-
-    rbtr_logger = logging.getLogger("rbtr")
-    rbtr_logger.setLevel(rbtr_level)
-    rbtr_logger.addHandler(handler)
-
-    root = logging.getLogger()
-    root.setLevel(logging.WARNING)
-    root.addHandler(handler)
-
-
 def main() -> None:
     """Launch rbtr."""
     opts = _parse_args()
-    _configure_logging()
+    log.configure()
     run(
         pr_number=opts.pr_number,
         snapshot_ref=opts.snapshot_ref,
