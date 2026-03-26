@@ -404,15 +404,15 @@ Long output is truncated — press **Ctrl+O** to expand it.
 
 ### Key bindings
 
-| Key       | Action                                   |
-| --------- | ---------------------------------------- |
-| Enter     | Submit input                             |
-| Alt+Enter | Insert newline (multiline input)         |
-| Tab       | Autocomplete                             |
-| Shift+Tab | Cycle thinking effort level              |
-| Up/Down   | Browse history or navigate multiline     |
-| Ctrl+C    | Cancel running task (double-tap to quit) |
-| Ctrl+O    | Expand truncated shell output            |
+| Key                     | Action                                   |
+| ----------------------- | ---------------------------------------- |
+| Enter                   | Submit input                             |
+| Shift+Enter / Alt+Enter | Insert newline (multiline input)         |
+| Tab                     | Autocomplete                             |
+| Shift+Tab               | Cycle thinking effort level              |
+| Up/Down                 | Browse history or navigate multiline     |
+| Ctrl+C                  | Cancel running task (double-tap to quit) |
+| Ctrl+O                  | Expand truncated shell output            |
 
 ### Pasting
 

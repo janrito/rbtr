@@ -40,6 +40,7 @@ from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
 from rbtr.config import config
+from rbtr.tui.key_encoding import preprocess as preprocess_keys
 
 # (value, description) — a single completion candidate.
 type Completions = list[tuple[str, str]]
@@ -585,7 +586,12 @@ class InputReader:
         # BracketedPaste event instead of individual key presses.
         # Without this, newlines in pasted content trigger the Enter
         # handler and submit the first line immediately.
-        sys.stdout.write("\x1b[?2004h")
+        #
+        # Enable xterm modifyOtherKeys mode 1 so Shift+Enter sends
+        # a distinct sequence (\x1b[27;2;13~) instead of plain \r.
+        # Mode 1 only encodes otherwise-ambiguous modified keys —
+        # unmodified keys and Ctrl+letter are unchanged.
+        sys.stdout.write("\x1b[?2004h\x1b[>4;1m")
         sys.stdout.flush()
         # Safety net: if SIGINT arrives despite ISIG being off, treat
         # it as a cancel request instead of crashing with KeyboardInterrupt.
@@ -597,8 +603,8 @@ class InputReader:
         return self
 
     def __exit__(self, *args: object) -> None:
-        # Disable bracketed paste before restoring the terminal.
-        sys.stdout.write("\x1b[?2004l")
+        # Disable bracketed paste and modifyOtherKeys.
+        sys.stdout.write("\x1b[?2004l\x1b[>4;0m")
         sys.stdout.flush()
         signal.signal(signal.SIGINT, self._old_sigint)
         if self._old_settings is not None:
@@ -639,7 +645,7 @@ class InputReader:
                     if not data:
                         self._state.submitted.put(None)
                         break
-                    self._parser.feed(data.decode("utf-8", errors="replace"))
+                    self._parser.feed(preprocess_keys(data.decode("utf-8", errors="replace")))
                 else:
                     self._parser.flush()
             except (OSError, ValueError):

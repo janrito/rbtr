@@ -9,6 +9,7 @@ from prompt_toolkit.keys import Keys
 
 from rbtr.config import config
 from rbtr.tui.input import ContextRegion, InputReader, InputState, PasteRegion, make_paste_marker
+from rbtr.tui.key_encoding import preprocess as preprocess_keys
 
 # ── set_text ─────────────────────────────────────────────────────────
 
@@ -700,3 +701,30 @@ def test_reset_buffer_preserves_context_regions(input_state: InputState) -> None
     assert input_state.paste_regions == []
     assert len(input_state.context_regions) == 1
     assert input_state.context_regions[0].marker == "[/review]"
+
+
+# ── Shift+Enter / Alt+Enter end-to-end (modifyOtherKeys) ─────────────
+
+
+def test_shift_enter_inserts_newline(input_state: InputState, input_reader: InputReader) -> None:
+    """Shift+Enter inserts a newline without submitting."""
+    input_reader._parser.feed(preprocess_keys("hello\x1b[27;2;13~"))
+    input_reader._parser.flush()
+    assert input_state.text == "hello\n"
+    assert input_state.submitted.empty()
+
+
+def test_alt_enter_inserts_newline(input_state: InputState, input_reader: InputReader) -> None:
+    """Alt+Enter inserts a newline without submitting."""
+    input_reader._parser.feed(preprocess_keys("hello\x1b[27;3;13~"))
+    input_reader._parser.flush()
+    assert input_state.text == "hello\n"
+    assert input_state.submitted.empty()
+
+
+def test_plain_enter_submits(input_state: InputState, input_reader: InputReader) -> None:
+    """Plain Enter still submits."""
+    input_reader._parser.feed(preprocess_keys("hello\r"))
+    input_reader._parser.flush()
+    assert input_state.text == ""
+    assert input_state.submitted.get_nowait() == "hello"

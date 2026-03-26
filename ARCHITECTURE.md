@@ -1804,7 +1804,7 @@ display of large pastes with atomic cursor behaviour),
 context markers (command summaries injected for the LLM),
 tab completion (slash commands, command arguments, bash
 programmable completion, file paths, executables), multiline
-editing via Alt+Enter, and input history backed by the
+editing via Shift+Enter / Alt+Enter, and input history backed by the
 session database (up/down arrow browses previous inputs,
 deduplicated across sessions).
 
