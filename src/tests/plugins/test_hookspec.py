@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-import tree_sitter_rust
 from tree_sitter import Language, Node, Parser
 
 from rbtr.index.models import ImportMeta
@@ -60,6 +59,7 @@ skip_no_rust = pytest.mark.skipif(not _has_rust, reason="tree-sitter-rust not in
 
 def _collect_from_use(code: str) -> list[str]:
     """Parse a Rust `use` declaration and collect scoped path parts."""
+    import tree_sitter_rust  # optional grammar; guarded by skip_no_rust
 
     lang = Language(tree_sitter_rust.language())
     parser = Parser(lang)
