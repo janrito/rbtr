@@ -6,7 +6,7 @@ build-backend = "uv_build"
 
 [project]
 name = "rbtr"
-version = "2026.2.0-dev0"
+version = "2026.3.0-dev0"
 description = "rbtr — Interactive LLM-powered PR review workbench"
 readme = "README.md"
 license = "MIT"
@@ -207,7 +207,7 @@ ignore_names = [
 # -- Versioning --
 
 [tool.bumpversion]
-current_version = "2026.2.0-dev0"
+current_version = "2026.3.0-dev0"
 parse = """(?x)                     # Verbose mode
     (?P<release>                    # The release part
         (?:[1-9][0-9]{3})\\.        # YYYY.
