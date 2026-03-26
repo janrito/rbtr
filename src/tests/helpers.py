@@ -13,6 +13,8 @@ from rbtr.config import ThinkingEffort
 from rbtr.events import Event, MarkdownOutput, Output
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from rbtr.tui.input import InputState
+from rbtr.tui.ui import UI
 
 # ── Test provider ────────────────────────────────────────────────────
 
@@ -65,6 +67,23 @@ class MemCtx:
 
     store: SessionStore
     state: EngineState
+
+
+# ── Headless test doubles ────────────────────────────────────────────
+
+
+class HeadlessUI(UI):
+    """UI without console, Live, or event queue — for completion tests.
+
+    Only `self.inp` is set.  Sufficient for `_complete_shell`
+    which only reads `self.inp`.
+    """
+
+    def __init__(self, inp: InputState) -> None:
+        self.inp = inp
+
+
+# ── Event queue helpers ──────────────────────────────────────────────
 
 
 def drain(events: queue.Queue[Event]) -> list[Event]:

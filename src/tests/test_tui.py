@@ -114,3 +114,35 @@ def test_render_cursor_on_paste_marker(mocker: MockerFixture) -> None:
     rest_segs = [s for s in segments if "pasted 5 lines]" in s.text]
     assert rest_segs
     assert all("italic" in str(s.style) for s in rest_segs)
+
+
+# ── Context marker rendering ────────────────────────────────────────
+
+
+def test_render_context_line_empty(mocker: MockerFixture) -> None:
+    """No context regions → no context line."""
+    ui = _make_ui(mocker)
+    assert ui._render_context_line() is None
+
+
+def test_render_context_line_single(mocker: MockerFixture) -> None:
+    """Single context region renders its marker text."""
+    ui = _make_ui(mocker)
+    ui.inp.add_context("[/review → PR #42]", "Selected PR.")
+    line = ui._render_context_line()
+    assert line is not None
+    assert "[/review → PR #42]" in line.plain
+
+
+def test_render_context_line_multiple(mocker: MockerFixture) -> None:
+    """Multiple context regions render space-separated."""
+    ui = _make_ui(mocker)
+    ui.inp.add_context("[/review → PR #42]", "Selected PR.")
+    ui.inp.add_context("[/model → gpt-4o]", "Switched.")
+    line = ui._render_context_line()
+    assert line is not None
+    plain = line.plain
+    assert "[/review → PR #42]" in plain
+    assert "[/model → gpt-4o]" in plain
+    # Order preserved.
+    assert plain.index("[/review") < plain.index("[/model")

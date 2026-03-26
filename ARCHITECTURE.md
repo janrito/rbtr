@@ -1809,12 +1809,14 @@ session database (up/down arrow browses previous inputs,
 deduplicated across sessions).
 
 **Context markers.** Slash commands and shell commands emit
-`ContextMarkerReady` events. The TUI inserts each as a
-visible, deletable marker in the input buffer (reusing the
-`PasteRegion` infrastructure with `kind=CONTEXT`). On
-submit, `expand_markers()` collects context markers in
-buffer order, removes them from the text, and prepends a
-`[Recent actions]` block. Per-command opt-in — handlers call
+`ContextMarkerReady` events. The TUI stores each as a
+`ContextRegion` on `InputState.context_regions` — outside
+the editing buffer. They are rendered as a styled line above
+the prompt. Backspace at cursor position 0 dismisses the
+last marker. On submit, `expand_markers()` prepends a
+`[Recent actions]` block from `context_regions`; commands
+(`/`, `!`) skip expansion and preserve context for the next
+input. Per-command opt-in — handlers call
 `engine._context(marker, content)` when the outcome is
 useful to the model. Shell markers include the full output,
 truncated to `tui.shell_context_max_chars`.

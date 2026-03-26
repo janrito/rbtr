@@ -17,7 +17,9 @@ from rbtr.providers import endpoint as endpoint_mod
 from rbtr.providers.types import Provider
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
-from tests.helpers import TestProvider
+from rbtr.tui.input import InputReader, InputState
+from rbtr.tui.ui import UI
+from tests.helpers import HeadlessUI, TestProvider
 
 # Register all tool submodules in the correct order before any test
 # runs.  Tests that directly import a single tool module would
@@ -51,6 +53,24 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
         return _real_socket(*args, **kwargs)
 
     monkeypatch.setattr(socket, "socket", _guarded)
+
+
+@pytest.fixture
+def input_state() -> InputState:
+    """Fresh `InputState` for each test."""
+    return InputState()
+
+
+@pytest.fixture
+def input_reader(input_state: InputState) -> InputReader:
+    """Headless `InputReader` wired to `input_state`."""
+    return InputReader(input_state)
+
+
+@pytest.fixture
+def headless_ui(input_state: InputState) -> UI:
+    """UI with only `inp` set — for completion tests."""
+    return HeadlessUI(input_state)
 
 
 @pytest.fixture(autouse=True)

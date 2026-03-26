@@ -28,23 +28,6 @@ from rbtr.tui.input import (
 )
 from rbtr.tui.ui import UI
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def _make_state(buffer: str = "") -> InputState:
-    """Create an InputState with the given buffer text."""
-    state = InputState()
-    state.set_text(buffer)
-    return state
-
-
-def _make_ui(buffer: str = "") -> UI:
-    """Create a UI instance with just enough state for shell completion tests."""
-    ui = object.__new__(UI)
-    ui.inp = _make_state(buffer)
-    return ui
-
-
 # ── replace_shell_word ──────────────────────────────────────────────
 
 
@@ -76,48 +59,48 @@ def test_replace_path_full_replacement() -> None:
     assert replace_shell_word("ls src/rb", "src/rbtr/") == "ls src/rbtr/"
 
 
-def test_replace_path_at_start() -> None:
+def test_replace_path_at_start(input_state: InputState) -> None:
     assert replace_shell_word("src/rb", "rbtr/") == "src/rbtr/"
 
 
-def test_replace_nested_path() -> None:
+def test_replace_nested_path(input_state: InputState) -> None:
     assert replace_shell_word("cat src/rbtr/tu", "tui.py") == "cat src/rbtr/tui.py"
 
 
-def test_replace_no_path_no_prefix() -> None:
+def test_replace_no_path_no_prefix(input_state: InputState) -> None:
     assert replace_shell_word("ls REA", "README.md") == "ls README.md"
 
 
 # ── _apply_completions — slash commands ──────────────────────────────
 
 
-def test_slash_single_match_auto_accepts() -> None:
-    state = _make_state("/hel")
-    state.apply_completions([("/help", "Show help")])
-    assert state.text == "/help "
-    assert state.completions == []
+def test_slash_single_match_auto_accepts(input_state: InputState) -> None:
+    input_state.set_text("/hel")
+    input_state.apply_completions([("/help", "Show help")])
+    assert input_state.text == "/help "
+    assert input_state.completions == []
 
 
-def test_slash_multiple_matches_shows_menu() -> None:
-    state = _make_state("/re")
+def test_slash_multiple_matches_shows_menu(input_state: InputState) -> None:
+    input_state.set_text("/re")
     matches = [("/review", "Review a PR"), ("/refresh", "Refresh")]
-    state.apply_completions(matches)
-    assert state.text == "/re"
-    assert state.completions == matches
-    assert state.completion_index == -1
+    input_state.apply_completions(matches)
+    assert input_state.text == "/re"
+    assert input_state.completions == matches
+    assert input_state.completion_index == -1
 
 
-def test_slash_multiple_matches_extends_prefix() -> None:
-    state = _make_state("/r")
+def test_slash_multiple_matches_extends_prefix(input_state: InputState) -> None:
+    input_state.set_text("/r")
     matches = [("/review", "Review a PR"), ("/refresh", "Refresh")]
-    state.apply_completions(matches)
-    assert state.text == "/re"
+    input_state.apply_completions(matches)
+    assert input_state.text == "/re"
 
 
-def test_slash_no_matches_clears() -> None:
-    state = _make_state("/xyz")
-    state.apply_completions([])
-    assert state.completions == []
+def test_slash_no_matches_clears(input_state: InputState) -> None:
+    input_state.set_text("/xyz")
+    input_state.apply_completions([])
+    assert input_state.completions == []
 
 
 # ── completion_suffix ────────────────────────────────────────────────
@@ -151,15 +134,15 @@ def test_suffix_nonexistent_path_gets_empty() -> None:
     assert completion_suffix("/no/such/path/xyzzy") == ""
 
 
-def test_suffix_nonexistent_non_path_gets_space() -> None:
+def test_suffix_nonexistent_non_path_gets_space(input_state: InputState) -> None:
     assert completion_suffix("xyzzy_nonexistent") == " "
 
 
-def test_suffix_path_context_triggers_path_mode(tmp_path: Path) -> None:
+def test_suffix_path_context_triggers_path_mode(input_state: InputState, tmp_path: Path) -> None:
     assert completion_suffix("partial_name", context_word="src/partial") == ""
 
 
-def test_suffix_path_context_existing_file(tmp_path: Path) -> None:
+def test_suffix_path_context_existing_file(input_state: InputState, tmp_path: Path) -> None:
     f = tmp_path / "real.txt"
     f.write_text("hello")
     assert completion_suffix(str(f), context_word=str(tmp_path) + "/re") == " "
@@ -168,48 +151,48 @@ def test_suffix_path_context_existing_file(tmp_path: Path) -> None:
 # ── _apply_completions — shell commands (! prefix) ───────────────────
 
 
-def test_shell_single_match_replaces_last_word() -> None:
-    state = _make_state("!git sta")
-    state.apply_completions([("status", "")])
-    assert state.text == "!git status "
+def test_shell_single_match_replaces_last_word(input_state: InputState) -> None:
+    input_state.set_text("!git sta")
+    input_state.apply_completions([("status", "")])
+    assert input_state.text == "!git status "
 
 
-def test_shell_single_match_first_word() -> None:
-    state = _make_state("!gi")
-    state.apply_completions([("git", "")])
-    assert state.text == "!git "
+def test_shell_single_match_first_word(input_state: InputState) -> None:
+    input_state.set_text("!gi")
+    input_state.apply_completions([("git", "")])
+    assert input_state.text == "!git "
 
 
-def test_shell_multiple_matches_extends_prefix() -> None:
-    state = _make_state("!git st")
+def test_shell_multiple_matches_extends_prefix(input_state: InputState) -> None:
+    input_state.set_text("!git st")
     matches = [("status", ""), ("stash", "")]
-    state.apply_completions(matches)
-    assert state.text == "!git sta"
-    assert state.completions == matches
+    input_state.apply_completions(matches)
+    assert input_state.text == "!git sta"
+    assert input_state.completions == matches
 
 
-def test_shell_multiple_no_prefix_extension() -> None:
-    state = _make_state("!git s")
+def test_shell_multiple_no_prefix_extension(input_state: InputState) -> None:
+    input_state.set_text("!git s")
     matches = [("status", ""), ("stash", ""), ("show", "")]
-    state.apply_completions(matches)
-    assert state.text == "!git s"
-    assert state.completions == matches
+    input_state.apply_completions(matches)
+    assert input_state.text == "!git s"
+    assert input_state.completions == matches
 
 
-def test_shell_single_match_directory_gets_slash(tmp_path: Path) -> None:
+def test_shell_single_match_directory_gets_slash(input_state: InputState, tmp_path: Path) -> None:
     d = tmp_path / "mydir"
     d.mkdir()
-    state = _make_state("!ls myd")
-    state.apply_completions([(str(d), "")])
-    assert state.text == f"!ls {d}/"
-    assert state.completions == []
+    input_state.set_text("!ls myd")
+    input_state.apply_completions([(str(d), "")])
+    assert input_state.text == f"!ls {d}/"
+    assert input_state.completions == []
 
 
-def test_shell_single_match_trailing_slash_no_double() -> None:
-    state = _make_state("!cd sr")
-    state.apply_completions([("src/", "")])
-    assert state.text == "!cd src/"
-    assert state.completions == []
+def test_shell_single_match_trailing_slash_no_double(input_state: InputState) -> None:
+    input_state.set_text("!cd sr")
+    input_state.apply_completions([("src/", "")])
+    assert input_state.text == "!cd src/"
+    assert input_state.completions == []
 
 
 # ── query_shell_completions — orchestrator ───────────────────────────
@@ -275,18 +258,22 @@ def _wait_for_completion(ui: UI, timeout: float = 2.0) -> None:
         time.sleep(0.02)
 
 
-def test_complete_shell_applies_results(mocker: MockerFixture) -> None:
-    ui = _make_ui("!git sta")
+def test_complete_shell_applies_results(
+    input_state: InputState, mocker: MockerFixture, headless_ui: UI
+) -> None:
+    input_state.set_text("!git sta")
     mocker.patch(
         "rbtr.tui.ui.query_shell_completions", return_value=[("status", ""), ("stash", "")]
     )
-    ui._complete_shell()
-    _wait_for_completion(ui)
-    assert ui.inp.completions == [("status", ""), ("stash", "")]
+    headless_ui._complete_shell()
+    _wait_for_completion(headless_ui)
+    assert headless_ui.inp.completions == [("status", ""), ("stash", "")]
 
 
-def test_complete_shell_does_not_block(mocker: MockerFixture) -> None:
-    ui = _make_ui("!git sta")
+def test_complete_shell_does_not_block(
+    input_state: InputState, mocker: MockerFixture, headless_ui: UI
+) -> None:
+    input_state.set_text("!git sta")
 
     def _slow_query(cmd_line: str, max_results: int = 20) -> list[tuple[str, str]]:
         time.sleep(5)
@@ -297,32 +284,34 @@ def test_complete_shell_does_not_block(mocker: MockerFixture) -> None:
         side_effect=_slow_query,
     )
     start = time.monotonic()
-    ui._complete_shell()
+    headless_ui._complete_shell()
     elapsed = time.monotonic() - start
     assert elapsed < 0.5
 
 
-def test_complete_shell_discards_stale_results(mocker: MockerFixture) -> None:
-    ui = _make_ui("!git sta")
+def test_complete_shell_discards_stale_results(
+    input_state: InputState, mocker: MockerFixture, headless_ui: UI
+) -> None:
+    input_state.set_text("!git sta")
 
     def slow_query(cmd_line: str, max_results: int = 20) -> list[tuple[str, str]]:
         time.sleep(0.1)
         return [("status", "")]
 
     mocker.patch("rbtr.tui.ui.query_shell_completions", side_effect=slow_query)
-    ui._complete_shell()
-    ui.inp.set_text("!git status --short")
+    headless_ui._complete_shell()
+    headless_ui.inp.set_text("!git status --short")
     time.sleep(0.3)
 
-    assert ui.inp.text == "!git status --short"
-    assert ui.inp.completions == []
+    assert headless_ui.inp.text == "!git status --short"
+    assert headless_ui.inp.completions == []
 
 
-def test_complete_shell_empty_cmd_is_noop() -> None:
-    ui = _make_ui("!")
-    ui._complete_shell()
+def test_complete_shell_empty_cmd_is_noop(input_state: InputState, headless_ui: UI) -> None:
+    input_state.set_text("!")
+    headless_ui._complete_shell()
     time.sleep(0.1)
-    assert ui.inp.completions == []
+    assert headless_ui.inp.completions == []
 
 
 # ── shell_context_word ───────────────────────────────────────────────

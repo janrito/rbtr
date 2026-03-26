@@ -423,12 +423,12 @@ atomic marker (`[pasted 42 lines]`) that expands on submit.
 ### Context markers
 
 After a slash command or shell command, a context marker
-appears in your input — a tag like `[/review → PR #42]` or
-`[! git log — exit 0]`. On submit, markers expand into a
+appears above your input — a tag like `[/review → PR #42]`
+or `[! git log — exit 0]`. On submit, markers expand into a
 `[Recent actions]` block prepended to your message so the
-model knows what you just did. Delete a marker before
-sending to exclude it. Not every command produces a marker —
-only those whose outcome is useful to the model.
+model knows what you just did. Backspace at the start of the
+input dismisses the last marker. Not every command produces
+a marker — only those whose outcome is useful to the model.
 
 ## Usage display
 

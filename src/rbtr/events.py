@@ -221,9 +221,11 @@ class FactExtractionFinished(BaseModel):
 class ContextMarkerReady(BaseModel):
     """A command produced context for the LLM.
 
-    The TUI inserts *marker* into the input buffer as a
-    context marker.  On submit, it expands to *content*.
-    The user can delete the marker to exclude the context.
+    The TUI appends a `ContextRegion` to
+    `InputState.context_regions` (rendered above the prompt,
+    not in the editing buffer).  On submit, it expands to
+    *content*.  The user can dismiss markers with Backspace
+    at cursor position 0.
     """
 
     marker: str
