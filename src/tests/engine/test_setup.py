@@ -11,13 +11,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
+import rbtr.engine.connect_cmd as connect_mod
 from rbtr.config import config
-from rbtr.creds import creds
-from rbtr.engine import Engine, TaskType
+from rbtr.creds import OAuthCreds, creds
+from rbtr.engine.core import Engine
+from rbtr.engine.setup import ensure_gh_username
+from rbtr.engine.types import TaskType
+from rbtr.events import TaskFinished
 from rbtr.providers import BuiltinProvider
-
-from .conftest import CHATGPT_OAUTH, CLAUDE_OAUTH, drain, output_texts
+from rbtr.providers.endpoint import save_endpoint
+from tests.helpers import drain, output_texts
 
 
 @pytest.fixture
@@ -36,7 +41,11 @@ def setup_engine(monkeypatch: pytest.MonkeyPatch, repo_engine: Engine) -> Engine
 
 
 def test_setup_detects_github_token(
-    monkeypatch: pytest.MonkeyPatch, creds_path: Path, config_path: Path, setup_engine: Engine
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    creds_path: Path,
+    config_path: Path,
+    setup_engine: Engine,
 ) -> None:
     """Setup with a stored GitHub token creates a client without a network call.
 
@@ -44,9 +53,7 @@ def test_setup_detects_github_token(
     """
     creds.update(github_token="ghp_test123")
 
-    from unittest.mock import MagicMock
-
-    fake_gh = MagicMock()
+    fake_gh = mocker.MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
     monkeypatch.setattr("rbtr.engine.setup.Github", lambda **_kw: fake_gh)
 
@@ -62,7 +69,6 @@ def test_setup_detects_github_token(
     assert any("GitHub token loaded" in t for t in texts)
 
     # Lazy resolution fetches on demand.
-    from rbtr.engine.setup import ensure_gh_username
 
     assert ensure_gh_username(engine) == "testuser"
     assert engine.state.gh_username == "testuser"
@@ -70,10 +76,10 @@ def test_setup_detects_github_token(
 
 
 def test_setup_detects_claude_oauth(
-    creds_path: Path, config_path: Path, setup_engine: Engine
+    creds_path: Path, config_path: Path, setup_engine: Engine, claude_oauth: OAuthCreds
 ) -> None:
     """Setup with stored Claude OAuth marks provider as connected."""
-    creds.update(claude=CLAUDE_OAUTH)
+    creds.update(claude=claude_oauth)
     engine = setup_engine
 
     engine.run_task(TaskType.SETUP, "")
@@ -84,10 +90,10 @@ def test_setup_detects_claude_oauth(
 
 
 def test_setup_detects_chatgpt_oauth(
-    creds_path: Path, config_path: Path, setup_engine: Engine
+    creds_path: Path, config_path: Path, setup_engine: Engine, chatgpt_oauth: OAuthCreds
 ) -> None:
     """Setup with stored ChatGPT OAuth marks provider as connected."""
-    creds.update(chatgpt=CHATGPT_OAUTH)
+    creds.update(chatgpt=chatgpt_oauth)
     engine = setup_engine
 
     engine.run_task(TaskType.SETUP, "")
@@ -116,7 +122,6 @@ def test_setup_detects_openai_key(
 
 def test_setup_lists_endpoints(creds_path: Path, config_path: Path, setup_engine: Engine) -> None:
     """Setup lists stored endpoints."""
-    from rbtr.providers.endpoint import save_endpoint
 
     save_endpoint("ollama", "http://localhost:11434/v1", "")
 
@@ -152,23 +157,22 @@ def test_setup_loads_saved_model(creds_path: Path, config_path: Path, setup_engi
 def test_run_task_unexpected_error_emits_failure(config_path: Path, engine: Engine) -> None:
     """Generic exception in a task emits error output and TaskFinished(success=False)."""
 
-    def _explode(eng, args):
+    def _explode(eng: Engine, args: str) -> None:
         raise RuntimeError("kaboom")
 
-    import rbtr.engine.core as core_mod
-
-    original = core_mod.cmd_connect
-    core_mod.cmd_connect = _explode
+    original = connect_mod.cmd_connect
+    connect_mod.cmd_connect = _explode  # type: ignore[assignment]  # intentional monkey-patch for error testing
     try:
         engine.run_task(TaskType.COMMAND, "/connect claude")
         drained_events = drain(engine.events)
 
+        assert isinstance(drained_events[-1], TaskFinished)
         assert drained_events[-1].success is False
         assert drained_events[-1].cancelled is False
         texts = output_texts(drained_events)
         assert any("kaboom" in t for t in texts)
     finally:
-        core_mod.cmd_connect = original
+        connect_mod.cmd_connect = original
 
 
 def test_copy_to_clipboard_does_not_raise() -> None:

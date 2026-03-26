@@ -6,8 +6,11 @@ Bash is a base grammar — these tests run unconditionally.
 
 from __future__ import annotations
 
-from rbtr.index.models import ChunkKind
+from tree_sitter import Language
+
+from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.treesitter import extract_symbols
+from rbtr.plugins.hookspec import LanguageRegistration
 from rbtr.plugins.manager import get_manager
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -15,19 +18,19 @@ from rbtr.plugins.manager import get_manager
 _mgr = get_manager()
 
 
-def _grammar():
+def _grammar() -> Language:
     g = _mgr.load_grammar("bash")
     assert g is not None
     return g
 
 
-def _reg():
+def _reg() -> LanguageRegistration:
     reg = _mgr.get_registration("bash")
     assert reg is not None
     return reg
 
 
-def _extract(source: str, file_path: str = "script.sh"):
+def _extract(source: str, file_path: str = "script.sh") -> list[Chunk]:
     reg = _reg()
     assert reg.query is not None
     return extract_symbols(
@@ -41,7 +44,7 @@ def _extract(source: str, file_path: str = "script.sh"):
     )
 
 
-def _symbols(source: str, file_path: str = "script.sh"):
+def _symbols(source: str, file_path: str = "script.sh") -> list[tuple[str, str, str]]:
     return [(c.kind, c.name, c.scope) for c in _extract(source, file_path)]
 
 

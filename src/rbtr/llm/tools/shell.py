@@ -17,7 +17,7 @@ from rbtr.config import config
 from rbtr.events import ToolCallOutput
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import shell_toolset
-from rbtr.shell_exec import run_shell, truncate_output
+from rbtr.shell_exec import run_shell, truncate_for_agent
 
 # ── Streaming display buffer ─────────────────────────────────────────
 
@@ -32,7 +32,7 @@ class HeadTailBuffer:
     """
 
     head_max: int = 3
-    tail_max: int = 5
+    tail_max: int = 12
     head: list[str] = field(default_factory=list)
     tail: deque[str] = field(default_factory=deque)
     total_lines: int = 0
@@ -53,10 +53,11 @@ class HeadTailBuffer:
         """Seconds since the buffer was created."""
         return time.monotonic() - self.started_at
 
-    def to_event(self, tool_name: str) -> ToolCallOutput:
+    def to_event(self, tool_name: str, tool_call_id: str) -> ToolCallOutput:
         """Build a `ToolCallOutput` event from the current state."""
         return ToolCallOutput(
             tool_name=tool_name,
+            tool_call_id=tool_call_id,
             head="\n".join(self.head),
             tail="\n".join(self.tail),
             total_lines=self.total_lines,
@@ -75,12 +76,17 @@ def run_command(
 ) -> str:
     """Run a shell command and return its output.
 
-    Use this only when no bespoke tool fits — for running
-    external scripts, build commands, or CLI tools.
-    Prefer `read_file` over `cat`, `grep` over shell grep,
-    `list_files` over `ls`, `search` over ad-hoc grep chains.
-    The bespoke tools are faster, paginated, and read from the
-    git object store.
+    Primary use: executing scripts bundled with skills.
+
+    **Do not use for codebase access.** The working directory
+    may not match the review target — files under review
+    live in a different branch or commit. Use `read_file`,
+    `grep`, `list_files`, `search`, `read_symbol`, and other
+    bespoke tools instead — they read from the git object
+    store at the correct ref, are paginated, and are faster.
+
+    The repository should not be modified by commands run
+    here. Treat the working tree as read-only.
 
     Args:
         command: Shell command to execute.
@@ -89,6 +95,7 @@ def run_command(
     shell_cfg = config.tools.shell
     effective_timeout = timeout if timeout is not None else shell_cfg.timeout
     events_queue = ctx.deps.events
+    call_id = ctx.tool_call_id or ""
 
     buf = HeadTailBuffer()
     last_emit = 0.0
@@ -98,7 +105,7 @@ def run_command(
         buf.add_line(line)
         now = time.monotonic()
         if (now - last_emit) >= 0.033:  # ~30 fps
-            events_queue.put(buf.to_event("run_command"))
+            events_queue.put(buf.to_event("run_command", call_id))
             last_emit = now
 
     result = run_shell(
@@ -109,18 +116,23 @@ def run_command(
     )
 
     # Final event so the TUI shows the complete state.
-    events_queue.put(buf.to_event("run_command"))
+    events_queue.put(buf.to_event("run_command", call_id))
 
     # Format the result for the model.
     parts: list[str] = []
     if result.stdout:
-        stdout, hidden = truncate_output(result.stdout, shell_cfg.max_output_lines)
-        parts.append(stdout)
-        if hidden:
-            parts.append(f"\n… {hidden} lines truncated")
+        parts.append(result.stdout)
     if result.stderr:
         parts.append(f"(stderr)\n{result.stderr}")
     if result.returncode != 0:
         parts.append(f"exit code {result.returncode}")
 
-    return "\n".join(parts) if parts else "(no output)"
+    if not parts:
+        return "(no output)"
+
+    full = "\n".join(parts)
+    return truncate_for_agent(
+        full,
+        max_lines=shell_cfg.max_output_lines,
+        max_bytes=shell_cfg.max_output_bytes,
+    )

@@ -1,6 +1,6 @@
 # rbtr
 
-A terminal-based code review harness powered by LLMs. rbtr
+An agentic code review harness in the terminal. rbtr
 indexes your repository, reads the diff, understands the
 structure of the code — commit messages, PR description,
 existing discussion — and helps you reason through the
@@ -37,7 +37,7 @@ Fetching PR #42…
 ⟳ indexing 177 files…
 ```
 
-The model has 19 tools — it reads files, searches the index,
+The model has 20 tools — it reads files, searches the index,
 inspects the diff, and follows references across the codebase.
 Ask it anything about the changes:
 
@@ -114,30 +114,37 @@ you: /review main feature
 Reviewing branch: main → feature
 ```
 
-In snapshot mode the model has file tools (`read_file`,
-`list_files`, `grep`), index tools (`search`, `read_symbol`,
-`list_symbols`, `find_references`), and workspace tools
-(`edit`, `remember`). Diff and draft tools are hidden — there
-is no base to compare against.
-
 ## Tools
 
-The model has 19 tools for reading code, navigating the
-codebase, and writing review feedback. Tools are hidden
-until their prerequisites are met — the model never sees
-a tool it cannot use.
+The model has 20 tools for reading code, navigating the
+codebase, writing review feedback, and running shell
+commands. Tools appear and disappear based on session state
+— the model never sees a tool it cannot use.
+
+| Condition         | Tools available                          |
+| ----------------- | ---------------------------------------- |
+| Always            | `edit`, `remember`, `run_command`        |
+| Repo + any target | `read_file`, `list_files`, `grep`        |
+| Index ready       | `search`, `read_symbol`, `list_symbols`, |
+|                   | `find_references`                        |
+| PR or branch      | `diff`, `changed_files`, `commit_log`,   |
+|                   | `changed_symbols`                        |
+| PR only           | Draft tools, `get_pr_discussion`         |
+
+In snapshot mode (`/review <ref>`) the model has file, index,
+workspace, and shell tools. Diff and draft tools are hidden
+— there is no base to compare against.
 
 ### Reading code
 
 The model reads changed files, referenced modules, tests,
 and config to understand context beyond the diff.
 
-| Tool         | Description                              |
-| ------------ | ---------------------------------------- |
-| `read_file`  | Read file contents, paginated by lines   |
-| `grep`       | Substring search in a file, directory,   |
-|              | or repo-wide                             |
-| `list_files` | List files in the repo or a subdirectory |
+| Tool         | Description                                |
+| ------------ | ------------------------------------------ |
+| `read_file`  | Read file contents, paginated by lines     |
+| `grep`       | Substring search, scoped by glob or prefix |
+| `list_files` | List files, scoped by glob or prefix       |
 
 ### Understanding changes
 
@@ -146,7 +153,7 @@ structured, and what the changes mean structurally.
 
 | Tool              | Description                          |
 | ----------------- | ------------------------------------ |
-| `diff`            | Unified diff (base→head), by file    |
+| `diff`            | Unified diff, scoped by glob or file |
 | `changed_files`   | Files changed in the PR              |
 | `commit_log`      | Commits between base and head        |
 | `changed_symbols` | Symbols added, removed, or modified. |
@@ -194,6 +201,44 @@ writes notes to the workspace.
 | `edit`              | Create or modify `.rbtr/notes/` and |
 |                     | `.rbtr/AGENTS.md`                   |
 
+### Shell execution
+
+The model can run shell commands when `tools.shell.enabled`
+is `true` (the default).
+
+| Tool          | Description                             |
+| ------------- | --------------------------------------- |
+| `run_command` | Execute a shell command, return output  |
+
+The primary use is executing scripts bundled with skills.
+The model is steered away from using it for codebase access
+— files under review live in a different branch or commit,
+so `read_file`, `grep`, and other bespoke tools are the
+correct choice (they read from the git object store at the
+right ref). The working tree is treated as read-only.
+
+Output is streamed to the TUI via a head/tail buffer
+(first 3 + last 5 lines, refreshed at ~30 fps). When the
+command executes a skill script, the header shows the skill
+name and source instead of raw JSON args
+(e.g. `⚙ [brave-search · user] search.sh "query"`). The
+full result returned to the model is truncated to
+`tools.shell.max_output_lines` (default 2000).
+
+```toml
+[tools.shell]
+enabled = true       # set false to disable entirely
+timeout = 120        # default timeout in seconds (0 = no limit)
+max_output_lines = 2000
+```
+
+`list_files`, `grep`, and `diff` accept a `pattern` parameter
+that works like a git pathspec: a plain string is a directory
+prefix or file path, glob metacharacters (`*`, `?`, `[`)
+activate pattern matching, and `**` matches across
+directories. For example, `pattern="src/**/*.py"` scopes to
+Python files under `src/`.
+
 Tools that read code accept a `ref` parameter — `"head"`
 (default), `"base"`, or a raw commit SHA — so the model
 can inspect the codebase at any point in time. File tools
@@ -225,6 +270,7 @@ model summarises its progress and asks whether to continue.
 | `/session`                | List, inspect, or delete sessions           | partial |
 | `/stats`                  | Show session token and cost statistics      | ✓       |
 | `/memory`                 | List, extract, or purge cross-session facts | partial |
+| `/skill`                  | List or load a skill                        | ✓       |
 | `/reload`                 | Show active prompt sources                  |         |
 | `/new`                    | Start a new conversation                    |         |
 | `/quit`                   | Exit (also `/q`)                            |         |
@@ -358,15 +404,15 @@ Long output is truncated — press **Ctrl+O** to expand it.
 
 ### Key bindings
 
-| Key       | Action                                   |
-| --------- | ---------------------------------------- |
-| Enter     | Submit input                             |
-| Alt+Enter | Insert newline (multiline input)         |
-| Tab       | Autocomplete                             |
-| Shift+Tab | Cycle thinking effort level              |
-| Up/Down   | Browse history or navigate multiline     |
-| Ctrl+C    | Cancel running task (double-tap to quit) |
-| Ctrl+O    | Expand truncated shell output            |
+| Key                     | Action                                   |
+| ----------------------- | ---------------------------------------- |
+| Enter                   | Submit input                             |
+| Shift+Enter / Alt+Enter | Insert newline (multiline input)         |
+| Tab                     | Autocomplete                             |
+| Shift+Tab               | Cycle thinking effort level              |
+| Up/Down                 | Browse history or navigate multiline     |
+| Ctrl+C                  | Cancel running task (double-tap to quit) |
+| Ctrl+O                  | Expand truncated shell output            |
 
 ### Pasting
 
@@ -377,12 +423,12 @@ atomic marker (`[pasted 42 lines]`) that expands on submit.
 ### Context markers
 
 After a slash command or shell command, a context marker
-appears in your input — a tag like `[/review → PR #42]` or
-`[! git log — exit 0]`. On submit, markers expand into a
+appears above your input — a tag like `[/review → PR #42]`
+or `[! git log — exit 0]`. On submit, markers expand into a
 `[Recent actions]` block prepended to your message so the
-model knows what you just did. Delete a marker before
-sending to exclude it. Not every command produces a marker —
-only those whose outcome is useful to the model.
+model knows what you just did. Backspace at the start of the
+input dismisses the last marker. Not every command produces
+a marker — only those whose outcome is useful to the model.
 
 ## Usage display
 
@@ -403,7 +449,8 @@ Colours shift from green to yellow to red as context fills.
 Every conversation is saved to a local SQLite database at
 `~/.config/rbtr/sessions.db`. Messages are persisted as they
 stream — if rbtr crashes, the conversation survives up to the
-last received part.
+last received part. Requests are always persisted before their
+responses, so resumed sessions load in the correct order.
 
 ### Persistence
 
@@ -628,6 +675,58 @@ max_extraction_facts = 200        # Existing facts shown to extraction agent
 fact_extraction_model = ""        # Override model (empty = session model)
 ```
 
+## Skills
+
+Skills are self-contained instruction packages — a markdown
+file with optional bundled scripts — that teach the model
+new capabilities. rbtr discovers skills automatically from
+multiple directories and presents them in the system prompt.
+
+rbtr scans the same skill directories as pi and Claude Code,
+so existing skills work with zero configuration:
+
+```text
+~/.config/rbtr/skills/      # user-level rbtr skills
+~/.claude/skills/           # Claude Code skills
+~/.pi/agent/skills/         # pi skills
+~/.agents/skills/           # Agent Skills standard
+.rbtr/skills/               # project-level (any ancestor to git root)
+.claude/skills/             # project-level Claude Code
+.pi/skills/                 # project-level pi
+.agents/skills/             # project-level Agent Skills
+```
+
+Skills use the [Agent Skills standard][agent-skills] format:
+a markdown file with YAML frontmatter (`name`, `description`).
+The model sees a catalog of available skills in its system
+prompt and reads the full skill file on demand via `read_file`.
+
+[agent-skills]: https://agentskills.io/specification
+
+### `/skill` command
+
+```text
+/skill                         List discovered skills
+/skill brave-search            Load a skill into context
+/skill brave-search "query"    Load with a follow-up message
+```
+
+Tab-completes skill names. Skills marked with
+`disable-model-invocation: true` are hidden from the prompt
+catalog but still loadable via `/skill`.
+
+### Configuration
+
+```toml
+[skills]
+project_dirs = [".rbtr/skills", ".claude/skills", ".pi/skills", ".agents/skills"]
+user_dirs = ["~/.config/rbtr/skills", "~/.claude/skills", "~/.pi/agent/skills", "~/.agents/skills"]
+extra_dirs = []
+```
+
+Set `project_dirs = []` or `user_dirs = []` to disable
+scanning. `extra_dirs` adds directories on top.
+
 ## Context compaction
 
 Long conversations fill the context window. rbtr compacts
@@ -699,7 +798,10 @@ for the split algorithm, orphan handling, and reset mechanics.
 
 ## Configuration
 
-Two TOML files under `~/.config/rbtr/`:
+User-level files live in `~/.config/rbtr/` (override with
+`RBTR_USER_DIR`). A workspace overlay at `.rbtr/config.toml`
+can override per-project settings — the nearest `.rbtr/`
+walking from CWD to the git root wins (monorepo-friendly).
 
 - **`config.toml`** — model, endpoints, feature settings.
 - **`creds.toml`** — API keys and OAuth tokens (0600).

@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.config import config as cfg
+from rbtr.engine.core import Engine
 from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import IndexCleared, IndexReady, TableOutput
+from rbtr.index.models import Chunk, ChunkKind
+from rbtr.index.orchestrator import build_index
+from rbtr.index.store import IndexStore
 from rbtr.models import BranchTarget
+from rbtr.tui.footer import _format_count
+from tests.helpers import drain, output_texts
 
-from .conftest import drain, output_texts, wait_for_index
+from .conftest import wait_for_index
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -37,7 +44,7 @@ def indexed_engine(repo_engine: Engine) -> Engine:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=repo.head.peel(pygit2.Commit).commit_time,
+        updated_at=datetime.fromtimestamp(repo.head.peel(pygit2.Commit).commit_time, tz=UTC),
     )
     _build_index(engine)
     return engine
@@ -80,12 +87,9 @@ def test_index_status_falls_back_to_base_ref(repo_engine: Engine) -> None:
     engine = repo_engine
 
     # Manually build base index only (no update_index for head).
-    from datetime import UTC, datetime
-
-    from rbtr.index.orchestrator import build_index
-    from rbtr.index.store import IndexStore
 
     store = IndexStore()
+    assert engine.state.repo is not None
     build_index(engine.state.repo, "main", store)
     engine.state.index = store
     engine.state.review_target = BranchTarget(
@@ -195,7 +199,6 @@ def test_index_prune_removes_orphans(indexed_engine: Engine) -> None:
     store = engine.state.index
 
     # Insert an orphan chunk (not referenced by any snapshot).
-    from rbtr.index.models import Chunk, ChunkKind
 
     orphan = Chunk(
         id="orphan_1",
@@ -277,7 +280,6 @@ def test_index_model_change(config_path: Path, indexed_engine: Engine) -> None:
     assert any("Cleared" in t for t in texts)
 
     # Config should be updated.
-    from rbtr.config import config as cfg
 
     assert cfg.index.embedding_model == new_model
 
@@ -297,8 +299,6 @@ def test_index_model_same_noop(repo_engine: Engine) -> None:
     """/index model with the current model is a no-op."""
     engine = repo_engine
 
-    from rbtr.config import config as cfg
-
     current = cfg.index.embedding_model
     engine.run_task(TaskType.COMMAND, f"/index model {current}")
     drained_events = drain(engine.events)
@@ -317,8 +317,6 @@ def test_index_model_no_index(config_path: Path, repo_engine: Engine) -> None:
 
     assert any("→" in t and new_model in t for t in texts)
     assert any("No index loaded" in t for t in texts)
-
-    from rbtr.config import config as cfg
 
     assert cfg.index.embedding_model == new_model
 
@@ -479,7 +477,6 @@ def test_help_lists_index_command(repo_engine: Engine) -> None:
 
 
 def test_format_count() -> None:
-    from rbtr.tui.footer import _format_count
 
     assert _format_count(42) == "42"
     assert _format_count(1_200) == "1.2k"

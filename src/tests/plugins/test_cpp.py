@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from tree_sitter import Language, Parser
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
 from rbtr.plugins.cpp import CppPlugin, extract_import_meta
 
@@ -23,8 +23,9 @@ except ImportError:
 needs_grammar = pytest.mark.skipif(not _HAS_GRAMMAR, reason="tree-sitter-cpp not installed")
 
 
-def _extract(code: str):
+def _extract(code: str) -> list[Chunk]:
     reg = CppPlugin().rbtr_register_languages()[0]
+    assert reg.query is not None
     return extract_symbols(
         "test.cpp",
         "abc123",
@@ -36,7 +37,7 @@ def _extract(code: str):
     )
 
 
-def _parse_import(code: str):
+def _parse_import(code: str) -> ImportMeta:
     """Parse code and extract import metadata from the first include."""
     parser = Parser(_LANG)
     tree = parser.parse(code.encode())
@@ -49,7 +50,7 @@ def _parse_import(code: str):
 # ── Registration ─────────────────────────────────────────────────────
 
 
-def test_registration():
+def test_registration() -> None:
     regs = CppPlugin().rbtr_register_languages()
     assert len(regs) == 1
     reg = regs[0]
@@ -77,7 +78,7 @@ def test_registration():
     ],
     ids=["system", "local", "nested-path"],
 )
-def test_include_meta(code: str, expected: dict):
+def test_include_meta(code: str, expected: ImportMeta) -> None:
     assert _parse_import(code) == expected
 
 
@@ -93,7 +94,7 @@ def test_include_meta(code: str, expected: dict):
     ],
     ids=["void", "returning"],
 )
-def test_free_function(code: str, expected_name: str):
+def test_free_function(code: str, expected_name: str) -> None:
     fns = [c for c in _extract(code) if c.kind == ChunkKind.FUNCTION]
     assert len(fns) == 1
     assert fns[0].name == expected_name
@@ -101,7 +102,7 @@ def test_free_function(code: str, expected_name: str):
 
 
 @needs_grammar
-def test_multiple_functions():
+def test_multiple_functions() -> None:
     chunks = _extract("""\
 int foo() { return 0; }
 void bar() { }
@@ -123,14 +124,14 @@ void bar() { }
     ],
     ids=["class", "struct", "enum-class"],
 )
-def test_class_like(code: str, expected_name: str):
+def test_class_like(code: str, expected_name: str) -> None:
     classes = [c for c in _extract(code) if c.kind == ChunkKind.CLASS]
     assert len(classes) == 1
     assert classes[0].name == expected_name
 
 
 @needs_grammar
-def test_class_with_inheritance():
+def test_class_with_inheritance() -> None:
     chunks = _extract("""\
 class Base { };
 class Derived : public Base { };
@@ -164,7 +165,7 @@ public:
     ],
     ids=["class-method", "struct-method"],
 )
-def test_method_scoped(code: str, method_name: str, scope: str):
+def test_method_scoped(code: str, method_name: str, scope: str) -> None:
     methods = [c for c in _extract(code) if c.kind == ChunkKind.METHOD]
     assert len(methods) == 1
     assert methods[0].name == method_name
@@ -172,7 +173,7 @@ def test_method_scoped(code: str, method_name: str, scope: str):
 
 
 @needs_grammar
-def test_multiple_methods():
+def test_multiple_methods() -> None:
     chunks = _extract("""\
 class Calculator {
 public:
@@ -187,7 +188,7 @@ public:
 
 
 @needs_grammar
-def test_free_function_not_scoped():
+def test_free_function_not_scoped() -> None:
     """Functions outside classes should not be methods."""
     chunks = _extract("""\
 class C { };
@@ -203,7 +204,7 @@ void standalone() { }
 
 
 @needs_grammar
-def test_full_cpp_file():
+def test_full_cpp_file() -> None:
     chunks = _extract("""\
 #include <vector>
 #include "config.h"

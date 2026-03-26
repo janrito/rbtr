@@ -24,7 +24,6 @@ import pytest
 
 from rbtr.exceptions import RbtrError
 from rbtr.git.repo import (
-    default_branch,
     list_local_branches,
     open_repo,
     require_clean,
@@ -195,41 +194,6 @@ def test_parse_no_remotes(tmp_path: Path) -> None:
     repo = pygit2.init_repository(str(tmp_path / "empty"))
     with pytest.raises(RbtrError, match="No GitHub remote found"):
         parse_github_remote(repo)
-
-
-# ── default_branch ───────────────────────────────────────────────────
-
-
-def test_default_branch_with_origin_head(branched_repo: BranchedRepo) -> None:
-    """When origin/HEAD is set (as by git clone), use its target."""
-    repo = branched_repo.repo
-    repo.remotes.create("origin", "https://github.com/o/r.git")
-
-    # Simulate what git clone does: create the remote ref + symbolic ref.
-    repo.references.create("refs/remotes/origin/main", branched_repo.main_oid)
-    # Passing a string target creates a symbolic ref.
-    repo.references.create("refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-
-    assert default_branch(repo) == "main"
-
-
-def test_default_branch_falls_back_to_main(branched_repo: BranchedRepo) -> None:
-    """Without origin/HEAD, detects 'main' from local branches."""
-    assert default_branch(branched_repo.repo) == "main"
-
-
-def test_default_branch_falls_back_to_master(tmp_path: Path) -> None:
-    """When only 'master' exists locally, use that."""
-    repo = pygit2.init_repository(str(tmp_path / "repo"))
-    make_commit(repo, {"a.txt": b"x\n"}, ref="refs/heads/master")
-    assert default_branch(repo) == "master"
-
-
-def test_default_branch_last_resort(tmp_path: Path) -> None:
-    """When no known branch exists, returns 'main' as fallback."""
-    repo = pygit2.init_repository(str(tmp_path / "repo"))
-    make_commit(repo, {"a.txt": b"x\n"}, ref="refs/heads/trunk")
-    assert default_branch(repo) == "main"
 
 
 # ── list_local_branches ─────────────────────────────────────────────

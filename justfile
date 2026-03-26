@@ -1,5 +1,7 @@
 check: lint typecheck test
 
+ci: lint typecheck test-cov
+
 fmt: fmt-py fmt-sql fmt-md
 
 lint: lint-py lint-sql lint-md
@@ -30,8 +32,16 @@ typecheck:
 test:
     uv run pytest
 
+test-cov:
+    uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
+
 build:
     uv build
+
+# ── dead code detection (requires `uv sync --group debug`) ──
+
+dead-code:
+    uv run --group debug vulture
 
 # ── profiling (requires `uv sync --group debug`) ──
 # Benchmark indexing + query latency (no embedding).
@@ -72,23 +82,18 @@ scalene-view *ARGS:
 # Get the current version from pyproject.toml
 
 current_version := `uvx bump-my-version show current_version`
-[private]
-_is_current_dev := if current_version =~ '.*dev.*' { 'true' } else { 'false' }
+is_dev := if current_version =~ '.*dev.*' { 'true' } else { 'false' }
 
-# find if we can bump just the label
-# this will fail when pre_label bumping cannot be done (i.e. it's already stable)
-# this will succeed but include dev if it is bumping the calver section
 
-[private]
-_next_pre_label_version := `uvx bump-my-version show --increment pre_label new_version 2>/dev/null || echo 'invalid'`
-[private]
-_can_bump_pre_label := if _next_pre_label_version =~ '.*dev.*|invalid' { 'false' } else { 'true' }
+
+# Bump version, branch, commit, tag, and push.
+# The branch name determines which workflow runs (release-* or pre-release-*).
 
 [group('release')]
-pre-release *FLAGS: && build
+bump-pre-release *FLAGS:
     #!/usr/bin/env sh
     set -x -e
-    if [ '{{ _is_current_dev }}' = 'true' ]; then
+    if [ '{{ is_dev }}' = 'true' ]; then
       # 2026.2.1-dev0 -> 2026.2.1-dev1
       uvx bump-my-version bump pre_release {{ FLAGS }}
     else
@@ -97,10 +102,14 @@ pre-release *FLAGS: && build
     fi
 
 [group('release')]
-release *FLAGS: && build
+bump-release *FLAGS:
     #!/usr/bin/env sh
     set -x -e
-    if [ '{{ _can_bump_pre_label }}' = 'true' ]; then
+    # Can we get a stable version by bumping just the pre_label?
+    # This will fail when pre_label bumping cannot be done (already stable),
+    # and will include "dev" if it is bumping the calver section.
+    NEXT=$(uvx bump-my-version show --increment pre_label new_version 2>/dev/null || echo 'invalid')
+    if echo "$NEXT" | grep -qvE 'dev|invalid'; then
       # 2026.2.1-dev0 -> 2026.2.1
       uvx bump-my-version bump pre_label {{ FLAGS }}
     else
@@ -109,3 +118,23 @@ release *FLAGS: && build
       uvx bump-my-version bump num {{ FLAGS }}
       uvx bump-my-version bump pre_label --allow-dirty {{ FLAGS }}
     fi
+
+[private]
+_branch-and-push prefix:
+    #!/usr/bin/env sh
+    set -x -e
+    # Re-read version from disk — just variables are evaluated at
+    # load time, before the bump modifies pyproject.toml.
+    NEW_VERSION=$(uvx bump-my-version show current_version)
+    git checkout -b "{{ prefix }}-v${NEW_VERSION}"
+    git add -A
+    git commit -m "v${NEW_VERSION}"
+    git tag "v${NEW_VERSION}"
+    git push -u origin HEAD
+    git push origin tag "v${NEW_VERSION}"
+
+[group('release')]
+pre-release *FLAGS: (bump-pre-release FLAGS) (_branch-and-push "pre-release")
+
+[group('release')]
+release *FLAGS: (bump-release FLAGS) (_branch-and-push "release")

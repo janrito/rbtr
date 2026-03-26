@@ -15,7 +15,7 @@ _SCRIPTS_DIR = str(Path(__file__).resolve().parents[3] / "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from bench_search import (  # type: ignore[import-untyped]  # noqa: E402
+from bench_search import (  # type: ignore[import-untyped,import-not-found]  # noqa: E402
     _parse_search_result_names,
     extract_events,
 )

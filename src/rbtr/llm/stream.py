@@ -19,10 +19,12 @@ from pydantic_ai.messages import (
     HandleResponseEvent,
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
+    RetryPromptPart,
     TextPart,
     TextPartDelta,
     ToolCallPart,
@@ -47,9 +49,11 @@ from rbtr.sessions.incidents import (
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.scrub import scrub_secrets
 
-from .agent import agent
+from . import operational_prompts
+from .agent import get_agent
 from .compact import CompactionTrigger, compact_history, compact_history_async
 from .context import LLMContext
+from .costs import record_run_usage
 from .deps import AgentDeps
 from .errors import is_context_overflow, is_effort_unsupported
 from .history import (
@@ -60,9 +64,9 @@ from .history import (
     is_history_format_error,
     repair_dangling_tool_calls,
     sanitize_tool_call_ids,
+    strip_orphaned_tool_returns,
     validate_tool_call_args,
 )
-from .usage import record_run_usage
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter
@@ -80,13 +84,8 @@ class _StreamResult:
     limit_hit: bool
     last_writer: ResponseWriter | None
     compact_needed: bool = False
-
-
-_LIMIT_SUMMARY_PROMPT = (
-    "You have reached the tool-call limit for this turn. "
-    "Summarize what you accomplished so far and what remains to be done, "
-    "so the user can decide whether to ask you to continue."
-)
+    interrupted: str | None = None
+    """Continuation prompt when the response was interrupted (text-only)."""
 
 
 # ── Incident persistence ────────────────────────────────────────────────
@@ -354,16 +353,16 @@ def _finish_response_writer(writer: ResponseWriter, all_msgs: list[ModelMessage]
     streamed) for resilience — the final cost is added later by
     `_finalize_turn`.
     """
-    last = all_msgs[-1] if all_msgs else None
-    if isinstance(last, ModelResponse):
-        writer.finish(
-            input_tokens=last.usage.input_tokens,
-            output_tokens=last.usage.output_tokens,
-            cache_read_tokens=last.usage.cache_read_tokens or None,
-            cache_write_tokens=last.usage.cache_write_tokens or None,
-        )
-    else:
-        writer.finish()
+    match all_msgs[-1] if all_msgs else None:
+        case ModelResponse(usage=usage):
+            writer.finish(
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                cache_read_tokens=usage.cache_read_tokens or None,
+                cache_write_tokens=usage.cache_write_tokens or None,
+            )
+        case _:
+            writer.finish()
 
 
 def _needs_mid_turn_compaction(ctx: LLMContext, response: ModelResponse) -> bool:
@@ -394,8 +393,10 @@ async def _do_stream(
     limit_hit = False
     compact_needed = False
     last_writer: ResponseWriter | None = None
+    interrupted: str | None = None
+    truncated: _Interrupted | None = None
 
-    async with agent.iter(
+    async with get_agent().iter(
         prompt,
         model=model,
         deps=deps,
@@ -405,9 +406,34 @@ async def _do_stream(
     ) as run:
         try:
             async for node in run:
+                pending_req_id: str | None = None
+
                 match node:
                     # ── Model response: stream text deltas, persist parts ──
                     case ModelRequestNode():
+                        # Replace generic retry prompts for truncated
+                        # tool calls detected in the previous response.
+                        if truncated is not None:
+                            _replace_truncated_retry_prompts(
+                                node.request.parts,
+                                truncated_tool_ids=set(truncated.truncated_tool_ids),
+                                message=truncated.message,
+                            )
+                            truncated = None
+
+                        # Persist the request as in_progress BEFORE
+                        # the response row so its created_at is
+                        # earlier — preserving logical order on
+                        # reload.  _prepare_request (inside
+                        # node.stream) mutates the request; we
+                        # finalize with the post-mutation version.
+                        req_ids = _save_messages_safe(
+                            ctx,
+                            [node.request],
+                            status=FragmentStatus.IN_PROGRESS,
+                        )
+                        pending_req_id = req_ids[0] if req_ids else None
+
                         writer = ctx.store.begin_response(
                             ctx.state.session_id,
                             model_name=ctx.state.model_name,
@@ -415,6 +441,15 @@ async def _do_stream(
                         last_writer = writer
 
                         async with node.stream(run.ctx) as stream:
+                            # _prepare_request has run — finalize
+                            # the request with post-mutation data.
+                            if pending_req_id is not None:
+                                ctx.store.finalize_request(
+                                    pending_req_id,
+                                    node.request,
+                                )
+                                saved_request_count += 1
+
                             async for event in stream:
                                 match event:
                                     case PartStartEvent(index=idx, part=part):
@@ -429,6 +464,17 @@ async def _do_stream(
 
                         _finish_response_writer(writer, run.all_messages())
 
+                        # Check for interrupted response (truncated
+                        # tool args or text-only interruption).
+                        match run.all_messages()[-1] if run.all_messages() else None:
+                            case ModelResponse() as last_resp:
+                                info = _check_interrupted_response(last_resp)
+                                if info is not None:
+                                    if info.truncated_tool_ids:
+                                        truncated = info
+                                    else:
+                                        interrupted = info.message
+
                     # ── Tool calls: execute tools, check compaction ──
                     case CallToolsNode():
                         _update_live_usage(ctx, run.usage(), node.model_response)
@@ -442,8 +488,9 @@ async def _do_stream(
 
                 # ── Persist after every node ──
                 all_msgs = run.all_messages()
-                n = _save_new_requests(ctx, all_msgs, saved_count)
-                saved_request_count += n
+                if pending_req_id is None:
+                    n = _save_new_requests(ctx, all_msgs, saved_count)
+                    saved_request_count += n
                 saved_count = len(all_msgs)
 
                 if compact_needed:
@@ -463,6 +510,7 @@ async def _do_stream(
         limit_hit=limit_hit,
         last_writer=last_writer,
         compact_needed=compact_needed,
+        interrupted=interrupted,
     )
 
 
@@ -544,6 +592,21 @@ def _prepare_turn(
                     strategy=RecoveryStrategy.SANITIZE_FIELDS,
                     fingerprint=fp,
                     reason="invalid_tool_call_id_chars",
+                ),
+            )
+
+    history, stripped_ids = strip_orphaned_tool_returns(history)
+    if stripped_ids and history_repair_level == 0:
+        fp = ",".join(sorted(stripped_ids))
+        if not ctx.store.has_repair_incident(sid, RecoveryStrategy.STRIP_ORPHANED_RETURNS, fp):
+            _persist_history_repair(
+                ctx,
+                HistoryRepair(
+                    strategy=RecoveryStrategy.STRIP_ORPHANED_RETURNS,
+                    fingerprint=fp,
+                    call_count=len(stripped_ids),
+                    tool_names=[],
+                    reason="orphaned_returns_after_compaction",
                 ),
             )
 
@@ -674,16 +737,29 @@ async def _stream_agent_inner(
 
     result = await _do_stream(ctx, model, deps, settings, message, history)
 
+    # Text continuation: if the response was interrupted,
+    # re-enter with a continuation prompt.
+    continuations = 0
+    while result.interrupted is not None and continuations < config.tools.max_continuations:
+        continuations += 1
+        continuation = await _do_stream(
+            ctx, model, deps, settings, result.interrupted, result.all_messages
+        )
+        result = _merge_results(result, continuation)
+
     # Mid-turn compaction: if context exceeded the threshold during
     # a tool-call cycle, compact once and resume.
     if result.compact_needed:
         await compact_history_async(
             ctx,
-            extra_instructions="The model is mid-turn with active tool calls.",
+            extra_instructions=operational_prompts.MID_TURN_COMPACTION,
             trigger=CompactionTrigger.MID_TURN,
         )
-        # Reload from DB after compaction.
+        # Reload from DB after compaction.  Apply the same transient
+        # repairs as `_prepare_turn` — compaction may have placed a
+        # cancelled tool-call at the boundary of kept messages.
         history = ctx.store.load_messages(ctx.state.session_id)
+        history, _, _ = repair_dangling_tool_calls(history)
         ctx.state.usage.snapshot_base()
 
         resume = await _do_stream(ctx, model, deps, settings, None, history)
@@ -693,7 +769,9 @@ async def _stream_agent_inner(
 
     if result.limit_hit:
         history = ctx.store.load_messages(ctx.state.session_id)
-        summary = await _do_stream(ctx, model, deps, settings, _LIMIT_SUMMARY_PROMPT, history)
+        summary = await _do_stream(
+            ctx, model, deps, settings, operational_prompts.LIMIT_SUMMARY, history
+        )
         _save_messages_safe(ctx, [m for m in summary.new_messages if isinstance(m, ModelRequest)])
 
     # Post-turn compaction for turns that didn't trigger mid-turn.
@@ -724,7 +802,12 @@ def _save_new_requests(
     return len(requests)
 
 
-def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[str]:
+def _save_messages_safe(
+    ctx: LLMContext,
+    messages: list[ModelMessage],
+    *,
+    status: FragmentStatus = FragmentStatus.COMPLETE,
+) -> list[str]:
     """Save messages to the store, logging failures instead of raising.
 
     Relies on `engine._sync_store_context()` having been called at
@@ -735,7 +818,7 @@ def _save_messages_safe(ctx: LLMContext, messages: list[ModelMessage]) -> list[s
     if not messages:
         return []
     try:
-        return ctx.store.save_messages(ctx.state.session_id, messages)
+        return ctx.store.save_messages(ctx.state.session_id, messages, status=status)
     except OSError:
         log.warning("sessions: failed to persist messages", exc_info=True)
         return []
@@ -803,6 +886,7 @@ def _merge_results(first: _StreamResult, second: _StreamResult) -> _StreamResult
         limit_hit=first.limit_hit or second.limit_hit,
         last_writer=second.last_writer or first.last_writer,
         compact_needed=False,
+        interrupted=second.interrupted,
     )
 
 
@@ -817,6 +901,65 @@ def _merge_usage(a: RunUsage, b: RunUsage) -> RunUsage:
     )
 
 
+# ── Interrupted response handling ────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class _Interrupted:
+    """Result of `_check_interrupted_response`."""
+
+    truncated_tool_ids: list[str]
+    message: str
+
+
+def _check_interrupted_response(response: ModelResponse) -> _Interrupted | None:
+    """Detect an interrupted response and repair truncated tool-call args.
+
+    Returns `None` for normal completions.  For interrupted
+    responses, repairs any `ToolCallPart` with unparseable args
+    to `{}` in place (preventing `_map_message` crashes) and
+    returns an `_Interrupted` with the affected IDs and a
+    message for the model.
+    """
+    reason = response.finish_reason
+    if reason is None or reason not in operational_prompts.INTERRUPTED_TOOL_MESSAGES:
+        return None
+
+    truncated_ids: list[str] = []
+    for part in response.parts:
+        if not isinstance(part, ToolCallPart):
+            continue
+        try:
+            part.args_as_dict()
+        except ValueError:
+            truncated_ids.append(part.tool_call_id)
+            part.args = {}
+
+    messages = (
+        operational_prompts.INTERRUPTED_TOOL_MESSAGES
+        if truncated_ids
+        else operational_prompts.INTERRUPTED_TEXT_MESSAGES
+    )
+    return _Interrupted(truncated_ids, messages[reason])
+
+
+def _replace_truncated_retry_prompts(
+    parts: collections.abc.Sequence[ModelRequestPart],
+    *,
+    truncated_tool_ids: set[str],
+    message: str,
+) -> None:
+    """Replace retry-prompt content for truncated tool calls.
+
+    After `CallToolsNode` creates generic "missing fields" retry
+    prompts for the repaired `{}` args, this replaces their content
+    with an informative message so the model knows the real cause.
+    """
+    for part in parts:
+        if isinstance(part, RetryPromptPart) and part.tool_call_id in truncated_tool_ids:
+            part.content = message
+
+
 # ── Event helpers ────────────────────────────────────────────────────
 
 
@@ -827,23 +970,36 @@ def _emit_tool_event(
     """Emit a ToolCallStarted or ToolCallFinished event."""
     match event:
         case FunctionToolCallEvent(part=part):
-            ctx.emit(ToolCallStarted(tool_name=part.tool_name, args=format_tool_args(part.args)))
+            ctx.emit(
+                ToolCallStarted(
+                    tool_name=part.tool_name,
+                    args=format_tool_args(part.args),
+                    tool_call_id=part.tool_call_id,
+                )
+            )
+        case FunctionToolResultEvent(result=ToolReturnPart() as result):
+            text = str(result.content)
+            max_chars = config.tui.tool_max_chars
+            if len(text) > max_chars:
+                text = text[:max_chars] + "…"
+            ctx.emit(
+                ToolCallFinished(
+                    tool_name=result.tool_name,
+                    tool_call_id=result.tool_call_id,
+                    result=text,
+                )
+            )
         case FunctionToolResultEvent(result=result):
             tool_name = getattr(result, "tool_name", None) or "?"
-            if isinstance(result, ToolReturnPart):
-                text = str(result.content)
-                max_chars = config.tui.tool_max_chars
-                if len(text) > max_chars:
-                    text = text[:max_chars] + "…"
-                ctx.emit(ToolCallFinished(tool_name=tool_name, result=text))
-            else:
-                ctx.emit(
-                    ToolCallFinished(
-                        tool_name=tool_name,
-                        result="",
-                        error=str(result.content),
-                    )
+            tool_call_id = getattr(result, "tool_call_id", None) or ""
+            ctx.emit(
+                ToolCallFinished(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    result="",
+                    error=str(result.content),
                 )
+            )
 
 
 # ── Usage tracking ───────────────────────────────────────────────────

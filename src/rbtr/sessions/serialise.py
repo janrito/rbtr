@@ -90,7 +90,7 @@ _part_ta: TypeAdapter[AnyPart] = TypeAdapter(AnyPart)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _dump_header(msg: ModelMessage) -> str:
+def dump_header(msg: ModelMessage) -> str:
     """Serialise message metadata to JSON, excluding parts.
 
     Uses PydanticAI's own TypeAdapter so complex fields
@@ -156,7 +156,7 @@ def prepare_message_row(
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
         cost=None,
-        data_json=_dump_header(message),
+        data_json=dump_header(message),
         user_text=None,
         tool_name=None,
         compacted_by=None,

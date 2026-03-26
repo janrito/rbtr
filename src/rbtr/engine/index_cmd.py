@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
 from rbtr.events import ColumnDef, IndexCleared, TableOutput
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.models import SnapshotTarget
+from rbtr.workspace import resolve_path
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -88,7 +88,7 @@ def _status(engine: Engine) -> None:
         base_edges = store.get_edges(base_ref)
 
     # DB file size.
-    db_path = Path(config.index.db_dir) / "index.duckdb"
+    db_path = resolve_path(config.index.db_dir) / "index.duckdb"
     if db_path.exists():
         size_mb = db_path.stat().st_size / (1024 * 1024)
         size_str = f"{size_mb:.1f} MB"
@@ -307,7 +307,7 @@ def _clear(engine: Engine) -> None:
         engine.state.index = None
     engine.state.index_ready = False
 
-    db_path = Path(config.index.db_dir) / "index.duckdb"
+    db_path = resolve_path(config.index.db_dir) / "index.duckdb"
     if db_path.exists():
         db_path.unlink()
         engine._out("Index cleared.")

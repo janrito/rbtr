@@ -5,20 +5,18 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-import anyio
 from anyio.from_thread import BlockingPortal
 from anyio.lowlevel import EventLoopToken
 
 from rbtr.events import Event, Output, OutputLevel
 from rbtr.exceptions import TaskCancelled
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr.llm.types import CancelSlot
 
-#: Mutable slot shared between `Engine` and `LLMContext` so the
-#: UI thread can signal an `anyio.Event` created inside the async
-#: cancel watcher.  A 1-element list acts as a thread-safe pointer.
-type CancelSlot = list[anyio.Event | None]
+if TYPE_CHECKING:
+    from rbtr.sessions.store import SessionStore
+    from rbtr.state import EngineState
 
 
 @dataclass

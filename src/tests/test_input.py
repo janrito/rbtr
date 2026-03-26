@@ -4,457 +4,382 @@ Unit tests for the InputState convenience methods and the underlying
 Buffer editing — pure state manipulation, no threads or I/O.
 """
 
-import pytest
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
-from rbtr.tui.input import InputReader, InputState, PasteRegion, make_paste_marker
-
-# ── Fixtures ─────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def inp():
-    """Create a fresh InputState."""
-    return InputState()
-
-
-def _inp(text: str, cursor: int | None = None) -> InputState:
-    """Create an InputState with buffer and cursor positioned."""
-    state = InputState()
-    state.set_text(text, cursor=cursor)
-    return state
-
+from rbtr.config import config
+from rbtr.tui.input import ContextRegion, InputReader, InputState, PasteRegion, make_paste_marker
+from rbtr.tui.key_encoding import preprocess as preprocess_keys
 
 # ── set_text ─────────────────────────────────────────────────────────
 
 
-def test_set_text_moves_cursor_to_end():
-    s = _inp("")
-    s.set_text("hello world")
-    assert s.text == "hello world"
-    assert s.cursor == 11
+def test_set_text_moves_cursor_to_end(input_state: InputState) -> None:
+    input_state.set_text("hello world")
+    assert input_state.text == "hello world"
+    assert input_state.cursor == 11
 
 
-def test_set_text_explicit_cursor():
-    s = _inp("")
-    s.set_text("hello", cursor=3)
-    assert s.cursor == 3
+def test_set_text_explicit_cursor(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=3)
+    assert input_state.cursor == 3
 
 
-def test_set_text_cursor_clamped():
-    s = _inp("")
-    s.set_text("hi", cursor=99)
-    assert s.cursor == 2
+def test_set_text_cursor_clamped(input_state: InputState) -> None:
+    input_state.set_text("hi", cursor=99)
+    assert input_state.cursor == 2
 
 
 # ── insert ───────────────────────────────────────────────────────────
 
 
-def test_insert_at_end():
-    s = _inp("hello")
-    s.buffer.insert_text(" world")
-    assert s.text == "hello world"
-    assert s.cursor == 11
+def test_insert_at_end(input_state: InputState) -> None:
+    input_state.set_text("hello")
+    input_state.buffer.insert_text(" world")
+    assert input_state.text == "hello world"
+    assert input_state.cursor == 11
 
 
-def test_insert_at_start():
-    s = _inp("world", cursor=0)
-    s.buffer.insert_text("hello ")
-    assert s.text == "hello world"
-    assert s.cursor == 6
+def test_insert_at_start(input_state: InputState) -> None:
+    input_state.set_text("world", cursor=0)
+    input_state.buffer.insert_text("hello ")
+    assert input_state.text == "hello world"
+    assert input_state.cursor == 6
 
 
-def test_insert_in_middle():
-    s = _inp("hllo", cursor=1)
-    s.buffer.insert_text("e")
-    assert s.text == "hello"
-    assert s.cursor == 2
+def test_insert_in_middle(input_state: InputState) -> None:
+    input_state.set_text("hllo", cursor=1)
+    input_state.buffer.insert_text("e")
+    assert input_state.text == "hello"
+    assert input_state.cursor == 2
 
 
 # ── delete_before_cursor (backspace) ─────────────────────────────────
 
 
-def test_backspace_at_end():
-    s = _inp("hello")
-    s.buffer.delete_before_cursor()
-    assert s.text == "hell"
-    assert s.cursor == 4
+def test_backspace_at_end(input_state: InputState) -> None:
+    input_state.set_text("hello")
+    input_state.buffer.delete_before_cursor()
+    assert input_state.text == "hell"
+    assert input_state.cursor == 4
 
 
-def test_backspace_in_middle():
-    s = _inp("hello", cursor=3)
-    s.buffer.delete_before_cursor()
-    assert s.text == "helo"
-    assert s.cursor == 2
+def test_backspace_in_middle(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=3)
+    input_state.buffer.delete_before_cursor()
+    assert input_state.text == "helo"
+    assert input_state.cursor == 2
 
 
-def test_backspace_at_start_noop():
-    s = _inp("hello", cursor=0)
-    s.buffer.delete_before_cursor()
-    assert s.text == "hello"
-    assert s.cursor == 0
+def test_backspace_at_start_noop(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=0)
+    input_state.buffer.delete_before_cursor()
+    assert input_state.text == "hello"
+    assert input_state.cursor == 0
 
 
 # ── delete (delete key) ─────────────────────────────────────────────
 
 
-def test_delete_at_start():
-    s = _inp("hello", cursor=0)
-    s.buffer.delete()
-    assert s.text == "ello"
-    assert s.cursor == 0
+def test_delete_at_start(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=0)
+    input_state.buffer.delete()
+    assert input_state.text == "ello"
+    assert input_state.cursor == 0
 
 
-def test_delete_in_middle():
-    s = _inp("hello", cursor=2)
-    s.buffer.delete()
-    assert s.text == "helo"
-    assert s.cursor == 2
+def test_delete_in_middle(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=2)
+    input_state.buffer.delete()
+    assert input_state.text == "helo"
+    assert input_state.cursor == 2
 
 
-def test_delete_at_end_noop():
-    s = _inp("hello")
-    s.buffer.delete()
-    assert s.text == "hello"
-    assert s.cursor == 5
+def test_delete_at_end_noop(input_state: InputState) -> None:
+    input_state.set_text("hello")
+    input_state.buffer.delete()
+    assert input_state.text == "hello"
+    assert input_state.cursor == 5
 
 
 # ── word deletion (Ctrl+W) ──────────────────────────────────────────
 
 
-def test_delete_word_back():
-    s = _inp("hello world")
-    pos = s.buffer.document.find_previous_word_beginning()
+def test_delete_word_back(input_state: InputState) -> None:
+    input_state.set_text("hello world")
+    pos = input_state.buffer.document.find_previous_word_beginning()
     if pos:
-        s.buffer.delete_before_cursor(-pos)
-    assert s.text == "hello "
-    assert s.cursor == 6
+        input_state.buffer.delete_before_cursor(-pos)
+    assert input_state.text == "hello "
+    assert input_state.cursor == 6
 
 
-def test_delete_word_back_at_start_noop():
-    s = _inp("hello", cursor=0)
-    pos = s.buffer.document.find_previous_word_beginning()
+def test_delete_word_back_at_start_noop(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=0)
+    pos = input_state.buffer.document.find_previous_word_beginning()
     if pos:
-        s.buffer.delete_before_cursor(-pos)
-    assert s.text == "hello"
+        input_state.buffer.delete_before_cursor(-pos)
+    assert input_state.text == "hello"
 
 
 # ── word navigation ─────────────────────────────────────────────────
 
 
-def test_word_left():
-    s = _inp("hello world")
-    pos = s.buffer.document.find_previous_word_beginning()
+def test_word_left(input_state: InputState) -> None:
+    input_state.set_text("hello world")
+    pos = input_state.buffer.document.find_previous_word_beginning()
     if pos:
-        s.buffer.cursor_position += pos
-    assert s.cursor == 6
+        input_state.buffer.cursor_position += pos
+    assert input_state.cursor == 6
 
 
-def test_word_right():
-    s = _inp("hello world", cursor=0)
-    pos = s.buffer.document.find_next_word_ending()
+def test_word_right(input_state: InputState) -> None:
+    input_state.set_text("hello world", cursor=0)
+    pos = input_state.buffer.document.find_next_word_ending()
     if pos:
-        s.buffer.cursor_position += pos
-    assert s.cursor == 5
+        input_state.buffer.cursor_position += pos
+    assert input_state.cursor == 5
 
 
 # ── kill_to_end / kill_to_start ──────────────────────────────────────
 
 
-def test_kill_to_end():
-    s = _inp("hello world", cursor=5)
-    end = s.buffer.document.get_end_of_line_position()
+def test_kill_to_end(input_state: InputState) -> None:
+    input_state.set_text("hello world", cursor=5)
+    end = input_state.buffer.document.get_end_of_line_position()
     if end > 0:
-        s.buffer.delete(end)
-    assert s.text == "hello"
-    assert s.cursor == 5
+        input_state.buffer.delete(end)
+    assert input_state.text == "hello"
+    assert input_state.cursor == 5
 
 
-def test_kill_to_end_at_end():
-    s = _inp("hello")
-    end = s.buffer.document.get_end_of_line_position()
+def test_kill_to_end_at_end(input_state: InputState) -> None:
+    input_state.set_text("hello")
+    end = input_state.buffer.document.get_end_of_line_position()
     if end > 0:
-        s.buffer.delete(end)
-    assert s.text == "hello"
+        input_state.buffer.delete(end)
+    assert input_state.text == "hello"
 
 
-def test_kill_to_start():
-    s = _inp("hello world", cursor=6)
-    col = s.buffer.document.cursor_position_col
+def test_kill_to_start(input_state: InputState) -> None:
+    input_state.set_text("hello world", cursor=6)
+    col = input_state.buffer.document.cursor_position_col
     if col > 0:
-        s.buffer.delete_before_cursor(col)
-    assert s.text == "world"
-    assert s.cursor == 0
+        input_state.buffer.delete_before_cursor(col)
+    assert input_state.text == "world"
+    assert input_state.cursor == 0
 
 
-def test_kill_to_start_at_start():
-    s = _inp("hello", cursor=0)
-    col = s.buffer.document.cursor_position_col
+def test_kill_to_start_at_start(input_state: InputState) -> None:
+    input_state.set_text("hello", cursor=0)
+    col = input_state.buffer.document.cursor_position_col
     if col > 0:
-        s.buffer.delete_before_cursor(col)
-    assert s.text == "hello"
-    assert s.cursor == 0
+        input_state.buffer.delete_before_cursor(col)
+    assert input_state.text == "hello"
+    assert input_state.cursor == 0
 
 
 # ── reset / clear ────────────────────────────────────────────────────
 
 
-def test_reset_clears_buffer():
-    s = _inp("hello world")
-    s.reset()
-    assert s.text == ""
-    assert s.cursor == 0
+def test_reset_clears_buffer(input_state: InputState) -> None:
+    input_state.set_text("hello world")
+    input_state.reset()
+    assert input_state.text == ""
+    assert input_state.cursor == 0
 
 
 # ── multiline ────────────────────────────────────────────────────────
 
 
-def test_multiline_insert_newline():
-    s = _inp("line1")
-    s.buffer.insert_text("\nline2")
-    assert s.text == "line1\nline2"
-    assert s.buffer.document.line_count == 2
+def test_multiline_insert_newline(input_state: InputState) -> None:
+    input_state.set_text("line1")
+    input_state.buffer.insert_text("\nline2")
+    assert input_state.text == "line1\nline2"
+    assert input_state.buffer.document.line_count == 2
 
 
-def test_multiline_cursor_position_row():
-    s = _inp("line1\nline2\nline3")
-    assert s.buffer.document.cursor_position_row == 2
+def test_multiline_cursor_position_row(input_state: InputState) -> None:
+    input_state.set_text("line1\nline2\nline3")
+    assert input_state.buffer.document.cursor_position_row == 2
 
 
-def test_multiline_cursor_up():
-    s = _inp("line1\nline2")
-    s.buffer.cursor_up()
-    assert s.buffer.document.cursor_position_row == 0
+def test_multiline_cursor_up(input_state: InputState) -> None:
+    input_state.set_text("line1\nline2")
+    input_state.buffer.cursor_up()
+    assert input_state.buffer.document.cursor_position_row == 0
 
 
-def test_multiline_paste_preserves_newlines():
-    s = _inp("")
-    s.buffer.insert_text("line1\nline2\nline3")
-    assert s.text == "line1\nline2\nline3"
-    assert s.buffer.document.line_count == 3
+def test_multiline_paste_preserves_newlines(input_state: InputState) -> None:
+    input_state.buffer.insert_text("line1\nline2\nline3")
+    assert input_state.text == "line1\nline2\nline3"
+    assert input_state.buffer.document.line_count == 3
 
 
 # ── accept_completion ────────────────────────────────────────────────
 
 
-def test_accept_completion_slash_command():
-    s = _inp("/hel")
-    s.accept_completion("/help")
-    assert s.text == "/help"
+def test_accept_completion_slash_command(input_state: InputState) -> None:
+    input_state.set_text("/hel")
+    input_state.accept_completion("/help")
+    assert input_state.text == "/help"
 
 
-def test_accept_completion_slash_with_suffix():
-    s = _inp("/hel")
-    s.accept_completion("/help", with_suffix=True)
-    assert s.text == "/help "
+def test_accept_completion_slash_with_suffix(input_state: InputState) -> None:
+    input_state.set_text("/hel")
+    input_state.accept_completion("/help", with_suffix=True)
+    assert input_state.text == "/help "
 
 
-def test_accept_completion_shell_word():
-    s = _inp("!git sta")
-    s.accept_completion("status")
-    assert s.text == "!git status"
+def test_accept_completion_shell_word(input_state: InputState) -> None:
+    input_state.set_text("!git sta")
+    input_state.accept_completion("status")
+    assert input_state.text == "!git status"
 
 
-def test_accept_completion_shell_with_suffix():
-    s = _inp("!git sta")
-    s.accept_completion("status", with_suffix=True)
-    assert s.text == "!git status "
+def test_accept_completion_shell_with_suffix(input_state: InputState) -> None:
+    input_state.set_text("!git sta")
+    input_state.accept_completion("status", with_suffix=True)
+    assert input_state.text == "!git status "
 
 
 # ── History ──────────────────────────────────────────────────────────
 
 
-def test_history_append_adds_to_list(inp):
-    inp.append_history("first")
-    inp.append_history("second")
-    assert inp.history == ["first", "second"]
+def test_history_append_adds_to_list(input_state: InputState) -> None:
+    input_state.append_history("first")
+    input_state.append_history("second")
+    assert input_state.history == ["first", "second"]
 
 
-def test_history_append_no_disk_write():
+def test_history_append_no_disk_write(input_state: InputState) -> None:
     """append_history updates in-memory list only — no disk I/O."""
-    s = InputState()
-    s.append_history("/review")
-    s.append_history("!git status")
-    assert s.history == ["/review", "!git status"]
+    input_state.append_history("/review")
+    input_state.append_history("!git status")
+    assert input_state.history == ["/review", "!git status"]
 
 
-def test_history_append_bounds_at_max():
+def test_history_append_bounds_at_max(input_state: InputState) -> None:
     """In-memory history is capped at config.tui.max_history."""
-    from rbtr.config import config
-
     limit = config.tui.max_history
-    s = InputState()
-    s.history = [f"cmd{i}" for i in range(limit)]
-    s.append_history("new")
-    assert len(s.history) == limit
-    assert s.history[-1] == "new"
-    assert s.history[0] == "cmd1"
+    input_state.history = [f"cmd{i}" for i in range(limit)]
+    input_state.append_history("new")
+    assert len(input_state.history) == limit
+    assert input_state.history[-1] == "new"
+    assert input_state.history[0] == "cmd1"
 
 
 # ── History prefix search ───────────────────────────────────────────
 
 
-def _make_reader(history: list[str]):
-    """Create a bare InputReader with just enough state for history tests."""
-    from rbtr.tui.input import InputReader
-
-    state = InputState()
-    state.history = list(history)
-    reader = object.__new__(InputReader)
-    reader._state = state
-    reader._history_index = -1
-    reader._saved_text = ""
-    reader._search_prefix = ""
-    return reader, state
+def test_history_up_cycles_all_when_empty(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    input_state.history = ["a", "b", "c"]
+    input_reader._history_up()
+    assert input_state.text == "c"
+    input_reader._history_up()
+    assert input_state.text == "b"
+    input_reader._history_up()
+    assert input_state.text == "a"
 
 
-def test_history_up_cycles_all_when_empty():
-    reader, state = _make_reader(["a", "b", "c"])
-    reader._history_up()
-    assert state.text == "c"
-    reader._history_up()
-    assert state.text == "b"
-    reader._history_up()
-    assert state.text == "a"
+def test_history_up_filters_by_prefix(input_state: InputState, input_reader: InputReader) -> None:
+    input_state.history = ["!git status", "/review", "!git log", "hello"]
+    input_state.set_text("!git")
+    input_reader._history_up()
+    assert input_state.text == "!git log"
+    input_reader._history_up()
+    assert input_state.text == "!git status"
 
 
-def test_history_up_filters_by_prefix():
-    reader, state = _make_reader(["!git status", "/review", "!git log", "hello"])
-    state.set_text("!git")
-    reader._history_up()
-    assert state.text == "!git log"
-    reader._history_up()
-    assert state.text == "!git status"
+def test_history_up_stops_at_top(input_state: InputState, input_reader: InputReader) -> None:
+    input_state.history = ["!git status", "/review"]
+    input_state.set_text("!git")
+    input_reader._history_up()
+    assert input_state.text == "!git status"
+    input_reader._history_up()
+    assert input_state.text == "!git status"
 
 
-def test_history_up_stops_at_top():
-    reader, state = _make_reader(["!git status", "/review"])
-    state.set_text("!git")
-    reader._history_up()
-    assert state.text == "!git status"
-    reader._history_up()
-    assert state.text == "!git status"
+def test_history_down_restores_original(input_state: InputState, input_reader: InputReader) -> None:
+    input_state.history = ["abc", "abd", "xyz"]
+    input_state.set_text("ab")
+    input_reader._history_up()
+    assert input_state.text == "abd"
+    input_reader._history_down()
+    assert input_state.text == "ab"
 
 
-def test_history_down_restores_original():
-    reader, state = _make_reader(["abc", "abd", "xyz"])
-    state.set_text("ab")
-    reader._history_up()
-    assert state.text == "abd"
-    reader._history_down()
-    assert state.text == "ab"
+def test_history_down_filters_forward(input_state: InputState, input_reader: InputReader) -> None:
+    input_state.history = ["!git status", "/review", "!git log"]
+    input_state.set_text("!git")
+    input_reader._history_up()  # → !git log
+    input_reader._history_up()  # → !git status
+    input_reader._history_down()  # → !git log
+    assert input_state.text == "!git log"
 
 
-def test_history_down_filters_forward():
-    reader, state = _make_reader(["!git status", "/review", "!git log"])
-    state.set_text("!git")
-    reader._history_up()  # → !git log
-    reader._history_up()  # → !git status
-    reader._history_down()  # → !git log
-    assert state.text == "!git log"
-
-
-def test_history_prefix_locked_on_first_up():
+def test_history_prefix_locked_on_first_up(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Prefix is saved from original text, not from history entries."""
-    reader, state = _make_reader(["!git status", "!git log --oneline"])
-    state.set_text("!git l")
-    reader._history_up()
-    assert state.text == "!git log --oneline"
-    reader._history_up()
-    assert state.text == "!git log --oneline"
+    input_state.history = ["!git status", "!git log --oneline"]
+    input_state.set_text("!git l")
+    input_reader._history_up()
+    assert input_state.text == "!git log --oneline"
+    input_reader._history_up()
+    assert input_state.text == "!git log --oneline"
 
 
 # ── History provider (DB-backed) ────────────────────────────────────
 
 
-def _make_reader_with_provider(provider_data: list[str]):
-    """Create a reader with a history provider."""
-    from rbtr.tui.input import InputReader
-
-    # Provider returns most-recent-first (like search_history).
-    def provider(prefix: str | None, limit: int) -> list[str]:
-        results = provider_data
-        if prefix is not None:
-            results = [r for r in results if r.startswith(prefix)]
-        return results[:limit]
-
-    state = InputState(history_provider=provider)
-    reader = object.__new__(InputReader)
-    reader._state = state
-    reader._history_index = -1
-    reader._saved_text = ""
-    reader._search_prefix = ""
-
-    return reader, state
-
-
-def test_provider_seeds_history():
+def test_provider_seeds_history() -> None:
     """History provider seeds the in-memory list (reversed to chronological)."""
-    reader, state = _make_reader_with_provider(["newest", "middle", "oldest"])
+    data = ["newest", "middle", "oldest"]
+    state = InputState(history_provider=lambda _prefix, _limit: data)
+    reader = InputReader(state)
     reader._load_history()
     assert state.history == ["oldest", "middle", "newest"]
 
 
-def test_provider_empty_leaves_history_empty():
+def test_provider_empty_leaves_history_empty() -> None:
     """When provider returns empty, history stays empty."""
-    reader, state = _make_reader_with_provider([])
+    state = InputState(history_provider=lambda _prefix, _limit: [])
+    reader = InputReader(state)
     reader._load_history()
     assert state.history == []
 
 
-def test_no_provider_leaves_history_empty():
+def test_no_provider_leaves_history_empty(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Without a provider, history stays empty (no legacy fallback)."""
-    from rbtr.tui.input import InputReader
-
-    state = InputState()
-    reader = object.__new__(InputReader)
-    reader._state = state
-    reader._history_index = -1
-    reader._saved_text = ""
-    reader._search_prefix = ""
-    reader._load_history()
-    assert state.history == []
+    input_reader._load_history()
+    assert input_state.history == []
 
 
 # ── Paste markers ────────────────────────────────────────────────────
 
 
-def _make_key_reader(state: InputState | None = None) -> tuple[InputReader, InputState]:
-    """Create a bare InputReader wired to *state* for key dispatch tests."""
-    if state is None:
-        state = InputState()
-    reader = object.__new__(InputReader)
-    reader._state = state
-    reader._escape_next = False
-    reader._history_index = -1
-    reader._saved_text = ""
-    reader._search_prefix = ""
-    return reader, state
-
-
-def _send(reader: InputReader, key: Keys | str, data: str = "") -> None:
-    """Feed a single key press through the reader's dispatch."""
-    reader._on_key(KeyPress(key, data))
-
-
 # ── make_paste_marker ────────────────────────────────────────────────
 
 
-def test_make_marker_multiline():
+def test_make_marker_multiline() -> None:
     assert make_paste_marker("a\nb\nc\nd\n", []) == "[pasted 5 lines]"
 
 
-def test_make_marker_single_line():
+def test_make_marker_single_line() -> None:
     assert make_paste_marker("x" * 300, []) == "[pasted 300 chars]"
 
 
-def test_make_marker_disambiguates_duplicates():
+def test_make_marker_disambiguates_duplicates() -> None:
     existing = [PasteRegion(marker="[pasted 5 lines]", content="a\nb\nc\nd\ne")]
     assert make_paste_marker("1\n2\n3\n4\n5", existing) == "[pasted 5 lines #2]"
 
 
-def test_make_marker_triple_duplicate():
+def test_make_marker_triple_duplicate() -> None:
     existing = [
         PasteRegion(marker="[pasted 5 lines]", content="a"),
         PasteRegion(marker="[pasted 5 lines #2]", content="b"),
@@ -465,246 +390,341 @@ def test_make_marker_triple_duplicate():
 # ── Paste via key dispatch ───────────────────────────────────────────
 
 
-def test_paste_below_threshold_inserts_inline():
+def test_paste_below_threshold_inserts_inline(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Short paste (< 4 lines) inserts text directly, no marker."""
-    reader, state = _make_key_reader()
-    _send(reader, Keys.BracketedPaste, "line1\nline2")
-    assert state.text == "line1\nline2"
-    assert state.paste_regions == []
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, "line1\nline2"))
+    assert input_state.text == "line1\nline2"
+    assert input_state.paste_regions == []
 
 
-def test_paste_above_line_threshold_creates_marker():
+def test_paste_above_line_threshold_creates_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Paste with ≥ 4 lines collapses to a marker in the buffer."""
-    reader, state = _make_key_reader()
     content = "line1\nline2\nline3\nline4"
-    _send(reader, Keys.BracketedPaste, content)
-    assert state.text == "[pasted 4 lines]"
-    assert len(state.paste_regions) == 1
-    assert state.paste_regions[0].content == content
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, content))
+    assert input_state.text == "[pasted 4 lines]"
+    assert len(input_state.paste_regions) == 1
+    assert input_state.paste_regions[0].content == content
 
 
-def test_paste_above_char_threshold_creates_marker():
+def test_paste_above_char_threshold_creates_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Long single-line paste (> 200 chars) collapses to a char marker."""
-    reader, state = _make_key_reader()
     content = "x" * 250
-    _send(reader, Keys.BracketedPaste, content)
-    assert state.text == "[pasted 250 chars]"
-    assert state.paste_regions[0].content == content
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, content))
+    assert input_state.text == "[pasted 250 chars]"
+    assert input_state.paste_regions[0].content == content
 
 
-def test_paste_at_cursor_position():
+def test_paste_at_cursor_position(input_state: InputState, input_reader: InputReader) -> None:
     """Marker is inserted at cursor position, not appended."""
-    reader, state = _make_key_reader()
-    state.set_text("hello  world", cursor=6)
-    _send(reader, Keys.BracketedPaste, "a\nb\nc\nd")
-    assert state.text == "hello [pasted 4 lines] world"
+    input_state.set_text("hello  world", cursor=6)
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, "a\nb\nc\nd"))
+    assert input_state.text == "hello [pasted 4 lines] world"
 
 
 # ── Submit expands markers ───────────────────────────────────────────
 
 
-def test_submit_expands_markers():
+def test_submit_expands_markers(input_state: InputState, input_reader: InputReader) -> None:
     """Enter submits the real pasted content, not the marker text."""
-    reader, state = _make_key_reader()
     content = "line1\nline2\nline3\nline4"
-    _send(reader, Keys.BracketedPaste, content)
-    _send(reader, Keys.Enter, "\r")
-    submitted = state.submitted.get_nowait()
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, content))
+    input_reader._on_key(KeyPress(Keys.Enter, "\r"))
+    submitted = input_state.submitted.get_nowait()
     assert submitted == content
 
 
-def test_submit_expands_mixed_text_and_markers():
+def test_submit_expands_mixed_text_and_markers(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Text typed around a marker is preserved in the submitted string."""
-    reader, state = _make_key_reader()
-    state.set_text("review this: ")
+    input_state.set_text("review this: ")
     content = "a\nb\nc\nd"
-    _send(reader, Keys.BracketedPaste, content)
-    _send(reader, Keys.Enter, "\r")
-    submitted = state.submitted.get_nowait()
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, content))
+    input_reader._on_key(KeyPress(Keys.Enter, "\r"))
+    submitted = input_state.submitted.get_nowait()
     assert submitted == f"review this: {content}"
 
 
 # ── expand_markers / marker_span_at (pure helpers) ───────────────────
 
 
-def test_expand_markers_no_regions():
-    s = _inp("no markers here")
-    assert s.expand_markers(s.text) == "no markers here"
+def test_expand_markers_no_regions(input_state: InputState) -> None:
+    input_state.set_text("no markers here")
+    assert input_state.expand_markers(input_state.text) == "no markers here"
 
 
-def test_expand_markers_multiple_regions():
-    s = _inp("[pasted 4 lines] and [pasted 200 chars]")
-    s.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
-    s.paste_regions.append(PasteRegion(marker="[pasted 200 chars]", content="z" * 200))
-    assert s.expand_markers(s.text) == "a\nb\nc\nd and " + "z" * 200
+def test_expand_markers_multiple_regions(input_state: InputState) -> None:
+    input_state.set_text("[pasted 4 lines] and [pasted 200 chars]")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 200 chars]", content="z" * 200))
+    assert input_state.expand_markers(input_state.text) == "a\nb\nc\nd and " + "z" * 200
 
 
-def test_marker_span_at_inside_returns_span_and_region():
-    s = _inp("abc[pasted 5 lines]xyz")
+def test_marker_span_at_inside_returns_span_and_region(input_state: InputState) -> None:
+    input_state.set_text("abc[pasted 5 lines]xyz")
     region = PasteRegion(marker="[pasted 5 lines]", content="...")
-    s.paste_regions.append(region)
-    span = s.marker_span_at(3)
+    input_state.paste_regions.append(region)
+    span = input_state.marker_span_at(3)
     assert span is not None
     assert span[:2] == (3, 19)
     assert span[2] is region
     # Last char inside marker (pos 18, exclusive end 19).
-    assert s.marker_span_at(18) is not None
+    assert input_state.marker_span_at(18) is not None
 
 
-def test_marker_span_at_outside_returns_none():
-    s = _inp("abc[pasted 5 lines]xyz")
-    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
-    assert s.marker_span_at(2) is None
-    assert s.marker_span_at(19) is None
+def test_marker_span_at_outside_returns_none(input_state: InputState) -> None:
+    input_state.set_text("abc[pasted 5 lines]xyz")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    assert input_state.marker_span_at(2) is None
+    assert input_state.marker_span_at(19) is None
 
 
 # ── remove_marker ────────────────────────────────────────────────────
 
 
-def test_remove_marker_deletes_text_and_region():
-    s = _inp("abc[pasted 5 lines]xyz")
+def test_remove_marker_deletes_text_and_region(input_state: InputState) -> None:
+    input_state.set_text("abc[pasted 5 lines]xyz")
     region = PasteRegion(marker="[pasted 5 lines]", content="real")
-    s.paste_regions.append(region)
-    s.remove_marker(region)
-    assert s.text == "abcxyz"
-    assert s.paste_regions == []
+    input_state.paste_regions.append(region)
+    input_state.remove_marker(region)
+    assert input_state.text == "abcxyz"
+    assert input_state.paste_regions == []
 
 
-def test_remove_marker_cursor_after_marker_shifts_left():
-    s = _inp("abc[pasted 5 lines]xyz", cursor=19)
+def test_remove_marker_cursor_after_marker_shifts_left(input_state: InputState) -> None:
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=19)
     region = PasteRegion(marker="[pasted 5 lines]", content="real")
-    s.paste_regions.append(region)
-    s.remove_marker(region)
-    assert s.cursor == 3
+    input_state.paste_regions.append(region)
+    input_state.remove_marker(region)
+    assert input_state.cursor == 3
 
 
-def test_remove_marker_cursor_inside_marker_snaps_to_start():
+def test_remove_marker_cursor_inside_marker_snaps_to_start(input_state: InputState) -> None:
     """Cursor inside marker (defensive) collapses to marker start."""
-    s = _inp("abc[pasted 5 lines]xyz", cursor=10)
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=10)
     region = PasteRegion(marker="[pasted 5 lines]", content="real")
-    s.paste_regions.append(region)
-    s.remove_marker(region)
-    assert s.text == "abcxyz"
-    assert s.cursor == 3
+    input_state.paste_regions.append(region)
+    input_state.remove_marker(region)
+    assert input_state.text == "abcxyz"
+    assert input_state.cursor == 3
 
 
-def test_remove_marker_cursor_before_marker_unchanged():
-    s = _inp("abc[pasted 5 lines]xyz", cursor=1)
+def test_remove_marker_cursor_before_marker_unchanged(input_state: InputState) -> None:
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=1)
     region = PasteRegion(marker="[pasted 5 lines]", content="real")
-    s.paste_regions.append(region)
-    s.remove_marker(region)
-    assert s.cursor == 1
+    input_state.paste_regions.append(region)
+    input_state.remove_marker(region)
+    assert input_state.cursor == 1
 
 
 # ── prune_orphaned_regions ───────────────────────────────────────────
 
 
-def test_prune_removes_orphaned_regions():
-    s = _inp("only [pasted 5 lines] remains")
-    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
-    s.paste_regions.append(PasteRegion(marker="[pasted 3 lines]", content="b"))
-    s.prune_orphaned_regions()
-    assert len(s.paste_regions) == 1
-    assert s.paste_regions[0].marker == "[pasted 5 lines]"
+def test_prune_removes_orphaned_regions(input_state: InputState) -> None:
+    input_state.set_text("only [pasted 5 lines] remains")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 3 lines]", content="b"))
+    input_state.prune_orphaned_regions()
+    assert len(input_state.paste_regions) == 1
+    assert input_state.paste_regions[0].marker == "[pasted 5 lines]"
 
 
 # ── reset clears regions ─────────────────────────────────────────────
 
 
-def test_reset_clears_paste_regions():
-    s = _inp("[pasted 5 lines]")
-    s.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
-    s.reset()
-    assert s.text == ""
-    assert s.paste_regions == []
+def test_reset_clears_paste_regions(input_state: InputState) -> None:
+    input_state.set_text("[pasted 5 lines]")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="a"))
+    input_state.reset()
+    assert input_state.text == ""
+    assert input_state.paste_regions == []
 
 
 # ── Atomic cursor navigation via key dispatch ────────────────────────
 
 
-def test_key_left_snaps_past_marker():
+def test_key_left_snaps_past_marker(input_state: InputState, input_reader: InputReader) -> None:
     """Left arrow one step into a marker snaps cursor to marker start."""
-    state = _inp("abc[pasted 5 lines]xyz", cursor=19)
-    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.Left, "")
-    assert state.cursor == 3
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=19)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    input_reader._on_key(KeyPress(Keys.Left, ""))
+    assert input_state.cursor == 3
 
 
-def test_key_right_snaps_past_marker():
+def test_key_right_snaps_past_marker(input_state: InputState, input_reader: InputReader) -> None:
     """Right arrow at marker start snaps cursor to marker end."""
-    state = _inp("abc[pasted 5 lines]xyz", cursor=3)
-    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.Right, "")
-    assert state.cursor == 19
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=3)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="..."))
+    input_reader._on_key(KeyPress(Keys.Right, ""))
+    assert input_state.cursor == 19
 
 
 # ── Atomic deletion via key dispatch ─────────────────────────────────
 
 
-def test_key_backspace_at_marker_end_removes_marker():
+def test_key_backspace_at_marker_end_removes_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Backspace right after a marker removes the entire marker + region."""
-    state = _inp("abc[pasted 5 lines]xyz", cursor=19)
-    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.Backspace, "\x7f")
-    assert state.text == "abcxyz"
-    assert state.paste_regions == []
-    assert state.cursor == 3
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=19)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
+    input_reader._on_key(KeyPress(Keys.Backspace, "\x7f"))
+    assert input_state.text == "abcxyz"
+    assert input_state.paste_regions == []
+    assert input_state.cursor == 3
 
 
-def test_key_delete_at_marker_start_removes_marker():
+def test_key_delete_at_marker_start_removes_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Delete key at marker start removes the entire marker + region."""
-    state = _inp("abc[pasted 5 lines]xyz", cursor=3)
-    state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.Delete, "")
-    assert state.text == "abcxyz"
-    assert state.paste_regions == []
+    input_state.set_text("abc[pasted 5 lines]xyz", cursor=3)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 5 lines]", content="real"))
+    input_reader._on_key(KeyPress(Keys.Delete, ""))
+    assert input_state.text == "abcxyz"
+    assert input_state.paste_regions == []
 
 
-def test_key_ctrl_w_removes_overlapping_marker():
+def test_key_ctrl_w_removes_overlapping_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Ctrl+W with cursor after marker removes the marker atomically."""
-    state = _inp("hello [pasted 4 lines]", cursor=22)
-    state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.ControlW, "")
+    input_state.set_text("hello [pasted 4 lines]", cursor=22)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
+    input_reader._on_key(KeyPress(Keys.ControlW, ""))
     # Ctrl+W kills back to word boundary; the marker overlaps → whole marker gone.
-    assert "[pasted" not in state.text
-    assert state.paste_regions == []
+    assert "[pasted" not in input_state.text
+    assert input_state.paste_regions == []
 
 
-def test_key_ctrl_u_removes_overlapping_marker():
+def test_key_ctrl_u_removes_overlapping_marker(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Ctrl+U kills to line start, removing any marker in the range."""
-    state = _inp("abc[pasted 4 lines]xyz", cursor=22)
-    state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="data"))
-    reader, _ = _make_key_reader(state)
-    _send(reader, Keys.ControlU, "")
-    assert state.paste_regions == []
+    input_state.set_text("abc[pasted 4 lines]xyz", cursor=22)
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="data"))
+    input_reader._on_key(KeyPress(Keys.ControlU, ""))
+    assert input_state.paste_regions == []
 
 
 # ── Multiple pastes ──────────────────────────────────────────────────
 
 
-def test_multiple_pastes_expand_independently():
+def test_multiple_pastes_expand_independently(
+    input_state: InputState, input_reader: InputReader
+) -> None:
     """Two pastes produce two markers; expand replaces both."""
-    reader, state = _make_key_reader()
-    _send(reader, Keys.BracketedPaste, "a\nb\nc\nd")
-    state.buffer.insert_text(" ")
-    _send(reader, Keys.BracketedPaste, "e\nf\ng\nh")
-    assert len(state.paste_regions) == 2
-    expanded = state.expand_markers(state.text)
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, "a\nb\nc\nd"))
+    input_state.buffer.insert_text(" ")
+    input_reader._on_key(KeyPress(Keys.BracketedPaste, "e\nf\ng\nh"))
+    assert len(input_state.paste_regions) == 2
+    expanded = input_state.expand_markers(input_state.text)
     assert expanded == "a\nb\nc\nd e\nf\ng\nh"
 
 
-def test_multiple_pastes_delete_one_preserves_other():
+def test_multiple_pastes_delete_one_preserves_other(input_state: InputState) -> None:
     """Deleting one marker preserves the other."""
-    state = _inp("[pasted 4 lines] [pasted 4 lines #2]")
+    input_state.set_text("[pasted 4 lines] [pasted 4 lines #2]")
     r1 = PasteRegion(marker="[pasted 4 lines]", content="first")
     r2 = PasteRegion(marker="[pasted 4 lines #2]", content="second")
-    state.paste_regions.extend([r1, r2])
-    state.remove_marker(r1)
-    assert "[pasted 4 lines #2]" in state.text
-    assert len(state.paste_regions) == 1
-    assert state.paste_regions[0].content == "second"
+    input_state.paste_regions.extend([r1, r2])
+    input_state.remove_marker(r1)
+    assert "[pasted 4 lines #2]" in input_state.text
+    assert len(input_state.paste_regions) == 1
+    assert input_state.paste_regions[0].content == "second"
+
+
+# ── ContextRegion + context_regions ──────────────────────────────────
+
+
+def test_context_region_fields() -> None:
+    r = ContextRegion(marker="[/review]", content="Selected PR.")
+    assert r.marker == "[/review]"
+    assert r.content == "Selected PR."
+
+
+def test_context_regions_starts_empty(input_state: InputState) -> None:
+    assert input_state.context_regions == []
+
+
+def test_add_context_appends(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected PR.")
+    assert len(input_state.context_regions) == 1
+    assert input_state.context_regions[0].marker == "[/review]"
+    assert input_state.context_regions[0].content == "Selected PR."
+    input_state.add_context("[/model]", "Switched.")
+    assert len(input_state.context_regions) == 2
+    assert input_state.context_regions[1].marker == "[/model]"
+
+
+def test_pop_context_removes_last(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected PR.")
+    input_state.add_context("[/model]", "Switched.")
+    popped = input_state.pop_context()
+    assert popped is not None
+    assert popped.marker == "[/model]"
+    assert len(input_state.context_regions) == 1
+    assert input_state.context_regions[0].marker == "[/review]"
+
+
+def test_pop_context_empty_returns_none(input_state: InputState) -> None:
+    assert input_state.pop_context() is None
+
+
+def test_clear_context(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected PR.")
+    input_state.add_context("[/model]", "Switched.")
+    input_state.clear_context()
+    assert input_state.context_regions == []
+
+
+def test_reset_clears_context_regions(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected PR.")
+    input_state.set_text("hello")
+    input_state.reset()
+    assert input_state.context_regions == []
+    assert input_state.text == ""
+
+
+def test_reset_buffer_preserves_context_regions(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected PR.")
+    input_state.set_text("/help")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted]", content="data"))
+    input_state.reset_buffer()
+    assert input_state.text == ""
+    assert input_state.paste_regions == []
+    assert len(input_state.context_regions) == 1
+    assert input_state.context_regions[0].marker == "[/review]"
+
+
+# ── Shift+Enter / Alt+Enter end-to-end (modifyOtherKeys) ─────────────
+
+
+def test_shift_enter_inserts_newline(input_state: InputState, input_reader: InputReader) -> None:
+    """Shift+Enter inserts a newline without submitting."""
+    input_reader._parser.feed(preprocess_keys("hello\x1b[27;2;13~"))
+    input_reader._parser.flush()
+    assert input_state.text == "hello\n"
+    assert input_state.submitted.empty()
+
+
+def test_alt_enter_inserts_newline(input_state: InputState, input_reader: InputReader) -> None:
+    """Alt+Enter inserts a newline without submitting."""
+    input_reader._parser.feed(preprocess_keys("hello\x1b[27;3;13~"))
+    input_reader._parser.flush()
+    assert input_state.text == "hello\n"
+    assert input_state.submitted.empty()
+
+
+def test_plain_enter_submits(input_state: InputState, input_reader: InputReader) -> None:
+    """Plain Enter still submits."""
+    input_reader._parser.feed(preprocess_keys("hello\r"))
+    input_reader._parser.flush()
+    assert input_state.text == ""
+    assert input_state.submitted.get_nowait() == "hello"

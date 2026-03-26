@@ -1,4 +1,4 @@
-"""Shared test fixtures and helpers."""
+"""Shared test fixtures."""
 
 import queue
 import socket
@@ -9,39 +9,23 @@ from typing import no_type_check
 import pytest
 
 from rbtr.config import SkillsConfig, config
-from rbtr.creds import Creds, creds
-from rbtr.engine import Engine
-from rbtr.events import Event, MarkdownOutput, Output
+from rbtr.creds import creds
+from rbtr.engine.core import Engine
+from rbtr.llm.agent import register_tools
 from rbtr.llm.context import LLMContext
+from rbtr.providers import endpoint as endpoint_mod
+from rbtr.providers.types import Provider
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
+from rbtr.tui.input import InputReader, InputState
+from rbtr.tui.ui import UI
+from tests.helpers import HeadlessUI, StubProvider
 
-# ── Event helpers ────────────────────────────────────────────────────
-
-
-def drain(events: queue.Queue[Event]) -> list[Event]:
-    """Drain all events from the queue into a list."""
-    result: list[Event] = []
-    while True:
-        try:
-            result.append(events.get_nowait())
-        except queue.Empty:
-            break
-    return result
-
-
-def output_texts(events: list[Event]) -> list[str]:
-    """Extract text from Output and MarkdownOutput events."""
-    texts: list[str] = []
-    for e in events:
-        if isinstance(e, (Output, MarkdownOutput)):
-            texts.append(e.text)
-    return texts
-
-
-def has_event_type(events: list[Event], event_type: type) -> bool:
-    """Check whether any event matches the given type."""
-    return any(isinstance(e, event_type) for e in events)
+# Register all tool submodules in the correct order before any test
+# runs.  Tests that directly import a single tool module would
+# otherwise register tools out of order, breaking ordering assertions
+# in test_toolsets.
+register_tools()
 
 
 # ── Network safety net ───────────────────────────────────────────────
@@ -71,66 +55,104 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "socket", _guarded)
 
 
+@pytest.fixture
+def input_state() -> InputState:
+    """Fresh `InputState` for each test."""
+    return InputState()
+
+
+@pytest.fixture
+def input_reader(input_state: InputState) -> InputReader:
+    """Headless `InputReader` wired to `input_state`."""
+    return InputReader(input_state)
+
+
+@pytest.fixture
+def headless_ui(input_state: InputState) -> UI:
+    """UI with only `inp` set — for completion tests."""
+    return HeadlessUI(input_state)
+
+
 @pytest.fixture(autouse=True)
-def _isolate_session_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect SESSIONS_DB_PATH to a temp dir so no test touches the
-    real user database at `~/.config/rbtr/sessions.db`.
+def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Redirect all config paths to temp dirs.
 
-    Tests that create `SessionStore()` (no args) use `:memory:`.
-    This guard catches `Engine(state, q)` without an explicit
-    `store=` kwarg — the fallback path will land in `tmp_path`
-    instead of the user's home directory.
+    Prevents tests from touching real user data (`~/.config/rbtr/`),
+    the workspace (`.rbtr/`), or the developer's skill directories.
 
-    Both the canonical definition and every re-export must be patched
-    because `from X import Y` creates a separate binding.
+    `config` is a module-level singleton — every module holds a
+    reference to the same object. `reload()` reloads it in place
+    so all references stay valid.
     """
-    safe_path = tmp_path / "sessions.db"
-    monkeypatch.setattr("rbtr.sessions.store.SESSIONS_DB_PATH", safe_path)
-    monkeypatch.setattr("rbtr.engine.core.SESSIONS_DB_PATH", safe_path)
+    user_dir = tmp_path / "rbtr"
+    user_dir.mkdir()
+    ws_dir = tmp_path / "ws"
+    ws_dir.mkdir()
+    mock_ws = lambda: ws_dir  # noqa: E731
 
+    monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
+    monkeypatch.setattr("rbtr.workspace.workspace_dir", mock_ws)
 
-@pytest.fixture(autouse=True)
-def _isolate_skills(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent skill discovery from scanning the developer's home directory.
-
-    Replaces `config.skills` with an empty `SkillsConfig` so no test
-    accidentally picks up real skills from `~/.pi/agent/skills/`,
-    `~/.claude/skills/`, etc.
-    """
+    config.reload()
     monkeypatch.setattr(config, "skills", SkillsConfig(project_dirs=[], user_dirs=[]))
+    creds.reload()
 
+    # Register the test provider so `build_model("test/...")` works
+    # without credentials or network access.  Hooks into the endpoint
+    # resolution path — `_resolve` checks `BuiltinProvider` first,
+    # then `endpoint.resolve`, which we patch to recognise "test".
+    _stub_provider = StubProvider()
+    _original_resolve = endpoint_mod.resolve
 
-@pytest.fixture(autouse=True)
-def _isolate_creds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Redirect credential storage to a temp file so no test leaks
-    API keys into the singleton or touches the real creds file.
+    def _resolve_with_test(name: str) -> Provider | None:
+        if name == "test":
+            return _stub_provider
+        return _original_resolve(name)
 
-    Applied globally — every test starts with a clean `creds`
-    singleton and ends by restoring defaults.
-    """
-    path = tmp_path / "creds.toml"
-    monkeypatch.setattr("rbtr.creds.CREDS_PATH", path)
-    monkeypatch.setitem(Creds.model_config, "toml_file", str(path))
-    creds.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
+    monkeypatch.setattr(endpoint_mod, "resolve", _resolve_with_test)
+
     yield
-    creds.__init__()  # type: ignore[misc]  # restore defaults after monkeypatch unwinds
+    _stub_provider.reset()
+    config.reload()
+    creds.reload()
+
+
+@pytest.fixture
+def stub_provider() -> StubProvider:
+    """Access the test provider to configure model responses per-test.
+
+    Example::
+
+        def test_compact(stub_provider, engine, llm_ctx):
+            stub_provider.set_model(TestModel(custom_output_text="Summary."))
+            engine.state.model_name = "test/default"
+            compact_history(llm_ctx)
+    """
+    prov = endpoint_mod.resolve("test")
+    assert isinstance(prov, StubProvider)
+    return prov
 
 
 @pytest.fixture
 def creds_path(tmp_path: Path) -> Path:
-    """Return the temp creds path (already isolated by `_isolate_creds`)."""
-    return tmp_path / "creds.toml"
+    """Return the temp creds path (already isolated by `_isolate_config`)."""
+    return tmp_path / "rbtr" / "creds.toml"
 
 
 @pytest.fixture
-def config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
-    """Point config storage at a temp file for test isolation."""
-    path = tmp_path / "config.toml"
-    monkeypatch.setattr("rbtr.config.CONFIG_PATH", path)
-    monkeypatch.setattr("rbtr.config.WORKSPACE_PATH", tmp_path / "ws" / "config.toml")
-    config.__init__()  # type: ignore[misc]  # reload in place via pydantic re-init
-    yield path
-    config.__init__()  # type: ignore[misc]  # restore defaults after monkeypatch unwinds
+def config_path(tmp_path: Path) -> Path:
+    """Return the temp user config path (already isolated by `_isolate_config`)."""
+    return tmp_path / "rbtr" / "config.toml"
+
+
+# ── Session store ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def store() -> Generator[SessionStore]:
+    """Empty in-memory session store."""
+    with SessionStore() as s:
+        yield s
 
 
 # ── Engine fixtures ──────────────────────────────────────────────────
@@ -151,18 +173,15 @@ def llm_ctx(engine: Engine) -> LLMContext:
 
 
 @pytest.fixture
-def llm_engine(creds_path: Path) -> Generator[Engine]:
-    """Engine pre-wired for LLM tests (OpenAI connected, model set).
+def llm_engine() -> Generator[Engine]:
+    """Engine pre-wired for LLM tests (test provider connected, model set).
 
-    Sets credentials, connects the OpenAI provider, assigns a model,
-    and syncs the store context — ready for `handle_llm` calls.
+    Uses the test provider so no credentials or network access needed.
+    Ready for `handle_llm` calls.
     """
-    from rbtr.providers import BuiltinProvider
-
-    creds.update(openai_api_key="sk-test")
     state = EngineState(owner="testowner", repo_name="testrepo")
-    state.connected_providers.add(BuiltinProvider.OPENAI)
-    state.model_name = "openai/gpt-4o"
+    state.connected_providers.add("test")
+    state.model_name = "test/default"
     with Engine(state, queue.Queue(), store=SessionStore()) as eng:
         eng._sync_store_context()
         yield eng

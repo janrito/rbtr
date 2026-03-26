@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
@@ -38,15 +39,26 @@ from rbtr.config import config
 from rbtr.events import FactExtractionFinished, FactExtractionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.llm.context import LLMContext
+from rbtr.llm.costs import extract_cost
 from rbtr.llm.history import serialise_for_summary
-from rbtr.llm.usage import extract_cost
 from rbtr.prompts import render_existing_facts, render_fact_extraction, render_system
 from rbtr.providers import build_model, model_settings
-from rbtr.sessions.kinds import GLOBAL_SCOPE, FragmentKind
+from rbtr.sessions.kinds import GLOBAL_SCOPE, Fact, FragmentKind
 from rbtr.sessions.overhead import FactExtractionOverhead, FactExtractionSource
-from rbtr.sessions.store import Fact, SessionStore
+from rbtr.sessions.store import SessionStore
+
+if TYPE_CHECKING:
+    from rbtr.state import EngineState
 
 log = logging.getLogger(__name__)
+
+
+class MemoryContext(Protocol):
+    """Narrow interface for memory extraction — satisfied by `LLMContext`."""
+
+    store: SessionStore
+    state: EngineState
+
 
 # ── Structured output ────────────────────────────────────────────────
 
@@ -229,7 +241,7 @@ class ProcessResult:
 
 def process_extracted_facts(
     extracted: list[ExtractedFact],
-    ctx: LLMContext,
+    ctx: MemoryContext,
 ) -> ProcessResult:
     """Apply extracted facts to the store.
 
@@ -572,7 +584,7 @@ def extract_facts_from_ctx(
 
 
 def _persist_overhead(
-    ctx: LLMContext,
+    ctx: MemoryContext,
     payload: FactExtractionOverhead,
     input_tokens: int,
     output_tokens: int,

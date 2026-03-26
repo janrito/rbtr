@@ -13,9 +13,11 @@ from rbtr.git import is_binary, is_path_ignored, resolve_commit, walk_tree
 from rbtr.git.objects import read_blob
 from rbtr.llm.deps import AgentDeps
 from rbtr.llm.tools.common import (
+    _has_glob,
     file_toolset,
     get_repo,
     limited,
+    matches_pathspec,
     number_lines,
     resolve_tool_ref,
     validate_path,
@@ -54,19 +56,24 @@ def _read_fs_file(path: str) -> tuple[list[str], str | None]:
     return data.decode(errors="replace").splitlines(), None
 
 
-def _list_fs_files(prefix: str, repo: pygit2.Repository | None = None) -> list[str]:
-    """List files on the local filesystem matching *prefix*.
+def _list_fs_files(pattern: str, repo: pygit2.Repository | None = None) -> list[str]:
+    """List files on the local filesystem matching *pattern*.
 
-    *prefix* is treated as a directory path.  Returns sorted
-    relative paths for all regular files under that directory.
-    Respects `.gitignore`, `include`, and `extend_exclude`
-    via `is_path_ignored`.
+    When *pattern* is a plain directory prefix, lists all files
+    under that directory.  When it contains glob metacharacters,
+    uses `Path.glob` to match.  Respects `.gitignore`, `include`,
+    and `extend_exclude` via `is_path_ignored`.
     """
-    base = Path(prefix) if prefix else Path(".")
-    if not base.is_dir():
-        return []
+    if _has_glob(pattern):
+        candidates = sorted(Path(".").glob(pattern))
+    else:
+        base = Path(pattern) if pattern else Path(".")
+        if not base.is_dir():
+            return []
+        candidates = sorted(base.rglob("*"))
+
     entries: list[str] = []
-    for p in sorted(base.rglob("*")):
+    for p in candidates:
         if not p.is_file():
             continue
         rel = str(PurePosixPath(p))
@@ -164,16 +171,20 @@ def read_file(
 @file_toolset.tool
 def list_files(
     ctx: RunContext[AgentDeps],
-    path: str = "",
+    pattern: str = "",
     ref: str = "head",
     offset: int = 0,
     max_results: int | None = None,
 ) -> str:
     """List files in the repository or a subdirectory.
 
+    Works like a git pathspec: a plain string is a directory
+    prefix, glob metacharacters (`*`, `?`, `[`) activate
+    pattern matching.  `**` matches across directories.
+
     Args:
-        path: Directory prefix to scope the listing
-            (e.g. `src/api`, `.rbtr/`).
+        pattern: Directory prefix or glob pattern to scope the
+            listing (e.g. `src/api`, `src/**/*.py`).
             Empty string (default) lists from the repo root.
         ref: Which version of the codebase to read
             (defaults to `"head"`).
@@ -195,24 +206,23 @@ def list_files(
     except KeyError:
         return f"Ref '{ref}' not found."
 
-    prefix = path.rstrip("/")
     git_entries: list[str] = []
     for entry_path, _blob in walk_tree(repo, commit.tree, ""):
-        if prefix and not entry_path.startswith(prefix + "/") and entry_path != prefix:
-            continue
-        git_entries.append(entry_path)
+        if matches_pathspec(entry_path, pattern):
+            git_entries.append(entry_path)
 
     if git_entries:
         git_entries.sort()
         return _format_file_list(git_entries, offset, limit)
 
-    # Fall back to local filesystem when path is set.
-    if path:
-        fs_entries = _list_fs_files(path, repo=repo)
+    # Fall back to local filesystem.
+    if pattern:
+        fs_entries = _list_fs_files(pattern, repo=repo)
         if fs_entries:
             return _format_file_list(fs_entries, offset, limit)
 
-    return f"No files found under '{path}'." if path else "No files in repository."
+    scope = f"matching '{pattern}'" if pattern else "in repository"
+    return f"No files {scope}."
 
 
 def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
@@ -234,7 +244,7 @@ def _format_file_list(entries: list[str], offset: int, limit: int) -> str:
 def grep(
     ctx: RunContext[AgentDeps],
     search: str | int | float,
-    path: str = "",
+    pattern: str = "",
     ref: str = "head",
     offset: int = 0,
     max_hits: int | None = None,
@@ -250,11 +260,15 @@ def grep(
     are skipped.  Falls back to the local filesystem for paths
     outside the git tree (e.g. `.rbtr/notes/`).
 
+    Works like a git pathspec: a plain string is a file path or
+    directory prefix, glob metacharacters (`*`, `?`, `[`) activate
+    pattern matching.
+
     Args:
         search: Substring to find.  Case-insensitive — `"config"`
             matches `Config`, `CONFIG`, `config`.
-        path: File path or directory prefix relative to repo root
-            (e.g. `src/api/handler.py`, `.rbtr/`, `""`).
+        pattern: File path, directory prefix, or glob pattern
+            (e.g. `src/api/handler.py`, `src/api`, `*.py`).
             Empty string (default) searches all repo files.
         ref: Which version of the codebase to read
             (defaults to `"head"`).
@@ -265,7 +279,7 @@ def grep(
             each match.
     """
     search = str(search)  # coerce non-string args (e.g. model sends a number)
-    if path and (err := validate_path(path)):
+    if pattern and not _has_glob(pattern) and (err := validate_path(pattern)):
         return err
 
     ctx_n = context_lines if context_lines is not None else config.tools.grep_context_lines
@@ -279,27 +293,26 @@ def grep(
     repo = get_repo(ctx)
     resolved = resolve_tool_ref(ctx, ref)
 
-    if path:
-        # Try as an exact file in git first.
-        blob_result = _read_blob(repo, resolved, path)
-        if not isinstance(blob_result, str):
-            return _grep_blob(blob_result, path, needle, ctx_n, offset, capped_hits)
+    if pattern:
+        # Exact file shortcut — only when no glob metacharacters.
+        if not _has_glob(pattern):
+            blob_result = _read_blob(repo, resolved, pattern)
+            if not isinstance(blob_result, str):
+                return _grep_blob(blob_result, pattern, needle, ctx_n, offset, capped_hits)
 
-        # Not an exact git file — check whether any git files match the prefix.
+        # Tree-wide search scoped by pathspec.
         try:
             commit = resolve_commit(repo, resolved)
         except KeyError:
             return f"Ref '{ref}' not found."
-        norm_prefix = path.rstrip("/")
         has_git_files = any(
-            ep.startswith(norm_prefix + "/") or ep == norm_prefix
-            for ep, _ in walk_tree(repo, commit.tree, "")
+            matches_pathspec(ep, pattern) for ep, _ in walk_tree(repo, commit.tree, "")
         )
         if has_git_files:
-            return _grep_tree(repo, commit, path, needle, ctx_n, offset, capped_hits)
+            return _grep_tree(repo, commit, pattern, needle, ctx_n, offset, capped_hits)
 
-        # No git files under prefix — fall back to local filesystem.
-        return _grep_filesystem(path, needle, ctx_n, offset, capped_hits, repo=repo)
+        # No git files matching — fall back to local filesystem.
+        return _grep_filesystem(pattern, needle, ctx_n, offset, capped_hits, repo=repo)
     else:
         # Repo-wide search — git only.
         try:
@@ -360,32 +373,33 @@ def _grep_blob(
 
 
 def _grep_filesystem(
-    path: str,
+    pattern: str,
     needle: str,
     ctx_n: int,
     offset: int,
     max_hits: int,
     repo: pygit2.Repository | None = None,
 ) -> str:
-    """Search local filesystem files under *path* for *needle*.
+    """Search local filesystem files matching *pattern* for *needle*.
 
     Respects `.gitignore`, `include`, and `extend_exclude`
     via `is_path_ignored`.
     """
-    # Check if path is an exact file first.
-    p = Path(path)
-    if p.is_file():
-        file_lines, err = _read_fs_file(path)
-        if err:
-            return err
-        return _grep_lines(file_lines, path, needle, ctx_n, offset, max_hits)
+    # Exact file shortcut — only when no glob metacharacters.
+    if not _has_glob(pattern):
+        p = Path(pattern)
+        if p.is_file():
+            file_lines, err = _read_fs_file(pattern)
+            if err:
+                return err
+            return _grep_lines(file_lines, pattern, needle, ctx_n, offset, max_hits)
 
-    # Otherwise treat as a directory prefix.
-    files = _list_fs_files(path, repo=repo)
+    # Directory prefix or glob — list matching files.
+    files = _list_fs_files(pattern, repo=repo)
     if not files:
-        return f"No matches for '{needle}' under '{path}'."
+        return f"No matches for '{needle}' matching '{pattern}'."
 
-    # Directory — search all files under prefix.
+    # Search all matched files.
     all_groups: list[tuple[str, list[str], list[tuple[int, int]], list[int]]] = []
     total_matches = 0
     for fpath in files:
@@ -408,7 +422,7 @@ def _grep_filesystem(
         all_groups.append((fpath, file_lines, regions, match_indices))
 
     if not all_groups:
-        return f"No matches for '{needle}' under '{path}'."
+        return f"No matches for '{needle}' matching '{pattern}'."
 
     # Flatten and paginate — same as _grep_tree.
     flat: list[tuple[str, list[str], tuple[int, int]]] = []
@@ -449,27 +463,21 @@ def _grep_filesystem(
 def _grep_tree(
     repo: pygit2.Repository,
     commit: pygit2.Commit,
-    prefix: str,
+    pattern: str,
     needle: str,
     ctx_n: int,
     offset: int,
     max_hits: int,
 ) -> str:
-    """Search all text files under *prefix* in the tree for *needle*."""
+    """Search all text files matching *pattern* in the tree for *needle*."""
     max_file_size = config.index.max_file_size
-    norm_prefix = prefix.rstrip("/")
 
     # Collect all match groups across all files.
     all_groups: list[tuple[str, list[str], list[tuple[int, int]], list[int]]] = []
     total_matches = 0
 
     for entry_path, blob in walk_tree(repo, commit.tree, ""):
-        # Scope to prefix.
-        if (
-            norm_prefix
-            and not entry_path.startswith(norm_prefix + "/")
-            and entry_path != norm_prefix
-        ):
+        if not matches_pathspec(entry_path, pattern):
             continue
 
         # Skip binary and oversized files.
@@ -498,7 +506,7 @@ def _grep_tree(
         all_groups.append((entry_path, file_lines, regions, match_indices))
 
     if not all_groups:
-        scope = f" under '{prefix}'" if prefix else ""
+        scope = f" matching '{pattern}'" if pattern else ""
         return f"No matches for '{needle}'{scope}."
 
     # Flatten to (file, region) pairs for pagination.

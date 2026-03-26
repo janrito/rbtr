@@ -19,7 +19,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
+from rbtr.engine.types import TaskType
 from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
@@ -28,8 +29,8 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind
-
-from .conftest import _user, drain, output_texts
+from tests.engine.builders import _user
+from tests.helpers import drain, output_texts
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ def _other_session_id(engine: Engine) -> str:
 
 def test_current_session(stats_engine: Engine) -> None:
     """Current session shows model, messages, tokens, cost, tools, context."""
-    stats_engine.run_task("command", "/stats")
+    stats_engine.run_task(TaskType.COMMAND, "/stats")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -188,7 +189,7 @@ def test_current_session(stats_engine: Engine) -> None:
 def test_historical_session(stats_engine: Engine) -> None:
     """Historical session shows DB data, no context % or elapsed time."""
     other_id = _other_session_id(stats_engine)
-    stats_engine.run_task("command", f"/stats {other_id}")
+    stats_engine.run_task(TaskType.COMMAND, f"/stats {other_id}")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -202,14 +203,14 @@ def test_historical_session(stats_engine: Engine) -> None:
 
 def test_historical_unknown_prefix(stats_engine: Engine) -> None:
     """Unknown prefix warns."""
-    stats_engine.run_task("command", "/stats zzz-nonexistent")
+    stats_engine.run_task(TaskType.COMMAND, "/stats zzz-nonexistent")
     texts = output_texts(drain(stats_engine.events))
     assert any("No session" in t for t in texts)
 
 
 def test_global_stats(stats_engine: Engine) -> None:
     """Global stats aggregates both sessions — both models, all tools."""
-    stats_engine.run_task("command", "/stats all")
+    stats_engine.run_task(TaskType.COMMAND, "/stats all")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -223,7 +224,7 @@ def test_global_stats(stats_engine: Engine) -> None:
 
 def test_current_session_incidents(stats_engine: Engine) -> None:
     """/stats shows failures and repairs for the current session."""
-    stats_engine.run_task("command", "/stats")
+    stats_engine.run_task(TaskType.COMMAND, "/stats")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -237,7 +238,7 @@ def test_current_session_incidents(stats_engine: Engine) -> None:
 
 def test_global_stats_incidents(stats_engine: Engine) -> None:
     """/stats all shows aggregated incident stats across all sessions."""
-    stats_engine.run_task("command", "/stats all")
+    stats_engine.run_task(TaskType.COMMAND, "/stats all")
     texts = output_texts(drain(stats_engine.events))
     combined = " ".join(texts)
 
@@ -251,7 +252,7 @@ def test_global_stats_incidents(stats_engine: Engine) -> None:
 def test_empty_session(engine: Engine) -> None:
     """Fresh session shows header and message count but no token/cost sections."""
     drain(engine.events)
-    engine.run_task("command", "/stats")
+    engine.run_task(TaskType.COMMAND, "/stats")
     texts = output_texts(drain(engine.events))
     combined = " ".join(texts)
 
@@ -267,6 +268,6 @@ def test_empty_session(engine: Engine) -> None:
 def test_global_empty(engine: Engine) -> None:
     """Global stats with no sessions shows a message."""
     drain(engine.events)
-    engine.run_task("command", "/stats all")
+    engine.run_task(TaskType.COMMAND, "/stats all")
     texts = output_texts(drain(engine.events))
     assert any("No sessions" in t for t in texts)

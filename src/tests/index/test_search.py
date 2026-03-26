@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import Chunk, ChunkKind
+from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.search import (
     DEFAULT_ALPHA,
     DEFAULT_BETA,
@@ -588,7 +588,6 @@ def test_store_search_graceful_without_embeddings() -> None:
 
 def test_store_search_importance_boosts_central_chunk() -> None:
     """Chunk with more inbound edges ranks higher than an isolated one."""
-    from rbtr.index.models import Edge, EdgeKind
 
     store = IndexStore()
     # Two classes with same name match quality.
