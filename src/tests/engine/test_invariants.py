@@ -29,7 +29,7 @@ from rbtr.engine.types import TaskType
 from rbtr.events import TaskFinished
 from rbtr.llm.compact import compact_agent, compact_history
 from tests.engine.test_compact import ALL_HISTORIES
-from tests.helpers import TestProvider, drain
+from tests.helpers import StubProvider, drain
 from tests.sessions.assertions import assert_ordering, assert_tool_pairing
 
 _USAGE = RequestUsage(input_tokens=0, output_tokens=0)
@@ -42,7 +42,7 @@ def _resp(*parts: TextPart | ToolCallPart) -> ModelResponse:
 # ── 1. History immutability ──────────────────────────────────────────
 
 
-def test_repair_does_not_modify_db(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_repair_does_not_modify_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Transient repairs don't alter persisted history.
 
     Seed a dangling tool call (no return), run an LLM turn,
@@ -82,7 +82,7 @@ def test_repair_does_not_modify_db(llm_engine: Engine, test_provider: TestProvid
 
 
 def test_conversation_continues_after_tool_failure(
-    llm_engine: Engine, test_provider: TestProvider
+    llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """A tool failure (RetryPromptPart) doesn't break the conversation.
 
@@ -145,7 +145,7 @@ def test_conversation_continues_after_tool_failure(
     ],
 )
 def test_compaction_produces_valid_history(
-    history_name: str, engine: Engine, test_provider: TestProvider
+    history_name: str, engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Compaction of every history shape produces valid output."""
 
@@ -172,7 +172,7 @@ def test_compaction_produces_valid_history(
 
 
 def test_compaction_with_failed_tools_produces_valid_history(
-    engine: Engine, test_provider: TestProvider
+    engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Compaction of history containing RetryPromptPart is valid."""
 
@@ -248,7 +248,7 @@ def test_compaction_with_failed_tools_produces_valid_history(
 
 
 def test_engine_recovers_from_dangling_tool_call(
-    llm_engine: Engine, test_provider: TestProvider
+    llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Engine handles history with a dangling tool call — no crash.
 
@@ -275,7 +275,7 @@ def test_engine_recovers_from_dangling_tool_call(
 
 
 def test_engine_recovers_from_orphaned_tool_return(
-    llm_engine: Engine, test_provider: TestProvider
+    llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Engine handles history with an orphaned tool return — no crash.
 

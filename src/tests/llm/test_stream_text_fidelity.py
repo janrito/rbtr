@@ -19,7 +19,7 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import Event, TextDelta, ToolCallFinished, ToolCallStarted
-from tests.helpers import TestProvider, drain
+from tests.helpers import StubProvider, drain
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ def _final_text(engine: Engine) -> str:
 )
 def test_streamed_text_matches_final_message(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
     chunks: list[str],
     expected: str,
 ) -> None:
@@ -72,7 +72,7 @@ def test_streamed_text_matches_final_message(
         for chunk in chunks:
             yield chunk
 
-    test_provider.set_model(FunctionModel(stream_function=stream_fn))
+    stub_provider.set_model(FunctionModel(stream_function=stream_fn))
     llm_engine.run_task(TaskType.LLM, "test")
     events = drain(llm_engine.events)
 
@@ -86,7 +86,7 @@ def test_streamed_text_matches_final_message(
 
 def test_text_after_tool_calls_matches(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Text emitted after a tool-call round-trip is fully captured."""
     call_count = 0
@@ -103,7 +103,7 @@ def test_text_after_tool_calls_matches(
             yield " are the"
             yield " results."
 
-    test_provider.set_model(FunctionModel(stream_function=stream_fn))
+    stub_provider.set_model(FunctionModel(stream_function=stream_fn))
     llm_engine.run_task(TaskType.LLM, "read a.py")
     events = drain(llm_engine.events)
 
@@ -121,7 +121,7 @@ def test_text_after_tool_calls_matches(
 
 def test_text_before_and_after_tool_call(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Text before and after a tool call is fully captured."""
     call_count = 0
@@ -137,7 +137,7 @@ def test_text_before_and_after_tool_call(
         else:
             yield "Found it: OK"
 
-    test_provider.set_model(FunctionModel(stream_function=stream_fn))
+    stub_provider.set_model(FunctionModel(stream_function=stream_fn))
     llm_engine.run_task(TaskType.LLM, "check b.py")
     events = drain(llm_engine.events)
 
@@ -151,7 +151,7 @@ def test_text_before_and_after_tool_call(
 
 def test_db_content_matches_streamed_text(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Text persisted to the DB matches what was streamed to the UI."""
 
@@ -160,7 +160,7 @@ def test_db_content_matches_streamed_text(
         yield " and UI"
         yield " must match."
 
-    test_provider.set_model(FunctionModel(stream_function=stream_fn))
+    stub_provider.set_model(FunctionModel(stream_function=stream_fn))
     llm_engine.run_task(TaskType.LLM, "test")
     events = drain(llm_engine.events)
 

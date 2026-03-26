@@ -26,7 +26,7 @@ from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
 from rbtr.llm.compact import compact_agent
-from tests.helpers import TestProvider, drain, has_event_type, output_texts
+from tests.helpers import StubProvider, drain, has_event_type, output_texts
 from tests.sessions.assertions import assert_ordering
 
 if TYPE_CHECKING:
@@ -52,11 +52,11 @@ def _assert_task_succeeded(events: list[Event]) -> None:
 # ── Multi-turn with tools ───────────────────────────────────────────
 
 
-def test_multi_turn_roundtrip(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_multi_turn_roundtrip(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Run 3 user turns, verify store.load_messages() returns the
     full conversation and messages round-trip correctly.
     """
-    test_provider.set_model(TestModel(custom_output_text="test response", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="test response", call_tools=[]))
 
     prompts = ["first question", "second question", "third question"]
     for prompt in prompts:
@@ -89,11 +89,11 @@ def test_multi_turn_roundtrip(llm_engine: Engine, test_provider: TestProvider) -
     assert all("test response" in t for t in response_texts)
 
 
-def test_multi_turn_with_tool_calls(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_multi_turn_with_tool_calls(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Run a turn with tool calls, verify tool call and return parts
     are persisted in the store.
     """
-    test_provider.set_model(TestModel(custom_output_text="analysis complete", call_tools="all"))
+    stub_provider.set_model(TestModel(custom_output_text="analysis complete", call_tools="all"))
 
     events = _run_llm_turn(llm_engine, "analyse the code")
     _assert_task_succeeded(events)
@@ -130,9 +130,9 @@ def test_multi_turn_with_tool_calls(llm_engine: Engine, test_provider: TestProvi
 # ── Session listing ──────────────────────────────────────────────────
 
 
-def test_session_listing_after_turns(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_session_listing_after_turns(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """After a multi-turn run, list_sessions shows correct metadata."""
-    test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
     for prompt in ["q1", "q2"]:
         events = _run_llm_turn(llm_engine, prompt)
@@ -149,9 +149,9 @@ def test_session_listing_after_turns(llm_engine: Engine, test_provider: TestProv
 # ── History search ───────────────────────────────────────────────────
 
 
-def test_history_search_finds_user_prompts(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_history_search_finds_user_prompts(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """search_history returns user prompts from the conversation."""
-    test_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
 
     for prompt in ["review tui.py", "explain config"]:
         _run_llm_turn(llm_engine, prompt)
@@ -166,11 +166,11 @@ def test_history_search_finds_user_prompts(llm_engine: Engine, test_provider: Te
 # ── Session resume ───────────────────────────────────────────────────
 
 
-def test_session_resume_loads_messages(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_session_resume_loads_messages(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Save a conversation, start a new session, resume the old one —
     verify loaded messages match.
     """
-    test_provider.set_model(TestModel(custom_output_text="hello back", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="hello back", call_tools=[]))
 
     # Turn 1 in session A.
     _run_llm_turn(llm_engine, "hello")
@@ -212,9 +212,9 @@ def test_session_resume_loads_messages(llm_engine: Engine, test_provider: TestPr
 # ── Compaction + resume ──────────────────────────────────────────────
 
 
-def test_compaction_reduces_history(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_compaction_reduces_history(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Run enough turns to compact, verify history is shorter after."""
-    test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
     # Build enough history to compact (15 turns).
     for i in range(15):
@@ -246,11 +246,11 @@ def test_compaction_reduces_history(llm_engine: Engine, test_provider: TestProvi
     )
 
 
-def test_compaction_then_resume(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_compaction_then_resume(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """After compaction, resume from a different session and verify
     the compacted state loads correctly.
     """
-    test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
     # Build history and compact.
     for i in range(15):
@@ -293,11 +293,11 @@ def test_compaction_then_resume(llm_engine: Engine, test_provider: TestProvider)
 # ── Compaction preserves continuity ──────────────────────────────────
 
 
-def test_compaction_preserves_continuity(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_compaction_preserves_continuity(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """After compaction, sending another message works — the agent
     can respond using the compacted history.
     """
-    test_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
 
     for i in range(15):
         _run_llm_turn(llm_engine, f"q{i}")
@@ -334,12 +334,12 @@ def test_compaction_preserves_continuity(llm_engine: Engine, test_provider: Test
 
 
 def test_command_shell_rows_excluded_from_history(
-    llm_engine: Engine, test_provider: TestProvider
+    llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Command and shell rows stored between LLM turns don't appear
     in load_messages().
     """
-    test_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
 
     # LLM turn.
     _run_llm_turn(llm_engine, "hello")

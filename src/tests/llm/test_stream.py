@@ -49,7 +49,7 @@ from rbtr.sessions.incidents import (
 )
 from rbtr.sessions.kinds import FragmentKind
 from tests.engine.builders import _turns
-from tests.helpers import TestProvider, drain
+from tests.helpers import StubProvider, drain
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -461,7 +461,7 @@ def _failed_request_rows(engine: Engine) -> list[Any]:
 
 def test_handle_llm_retries_without_effort_on_rejection(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """handle_llm retries without effort when the model rejects it."""
     call_count = 0
@@ -475,7 +475,7 @@ def test_handle_llm_retries_without_effort_on_rejection(
             )
         yield "recovered"
 
-    test_provider.set_model(FunctionModel(stream_function=_reject_effort))
+    stub_provider.set_model(FunctionModel(stream_function=_reject_effort))
 
     handle_llm(llm_engine._llm_context(), "test question")
 
@@ -508,7 +508,7 @@ def test_handle_llm_retries_without_effort_on_rejection(
 
 def test_auto_compact_on_overflow_compacts_and_retries(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Overflow handler compacts history then retries via handle_llm."""
 
@@ -528,7 +528,7 @@ def test_auto_compact_on_overflow_compacts_and_retries(
 
 def test_handle_llm_context_overflow_triggers_compact(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """handle_llm auto-compacts on context overflow and retries."""
     messages: list[ModelMessage] = [
@@ -552,7 +552,7 @@ def test_handle_llm_context_overflow_triggers_compact(
             raise _make_http_error(HTTPStatus.BAD_REQUEST, "maximum context length exceeded")
         yield "recovered"
 
-    test_provider.set_model(FunctionModel(stream_function=_overflow_then_ok))
+    stub_provider.set_model(FunctionModel(stream_function=_overflow_then_ok))
 
     handle_llm(llm_engine._llm_context(), "test question")
 
@@ -577,7 +577,7 @@ def test_handle_llm_context_overflow_triggers_compact(
 
 def test_handle_llm_retries_on_corrupt_tool_args(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """handle_llm retries with simplified history on corrupt tool-call args."""
     call_count = 0
@@ -589,7 +589,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
             raise ValueError("key must be a string at line 2 column 1")
         yield "recovered"
 
-    test_provider.set_model(FunctionModel(stream_function=_corrupt_then_ok))
+    stub_provider.set_model(FunctionModel(stream_function=_corrupt_then_ok))
 
     handle_llm(llm_engine._llm_context(), "show my notes")
 
@@ -611,7 +611,7 @@ def test_handle_llm_retries_on_corrupt_tool_args(
 
 def test_handle_llm_retries_on_type_error(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """handle_llm retries with simplified history on TypeError."""
     call_count = 0
@@ -625,7 +625,7 @@ def test_handle_llm_retries_on_type_error(
             raise TypeError("'NoneType' object is not subscriptable")
         yield "recovered"
 
-    test_provider.set_model(FunctionModel(stream_function=_type_error_then_ok))
+    stub_provider.set_model(FunctionModel(stream_function=_type_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "hello")
 
@@ -650,7 +650,7 @@ def test_handle_llm_retries_on_type_error(
 
 def test_handle_llm_retries_on_history_format_error(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """handle_llm retries with simplified history on provider format rejection.
 
@@ -673,7 +673,7 @@ def test_handle_llm_retries_on_history_format_error(
             )
         yield "recovered"
 
-    test_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
+    stub_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "continue analysis")
 
@@ -703,7 +703,7 @@ def test_handle_llm_retries_on_history_format_error(
 
 def test_handle_llm_records_failed_outcome_when_retry_raises(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """When a retry also fails, the incident outcome is set to `failed`
     and the exception propagates to the caller.
@@ -713,7 +713,7 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
         raise TypeError("'NoneType' object is not subscriptable")
         yield ""  # make it a generator
 
-    test_provider.set_model(FunctionModel(stream_function=_always_fail))
+    stub_provider.set_model(FunctionModel(stream_function=_always_fail))
 
     with pytest.raises(TypeError, match="NoneType"):
         handle_llm(llm_engine._llm_context(), "hello")
@@ -730,7 +730,7 @@ def test_handle_llm_records_failed_outcome_when_retry_raises(
 
 def test_dangling_tool_repair_is_transient(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """`repair_dangling_tool_calls` must not persist synthetic messages.
 
@@ -778,7 +778,7 @@ def test_dangling_tool_repair_is_transient(
 
 def test_simplify_history_persists_incidents(
     llm_engine: Engine,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """When `handle_llm` retries with simplified history, it persists
     `LLM_HISTORY_REPAIR` rows for `demote_thinking` and
@@ -830,7 +830,7 @@ def test_simplify_history_persists_incidents(
             )
         yield "fixed"
 
-    test_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
+    stub_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
 
     handle_llm(llm_engine._llm_context(), "now fix it")
 

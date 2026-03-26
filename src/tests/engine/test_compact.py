@@ -53,7 +53,7 @@ from tests.engine.builders import (
     _turns,
     _user,
 )
-from tests.helpers import TestProvider, drain, has_event_type, output_texts
+from tests.helpers import StubProvider, drain, has_event_type, output_texts
 from tests.sessions.assertions import assert_ordering
 
 
@@ -916,7 +916,7 @@ def test_compact_single_turn(config_path: Path, engine: Engine, llm_ctx: LLMCont
 
 
 def test_compact_fewer_turns_than_keep_falls_back(
-    config_path: Path, engine: Engine, llm_ctx: LLMContext, test_provider: TestProvider
+    config_path: Path, engine: Engine, llm_ctx: LLMContext, stub_provider: StubProvider
 ) -> None:
     """With 2 turns (= keep_turns=2), normal split finds nothing to
     compact, so it falls back to keeping 1 turn.
@@ -942,7 +942,7 @@ def test_compact_replaces_history(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """After compaction, history = [summary_msg] + kept turns."""
     engine.state.connected_providers.add("test")
@@ -981,7 +981,7 @@ def test_compact_emits_both_events(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Both CompactionStarted and CompactionFinished are emitted."""
     engine.state.connected_providers.add("test")
@@ -1004,7 +1004,7 @@ def test_compact_extra_instructions_in_prompt(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Extra instructions appear in the prompt sent to the model."""
     engine.state.connected_providers.add("test")
@@ -1019,7 +1019,7 @@ def test_compact_extra_instructions_in_prompt(
             captured_instructions.append(info.instructions)
         yield "Summary."
 
-    test_provider.set_model(FunctionModel(stream_function=_capture_stream))
+    stub_provider.set_model(FunctionModel(stream_function=_capture_stream))
     compact_history(llm_ctx, "Focus on security")
 
     assert any("Focus on security" in c for c in captured_instructions)
@@ -1030,7 +1030,7 @@ def test_compact_over_limit_shrinks_old(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """When serialised old exceeds context, only a fitting prefix is summarised."""
     engine.state.connected_providers.add("test")
@@ -1086,7 +1086,7 @@ def test_compact_llm_error_leaves_history_unchanged(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """If the LLM call fails, history is not modified."""
 
@@ -1100,7 +1100,7 @@ def test_compact_llm_error_leaves_history_unchanged(
     _seed(engine, original)
     engine.state.usage.context_window = 200_000
 
-    test_provider.set_model(FunctionModel(stream_function=_fail))
+    stub_provider.set_model(FunctionModel(stream_function=_fail))
     compact_history(llm_ctx)
 
     # DB unchanged after error — load_messages returns same count.
@@ -1126,7 +1126,7 @@ def test_compact_leaves_last_input_tokens_unchanged(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """After compaction, last_input_tokens is unchanged — corrected on next LLM call."""
     engine.state.connected_providers.add("test")
@@ -1147,7 +1147,7 @@ def test_compact_with_command_inputs(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Compaction with interleaved command/shell inputs compacts the right messages.
 
@@ -1263,13 +1263,13 @@ def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:
 
 
 @pytest.fixture
-def mid_turn_engine(llm_engine: Engine, test_provider: TestProvider) -> Engine:
+def mid_turn_engine(llm_engine: Engine, stub_provider: StubProvider) -> Engine:
     """Engine configured to trigger mid-turn compaction.
 
     Uses a tool-calling FunctionModel and a tiny context window
     so compaction triggers after the first tool-call response.
     """
-    test_provider.set_model(_tool_then_text_model())
+    stub_provider.set_model(_tool_then_text_model())
     _seed_llm_history(llm_engine)
     llm_engine.state.usage.context_window = 100
     llm_engine.state.usage.context_window_known = True
@@ -1335,7 +1335,7 @@ def test_mid_turn_compaction_only_once_per_turn(mid_turn_engine: Engine) -> None
 
 
 def test_mid_turn_compaction_preserves_continuity(
-    mid_turn_engine: Engine, test_provider: TestProvider
+    mid_turn_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """After mid-turn compaction the conversation can continue normally."""
 
@@ -1345,7 +1345,7 @@ def test_mid_turn_compaction_preserves_continuity(
 
     # Reset to normal context window and send a follow-up turn.
     mid_turn_engine.state.usage.context_window = 200_000
-    test_provider.set_model(TestModel(custom_output_text="follow up response"))
+    stub_provider.set_model(TestModel(custom_output_text="follow up response"))
     mid_turn_engine.run_task(TaskType.LLM, "follow up")
     events = drain(mid_turn_engine.events)
 
@@ -1366,13 +1366,13 @@ def test_mid_turn_compaction_preserves_continuity(
 
 
 def test_no_mid_turn_compaction_without_tools(
-    config_path: Path, mocker: MockerFixture, mid_turn_engine: Engine, test_provider: TestProvider
+    config_path: Path, mocker: MockerFixture, mid_turn_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """When the turn has no tool calls, mid-turn compaction does not
     fire — it falls through to post-turn compaction.
     """
     _seed_llm_history(mid_turn_engine)
-    test_provider.set_model(TestModel(custom_output_text="no tools", call_tools=[]))
+    stub_provider.set_model(TestModel(custom_output_text="no tools", call_tools=[]))
     mid_turn_engine.state.usage.context_window = 50
     mid_turn_engine.state.usage.context_window_known = True
 
@@ -1419,7 +1419,7 @@ def test_compact_reset_restores_messages(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """`/compact reset` un-marks compacted messages, summary stays."""
     engine.state.connected_providers.add("test")
@@ -1480,7 +1480,7 @@ def test_compact_reset_only_latest(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """`/compact reset` undoes only the latest compaction, not all."""
     engine.state.connected_providers.add("test")
@@ -1532,7 +1532,7 @@ def test_compact_reset_blocked_after_new_messages(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """`/compact reset` is blocked when messages were added after compaction."""
     engine.state.connected_providers.add("test")
@@ -1571,7 +1571,7 @@ def test_compact_reset_allowed_immediately_after_compaction(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """`/compact reset` works when no messages were added after compaction."""
     engine.state.connected_providers.add("test")
@@ -1723,7 +1723,7 @@ def test_compaction_across_tool_boundaries_no_orphans(
     config_path: Path,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Compacting a conversation where a tool return straddles the
     turn boundary produces no orphaned tool returns.
@@ -1758,7 +1758,7 @@ def test_compact_reset_restores_original_messages_without_summary(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """After `/compact reset`, loaded messages are exactly the
     originals — no summary injected, no orphaned tool returns,
@@ -1808,7 +1808,7 @@ def test_compaction_reset_and_recompact_no_orphans(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """After reset and recompaction, no orphaned tool returns exist.
 

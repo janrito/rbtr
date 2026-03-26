@@ -19,7 +19,7 @@ from rbtr.tui.ui import UI
 # ── Test provider ────────────────────────────────────────────────────
 
 
-class TestProvider:
+class StubProvider:
     """Provider that returns ``TestModel()`` — no credentials needed.
 
     Registered in the global conftest under the ``"test"`` prefix so

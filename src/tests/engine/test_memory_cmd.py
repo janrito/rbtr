@@ -22,7 +22,7 @@ from rbtr.llm.context import LLMContext
 from rbtr.models import PRTarget
 from rbtr.sessions.kinds import GLOBAL_SCOPE
 from tests.engine.builders import _assistant, _seed, _turns, _user
-from tests.helpers import TestProvider, drain, output_texts
+from tests.helpers import StubProvider, drain, output_texts
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -134,7 +134,7 @@ def test_memory_extract_no_messages(mem_engine: Engine) -> None:
 def test_compaction_triggers_extraction(
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Compaction triggers fact extraction alongside summary."""
     config.update(memory={"enabled": True})
@@ -144,7 +144,7 @@ def test_compaction_triggers_extraction(
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
-    test_provider.set_model(TestModel())
+    stub_provider.set_model(TestModel())
     with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
         compact_history(llm_ctx)
 
@@ -159,7 +159,7 @@ def test_compaction_extraction_failure_non_fatal(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """If extraction fails during compaction, compaction still succeeds."""
     config.update(memory={"enabled": True})
@@ -173,7 +173,7 @@ def test_compaction_extraction_failure_non_fatal(
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
+    stub_provider.set_model(TestModel(custom_output_text="Summary."))
     compact_history(llm_ctx)
 
     # Compaction still completed despite extraction failure.
@@ -238,7 +238,7 @@ def test_compaction_skips_extraction_when_disabled(
     mocker: MockerFixture,
     engine: Engine,
     llm_ctx: LLMContext,
-    test_provider: TestProvider,
+    stub_provider: StubProvider,
 ) -> None:
     """Compaction does not call extraction when memory is disabled."""
     config.update(memory={"enabled": False})
@@ -248,7 +248,7 @@ def test_compaction_skips_extraction_when_disabled(
     engine.state.usage.context_window = 200_000
     _seed(engine, _turns(10))
 
-    test_provider.set_model(TestModel(custom_output_text="Summary."))
+    stub_provider.set_model(TestModel(custom_output_text="Summary."))
     compact_history(llm_ctx)
     # `run_fact_extraction` returns None because `config.memory.enabled`
     # is False (checked inside the function).  Compaction succeeds.

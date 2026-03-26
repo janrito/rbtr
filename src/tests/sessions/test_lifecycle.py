@@ -25,7 +25,7 @@ from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import TaskFinished, TextDelta
 from tests.engine.test_compact import ALL_HISTORIES
-from tests.helpers import TestProvider, drain
+from tests.helpers import StubProvider, drain
 
 from .assertions import assert_ordering, assert_tool_pairing
 
@@ -55,9 +55,9 @@ def _response_texts(messages: list[ModelMessage]) -> list[str]:
 # ── Text responses ───────────────────────────────────────────────────
 
 
-def test_prompt_and_response_persisted(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_prompt_and_response_persisted(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """User prompt and model response are both persisted to DB."""
-    test_provider.set_model(TestModel(custom_output_text="Here's my review."))
+    stub_provider.set_model(TestModel(custom_output_text="Here's my review."))
 
     llm_engine.run_task(TaskType.LLM, "review my code")
     events = drain(llm_engine.events)
@@ -70,14 +70,14 @@ def test_prompt_and_response_persisted(llm_engine: Engine, test_provider: TestPr
     assert "Here's my review." in _response_texts(loaded)
 
 
-def test_streamed_text_matches_db(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_streamed_text_matches_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """TextDelta events streamed to UI match the text stored in DB."""
 
     async def _stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         yield "Hello "
         yield "world!"
 
-    test_provider.set_model(FunctionModel(stream_function=_stream))
+    stub_provider.set_model(FunctionModel(stream_function=_stream))
 
     llm_engine.run_task(TaskType.LLM, "greet me")
     events = drain(llm_engine.events)
@@ -92,9 +92,9 @@ def test_streamed_text_matches_db(llm_engine: Engine, test_provider: TestProvide
 # ── Multi-turn ───────────────────────────────────────────────────────
 
 
-def test_multi_turn_preserves_order(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_multi_turn_preserves_order(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Two turns persist in order: prompt1, response1, prompt2, response2."""
-    test_provider.set_model(TestModel(custom_output_text="Noted."))
+    stub_provider.set_model(TestModel(custom_output_text="Noted."))
 
     llm_engine.run_task(TaskType.LLM, "first question")
     drain(llm_engine.events)
@@ -109,7 +109,7 @@ def test_multi_turn_preserves_order(llm_engine: Engine, test_provider: TestProvi
     assert prompts[1] == "second question"
 
 
-def test_resume_continues_conversation(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_resume_continues_conversation(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Turn 2 sees turn 1 history — model receives prior messages."""
     received: list[list[ModelMessage]] = []
 
@@ -117,7 +117,7 @@ def test_resume_continues_conversation(llm_engine: Engine, test_provider: TestPr
         received.append(list(messages))
         yield "Response."
 
-    test_provider.set_model(FunctionModel(stream_function=_capture))
+    stub_provider.set_model(FunctionModel(stream_function=_capture))
 
     llm_engine.run_task(TaskType.LLM, "turn 1")
     drain(llm_engine.events)
@@ -146,9 +146,9 @@ def test_resume_continues_conversation(llm_engine: Engine, test_provider: TestPr
 # ── Tool calls ───────────────────────────────────────────────────────
 
 
-def test_tool_calls_paired_in_db(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_tool_calls_paired_in_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Tool call and tool return are correctly paired after round-trip."""
-    test_provider.set_model(TestModel(call_tools="all"))
+    stub_provider.set_model(TestModel(call_tools="all"))
 
     llm_engine.run_task(TaskType.LLM, "check the code")
     drain(llm_engine.events)
@@ -158,14 +158,14 @@ def test_tool_calls_paired_in_db(llm_engine: Engine, test_provider: TestProvider
     assert_tool_pairing(loaded)
 
 
-def test_tool_call_then_text_resume(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_tool_call_then_text_resume(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """After a tool-calling turn, a text-only follow-up works."""
-    test_provider.set_model(TestModel(call_tools="all"))
+    stub_provider.set_model(TestModel(call_tools="all"))
     llm_engine.run_task(TaskType.LLM, "read the file")
     drain(llm_engine.events)
     assert_tool_pairing(llm_engine.store.load_messages(llm_engine.state.session_id))
 
-    test_provider.set_model(TestModel(custom_output_text="Follow-up."))
+    stub_provider.set_model(TestModel(custom_output_text="Follow-up."))
     llm_engine.run_task(TaskType.LLM, "now explain it")
     drain(llm_engine.events)
 
@@ -178,14 +178,14 @@ def test_tool_call_then_text_resume(llm_engine: Engine, test_provider: TestProvi
 # ── Error recovery ───────────────────────────────────────────────────
 
 
-def test_model_error_fails_task(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_model_error_fails_task(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Model error → task fails, no partial response in DB."""
 
     async def _fail(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         raise RuntimeError("connection lost")
         yield ""
 
-    test_provider.set_model(FunctionModel(stream_function=_fail))
+    stub_provider.set_model(FunctionModel(stream_function=_fail))
 
     llm_engine.run_task(TaskType.LLM, "hello")
     events = drain(llm_engine.events)
@@ -195,9 +195,9 @@ def test_model_error_fails_task(llm_engine: Engine, test_provider: TestProvider)
     assert not finished[-1].success
 
 
-def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Turn 1 succeeds, turn 2 crashes — turn 1 intact in DB."""
-    test_provider.set_model(TestModel(custom_output_text="All good."))
+    stub_provider.set_model(TestModel(custom_output_text="All good."))
     llm_engine.run_task(TaskType.LLM, "turn 1")
     drain(llm_engine.events)
 
@@ -205,7 +205,7 @@ def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, test_provider: Te
         raise RuntimeError("boom")
         yield ""
 
-    test_provider.set_model(FunctionModel(stream_function=_fail))
+    stub_provider.set_model(FunctionModel(stream_function=_fail))
     llm_engine.run_task(TaskType.LLM, "turn 2")
     drain(llm_engine.events)
 
@@ -215,9 +215,9 @@ def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, test_provider: Te
     assert "All good." in _response_texts(loaded)
 
 
-def test_resume_after_crash(llm_engine: Engine, test_provider: TestProvider) -> None:
+def test_resume_after_crash(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """Turn 1 OK → turn 2 crashes → turn 3 OK. Conversation recovers."""
-    test_provider.set_model(TestModel(custom_output_text="Response."))
+    stub_provider.set_model(TestModel(custom_output_text="Response."))
     llm_engine.run_task(TaskType.LLM, "turn 1")
     drain(llm_engine.events)
 
@@ -225,11 +225,11 @@ def test_resume_after_crash(llm_engine: Engine, test_provider: TestProvider) -> 
         raise RuntimeError("crash")
         yield ""
 
-    test_provider.set_model(FunctionModel(stream_function=_fail))
+    stub_provider.set_model(FunctionModel(stream_function=_fail))
     llm_engine.run_task(TaskType.LLM, "turn 2")
     drain(llm_engine.events)
 
-    test_provider.set_model(TestModel(custom_output_text="Recovered."))
+    stub_provider.set_model(TestModel(custom_output_text="Recovered."))
     llm_engine.run_task(TaskType.LLM, "turn 3")
     drain(llm_engine.events)
 
@@ -246,7 +246,7 @@ def test_resume_after_crash(llm_engine: Engine, test_provider: TestProvider) -> 
 
 @pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
 def test_engine_handles_all_history_shapes(
-    name: str, llm_engine: Engine, test_provider: TestProvider
+    name: str, llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Seed each history shape, send a new turn — pipeline handles it."""
     history = ALL_HISTORIES[name]

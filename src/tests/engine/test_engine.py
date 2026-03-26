@@ -46,7 +46,7 @@ from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget, SnapshotTarget
 from rbtr.shell_exec import truncate_output
 from rbtr.state import EngineState
-from tests.helpers import TestProvider, drain, has_event_type, output_texts
+from tests.helpers import StubProvider, drain, has_event_type, output_texts
 
 # ── /help ────────────────────────────────────────────────────────────
 
@@ -453,11 +453,11 @@ def test_shell_with_stderr_never_emits_flush_panel(engine: Engine) -> None:
 # ── LLM placeholder ─────────────────────────────────────────────────
 
 
-def test_llm_streams_response(engine: Engine, test_provider: TestProvider) -> None:
+def test_llm_streams_response(engine: Engine, stub_provider: StubProvider) -> None:
     """LLM messages build a model and stream via the agent."""
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
-    test_provider.set_model(TestModel(custom_output_text="Hello world"))
+    stub_provider.set_model(TestModel(custom_output_text="Hello world"))
 
     engine.run_task(TaskType.LLM, "explain this code")
     drained_events = drain(engine.events)
@@ -469,7 +469,7 @@ def test_llm_streams_response(engine: Engine, test_provider: TestProvider) -> No
     assert "Hello world" in full_text
 
 
-def test_llm_persists_to_store(engine: Engine, test_provider: TestProvider) -> None:
+def test_llm_persists_to_store(engine: Engine, stub_provider: StubProvider) -> None:
     """After an LLM call, messages are persisted to the store."""
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"

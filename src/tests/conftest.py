@@ -19,7 +19,7 @@ from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
 from rbtr.tui.input import InputReader, InputState
 from rbtr.tui.ui import UI
-from tests.helpers import HeadlessUI, TestProvider
+from tests.helpers import HeadlessUI, StubProvider
 
 # Register all tool submodules in the correct order before any test
 # runs.  Tests that directly import a single tool module would
@@ -101,35 +101,35 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
     # without credentials or network access.  Hooks into the endpoint
     # resolution path — `_resolve` checks `BuiltinProvider` first,
     # then `endpoint.resolve`, which we patch to recognise "test".
-    _test_provider = TestProvider()
+    _stub_provider = StubProvider()
     _original_resolve = endpoint_mod.resolve
 
     def _resolve_with_test(name: str) -> Provider | None:
         if name == "test":
-            return _test_provider
+            return _stub_provider
         return _original_resolve(name)
 
     monkeypatch.setattr(endpoint_mod, "resolve", _resolve_with_test)
 
     yield
-    _test_provider.reset()
+    _stub_provider.reset()
     config.reload()
     creds.reload()
 
 
 @pytest.fixture
-def test_provider() -> TestProvider:
+def stub_provider() -> StubProvider:
     """Access the test provider to configure model responses per-test.
 
     Example::
 
-        def test_compact(test_provider, engine, llm_ctx):
-            test_provider.set_model(TestModel(custom_output_text="Summary."))
+        def test_compact(stub_provider, engine, llm_ctx):
+            stub_provider.set_model(TestModel(custom_output_text="Summary."))
             engine.state.model_name = "test/default"
             compact_history(llm_ctx)
     """
     prov = endpoint_mod.resolve("test")
-    assert isinstance(prov, TestProvider)
+    assert isinstance(prov, StubProvider)
     return prov
 
 
