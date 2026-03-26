@@ -11,7 +11,11 @@ permissions:
   id-token: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/checks.yaml
+
   release:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -48,9 +52,6 @@ jobs:
             echo "::error::Stable version $VERSION must be on a release-* branch"
             exit 1
           fi
-
-      - name: Run checks
-        run: just check
 
       - name: Build
         run: just build
