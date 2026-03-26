@@ -29,7 +29,10 @@ def run_index(engine: Engine) -> None:
     index builds; tools that need the index are hidden until
     `IndexReady` is emitted.
     """
+    if engine._index_thread is not None:
+        engine._index_thread.join(timeout=30)
     t = threading.Thread(target=_build_index, args=(engine,), daemon=True)
+    engine._index_thread = t
     t.start()
 
 

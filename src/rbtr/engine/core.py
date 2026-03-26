@@ -74,6 +74,7 @@ class Engine:
         self._cancel_slot: CancelSlot = [None]
         self._shell_proc: subprocess.Popen[str] | None = None
         self._shell_pgid: int | None = None
+        self._index_thread: threading.Thread | None = None
         # Session persistence store.
         if store is None:
             from rbtr.sessions.store import (
@@ -329,6 +330,9 @@ class Engine:
 
     def close(self) -> None:
         """Release resources — call on shutdown."""
+        if self._index_thread is not None:
+            self._index_thread.join(timeout=30)
+            self._index_thread = None
         with contextlib.suppress(ImportError, OSError):
             from rbtr.index.embeddings import reset_model
 
