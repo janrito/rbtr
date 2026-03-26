@@ -8,11 +8,12 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.session_cmd import _format_age, parse_duration
-from rbtr.providers import BuiltinProvider
-
-from .conftest import _assistant, _seed, _user, drain, output_texts, summary_result
+from rbtr.engine.types import TaskType
+from rbtr.llm.compact import compact_history
+from tests.engine.builders import _assistant, _seed, _user
+from tests.helpers import drain, output_texts
 
 
 @pytest.fixture
@@ -62,14 +63,14 @@ def _other_session_id(engine: Engine) -> str:
 def test_list_shows_current_session(seeded_engine: Engine) -> None:
     """Default list includes the active session with marker."""
     engine = seeded_engine
-    engine.run_task("command", "/session")
+    engine.run_task(TaskType.COMMAND, "/session")
     texts = output_texts(drain(engine.events))
     assert any("◂" in t for t in texts)
 
 
 def test_list_empty_when_no_sessions(engine: Engine) -> None:
     drain(engine.events)
-    engine.run_task("command", "/session")
+    engine.run_task(TaskType.COMMAND, "/session")
     texts = output_texts(drain(engine.events))
     assert any("No sessions" in t for t in texts)
 
@@ -95,7 +96,7 @@ def test_list_filters_by_repo(seeded_engine: Engine) -> None:
     engine.state.repo_name = old_repo
 
     drain(engine.events)
-    engine.run_task("command", "/session")
+    engine.run_task(TaskType.COMMAND, "/session")
     texts = output_texts(drain(engine.events))
     assert not any("other-repo" in t for t in texts)
 
@@ -117,7 +118,7 @@ def test_all_shows_all_repos(seeded_engine: Engine) -> None:
     )
 
     drain(engine.events)
-    engine.run_task("command", "/session all")
+    engine.run_task(TaskType.COMMAND, "/session all")
     texts = output_texts(drain(engine.events))
     combined = " ".join(texts)
     assert "testowner/testrepo" in combined
@@ -129,7 +130,7 @@ def test_all_shows_all_repos(seeded_engine: Engine) -> None:
 
 def test_info_shows_session_details(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session info")
+    engine.run_task(TaskType.COMMAND, "/session info")
     texts = output_texts(drain(engine.events))
     combined = " ".join(texts)
     assert engine.state.session_id[:8] in combined
@@ -142,7 +143,7 @@ def test_info_shows_session_details(seeded_engine: Engine) -> None:
 def test_rename_updates_label(seeded_engine: Engine) -> None:
     """Rename updates both engine state and persisted fragments."""
     engine = seeded_engine
-    engine.run_task("command", "/session rename my review")
+    engine.run_task(TaskType.COMMAND, "/session rename my review")
     texts = output_texts(drain(engine.events))
     assert any("my review" in t for t in texts)
     assert engine.state.session_label == "my review"
@@ -155,7 +156,7 @@ def test_rename_updates_label(seeded_engine: Engine) -> None:
 
 def test_rename_no_args(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session rename")
+    engine.run_task(TaskType.COMMAND, "/session rename")
     texts = output_texts(drain(engine.events))
     assert any("Usage" in t for t in texts)
 
@@ -166,7 +167,7 @@ def test_rename_no_args(seeded_engine: Engine) -> None:
 def test_history_shows_inputs(seeded_engine: Engine) -> None:
     """History lists user inputs oldest-first."""
     engine = seeded_engine
-    engine.run_task("command", "/session history")
+    engine.run_task(TaskType.COMMAND, "/session history")
     texts = output_texts(drain(engine.events))
     # The seeded session has at least one user message ("hello").
     numbered = [t for t in texts if t.strip().startswith("1.")]
@@ -175,10 +176,10 @@ def test_history_shows_inputs(seeded_engine: Engine) -> None:
 
 def test_history_empty_session(engine: Engine) -> None:
     """History on a session with no messages shows a friendly message."""
-    engine.run_task("command", "/session history")
+    engine.run_task(TaskType.COMMAND, "/session history")
     drain(engine.events)
     # Run again to capture output (first run may have setup noise).
-    engine.run_task("command", "/session history")
+    engine.run_task(TaskType.COMMAND, "/session history")
     texts = output_texts(drain(engine.events))
     assert any("No inputs" in t for t in texts)
 
@@ -191,7 +192,7 @@ def test_resume_loads_messages(double_seeded_engine: Engine) -> None:
     engine = double_seeded_engine
     second_id = _other_session_id(engine)
 
-    engine.run_task("command", f"/session resume {second_id}")
+    engine.run_task(TaskType.COMMAND, f"/session resume {second_id}")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == second_id
@@ -210,7 +211,7 @@ def test_resume_by_label(double_seeded_engine: Engine) -> None:
     engine = double_seeded_engine
     second_id = _other_session_id(engine)
 
-    engine.run_task("command", "/session resume auth")
+    engine.run_task(TaskType.COMMAND, "/session resume auth")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == second_id
@@ -232,7 +233,7 @@ def test_resume_cross_repo_skips_review_target(seeded_engine: Engine) -> None:
     engine.store.save_messages(other_id, [_user("cross-repo")])
     engine.store.save_input(other_id, "/review fix", "command")
 
-    engine.run_task("command", f"/session resume {other_id}")
+    engine.run_task(TaskType.COMMAND, f"/session resume {other_id}")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     # Review target from other/lib should be skipped, not restored.
@@ -243,34 +244,29 @@ def test_resume_cross_repo_skips_review_target(seeded_engine: Engine) -> None:
 def test_resume_already_active(seeded_engine: Engine) -> None:
     """Resuming the current session warns."""
     engine = seeded_engine
-    engine.run_task("command", f"/session resume {engine.state.session_id}")
+    engine.run_task(TaskType.COMMAND, f"/session resume {engine.state.session_id}")
     texts = output_texts(drain(engine.events))
     assert any("Already" in t for t in texts)
 
 
 def test_resume_unknown_prefix(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session resume nonexistent")
+    engine.run_task(TaskType.COMMAND, "/session resume nonexistent")
     texts = output_texts(drain(engine.events))
     assert any("No session" in t for t in texts)
 
 
 def test_resume_no_args(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session resume")
+    engine.run_task(TaskType.COMMAND, "/session resume")
     texts = output_texts(drain(engine.events))
     assert any("Usage" in t for t in texts)
 
 
 def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     """Resume after compaction loads only the post-compaction state."""
-    mocker.patch(
-        "rbtr.llm.compact._stream_summary",
-        return_value=summary_result("Summary of conversation."),
-    )
-    mocker.patch("rbtr.llm.compact.build_model")
 
-    engine.state.connected_providers.add(BuiltinProvider.CLAUDE)
+    engine.state.connected_providers.add("test")
     engine.state.model_name = "claude/sonnet"
     engine.state.session_label = "test/repo — main"
     engine.state.usage.context_window = 200_000
@@ -283,7 +279,6 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     compacted_session_id = engine.state.session_id
 
     # Compact (rewrites DB).
-    from rbtr.llm.compact import compact_history
 
     compact_history(engine._llm_context())
     post_compact_count = len(engine.store.load_messages(compacted_session_id))
@@ -295,7 +290,7 @@ def test_resume_after_compaction(mocker: MockerFixture, engine: Engine) -> None:
     drain(engine.events)
 
     # Resume the compacted session.
-    engine.run_task("command", f"/session resume {compacted_session_id}")
+    engine.run_task(TaskType.COMMAND, f"/session resume {compacted_session_id}")
     texts = output_texts(drain(engine.events))
     assert any("Resumed" in t for t in texts)
     assert engine.state.session_id == compacted_session_id
@@ -309,7 +304,7 @@ def test_delete_by_prefix(double_seeded_engine: Engine) -> None:
     engine = double_seeded_engine
     second_id = _other_session_id(engine)
 
-    engine.run_task("command", f"/session delete {second_id}")
+    engine.run_task(TaskType.COMMAND, f"/session delete {second_id}")
     texts = output_texts(drain(engine.events))
     assert any("Deleted" in t for t in texts)
 
@@ -319,14 +314,14 @@ def test_delete_by_prefix(double_seeded_engine: Engine) -> None:
 
 def test_delete_refuses_active_session(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", f"/session delete {engine.state.session_id}")
+    engine.run_task(TaskType.COMMAND, f"/session delete {engine.state.session_id}")
     texts = output_texts(drain(engine.events))
     assert any("active session" in t.lower() for t in texts)
 
 
 def test_delete_unknown_prefix(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session delete nonexistent")
+    engine.run_task(TaskType.COMMAND, "/session delete nonexistent")
     texts = output_texts(drain(engine.events))
     assert any("No session" in t for t in texts)
 
@@ -337,21 +332,21 @@ def test_delete_unknown_prefix(seeded_engine: Engine) -> None:
 def test_purge_nothing_recent(seeded_engine: Engine) -> None:
     """Sessions newer than the cutoff are preserved."""
     engine = seeded_engine
-    engine.run_task("command", "/session purge 999d")
+    engine.run_task(TaskType.COMMAND, "/session purge 999d")
     texts = output_texts(drain(engine.events))
     assert any("Deleted 0" in t for t in texts)
 
 
 def test_purge_invalid_duration(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session purge xyz")
+    engine.run_task(TaskType.COMMAND, "/session purge xyz")
     texts = output_texts(drain(engine.events))
     assert any("Invalid duration" in t for t in texts)
 
 
 def test_purge_no_args(seeded_engine: Engine) -> None:
     engine = seeded_engine
-    engine.run_task("command", "/session purge")
+    engine.run_task(TaskType.COMMAND, "/session purge")
     texts = output_texts(drain(engine.events))
     assert any("Usage" in t for t in texts)
 

@@ -3,45 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import UTC, datetime
 
 import pytest
+from pydantic_ai import RunContext
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
+from rbtr.llm.deps import AgentDeps
 from rbtr.models import BranchTarget
 from rbtr.sessions.store import SessionStore
 from rbtr.state import EngineState
-from tests.conftest import drain, has_event_type, output_texts  # noqa: F401
-
-# ── Tool-test duck type ──────────────────────────────────────────────
-
-
-class FakeCtx:
-    """Minimal stand-in for `RunContext[AgentDeps]` in tool tests.
-
-    Tools access `ctx.deps.state` and optionally `ctx.deps.store`,
-    so this duck type is sufficient without pulling in a real
-    `Model` instance.
-    """
-
-    def __init__(
-        self,
-        state: EngineState,
-        store: SessionStore | None = None,
-    ) -> None:
-        self.deps = _FakeDeps(state, store)
-
-
-class _FakeDeps:
-    def __init__(
-        self,
-        state: EngineState,
-        store: SessionStore | None = None,
-    ) -> None:
-        self.state = state
-        self.store = store or SessionStore()
-
+from tests.helpers import drain, has_event_type, output_texts  # noqa: F401
+from tests.llm.ctx import build_tool_ctx
 
 # ── Store helpers ────────────────────────────────────────────────────
 
@@ -408,12 +383,12 @@ def _review_state(store: IndexStore) -> EngineState:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=0,
+        updated_at=datetime.min.replace(tzinfo=UTC),
     )
     return state
 
 
-# `engine`, `llm_ctx`, and `llm_engine` live in the root
+# `engine`, `llm_ctx`, `llm_engine`, and `store` live in the root
 # conftest — available to all test packages.
 
 
@@ -421,36 +396,40 @@ def _review_state(store: IndexStore) -> EngineState:
 
 
 @pytest.fixture
-def index_ctx() -> Generator[FakeCtx]:
-    """FakeCtx with the single-branch index dataset (no embeddings)."""
-    store = _build_index_store()
-    yield FakeCtx(_review_state(store))
-    store.close()
+def index_ctx() -> Generator[RunContext[AgentDeps]]:
+    """RunContext with the single-branch index dataset (no embeddings)."""
+    index_store = _build_index_store()
+    with SessionStore() as session_store:
+        yield build_tool_ctx(_review_state(index_store), session_store)
+    index_store.close()
 
 
 @pytest.fixture
-def index_ctx_embedded() -> Generator[FakeCtx]:
-    """FakeCtx with the single-branch index dataset + embeddings."""
-    store = _build_index_store(embed=True)
-    yield FakeCtx(_review_state(store))
-    store.close()
+def index_ctx_embedded() -> Generator[RunContext[AgentDeps]]:
+    """RunContext with the single-branch index dataset + embeddings."""
+    index_store = _build_index_store(embed=True)
+    with SessionStore() as session_store:
+        yield build_tool_ctx(_review_state(index_store), session_store)
+    index_store.close()
 
 
 # ── Two-ref dataset (base vs head) ──────────────────────────────────
 
 
 @pytest.fixture
-def two_ref_ctx() -> Generator[FakeCtx]:
-    """FakeCtx with base/head snapshots for ref-scoping tests."""
-    store = _build_two_ref_store()
-    yield FakeCtx(_review_state(store))
-    store.close()
+def two_ref_ctx() -> Generator[RunContext[AgentDeps]]:
+    """RunContext with base/head snapshots for ref-scoping tests."""
+    index_store = _build_two_ref_store()
+    with SessionStore() as session_store:
+        yield build_tool_ctx(_review_state(index_store), session_store)
+    index_store.close()
 
 
 @pytest.fixture
-def two_ref_ctx_fts() -> Generator[FakeCtx]:
-    """Same as `two_ref_ctx` with the FTS index rebuilt for BM25."""
-    store = _build_two_ref_store()
-    store.rebuild_fts_index()
-    yield FakeCtx(_review_state(store))
-    store.close()
+def two_ref_ctx_fts() -> Generator[RunContext[AgentDeps]]:
+    """RunContext with the FTS index rebuilt for BM25."""
+    index_store = _build_two_ref_store()
+    index_store.rebuild_fts_index()
+    with SessionStore() as session_store:
+        yield build_tool_ctx(_review_state(index_store), session_store)
+    index_store.close()

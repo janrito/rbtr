@@ -218,7 +218,7 @@ def test_diff_refs_identical(sample_repo: SampleRepo) -> None:
 
 def test_diff_refs_path_filter(sample_repo: SampleRepo) -> None:
     """Restrict diff to a single file."""
-    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="src/handler.py")
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", pattern="src/handler.py")
     assert result.stats.files_changed == 1
     # Patch should mention handler.py
     patch = "\n".join(result.patch_lines)
@@ -227,14 +227,14 @@ def test_diff_refs_path_filter(sample_repo: SampleRepo) -> None:
 
 def test_diff_refs_path_no_changes(sample_repo: SampleRepo) -> None:
     """Path filter for an unchanged file returns empty stats."""
-    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="src/utils.py")
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", pattern="src/utils.py")
     assert result.stats.files_changed == 0
     assert result.patch_lines == []
 
 
 def test_diff_refs_path_nonexistent(sample_repo: SampleRepo) -> None:
     """Path filter for a file that doesn't exist in either ref."""
-    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", path="nope.py")
+    result = diff_refs(sample_repo.repo, str(sample_repo.base), "feature", pattern="nope.py")
     assert result.stats.files_changed == 0
     assert result.patch_lines == []
 
@@ -265,7 +265,7 @@ def test_diff_single_head_commit(sample_repo: SampleRepo) -> None:
 
 
 def test_diff_single_path_filter(sample_repo: SampleRepo) -> None:
-    result = diff_single(sample_repo.repo, str(sample_repo.mid), path="src/handler.py")
+    result = diff_single(sample_repo.repo, str(sample_repo.mid), pattern="src/handler.py")
     assert result.stats.files_changed == 1
     patch = "\n".join(result.patch_lines)
     assert "validate" in patch  # handler_v2 adds validate call
@@ -373,7 +373,7 @@ def test_merge_diff_refs_only_pr_changes(merge_repo: MergeRepo) -> None:
 
 def test_merge_diff_refs_path_unchanged_file(merge_repo: MergeRepo) -> None:
     """Diffing a file that exists on both sides but is identical."""
-    result = diff_refs(merge_repo.repo, "base", "head", path="app.py")
+    result = diff_refs(merge_repo.repo, "base", "head", pattern="app.py")
     assert result.stats.files_changed == 0
     assert result.patch_lines == []
 

@@ -7,10 +7,13 @@ import time
 from pathlib import Path
 
 import pytest
+from pytest_httpx import HTTPXMock
+from pytest_mock import MockerFixture
 
 from rbtr.creds import OAuthCreds, creds
 from rbtr.exceptions import RbtrError
 from rbtr.oauth import PendingLogin, make_challenge, make_verifier, oauth_is_set, parse_callback_url
+from rbtr.providers import openai_codex as codex_mod
 from rbtr.providers.openai_codex import (
     _AUTHORIZE_URL,
     _CLIENT_ID,
@@ -93,7 +96,7 @@ def test_parse_callback_query_string() -> None:
 # ── begin_login ──────────────────────────────────────────────────────
 
 
-def test_begin_login_returns_url_and_pending(mocker) -> None:
+def test_begin_login_returns_url_and_pending(mocker: MockerFixture) -> None:
     mocker.patch("rbtr.oauth.webbrowser.open")
     url, pending = begin_login()
     assert url.startswith(_AUTHORIZE_URL)
@@ -166,7 +169,7 @@ def test_ensure_returns_creds_when_not_expired(creds_path: Path) -> None:
     assert oauth.account_id == "acct_1"
 
 
-def test_ensure_refreshes_expired_token(creds_path: Path, mocker) -> None:
+def test_ensure_refreshes_expired_token(creds_path: Path, mocker: MockerFixture) -> None:
     _store_oauth(creds_path, access_token="old-tok", expires_at=time.time() - 100)
     new_jwt = _make_jwt({"https://api.openai.com/auth": {"chatgpt_account_id": "acct_new"}})
     refreshed = OAuthCreds(
@@ -196,24 +199,24 @@ def test_ensure_raises_when_expired_no_refresh(creds_path: Path) -> None:
 # ── model listing / metadata ────────────────────────────────────────
 
 
-def test_list_models_caches_context_window(mocker) -> None:
+def test_list_models_caches_context_window(mocker: MockerFixture, httpx_mock: HTTPXMock) -> None:
     mocker.patch(
         "rbtr.providers.openai_codex.ensure_credentials",
         return_value=_make_oauth(),
     )
     mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
 
-    response = mocker.Mock()
-    response.raise_for_status = mocker.Mock()
-    response.json.return_value = {
-        "models": [
-            {
-                "slug": "o3-pro",
-                "limits": {"max_input_tokens": 200_000},
-            }
-        ]
-    }
-    mocker.patch("rbtr.providers.openai_codex.httpx.get", return_value=response)
+    httpx_mock.add_response(
+        url="https://chatgpt.com/backend-api/codex/models?client_version=0.101.0",
+        json={
+            "models": [
+                {
+                    "slug": "o3-pro",
+                    "limits": {"max_input_tokens": 200_000},
+                }
+            ]
+        },
+    )
 
     ids = provider.list_models()
 
@@ -223,8 +226,7 @@ def test_list_models_caches_context_window(mocker) -> None:
     assert meta.context_window == 200_000
 
 
-def test_fetch_model_metadata_refetches_on_cache_miss(mocker) -> None:
-    from rbtr.providers import openai_codex as codex_mod
+def test_fetch_model_metadata_refetches_on_cache_miss(mocker: MockerFixture) -> None:
 
     mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
 
@@ -247,7 +249,7 @@ def test_fetch_model_metadata_refetches_on_cache_miss(mocker) -> None:
 # ── complete_login ───────────────────────────────────────────────────
 
 
-def test_complete_login_exchanges_code(mocker) -> None:
+def test_complete_login_exchanges_code(mocker: MockerFixture) -> None:
     oauth = _make_oauth()
     mocker.patch("rbtr.providers.openai_codex._exchange_code", return_value=oauth)
 

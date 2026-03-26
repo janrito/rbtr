@@ -19,7 +19,9 @@ import json
 import pytest
 from pydantic_ai.messages import (
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
+    ModelResponsePart,
     RetryPromptPart,
     TextPart,
     ThinkingPart,
@@ -46,6 +48,7 @@ from rbtr.sessions.serialise import (
     prepare_part_rows,
     reconstruct_message,
 )
+from tests.engine.test_compact import ALL_HISTORIES
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -177,9 +180,30 @@ def test_reconstruct_message_roundtrip() -> None:
     assert restored == msg
 
 
+@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+def test_serialise_roundtrip_all_history_shapes(name: str) -> None:
+    """Every message in every history shape survives serialise → reconstruct."""
+    for msg in ALL_HISTORIES[name]:
+        kind = (
+            FragmentKind.REQUEST_MESSAGE
+            if isinstance(msg, ModelRequest)
+            else FragmentKind.RESPONSE_MESSAGE
+        )
+        row = prepare_message_row(msg, context=_CTX, row_id="r")
+        part_rows = prepare_part_rows(msg, message_id="r", context=_CTX)
+        assert row.data_json is not None
+
+        restored = reconstruct_message(
+            kind,
+            row.data_json,
+            [r.data_json for r in part_rows if r.data_json],
+        )
+        assert restored == msg
+
+
 def test_dump_part_json_valid() -> None:
     """dump_part produces valid JSON for each part type."""
-    parts = [
+    parts: list[ModelRequestPart | ModelResponsePart] = [
         UserPromptPart(content="hi"),
         TextPart(content="hello"),
         ToolCallPart(tool_name="f", args={"x": 1}, tool_call_id="tc1"),

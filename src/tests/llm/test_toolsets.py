@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-# Importing agent triggers all side-effect registrations.
-from rbtr.llm.agent import agent  # noqa: F401
 from rbtr.llm.tools.common import (
     diff_toolset,
     file_toolset,
@@ -64,7 +62,7 @@ def test_tool_registration_order(
     expected_order: list[str],
 ) -> None:
     """Tools within each toolset appear in the intended presentation order."""
-    actual = list(toolset.tools.keys())  # type: ignore[union-attr]
+    actual = list(toolset.tools.keys())  # type: ignore[attr-defined]  # accessing agent internals
     assert actual == expected_order
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from tree_sitter import Language, Parser
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
 from rbtr.plugins.c import CPlugin, extract_import_meta
 
@@ -23,8 +23,9 @@ except ImportError:
 needs_grammar = pytest.mark.skipif(not _HAS_GRAMMAR, reason="tree-sitter-c not installed")
 
 
-def _extract(code: str):
+def _extract(code: str) -> list[Chunk]:
     reg = CPlugin().rbtr_register_languages()[0]
+    assert reg.query is not None
     return extract_symbols(
         "test.c",
         "abc123",
@@ -36,7 +37,7 @@ def _extract(code: str):
     )
 
 
-def _parse_import(code: str):
+def _parse_import(code: str) -> ImportMeta:
     """Parse code and extract import metadata from the first include."""
     parser = Parser(_LANG)
     tree = parser.parse(code.encode())
@@ -49,7 +50,7 @@ def _parse_import(code: str):
 # ── Registration ─────────────────────────────────────────────────────
 
 
-def test_registration():
+def test_registration() -> None:
     regs = CPlugin().rbtr_register_languages()
     assert len(regs) == 1
     reg = regs[0]
@@ -75,12 +76,12 @@ def test_registration():
     ],
     ids=["system", "local", "nested-path", "system-nested"],
 )
-def test_include_meta(code: str, expected: dict):
+def test_include_meta(code: str, expected: ImportMeta) -> None:
     assert _parse_import(code) == expected
 
 
 @needs_grammar
-def test_multiple_includes():
+def test_multiple_includes() -> None:
     chunks = _extract("""\
 #include <stdlib.h>
 #include "local.h"
@@ -104,14 +105,14 @@ def test_multiple_includes():
     ],
     ids=["basic", "void", "static"],
 )
-def test_function(code: str, expected_name: str):
+def test_function(code: str, expected_name: str) -> None:
     fns = [c for c in _extract(code) if c.kind == ChunkKind.FUNCTION]
     assert len(fns) == 1
     assert fns[0].name == expected_name
 
 
 @needs_grammar
-def test_multiple_functions():
+def test_multiple_functions() -> None:
     chunks = _extract("""\
 int foo(void) { return 0; }
 void bar(void) { }
@@ -133,7 +134,7 @@ void bar(void) { }
     ],
     ids=["struct", "enum", "typedef-struct"],
 )
-def test_class_like(code: str, expected_name: str):
+def test_class_like(code: str, expected_name: str) -> None:
     classes = [c for c in _extract(code) if c.kind == ChunkKind.CLASS]
     assert len(classes) == 1
     assert classes[0].name == expected_name
@@ -143,7 +144,7 @@ def test_class_like(code: str, expected_name: str):
 
 
 @needs_grammar
-def test_no_scope_for_c_functions():
+def test_no_scope_for_c_functions() -> None:
     """C has no classes — functions should never be scoped."""
     chunks = _extract("""\
 struct S { int x; };
@@ -158,7 +159,7 @@ int func(void) { return 0; }
 
 
 @needs_grammar
-def test_full_c_file():
+def test_full_c_file() -> None:
     chunks = _extract("""\
 #include <stdio.h>
 #include "utils.h"

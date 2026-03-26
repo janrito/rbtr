@@ -71,6 +71,9 @@ class RecoveryStrategy(StrEnum):
     FLATTEN_TOOL_EXCHANGES = "flatten_tool_exchanges"
     """Convert tool-call/result pairs to plain text (last resort)."""
 
+    STRIP_ORPHANED_RETURNS = "strip_orphaned_returns"
+    """Remove `ToolReturnPart`s with no matching `ToolCallPart`."""
+
     SANITIZE_FIELDS = "sanitize_fields"
     """Replace invalid characters in history fields (e.g. `tool_call_id`)."""
 

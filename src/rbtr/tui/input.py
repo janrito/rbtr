@@ -12,6 +12,10 @@ Architecture
                                    └──▶ InputState flags (submit, cancel, …)
 
     Main thread reads InputState + Buffer for Rich rendering.
+
+Context markers (system-injected metadata from commands) bypass the
+buffer entirely.  They live on `InputState.context_regions` and are
+rendered by the UI as a separate line above the prompt.
 """
 
 from __future__ import annotations
@@ -24,10 +28,10 @@ import sys
 import termios
 import threading
 import time
-import typing
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import StrEnum
 from importlib import resources
+from typing import Literal
 
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
@@ -36,6 +40,7 @@ from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
 from rbtr.config import config
+from rbtr.tui.key_encoding import preprocess as preprocess_keys
 
 # (value, description) — a single completion candidate.
 type Completions = list[tuple[str, str]]
@@ -260,14 +265,17 @@ def completion_suffix(value: str, context_word: str = "") -> str:
     return " "
 
 
+# Callback invoked on Ctrl-C to cancel the running task.
+type CancelCallback = Callable[[], None]
+
+# (prefix, limit) -> list of history entries, most recent first.
+type HistoryProvider = Callable[[str | None, int], list[str]]
+
+# Buffer -> (start, end) range to delete, or None.
+type DeleteRangeFn = Callable[[Buffer], tuple[int, int] | None]
+
+
 # ── Paste markers ────────────────────────────────────────────────────
-
-
-class MarkerKind(StrEnum):
-    """Distinguishes paste markers from context markers."""
-
-    PASTE = "paste"
-    CONTEXT = "context"
 
 
 @dataclass
@@ -276,7 +284,18 @@ class PasteRegion:
 
     marker: str
     content: str
-    kind: MarkerKind = MarkerKind.PASTE
+
+
+@dataclass
+class ContextRegion:
+    """System-injected context for the LLM, stored outside the buffer.
+
+    Rendered above the prompt but never inserted into the editing
+    buffer.  Dismissed via Backspace at cursor position 0.
+    """
+
+    marker: str
+    content: str
 
 
 # (start_offset, end_offset_exclusive, owning_region)
@@ -323,16 +342,18 @@ class InputState:
     active_task: bool = False
     # Called directly from the reader thread on Ctrl-C — bypasses
     # the main loop polling cycle for immediate cancellation.
-    on_cancel: typing.Callable[[], None] | None = None
+    on_cancel: CancelCallback | None = None
     # Shared history — reader uses for Up/Down, UI appends for
     # auto-dispatched commands (e.g. startup /review).
     history: list[str] = field(default_factory=list)
     # Optional callback to load history from an external store (e.g.
     # session DB).  Called once on startup by InputReader._load_history.
     # Signature: (prefix, limit) -> list[str], most recent first.
-    history_provider: typing.Callable[[str | None, int], list[str]] | None = None
+    history_provider: HistoryProvider | None = None
     # Collapsed paste regions — marker text in buffer, real content here.
     paste_regions: list[PasteRegion] = field(default_factory=list)
+    # Context regions — system-injected metadata, stored outside the buffer.
+    context_regions: list[ContextRegion] = field(default_factory=list)
 
     # ── Convenience accessors ────────────────────────────────────────
 
@@ -347,7 +368,13 @@ class InputState:
         return self.buffer.cursor_position
 
     def reset(self) -> None:
-        """Clear the buffer, paste regions, and move cursor to 0."""
+        """Clear the buffer, paste regions, context regions, and move cursor to 0."""
+        self.buffer.set_document(Document(), bypass_readonly=True)
+        self.paste_regions.clear()
+        self.context_regions.clear()
+
+    def reset_buffer(self) -> None:
+        """Clear the buffer and paste regions, but keep context regions."""
         self.buffer.set_document(Document(), bypass_readonly=True)
         self.paste_regions.clear()
 
@@ -370,14 +397,28 @@ class InputState:
         self.completions = []
         self.completion_index = -1
 
+    # ── Context region helpers ───────────────────────────────────────
+
+    def add_context(self, marker: str, content: str) -> None:
+        """Append a context region (system-injected, outside the buffer)."""
+        self.context_regions.append(ContextRegion(marker=marker, content=content))
+
+    def pop_context(self) -> ContextRegion | None:
+        """Remove and return the last context region, or `None` if empty."""
+        return self.context_regions.pop() if self.context_regions else None
+
+    def clear_context(self) -> None:
+        """Drop all context regions."""
+        self.context_regions.clear()
+
     # ── Paste marker helpers ─────────────────────────────────────────
 
     def expand_markers(self, text: str) -> str:
         """Replace every marker in *text* with its real content.
 
         Paste markers expand inline (marker → content).
-        Context markers are collected in buffer order, removed
-        from the text, and prepended as a structured block::
+        Context regions (stored outside the buffer on
+        `context_regions`) are prepended as a structured block::
 
             [Recent actions]
             - Connected to Claude.
@@ -386,35 +427,17 @@ class InputState:
             ---
             <user's actual message>
         """
-        # Separate context and paste regions.
-        context_regions: list[PasteRegion] = []
-        paste_only: list[PasteRegion] = []
-        for region in self.paste_regions:
-            if region.kind is MarkerKind.CONTEXT:
-                context_regions.append(region)
-            else:
-                paste_only.append(region)
-
         # Expand paste markers inline.
-        for region in paste_only:
+        for region in self.paste_regions:
             text = text.replace(region.marker, region.content)
 
-        if not context_regions:
+        if not self.context_regions:
             return text
 
-        # Collect context entries in order of appearance.
-        ordered = sorted(
-            context_regions,
-            key=lambda r: text.find(r.marker),
-        )
-
-        # Remove context markers from text.
-        for region in context_regions:
-            text = text.replace(region.marker, "")
         user_text = text.strip()
 
-        # Build the context prefix.
-        lines = [f"- {region.content}" for region in ordered]
+        # Context regions are in insertion order (chronological).
+        lines = [f"- {cr.content}" for cr in self.context_regions]
         prefix = "[Recent actions]\n" + "\n".join(lines)
 
         if user_text:
@@ -538,9 +561,8 @@ class InputReader:
     def __init__(self, state: InputState) -> None:
         self._state = state
         self._parser = Vt100Parser(self._on_key)
-        self._fd = sys.stdin.fileno()
         self._old_settings: list[int | list[bytes | int]] | None = None
-        self._old_sigint: object = signal.SIG_DFL
+        self._old_sigint = signal.getsignal(signal.SIGINT)
         self._thread: threading.Thread | None = None
         self._history_index: int = -1
         self._saved_text: str = ""
@@ -551,19 +573,25 @@ class InputReader:
     # ── Context manager ──────────────────────────────────────────────
 
     def __enter__(self) -> InputReader:
-        self._old_settings = termios.tcgetattr(self._fd)
+        fd = sys.stdin.fileno()
+        self._old_settings = termios.tcgetattr(fd)
         # Single atomic termios call — cbreak mode with ISIG disabled.
         # tty.setcbreak() leaves ISIG enabled (two-step was racy).
-        mode = termios.tcgetattr(self._fd)
+        mode = termios.tcgetattr(fd)
         mode[3] = mode[3] & ~(termios.ECHO | termios.ICANON | termios.ISIG | termios.IEXTEN)
         mode[6][termios.VMIN] = 1
         mode[6][termios.VTIME] = 0
-        termios.tcsetattr(self._fd, termios.TCSANOW, mode)
+        termios.tcsetattr(fd, termios.TCSANOW, mode)
         # Enable bracketed paste so pasted text arrives as a single
         # BracketedPaste event instead of individual key presses.
         # Without this, newlines in pasted content trigger the Enter
         # handler and submit the first line immediately.
-        sys.stdout.write("\x1b[?2004h")
+        #
+        # Enable xterm modifyOtherKeys mode 1 so Shift+Enter sends
+        # a distinct sequence (\x1b[27;2;13~) instead of plain \r.
+        # Mode 1 only encodes otherwise-ambiguous modified keys —
+        # unmodified keys and Ctrl+letter are unchanged.
+        sys.stdout.write("\x1b[?2004h\x1b[>4;1m")
         sys.stdout.flush()
         # Safety net: if SIGINT arrives despite ISIG being off, treat
         # it as a cancel request instead of crashing with KeyboardInterrupt.
@@ -575,12 +603,12 @@ class InputReader:
         return self
 
     def __exit__(self, *args: object) -> None:
-        # Disable bracketed paste before restoring the terminal.
-        sys.stdout.write("\x1b[?2004l")
+        # Disable bracketed paste and modifyOtherKeys.
+        sys.stdout.write("\x1b[?2004l\x1b[>4;0m")
         sys.stdout.flush()
-        signal.signal(signal.SIGINT, self._old_sigint)  # type: ignore[arg-type]  # restoring saved handler
+        signal.signal(signal.SIGINT, self._old_sigint)
         if self._old_settings is not None:
-            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_settings)
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_settings)
 
     def _sigint_handler(self, _sig: int, _frame: object) -> None:
         """Handle stray SIGINT — treat it as Ctrl+C."""
@@ -606,7 +634,7 @@ class InputReader:
         buffer.  This ensures escape sequences (e.g. `\\x1b[B` for
         Down) arrive as a single chunk and are parsed correctly.
         """
-        fd = self._fd
+        fd = sys.stdin.fileno()
         while not self._state.quit:
             try:
                 # select with a short timeout so we can flush the parser
@@ -617,7 +645,7 @@ class InputReader:
                     if not data:
                         self._state.submitted.put(None)
                         break
-                    self._parser.feed(data.decode("utf-8", errors="replace"))
+                    self._parser.feed(preprocess_keys(data.decode("utf-8", errors="replace")))
                 else:
                     self._parser.flush()
             except (OSError, ValueError):
@@ -691,8 +719,14 @@ class InputReader:
                 selected = state.completions[state.completion_index][0]
                 state.accept_completion(selected)
                 state.clear_completions()
-            text = state.expand_markers(buf.text.strip())
-            state.reset()
+            raw = buf.text.strip()
+            if raw.startswith(("/", "!")):
+                # Commands bypass marker expansion — context stays.
+                text = raw
+                state.reset_buffer()
+            else:
+                text = state.expand_markers(raw)
+                state.reset()
             state.clear_completions()
             self._history_index = -1
             if text:
@@ -782,6 +816,10 @@ class InputReader:
         # ── Editing ──────────────────────────────────────────────────
 
         if key in (Keys.Backspace, Keys.ControlH):
+            # At position 0, dismiss the last context region.
+            if buf.cursor_position == 0 and state.context_regions:
+                state.pop_context()
+                return
             # Cursor is right after (or inside) a marker → remove whole marker.
             span = state.marker_span_at(buf.cursor_position - 1)
             if span is not None:
@@ -848,7 +886,7 @@ class InputReader:
     def _snap_cursor_out_of_marker(
         state: InputState,
         *,
-        direction: typing.Literal["left", "right"],
+        direction: Literal["left", "right"],
     ) -> None:
         """If the cursor landed inside a paste marker, snap to the nearest edge."""
         span = state.marker_span_at(state.buffer.cursor_position)
@@ -886,7 +924,7 @@ class InputReader:
     def _delete_with_markers(
         state: InputState,
         buf: Buffer,
-        range_fn: typing.Callable[[Buffer], tuple[int, int] | None],
+        range_fn: DeleteRangeFn,
     ) -> None:
         """Delete a range, extending it to cover any overlapping markers."""
         rng = range_fn(buf)

@@ -20,12 +20,12 @@ Organisation:
 from __future__ import annotations
 
 import time
-from collections.abc import Generator
 from datetime import UTC, datetime
 
 import pytest
 
-from rbtr.sessions.store import Fact, SessionStore
+from rbtr.sessions.kinds import Fact
+from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
 
 from .fact_data import (
     ALL_BASELINE,
@@ -48,14 +48,6 @@ SESSION_ID_2 = "test-session-002"
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
-
-
-@pytest.fixture
-def store() -> Generator[SessionStore]:
-    """Empty in-memory store with schema applied."""
-    s = SessionStore()
-    yield s
-    s.close()
 
 
 @pytest.fixture
@@ -408,43 +400,41 @@ def test_empty_store_search(store: SessionStore) -> None:
 
 def test_migration_preserves_sessions() -> None:
     """Migrating from v2026030301 adds facts without touching fragments."""
-    from rbtr.sessions.store import _SCHEMA_VERSION
 
-    store = SessionStore()
-    # Roll back to the pre-facts schema: drop facts objects, reset version.
-    store._con.executescript(
-        "DROP TRIGGER IF EXISTS facts_ai;"
-        "DROP TRIGGER IF EXISTS facts_ad;"
-        "DROP TRIGGER IF EXISTS facts_au;"
-        "DROP TABLE IF EXISTS facts_fts;"
-        "DROP TABLE IF EXISTS facts;"
-    )
-    store._set_user_version(2026_03_03_01)
+    with SessionStore() as store:
+        # Roll back to the pre-facts schema: drop facts objects, reset version.
+        store._con.executescript(
+            "DROP TRIGGER IF EXISTS facts_ai;"
+            "DROP TRIGGER IF EXISTS facts_ad;"
+            "DROP TRIGGER IF EXISTS facts_au;"
+            "DROP TABLE IF EXISTS facts_fts;"
+            "DROP TABLE IF EXISTS facts;"
+        )
+        store._set_user_version(2026_03_03_01)
 
-    # Insert a fragment to verify it survives migration.
-    store._con.execute(
-        "INSERT INTO fragments (id, session_id, message_id, fragment_index,"
-        " fragment_kind, created_at, status)"
-        " VALUES ('f1', 's1', 'f1', 0, 'request-message',"
-        " '2026-01-01T00:00:00', 'complete')"
-    )
-    store._con.commit()
+        # Insert a fragment to verify it survives migration.
+        store._con.execute(
+            "INSERT INTO fragments (id, session_id, message_id, fragment_index,"
+            " fragment_kind, created_at, status)"
+            " VALUES ('f1', 's1', 'f1', 0, 'request-message',"
+            " '2026-01-01T00:00:00', 'complete')"
+        )
+        store._con.commit()
 
-    # Re-run setup — should apply incremental migration.
-    store._setup()
+        # Re-run setup — should apply incremental migration.
+        store._setup()
 
-    assert store._user_version() == _SCHEMA_VERSION
+        assert store._user_version() == _SCHEMA_VERSION
 
-    # Fragment survived.
-    row = store._con.execute("SELECT id FROM fragments WHERE id = 'f1'").fetchone()
-    assert row is not None
+        # Fragment survived.
+        row = store._con.execute("SELECT id FROM fragments WHERE id = 'f1'").fetchone()
+        assert row is not None
 
-    # Facts table works.
-    fact = store.insert_fact(RBTR_KEY, "Migration test fact.", SESSION_ID)
-    loaded = store.load_active_facts(RBTR_KEY)
-    assert len(loaded) == 1
-    assert loaded[0].id == fact.id
-    store.close()
+        # Facts table works.
+        fact = store.insert_fact(RBTR_KEY, "Migration test fact.", SESSION_ID)
+        loaded = store.load_active_facts(RBTR_KEY)
+        assert len(loaded) == 1
+        assert loaded[0].id == fact.id
 
 
 # ═══════════════════════════════════════════════════════════════════════

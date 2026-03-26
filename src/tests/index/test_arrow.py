@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]
 
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
@@ -211,7 +212,6 @@ def test_snapshots_to_table_empty_list() -> None:
 
 def test_chunks_roundtrip_duckdb() -> None:
     """chunks_to_table output can be registered and queried in DuckDB."""
-    import duckdb
 
     table = chunks_to_table([_FUNC_CHUNK, _CLASS_CHUNK])
     con = duckdb.connect(":memory:")
@@ -225,7 +225,6 @@ def test_chunks_roundtrip_duckdb() -> None:
 
 def test_edges_roundtrip_duckdb() -> None:
     """edges_to_table output can be registered and queried in DuckDB."""
-    import duckdb
 
     table = edges_to_table([_CALL_EDGE, _IMPORT_EDGE], "head_sha")
     con = duckdb.connect(":memory:")
@@ -239,7 +238,6 @@ def test_edges_roundtrip_duckdb() -> None:
 
 def test_snapshots_roundtrip_duckdb() -> None:
     """snapshots_to_table output can be registered and queried in DuckDB."""
-    import duckdb
 
     rows = [("sha1", "a.py", "b1"), ("sha1", "b.py", "b2")]
     table = snapshots_to_table(rows)

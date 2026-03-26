@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.indexing import _build_index
 from rbtr.engine.types import TaskType
 from rbtr.events import (
@@ -16,8 +18,9 @@ from rbtr.events import (
     Output,
 )
 from rbtr.models import BranchTarget
+from tests.helpers import drain
 
-from .conftest import drain, wait_for_index
+from .conftest import wait_for_index
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +44,7 @@ def review_engine(repo_engine: Engine) -> Engine:
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=repo.head.peel(pygit2.Commit).commit_time,
+        updated_at=datetime.fromtimestamp(repo.head.peel(pygit2.Commit).commit_time, tz=UTC),
     )
     return engine
 
@@ -142,7 +145,7 @@ def test_index_warns_missing_grammars(
         head_branch="feature",
         base_commit="main",
         head_commit="feature",
-        updated_at=repo.head.peel(pygit2.Commit).commit_time,
+        updated_at=datetime.fromtimestamp(repo.head.peel(pygit2.Commit).commit_time, tz=UTC),
     )
 
     _build_index(engine)

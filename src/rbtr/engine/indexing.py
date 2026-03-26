@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
@@ -14,6 +13,7 @@ from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
 from rbtr.models import SnapshotTarget
 from rbtr.plugins.manager import get_manager
+from rbtr.workspace import resolve_path
 
 if TYPE_CHECKING:
     from .core import Engine
@@ -29,7 +29,10 @@ def run_index(engine: Engine) -> None:
     index builds; tools that need the index are hidden until
     `IndexReady` is emitted.
     """
+    if engine._index_thread is not None:
+        engine._index_thread.join(timeout=30)
     t = threading.Thread(target=_build_index, args=(engine,), daemon=True)
+    engine._index_thread = t
     t.start()
 
 
@@ -46,7 +49,7 @@ def _build_index(engine: Engine) -> None:
     head_ref = target.head_commit
 
     # Open (or reuse) the DuckDB store.
-    db_path = Path(config.index.db_dir) / "index.duckdb"
+    db_path = resolve_path(config.index.db_dir) / "index.duckdb"
     store = IndexStore(db_path)
     engine.state.index = store
     engine.state.index_ready = False

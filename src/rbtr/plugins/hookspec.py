@@ -106,6 +106,9 @@ from rbtr.index.models import Chunk, ImportMeta
 if TYPE_CHECKING:
     from tree_sitter import Node
 
+type ImportExtractor = Callable[[Node], ImportMeta] | None
+"""Type alias for the optional import-metadata extractor callback."""
+
 PROJECT_NAME = "rbtr"
 
 hookspec = pluggy.HookspecMarker(PROJECT_NAME)
@@ -242,7 +245,7 @@ class LanguageRegistration:
     grammar_module: str | None = None
     grammar_entry: str = "language"
     query: str | None = None
-    import_extractor: Callable[[Node], ImportMeta] | None = None
+    import_extractor: ImportExtractor = None
     scope_types: frozenset[str] = field(default=DEFAULT_SCOPE_TYPES)
     chunker: Callable[[str, str, str], list[Chunk]] | None = None
 

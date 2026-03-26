@@ -11,8 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 from rbtr.github.client import _line_to_position, _position_to_line
+from rbtr.models import DiffSide
 
 # ── Shared diff data ─────────────────────────────────────────────────
 
@@ -23,7 +25,7 @@ class HunkPoint:
 
     position: int
     line: int
-    side: str
+    side: DiffSide
 
 
 @dataclass(frozen=True)
@@ -46,11 +48,11 @@ DIFF_FIXTURES: list[DiffFixture] = [
         id="new-file",
         diff_hunk=("@@ -0,0 +1,5 @@\n+import os\n+import sys\n+\n+def main():\n+    pass"),
         points=(
-            HunkPoint(position=1, line=1, side="RIGHT"),
-            HunkPoint(position=2, line=2, side="RIGHT"),
-            HunkPoint(position=3, line=3, side="RIGHT"),
-            HunkPoint(position=4, line=4, side="RIGHT"),
-            HunkPoint(position=5, line=5, side="RIGHT"),
+            HunkPoint(position=1, line=1, side=DiffSide.RIGHT),
+            HunkPoint(position=2, line=2, side=DiffSide.RIGHT),
+            HunkPoint(position=3, line=3, side=DiffSide.RIGHT),
+            HunkPoint(position=4, line=4, side=DiffSide.RIGHT),
+            HunkPoint(position=5, line=5, side=DiffSide.RIGHT),
         ),
     ),
     # 2. Deleted file — every line is a deletion.
@@ -58,9 +60,9 @@ DIFF_FIXTURES: list[DiffFixture] = [
         id="deleted-file",
         diff_hunk=("@@ -1,3 +0,0 @@\n-# old module\n-import legacy\n-legacy.run()"),
         points=(
-            HunkPoint(position=1, line=1, side="LEFT"),
-            HunkPoint(position=2, line=2, side="LEFT"),
-            HunkPoint(position=3, line=3, side="LEFT"),
+            HunkPoint(position=1, line=1, side=DiffSide.LEFT),
+            HunkPoint(position=2, line=2, side=DiffSide.LEFT),
+            HunkPoint(position=3, line=3, side=DiffSide.LEFT),
         ),
     ),
     # 3. Simple replacement — context + deletion + addition + context.
@@ -82,11 +84,11 @@ DIFF_FIXTURES: list[DiffFixture] = [
             # "-    for item …"        12        deletion
             # "+    for item …"             12   addition
             # "         result…"       13   13   context
-            HunkPoint(position=1, line=10, side="RIGHT"),  # context
-            HunkPoint(position=2, line=11, side="RIGHT"),  # context
-            HunkPoint(position=3, line=12, side="LEFT"),  # deletion
-            HunkPoint(position=4, line=12, side="RIGHT"),  # addition
-            HunkPoint(position=5, line=13, side="RIGHT"),  # context
+            HunkPoint(position=1, line=10, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=11, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=3, line=12, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=4, line=12, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=5, line=13, side=DiffSide.RIGHT),  # context
         ),
     ),
     # 4. Multi-line deletion — lines removed without replacement.
@@ -107,11 +109,11 @@ DIFF_FIXTURES: list[DiffFixture] = [
             # "- debug_log('b')"    22        deletion
             # "- debug_log('c')"    23        deletion
             # " return True"        24   21   context
-            HunkPoint(position=1, line=20, side="RIGHT"),  # context
-            HunkPoint(position=2, line=21, side="LEFT"),  # deletion
-            HunkPoint(position=3, line=22, side="LEFT"),  # deletion
-            HunkPoint(position=4, line=23, side="LEFT"),  # deletion
-            HunkPoint(position=5, line=21, side="RIGHT"),  # context
+            HunkPoint(position=1, line=20, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=21, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=3, line=22, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=4, line=23, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=5, line=21, side=DiffSide.RIGHT),  # context
         ),
     ),
     # 5. Multi-line addition — new block inserted.
@@ -134,12 +136,12 @@ DIFF_FIXTURES: list[DiffFixture] = [
             # "+ backoff…"               8    addition
             # "+"                         9    addition (blank line)
             # "     name…"          6    10   context
-            HunkPoint(position=1, line=5, side="RIGHT"),  # context
-            HunkPoint(position=2, line=6, side="RIGHT"),  # addition
-            HunkPoint(position=3, line=7, side="RIGHT"),  # addition
-            HunkPoint(position=4, line=8, side="RIGHT"),  # addition
-            HunkPoint(position=5, line=9, side="RIGHT"),  # addition
-            HunkPoint(position=6, line=10, side="RIGHT"),  # context
+            HunkPoint(position=1, line=5, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=6, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=3, line=7, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=4, line=8, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=5, line=9, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=6, line=10, side=DiffSide.RIGHT),  # context
         ),
     ),
     # 6. Interleaved changes — deletions and additions mixed with context.
@@ -169,15 +171,15 @@ DIFF_FIXTURES: list[DiffFixture] = [
             # " ) -> Response:"         43   44   context
             # "- return _get(…)"        44        deletion
             # "+ return _get(…)"             45   addition
-            HunkPoint(position=1, line=40, side="RIGHT"),  # context
-            HunkPoint(position=2, line=41, side="LEFT"),  # deletion
-            HunkPoint(position=3, line=42, side="LEFT"),  # deletion
-            HunkPoint(position=4, line=41, side="RIGHT"),  # addition
-            HunkPoint(position=5, line=42, side="RIGHT"),  # addition
-            HunkPoint(position=6, line=43, side="RIGHT"),  # addition
-            HunkPoint(position=7, line=44, side="RIGHT"),  # context
-            HunkPoint(position=8, line=44, side="LEFT"),  # deletion
-            HunkPoint(position=9, line=45, side="RIGHT"),  # addition
+            HunkPoint(position=1, line=40, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=41, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=3, line=42, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=4, line=41, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=5, line=42, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=6, line=43, side=DiffSide.RIGHT),  # addition
+            HunkPoint(position=7, line=44, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=8, line=44, side=DiffSide.LEFT),  # deletion
+            HunkPoint(position=9, line=45, side=DiffSide.RIGHT),  # addition
         ),
     ),
     # 7. No-newline marker at end of file.
@@ -192,10 +194,10 @@ DIFF_FIXTURES: list[DiffFixture] = [
             "\\ No newline at end of file"
         ),
         points=(
-            HunkPoint(position=1, line=1, side="RIGHT"),  # context
-            HunkPoint(position=2, line=2, side="LEFT"),  # deletion
+            HunkPoint(position=1, line=1, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=2, side=DiffSide.LEFT),  # deletion
             # position 3 is "\ No newline" — skipped
-            HunkPoint(position=3, line=2, side="RIGHT"),  # addition
+            HunkPoint(position=3, line=2, side=DiffSide.RIGHT),  # addition
             # position 4 is "\ No newline" — skipped
         ),
     ),
@@ -204,8 +206,8 @@ DIFF_FIXTURES: list[DiffFixture] = [
         id="short-header",
         diff_hunk="@@ -1 +1,2 @@\n first_line\n+inserted",
         points=(
-            HunkPoint(position=1, line=1, side="RIGHT"),  # context
-            HunkPoint(position=2, line=2, side="RIGHT"),  # addition
+            HunkPoint(position=1, line=1, side=DiffSide.RIGHT),  # context
+            HunkPoint(position=2, line=2, side=DiffSide.RIGHT),  # addition
         ),
     ),
     # 9. Large offset — hunk deep in a big file.
@@ -224,10 +226,10 @@ DIFF_FIXTURES: list[DiffFixture] = [
             # "+ logger.debug(…)"            511  addition
             # " hits += 1"             501   512  context
             # " total += 1"            502   513  context
-            HunkPoint(position=1, line=510, side="RIGHT"),
-            HunkPoint(position=2, line=511, side="RIGHT"),
-            HunkPoint(position=3, line=512, side="RIGHT"),
-            HunkPoint(position=4, line=513, side="RIGHT"),
+            HunkPoint(position=1, line=510, side=DiffSide.RIGHT),
+            HunkPoint(position=2, line=511, side=DiffSide.RIGHT),
+            HunkPoint(position=3, line=512, side=DiffSide.RIGHT),
+            HunkPoint(position=4, line=513, side=DiffSide.RIGHT),
         ),
     ),
     # 10. Real hunk from this repo (client.py logging addition).
@@ -243,12 +245,12 @@ DIFF_FIXTURES: list[DiffFixture] = [
             " from collections import Counter"
         ),
         points=(
-            HunkPoint(position=1, line=2, side="RIGHT"),
-            HunkPoint(position=2, line=3, side="RIGHT"),
-            HunkPoint(position=3, line=4, side="RIGHT"),
-            HunkPoint(position=4, line=5, side="RIGHT"),  # +import logging
-            HunkPoint(position=5, line=6, side="RIGHT"),
-            HunkPoint(position=6, line=7, side="RIGHT"),
+            HunkPoint(position=1, line=2, side=DiffSide.RIGHT),
+            HunkPoint(position=2, line=3, side=DiffSide.RIGHT),
+            HunkPoint(position=3, line=4, side=DiffSide.RIGHT),
+            HunkPoint(position=4, line=5, side=DiffSide.RIGHT),  # +import logging
+            HunkPoint(position=5, line=6, side=DiffSide.RIGHT),
+            HunkPoint(position=6, line=7, side=DiffSide.RIGHT),
         ),
     ),
 ]
@@ -261,9 +263,9 @@ def _fixture_ids() -> list[str]:
     return [f.id for f in DIFF_FIXTURES]
 
 
-def _all_points() -> list[pytest.param]:
+def _all_points() -> list[ParameterSet]:
     """Expand fixtures into parametrize entries with descriptive ids."""
-    out: list[pytest.param] = []
+    out: list[ParameterSet] = []
     for f in DIFF_FIXTURES:
         for p in f.points:
             out.append(
@@ -344,19 +346,19 @@ def test_roundtrip_position_line_position(
 
 
 def test_empty_hunk_returns_zero() -> None:
-    assert _position_to_line("") == (0, "RIGHT")
+    assert _position_to_line("") == (0, DiffSide.RIGHT)
 
 
 def test_malformed_header_returns_zero() -> None:
-    assert _position_to_line("not a hunk\n+added") == (0, "RIGHT")
+    assert _position_to_line("not a hunk\n+added") == (0, DiffSide.RIGHT)
 
 
 def test_line_not_in_hunk_returns_none() -> None:
     hunk = "@@ -1,2 +1,2 @@\n first\n-second"
-    assert _line_to_position(hunk, 999, "RIGHT") is None
+    assert _line_to_position(hunk, 999, DiffSide.RIGHT) is None
 
 
 def test_wrong_side_returns_none() -> None:
     hunk = "@@ -1,2 +1,2 @@\n first\n+added"
     # Line 2 is on RIGHT (addition), not LEFT.
-    assert _line_to_position(hunk, 2, "LEFT") is None
+    assert _line_to_position(hunk, 2, DiffSide.LEFT) is None

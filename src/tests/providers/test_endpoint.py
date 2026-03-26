@@ -1,9 +1,12 @@
 """Tests for rbtr.providers.endpoint — custom OpenAI-compatible endpoints."""
 
+from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock
 
+import openai
+import openai.types
 import pytest
+from pytest_mock import MockerFixture
 
 from rbtr.exceptions import RbtrError
 from rbtr.providers.endpoint import (
@@ -12,11 +15,15 @@ from rbtr.providers.endpoint import (
     build_model,
     fetch_model_metadata,
     list_endpoints,
+    list_models,
     load_endpoint,
     remove_endpoint,
     save_endpoint,
     validate_name,
 )
+
+type MockOpenAIModel = openai.types.Model
+type MockOpenAIClient = openai.OpenAI
 
 # ── validate_name ────────────────────────────────────────────────────
 
@@ -94,23 +101,23 @@ def test_save_invalid_name_raises() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _clear_metadata_cache():
+def _clear_metadata_cache() -> Generator[None]:
     """Clear the metadata cache between tests."""
     _metadata_cache.clear()
     yield
     _metadata_cache.clear()
 
 
-def _mock_models_endpoint(mocker, models: list[MagicMock]) -> MagicMock:
+def _mock_models_endpoint(mocker: MockerFixture, models: list[MockOpenAIModel]) -> MockOpenAIClient:
     """Patch `openai.OpenAI` so `client.models.list()` returns *models*.
 
     `list_models` accesses `.data` on the page object, so we need
     both `.data` and iteration to work.
     """
-    page = MagicMock()
+    page = mocker.MagicMock()
     page.data = models
     page.__iter__ = lambda self: iter(models)
-    mock_client = MagicMock()
+    mock_client = mocker.MagicMock()
     mock_client.models.list.return_value = page
     return mocker.patch("openai.OpenAI", return_value=mock_client)
 
@@ -118,12 +125,12 @@ def _mock_models_endpoint(mocker, models: list[MagicMock]) -> MagicMock:
 def test_fetch_model_metadata_extracts_context_length(
     creds_path: Path,
     config_path: Path,
-    mocker,
+    mocker: MockerFixture,
 ) -> None:
     """context_length from /models metadata → ModelMetadata."""
     save_endpoint("myep", "http://localhost/v1", "")
 
-    model = MagicMock()
+    model = mocker.MagicMock()
     model.id = "some-model"
     model.model_extra = {"metadata": {"context_length": 196608}}
     _mock_models_endpoint(mocker, [model])
@@ -135,11 +142,11 @@ def test_fetch_model_metadata_extracts_context_length(
 def test_fetch_model_metadata_caches_result(
     creds_path: Path,
     config_path: Path,
-    mocker,
+    mocker: MockerFixture,
 ) -> None:
     save_endpoint("myep", "http://localhost/v1", "")
 
-    model = MagicMock()
+    model = mocker.MagicMock()
     model.id = "some-model"
     model.model_extra = {"metadata": {"context_length": 128000}}
     mock_cls = _mock_models_endpoint(mocker, [model])
@@ -147,17 +154,17 @@ def test_fetch_model_metadata_caches_result(
     fetch_model_metadata("myep", "some-model")
     fetch_model_metadata("myep", "some-model")
 
-    mock_cls.assert_called_once()  # only one API call despite two fetches
+    mock_cls.assert_called_once()  # type: ignore[attr-defined]  # only one API call despite two fetches
 
 
 def test_fetch_model_metadata_returns_none_when_no_context_length(
     creds_path: Path,
     config_path: Path,
-    mocker,
+    mocker: MockerFixture,
 ) -> None:
     save_endpoint("myep", "http://localhost/v1", "")
 
-    model = MagicMock()
+    model = mocker.MagicMock()
     model.id = "some-model"
     model.model_extra = {"metadata": {}}
     _mock_models_endpoint(mocker, [model])
@@ -172,17 +179,16 @@ def test_fetch_model_metadata_returns_none_for_unknown_endpoint() -> None:
 def test_list_models_populates_metadata_cache(
     creds_path: Path,
     config_path: Path,
-    mocker,
+    mocker: MockerFixture,
 ) -> None:
     """list_models piggybacks metadata caching — no extra HTTP call."""
-    from rbtr.providers.endpoint import list_models
 
     save_endpoint("myep", "http://localhost/v1", "")
 
-    m1 = MagicMock()
+    m1 = mocker.MagicMock()
     m1.id = "model-a"
     m1.model_extra = {"metadata": {"context_length": 32000}}
-    m2 = MagicMock()
+    m2 = mocker.MagicMock()
     m2.id = "model-b"
     m2.model_extra = {"metadata": {"context_length": 128000}}
     mock_cls = _mock_models_endpoint(mocker, [m1, m2])
@@ -192,7 +198,7 @@ def test_list_models_populates_metadata_cache(
     # Both models should be cached — no additional API call needed.
     assert fetch_model_metadata("myep", "model-a") == ModelMetadata(context_window=32000)
     assert fetch_model_metadata("myep", "model-b") == ModelMetadata(context_window=128000)
-    mock_cls.assert_called_once()
+    mock_cls.assert_called_once()  # type: ignore[attr-defined]  # mock attrs on type alias
 
 
 # ── Endpoint provider name ───────────────────────────────────────────
@@ -211,4 +217,4 @@ def test_build_model_provider_uses_endpoint_name(
     save_endpoint("fireworks", "https://api.fireworks.ai/inference/v1", "test-key")
     model = build_model("fireworks", "accounts/fireworks/models/llama-v3-70b")
 
-    assert model._provider.name == "fireworks"  # not "openai"
+    assert model._provider.name == "fireworks"  # type: ignore[attr-defined]  # internal pydantic-ai attr

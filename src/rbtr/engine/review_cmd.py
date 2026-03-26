@@ -335,8 +335,10 @@ def _print_review_target(engine: Engine) -> None:
         engine._out("No review target selected. Use /review to select one.")
         return
     match target:
-        case PRTarget(number=number, title=title, base_branch=base, head_branch=head):
+        case PRTarget(number=number, title=title, body=body, base_branch=base, head_branch=head):
             engine._out(f"Reviewing PR #{number}: {title} ({base} → {head})")
+            if body:
+                engine._markdown(body)
         case BranchTarget(base_branch=base, head_branch=head):
             engine._out(f"Reviewing branch: {base} → {head}")
         case SnapshotTarget(ref_label=label):

@@ -19,6 +19,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+_BANNER = r"""
+        ██        ██
+       ░██       ░██
+ ██████░██      ██████ ██████
+░░██░░█░██████ ░░░██░ ░░██░░█
+ ░██ ░ ░██░░░██  ░██   ░██ ░
+ ░██   ░██  ░██  ░██   ░██
+░███   ░██████   ░░██ ░███
+░░░    ░░░░░      ░░  ░░░
+
+"""
+
 
 def run_setup(engine: Engine) -> None:
     """Discover the repository, authenticate providers, load preferences."""
@@ -36,6 +48,10 @@ def run_setup(engine: Engine) -> None:
     engine.state.repo = repo
     engine.state.owner = owner
     engine.state.repo_name = repo_name
+
+    for line in _BANNER.splitlines():
+        engine._out(line)
+
     engine._out(f"Repository: {owner}/{repo_name}")
 
     if creds.github_token:

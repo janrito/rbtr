@@ -30,19 +30,25 @@ import importlib.resources
 import logging
 import sqlite3
 import threading
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
-from pydantic_ai.messages import ModelMessage, ModelResponse, ModelResponsePart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ModelResponsePart
 from uuid_utils import uuid7
 
-from rbtr.constants import RBTR_DIR
 from rbtr.sessions.incidents import Incident
-from rbtr.sessions.kinds import Fragment, FragmentKind, FragmentStatus, SessionContext
+from rbtr.sessions.kinds import (
+    Fact,
+    Fragment,
+    FragmentKind,
+    FragmentStatus,
+    SessionContext,
+    SessionSummary,
+)
 from rbtr.sessions.overhead import Overhead
 from rbtr.sessions.serialise import (
+    dump_header,
     dump_part,
     prepare_incident_row,
     prepare_input_row,
@@ -69,12 +75,11 @@ from rbtr.sessions.stats import (
 
 log = logging.getLogger(__name__)
 
-SESSIONS_DB_PATH = RBTR_DIR / "sessions.db"
 
 # Date-based schema version: YYYYMMDD0R where R is a release
 # counter for multiple migrations on the same day.  Fits in
 # SQLite's 32-bit PRAGMA user_version (max 2_147_483_647).
-_SCHEMA_VERSION = 2026_03_08_01
+_SCHEMA_VERSION = 2026_03_20_01
 
 # ── SQL loader ───────────────────────────────────────────────────────
 
@@ -100,12 +105,14 @@ _SEARCH_HISTORY_SQL = _load_sql("search_history.sql")
 _SESSION_HISTORY_SQL = _load_sql("session_history.sql")
 _GET_CREATED_AT_SQL = _load_sql("get_created_at.sql")
 _COMPLETE_MESSAGE_SQL = _load_sql("complete_message.sql")
+_FIRST_KEPT_TS_SQL = _load_sql("first_kept_timestamp.sql")
 _FIND_LATEST_SUMMARY_SQL = _load_sql("find_latest_summary.sql")
 _RESET_COMPACTION_SQL = _load_sql("reset_compaction.sql")
 _HAS_MESSAGES_AFTER_SQL = _load_sql("has_messages_after.sql")
 _DELETE_MESSAGE_SQL = _load_sql("delete_message.sql")
+_FINALIZE_REQUEST_HEADER_SQL = _load_sql("finalize_request_header.sql")
+_FINALIZE_REQUEST_COMPLETE_SQL = _load_sql("finalize_request_complete.sql")
 _SESSION_STARTED_AT_SQL = _load_sql("session_started_at.sql")
-_MIGRATE_2026030301_SQL = _load_sql("migrate_2026030301_to_2026030801.sql")
 _HAS_REPAIR_INCIDENT_SQL = _load_sql("has_repair_incident.sql")
 
 # ── FTS5 helpers ─────────────────────────────────────────────────────
@@ -143,38 +150,6 @@ _FACT_COUNTS_SQL = _load_sql("fact_counts.sql")
 _FACT_SCOPES_SQL = _load_sql("fact_scopes.sql")
 
 _SEARCH_FACTS_FTS_SQL = _load_sql("search_facts_fts.sql")
-
-
-# ── Result types ─────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True, slots=True)
-class SessionSummary:
-    """Lightweight session listing — no message bodies."""
-
-    session_id: str
-    session_label: str | None
-    last_active: str
-    message_count: int
-    total_cost: float
-    model_name: str | None
-    review_target: str | None
-    repo_owner: str | None
-    repo_name: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Fact:
-    """A single cross-session memory fact."""
-
-    id: str
-    scope: str
-    content: str
-    source_session_id: str
-    created_at: str
-    last_confirmed_at: str
-    confirm_count: int
-    superseded_by: str | None = None
 
 
 # ── ResponseWriter ───────────────────────────────────────────────────
@@ -293,6 +268,7 @@ class SessionStore:
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is not None:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._db_path: Path | None = Path(db_path) if db_path is not None else None
         uri = str(db_path) if db_path is not None else ":memory:"
         self._con = sqlite3.connect(uri, check_same_thread=False)
         self._con.row_factory = sqlite3.Row
@@ -327,11 +303,17 @@ class SessionStore:
         """Run migrations from *from_version* to `_SCHEMA_VERSION`.
 
         Known migrations are applied incrementally.  Unknown older
-        versions are wiped and recreated.
+        versions are wiped and recreated.  Migration functions live
+        in `sessions.migrations`.
         """
+        from rbtr.sessions.migrations import backup, migrate_2026030301, migrate_2026030801
+
+        backup(self._db_path)
         if from_version == 2026_03_03_01:
-            log.info("sessions: migrating v%d → v%d (add facts)", from_version, _SCHEMA_VERSION)
-            self._con.executescript(_MIGRATE_2026030301_SQL)
+            migrate_2026030301(self._con)
+            from_version = 2026_03_08_01
+        if from_version == 2026_03_08_01:
+            migrate_2026030801(self._con)
             self._set_user_version(_SCHEMA_VERSION)
             return
         log.info("sessions: wiping v%d DB, recreating as v%d", from_version, _SCHEMA_VERSION)
@@ -600,6 +582,19 @@ class SessionStore:
             self._con.execute(_INSERT_FRAGMENT_SQL, dataclasses.astuple(row))
         return ResponseWriter(store=self, message_id=row_id)
 
+    def finalize_request(self, message_id: str, request: ModelRequest) -> None:
+        """Finalize an in-progress request saved by `save_messages`.
+
+        Updates the header's `data_json` with the post-mutation
+        request (after pydantic_ai's `_prepare_request` has set
+        `timestamp`, `run_id`, and `instructions`) and marks all
+        rows for this message as `complete`.
+        """
+        header_json = dump_header(request)
+        with self._lock, self._con:
+            self._con.execute(_FINALIZE_REQUEST_HEADER_SQL, [header_json, message_id])
+            self._con.execute(_FINALIZE_REQUEST_COMPLETE_SQL, [message_id])
+
     # ── Compaction ───────────────────────────────────────────────────
 
     def compact_session(
@@ -644,13 +639,26 @@ class SessionStore:
             *prepare_part_rows(summary, message_id=summary_id, context=ctx),
         ]
 
-        # Use the earliest compacted message's created_at for the
-        # summary so it sorts before the kept messages.
-        first_id = compact_ids[0]
-        row = self._con.execute(_GET_CREATED_AT_SQL, [first_id]).fetchone()
-        if row is not None:
-            earliest = row["created_at"]
-            summary_rows = [dataclasses.replace(r, created_at=earliest) for r in summary_rows]
+        # Place the summary just before the first kept message.
+        # Using the earliest compacted timestamp can collide with
+        # non-compacted messages that share it (e.g. a ModelResponse
+        # that wasn't included in old_ids).  Instead, find the
+        # first kept message's timestamp and subtract 1 µs.
+        placeholders = ",".join("?" for _ in compact_ids)
+        sql = _FIRST_KEPT_TS_SQL.replace("/*compact_ids*/", placeholders)
+        row = self._con.execute(sql, [session_id, *compact_ids]).fetchone()
+        if row is not None and row["ts"]:
+            kept_ts = datetime.fromisoformat(row["ts"])
+            summary_ts = (kept_ts - timedelta(microseconds=1)).isoformat()
+            summary_rows = [dataclasses.replace(r, created_at=summary_ts) for r in summary_rows]
+        else:
+            # Fallback: use the earliest compacted message's timestamp.
+            first_id = compact_ids[0]
+            fallback = self._con.execute(_GET_CREATED_AT_SQL, [first_id]).fetchone()
+            if fallback is not None:
+                summary_rows = [
+                    dataclasses.replace(r, created_at=fallback["created_at"]) for r in summary_rows
+                ]
 
         with self._lock, self._con:
             self._con.executemany(

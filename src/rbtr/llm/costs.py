@@ -1,11 +1,8 @@
-"""LLM usage reading and recording.
+"""LLM cost extraction and session usage recording.
 
 Reads cost, token counts, and context-window metadata from
-PydanticAI `ModelResponse` objects.  Used by the conversation
-pipeline (`stream.py`), compaction, and fact extraction.
-
-Distinct from `rbtr.usage` which is a pure accumulator with no
-LLM / pydantic_ai dependencies.
+PydanticAI `ModelResponse` objects and records them on the
+session's `SessionUsage` accumulator.
 """
 
 from __future__ import annotations
@@ -59,8 +56,6 @@ def record_run_usage(
     for msg in new_messages:
         if not isinstance(msg, ModelResponse) or not msg.model_name:
             continue
-        # Each ModelResponse carries per-request usage — the last one
-        # is the most recent prompt size (what we display as context %).
         last_input_tokens = msg.usage.input_tokens
         try:
             price = msg.cost()
@@ -71,8 +66,6 @@ def record_run_usage(
         except (AssertionError, LookupError, ValueError):
             pass
 
-    # Prefer model metadata (endpoint config or genai-prices lookup)
-    # over the value from msg.cost(), which may not know the model.
     meta_context_window = model_context_window(ctx.state.model_name)
     if meta_context_window is not None:
         context_window = meta_context_window

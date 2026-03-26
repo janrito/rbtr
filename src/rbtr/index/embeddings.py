@@ -15,12 +15,13 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rbtr import log
 from rbtr.config import config
 
 if TYPE_CHECKING:
     from llama_cpp import Llama
 
-log = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 # ── llama.cpp log redirect ───────────────────────────────────────────
@@ -52,7 +53,7 @@ def _install_llama_log_callback() -> None:
     ) -> None:
         msg = text.decode(errors="replace").rstrip() if text else ""
         if msg:
-            log.debug("llama.cpp: %s", msg)
+            _log.debug("llama.cpp: %s", msg)
 
     _llama_log_cb_ref = _cb
     llama_log_set(_cb, ctypes.c_void_p())
@@ -65,6 +66,7 @@ def _download(repo_id: str, filename: str, cache_dir: str) -> str:
     """Download a file from HuggingFace Hub, returning local path."""
     from huggingface_hub import hf_hub_download  # heavy startup cost
 
+    log.remove_stream_handlers("huggingface_hub")
     # token=False: the embedding model repo is public — explicitly
     # opt out of auth to suppress the "unauthenticated requests" warning.
     return hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=cache_dir, token=False)
@@ -74,6 +76,7 @@ def _list_repo(repo_id: str) -> list[str]:
     """List files in a HuggingFace repo."""
     from huggingface_hub import list_repo_files  # heavy startup cost
 
+    log.remove_stream_handlers("huggingface_hub")
     return list(list_repo_files(repo_id))
 
 
@@ -90,7 +93,7 @@ def _resolve_model_path() -> Path:
     - `<org>/<repo>` — picks the first `.gguf` file in the repo.
     """
     model_id = config.index.embedding_model
-    cache_dir = config.index.model_cache_dir
+    cache_dir = str(Path(config.user_dir) / "models")
 
     parts = model_id.split("/")
     match len(parts):
@@ -107,7 +110,7 @@ def _resolve_model_path() -> Path:
             )
             raise ValueError(msg)
 
-    log.info("Resolving embedding model %s/%s", repo, filename)
+    _log.info("Resolving embedding model %s/%s", repo, filename)
     path = _download(repo, filename, cache_dir)
     return Path(path)
 
@@ -124,7 +127,7 @@ def _default_gguf_filename(repo: str) -> str:
 def _load_model() -> Llama:
     """Load the embedding model, downloading if necessary."""
     model_path = _resolve_model_path()
-    log.info("Loading embedding model from %s", model_path)
+    _log.info("Loading embedding model from %s", model_path)
 
     # Install callback before Llama() — ggml_metal_init runs during
     # construction and would otherwise dump to stdout/stderr.

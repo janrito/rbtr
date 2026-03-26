@@ -16,7 +16,9 @@ from pygit2.enums import SortMode
 from rbtr.git.filters import is_binary, is_path_ignored
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+type _PathMatcher = Callable[[str, str], bool]
 
 
 # ── Data types ───────────────────────────────────────────────────────
@@ -309,11 +311,14 @@ def diff_refs(
     base_ref: str,
     head_ref: str,
     *,
-    path: str = "",
+    pattern: str = "",
+    match_fn: _PathMatcher | None = None,
 ) -> DiffResult:
     """Compute a diff between two refs.
 
-    When *path* is non-empty, restricts the diff to that file.
+    When *pattern* is non-empty, restricts the diff to matching
+    files.  *match_fn* overrides the default exact-equality check
+    (e.g. to support glob pathspecs).
 
     Raises:
         KeyError: If either ref cannot be resolved.
@@ -321,14 +326,15 @@ def diff_refs(
     base_commit = resolve_commit(repo, base_ref)
     head_commit = resolve_commit(repo, head_ref)
     d = repo.diff(base_commit, head_commit)
-    return _build_diff_result(d, path)
+    return _build_diff_result(d, pattern, match_fn)
 
 
 def diff_single(
     repo: pygit2.Repository,
     ref: str,
     *,
-    path: str = "",
+    pattern: str = "",
+    match_fn: _PathMatcher | None = None,
 ) -> DiffResult:
     """Diff a single commit against its parent.
 
@@ -347,20 +353,28 @@ def diff_single(
         raise ValueError(msg)
     parent = parent_obj.peel(pygit2.Commit)
     d = repo.diff(parent, commit)
-    return _build_diff_result(d, path)
+    return _build_diff_result(d, pattern, match_fn)
 
 
-def _build_diff_result(d: pygit2.Diff, path: str) -> DiffResult:
+def _build_diff_result(
+    d: pygit2.Diff,
+    pattern: str,
+    match_fn: _PathMatcher | None = None,
+) -> DiffResult:
     """Build a `DiffResult` from a pygit2 Diff.
 
-    When *path* is given but has no changes, returns a `DiffResult`
-    with an empty `patch_lines` list and zeroed stats.
+    When *pattern* is non-empty, filters patches to matching files.
+    *match_fn* is a `(path, pattern) -> bool` callable — if not
+    provided, exact file-path equality is used.  When no patches
+    match, returns a `DiffResult` with empty `patch_lines`.
     """
-    if path:
+    if pattern:
+        _match = match_fn or (lambda p, pat: p == pat)
         patches = [
             p
             for p in d
-            if p is not None and (p.delta.old_file.path == path or p.delta.new_file.path == path)
+            if p is not None
+            and (_match(p.delta.old_file.path, pattern) or _match(p.delta.new_file.path, pattern))
         ]
         if not patches:
             return DiffResult(

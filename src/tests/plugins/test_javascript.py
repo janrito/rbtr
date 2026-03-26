@@ -8,9 +8,11 @@ package is not installed.
 from __future__ import annotations
 
 import pytest
+from tree_sitter import Language
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.treesitter import extract_symbols
+from rbtr.plugins.hookspec import ImportExtractor, LanguageRegistration
 from rbtr.plugins.manager import get_manager
 
 # ── Grammar availability ─────────────────────────────────────────────
@@ -27,71 +29,78 @@ skip_no_ts = pytest.mark.skipif(not _has_ts, reason="tree-sitter-typescript not 
 
 
 @pytest.fixture
-def js_grammar():
+def js_grammar() -> Language:
     g = _mgr.load_grammar("javascript")
     assert g is not None
     return g
 
 
 @pytest.fixture
-def js_reg():
+def js_reg() -> LanguageRegistration:
     reg = _mgr.get_registration("javascript")
     assert reg is not None
     return reg
 
 
 @pytest.fixture
-def js_query(js_reg):
+def js_query(js_reg: LanguageRegistration) -> str:
     assert js_reg.query is not None
     return js_reg.query
 
 
 @pytest.fixture
-def js_extractor(js_reg):
+def js_extractor(js_reg: LanguageRegistration) -> ImportExtractor:
     assert js_reg.import_extractor is not None
     return js_reg.import_extractor
 
 
 @pytest.fixture
-def js_scope_types(js_reg):
+def js_scope_types(js_reg: LanguageRegistration) -> frozenset[str]:
     return js_reg.scope_types
 
 
 @pytest.fixture
-def ts_grammar():
+def ts_grammar() -> Language:
     g = _mgr.load_grammar("typescript")
     assert g is not None
     return g
 
 
 @pytest.fixture
-def ts_reg():
+def ts_reg() -> LanguageRegistration:
     reg = _mgr.get_registration("typescript")
     assert reg is not None
     return reg
 
 
 @pytest.fixture
-def ts_query(ts_reg):
+def ts_query(ts_reg: LanguageRegistration) -> str:
     assert ts_reg.query is not None
     return ts_reg.query
 
 
 @pytest.fixture
-def ts_extractor(ts_reg):
+def ts_extractor(ts_reg: LanguageRegistration) -> ImportExtractor:
     assert ts_reg.import_extractor is not None
     return ts_reg.import_extractor
 
 
 @pytest.fixture
-def ts_scope_types(ts_reg):
+def ts_scope_types(ts_reg: LanguageRegistration) -> frozenset[str]:
     return ts_reg.scope_types
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _extract(source, grammar, query_str, extractor, scope_types, file_path="src/app.js"):
+def _extract(
+    source: str,
+    grammar: Language,
+    query_str: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/app.js",
+) -> list[Chunk]:
     return extract_symbols(
         file_path,
         "sha1",
@@ -103,14 +112,28 @@ def _extract(source, grammar, query_str, extractor, scope_types, file_path="src/
     )
 
 
-def _symbols(source, grammar, query_str, extractor, scope_types, file_path="src/app.js"):
+def _symbols(
+    source: str,
+    grammar: Language,
+    query_str: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/app.js",
+) -> list[tuple[str, str, str]]:
     return [
         (c.kind, c.name, c.scope)
         for c in _extract(source, grammar, query_str, extractor, scope_types, file_path)
     ]
 
 
-def _imports(source, grammar, query_str, extractor, scope_types, file_path="src/app.js"):
+def _imports(
+    source: str,
+    grammar: Language,
+    query_str: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/app.js",
+) -> list[Chunk]:
     return [
         c
         for c in _extract(source, grammar, query_str, extractor, scope_types, file_path)
@@ -126,24 +149,24 @@ def _imports(source, grammar, query_str, extractor, scope_types, file_path="src/
 
 
 @skip_no_js
-def test_js_registration_exists(js_reg) -> None:
+def test_js_registration_exists(js_reg: LanguageRegistration) -> None:
     assert js_reg.id == "javascript"
 
 
 @skip_no_js
-def test_js_extensions(js_reg) -> None:
+def test_js_extensions(js_reg: LanguageRegistration) -> None:
     assert ".js" in js_reg.extensions
     assert ".jsx" in js_reg.extensions
     assert ".mjs" in js_reg.extensions
 
 
 @skip_no_js
-def test_js_grammar_module(js_reg) -> None:
+def test_js_grammar_module(js_reg: LanguageRegistration) -> None:
     assert js_reg.grammar_module == "tree_sitter_javascript"
 
 
 @skip_no_js
-def test_js_scope_types_contain_class_declaration(js_reg) -> None:
+def test_js_scope_types_contain_class_declaration(js_reg: LanguageRegistration) -> None:
     assert "class_declaration" in js_reg.scope_types
 
 
@@ -151,13 +174,23 @@ def test_js_scope_types_contain_class_declaration(js_reg) -> None:
 
 
 @skip_no_js
-def test_js_function_declaration(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_function_declaration(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     syms = _symbols("function greet() {}\n", js_grammar, js_query, js_extractor, js_scope_types)
     assert ("function", "greet", "") in syms
 
 
 @skip_no_js
-def test_js_arrow_function(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_arrow_function(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         "const add = (a, b) => a + b;\n", js_grammar, js_query, js_extractor, js_scope_types
     )
@@ -165,7 +198,12 @@ def test_js_arrow_function(js_grammar, js_query, js_extractor, js_scope_types) -
 
 
 @skip_no_js
-def test_js_arrow_function_block_body(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_arrow_function_block_body(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         """\
 const fetch = () => {
@@ -181,7 +219,12 @@ const fetch = () => {
 
 
 @skip_no_js
-def test_js_multiple_functions(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_multiple_functions(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     src = """\
 function a() {}
 function b() {}
@@ -201,13 +244,23 @@ const c = () => {};
 
 
 @skip_no_js
-def test_js_class(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_class(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     syms = _symbols("class User {}\n", js_grammar, js_query, js_extractor, js_scope_types)
     assert ("class", "User", "") in syms
 
 
 @skip_no_js
-def test_js_class_with_extends(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_class_with_extends(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         "class Admin extends User {}\n", js_grammar, js_query, js_extractor, js_scope_types
     )
@@ -218,7 +271,12 @@ def test_js_class_with_extends(js_grammar, js_query, js_extractor, js_scope_type
 
 
 @skip_no_js
-def test_js_import_named_single(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_named_single(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import { foo } from './models';\n", js_grammar, js_query, js_extractor, js_scope_types
     )[0]
@@ -226,7 +284,12 @@ def test_js_import_named_single(js_grammar, js_query, js_extractor, js_scope_typ
 
 
 @skip_no_js
-def test_js_import_named_multiple(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_named_multiple(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import { foo, bar } from './models';\n",
         js_grammar,
@@ -238,7 +301,12 @@ def test_js_import_named_multiple(js_grammar, js_query, js_extractor, js_scope_t
 
 
 @skip_no_js
-def test_js_import_named_from_parent(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_named_from_parent(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import { Config } from '../config';\n",
         js_grammar,
@@ -251,7 +319,10 @@ def test_js_import_named_from_parent(js_grammar, js_query, js_extractor, js_scop
 
 @skip_no_js
 def test_js_import_named_from_grandparent(
-    js_grammar, js_query, js_extractor, js_scope_types
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
 ) -> None:
     imp = _imports(
         "import { util } from '../../shared/util';\n",
@@ -267,7 +338,12 @@ def test_js_import_named_from_grandparent(
 
 
 @skip_no_js
-def test_js_import_default(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_default(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import React from 'react';\n", js_grammar, js_query, js_extractor, js_scope_types
     )[0]
@@ -275,7 +351,12 @@ def test_js_import_default(js_grammar, js_query, js_extractor, js_scope_types) -
 
 
 @skip_no_js
-def test_js_import_default_relative(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_default_relative(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import App from './App';\n", js_grammar, js_query, js_extractor, js_scope_types
     )[0]
@@ -286,7 +367,12 @@ def test_js_import_default_relative(js_grammar, js_query, js_extractor, js_scope
 
 
 @skip_no_js
-def test_js_import_namespace(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_namespace(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import * as utils from '../utils';\n", js_grammar, js_query, js_extractor, js_scope_types
     )[0]
@@ -297,7 +383,12 @@ def test_js_import_namespace(js_grammar, js_query, js_extractor, js_scope_types)
 
 
 @skip_no_js
-def test_js_import_side_effect(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_side_effect(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports("import './styles.css';\n", js_grammar, js_query, js_extractor, js_scope_types)[
         0
     ]
@@ -306,7 +397,10 @@ def test_js_import_side_effect(js_grammar, js_query, js_extractor, js_scope_type
 
 @skip_no_js
 def test_js_import_side_effect_no_extension(
-    js_grammar, js_query, js_extractor, js_scope_types
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
 ) -> None:
     imp = _imports("import './polyfills';\n", js_grammar, js_query, js_extractor, js_scope_types)[0]
     assert imp.metadata == {"module": "polyfills", "dots": "1"}
@@ -316,7 +410,12 @@ def test_js_import_side_effect_no_extension(
 
 
 @skip_no_js
-def test_js_import_package(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_package(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import express from 'express';\n", js_grammar, js_query, js_extractor, js_scope_types
     )[0]
@@ -325,7 +424,12 @@ def test_js_import_package(js_grammar, js_query, js_extractor, js_scope_types) -
 
 
 @skip_no_js
-def test_js_import_scoped_package(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_import_scoped_package(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import { render } from '@testing-library/react';\n",
         js_grammar,
@@ -342,7 +446,12 @@ def test_js_import_scoped_package(js_grammar, js_query, js_extractor, js_scope_t
 
 
 @skip_no_js
-def test_js_multiple_imports(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_multiple_imports(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     src = """\
 import React from 'react';
 import { useState } from 'react';
@@ -355,7 +464,12 @@ import { useState } from 'react';
 
 
 @skip_no_js
-def test_js_full_module(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_full_module(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     src = """\
 import { Model } from './model';
 
@@ -375,7 +489,12 @@ const destroy = () => {};
 
 
 @skip_no_js
-def test_js_empty_source(js_grammar, js_query, js_extractor, js_scope_types) -> None:
+def test_js_empty_source(
+    js_grammar: Language,
+    js_query: str,
+    js_extractor: ImportExtractor,
+    js_scope_types: frozenset[str],
+) -> None:
     chunks = _extract("", js_grammar, js_query, js_extractor, js_scope_types)
     assert chunks == []
 
@@ -388,18 +507,18 @@ def test_js_empty_source(js_grammar, js_query, js_extractor, js_scope_types) -> 
 
 
 @skip_no_ts
-def test_ts_registration_exists(ts_reg) -> None:
+def test_ts_registration_exists(ts_reg: LanguageRegistration) -> None:
     assert ts_reg.id == "typescript"
 
 
 @skip_no_ts
-def test_ts_extensions(ts_reg) -> None:
+def test_ts_extensions(ts_reg: LanguageRegistration) -> None:
     assert ".ts" in ts_reg.extensions
     assert ".tsx" in ts_reg.extensions
 
 
 @skip_no_ts
-def test_ts_grammar_entry(ts_reg) -> None:
+def test_ts_grammar_entry(ts_reg: LanguageRegistration) -> None:
     assert ts_reg.grammar_entry == "language_typescript"
 
 
@@ -407,7 +526,12 @@ def test_ts_grammar_entry(ts_reg) -> None:
 
 
 @skip_no_ts
-def test_ts_function(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_function(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         "function greet(): void {}\n", ts_grammar, ts_query, ts_extractor, ts_scope_types, "app.ts"
     )
@@ -415,7 +539,12 @@ def test_ts_function(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None
 
 
 @skip_no_ts
-def test_ts_arrow_function(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_arrow_function(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     src = "const add = (a: number, b: number): number => a + b;\n"
     syms = _symbols(src, ts_grammar, ts_query, ts_extractor, ts_scope_types, "app.ts")
     assert ("function", "add", "") in syms
@@ -425,7 +554,12 @@ def test_ts_arrow_function(ts_grammar, ts_query, ts_extractor, ts_scope_types) -
 
 
 @skip_no_ts
-def test_ts_class(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_class(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         "class Service {}\n", ts_grammar, ts_query, ts_extractor, ts_scope_types, "app.ts"
     )
@@ -433,7 +567,12 @@ def test_ts_class(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
 
 
 @skip_no_ts
-def test_ts_class_with_generics(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_class_with_generics(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     syms = _symbols(
         "class Container<T> {}\n", ts_grammar, ts_query, ts_extractor, ts_scope_types, "app.ts"
     )
@@ -444,7 +583,12 @@ def test_ts_class_with_generics(ts_grammar, ts_query, ts_extractor, ts_scope_typ
 
 
 @skip_no_ts
-def test_ts_import_named(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_import_named(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import { User } from './types';\n",
         ts_grammar,
@@ -457,7 +601,12 @@ def test_ts_import_named(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> 
 
 
 @skip_no_ts
-def test_ts_import_type(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_import_type(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     """TypeScript type-only imports should extract the same metadata."""
     imp = _imports(
         "import type { Config } from './config';\n",
@@ -471,7 +620,12 @@ def test_ts_import_type(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> N
 
 
 @skip_no_ts
-def test_ts_import_default(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_import_default(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import Express from 'express';\n",
         ts_grammar,
@@ -484,7 +638,12 @@ def test_ts_import_default(ts_grammar, ts_query, ts_extractor, ts_scope_types) -
 
 
 @skip_no_ts
-def test_ts_import_namespace(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_import_namespace(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import * as path from 'path';\n",
         ts_grammar,
@@ -497,7 +656,12 @@ def test_ts_import_namespace(ts_grammar, ts_query, ts_extractor, ts_scope_types)
 
 
 @skip_no_ts
-def test_ts_import_side_effect(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_import_side_effect(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     imp = _imports(
         "import './setup';\n", ts_grammar, ts_query, ts_extractor, ts_scope_types, "app.ts"
     )[0]
@@ -508,7 +672,12 @@ def test_ts_import_side_effect(ts_grammar, ts_query, ts_extractor, ts_scope_type
 
 
 @skip_no_ts
-def test_ts_full_module(ts_grammar, ts_query, ts_extractor, ts_scope_types) -> None:
+def test_ts_full_module(
+    ts_grammar: Language,
+    ts_query: str,
+    ts_extractor: ImportExtractor,
+    ts_scope_types: frozenset[str],
+) -> None:
     src = """\
 import { Model } from './model';
 

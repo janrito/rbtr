@@ -8,9 +8,11 @@ Skipped when tree-sitter-rust is not installed.
 from __future__ import annotations
 
 import pytest
+from tree_sitter import Language
 
-from rbtr.index.models import ChunkKind
+from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.treesitter import extract_symbols
+from rbtr.plugins.hookspec import ImportExtractor, LanguageRegistration
 from rbtr.plugins.manager import get_manager
 
 # ── Grammar availability ─────────────────────────────────────────────
@@ -24,40 +26,47 @@ pytestmark = skip_no_rust
 
 
 @pytest.fixture
-def grammar():
+def grammar() -> Language:
     g = _mgr.load_grammar("rust")
     assert g is not None
     return g
 
 
 @pytest.fixture
-def registration():
+def registration() -> LanguageRegistration:
     reg = _mgr.get_registration("rust")
     assert reg is not None
     return reg
 
 
 @pytest.fixture
-def query(registration):
+def query(registration: LanguageRegistration) -> str:
     assert registration.query is not None
     return registration.query
 
 
 @pytest.fixture
-def extractor(registration):
+def extractor(registration: LanguageRegistration) -> ImportExtractor:
     assert registration.import_extractor is not None
     return registration.import_extractor
 
 
 @pytest.fixture
-def scope_types(registration):
+def scope_types(registration: LanguageRegistration) -> frozenset[str]:
     return registration.scope_types
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _extract(source, grammar, query, extractor, scope_types, file_path="src/lib.rs"):
+def _extract(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/lib.rs",
+) -> list[Chunk]:
     return extract_symbols(
         file_path,
         "sha1",
@@ -69,14 +78,28 @@ def _extract(source, grammar, query, extractor, scope_types, file_path="src/lib.
     )
 
 
-def _symbols(source, grammar, query, extractor, scope_types, file_path="src/lib.rs"):
+def _symbols(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/lib.rs",
+) -> list[tuple[str, str, str]]:
     return [
         (c.kind, c.name, c.scope)
         for c in _extract(source, grammar, query, extractor, scope_types, file_path)
     ]
 
 
-def _imports(source, grammar, query, extractor, scope_types, file_path="src/lib.rs"):
+def _imports(
+    source: str,
+    grammar: Language,
+    query: str,
+    extractor: ImportExtractor,
+    scope_types: frozenset[str],
+    file_path: str = "src/lib.rs",
+) -> list[Chunk]:
     return [
         c
         for c in _extract(source, grammar, query, extractor, scope_types, file_path)
@@ -87,19 +110,19 @@ def _imports(source, grammar, query, extractor, scope_types, file_path="src/lib.
 # ── Registration ─────────────────────────────────────────────────────
 
 
-def test_registration_exists(registration) -> None:
+def test_registration_exists(registration: LanguageRegistration) -> None:
     assert registration.id == "rust"
 
 
-def test_extensions(registration) -> None:
+def test_extensions(registration: LanguageRegistration) -> None:
     assert ".rs" in registration.extensions
 
 
-def test_grammar_module(registration) -> None:
+def test_grammar_module(registration: LanguageRegistration) -> None:
     assert registration.grammar_module == "tree_sitter_rust"
 
 
-def test_scope_types(registration) -> None:
+def test_scope_types(registration: LanguageRegistration) -> None:
     assert "impl_item" in registration.scope_types
     assert "struct_item" in registration.scope_types
 
@@ -107,28 +130,38 @@ def test_scope_types(registration) -> None:
 # ── Function extraction ──────────────────────────────────────────────
 
 
-def test_extract_function(grammar, query, extractor, scope_types) -> None:
+def test_extract_function(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     syms = _symbols("fn hello() {}\n", grammar, query, extractor, scope_types)
     assert ("function", "hello", "") in syms
 
 
-def test_extract_function_with_params(grammar, query, extractor, scope_types) -> None:
+def test_extract_function_with_params(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = "fn add(a: i32, b: i32) -> i32 { a + b }\n"
     syms = _symbols(src, grammar, query, extractor, scope_types)
     assert ("function", "add", "") in syms
 
 
-def test_extract_pub_function(grammar, query, extractor, scope_types) -> None:
+def test_extract_pub_function(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     syms = _symbols("pub fn visible() {}\n", grammar, query, extractor, scope_types)
     assert ("function", "visible", "") in syms
 
 
-def test_extract_async_function(grammar, query, extractor, scope_types) -> None:
+def test_extract_async_function(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     syms = _symbols("async fn fetch() {}\n", grammar, query, extractor, scope_types)
     assert ("function", "fetch", "") in syms
 
 
-def test_extract_multiple_functions(grammar, query, extractor, scope_types) -> None:
+def test_extract_multiple_functions(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 fn a() {}
 fn b() {}
@@ -143,7 +176,9 @@ fn c() {}
 # ── Struct extraction ────────────────────────────────────────────────
 
 
-def test_extract_struct(grammar, query, extractor, scope_types) -> None:
+def test_extract_struct(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 struct User {
     name: String,
@@ -153,12 +188,16 @@ struct User {
     assert ("class", "User", "") in syms
 
 
-def test_extract_unit_struct(grammar, query, extractor, scope_types) -> None:
+def test_extract_unit_struct(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     syms = _symbols("struct Marker;\n", grammar, query, extractor, scope_types)
     assert ("class", "Marker", "") in syms
 
 
-def test_extract_tuple_struct(grammar, query, extractor, scope_types) -> None:
+def test_extract_tuple_struct(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     syms = _symbols("struct Point(f64, f64);\n", grammar, query, extractor, scope_types)
     assert ("class", "Point", "") in syms
 
@@ -166,7 +205,9 @@ def test_extract_tuple_struct(grammar, query, extractor, scope_types) -> None:
 # ── Enum extraction ──────────────────────────────────────────────────
 
 
-def test_extract_enum(grammar, query, extractor, scope_types) -> None:
+def test_extract_enum(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 enum Color {
     Red,
@@ -181,7 +222,9 @@ enum Color {
 # ── Impl block extraction ───────────────────────────────────────────
 
 
-def test_extract_impl(grammar, query, extractor, scope_types) -> None:
+def test_extract_impl(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 struct Svc {}
 impl Svc {
@@ -195,7 +238,9 @@ impl Svc {
     assert impl_names.count("Svc") == 2  # struct + impl
 
 
-def test_method_in_impl(grammar, query, extractor, scope_types) -> None:
+def test_method_in_impl(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 struct Svc {}
 impl Svc {
@@ -212,12 +257,16 @@ impl Svc {
 # ── Import: scoped identifier ────────────────────────────────────────
 
 
-def test_import_scoped(grammar, query, extractor, scope_types) -> None:
+def test_import_scoped(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use std::collections::HashMap;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"module": "std/collections", "names": "HashMap"}
 
 
-def test_import_deeply_nested(grammar, query, extractor, scope_types) -> None:
+def test_import_deeply_nested(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use a::b::c::d::Item;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"module": "a/b/c/d", "names": "Item"}
 
@@ -225,12 +274,16 @@ def test_import_deeply_nested(grammar, query, extractor, scope_types) -> None:
 # ── Import: crate-relative ───────────────────────────────────────────
 
 
-def test_import_crate_simple(grammar, query, extractor, scope_types) -> None:
+def test_import_crate_simple(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use crate::models::Chunk;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"module": "crate/models", "names": "Chunk"}
 
 
-def test_import_crate_with_braces(grammar, query, extractor, scope_types) -> None:
+def test_import_crate_with_braces(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use crate::models::{Chunk, Edge};\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata["module"] == "crate/models"
     assert set(imp.metadata["names"].split(",")) == {"Chunk", "Edge"}
@@ -239,17 +292,23 @@ def test_import_crate_with_braces(grammar, query, extractor, scope_types) -> Non
 # ── Import: super-relative ───────────────────────────────────────────
 
 
-def test_import_super_single(grammar, query, extractor, scope_types) -> None:
+def test_import_super_single(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use super::utils;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"names": "utils", "dots": "2"}
 
 
-def test_import_super_nested(grammar, query, extractor, scope_types) -> None:
+def test_import_super_nested(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use super::helpers::run;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"module": "helpers", "names": "run", "dots": "2"}
 
 
-def test_import_super_super(grammar, query, extractor, scope_types) -> None:
+def test_import_super_super(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use super::super::common::Config;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata["dots"] == "3"
     assert imp.metadata["module"] == "common"
@@ -259,13 +318,17 @@ def test_import_super_super(grammar, query, extractor, scope_types) -> None:
 # ── Import: scoped use list ──────────────────────────────────────────
 
 
-def test_import_use_list(grammar, query, extractor, scope_types) -> None:
+def test_import_use_list(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use std::io::{Read, Write};\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata["module"] == "std/io"
     assert set(imp.metadata["names"].split(",")) == {"Read", "Write"}
 
 
-def test_import_use_list_with_self(grammar, query, extractor, scope_types) -> None:
+def test_import_use_list_with_self(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use std::io::{self, Read};\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata["module"] == "std/io"
     assert "self" in imp.metadata["names"]
@@ -275,7 +338,9 @@ def test_import_use_list_with_self(grammar, query, extractor, scope_types) -> No
 # ── Import: bare identifier ──────────────────────────────────────────
 
 
-def test_import_bare(grammar, query, extractor, scope_types) -> None:
+def test_import_bare(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     imp = _imports("use serde;\n", grammar, query, extractor, scope_types)[0]
     assert imp.metadata == {"module": "serde"}
 
@@ -283,7 +348,9 @@ def test_import_bare(grammar, query, extractor, scope_types) -> None:
 # ── Mixed extraction ─────────────────────────────────────────────────
 
 
-def test_full_module(grammar, query, extractor, scope_types) -> None:
+def test_full_module(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     src = """\
 use std::collections::HashMap;
 use crate::models::Config;
@@ -319,6 +386,8 @@ fn main() {}
     assert ("run", "App") in methods
 
 
-def test_empty_source(grammar, query, extractor, scope_types) -> None:
+def test_empty_source(
+    grammar: Language, query: str, extractor: ImportExtractor, scope_types: frozenset[str]
+) -> None:
     chunks = _extract("", grammar, query, extractor, scope_types)
     assert chunks == []

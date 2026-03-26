@@ -16,11 +16,14 @@ The terminal's native scroll buffer holds all history. The Live region
 is kept small — only the current panel + input chrome.
 """
 
+from __future__ import annotations
+
+import json
 import queue
 import threading
 import time
-from enum import StrEnum
-from typing import ClassVar, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -33,8 +36,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import ThinkingEffort, config
-from rbtr.engine import Command, Engine, Service, TaskType
-from rbtr.engine.model_cmd import get_models
+from rbtr.engine.types import Command, Service, TaskType
 from rbtr.events import (
     CompactionFinished,
     CompactionStarted,
@@ -60,7 +62,6 @@ from rbtr.events import (
     ToolCallOutput,
     ToolCallStarted,
 )
-from rbtr.providers import PROVIDERS
 from rbtr.state import EngineState
 from rbtr.styles import (
     BG_ACTIVE,
@@ -94,10 +95,11 @@ from rbtr.tui.footer import _format_count, render_footer
 from rbtr.tui.input import (
     InputReader,
     InputState,
-    MarkerKind,
-    PasteRegion,
     query_shell_completions,
 )
+
+if TYPE_CHECKING:
+    from rbtr.engine.core import Engine
 
 _SPINNER = SPINNERS["dots8"]
 _SPINNER_FRAMES: list[str] = _SPINNER["frames"]  # type: ignore[assignment]  # rich Spinner dict has untyped values
@@ -147,12 +149,78 @@ def _tail_renderable_lines(
     return Group(*(_segment_line_to_text(line) for line in tail))
 
 
-class _ExpandKind(StrEnum):
-    """What type of content the Ctrl+O expand applies to."""
+# ── Head/tail truncation ─────────────────────────────────────────────
 
-    SHELL = "shell"
-    TOOL = "tool"
-    ERROR = "error"
+
+def _truncate_head_tail(
+    text: str,
+    head_max: int,
+    tail_max: int,
+) -> tuple[str, int, str]:
+    """Split *text* into head, hidden count, and tail.
+
+    Returns `(head, hidden, tail)`.  When the text fits within
+    `head_max + tail_max` lines, `hidden` is 0 and `tail` is
+    empty (all content is in `head`).
+    """
+    lines = text.splitlines()
+    total = len(lines)
+    budget = head_max + tail_max
+    if total <= budget:
+        return text, 0, ""
+    head = "\n".join(lines[:head_max])
+    tail = "\n".join(lines[-tail_max:])
+    return head, total - budget, tail
+
+
+def _render_head_tail(
+    head: str,
+    hidden: int,
+    tail: str,
+    style: str,
+    *,
+    elapsed: float | None = None,
+) -> list[RenderableType]:
+    """Build Rich renderables for a head/ellipsis/tail display.
+
+    When `hidden` is 0, returns the full text as a single `Text`.
+    When `elapsed` is set, the spacer includes the elapsed time
+    (used for streaming `ToolCallOutput`).
+    """
+    parts: list[RenderableType] = []
+    if head:
+        parts.append(Text(head, style=style))
+    if not hidden:
+        return parts
+    if elapsed is not None:
+        spacer = f"  ⋯ {hidden} more lines ({elapsed:.1f}s)"
+    else:
+        spacer = f"  ⋯ {hidden} more lines"
+    parts.append(Text(spacer, style=STYLE_DIM_ITALIC))
+    if tail:
+        parts.append(Text(tail, style=style))
+    return parts
+
+
+@dataclass
+class _LivePanel:
+    """A panel in the Live area awaiting finalization to scrollback.
+
+    Used for concurrent tool calls (N panels), shell output, and
+    error details.  Holds both the truncated and optionally the
+    expanded renderable lines so ctrl+O can swap them without
+    re-reading external state.
+    """
+
+    lines: list[RenderableType]
+    variant: Literal["toolcall", "failed", "succeeded", "response"]
+    done: bool = False
+    hidden: int = 0
+    expanded_lines: list[RenderableType] | None = None
+    # Tool-call panels only — used by ToolCallOutput to rebuild
+    # the header during streaming.  Empty for non-tool panels.
+    tool_name: str = ""
+    tool_args: str = ""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -198,18 +266,10 @@ class UI:
         self._streaming_md: RenderableType | None = None  # identity sentinel for replacement
         self._active_had_error = False
         self._active_task = False
-        self._expandable = False  # True while Ctrl+O can expand content
-        self._expand_hidden: int = 0  # number of hidden lines
-        self._expand_kind: _ExpandKind | None = None  # what to expand
-        self._tool_full_result: str = ""  # full result for tool expand
-        self._tool_header: str = ""  # "⚙ name(args)" for tool expand
-        self._error_detail: str = ""  # full diagnostic for error expand
-        self._pending_tool_name: str = ""  # tool name from last ToolCallStarted
-        self._pending_tool_args: str = ""  # tool args from last ToolCallStarted
+        self._error_detail: str = ""  # accumulated during task, used at TaskFinished
+        self._live_panels: dict[str, _LivePanel] = {}
+
         self._current_task_type: str = ""  # set from TaskStarted.task_type
-        # Last finished panel — stays in Live until finalized by next input.
-        self._pending_lines: list[RenderableType] | None = None
-        self._pending_variant: Literal["response", "succeeded", "failed", "toolcall"] = "succeeded"
         self._pending_commands: list[str] = []
         # Startup commands (e.g. /review <n>, /session resume-last) —
         # dispatched after setup, not echoed or persisted to history.
@@ -243,6 +303,10 @@ class UI:
             arg = parts[1] if len(parts) == 2 else ""
             match cmd:
                 case Command.CONNECT:
+                    from rbtr.providers import (
+                        PROVIDERS,  # deferred: avoids pydantic_ai at import time
+                    )
+
                     matches = [
                         (f"/connect {p.value}", prov.LABEL)
                         for p, prov in PROVIDERS.items()
@@ -326,6 +390,10 @@ class UI:
             if self.inp.text != snapshot:
                 return
             try:
+                from rbtr.engine.model_cmd import (
+                    get_models,  # deferred: avoids loading core.py at import time
+                )
+
                 all_models = get_models(self._engine)
             except Exception:
                 return
@@ -492,9 +560,20 @@ class UI:
 
     def _handle_event(self, event: Event) -> None:
         """Process a single engine event."""
+        # Finalize a completed tool batch when a non-tool event arrives.
+        # Exception: TaskFinished handles the batch itself (keeps it
+        # live for ctrl+O when there's no text after the tools).
+        if (
+            self._live_panels
+            and self._all_panels_done()
+            and not isinstance(
+                event, (ToolCallStarted, ToolCallOutput, ToolCallFinished, TaskFinished)
+            )
+        ):
+            self._finalize_panels()
+
         match event:
             case TaskStarted(task_type=task_type):
-                self._expandable = False
                 self._active_lines.clear()
                 self._active_had_error = False
                 self._active_task = True
@@ -553,10 +632,12 @@ class UI:
                     self._print_to_scrollback(panel)
                 self._active_lines = []
                 self._active_had_error = False
-            case ToolCallStarted(tool_name=name, args=args):
+            case ToolCallStarted(tool_name=name, args=args, tool_call_id=cid):
+                # Finalize a completed batch from a previous node.
+                if self._live_panels and self._all_panels_done():
+                    self._finalize_panels()
                 # Flush any preceding LLM text as its own panel.
                 if self._active_lines:
-                    self._finalize_pending()
                     preamble = Group(*self._active_lines)
                     panel = self._history_panel("response", preamble)
                     if self._live:
@@ -566,67 +647,57 @@ class UI:
                     self._active_had_error = False
                 self._streaming_text = ""
                 self._streaming_md = None
-                self._pending_tool_name = name
-                self._pending_tool_args = args
-            case ToolCallOutput() as tco:
-                # Live streaming display for long-running tools.
-                args = self._pending_tool_args
-                args_short = args[:80] + "…" if len(args) > 80 else args
-                header_text = f"⚙ {self._pending_tool_name}({args_short})"
-                lines: list[RenderableType] = [Text(header_text, style=MUTED)]
-                if tco.total_lines <= tco.head_lines + tco.tail_lines:
-                    # Few lines — show everything.
-                    combined = tco.head
-                    if tco.tail:
-                        combined = f"{tco.head}\n{tco.tail}" if tco.head else tco.tail
-                    if combined:
-                        lines.append(Text(combined, style=STYLE_DIM))
-                else:
-                    # Head / spacer / tail.
-                    if tco.head:
-                        lines.append(Text(tco.head, style=STYLE_DIM))
-                    hidden = tco.total_lines - tco.head_lines - tco.tail_lines
-                    spacer = f"  ⋯ {hidden} more lines ({tco.elapsed:.1f}s)"
-                    lines.append(Text(spacer, style=STYLE_DIM_ITALIC))
-                    if tco.tail:
-                        lines.append(Text(tco.tail, style=STYLE_DIM))
-                self._active_lines = lines
+                header = self._format_tool_header("⚙", name, args)
+                entry = _LivePanel(
+                    lines=[
+                        Text(header, style=MUTED),
+                        Text("  running…", style=STYLE_DIM_ITALIC),
+                    ],
+                    variant="toolcall",
+                    tool_name=name,
+                    tool_args=args,
+                )
+                self._live_panels[cid] = entry
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)
-            case ToolCallFinished(tool_name=_name, result=result, error=error):
-                # Finalize any previous pending panel (e.g. prior tool call).
-                self._finalize_pending()
-                self._active_lines = []
-                self._streaming_text = ""
-                self._streaming_md = None
-                args = self._pending_tool_args
-                args_short = args[:80] + "…" if len(args) > 80 else args
-                failed = error is not None
-                icon = "✗" if failed else "⚙"
-                body = error or result
-                body_style = STYLE_ERROR if failed else STYLE_DIM
-                header_text = f"{icon} {self._pending_tool_name}({args_short})"
-                tool_lines: list[RenderableType] = [Text(header_text, style=MUTED)]
-                hidden = 0
-                if body:
-                    body_split = body.splitlines()
-                    max_lines = config.tui.tool_max_lines
-                    if len(body_split) > max_lines:
-                        shown = "\n".join(body_split[:max_lines])
-                        hidden = len(body_split) - max_lines
-                        tool_lines.append(Text(shown, style=body_style))
-                    else:
-                        tool_lines.append(Text(body, style=body_style))
-                self._pending_lines = tool_lines
-                self._pending_variant = "failed" if failed else "toolcall"
-                if hidden:
-                    self._expandable = True
-                    self._expand_hidden = hidden
-                    self._expand_kind = _ExpandKind.TOOL
-                    self._tool_full_result = body
-                    self._tool_header = header_text
-                else:
-                    self._expandable = False
+            case ToolCallOutput(tool_call_id=cid) as tco:
+                tool = self._live_panels.get(cid)
+                if tool is not None:
+                    header_text = self._format_tool_header("⚙", tool.tool_name, tool.tool_args)
+                    hidden = tco.total_lines - tco.head_lines - tco.tail_lines
+                    tool.lines = [Text(header_text, style=MUTED)]
+                    tool.lines.extend(
+                        _render_head_tail(
+                            tco.head, hidden, tco.tail, STYLE_DIM, elapsed=tco.elapsed
+                        )
+                    )
+                    if self._live:
+                        self._live.update(self._render_view(), refresh=True)
+            case ToolCallFinished(tool_call_id=cid, result=result, error=error):
+                tool = self._live_panels.get(cid)
+                if tool is not None:
+                    failed = error is not None
+                    icon = "✗" if failed else "⚙"
+                    body = error or result
+                    body_style = STYLE_ERROR if failed else STYLE_DIM
+                    header_text = self._format_tool_header(icon, tool.tool_name, tool.tool_args)
+                    head, hidden, tail = _truncate_head_tail(
+                        body,
+                        config.tui.tool_head_lines,
+                        config.tui.tool_tail_lines,
+                    )
+                    tool.lines = [Text(header_text, style=MUTED)]
+                    tool.lines.extend(_render_head_tail(head, hidden, tail, body_style))
+                    tool.done = True
+                    tool.variant = "failed" if failed else "toolcall"
+                    tool.hidden = hidden
+                    if hidden:
+                        tool.expanded_lines = [
+                            Text(header_text, style=MUTED),
+                            Text(body, style=body_style),
+                        ]
+                    if self._live:
+                        self._live.update(self._render_view(), refresh=True)
             case IndexStarted(total_files=total):
                 self._index_phase = "parsing"
                 self._index_indexed = 0
@@ -688,7 +759,7 @@ class UI:
             case ReviewPosted():
                 pass  # Visual feedback handled by LinkOutput
             case ContextMarkerReady(marker=marker, content=content):
-                self._insert_context_marker(marker, content)
+                self.inp.add_context(marker, content)
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True
@@ -711,39 +782,83 @@ class UI:
                     and self._streaming_text
                     and not self._active_had_error
                 )
+                is_setup = self._current_task_type == "setup"
                 variant: Literal["response", "succeeded", "failed"] = (
                     "response"
-                    if is_llm_response
+                    if is_llm_response or is_setup
                     else ("failed" if self._active_had_error else "succeeded")
                 )
+                # Handle in-flight tool batch.
+                if self._live_panels:
+                    if cancelled:
+                        # Mark pending tools as cancelled.
+                        for tool in self._live_panels.values():
+                            if not tool.done:
+                                header = self._format_tool_header(
+                                    "✗", tool.tool_name, tool.tool_args
+                                )
+                                tool.lines = [
+                                    Text(header, style=MUTED),
+                                    Text("  Cancelled.", style=STYLE_WARNING),
+                                ]
+                                tool.done = True
+                                tool.variant = "failed"
+                    if self._active_lines:
+                        # Text after tools — finalize batch, then
+                        # handle the text below.
+                        self._finalize_panels()
+                    # else: keep batch live for ctrl+O.
+
                 has_active = bool(self._active_lines)
                 if has_active:
                     # There's content after the last tool call (or no
-                    # tool calls at all).  Finalize any pending tool
-                    # panel first, then handle the active content.
-                    self._finalize_pending()
+                    # tool calls at all).
                     info = self._engine._last_shell_full_output
                     if info:
-                        self._expandable = True
-                        self._expand_hidden = info[3]
-                        self._expand_kind = _ExpandKind.SHELL
-                        self._pending_lines = self._active_lines
-                        self._pending_variant = variant
+                        # Shell output — build expanded lines eagerly.
+                        stdout_full, stderr_full, returncode, hidden = info
+                        self._engine._last_shell_full_output = None
+                        echo = self._active_lines[0] if self._active_lines else None
+                        expanded: list[RenderableType] = []
+                        if echo is not None:
+                            expanded.append(echo)
+                        if stdout_full:
+                            expanded.append(Text(stdout_full, style=STYLE_DIM))
+                        if stderr_full:
+                            expanded.append(Text(stderr_full, style=STYLE_SHELL_STDERR))
+                        if returncode != 0:
+                            t = Text()
+                            t.append("Error: ", style=ERROR)
+                            t.append(f"(exit code {returncode})")
+                            expanded.append(t)
+                        self._live_panels["_task"] = _LivePanel(
+                            lines=self._active_lines,
+                            variant=variant,
+                            done=True,
+                            hidden=hidden,
+                            expanded_lines=expanded,
+                        )
                     elif self._error_detail:
+                        # Error detail — build expanded lines eagerly.
                         detail_lines = self._error_detail.count("\n") + 1
-                        self._expandable = True
-                        self._expand_hidden = detail_lines
-                        self._expand_kind = _ExpandKind.ERROR
-                        self._pending_lines = self._active_lines
-                        self._pending_variant = variant
+                        expanded_err = list(self._active_lines)
+                        expanded_err.append(Text(self._error_detail, style=STYLE_DIM))
+                        self._error_detail = ""
+                        self._live_panels["_task"] = _LivePanel(
+                            lines=self._active_lines,
+                            variant=variant,
+                            done=True,
+                            hidden=detail_lines,
+                            expanded_lines=expanded_err,
+                        )
                     else:
                         content = Group(*self._active_lines) if self._active_lines else Text("")
                         panel = self._history_panel(variant, content)
                         if self._live:
                             self._live.update(self._render_view(), refresh=True)
                         self._print_to_scrollback(panel)
-                # else: no active content — keep pending tool panel
-                # as-is so the user can Ctrl+O to expand it.
+                # else: no active content — keep live panels
+                # as-is so the user can Ctrl+O to expand.
                 self._active_lines = []
 
     # ── Rendering ────────────────────────────────────────────────────
@@ -764,6 +879,20 @@ class UI:
                 t.append(desc, style=COMPLETION_DESC)
         return t
 
+    def _render_context_line(self) -> Text | None:
+        """Render context markers as a line above the prompt.
+
+        Returns `None` when there are no context regions.
+        """
+        if not self.inp.context_regions:
+            return None
+        t = Text()
+        for i, region in enumerate(self.inp.context_regions):
+            if i > 0:
+                t.append(" ")
+            t.append(region.marker, style=CONTEXT_MARKER)
+        return t
+
     def _render_input_line(self) -> Text:
         t = Text()
         t.append("> ", style=PROMPT)
@@ -780,9 +909,9 @@ class UI:
         while i < len(buf):
             # Check if we're at a marker start.
             if span_idx < len(spans) and i == spans[span_idx][0]:
-                m_start, m_end, region = spans[span_idx]
+                m_start, m_end, _region = spans[span_idx]
                 marker_text = buf[m_start:m_end]
-                marker_style = CONTEXT_MARKER if region.kind is MarkerKind.CONTEXT else PASTE_MARKER
+                marker_style = PASTE_MARKER
                 if pos == m_start:
                     # Cursor is at the marker — highlight the leading '['.
                     t.append(marker_text[0], style=CURSOR)
@@ -815,27 +944,39 @@ class UI:
         new streaming updates appear.
         """
         top_parts: list[RenderableType] = []
-        if self._active_task:
+        if self._live_panels:
+            # Live panels — tool calls, shell output, errors.
+            any_expandable = self._all_panels_done() and any(
+                p.expanded_lines is not None for p in self._live_panels.values()
+            )
+            for panel in self._live_panels.values():
+                top_parts.append(Text(""))
+                lines = list(panel.lines)
+                bottom = 1
+                if panel.done and panel.hidden:
+                    bottom = 0
+                top_parts.append(
+                    self._history_panel(panel.variant, Group(*lines), bottom_pad=bottom)
+                )
+                if panel.done and panel.hidden:
+                    bg = self._HISTORY_STYLES[panel.variant]
+                    hint_text = f"  … {panel.hidden} more lines"
+                    if any_expandable:
+                        hint_text += " (ctrl+o to expand)"
+                    top_parts.append(
+                        Padding(Text(hint_text, style=STYLE_DIM_ITALIC), (0, 2, 1, 2), style=bg)
+                    )
+            # Also show active lines (e.g. streaming text after tools).
+            if self._active_lines:
+                top_parts.append(Text(""))
+                active = Group(*self._active_lines)
+                top_parts.append(self._history_panel("active", active))
+        elif self._active_task:
             # Margin above active panel — matches the margin that
             # _print_to_scrollback adds for finalized panels.
             top_parts.append(Text(""))
             content = Group(*self._active_lines) if self._active_lines else Text("")
             top_parts.append(self._history_panel("active", content))
-        elif self._pending_lines is not None:
-            # Last finished panel — stays in Live so Ctrl+O can rewrite it.
-            top_parts.append(Text(""))
-            content = Group(*self._pending_lines) if self._pending_lines else Text("")
-            bottom = 1
-            if self._expandable:
-                bottom = 0  # hint provides the visual closure
-            top_parts.append(self._history_panel(self._pending_variant, content, bottom_pad=bottom))
-            if self._expandable:
-                bg = self._HISTORY_STYLES[self._pending_variant]
-                hint = Text(
-                    f"  … {self._expand_hidden} more lines (ctrl+o to expand)",
-                    style=STYLE_DIM_ITALIC,
-                )
-                top_parts.append(Padding(hint, (0, 2, 1, 2), style=bg))
         if self._pending_commands:
             lines = [Text(f"  > {cmd}", style=MUTED) for cmd in self._pending_commands]
             top_parts.append(Text(""))
@@ -847,6 +988,9 @@ class UI:
             chrome_parts.append(Rule(title=f"[{DIM}]{frame}[/{DIM}]", style=RULE))
         else:
             chrome_parts.append(Rule(style=RULE))
+        context_line = self._render_context_line()
+        if context_line is not None:
+            chrome_parts.append(context_line)
         chrome_parts.append(self._render_input_line())
         if self.inp.completions:
             chrome_parts.append(self._render_completions())
@@ -909,28 +1053,43 @@ class UI:
             console.print()
         console.print(renderable)
 
-    def _finalize_pending(self) -> None:
-        """Print the pending panel to scrollback and clear it.
+    def _format_tool_header(self, icon: str, name: str, args: str) -> str:
+        """Build the `⚙ name(args)` header for a tool call.
 
-        If the panel was expandable but not expanded, the hint is baked
-        into the content as "… N more lines" (no ctrl+o).
+        For `run_command`, detects skill execution and shows
+        `[skill · source] relative_cmd` instead of raw JSON.
         """
-        if self._pending_lines is None:
-            return
-        lines = list(self._pending_lines)
-        if self._expandable:
-            lines.append(Text(f"  … {self._expand_hidden} more lines", style=STYLE_DIM_ITALIC))
-        content = Group(*lines) if lines else Text("")
-        panel = self._history_panel(self._pending_variant, content)
-        # Clear pending BEFORE printing so Live shrinks to input chrome
-        # first — otherwise the large panel in Live pushes input off-screen.
-        self._pending_lines = None
-        self._expandable = False
-        self._expand_kind = None
-        self._engine._last_shell_full_output = None
-        if self._live:
-            self._live.update(self._render_view(), refresh=True)
-        self._print_to_scrollback(panel)
+
+        # Skill-aware shortening for run_command.
+        if name == "run_command":
+            registry = self._engine.state.skill_registry
+            if registry:
+                try:
+                    command = json.loads(args).get("command", "")
+                except (json.JSONDecodeError, AttributeError):
+                    command = ""
+                if command:
+                    match = registry.match_command(command)
+                    if match:
+                        skill, rel = match
+                        return f"{icon} [{skill.name} · {skill.source}] {rel}"
+
+        args_short = args[:80] + "…" if len(args) > 80 else args
+        return f"{icon} {name}({args_short})"
+
+    def _all_panels_done(self) -> bool:
+        """True when all live panels have finished."""
+        return bool(self._live_panels) and all(p.done for p in self._live_panels.values())
+
+    def _finalize_panels(self) -> None:
+        """Move all live panels to scrollback."""
+        for panel in self._live_panels.values():
+            lines = list(panel.lines)
+            if panel.hidden:
+                lines.append(Text(f"  … {panel.hidden} more lines", style=STYLE_DIM_ITALIC))
+            content = Group(*lines) if lines else Text("")
+            self._print_to_scrollback(self._history_panel(panel.variant, content))
+        self._live_panels.clear()
 
     def _reload_history(self) -> None:
         """Reload up-arrow history from the DB."""
@@ -938,104 +1097,29 @@ class UI:
         if provider is not None:
             self.inp.history = list(reversed(provider(None, config.tui.max_history)))
 
-    def _insert_context_marker(self, marker: str, content: str) -> None:
-        """Insert a context marker at the start of the input buffer.
-
-        Appends after any existing context markers so markers read
-        left-to-right in execution order.  Shifts the cursor right
-        so in-progress typing is undisturbed.
-        """
-        region = PasteRegion(marker=marker, content=content, kind=MarkerKind.CONTEXT)
-        self.inp.paste_regions.append(region)
-
-        # Find insertion point: after the last context marker.
-        insert_pos = 0
-        for _span_start, span_end, span_region in self.inp.marker_spans():
-            if span_region.kind is MarkerKind.CONTEXT:
-                insert_pos = max(insert_pos, span_end)
-
-        text = self.inp.text
-        # Add a trailing space so markers don't merge visually.
-        new_text = text[:insert_pos] + marker + " " + text[insert_pos:]
-        old_cursor = self.inp.cursor
-        new_cursor = old_cursor + len(marker) + 1 if old_cursor >= insert_pos else old_cursor
-        self.inp.set_text(new_text, cursor=new_cursor)
-
     def _echo_input(self, text: str) -> None:
         """Print an Input HistoryPanel to native scrollback."""
-        self._finalize_pending()
+        if self._live_panels:
+            self._finalize_panels()
         t = Text()
         t.append("> ", style=PROMPT)
         t.append(text, style=INPUT_TEXT)
         self._print_to_scrollback(self._history_panel("input", t))
 
     def _expand_last_output(self) -> None:
-        """Replace the pending panel's truncated content with full output."""
-        if not self._expandable:
+        """Expand all truncated live panels, then finalize to scrollback."""
+        if not self._live_panels or not self._all_panels_done():
             return
-        match self._expand_kind:
-            case _ExpandKind.SHELL:
-                self._expand_shell()
-            case _ExpandKind.TOOL:
-                self._expand_tool()
-            case _ExpandKind.ERROR:
-                self._expand_error()
+        self._expand_panels()
 
-    def _expand_shell(self) -> None:
-        """Expand a truncated shell output panel."""
-        if self._engine._last_shell_full_output is None:
-            return
-        stdout_full, stderr_full, returncode, _ = self._engine._last_shell_full_output
-        self._engine._last_shell_full_output = None
-        self._expandable = False
-        self._expand_kind = None
-        # Rebuild content: keep the "$ command" echo (first line),
-        # replace truncated output with full output.
-        echo = self._pending_lines[0] if self._pending_lines else None
-        expanded: list[RenderableType] = []
-        if echo is not None:
-            expanded.append(echo)
-        if stdout_full:
-            expanded.append(Text(stdout_full, style=STYLE_DIM))
-        if stderr_full:
-            expanded.append(Text(stderr_full, style=STYLE_SHELL_STDERR))
-        if returncode != 0:
-            t = Text()
-            t.append("Error: ", style=ERROR)
-            t.append(f"(exit code {returncode})")
-            expanded.append(t)
-        self._pending_lines = expanded
-        # Expanded panel is finalized — move to scrollback so the full
-        # output is scrollable and Live shrinks back to input chrome.
-        self._finalize_pending()
-
-    def _expand_tool(self) -> None:
-        """Expand a truncated tool call output panel."""
-        if not self._tool_full_result:
-            return
-        self._expandable = False
-        self._expand_kind = None
-        # Determine style based on current pending variant (failed = error style).
-        text_style = STYLE_ERROR if self._pending_variant == "failed" else STYLE_DIM
-        self._pending_lines = [
-            Text(self._tool_header, style=MUTED),
-            Text(self._tool_full_result, style=text_style),
-        ]
-        self._tool_full_result = ""
-        self._tool_header = ""
-        self._finalize_pending()
-
-    def _expand_error(self) -> None:
-        """Expand an error panel with full diagnostic detail."""
-        if not self._error_detail:
-            return
-        self._expandable = False
-        self._expand_kind = None
-        lines: list[RenderableType] = list(self._pending_lines or [])
-        lines.append(Text(self._error_detail, style=STYLE_DIM))
-        self._pending_lines = lines
-        self._error_detail = ""
-        self._finalize_pending()
+    def _expand_panels(self) -> None:
+        """Expand all truncated panels, then finalize to scrollback."""
+        for panel in self._live_panels.values():
+            if panel.expanded_lines is not None:
+                panel.lines = panel.expanded_lines
+                panel.expanded_lines = None
+                panel.hidden = 0
+        self._finalize_panels()
 
     # ── Effort rotation ─────────────────────────────────────────────
 
@@ -1194,6 +1278,8 @@ def run(
     continue_session: bool = False,
 ) -> None:
     """Launch the rbtr interactive session."""
+    from rbtr.engine.core import Engine  # deferred: avoids pydantic_ai/PyGithub at import time
+
     theme = build_theme(config.theme)
     console = Console(markup=True, highlight=False, theme=theme)
     state = EngineState()

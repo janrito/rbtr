@@ -7,17 +7,18 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import pygit2
-from github import Github
 
 from rbtr.git.objects import DiffLineRanges
-from rbtr.github.client import GitHubCtx
 from rbtr.models import DiscussionEntry, Target
 from rbtr.oauth import PendingLogin
-from rbtr.providers import BuiltinProvider
 from rbtr.usage import SessionUsage
 
 if TYPE_CHECKING:
+    from github import Github
+
+    from rbtr.github.client import GitHubCtx
     from rbtr.index.store import IndexStore
+    from rbtr.providers.types import BuiltinProvider
     from rbtr.skills.registry import SkillRegistry
 
 
@@ -73,6 +74,8 @@ class EngineState:
         """Build a `GitHubCtx` from session state, or `None`."""
         if self.gh is None:
             return None
+        from rbtr.github.client import GitHubCtx  # deferred: avoids PyGithub at import time
+
         return GitHubCtx(gh=self.gh, owner=self.owner, repo_name=self.repo_name)
 
     @property

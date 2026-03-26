@@ -66,6 +66,7 @@ from rbtr.exceptions import RbtrError
 from rbtr.git.objects import DiffLineRanges, nearest_commentable_line
 from rbtr.github.client import format_comment_body
 from rbtr.models import DiffSide, InlineComment, ReviewDraft
+from rbtr.workspace import resolve_path
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def draft_transaction() -> Iterator[None]:
 
 def draft_path(pr_number: int) -> Path:
     """Return the path for a PR's draft file."""
-    return Path(config.tools.drafts_dir) / f"{pr_number}.yaml"
+    return resolve_path(config.tools.drafts_dir) / f"{pr_number}.yaml"
 
 
 def _yaml() -> YAML:

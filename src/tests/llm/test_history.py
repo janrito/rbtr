@@ -25,8 +25,10 @@ from rbtr.llm.history import (
     is_history_format_error,
     repair_dangling_tool_calls,
     sanitize_tool_call_ids,
+    strip_orphaned_tool_returns,
     validate_tool_call_args,
 )
+from tests.engine.test_compact import ALL_HISTORIES
 
 # ── demote_thinking ──────────────────────────────────────────────────
 
@@ -856,3 +858,82 @@ def test_validate_args_repairs_corrupt_gemini_streaming() -> None:
     read_part = resp.parts[0]
     assert isinstance(read_part, ToolCallPart)
     assert read_part.args == {"path": "src/main.py"}
+
+
+# ── strip_orphaned_tool_returns ──────────────────────────────────────
+
+
+def test_strip_orphaned_returns_removes_unmatched() -> None:
+    """Returns with no matching call are stripped from the request."""
+
+    history: list[ModelMessage] = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="f", content="orphan", tool_call_id="gone"),
+                UserPromptPart(content="continue"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="ok")], model_name="test"),
+    ]
+    repaired, stripped = strip_orphaned_tool_returns(history)
+
+    assert stripped == ["gone"]
+    assert len(repaired) == 2
+    # The orphaned return was stripped; UserPromptPart survives.
+    req = repaired[0]
+    assert isinstance(req, ModelRequest)
+    assert len(req.parts) == 1
+    assert isinstance(req.parts[0], UserPromptPart)
+
+
+def test_strip_orphaned_returns_preserves_matched() -> None:
+    """Returns with a matching call are kept intact."""
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="read a.py")]),
+        ModelResponse(
+            parts=[
+                TextPart(content="Reading."),
+                ToolCallPart(tool_name="read_file", args={}, tool_call_id="c1"),
+            ],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read_file", content="ok", tool_call_id="c1")]
+        ),
+        ModelResponse(parts=[TextPart(content="done")], model_name="test"),
+    ]
+    repaired, stripped = strip_orphaned_tool_returns(history)
+
+    assert stripped == []
+    assert repaired == history
+
+
+def test_strip_orphaned_returns_noop_on_clean_history() -> None:
+    """Clean history passes through unchanged."""
+
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="hello")]),
+        ModelResponse(parts=[TextPart(content="hi")], model_name="test"),
+    ]
+    repaired, stripped = strip_orphaned_tool_returns(history)
+
+    assert stripped == []
+    assert repaired == history
+
+
+# ── Smoke: all history shapes are clean ──────────────────────────────
+
+
+@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+def test_clean_history_needs_no_repair(name: str) -> None:
+    """Every ALL_HISTORIES entry passes through all repairs unchanged."""
+    history = list(ALL_HISTORIES[name])
+
+    stripped, stripped_ids = strip_orphaned_tool_returns(history)
+    assert stripped_ids == [], f"{name}: orphaned returns found"
+
+    repaired, tools, _ = repair_dangling_tool_calls(stripped)
+    assert tools == [], f"{name}: dangling calls found"
+
+    assert repaired == history, f"{name}: repair changed the history"

@@ -6,19 +6,25 @@ file.  The mock returns deterministic vectors based on input length.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
+from llama_cpp import Llama
+from pytest_mock import MockerFixture
 
+from rbtr.config import config
 from rbtr.index import embeddings
+from rbtr.index.store import IndexStore
+
+type MockLlama = Llama
 
 
 @pytest.fixture(autouse=True)
-def _reset_singleton() -> None:
+def _reset_singleton() -> Generator[None]:
     """Ensure the module-level singleton is clean for each test."""
     embeddings.reset_model()
-    yield  # type: ignore[misc]  # pytest generator fixture
+    yield
     embeddings.reset_model()
 
 
@@ -33,10 +39,12 @@ def _fake_embed(
     return [[len(t) / 100] * 4 for t in texts]
 
 
-def _make_mock_model() -> MagicMock:
-    mock = MagicMock()
-    mock.embed = MagicMock(side_effect=_fake_embed)
-    return mock
+@pytest.fixture
+def mock_model(mocker: MockerFixture) -> MockLlama:
+    """Fake llama-cpp model with deterministic embed."""
+    m = mocker.MagicMock()
+    m.embed = mocker.MagicMock(side_effect=_fake_embed)
+    return m
 
 
 # ── embed_texts ──────────────────────────────────────────────────────
@@ -47,23 +55,23 @@ def test_embed_texts_empty() -> None:
     assert result == []
 
 
-def test_embed_texts_batch(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_embed_texts_batch(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     result = embeddings.embed_texts(["hello", "world!"])
     assert len(result) == 2
     assert len(result[0]) == 4
     assert len(result[1]) == 4
     # Each text is embedded individually to avoid context overflow.
-    assert mock.embed.call_count == 2
-    mock.embed.assert_any_call("hello", normalize=True)
-    mock.embed.assert_any_call("world!", normalize=True)
+    assert mock_model.embed.call_count == 2  # type: ignore[attr-defined]  # mock attrs on type alias
+    mock_model.embed.assert_any_call("hello", normalize=True)  # type: ignore[attr-defined]  # mock attrs on type alias
+    mock_model.embed.assert_any_call("world!", normalize=True)  # type: ignore[attr-defined]  # mock attrs on type alias
 
 
-def test_embed_texts_deterministic(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_embed_texts_deterministic(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     r1 = embeddings.embed_texts(["abc"])
     embeddings.reset_model()
@@ -74,9 +82,9 @@ def test_embed_texts_deterministic(mocker: pytest.MockerFixture) -> None:
 # ── embed_text ───────────────────────────────────────────────────────
 
 
-def test_embed_text_single(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_embed_text_single(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     result = embeddings.embed_text("hello")
     assert isinstance(result, list)
@@ -86,9 +94,9 @@ def test_embed_text_single(mocker: pytest.MockerFixture) -> None:
 # ── get_model / lazy init ────────────────────────────────────────────
 
 
-def test_get_model_lazy_init(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    load = mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_get_model_lazy_init(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    load = mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     m1 = embeddings.get_model()
     m2 = embeddings.get_model()
@@ -96,9 +104,9 @@ def test_get_model_lazy_init(mocker: pytest.MockerFixture) -> None:
     load.assert_called_once()
 
 
-def test_reset_model_clears_singleton(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    load = mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_reset_model_clears_singleton(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    load = mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     embeddings.get_model()
     embeddings.reset_model()
@@ -106,37 +114,35 @@ def test_reset_model_clears_singleton(mocker: pytest.MockerFixture) -> None:
     assert load.call_count == 2
 
 
-def test_reset_model_closes_loaded_model(mocker: pytest.MockerFixture) -> None:
-    mock = _make_mock_model()
-    mock.close = mocker.MagicMock()
-    mocker.patch.object(embeddings, "_load_model", return_value=mock)
+def test_reset_model_closes_loaded_model(mock_model: MockLlama, mocker: MockerFixture) -> None:
+
+    mock_model.close = mocker.MagicMock()  # type: ignore[method-assign]  # mock attrs on type alias
+    mocker.patch.object(embeddings, "_load_model", return_value=mock_model)
 
     embeddings.get_model()
     embeddings.reset_model()
 
-    mock.close.assert_called_once_with()
+    mock_model.close.assert_called_once_with()  # type: ignore[attr-defined]  # mock attrs on type alias
 
 
 # ── _resolve_model_path ─────────────────────────────────────────────
 
 
 def test_resolve_explicit_three_part(
-    mocker: pytest.MockerFixture, config_path: Path, tmp_path: Path
+    mocker: MockerFixture, config_path: Path, tmp_path: Path
 ) -> None:
-    from rbtr.config import config
 
     fake_path = str(tmp_path / "model.gguf")
     config.index.embedding_model = "org/repo/model.gguf"
     dl = mocker.patch.object(embeddings, "_download", return_value=fake_path)
     path = embeddings._resolve_model_path()
     assert path == Path(fake_path)
-    dl.assert_called_once_with("org/repo", "model.gguf", config.index.model_cache_dir)
+    dl.assert_called_once_with("org/repo", "model.gguf", str(Path(config.user_dir) / "models"))
 
 
 def test_resolve_two_part_picks_first_gguf(
-    mocker: pytest.MockerFixture, config_path: Path, tmp_path: Path
+    mocker: MockerFixture, config_path: Path, tmp_path: Path
 ) -> None:
-    from rbtr.config import config
 
     fake_path = str(tmp_path / "weights.gguf")
     config.index.embedding_model = "org/repo"
@@ -148,19 +154,17 @@ def test_resolve_two_part_picks_first_gguf(
     dl = mocker.patch.object(embeddings, "_download", return_value=fake_path)
     path = embeddings._resolve_model_path()
     assert path == Path(fake_path)
-    dl.assert_called_once_with("org/repo", "weights.gguf", config.index.model_cache_dir)
+    dl.assert_called_once_with("org/repo", "weights.gguf", str(Path(config.user_dir) / "models"))
 
 
 def test_resolve_invalid_format_raises(config_path: Path) -> None:
-    from rbtr.config import config
 
     config.index.embedding_model = "bge-m3"
     with pytest.raises(ValueError, match="Invalid embedding_model"):
         embeddings._resolve_model_path()
 
 
-def test_resolve_two_part_no_gguf_raises(mocker: pytest.MockerFixture, config_path: Path) -> None:
-    from rbtr.config import config
+def test_resolve_two_part_no_gguf_raises(mocker: MockerFixture, config_path: Path) -> None:
 
     config.index.embedding_model = "org/repo"
     mocker.patch.object(
@@ -176,10 +180,9 @@ def test_resolve_two_part_no_gguf_raises(mocker: pytest.MockerFixture, config_pa
 
 
 def test_load_model_orchestrates_download_and_init(
-    mocker: pytest.MockerFixture, config_path: Path, tmp_path: Path
+    mocker: MockerFixture, config_path: Path, tmp_path: Path
 ) -> None:
     """_load_model resolves path, installs log callback, and constructs Llama."""
-    from rbtr.config import config
 
     fake_path = tmp_path / "model.gguf"
     fake_path.touch()
@@ -189,7 +192,7 @@ def test_load_model_orchestrates_download_and_init(
     install_cb = mocker.patch.object(embeddings, "_install_llama_log_callback")
 
     mock_llama_cls = mocker.MagicMock()
-    mock_llama_instance = _make_mock_model()
+    mock_llama_instance = mock_model
     mock_llama_cls.return_value = mock_llama_instance
     mocker.patch("rbtr.index.embeddings.Llama", mock_llama_cls, create=True)
     # Patch the deferred import inside _load_model
@@ -211,7 +214,7 @@ def test_load_model_orchestrates_download_and_init(
 # ── Thin wrappers ────────────────────────────────────────────────────
 
 
-def test_download_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
+def test_download_delegates_to_hf_hub(mocker: MockerFixture) -> None:
     """_download passes through to hf_hub_download."""
     mock_dl = mocker.MagicMock(return_value="/cached/model.gguf")
     mocker.patch.dict(
@@ -226,7 +229,7 @@ def test_download_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
     )
 
 
-def test_list_repo_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
+def test_list_repo_delegates_to_hf_hub(mocker: MockerFixture) -> None:
     """_list_repo passes through to list_repo_files."""
     mock_list = mocker.MagicMock(return_value=["a.gguf", "b.txt"])
     mocker.patch.dict(
@@ -242,14 +245,12 @@ def test_list_repo_delegates_to_hf_hub(mocker: pytest.MockerFixture) -> None:
 
 
 def test_search_by_text_embeds_and_searches(
-    mocker: pytest.MockerFixture,
+    mocker: MockerFixture,
 ) -> None:
     mock_embed = mocker.patch(
         "rbtr.index.embeddings.embed_text",
         return_value=[0.1, 0.2, 0.3],
     )
-
-    from rbtr.index.store import IndexStore
 
     store = IndexStore()
     spy = mocker.patch.object(store, "search_similar", return_value=[])

@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from rich.errors import StyleSyntaxError
 
+import rbtr.styles as s
 from rbtr.config import DarkPalette, LightPalette, PaletteConfig, ThemeConfig
 from rbtr.styles import _field_to_key, build_theme, palette_to_styles
 
@@ -39,7 +40,6 @@ def test_palette_to_styles_has_all_fields() -> None:
 
 def test_style_keys_match_constants() -> None:
     """Every theme key from `palette_to_styles` has a constant in `styles`."""
-    import rbtr.styles as s
 
     constants = {
         v
@@ -55,7 +55,7 @@ def test_style_keys_match_constants() -> None:
 
 def test_base_palette_requires_backgrounds() -> None:
     with pytest.raises(ValidationError):
-        PaletteConfig()
+        PaletteConfig()  # type: ignore[call-arg]  # testing validation of missing required fields
 
 
 def test_dark_palette_has_dark_backgrounds() -> None:

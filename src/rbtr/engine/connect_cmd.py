@@ -80,7 +80,14 @@ def _connect_provider(engine: Engine, provider: BuiltinProvider, extra: str) -> 
     """Route a builtin provider to its connect handler."""
     match provider:
         case BuiltinProvider.CLAUDE:
-            _connect_claude(engine, extra)
+            _connect_auto_oauth(
+                engine,
+                provider,
+                extra,
+                authenticate=claude_provider.authenticate,
+                begin_login=claude_provider.begin_login,
+                complete_login=claude_provider.complete_login,
+            )
             return
         case BuiltinProvider.CHATGPT:
             _connect_auto_oauth(
@@ -159,10 +166,9 @@ def _connect_auto_oauth(
 ) -> None:
     """Connect handler for OAuth providers that use a localhost callback.
 
-    Shared by ChatGPT and Google.  Handles the three-case flow:
+    Shared by Claude, ChatGPT, and Google.  Two-case flow:
       1. *extra* is non-empty → phase 2 (complete pending login)
-      2. Already connected → short-circuit
-      3. No args → phase 1 (try auto, fall back to manual on port busy)
+      2. No args → phase 1 (try auto, fall back to manual on port busy)
     """
     label = PROVIDERS[provider].LABEL
 
@@ -186,13 +192,6 @@ def _connect_auto_oauth(
             engine._check_cancel()
             engine.state.pending_logins.pop(provider, None)
             engine._warn(f"{label} connection failed: {e}")
-        return
-
-    # Already connected.
-    if PROVIDERS[provider].is_connected():
-        engine.state.connected_providers.add(provider)
-        engine._out(f"Already connected to {label}.")
-        engine._context(f"[/connect → {label}]", f"Already connected to {label}.")
         return
 
     # Phase 1: try automatic localhost callback.
@@ -226,55 +225,6 @@ def _connect_auto_oauth(
         engine._check_cancel()
         engine._clear()
         engine._warn(f"{label} connection failed: {e}")
-
-
-# ── Claude (manual-only OAuth) ───────────────────────────────────────
-
-
-def _connect_claude(engine: Engine, auth_code: str) -> None:
-    """Connect to Claude — manual copy-paste OAuth flow."""
-    prov = BuiltinProvider.CLAUDE
-    label = PROVIDERS[prov].LABEL
-
-    # Phase 2: user pasted the code#state from the browser.
-    if auth_code:
-        pending = engine.state.pending_logins.get(prov)
-        if pending is None:
-            engine._warn(f"No pending {label} login. Run /connect {prov.value} first.")
-            return
-        try:
-            code, state = claude_provider.parse_auth_code(auth_code)
-            oc = claude_provider.complete_login(code, state, pending)
-            creds.update(claude=oc)
-            engine.state.connected_providers.add(prov)
-            engine.state.pending_logins.pop(prov, None)
-            engine._out(f"Connected to {label}. LLM is ready.")
-            engine._context(f"[/connect → {label}]", f"Connected to {label}.")
-            get_models(engine)
-        except TaskCancelled:
-            raise
-        except Exception as e:
-            engine._check_cancel()
-            engine.state.pending_logins.pop(prov, None)
-            engine._warn(f"{label} connection failed: {e}")
-        return
-
-    # Already connected.
-    if PROVIDERS[prov].is_connected():
-        engine.state.connected_providers.add(prov)
-        engine._out(f"Already connected to {label}.")
-        engine._context(f"[/connect → {label}]", f"Already connected to {label}.")
-        return
-
-    # Phase 1: generate PKCE, open browser, show instructions.
-    url, pending = claude_provider.begin_login()
-    engine.state.pending_logins[prov] = pending
-
-    engine._out(f"Opening browser to sign in with your {label} account…")
-    engine._emit(LinkOutput(url=url, label="If the browser didn't open, visit"))
-    engine._out("")
-    engine._out("After authorizing, paste the code shown in the browser:")
-    engine._out(f"  /connect {prov.value} <code>")
 
 
 # ── GitHub ───────────────────────────────────────────────────────────

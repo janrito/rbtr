@@ -6,9 +6,10 @@ retrieval, and import extraction delegation.
 
 from __future__ import annotations
 
+import pluggy
 import pytest
 
-from rbtr.plugins.hookspec import LanguageRegistration, hookimpl
+from rbtr.plugins.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
 from rbtr.plugins.manager import LanguageManager, get_manager
 
 _mgr = get_manager()
@@ -305,12 +306,9 @@ def test_duplicate_id_in_single_plugin_raises() -> None:
     mgr._filename_map = {}
     mgr._grammar_cache = {}
 
-    import pluggy
-
     mgr._pm = pluggy.PluginManager("rbtr")
 
     # Avoid circular import — import spec directly.
-    from rbtr.plugins.hookspec import LanguageHookspec
 
     mgr._pm.add_hookspecs(LanguageHookspec)
     mgr._pm.register(BadPlugin())

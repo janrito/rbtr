@@ -1,9 +1,5 @@
 # AGENTS.md
 
-Agent rules. Short, imperative.
-
----
-
 ## Project
 
 - The project is **rbtr** — always lowercase.
@@ -59,10 +55,13 @@ Agent rules. Short, imperative.
   reason and a comment explaining why.
 - Never embed multi-line code in another language as string
   literals. Write it to its own file and load at runtime.
+- **No implicit string concatenation.** Use `\` line
+  continuation or triple-quoted strings for long strings.
+  Never rely on adjacent-literal concatenation.
 - Every `# type: ignore` must have a reason on the same line.
 - **Markdown-style backticks in docs.** Use single backticks
   (`` ` ``) in docstrings, comments, and documentation.
-  Never use rST double-backtick (``` `` ```) literals.
+  Never use rST double-backtick (` `` `) literals.
 - **Reference-style links for long URLs.** When an inline
   link would exceed the line-length limit, use a markdown
   reference link with the definition immediately after the
@@ -71,6 +70,8 @@ Agent rules. Short, imperative.
 
 ## Testing
 
+- **Red/green TDD.** Write a failing test first, then write
+  the code to make it pass. Run `just check` after each step.
 - **Parametrise over repetition.** One behaviour per test
   function, not one input value.
 - **Data-first test design.** Build tests around realistic

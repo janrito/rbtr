@@ -86,3 +86,51 @@ def test_populated_registry_is_truthy() -> None:
     reg = SkillRegistry()
     reg.add(_skill())
     assert reg
+
+
+# ── match_command ────────────────────────────────────────────────────
+
+
+def test_match_command_hit() -> None:
+    reg = SkillRegistry()
+    reg.add(_skill(name="brave", base_dir="/home/u/.pi/skills/brave"))
+    result = reg.match_command('/home/u/.pi/skills/brave/search.sh "query"')
+    assert result is not None
+    skill, rel = result
+    assert skill.name == "brave"
+    assert rel == 'search.sh "query"'
+
+
+def test_match_command_miss() -> None:
+    reg = SkillRegistry()
+    reg.add(_skill(name="brave", base_dir="/home/u/.pi/skills/brave"))
+    assert reg.match_command("echo hello") is None
+
+
+def test_match_command_empty_registry() -> None:
+    reg = SkillRegistry()
+    assert reg.match_command("/any/path/script.sh") is None
+
+
+def test_match_command_longest_prefix_wins() -> None:
+    """When a skill is nested inside another's base_dir, the deeper one wins."""
+    reg = SkillRegistry()
+    reg.add(_skill(name="parent", base_dir="/skills/tools", file_path="/skills/tools/SKILL.md"))
+    reg.add(
+        _skill(
+            name="child",
+            base_dir="/skills/tools/sub",
+            file_path="/skills/tools/sub/SKILL.md",
+        )
+    )
+    result = reg.match_command("/skills/tools/sub/run.sh arg")
+    assert result is not None
+    assert result[0].name == "child"
+    assert result[1] == "run.sh arg"
+
+
+def test_match_command_no_partial_dir_match() -> None:
+    """base_dir '/skills/brave' must not match '/skills/bravery/x.sh'."""
+    reg = SkillRegistry()
+    reg.add(_skill(name="brave", base_dir="/skills/brave"))
+    assert reg.match_command("/skills/bravery/x.sh") is None

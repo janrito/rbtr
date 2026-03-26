@@ -1,11 +1,8 @@
-"""Tests for context markers -- creation, insertion, cursor, expansion, and shell.
+"""Tests for context markers — expansion, shell, submit, and dismiss.
 
-Covers Phases 1-5 of the context-marker feature:
-- `MarkerKind` enum and `PasteRegion` with `kind=CONTEXT`
-- Context marker insertion into the input buffer
-- Cursor preservation when markers are inserted
-- Expansion format (single, multiple, mixed, absent)
-- Shell context markers (success, failure, truncation)
+Context markers live on `InputState.context_regions`, outside the
+editing buffer.  They are rendered above the prompt and dismissed
+via Backspace at cursor position 0.
 """
 
 from __future__ import annotations
@@ -14,49 +11,22 @@ import queue
 from collections.abc import Generator
 
 import pytest
+from prompt_toolkit.key_binding import KeyPress
+from prompt_toolkit.keys import Keys
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from rbtr.config import config
-from rbtr.engine import Engine
+from rbtr.engine.core import Engine
 from rbtr.engine.shell import _emit_shell_context
 from rbtr.engine.types import TaskType
 from rbtr.events import ContextMarkerReady, Event
 from rbtr.sessions.store import SessionStore
 from rbtr.shell_exec import ShellResult
 from rbtr.state import EngineState
-from rbtr.tui.input import InputState, MarkerKind, PasteRegion
-
-from .conftest import drain
+from rbtr.tui.input import InputReader, InputState, PasteRegion
+from tests.helpers import drain
 
 # ── Helpers ──────────────────────────────────────────────────────────
-
-
-def _inp(text: str = "", cursor: int | None = None) -> InputState:
-    state = InputState()
-    state.set_text(text, cursor=cursor)
-    return state
-
-
-def _context_region(marker: str, content: str) -> PasteRegion:
-    return PasteRegion(marker=marker, content=content, kind=MarkerKind.CONTEXT)
-
-
-def _paste_region(marker: str, content: str) -> PasteRegion:
-    return PasteRegion(marker=marker, content=content, kind=MarkerKind.PASTE)
-
-
-def _insert_context_marker(state: InputState, marker: str, content: str) -> None:
-    """Replicate the TUI's `_insert_context_marker` logic."""
-    region = PasteRegion(marker=marker, content=content, kind=MarkerKind.CONTEXT)
-    state.paste_regions.append(region)
-    insert_pos = 0
-    for _s, span_end, span_region in state.marker_spans():
-        if span_region.kind is MarkerKind.CONTEXT:
-            insert_pos = max(insert_pos, span_end)
-    text = state.text
-    new_text = text[:insert_pos] + marker + " " + text[insert_pos:]
-    old_cursor = state.cursor
-    new_cursor = old_cursor + len(marker) + 1 if old_cursor >= insert_pos else old_cursor
-    state.set_text(new_text, cursor=new_cursor)
 
 
 def _context_events(events: queue.Queue[Event]) -> list[ContextMarkerReady]:
@@ -73,154 +43,108 @@ def shell_engine() -> Generator[Engine]:
         yield eng
 
 
-# ── MarkerKind and PasteRegion with kind=CONTEXT ─────────────────────
+def test_context_not_in_marker_spans(input_state: InputState) -> None:
+    """Context regions are outside the buffer — marker_spans doesn't see them."""
+    input_state.add_context("[/model gpt-4o]", "Switched.")
+    assert input_state.marker_spans() == []
 
 
-def test_marker_kind_values() -> None:
-    assert MarkerKind.PASTE == "paste"
-    assert MarkerKind.CONTEXT == "context"
+def test_context_pop_removes_last(input_state: InputState) -> None:
+    input_state.add_context("[/review]", "Selected.")
+    input_state.add_context("[/model]", "Switched.")
+    popped = input_state.pop_context()
+    assert popped is not None
+    assert popped.marker == "[/model]"
+    assert len(input_state.context_regions) == 1
 
 
-def test_paste_region_default_kind_is_paste() -> None:
-    r = PasteRegion(marker="[pasted 5 lines]", content="data")
-    assert r.kind is MarkerKind.PASTE
+# ── Adding context does not mutate the buffer ────────────────────────
 
 
-def test_paste_region_context_kind() -> None:
-    r = _context_region("[/review → PR #42]", "Selected PR #42.")
-    assert r.kind is MarkerKind.CONTEXT
-    assert r.marker == "[/review → PR #42]"
-    assert r.content == "Selected PR #42."
+def test_add_context_empty_buffer_unchanged(input_state: InputState) -> None:
+    input_state.add_context("[/review → PR #1]", "Selected PR.")
+    assert input_state.text == ""
+    assert len(input_state.context_regions) == 1
 
 
-def test_context_region_detected_in_spans() -> None:
-    marker = "[/model gpt-4o]"
-    state = _inp(f"{marker} hello")
-    state.paste_regions.append(_context_region(marker, "Switched."))
-    spans = state.marker_spans()
-    assert len(spans) == 1
-    start, end, region = spans[0]
-    assert start == 0
-    assert end == len(marker)
-    assert region.kind is MarkerKind.CONTEXT
+def test_add_context_existing_text_unchanged(input_state: InputState) -> None:
+    input_state.set_text("hello world", cursor=5)
+    input_state.add_context("[/model → gpt-4o]", "Switched.")
+    assert input_state.text == "hello world"
+    assert input_state.cursor == 5
 
 
-def test_context_region_deletion() -> None:
-    marker = "[/model gpt-4o]"
-    state = _inp(f"{marker} hello")
-    region = _context_region(marker, "Switched.")
-    state.paste_regions.append(region)
-    state.remove_marker(region)
-    assert state.text == " hello"
-    assert state.paste_regions == []
+def test_add_context_multiple_in_order(input_state: InputState) -> None:
+    input_state.add_context("[/review → PR #1]", "PR selected.")
+    input_state.add_context("[/model → gpt-4o]", "Switched.")
+    assert len(input_state.context_regions) == 2
+    assert input_state.context_regions[0].marker == "[/review → PR #1]"
+    assert input_state.context_regions[1].marker == "[/model → gpt-4o]"
+    assert input_state.text == ""
 
 
-# ── Context marker insertion into input buffer ───────────────────────
-
-
-def test_insert_into_empty_buffer() -> None:
-    state = _inp("")
-    _insert_context_marker(state, "[/review → PR #1]", "Selected PR.")
-    assert state.text == "[/review → PR #1] "
-    assert len(state.paste_regions) == 1
-
-
-def test_insert_with_existing_text() -> None:
-    state = _inp("hello world", cursor=5)
-    _insert_context_marker(state, "[/model → gpt-4o]", "Switched.")
-    assert state.text == "[/model → gpt-4o] hello world"
-    # Cursor shifted right by marker+space.
-    assert state.cursor == 5 + len("[/model → gpt-4o]") + 1
-
-
-def test_multiple_markers_in_order() -> None:
-    state = _inp("")
-    _insert_context_marker(state, "[/review → PR #1]", "PR selected.")
-    _insert_context_marker(state, "[/model → gpt-4o]", "Switched.")
-    # Second marker appears after first (chronological order).
-    assert "[/review → PR #1]" in state.text
-    assert "[/model → gpt-4o]" in state.text
-    idx_r = state.text.find("[/review → PR #1]")
-    idx_m = state.text.find("[/model → gpt-4o]")
-    assert idx_r < idx_m
-
-
-def test_cursor_preserved_during_typing() -> None:
-    """User is typing at position 5; marker inserts at 0 without disruption."""
-    state = _inp("hello world", cursor=5)
-    _insert_context_marker(state, "[/review → PR #1]", "Selected.")
-    expected = 5 + len("[/review → PR #1]") + 1
-    assert state.cursor == expected
-    assert state.text.endswith("hello world")
+def test_add_context_cursor_preserved(input_state: InputState) -> None:
+    """User is typing at position 5; adding context doesn't move cursor."""
+    input_state.set_text("hello world", cursor=5)
+    input_state.add_context("[/review → PR #1]", "Selected.")
+    assert input_state.cursor == 5
+    assert input_state.text == "hello world"
 
 
 # ── Expansion format on submit ───────────────────────────────────────
 
 
-def test_expand_no_markers_no_prefix() -> None:
-    state = _inp("just a question")
-    assert state.expand_markers(state.text) == "just a question"
+def test_expand_no_markers_no_prefix(input_state: InputState) -> None:
+    input_state.set_text("just a question")
+    assert input_state.expand_markers(input_state.text) == "just a question"
 
 
-def test_expand_single_context_marker() -> None:
-    state = _inp("[/review → PR #42] what changed?")
-    state.paste_regions.append(_context_region("[/review → PR #42]", "Selected PR #42."))
-    result = state.expand_markers(state.text)
+def test_expand_single_context_marker(input_state: InputState) -> None:
+    input_state.set_text("what changed?")
+    input_state.add_context("[/review → PR #42]", "Selected PR #42.")
+    result = input_state.expand_markers(input_state.text)
     assert result == "[Recent actions]\n- Selected PR #42.\n\n---\nwhat changed?"
 
 
-def test_expand_multiple_context_markers() -> None:
-    state = _inp("[/review → PR #42] [/model → gpt-4o] summarise")
-    state.paste_regions.extend(
-        [
-            _context_region("[/review → PR #42]", "Selected PR #42."),
-            _context_region("[/model → gpt-4o]", "Switched model."),
-        ]
-    )
-    result = state.expand_markers(state.text)
+def test_expand_multiple_context_markers(input_state: InputState) -> None:
+    input_state.set_text("summarise")
+    input_state.add_context("[/review → PR #42]", "Selected PR #42.")
+    input_state.add_context("[/model → gpt-4o]", "Switched model.")
+    result = input_state.expand_markers(input_state.text)
     assert "[Recent actions]" in result
     assert "- Selected PR #42." in result
     assert "- Switched model." in result
     assert result.endswith("---\nsummarise")
 
 
-def test_expand_context_markers_only_no_user_text() -> None:
-    state = _inp("[/review → PR #42] ")
-    state.paste_regions.append(_context_region("[/review → PR #42]", "Selected PR #42."))
-    result = state.expand_markers(state.text)
+def test_expand_context_markers_only_no_user_text(input_state: InputState) -> None:
+    input_state.add_context("[/review → PR #42]", "Selected PR #42.")
+    result = input_state.expand_markers(input_state.text)
     assert result == "[Recent actions]\n- Selected PR #42."
 
 
-def test_expand_mixed_paste_and_context() -> None:
-    state = _inp("[/review → PR #42] see [pasted 4 lines] above")
-    state.paste_regions.extend(
-        [
-            _context_region("[/review → PR #42]", "Selected PR #42."),
-            _paste_region("[pasted 4 lines]", "a\nb\nc\nd"),
-        ]
-    )
-    result = state.expand_markers(state.text)
+def test_expand_mixed_paste_and_context(input_state: InputState) -> None:
+    input_state.set_text("see [pasted 4 lines] above")
+    input_state.add_context("[/review → PR #42]", "Selected PR #42.")
+    input_state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
+    result = input_state.expand_markers(input_state.text)
     assert result.startswith("[Recent actions]\n- Selected PR #42.\n\n---\n")
     assert "a\nb\nc\nd" in result
     assert "[pasted 4 lines]" not in result
 
 
-def test_expand_user_deletes_all_context_markers() -> None:
-    """If user deletes all context markers, message has no prefix."""
-    state = _inp("just a question")
-    assert state.expand_markers(state.text) == "just a question"
+def test_expand_user_deletes_all_context_markers(input_state: InputState) -> None:
+    """If user dismisses all context markers, message has no prefix."""
+    input_state.set_text("just a question")
+    assert input_state.expand_markers(input_state.text) == "just a question"
 
 
-def test_expand_context_order_preserved() -> None:
-    """Context entries appear in buffer order (left to right)."""
-    state = _inp("[B] [A] question")
-    state.paste_regions.extend(
-        [
-            _context_region("[B]", "Second command."),
-            _context_region("[A]", "First command."),
-        ]
-    )
-    result = state.expand_markers(state.text)
+def test_expand_context_order_preserved(input_state: InputState) -> None:
+    """Context entries appear in insertion order (chronological)."""
+    input_state.set_text("question")
+    input_state.add_context("[B]", "Second command.")
+    input_state.add_context("[A]", "First command.")
+    result = input_state.expand_markers(input_state.text)
     lines = result.split("\n")
     action_lines = [line for line in lines if line.startswith("- ")]
     assert action_lines[0] == "- Second command."
@@ -321,20 +245,122 @@ def test_emit_shell_context_truncation(
 # ── Round-trip: expanded context survives save/load ──────────────────
 
 
-def test_expanded_message_round_trips() -> None:
+def test_expanded_message_round_trips(input_state: InputState) -> None:
     """Expanded context in user messages round-trips through the store."""
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
 
-    state = _inp("[/review → PR #42] what changed?")
-    state.paste_regions.append(_context_region("[/review → PR #42]", "Selected PR #42."))
-    text = state.expand_markers(state.text)
+    input_state.set_text("what changed?")
+    input_state.add_context("[/review → PR #42]", "Selected PR #42.")
+    text = input_state.expand_markers(input_state.text)
 
-    store = SessionStore()
-    sid = "test-session"
-    store.set_context(sid)
-    msg = ModelRequest(parts=[UserPromptPart(content=text)])
-    store.save_messages(sid, [msg])
-    loaded = store.load_messages(sid)
+    with SessionStore() as store:
+        sid = "test-session"
+        store.set_context(sid)
+        msg = ModelRequest(parts=[UserPromptPart(content=text)])
+        store.save_messages(sid, [msg])
+        loaded = store.load_messages(sid)
 
-    assert len(loaded) == 1
-    assert loaded[0].parts[0].content == text  # type: ignore[union-attr]  # UserPromptPart.content
+        assert len(loaded) == 1
+        assert loaded[0].parts[0].content == text  # type: ignore[union-attr]  # UserPromptPart.content
+
+
+# ── Submit: slash/shell commands bypass marker expansion ─────────────
+
+
+def test_submit_slash_command_preserves_context(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Enter with context + `/help` submits `/help`; context survives."""
+    input_state.set_text("/help")
+    input_state.add_context("[/review]", "Selected PR.")
+
+    input_reader._on_key(KeyPress(Keys.Enter, "\r"))
+
+    submitted = input_state.submitted.get_nowait()
+    assert submitted == "/help"
+    # Context regions preserved for next input.
+    assert input_state.text == ""
+    assert len(input_state.context_regions) == 1
+    assert input_state.context_regions[0].marker == "[/review]"
+
+
+def test_submit_shell_command_preserves_context(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Enter with context + `!git status` submits it; context survives."""
+    input_state.set_text("!git status")
+    input_state.add_context("[/review]", "Selected PR.")
+
+    input_reader._on_key(KeyPress(Keys.Enter, "\r"))
+
+    submitted = input_state.submitted.get_nowait()
+    assert submitted == "!git status"
+    assert len(input_state.context_regions) == 1
+
+
+def test_submit_regular_text_expands_markers(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Enter with context regions + user text expands normally."""
+    input_state.set_text("what changed?")
+    input_state.add_context("[/review]", "Selected PR.")
+
+    input_reader._on_key(KeyPress(Keys.Enter, "\r"))
+
+    submitted = input_state.submitted.get_nowait()
+    assert "[Recent actions]" in submitted
+    assert "what changed?" in submitted
+    # Buffer fully cleared after expansion.
+    assert input_state.text == ""
+    assert input_state.paste_regions == []
+    assert input_state.context_regions == []
+
+
+# ── Backspace dismiss ────────────────────────────────────────────────
+
+
+def test_backspace_at_pos0_pops_last_context(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Backspace at cursor 0 removes the last context region."""
+    input_state.add_context("[/review]", "Selected PR.")
+    input_state.add_context("[/model]", "Switched.")
+
+    input_reader._on_key(KeyPress(Keys.Backspace, "\x7f"))
+
+    assert len(input_state.context_regions) == 1
+    assert input_state.context_regions[0].marker == "[/review]"
+
+
+def test_backspace_at_pos0_empties_context(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Backspace at cursor 0 with one region removes it."""
+    input_state.add_context("[/review]", "Selected PR.")
+
+    input_reader._on_key(KeyPress(Keys.Backspace, "\x7f"))
+
+    assert input_state.context_regions == []
+
+
+def test_backspace_at_pos0_noop_when_no_context(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Backspace at cursor 0 with no context is a no-op."""
+
+    input_reader._on_key(KeyPress(Keys.Backspace, "\x7f"))
+
+    assert input_state.text == ""
+    assert input_state.context_regions == []
+
+
+def test_backspace_with_text_does_not_dismiss(
+    input_state: InputState, input_reader: InputReader
+) -> None:
+    """Backspace with cursor inside text deletes a char, not context."""
+    input_state.set_text("abc", cursor=3)
+    input_state.add_context("[/review]", "Selected PR.")
+
+    input_reader._on_key(KeyPress(Keys.Backspace, "\x7f"))
+
+    assert input_state.text == "ab"
+    assert len(input_state.context_regions) == 1

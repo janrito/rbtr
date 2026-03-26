@@ -141,6 +141,65 @@ def truncate_output(text: str, max_lines: int) -> tuple[str, int]:
     return truncated, len(lines) - max_lines
 
 
+def truncate_for_agent(
+    text: str,
+    max_lines: int = 2000,
+    max_bytes: int = 51_200,
+) -> str:
+    """Truncate *text* to *max_lines* or *max_bytes* (whichever hits first).
+
+    When truncation is needed, keeps equal head and tail portions
+    with a divider indicating how many lines were dropped.
+    """
+    if not text:
+        return text
+
+    lines = text.splitlines()
+
+    if len(lines) <= max_lines and len(text.encode()) <= max_bytes:
+        return text
+
+    # Start with half-and-half line budget.
+    half = max_lines // 2
+    head_n = half
+    tail_n = max_lines - head_n
+
+    # Clamp to actual line count.
+    if head_n + tail_n >= len(lines):
+        head_n = len(lines) // 2
+        tail_n = len(lines) - head_n
+
+    head = lines[:head_n]
+    tail = lines[len(lines) - tail_n :] if tail_n else []
+    hidden = len(lines) - head_n - tail_n
+
+    # Shrink head until the assembled result fits the byte budget.
+    while head_n > 0:
+        divider = f"[… {hidden} lines truncated …]"
+        parts = [*head, divider, *tail]
+        assembled = "\n".join(parts)
+        if len(assembled.encode()) <= max_bytes:
+            return assembled
+        # Drop one line from the end of head.
+        head_n -= 1
+        head = lines[:head_n]
+        hidden = len(lines) - head_n - tail_n
+
+    # Head is empty — try shrinking tail.
+    while tail_n > 0:
+        divider = f"[… {hidden} lines truncated …]"
+        parts = [divider, *tail]
+        assembled = "\n".join(parts)
+        if len(assembled.encode()) <= max_bytes:
+            return assembled
+        tail_n -= 1
+        tail = lines[len(lines) - tail_n :] if tail_n else []
+        hidden = len(lines) - tail_n
+
+    # Everything truncated.
+    return f"[… {len(lines)} lines truncated …]"
+
+
 def _drain_pipe(pipe: IO[str] | None, callback: LineCallback) -> None:
     """Read available lines from a pipe without blocking."""
     if pipe is None:

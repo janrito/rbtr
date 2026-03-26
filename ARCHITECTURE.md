@@ -173,12 +173,26 @@ Sessions are a `session_id` column, not a separate table.
 
 ### Streaming writes and crash recovery
 
-`ResponseWriter` inserts parts as they stream from the
-model. Each part starts as `IN_PROGRESS` and is set to
-`COMPLETE` when the full content arrives.
+Requests and responses use the same two-phase pattern:
+insert as `IN_PROGRESS`, set to `COMPLETE` when finished.
 `load_messages()` filters `WHERE status = 'COMPLETE'`,
-so a crash mid-stream leaves no corrupt state — the
-incomplete parts are invisible on next load.
+so a crash mid-turn leaves no corrupt state — incomplete
+fragments are invisible on next load.
+
+For each model request node, the persistence order is:
+
+1. Save the request as `IN_PROGRESS` via `save_messages`.
+2. Create the response row via `begin_response`.
+3. Stream response parts (`add_part` / `finish_part`).
+4. Finalize the request (`finalize_request` — updates
+   the header with post-mutation data, sets `COMPLETE`).
+5. Finish the response (`ResponseWriter.finish`).
+
+The request row is created before the response row so its
+`created_at` is earlier. `load_messages` orders by
+`created_at`, so the request always precedes its response
+on reload — preserving the logical conversation order
+across session resume and provider switches.
 
 ### Cost and usage tracking
 
@@ -274,6 +288,15 @@ Repairs run in `_prepare_turn()` at three escalating levels:
 
 **Level 0 — structural repair (every turn):**
 
+- `strip_orphaned_tool_returns` — removes `ToolReturnPart`s
+  whose `tool_call_id` has no matching `ToolCallPart` in the
+  history. Handles legacy sessions compacted before the
+  `split_history` fix that strips orphaned parts during
+  compaction. New sessions are protected by `split_history`
+  itself; this repair exists for data written by older code.
+- `validate_tool_call_args` — repairs unparseable
+  `ToolCallPart.args` (e.g. truncated JSON from streaming)
+  to `{}`.
 - `sanitize_tool_call_ids` — replaces characters in
   `tool_call_id` values that violate provider patterns
   (e.g. Anthropic requires `^[a-zA-Z0-9_-]+$`). IDs from
@@ -385,7 +408,11 @@ After splitting, `split_history()` scans the _kept_ partition
 for orphaned tool returns — `ToolReturnPart`s whose matching
 `ToolCallPart` (by `tool_call_id`) ended up in _old_. These
 are moved to _old_ to prevent API errors from mismatched
-tool-call IDs.
+tool-call IDs. When a `ModelRequest` at a turn boundary
+contains both a `UserPromptPart` and orphaned `ToolReturnPart`s
+(the "straddling" case), the orphaned parts are stripped from
+the request — the `UserPromptPart` stays in _kept_, the
+orphaned returns are discarded.
 
 ### Safe boundary snapping
 
@@ -1487,13 +1514,16 @@ The LLM receives instructions assembled from four templates in
 | `review.md`       | Main       | Review context, principles, format  |
 | `compact.md`      | Compaction | What to preserve/drop in summaries  |
 | `index_status.md` | Main       | Index availability, tool readiness  |
+| `skills.md`       | Main       | Available skills catalog (XML)      |
 
-**Main agent** receives three `@agent.instructions` decorators:
+**Main agent** receives `@agent.instructions` decorators:
+`_provider_identity(ctx)` prepends provider-specific text
+(e.g. the identity line required by Anthropic's OAuth),
 `_system()` renders `system.md`, `_review_task(ctx)` renders
-`review.md` with live state (date, repo, PR metadata), and
-`_index_status(ctx)` renders `index_status.md` with the current
-index state and the names of tools that require it. All three
-run on every turn.
+`review.md` with live state, `_index_status(ctx)` renders
+the index state, `_memory(ctx)` injects cross-session facts,
+and `_skills(ctx)` renders the skill catalog. All run on
+every turn.
 
 **Compaction agent** is a separate tool-less `Agent` instance
 in `llm/compact.py`. It receives two
@@ -1539,11 +1569,45 @@ Tool docstrings are the single source of truth for tool
 behaviour. The prompt templates describe capabilities
 conceptually without naming tools or parameters.
 
+### Skills
+
+Skills are self-contained instruction packages (markdown +
+optional scripts) that extend the model's capabilities. They
+are compatible with the [Agent Skills standard][agent-skills],
+pi, and Claude Code.
+
+[agent-skills]: https://agentskills.io/specification
+
+**Discovery.** `load_skills()` (`skills/discovery.py`) scans
+project directories (CWD up to the project root), user
+directories, and any extra configured paths. It parses YAML
+frontmatter via `python-frontmatter` and validates against the
+spec (name format, description presence). The caller provides
+the project root — the skills package has no git dependency.
+
+**Registry.** `SkillRegistry` (`skills/registry.py`) is a
+frozen-dataclass dict wrapper. First-registered wins on name
+collision. `visible()` excludes skills with
+`disable-model-invocation`. Zero rbtr imports — pure data.
+
+**Prompt injection.** An `@agent.instructions` block calls
+`registry.visible()` and renders `prompts/skills.md` — an XML
+catalog matching the Agent Skills standard format. The model
+reads skill files on demand via `read_file`, which allows
+absolute paths within registered skill base directories.
+
+**`/skill` command.** Lists skills grouped by source or loads
+a skill by name, injecting its content as a context marker.
+Tab-completes skill names.
+
+**Lifecycle.** Discovery runs at engine startup and on
+`/reload`. The registry is stored on `EngineState`.
+
 ---
 
 ## Tools
 
-19 tools registered across five toolsets in submodules under
+20 tools registered across six toolsets in submodules under
 `llm/tools/`. Each tool receives `RunContext[AgentDeps]` and
 returns a string result.
 
@@ -1562,6 +1626,7 @@ function.
 | `diff_toolset`      | `has_diff_target` | Repo + PR or branch target         |
 | `review_toolset`    | `has_pr_target`   | PR target selected                 |
 | `workspace_toolset` | _(none)_          | Always visible                     |
+| `shell_toolset`     | `has_shell`       | `config.tools.shell.enabled`       |
 
 ### Per-tool visibility
 
@@ -1573,19 +1638,19 @@ function.
 
 ### File tools (`file_toolset`)
 
-| Tool         | Purpose                                                 |
-| ------------ | ------------------------------------------------------- |
-| `read_file`  | Read file content by path, with pagination              |
-| `grep`       | Substring search in one file, a directory, or repo-wide |
-| `list_files` | List files in the repository or a subdirectory          |
+| Tool         | Purpose                                            |
+| ------------ | -------------------------------------------------- |
+| `read_file`  | Read file content by path, with pagination         |
+| `grep`       | Substring search, scoped by pathspec glob/prefix   |
+| `list_files` | List files, scoped by pathspec glob/prefix         |
 
 ### Diff tools (`diff_toolset`)
 
-| Tool            | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `changed_files` | List file paths changed between base and head  |
-| `diff`          | Unified text diff, optionally filtered by path |
-| `commit_log`    | Commit log between base and head               |
+| Tool            | Purpose                                            |
+| --------------- | -------------------------------------------------- |
+| `changed_files` | List file paths changed between base and head      |
+| `diff`          | Unified text diff, scoped by pathspec glob or file |
+| `commit_log`    | Commit log between base and head                   |
 
 ### Index tools (`index_toolset`)
 
@@ -1619,6 +1684,29 @@ function.
 | ------ | -------------------------------------------------------- |
 | `edit` | Create or modify files matching `editable_include` globs |
 
+### Shell tools (`shell_toolset`)
+
+| Tool          | Purpose                                           |
+| ------------- | ------------------------------------------------- |
+| `run_command` | Run a shell command, stream output, return result |
+
+Primary use: executing scripts bundled with skills. The
+docstring steers the model away from codebase access — the
+working tree may not match the review target (different
+branch/commit), and should be treated as read-only. Bespoke
+tools read from the git object store at the correct ref.
+
+Delegates to `shell_exec.run_shell()` — the same subprocess
+core used by `!` shell commands. The tool adds streaming
+display via `ToolCallOutput` events: a `HeadTailBuffer`
+captures the first 3 and last 5 lines, emitting events to
+the TUI at ~30 fps. When the command path falls inside a
+skill's `base_dir`, `_format_tool_header` (TUI) renders
+`[skill · source]` instead of the raw JSON args — matching
+is done by `SkillRegistry.match_command()` (longest prefix
+wins). Output returned to the model is truncated to
+`config.tools.shell.max_output_lines`.
+
 File tools read from the git object store first and fall back
 to the local filesystem for untracked files (`.rbtr/notes/`,
 draft files). The filesystem fallback respects `.gitignore` and
@@ -1627,14 +1715,27 @@ the `include`/`extend_exclude` config. Tools that accept a
 snapshot (`"head"`, `"base"`, or a raw commit SHA), not the
 changes introduced by it.
 
+**Pathspec support.** `list_files`, `grep`, and `diff` accept
+a `pattern` parameter that works like a git pathspec. A plain
+string is a directory prefix or exact file path; glob
+metacharacters (`*`, `?`, `[`) activate pattern matching via
+`PurePosixPath.full_match`. Bare filename patterns (no `/`)
+are implicitly prefixed with `**/` so `*.py` matches at any
+depth. The shared `matches_pathspec()` helper in `common.py`
+implements the detection and matching.
+For `diff`, the glob is forwarded to the plumbing
+(`diff_refs`, `diff_single`) via a `match_fn` callback,
+keeping glob awareness out of `git/objects.py`.
+
 `llm/tools/common.py` provides shared helpers: toolset
-definitions, filter and prepare functions, pagination
-(offset/limit with a trailer telling the LLM how many results
-remain), output truncation, and `ref` parameter resolution.
+definitions, filter and prepare functions, pathspec matching,
+pagination (offset/limit with a trailer telling the LLM how
+many results remain), output truncation, and `ref` parameter
+resolution.
 Individual tool modules (`file.py`, `git.py`, `index.py`,
-`draft.py`, `discussion.py`, `notes.py`, `memory.py`) each
-register their tools on the appropriate toolset via
-`@<toolset>.tool`.
+`draft.py`, `discussion.py`, `notes.py`, `memory.py`,
+`shell.py`) each register their tools on the appropriate
+toolset via `@<toolset>.tool`.
 
 ---
 
@@ -1661,9 +1762,10 @@ Contains OAuth tokens (Claude, ChatGPT, Google), API keys
 (OpenAI, Fireworks, OpenRouter), endpoint keys, and the GitHub
 token.
 
-**`constants.py`** defines path constants: `RBTR_DIR`
-(`~/.config/rbtr/`) and `WORKSPACE_DIR` (`.rbtr/` in the repo
-root).
+**`workspace.py`** discovers the project workspace (`.rbtr/`)
+by walking from CWD to the git root — nearest wins, supporting
+monorepos. `resolve_path()` expands `${WORKSPACE}` placeholders
+in config values.
 
 ---
 
@@ -1702,17 +1804,19 @@ display of large pastes with atomic cursor behaviour),
 context markers (command summaries injected for the LLM),
 tab completion (slash commands, command arguments, bash
 programmable completion, file paths, executables), multiline
-editing via Alt+Enter, and input history backed by the
+editing via Shift+Enter / Alt+Enter, and input history backed by the
 session database (up/down arrow browses previous inputs,
 deduplicated across sessions).
 
 **Context markers.** Slash commands and shell commands emit
-`ContextMarkerReady` events. The TUI inserts each as a
-visible, deletable marker in the input buffer (reusing the
-`PasteRegion` infrastructure with `kind=CONTEXT`). On
-submit, `expand_markers()` collects context markers in
-buffer order, removes them from the text, and prepends a
-`[Recent actions]` block. Per-command opt-in — handlers call
+`ContextMarkerReady` events. The TUI stores each as a
+`ContextRegion` on `InputState.context_regions` — outside
+the editing buffer. They are rendered as a styled line above
+the prompt. Backspace at cursor position 0 dismisses the
+last marker. On submit, `expand_markers()` prepends a
+`[Recent actions]` block from `context_regions`; commands
+(`/`, `!`) skip expansion and preserve context for the next
+input. Per-command opt-in — handlers call
 `engine._context(marker, content)` when the outcome is
 useful to the model. Shell markers include the full output,
 truncated to `tui.shell_context_max_chars`.

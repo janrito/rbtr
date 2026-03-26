@@ -11,7 +11,7 @@ from rich.text import Text
 from rbtr.state import EngineState
 from rbtr.styles import THEME
 from rbtr.tui.input import PasteRegion
-from rbtr.tui.ui import UI, _render_lines, _tail_renderable_lines
+from rbtr.tui.ui import UI, _LivePanel, _render_lines, _tail_renderable_lines
 
 
 def _plain_lines(console: Console, renderable: RenderableType) -> list[str]:
@@ -52,8 +52,11 @@ def test_render_view_keeps_input_visible_with_tall_pending_panel(mocker: MockerF
     engine._last_shell_full_output = None
     ui = UI(console, state, queue.Queue(), engine)
 
-    ui._pending_lines = [Text("\n".join(f"pending {n}" for n in range(1, 60)))]
-    ui._pending_variant = "succeeded"
+    ui._live_panels["_task"] = _LivePanel(
+        lines=[Text("\n".join(f"pending {n}" for n in range(1, 60)))],
+        variant="succeeded",
+        done=True,
+    )
 
     lines = _plain_lines(console, ui._render_view())
 
@@ -111,3 +114,35 @@ def test_render_cursor_on_paste_marker(mocker: MockerFixture) -> None:
     rest_segs = [s for s in segments if "pasted 5 lines]" in s.text]
     assert rest_segs
     assert all("italic" in str(s.style) for s in rest_segs)
+
+
+# ── Context marker rendering ────────────────────────────────────────
+
+
+def test_render_context_line_empty(mocker: MockerFixture) -> None:
+    """No context regions → no context line."""
+    ui = _make_ui(mocker)
+    assert ui._render_context_line() is None
+
+
+def test_render_context_line_single(mocker: MockerFixture) -> None:
+    """Single context region renders its marker text."""
+    ui = _make_ui(mocker)
+    ui.inp.add_context("[/review → PR #42]", "Selected PR.")
+    line = ui._render_context_line()
+    assert line is not None
+    assert "[/review → PR #42]" in line.plain
+
+
+def test_render_context_line_multiple(mocker: MockerFixture) -> None:
+    """Multiple context regions render space-separated."""
+    ui = _make_ui(mocker)
+    ui.inp.add_context("[/review → PR #42]", "Selected PR.")
+    ui.inp.add_context("[/model → gpt-4o]", "Switched.")
+    line = ui._render_context_line()
+    assert line is not None
+    plain = line.plain
+    assert "[/review → PR #42]" in plain
+    assert "[/model → gpt-4o]" in plain
+    # Order preserved.
+    assert plain.index("[/review") < plain.index("[/model")

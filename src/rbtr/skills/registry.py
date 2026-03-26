@@ -63,6 +63,22 @@ class SkillRegistry:
         """All registered skills, including hidden ones."""
         return list(self._skills.values())
 
+    def match_command(self, command: str) -> tuple[Skill, str] | None:
+        """Match a shell command to a skill by path prefix.
+
+        Returns `(skill, relative_command)` if `command` starts
+        with a skill's `base_dir`, or `None`.  When multiple
+        skills match, the longest `base_dir` wins.
+        """
+        best: tuple[Skill, str] | None = None
+        best_len = 0
+        for skill in self._skills.values():
+            prefix = skill.base_dir + "/"
+            if command.startswith(prefix) and len(prefix) > best_len:
+                best = (skill, command[len(prefix) :])
+                best_len = len(prefix)
+        return best
+
     def __len__(self) -> int:
         return len(self._skills)
 

@@ -62,12 +62,14 @@ languages = [
 rbtr = "rbtr.cli:main"
 
 [dependency-groups]
-debug = ["ipython>=9.10.0", "scalene>=2.1"]
+debug = ["ipython>=9.10.0", "scalene>=2.1", "vulture>=2.14"]
 dev = [
   "mypy",
   "pytest",
   "pytest-cov",
+  "pytest-httpx>=0.36.0",
   "pytest-mock",
+  "pytest-xdist>=3.8.0",
   "ruff",
   "rumdl>=0.1.43",
   "sqlfluff>=4.0.4",
@@ -168,8 +170,6 @@ show_error_codes = true
 warn_redundant_casts = true
 warn_unused_configs = true
 
-exclude = ["^src/tests/"]
-
 [[tool.mypy.overrides]]
 module = "frontmatter"
 ignore_missing_imports = true
@@ -181,11 +181,9 @@ ignore_missing_imports = true
 testpaths = ["src/tests"]
 minversion = "6.0"
 addopts = [
-  "--cov",
-  "--cov-report=term",
-  "--cov-report=markdown-append:cov-append.md",
   "--strict-markers",
   "--import-mode=importlib",
+  "-n", "auto",
 ]
 
 [tool.coverage.run]
@@ -193,6 +191,20 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.vulture]
+min_confidence = 80
+paths = ["src/rbtr"]
+ignore_names = [
+  "init_settings",        # pydantic_settings settings_customise_sources
+  "dotenv_settings",      # pydantic_settings settings_customise_sources
+  "file_secret_settings", # pydantic_settings settings_customise_sources
+  "exc_type",             # __exit__ signature
+  "exc_val",              # __exit__ signature
+  "exc_tb",               # __exit__ signature
+  "user_data",            # llama_cpp log callback signature
+  "format",               # http.server log_message signature
+]
 
 # -- Versioning --
 

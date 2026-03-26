@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 
 import pygit2
 
@@ -19,7 +18,14 @@ from rbtr.config import config
 from rbtr.git import FileEntry, list_files
 from rbtr.index.chunks import chunk_plaintext
 from rbtr.index.edges import infer_doc_edges, infer_import_edges, infer_test_edges
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, IndexStats
+from rbtr.index.models import (
+    Chunk,
+    ChunkKind,
+    Edge,
+    EdgeKind,
+    IndexResult,
+    SemanticDiff,
+)
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.plugins.manager import get_manager
@@ -30,14 +36,6 @@ log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[int, int], None]
 """`(files_done, total_files)` — called after each file is processed."""
-
-
-@dataclass
-class IndexResult:
-    """Outcome of an index build or update."""
-
-    stats: IndexStats = field(default_factory=IndexStats)
-    errors: list[str] = field(default_factory=list)
 
 
 # ── File routing ─────────────────────────────────────────────────────
@@ -340,30 +338,6 @@ def update_index(
 
 
 # ── Semantic diff ────────────────────────────────────────────────────
-
-
-@dataclass
-class SemanticDiff:
-    """Structural differences between two indexed commits."""
-
-    added: list[Chunk] = field(default_factory=list)
-    """Symbols that exist in head but not in base."""
-
-    removed: list[Chunk] = field(default_factory=list)
-    """Symbols that exist in base but not in head."""
-
-    modified: list[Chunk] = field(default_factory=list)
-    """Symbols at the same path whose content changed."""
-
-    stale_docs: list[tuple[Chunk, Chunk]] = field(default_factory=list)
-    """`(doc_chunk, code_chunk)` where the code changed but
-    the doc referencing it did not."""
-
-    missing_tests: list[Chunk] = field(default_factory=list)
-    """New functions/methods with no `TESTS` edge."""
-
-    broken_edges: list[Edge] = field(default_factory=list)
-    """Import edges in head that pointed at symbols now removed."""
 
 
 def compute_diff(
