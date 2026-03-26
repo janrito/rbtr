@@ -1,5 +1,7 @@
 check: lint typecheck test
 
+ci: lint typecheck test-cov
+
 fmt: fmt-py fmt-sql fmt-md
 
 lint: lint-py lint-sql lint-md
@@ -29,6 +31,9 @@ typecheck:
 
 test:
     uv run pytest
+
+test-cov:
+    uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
 build:
     uv build

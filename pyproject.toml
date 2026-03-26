@@ -180,9 +180,6 @@ ignore_missing_imports = true
 testpaths = ["src/tests"]
 minversion = "6.0"
 addopts = [
-  "--cov",
-  "--cov-report=term",
-  "--cov-report=markdown-append:cov-append.md",
   "--strict-markers",
   "--import-mode=importlib",
 ]
