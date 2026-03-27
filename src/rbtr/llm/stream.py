@@ -39,6 +39,17 @@ from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.providers import build_model, model_context_window, model_settings
+from rbtr.sessions.history import (
+    consolidate_tool_returns,
+    demote_thinking,
+    flatten_tool_exchanges,
+    format_tool_args,
+    is_history_format_error,
+    repair_dangling_tool_calls,
+    sanitize_tool_call_ids,
+    strip_orphaned_tool_returns,
+    validate_tool_call_args,
+)
 from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
@@ -47,7 +58,6 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
-from rbtr.sessions.replay import format_tool_args
 from rbtr.sessions.scrub import scrub_secrets
 
 from . import operational_prompts
@@ -57,16 +67,6 @@ from .context import LLMContext
 from .costs import record_run_usage
 from .deps import AgentDeps
 from .errors import is_context_overflow, is_effort_unsupported
-from .history import (
-    consolidate_tool_returns,
-    demote_thinking,
-    flatten_tool_exchanges,
-    is_history_format_error,
-    repair_dangling_tool_calls,
-    sanitize_tool_call_ids,
-    strip_orphaned_tool_returns,
-    validate_tool_call_args,
-)
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter

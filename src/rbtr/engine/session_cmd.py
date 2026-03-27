@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from rbtr.sessions.history import replay_history
 from rbtr.sessions.kinds import SessionSummary
-from rbtr.sessions.replay import replay_history
 
 from .review_cmd import cmd_review
 

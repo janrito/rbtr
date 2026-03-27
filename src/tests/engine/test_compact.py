@@ -34,7 +34,7 @@ from rbtr.engine.types import TaskType
 from rbtr.events import CompactionFinished, CompactionStarted, Output, OutputLevel, TaskFinished
 from rbtr.llm.compact import compact_agent, compact_history, find_fit_count, reset_compaction
 from rbtr.llm.context import LLMContext
-from rbtr.llm.history import (
+from rbtr.sessions.history import (
     build_summary_message,
     estimate_tokens,
     serialise_for_summary,

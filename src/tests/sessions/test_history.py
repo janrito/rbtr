@@ -1,4 +1,4 @@
-"""Tests for `rbtr.llm.history` — history repair, demote_thinking,
+"""Tests for `rbtr.sessions.history` — history repair, demote_thinking,
 and format-error detection.
 """
 
@@ -18,7 +18,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from rbtr.llm.history import (
+from rbtr.sessions.history import (
     consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,

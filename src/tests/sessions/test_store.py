@@ -45,7 +45,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from uuid_utils import uuid7
 
-from rbtr.llm.history import (
+from rbtr.sessions.history import (
     consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,
