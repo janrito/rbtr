@@ -35,7 +35,6 @@ from rbtr.events import CompactionFinished, CompactionStarted, Output, OutputLev
 from rbtr.llm.compact import compact_agent, compact_history, find_fit_count, reset_compaction
 from rbtr.llm.context import LLMContext
 from rbtr.llm.history import (
-    _SUMMARY_MARKER,
     build_summary_message,
     estimate_tokens,
     serialise_for_summary,
@@ -43,6 +42,7 @@ from rbtr.llm.history import (
     split_history,
     strip_orphaned_tool_returns,
 )
+from rbtr.sessions.kinds import SUMMARY_MARKER
 from tests.engine.builders import (
     _USAGE,
     _assistant,
@@ -744,7 +744,7 @@ def test_build_summary_message() -> None:
     part = msg.parts[0]
     assert isinstance(part, UserPromptPart)
     assert isinstance(part.content, str)
-    assert _SUMMARY_MARKER in part.content
+    assert SUMMARY_MARKER in part.content
     assert "Files discussed: foo.py, bar.py" in part.content
 
 
@@ -963,7 +963,7 @@ def test_compact_replaces_history(
     part = first.parts[0]
     assert isinstance(part, UserPromptPart)
     assert isinstance(part.content, str)
-    assert _SUMMARY_MARKER in part.content
+    assert SUMMARY_MARKER in part.content
     assert "Reviewed PR #42" in part.content
 
     # History is shorter than before, structurally valid.
@@ -1449,9 +1449,7 @@ def test_compact_reset_restores_messages(
     # Summary is gone.
     assert not any(
         isinstance(m, ModelRequest)
-        and any(
-            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
-        )
+        and any(isinstance(p, UserPromptPart) and SUMMARY_MARKER in str(p.content) for p in m.parts)
         for m in restored
     )
     # Original content recovered — first prompt matches.
@@ -1516,9 +1514,7 @@ def test_compact_reset_only_latest(
         m
         for m in engine.store.load_messages(engine.state.session_id)
         if isinstance(m, ModelRequest)
-        and any(
-            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
-        )
+        and any(isinstance(p, UserPromptPart) and SUMMARY_MARKER in str(p.content) for p in m.parts)
     ]
     assert len(summaries) == 1
 
@@ -1559,9 +1555,7 @@ def test_compact_reset_blocked_after_new_messages(
     msgs = engine.store.load_messages(engine.state.session_id)
     assert any(
         isinstance(m, ModelRequest)
-        and any(
-            isinstance(p, UserPromptPart) and _SUMMARY_MARKER in str(p.content) for p in m.parts
-        )
+        and any(isinstance(p, UserPromptPart) and SUMMARY_MARKER in str(p.content) for p in m.parts)
         for m in msgs
     )
 
@@ -1793,7 +1787,7 @@ def test_compact_reset_restores_original_messages_without_summary(
         if isinstance(msg, ModelRequest):
             for p in msg.parts:
                 if isinstance(p, UserPromptPart):
-                    assert _SUMMARY_MARKER not in str(p.content)
+                    assert SUMMARY_MARKER not in str(p.content)
 
     # No orphaned tool returns.
     _assert_loaded_valid(engine)

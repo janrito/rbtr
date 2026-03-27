@@ -47,6 +47,7 @@ from rbtr.sessions.incidents import (
     RecoveryStrategy,
 )
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
+from rbtr.sessions.replay import format_tool_args
 from rbtr.sessions.scrub import scrub_secrets
 
 from . import operational_prompts
@@ -60,7 +61,6 @@ from .history import (
     consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,
-    format_tool_args,
     is_history_format_error,
     repair_dangling_tool_calls,
     sanitize_tool_call_ids,
@@ -930,8 +930,8 @@ def _check_interrupted_response(response: ModelResponse) -> _Interrupted | None:
         if not isinstance(part, ToolCallPart):
             continue
         try:
-            part.args_as_dict()
-        except ValueError:
+            part.args_as_dict(raise_if_invalid=True)
+        except (ValueError, AssertionError):
             truncated_ids.append(part.tool_call_id)
             part.args = {}
 

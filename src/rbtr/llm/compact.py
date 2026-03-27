@@ -247,7 +247,8 @@ async def compact_history_async(
         cost=sr.cost,
     )
 
-    ctx.emit(CompactionFinished(summary_tokens=summary_tokens))
+    preview = sr.text[:200] + "…" if len(sr.text) > 200 else sr.text
+    ctx.emit(CompactionFinished(summary_tokens=summary_tokens, summary_preview=preview))
 
 
 def find_fit_count(

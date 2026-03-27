@@ -23,7 +23,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -49,10 +49,12 @@ from rbtr.events import (
     IndexProgress,
     IndexReady,
     IndexStarted,
+    InputEcho,
     LinkOutput,
     MarkdownOutput,
     Output,
     OutputLevel,
+    PanelVariant,
     ReviewPosted,
     TableOutput,
     TaskFinished,
@@ -213,7 +215,7 @@ class _LivePanel:
     """
 
     lines: list[RenderableType]
-    variant: Literal["toolcall", "failed", "succeeded", "response"]
+    variant: PanelVariant
     done: bool = False
     hidden: int = 0
     expanded_lines: list[RenderableType] | None = None
@@ -231,14 +233,14 @@ class _LivePanel:
 class UI:
     """Owns the Rich Live display and input handling. Consumes engine events."""
 
-    _HISTORY_STYLES: ClassVar[dict[str, str]] = {
-        "input": BG_INPUT,
-        "active": BG_ACTIVE,
-        "response": "",
-        "succeeded": BG_SUCCEEDED,
-        "failed": BG_FAILED,
-        "queued": BG_QUEUED,
-        "toolcall": BG_TOOLCALL,
+    _HISTORY_STYLES: ClassVar[dict[PanelVariant, str]] = {
+        PanelVariant.INPUT: BG_INPUT,
+        PanelVariant.ACTIVE: BG_ACTIVE,
+        PanelVariant.RESPONSE: "",
+        PanelVariant.SUCCEEDED: BG_SUCCEEDED,
+        PanelVariant.FAILED: BG_FAILED,
+        PanelVariant.QUEUED: BG_QUEUED,
+        PanelVariant.TOOLCALL: BG_TOOLCALL,
     }
 
     def __init__(
@@ -567,12 +569,14 @@ class UI:
             self._live_panels
             and self._all_panels_done()
             and not isinstance(
-                event, (ToolCallStarted, ToolCallOutput, ToolCallFinished, TaskFinished)
+                event, (ToolCallStarted, ToolCallOutput, ToolCallFinished, TaskFinished, InputEcho)
             )
         ):
             self._finalize_panels()
 
         match event:
+            case InputEcho(text=text):
+                self._echo_input(text)
             case TaskStarted(task_type=task_type):
                 self._active_lines.clear()
                 self._active_had_error = False
@@ -620,10 +624,10 @@ class UI:
                 else:
                     markup = f"[link={url}][{LINK_STYLE}]{url}[/{LINK_STYLE}][/link]"
                 self._active_lines.append(Text.from_markup(markup))
-            case FlushPanel(discard=discard):
+            case FlushPanel(discard=discard, variant=declared_variant):
                 if not discard and self._active_lines:
-                    flush_variant: Literal["succeeded", "failed"] = (
-                        "failed" if self._active_had_error else "succeeded"
+                    flush_variant = declared_variant or (
+                        PanelVariant.FAILED if self._active_had_error else PanelVariant.SUCCEEDED
                     )
                     content: RenderableType = Group(*self._active_lines)
                     panel = self._history_panel(flush_variant, content)
@@ -639,7 +643,7 @@ class UI:
                 # Flush any preceding LLM text as its own panel.
                 if self._active_lines:
                     preamble = Group(*self._active_lines)
-                    panel = self._history_panel("response", preamble)
+                    panel = self._history_panel(PanelVariant.RESPONSE, preamble)
                     if self._live:
                         self._live.update(self._render_view(), refresh=True)
                     self._print_to_scrollback(panel)
@@ -653,7 +657,7 @@ class UI:
                         Text(header, style=MUTED),
                         Text("  running…", style=STYLE_DIM_ITALIC),
                     ],
-                    variant="toolcall",
+                    variant=PanelVariant.TOOLCALL,
                     tool_name=name,
                     tool_args=args,
                 )
@@ -689,7 +693,7 @@ class UI:
                     tool.lines = [Text(header_text, style=MUTED)]
                     tool.lines.extend(_render_head_tail(head, hidden, tail, body_style))
                     tool.done = True
-                    tool.variant = "failed" if failed else "toolcall"
+                    tool.variant = PanelVariant.FAILED if failed else PanelVariant.TOOLCALL
                     tool.hidden = hidden
                     if hidden:
                         tool.expanded_lines = [
@@ -720,24 +724,25 @@ class UI:
                 self._compaction_old = old
                 self._compaction_kept = kept
                 line = Text(f"Compacting {old} messages …", style=STYLE_DIM)
-                panel = self._history_panel("queued", line)
+                panel = self._history_panel(PanelVariant.QUEUED, line)
                 self._print_to_scrollback(panel)
-            case CompactionFinished(summary_tokens=tokens):
+            case CompactionFinished(summary_tokens=tokens, summary_preview=preview):
                 old = self._compaction_old
                 if tokens > 0:
-                    line = Text(
-                        f"Compacted {old} messages into ~{_format_count(tokens)} tokens.",
-                        style=STYLE_DIM,
-                    )
+                    header = f"Compacted {old} messages into ~{_format_count(tokens)} tokens."
+                    line = Text(header, style=STYLE_DIM)
+                    if preview:
+                        line.append("\n")
+                        line.append(preview, style=STYLE_DIM)
                 else:
                     line = Text("Compaction failed.", style=STYLE_DIM)
-                panel = self._history_panel("queued", line)
+                panel = self._history_panel(PanelVariant.QUEUED, line)
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)
                 self._print_to_scrollback(panel)
             case FactExtractionStarted():
                 line = Text("Extracting facts \u2026", style=STYLE_DIM)
-                panel = self._history_panel("queued", line)
+                panel = self._history_panel(PanelVariant.QUEUED, line)
                 self._print_to_scrollback(panel)
             case FactExtractionFinished(added=added, confirmed=confirmed, superseded=superseded):
                 total = added + confirmed + superseded
@@ -752,7 +757,7 @@ class UI:
                     line = Text(f"Memory: {', '.join(parts)}.", style=STYLE_DIM)
                 else:
                     line = Text("No new facts extracted.", style=STYLE_DIM)
-                panel = self._history_panel("queued", line)
+                panel = self._history_panel(PanelVariant.QUEUED, line)
                 if self._live:
                     self._live.update(self._render_view(), refresh=True)
                 self._print_to_scrollback(panel)
@@ -783,10 +788,10 @@ class UI:
                     and not self._active_had_error
                 )
                 is_setup = self._current_task_type == "setup"
-                variant: Literal["response", "succeeded", "failed"] = (
-                    "response"
+                variant = (
+                    PanelVariant.RESPONSE
                     if is_llm_response or is_setup
-                    else ("failed" if self._active_had_error else "succeeded")
+                    else (PanelVariant.FAILED if self._active_had_error else PanelVariant.SUCCEEDED)
                 )
                 # Handle in-flight tool batch.
                 if self._live_panels:
@@ -802,7 +807,7 @@ class UI:
                                     Text("  Cancelled.", style=STYLE_WARNING),
                                 ]
                                 tool.done = True
-                                tool.variant = "failed"
+                                tool.variant = PanelVariant.FAILED
                     if self._active_lines:
                         # Text after tools — finalize batch, then
                         # handle the text below.
@@ -970,17 +975,17 @@ class UI:
             if self._active_lines:
                 top_parts.append(Text(""))
                 active = Group(*self._active_lines)
-                top_parts.append(self._history_panel("active", active))
+                top_parts.append(self._history_panel(PanelVariant.ACTIVE, active))
         elif self._active_task:
             # Margin above active panel — matches the margin that
             # _print_to_scrollback adds for finalized panels.
             top_parts.append(Text(""))
             content = Group(*self._active_lines) if self._active_lines else Text("")
-            top_parts.append(self._history_panel("active", content))
+            top_parts.append(self._history_panel(PanelVariant.ACTIVE, content))
         if self._pending_commands:
             lines = [Text(f"  > {cmd}", style=MUTED) for cmd in self._pending_commands]
             top_parts.append(Text(""))
-            top_parts.append(self._history_panel("queued", Group(*lines)))
+            top_parts.append(self._history_panel(PanelVariant.QUEUED, Group(*lines)))
 
         chrome_parts: list[RenderableType] = [Text("")]
         if self._active_task:
@@ -1027,9 +1032,7 @@ class UI:
 
     def _history_panel(
         self,
-        variant: Literal[
-            "input", "active", "response", "succeeded", "failed", "queued", "toolcall"
-        ],
+        variant: PanelVariant,
         content: RenderableType,
         *,
         bottom_pad: int = 1,
@@ -1104,7 +1107,7 @@ class UI:
         t = Text()
         t.append("> ", style=PROMPT)
         t.append(text, style=INPUT_TEXT)
-        self._print_to_scrollback(self._history_panel("input", t))
+        self._print_to_scrollback(self._history_panel(PanelVariant.INPUT, t))
 
     def _expand_last_output(self) -> None:
         """Expand all truncated live panels, then finalize to scrollback."""
@@ -1258,7 +1261,7 @@ class UI:
                 if self._active_task:
                     self._pending_commands.append(raw)
                 else:
-                    self._echo_input(raw)
+                    self._handle_event(InputEcho(text=raw))
                     self._dispatch(raw)
 
                 live.update(self._render_view())

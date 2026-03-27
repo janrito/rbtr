@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from rbtr.sessions.kinds import SessionSummary
+from rbtr.sessions.replay import replay_history
 
 from .review_cmd import cmd_review
 
@@ -289,6 +290,8 @@ def _cmd_resume(engine: Engine, args: list[str]) -> None:
         fact_extraction_output_tokens=oh.fact_extraction_output_tokens,
         fact_extraction_cost=oh.fact_extraction_cost,
     )
+
+    replay_history(engine._emit, messages)
 
     label = target.session_label or target.session_id[:8]
     engine._out(f"Resumed session '{label}' ({ts.active_turns} turns).")

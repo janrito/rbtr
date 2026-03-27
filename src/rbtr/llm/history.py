@@ -64,7 +64,6 @@ On compaction (when splitting history):
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, replace
@@ -83,23 +82,10 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from rbtr.sessions.kinds import SUMMARY_MARKER
+from rbtr.sessions.replay import format_tool_args
+
 log = logging.getLogger(__name__)
-
-
-# ── Shared helpers ───────────────────────────────────────────────────
-
-
-def format_tool_args(args: object) -> str:
-    """Serialise `ToolCallPart.args` to a display string.
-
-    `dict` → compact JSON, other truthy values → `str()`, `None` → `""`.
-    """
-    if isinstance(args, dict):
-        return json.dumps(args, ensure_ascii=False)
-    if args is not None:
-        return str(args)
-    return ""
-
 
 # ── Level-0 preventive repairs ────────────────────────────────────
 
@@ -188,8 +174,8 @@ def validate_tool_call_args(
         for part in msg.parts:
             if isinstance(part, ToolCallPart):
                 try:
-                    part.args_as_dict()
-                except ValueError:
+                    part.args_as_dict(raise_if_invalid=True)
+                except (ValueError, AssertionError):
                     log.info(
                         "Repairing corrupt args for tool call %s.",
                         part.tool_name,
@@ -634,8 +620,6 @@ def repair_dangling_tool_calls(
 
 # ── Compaction helpers ───────────────────────────────────────────────
 
-_SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
-
 
 def _tool_ids(messages: list[ModelMessage]) -> tuple[set[str], set[str]]:
     """Return `(call_ids, result_ids)` from *messages*."""
@@ -806,5 +790,5 @@ def serialise_for_summary(
 
 def build_summary_message(summary_text: str) -> ModelRequest:
     """Create a synthetic first message containing the compaction summary."""
-    content = f"{_SUMMARY_MARKER}\n\n{summary_text}"
+    content = f"{SUMMARY_MARKER}\n\n{summary_text}"
     return ModelRequest(parts=[UserPromptPart(content=content)])
