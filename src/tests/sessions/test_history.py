@@ -17,6 +17,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pytest_cases import parametrize_with_cases
 
 from rbtr.sessions.history import (
     consolidate_tool_returns,
@@ -28,7 +29,6 @@ from rbtr.sessions.history import (
     strip_orphaned_tool_returns,
     validate_tool_call_args,
 )
-from tests.engine.test_compact import ALL_HISTORIES
 
 # ── demote_thinking ──────────────────────────────────────────────────
 
@@ -925,15 +925,15 @@ def test_strip_orphaned_returns_noop_on_clean_history() -> None:
 # ── Smoke: all history shapes are clean ──────────────────────────────
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
-def test_clean_history_needs_no_repair(name: str) -> None:
-    """Every ALL_HISTORIES entry passes through all repairs unchanged."""
-    history = list(ALL_HISTORIES[name])
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
+def test_clean_history_needs_no_repair(history: list[ModelMessage]) -> None:
+    """Every history case passes through all repairs unchanged."""
+    history = list(history)
 
     stripped, stripped_ids = strip_orphaned_tool_returns(history)
-    assert stripped_ids == [], f"{name}: orphaned returns found"
+    assert stripped_ids == [], "orphaned returns found"
 
     repaired, tools, _ = repair_dangling_tool_calls(stripped)
-    assert tools == [], f"{name}: dangling calls found"
+    assert tools == [], "dangling calls found"
 
-    assert repaired == history, f"{name}: repair changed the history"
+    assert repaired == history, "repair changed the history"

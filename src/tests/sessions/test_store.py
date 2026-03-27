@@ -43,6 +43,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage
+from pytest_cases import parametrize_with_cases
 from uuid_utils import uuid7
 
 from rbtr.sessions.history import (
@@ -55,7 +56,6 @@ from rbtr.sessions.history import (
 )
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
-from tests.engine.test_compact import ALL_HISTORIES
 from tests.sessions.assertions import assert_messages_match, assert_ordering, assert_tool_pairing
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -160,10 +160,9 @@ def test_roundtrip_full_conversation() -> None:
         assert restored == original
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
-def test_roundtrip_all_history_shapes(name: str) -> None:
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
+def test_roundtrip_all_history_shapes(history: list[ModelMessage]) -> None:
     """Every realistic history shape round-trips losslessly through the DB."""
-    history = ALL_HISTORIES[name]
     with SessionStore() as store:
         store.save_messages("s1", list(history))
         loaded = store.load_messages("s1")

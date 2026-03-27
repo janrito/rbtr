@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -21,23 +20,16 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models.test import TestModel
-from pydantic_ai.usage import RequestUsage
+from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import TaskFinished
 from rbtr.llm.compact import compact_agent, compact_history
-from tests.engine.test_compact import ALL_HISTORIES
+from tests.engine.builders import _USAGE, _resp
 from tests.helpers import StubProvider, drain
 from tests.sessions.assertions import assert_ordering, assert_tool_pairing
-
-_USAGE = RequestUsage(input_tokens=0, output_tokens=0)
-
-
-def _resp(*parts: TextPart | ToolCallPart) -> ModelResponse:
-    return ModelResponse(parts=list(parts), usage=_USAGE, model_name="test")
-
 
 # ── 1. History immutability ──────────────────────────────────────────
 
@@ -131,25 +123,15 @@ def test_conversation_continues_after_tool_failure(
 # ── 3. Compaction produces valid history ─────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "history_name",
-    [
-        "text_only",
-        "single_tool",
-        "parallel_tools",
-        "chained_tools",
-        "tool_failure",
-        "thinking_with_tools",
-        "reordered_returns",
-        "tool_no_preamble",
-    ],
+@parametrize_with_cases(
+    "history",
+    cases="tests.sessions.case_histories",
+    has_tag="compactable",
 )
 def test_compaction_produces_valid_history(
-    history_name: str, engine: Engine, stub_provider: StubProvider
+    history: list[ModelMessage], engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Compaction of every history shape produces valid output."""
-
-    history = ALL_HISTORIES[history_name]
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
     engine._sync_store_context()

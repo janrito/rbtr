@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -20,11 +19,12 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pytest_cases import parametrize_with_cases
 
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import TaskFinished, TextDelta
-from tests.engine.test_compact import ALL_HISTORIES
+from tests.engine.builders import _streaming_model
 from tests.helpers import StubProvider, drain
 
 from .assertions import assert_ordering, assert_tool_pairing
@@ -73,11 +73,7 @@ def test_prompt_and_response_persisted(llm_engine: Engine, stub_provider: StubPr
 def test_streamed_text_matches_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """TextDelta events streamed to UI match the text stored in DB."""
 
-    async def _stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
-        yield "Hello "
-        yield "world!"
-
-    stub_provider.set_model(FunctionModel(stream_function=_stream))
+    stub_provider.set_model(_streaming_model("Hello ", "world!"))
 
     llm_engine.run_task(TaskType.LLM, "greet me")
     events = drain(llm_engine.events)
@@ -244,20 +240,19 @@ def test_resume_after_crash(llm_engine: Engine, stub_provider: StubProvider) -> 
 # ── All history shapes as prior context ──────────────────────────────
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
 def test_engine_handles_all_history_shapes(
-    name: str, llm_engine: Engine, stub_provider: StubProvider
+    history: list[ModelMessage], llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Seed each history shape, send a new turn — pipeline handles it."""
-    history = ALL_HISTORIES[name]
     llm_engine.store.save_messages(llm_engine.state.session_id, list(history))
 
     llm_engine.run_task(TaskType.LLM, "follow-up question")
     events = drain(llm_engine.events)
 
     finished = [e for e in events if isinstance(e, TaskFinished)]
-    assert finished, f"{name}: no TaskFinished"
-    assert finished[-1].success, f"{name}: task failed"
+    assert finished, "no TaskFinished"
+    assert finished[-1].success, "task failed"
 
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)

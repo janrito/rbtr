@@ -16,16 +16,14 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
-    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
-from pydantic_ai.usage import RequestUsage
+from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
@@ -46,15 +44,17 @@ from rbtr.sessions.kinds import SUMMARY_MARKER
 from tests.engine.builders import (
     _USAGE,
     _assistant,
+    _resp,
     _seed,
     _tool_call_only,
     _tool_result,
-    _tool_turn,
+    _tool_then_text_model,
     _turns,
     _user,
 )
 from tests.helpers import StubProvider, drain, has_event_type, output_texts
 from tests.sessions.assertions import assert_ordering
+from tests.sessions.case_histories import case_single_tool
 
 
 @pytest.fixture(autouse=True)
@@ -63,242 +63,10 @@ def _disable_memory() -> None:
     config.memory.enabled = False
 
 
-# ── Test data ────────────────────────────────────────────────────────
-
-# ── Realistic conversation histories ──────────────────────────────────
-#
-# Each history is structurally valid: alternates Request/Response,
-# tool calls have matching returns, combined parts in single messages.
-# Uses _user/_assistant/_tool_return for single-part messages.
-# Uses _resp/ModelRequest(parts=[...]) for multi-part messages.
-
-
-def _resp(*parts: TextPart | ToolCallPart | ThinkingPart) -> ModelResponse:
-    """Build a ModelResponse with multiple parts — matches real LLM output."""
-    return ModelResponse(parts=list(parts), usage=_USAGE, model_name="test")
-
-
-# 1. Text-only multi-turn.
-HISTORY_TEXT_ONLY: list[ModelMessage] = [
-    _user("Review PR #42"),
-    _assistant("I'll start by looking at the diff."),
-    _user("What about test coverage?"),
-    _assistant("Tests look adequate."),
-    _user("Any security concerns?"),
-    _assistant("The import os is unused."),
-    _user("Thanks, ship it."),
-    _assistant("LGTM, approved."),
-]
-
-# 2. Single tool call per turn — the common case.
-HISTORY_SINGLE_TOOL: list[ModelMessage] = [
-    _user("Read foo.py"),
-    _resp(
-        TextPart(content="Let me read that."),
-        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="c1"),
-    ),
-    _tool_result("read_file", "def main(): pass", call_id="c1"),
-    _assistant("foo.py has one function."),
-    _user("Now check bar.py"),
-    _resp(
-        TextPart(content="Reading bar.py."),
-        ToolCallPart(tool_name="read_file", args={"path": "bar.py"}, tool_call_id="c2"),
-    ),
-    _tool_result("read_file", "import foo", call_id="c2"),
-    _assistant("bar.py imports foo."),
-    _user("Any issues?"),
-    _assistant("No issues found."),
-]
-
-# 3. Parallel tool calls (2 calls in one response).
-HISTORY_PARALLEL_TOOLS: list[ModelMessage] = [
-    _user("Check both files"),
-    _resp(
-        TextPart(content="Reading both."),
-        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
-        ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2"),
-    ),
-    ModelRequest(
-        parts=[
-            ToolReturnPart(tool_name="read_file", content="def a(): ...", tool_call_id="c1"),
-            ToolReturnPart(tool_name="read_file", content="def b(): ...", tool_call_id="c2"),
-        ]
-    ),
-    _assistant("Both files read successfully."),
-    _user("Any differences?"),
-    _assistant("They have different functions."),
-    _user("Thanks"),
-    _assistant("You're welcome."),
-]
-
-# 4. Chained tool calls (call -> return -> call -> return in one turn).
-HISTORY_CHAINED_TOOLS: list[ModelMessage] = [
-    _user("Find TODOs and read the files"),
-    _resp(
-        TextPart(content="Searching for TODOs."),
-        ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="c1"),
-    ),
-    _tool_result("grep", "foo.py:10 TODO fix this", call_id="c1"),
-    _resp(
-        TextPart(content="Found one. Reading the file."),
-        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="c2"),
-    ),
-    _tool_result("read_file", "def main(): pass  # TODO fix this", call_id="c2"),
-    _assistant("The TODO is in main()."),
-    _user("Fix it"),
-    _assistant("Done."),
-    _user("Verify"),
-    _assistant("All clean."),
-]
-
-# 5. Failed tool (RetryPromptPart).
-HISTORY_TOOL_FAILURE: list[ModelMessage] = [
-    _user("Read secret.py"),
-    _resp(
-        TextPart(content="Reading."),
-        ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c1"),
-    ),
-    ModelRequest(
-        parts=[
-            RetryPromptPart(
-                content="Permission denied: secret.py",
-                tool_name="read_file",
-                tool_call_id="c1",
-            ),
-        ]
-    ),
-    _assistant("I can't read secret.py — permission denied."),
-    _user("Try config.py instead"),
-    _resp(
-        ToolCallPart(tool_name="read_file", args={"path": "config.py"}, tool_call_id="c2"),
-    ),
-    _tool_result("read_file", "DEBUG=True", call_id="c2"),
-    _assistant("config.py sets DEBUG=True."),
-]
-
-# 6. Thinking + tool call + text in one response.
-HISTORY_THINKING_WITH_TOOLS: list[ModelMessage] = [
-    _user("Analyse the codebase"),
-    _resp(
-        ThinkingPart(content="Let me think about the structure..."),
-        TextPart(content="I'll start with the main module."),
-        ToolCallPart(tool_name="read_file", args={"path": "main.py"}, tool_call_id="c1"),
-    ),
-    _tool_result("read_file", "from app import run\nrun()", call_id="c1"),
-    _resp(
-        ThinkingPart(content="Simple entry point..."),
-        TextPart(content="Now checking app.py."),
-        ToolCallPart(tool_name="read_file", args={"path": "app.py"}, tool_call_id="c2"),
-    ),
-    _tool_result("read_file", "def run(): print('hello')", call_id="c2"),
-    _assistant("The app is a simple hello-world."),
-    _user("Any improvements?"),
-    _assistant("Consider adding error handling."),
-]
-
-# 7. Returns in different order than calls.
-HISTORY_REORDERED_RETURNS: list[ModelMessage] = [
-    _user("Read both files"),
-    _resp(
-        TextPart(content="Reading both."),
-        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
-        ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="c2"),
-    ),
-    ModelRequest(
-        parts=[
-            ToolReturnPart(tool_name="read_file", content="def b(): ...", tool_call_id="c2"),
-            ToolReturnPart(tool_name="read_file", content="def a(): ...", tool_call_id="c1"),
-        ]
-    ),
-    _assistant("Both read. b.py returned first."),
-    _user("Why?"),
-    _assistant("Async execution order."),
-    _user("Ok"),
-    _assistant("Moving on."),
-]
-
-# 8. Tool call with no text preamble (model goes straight to tool).
-HISTORY_TOOL_NO_PREAMBLE: list[ModelMessage] = [
-    _user("Read a.py"),
-    _resp(
-        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="c1"),
-    ),
-    _tool_result("read_file", "content", call_id="c1"),
-    _assistant("Here it is."),
-    _user("Thanks"),
-    _assistant("Done."),
-]
-
-# 9. Single turn — minimum viable conversation.
-HISTORY_SINGLE_TURN: list[ModelMessage] = [
-    _user("hello"),
-    _assistant("Hi there!"),
-]
-
-# 10. Post-compaction — summary message + kept turns.
-HISTORY_POST_COMPACTION: list[ModelMessage] = [
-    ModelRequest(
-        parts=[
-            UserPromptPart(
-                content="[Context summary — earlier conversation was compacted]\n\n"
-                "Discussed PR #42. Found unused import."
-            )
-        ]
-    ),
-    _assistant("Continuing from the summary."),
-    _user("Any other issues?"),
-    _assistant("No, looks clean."),
-    _user("Ship it"),
-    _assistant("LGTM, approved."),
-]
-
-# 11. Parallel tools — one succeeds, one fails.
-HISTORY_MIXED_PARALLEL_OUTCOME: list[ModelMessage] = [
-    _user("Read both files"),
-    _resp(
-        TextPart(content="Reading both."),
-        ToolCallPart(tool_name="read_file", args={"path": "ok.py"}, tool_call_id="c1"),
-        ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c2"),
-    ),
-    ModelRequest(
-        parts=[
-            ToolReturnPart(tool_name="read_file", content="def ok(): ...", tool_call_id="c1"),
-            RetryPromptPart(
-                content="Permission denied: secret.py",
-                tool_name="read_file",
-                tool_call_id="c2",
-            ),
-        ]
-    ),
-    _assistant("ok.py read successfully. secret.py is not accessible."),
-    _user("Just use ok.py then"),
-    _assistant("Will do."),
-]
-
-# 12. Tool call with empty args.
-HISTORY_EMPTY_TOOL_ARGS: list[ModelMessage] = [
-    _user("List all files"),
-    _tool_turn("list_files", {}, preamble="Listing.", call_id="c1"),
-    _tool_result("list_files", "a.py\nb.py", call_id="c1"),
-    _assistant("Found 2 files."),
-    _user("Thanks"),
-    _assistant("Done."),
-]
-
-ALL_HISTORIES: dict[str, list[ModelMessage]] = {
-    "text_only": HISTORY_TEXT_ONLY,
-    "single_tool": HISTORY_SINGLE_TOOL,
-    "parallel_tools": HISTORY_PARALLEL_TOOLS,
-    "chained_tools": HISTORY_CHAINED_TOOLS,
-    "tool_failure": HISTORY_TOOL_FAILURE,
-    "thinking_with_tools": HISTORY_THINKING_WITH_TOOLS,
-    "reordered_returns": HISTORY_REORDERED_RETURNS,
-    "tool_no_preamble": HISTORY_TOOL_NO_PREAMBLE,
-    "single_turn": HISTORY_SINGLE_TURN,
-    "post_compaction": HISTORY_POST_COMPACTION,
-    "mixed_parallel_outcome": HISTORY_MIXED_PARALLEL_OUTCOME,
-    "empty_tool_args": HISTORY_EMPTY_TOOL_ARGS,
-}
+# Test data is centralised in tests/sessions/case_histories.py.
+# Specific histories are imported as case functions and called
+# where needed.
+HISTORY_SINGLE_TOOL = case_single_tool()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -360,10 +128,9 @@ def test_split_history_realistic() -> None:
     assert old == HISTORY_SINGLE_TOOL[:last_user_idx]
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
-def test_split_history_all_shapes(name: str) -> None:
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
+def test_split_history_all_shapes(history: list[ModelMessage]) -> None:
     """split_history produces valid old + kept for every history shape."""
-    history = ALL_HISTORIES[name]
     old, kept = split_history(history, keep_turns=1)
 
     # old + kept = original (no messages lost or duplicated).
@@ -1192,67 +959,6 @@ def test_compact_with_command_inputs(
 # with a `FunctionModel` that always calls tools on the first
 # request (regardless of history — unlike `TestModel`).  The
 # compaction LLM call (`_stream_summary`) is mocked.
-
-
-def _tool_then_text_model() -> FunctionModel:
-    """A `FunctionModel` that calls a tool on its first request,
-    then returns text on the second.
-
-    Stateful: each instance has its own call counter.  Works
-    correctly with message history (unlike `TestModel`).
-    Provides both `function` and `stream_function` so the
-    agent's streaming iteration works.
-    """
-
-    call_count = 0
-
-    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        nonlocal call_count
-        call_count += 1
-        usage = RequestUsage(input_tokens=50, output_tokens=10)
-        if call_count == 1 and info.function_tools:
-            tool = info.function_tools[0]
-            return ModelResponse(
-                parts=[ToolCallPart(tool_name=tool.name, args="{}")],
-                usage=usage,
-                model_name="test-fn",
-            )
-        return ModelResponse(
-            parts=[TextPart(content="done")],
-            usage=usage,
-            model_name="test-fn",
-        )
-
-    async def stream_fn(
-        messages: list[ModelMessage], info: AgentInfo
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1 and info.function_tools:
-            tool = info.function_tools[0]
-            yield {0: DeltaToolCall(name=tool.name, json_args="{}")}
-        else:
-            yield "done"
-
-    return FunctionModel(model_fn, stream_function=stream_fn)
-
-
-def _text_only_model() -> FunctionModel:
-    """A `FunctionModel` that always returns text, never tools."""
-
-    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content="text only")],
-            usage=RequestUsage(input_tokens=50, output_tokens=10),
-            model_name="test-fn",
-        )
-
-    async def stream_fn(
-        messages: list[ModelMessage], info: AgentInfo
-    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
-        yield "text only"
-
-    return FunctionModel(model_fn, stream_function=stream_fn)
 
 
 def _seed_llm_history(engine: Engine, *, turns: int = 5) -> None:

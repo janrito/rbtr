@@ -1,15 +1,17 @@
-"""Message builders for engine tests.
+"""Message and model builders for tests.
 
-Each builder produces one structurally valid message matching
-what the LLM pipeline actually produces.  For complex messages
-(parallel tools, combined returns), spell out
-``ModelResponse(parts=[...])`` / ``ModelRequest(parts=[...])``
-inline at the call site.
+Message builders produce structurally valid messages matching what
+the LLM pipeline actually produces.  Model builders produce
+configured ``TestModel`` / ``FunctionModel`` instances for common
+patterns.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
@@ -19,6 +21,8 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
+from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
 from rbtr.engine.core import Engine
@@ -34,6 +38,11 @@ def _user(text: str) -> ModelRequest:
 def _assistant(text: str) -> ModelResponse:
     """Text-only response → ``ModelResponse[TextPart]``."""
     return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
+
+
+def _resp(*parts: TextPart | ToolCallPart | ThinkingPart) -> ModelResponse:
+    """Multi-part response → ``ModelResponse[...]``."""
+    return ModelResponse(parts=list(parts), usage=_USAGE, model_name="test")
 
 
 def _tool_turn(
@@ -117,3 +126,65 @@ def _seed(
         model_name=model_name,
         cost=cost,
     )
+
+
+# ── Model builders ──────────────────────────────────────────────────
+
+
+def _text_model(text: str) -> TestModel:
+    """TestModel that returns *text* without calling tools."""
+    return TestModel(custom_output_text=text, call_tools=[])
+
+
+def _tool_model() -> TestModel:
+    """TestModel that calls all registered tools."""
+    return TestModel(call_tools="all")
+
+
+def _streaming_model(*chunks: str) -> FunctionModel:
+    """FunctionModel that streams *chunks* as text."""
+
+    async def _stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        for chunk in chunks:
+            yield chunk
+
+    return FunctionModel(stream_function=_stream)
+
+
+def _tool_then_text_model() -> FunctionModel:
+    """FunctionModel: tool call on first request, text on second.
+
+    Stateful per instance.  Provides both ``function`` and
+    ``stream_function`` so the agent's streaming iteration works.
+    """
+    call_count = 0
+
+    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal call_count
+        call_count += 1
+        usage = RequestUsage(input_tokens=50, output_tokens=10)
+        if call_count == 1 and info.function_tools:
+            tool = info.function_tools[0]
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name=tool.name, args="{}")],
+                usage=usage,
+                model_name="test-fn",
+            )
+        return ModelResponse(
+            parts=[TextPart(content="done")],
+            usage=usage,
+            model_name="test-fn",
+        )
+
+    async def stream_fn(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1 and info.function_tools:
+            tool = info.function_tools[0]
+            yield {0: DeltaToolCall(name=tool.name, json_args="{}")}
+        else:
+            yield "done"
+
+    return FunctionModel(model_fn, stream_function=stream_fn)

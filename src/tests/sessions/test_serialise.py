@@ -18,6 +18,7 @@ import json
 
 import pytest
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage
+from pytest_cases import parametrize_with_cases
 
 from rbtr.sessions.incidents import (
     FailedAttempt,
@@ -48,7 +50,6 @@ from rbtr.sessions.serialise import (
     prepare_part_rows,
     reconstruct_message,
 )
-from tests.engine.test_compact import ALL_HISTORIES
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -180,10 +181,10 @@ def test_reconstruct_message_roundtrip() -> None:
     assert restored == msg
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
-def test_serialise_roundtrip_all_history_shapes(name: str) -> None:
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
+def test_serialise_roundtrip_all_history_shapes(history: list[ModelMessage]) -> None:
     """Every message in every history shape survives serialise → reconstruct."""
-    for msg in ALL_HISTORIES[name]:
+    for msg in history:
         kind = (
             FragmentKind.REQUEST_MESSAGE
             if isinstance(msg, ModelRequest)
