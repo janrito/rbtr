@@ -8,7 +8,7 @@ import pytest
 
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
-from rbtr.events import ContextMarkerReady
+from rbtr.events import AutoSubmit, ContextMarkerReady
 from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
 from tests.helpers import drain, has_event_type, output_texts
 
@@ -92,27 +92,67 @@ def skill_file(tmp_path: Path) -> Path:
 
 
 def test_skill_load(engine: Engine, skill_file: Path) -> None:
-    """Loading a skill emits a ContextMarkerReady event."""
+    """Loading a skill emits AutoSubmit with XML-wrapped content."""
     engine.state.skill_registry = _registry(
         _skill("brave-search", "Web search.", file_path=str(skill_file)),
     )
     engine.run_task(TaskType.COMMAND, "/skill brave-search")
     events = drain(engine.events)
-    assert has_event_type(events, ContextMarkerReady)
-    ctx = next(e for e in events if isinstance(e, ContextMarkerReady))
-    assert "[/skill brave-search]" in ctx.marker
-    assert "search.js" in ctx.content
+    assert not has_event_type(events, ContextMarkerReady)
+    assert has_event_type(events, AutoSubmit)
+    submit = next(e for e in events if isinstance(e, AutoSubmit))
+    assert '<skill name="brave-search"' in submit.message
+    assert "search.js" in submit.message
+    assert "</skill>" in submit.message
+
+
+def test_skill_load_strips_frontmatter(engine: Engine, tmp_path: Path) -> None:
+    """Frontmatter is stripped from the skill content."""
+    f = tmp_path / "SKILL.md"
+    f.write_text("---\nname: test-skill\ndescription: Test.\n---\n# Body\nContent\n")
+    engine.state.skill_registry = _registry(
+        _skill("test-skill", "Test.", file_path=str(f)),
+    )
+    engine.run_task(TaskType.COMMAND, "/skill test-skill")
+    events = drain(engine.events)
+    submit = next(e for e in events if isinstance(e, AutoSubmit))
+    # Frontmatter not inside the skill block.
+    assert "---" not in submit.message.split("</skill>")[0]
+    assert "# Body" in submit.message
+    assert "Content" in submit.message
 
 
 def test_skill_load_with_args(engine: Engine, skill_file: Path) -> None:
-    """Extra arguments are appended to the skill content."""
+    """Extra args are appended after the XML block."""
     engine.state.skill_registry = _registry(
         _skill("brave-search", "Web search.", file_path=str(skill_file)),
     )
     engine.run_task(TaskType.COMMAND, "/skill brave-search pydantic ai docs")
     events = drain(engine.events)
-    ctx = next(e for e in events if isinstance(e, ContextMarkerReady))
-    assert "User: pydantic ai docs" in ctx.content
+    submit = next(e for e in events if isinstance(e, AutoSubmit))
+    assert submit.message.endswith("</skill>\n\npydantic ai docs")
+
+
+def test_skill_load_xml_has_location(engine: Engine, skill_file: Path) -> None:
+    """XML wrapper includes the file location."""
+    engine.state.skill_registry = _registry(
+        _skill("brave-search", "Web search.", file_path=str(skill_file)),
+    )
+    engine.run_task(TaskType.COMMAND, "/skill brave-search")
+    events = drain(engine.events)
+    submit = next(e for e in events if isinstance(e, AutoSubmit))
+    assert f'location="{skill_file}"' in submit.message
+
+
+def test_skill_load_xml_has_base_dir(engine: Engine, skill_file: Path) -> None:
+    """XML wrapper includes a references-relative-to line."""
+    engine.state.skill_registry = _registry(
+        _skill("brave-search", "Web search.", file_path=str(skill_file)),
+    )
+    engine.run_task(TaskType.COMMAND, "/skill brave-search")
+    events = drain(engine.events)
+    submit = next(e for e in events if isinstance(e, AutoSubmit))
+    assert "References are relative to" in submit.message
 
 
 def test_skill_load_unknown(engine: Engine) -> None:
@@ -132,4 +172,4 @@ def test_skill_load_hidden(engine: Engine, skill_file: Path) -> None:
     )
     engine.run_task(TaskType.COMMAND, "/skill hidden-skill")
     events = drain(engine.events)
-    assert has_event_type(events, ContextMarkerReady)
+    assert has_event_type(events, AutoSubmit)

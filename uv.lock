@@ -2815,7 +2815,7 @@ wheels = [
 
 [[package]]
 name = "rbtr"
-version = "2026.2.0.dev0"
+version = "2026.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

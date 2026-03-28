@@ -417,3 +417,108 @@ def case_tool_boundary_straddle() -> list[ModelMessage]:
         _user("summarise"),
         _assistant("All good."),
     ]
+
+
+# ── Skills ───────────────────────────────────────────────────────────
+
+
+@case(tags=["conversation", "tool", "skill", "compactable"])
+def case_skill_model_invoked() -> list[ModelMessage]:
+    """Model loads a skill independently via `read_file`.
+
+    The system prompt catalog tells the model about the skill.
+    The model decides to read the SKILL.md, then follows its
+    instructions by calling `run_command`.
+    """
+    return [
+        _user("search for pydantic ai docs"),
+        _resp(
+            TextPart(content="I'll use the brave-search skill."),
+            ToolCallPart(
+                tool_name="read_file",
+                args={"path": "/home/u/.pi/skills/brave-search/SKILL.md"},
+                tool_call_id="c1",
+            ),
+        ),
+        _tool_result(
+            "read_file",
+            "# Brave Search\n\nRun `./search.js` to search.\n",
+            call_id="c1",
+        ),
+        _resp(
+            TextPart(content="Running the search."),
+            ToolCallPart(
+                tool_name="run_command",
+                args={"command": '/home/u/.pi/skills/brave-search/search.js "pydantic ai"'},
+                tool_call_id="c2",
+            ),
+        ),
+        _tool_result(
+            "run_command",
+            "--- Result 1 ---\nTitle: Pydantic AI\nLink: https://ai.pydantic.dev\n",
+            call_id="c2",
+        ),
+        _assistant("Found the Pydantic AI docs at https://ai.pydantic.dev."),
+        _user("get the content of that page"),
+        _resp(
+            ToolCallPart(
+                tool_name="run_command",
+                args={
+                    "command": "/home/u/.pi/skills/brave-search/content.js https://ai.pydantic.dev"
+                },
+                tool_call_id="c3",
+            ),
+        ),
+        _tool_result("run_command", "# Pydantic AI\n\nAgent framework.", call_id="c3"),
+        _assistant("Pydantic AI is an agent framework."),
+    ]
+
+
+@case(tags=["conversation", "tool", "skill", "compactable"])
+def case_skill_auto_submitted() -> list[ModelMessage]:
+    """User invokes a skill via `/skill` — XML block as user message.
+
+    The `/skill` command composes an XML `<skill>` block and
+    auto-submits it.  The model reads the instructions and
+    calls `run_command` to execute the skill's script.
+    """
+    return [
+        _user(
+            '<skill name="brave-search" location="/home/u/.pi/skills/brave-search/SKILL.md">\n'
+            "References are relative to /home/u/.pi/skills/brave-search.\n\n"
+            "# Brave Search\n\n"
+            "Run `./search.js` to search.\n"
+            "</skill>\n\n"
+            "pydantic ai docs"
+        ),
+        _resp(
+            TextPart(content="Running brave-search."),
+            ToolCallPart(
+                tool_name="run_command",
+                args={"command": '/home/u/.pi/skills/brave-search/search.js "pydantic ai docs"'},
+                tool_call_id="c1",
+            ),
+        ),
+        _tool_result(
+            "run_command",
+            "--- Result 1 ---\nTitle: Pydantic AI\nLink: https://ai.pydantic.dev\n",
+            call_id="c1",
+        ),
+        _assistant("Found the Pydantic AI documentation."),
+        _user("what about the getting started guide?"),
+        _resp(
+            ToolCallPart(
+                tool_name="run_command",
+                args={
+                    "command": '/home/u/.pi/skills/brave-search/search.js "pydantic ai getting started"'
+                },
+                tool_call_id="c2",
+            ),
+        ),
+        _tool_result(
+            "run_command",
+            "--- Result 1 ---\nTitle: Getting Started\nLink: https://ai.pydantic.dev/getting-started\n",
+            call_id="c2",
+        ),
+        _assistant("Here's the getting started guide."),
+    ]

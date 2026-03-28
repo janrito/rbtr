@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import frontmatter
+
+from rbtr.events import AutoSubmit
 from rbtr.skills.registry import SkillSource
 
 if TYPE_CHECKING:
@@ -14,8 +17,8 @@ def cmd_skill(engine: Engine, args: str) -> None:
     """List available skills or load one by name.
 
     `/skill`              — list all discovered skills.
-    `/skill <name>`       — load the skill into context.
-    `/skill <name> <msg>` — load with a follow-up message.
+    `/skill <name>`       — load and send to the LLM.
+    `/skill <name> <msg>` — load with *msg* appended.
     """
     registry = engine.state.skill_registry
     if registry is None or len(registry) == 0:
@@ -35,7 +38,7 @@ def cmd_skill(engine: Engine, args: str) -> None:
         engine._warn(f"Unknown skill: {name}")
         return
 
-    _load_skill(engine, skill.file_path, name, extra)
+    _load_skill(engine, skill.file_path, skill.base_dir, name, extra)
 
 
 def _list_skills(engine: Engine) -> None:
@@ -60,16 +63,33 @@ def _list_skills(engine: Engine) -> None:
             engine._out(f"    {name:<24} {description}{suffix}")
 
 
-def _load_skill(engine: Engine, file_path: str, name: str, extra: str) -> None:
-    """Read a skill file and inject it as context."""
+def _load_skill(
+    engine: Engine,
+    file_path: str,
+    base_dir: str,
+    name: str,
+    extra: str,
+) -> None:
+    """Read a skill file, wrap in XML, and auto-submit to the LLM.
+
+    Format matches pi's `<skill>` block so the model sees
+    metadata (name, location) and a clear content boundary.
+    """
     try:
         with open(file_path) as f:
-            content = f.read()
+            raw = f.read()
     except OSError as exc:
         engine._warn(f"Failed to read skill {name}: {exc}")
         return
 
-    if extra:
-        content = f"{content}\n\nUser: {extra}"
+    body = frontmatter.loads(raw).content.strip()
 
-    engine._context(f"[/skill {name}]", content)
+    skill_block = f"""\
+<skill name="{name}" location="{file_path}">
+References are relative to {base_dir}.
+
+{body}
+</skill>"""
+
+    message = f"{skill_block}\n\n{extra}" if extra else skill_block
+    engine._emit(AutoSubmit(message=message))
