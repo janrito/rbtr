@@ -17,6 +17,13 @@ from rbtr.events import CompactionFinished, CompactionStarted
 from rbtr.exceptions import RbtrError
 from rbtr.prompts import render_compact, render_system
 from rbtr.providers import build_model, model_settings
+from rbtr.sessions.history import (
+    build_summary_message,
+    estimate_tokens,
+    serialise_for_summary,
+    snap_to_safe_boundary,
+    split_history,
+)
 from rbtr.sessions.kinds import FragmentKind
 from rbtr.sessions.overhead import (
     CompactionOverhead,
@@ -26,13 +33,6 @@ from rbtr.sessions.overhead import (
 
 from .context import LLMContext
 from .costs import extract_cost
-from .history import (
-    build_summary_message,
-    estimate_tokens,
-    serialise_for_summary,
-    snap_to_safe_boundary,
-    split_history,
-)
 from .memory import FactExtractionRun, apply_fact_extraction, run_fact_extraction
 
 log = logging.getLogger(__name__)
@@ -247,7 +247,8 @@ async def compact_history_async(
         cost=sr.cost,
     )
 
-    ctx.emit(CompactionFinished(summary_tokens=summary_tokens))
+    preview = sr.text[:200] + "…" if len(sr.text) > 200 else sr.text
+    ctx.emit(CompactionFinished(summary_tokens=summary_tokens, summary_preview=preview))
 
 
 def find_fit_count(

@@ -18,6 +18,7 @@ import json
 
 import pytest
 from pydantic_ai.messages import (
+    ModelMessage,
     ModelRequest,
     ModelRequestPart,
     ModelResponse,
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage
+from pytest_cases import parametrize_with_cases
 
 from rbtr.sessions.incidents import (
     FailedAttempt,
@@ -48,7 +50,7 @@ from rbtr.sessions.serialise import (
     prepare_part_rows,
     reconstruct_message,
 )
-from tests.engine.test_compact import ALL_HISTORIES
+from tests.engine.builders import _assistant, _user
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -62,18 +64,6 @@ _CTX = SessionContext(
 )
 
 _USAGE = RequestUsage(input_tokens=100, output_tokens=50)
-
-
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
-def _assistant(text: str) -> ModelResponse:
-    return ModelResponse(
-        parts=[TextPart(content=text)],
-        usage=_USAGE,
-        model_name="test-model",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -100,7 +90,7 @@ def test_prepare_message_row_request() -> None:
 
 def test_prepare_message_row_response_tokens() -> None:
     """Response message row captures token counts from usage."""
-    msg = _assistant("hi")
+    msg = _assistant("hi", usage=_USAGE)
     row = prepare_message_row(msg, context=_CTX, row_id="r2")
 
     assert row.fragment_kind == FragmentKind.RESPONSE_MESSAGE
@@ -180,10 +170,10 @@ def test_reconstruct_message_roundtrip() -> None:
     assert restored == msg
 
 
-@pytest.mark.parametrize("name", list(ALL_HISTORIES.keys()))
-def test_serialise_roundtrip_all_history_shapes(name: str) -> None:
+@parametrize_with_cases("history", cases="tests.sessions.case_histories")
+def test_serialise_roundtrip_all_history_shapes(history: list[ModelMessage]) -> None:
     """Every message in every history shape survives serialise → reconstruct."""
-    for msg in ALL_HISTORIES[name]:
+    for msg in history:
         kind = (
             FragmentKind.REQUEST_MESSAGE
             if isinstance(msg, ModelRequest)

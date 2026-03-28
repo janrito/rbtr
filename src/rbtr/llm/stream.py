@@ -39,6 +39,17 @@ from rbtr.config import ThinkingEffort, config
 from rbtr.events import TextDelta, ToolCallFinished, ToolCallStarted
 from rbtr.exceptions import RbtrError, TaskCancelled
 from rbtr.providers import build_model, model_context_window, model_settings
+from rbtr.sessions.history import (
+    consolidate_tool_returns,
+    demote_thinking,
+    flatten_tool_exchanges,
+    format_tool_args,
+    is_history_format_error,
+    repair_dangling_tool_calls,
+    sanitize_tool_call_ids,
+    strip_orphaned_tool_returns,
+    validate_tool_call_args,
+)
 from rbtr.sessions.incidents import (
     FailedAttempt,
     FailureKind,
@@ -56,17 +67,6 @@ from .context import LLMContext
 from .costs import record_run_usage
 from .deps import AgentDeps
 from .errors import is_context_overflow, is_effort_unsupported
-from .history import (
-    consolidate_tool_returns,
-    demote_thinking,
-    flatten_tool_exchanges,
-    format_tool_args,
-    is_history_format_error,
-    repair_dangling_tool_calls,
-    sanitize_tool_call_ids,
-    strip_orphaned_tool_returns,
-    validate_tool_call_args,
-)
 
 if TYPE_CHECKING:
     from rbtr.sessions.store import ResponseWriter
@@ -930,8 +930,8 @@ def _check_interrupted_response(response: ModelResponse) -> _Interrupted | None:
         if not isinstance(part, ToolCallPart):
             continue
         try:
-            part.args_as_dict()
-        except ValueError:
+            part.args_as_dict(raise_if_invalid=True)
+        except (ValueError, AssertionError):
             truncated_ids.append(part.tool_call_id)
             part.args = {}
 

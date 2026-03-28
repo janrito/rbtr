@@ -13,6 +13,9 @@ from enum import StrEnum
 GLOBAL_SCOPE = "global"
 """Scope value for facts that apply across all repositories."""
 
+SUMMARY_MARKER = "[Context summary — earlier conversation was compacted]"
+"""Prefix prepended to compaction summary content by `build_summary_message`."""
+
 
 class FragmentKind(StrEnum):
     """Row kind for the `fragments` table.

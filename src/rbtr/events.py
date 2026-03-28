@@ -23,6 +23,21 @@ class OutputLevel(StrEnum):
     SHELL_STDERR = "shell_stderr"
 
 
+class PanelVariant(StrEnum):
+    """Visual variant for history panels.
+
+    The engine declares intent; the TUI maps it to a background style.
+    """
+
+    INPUT = "input"
+    ACTIVE = "active"
+    RESPONSE = "response"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    QUEUED = "queued"
+    TOOLCALL = "toolcall"
+
+
 class TaskStarted(BaseModel):
     """A new task has begun execution."""
 
@@ -75,15 +90,31 @@ class LinkOutput(BaseModel):
     label: str = ""
 
 
+class InputEcho(BaseModel):
+    """Echo a user input to the display.
+
+    The TUI renders this as an input panel ("> text" with prompt
+    styling).  Used by both the live dispatch path and history
+    replay so that input display has a single rendering route.
+    """
+
+    text: str
+
+
 class FlushPanel(BaseModel):
     """Flush current active lines as a completed panel and start fresh.
 
     discard=False: print active lines to scrollback as a history panel.
     discard=True: throw away active lines (transient content like
     "Fetching…" that is no longer useful once real data arrives).
+
+    variant: when set, overrides the auto-detected panel style.
+    When ``None``, the TUI infers "succeeded" or "failed" from
+    task state (current behaviour).
     """
 
     discard: bool = False
+    variant: PanelVariant | None = None
 
 
 class TaskFinished(BaseModel):
@@ -198,6 +229,7 @@ class CompactionFinished(BaseModel):
     """Compaction complete — history was replaced."""
 
     summary_tokens: int
+    summary_preview: str = ""
 
 
 # ── Memory events ────────────────────────────────────────────────────
@@ -249,6 +281,7 @@ Event = (
     | MarkdownOutput
     | TextDelta
     | LinkOutput
+    | InputEcho
     | FlushPanel
     | TaskFinished
     | ToolCallStarted
