@@ -1293,9 +1293,10 @@ expandable diagnostic text (shown via Ctrl+O on errors).
 
 #### Context
 
-| Event                | Description                            |
-| -------------------- | -------------------------------------- |
-| `ContextMarkerReady` | A command produced context for the LLM |
+| Event                | Description                                       |
+| -------------------- | ------------------------------------------------- |
+| `ContextMarkerReady` | A command produced context for the LLM            |
+| `AutoSubmit`         | A command wants to chain an LLM submission        |
 
 #### Review
 
@@ -1596,9 +1597,12 @@ catalog matching the Agent Skills standard format. The model
 reads skill files on demand via `read_file`, which allows
 absolute paths within registered skill base directories.
 
-**`/skill` command.** Lists skills grouped by source or loads
-a skill by name, injecting its content as a context marker.
-Tab-completes skill names.
+**`/skill` command.** Lists skills grouped by source, or loads
+a skill by name. Loading reads the `SKILL.md`, strips
+frontmatter, wraps the body in an XML `<skill>` block
+(matching pi's format), and auto-submits it as a user message
+via `AutoSubmit`. Arguments are appended after the closing
+tag. Tab-completes skill names.
 
 **Lifecycle.** Discovery runs at engine startup and on
 `/reload`. The registry is stored on `EngineState`.
