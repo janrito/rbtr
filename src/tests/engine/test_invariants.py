@@ -13,14 +13,13 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.test import TestModel
-from pytest_cases import parametrize_with_cases
+from pytest_cases import case, parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.engine.core import Engine
@@ -30,79 +29,21 @@ from rbtr.llm.compact import compact_agent, compact_history
 from tests.engine.builders import _USAGE, _resp
 from tests.helpers import StubProvider, drain
 from tests.sessions.assertions import assert_ordering, assert_tool_pairing
-
-# ── 1. History immutability ──────────────────────────────────────────
-
-
-def test_repair_does_not_modify_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
-    """Transient repairs don't alter persisted history.
-
-    Seed a dangling tool call (no return), run an LLM turn,
-    verify the DB still has the dangling call — repairs are in-memory only.
-    """
-    dangling: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content="read my files")]),
-        ModelResponse(
-            parts=[
-                TextPart(content="Let me check."),
-                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
-            ],
-            model_name="test",
-        ),
-        # No ToolReturnPart — simulates Ctrl+C mid-tool-call.
-    ]
-    sid = llm_engine.state.session_id
-    llm_engine.store.save_messages(sid, dangling)
-
-    # Snapshot DB before the LLM turn.
-    before = llm_engine.store.load_messages(sid)
-
-    # Run a turn — _prepare_turn applies transient repair.
-    llm_engine.run_task(TaskType.LLM, "continue")
-    drain(llm_engine.events)
-
-    # The original 2 messages are unchanged in DB.
-    after_raw = llm_engine.store.load_messages(sid)
-    # First 2 messages should be the originals (dangling).
-    assert len(after_raw) >= len(before)
-    for orig, loaded in zip(before, after_raw[: len(before)], strict=True):
-        assert type(orig) is type(loaded)
-        assert len(orig.parts) == len(loaded.parts)
-
+from tests.sessions.case_histories import case_tool_failure
 
 # ── 2. Failed tool call recovery ─────────────────────────────────────
 
 
+@parametrize_with_cases("history", cases=[case_tool_failure])
 def test_conversation_continues_after_tool_failure(
-    llm_engine: Engine, stub_provider: StubProvider
+    history: list[ModelMessage], llm_engine: Engine, stub_provider: StubProvider
 ) -> None:
     """A tool failure (RetryPromptPart) doesn't break the conversation.
 
     Seed history with a failed tool call, send a follow-up,
     verify the model responds and history is valid.
     """
-    history_with_failure: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content="read secret.py")]),
-        _resp(
-            TextPart(content="Reading."),
-            ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c1"),
-        ),
-        ModelRequest(
-            parts=[
-                RetryPromptPart(
-                    content="Permission denied",
-                    tool_name="read_file",
-                    tool_call_id="c1",
-                ),
-            ]
-        ),
-        ModelResponse(
-            parts=[TextPart(content="Can't read that file.")],
-            usage=_USAGE,
-            model_name="test",
-        ),
-    ]
-    llm_engine.store.save_messages(llm_engine.state.session_id, history_with_failure)
+    llm_engine.store.save_messages(llm_engine.state.session_id, list(history))
 
     llm_engine.run_task(TaskType.LLM, "try config.py instead")
     events = drain(llm_engine.events)
@@ -153,59 +94,11 @@ def test_compaction_produces_valid_history(
 # ── 4. Compaction + failed tool history ──────────────────────────────
 
 
+@parametrize_with_cases("history", cases=[case_tool_failure])
 def test_compaction_with_failed_tools_produces_valid_history(
-    engine: Engine, stub_provider: StubProvider
+    history: list[ModelMessage], engine: Engine, stub_provider: StubProvider
 ) -> None:
     """Compaction of history containing RetryPromptPart is valid."""
-
-    # 4 turns with a tool failure in turn 1.
-    history: list[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content="read secret.py")]),
-        _resp(
-            TextPart(content="Reading."),
-            ToolCallPart(tool_name="read_file", args={"path": "secret.py"}, tool_call_id="c1"),
-        ),
-        ModelRequest(
-            parts=[
-                RetryPromptPart(
-                    content="Permission denied",
-                    tool_name="read_file",
-                    tool_call_id="c1",
-                ),
-            ]
-        ),
-        ModelResponse(
-            parts=[TextPart(content="Can't read that.")],
-            usage=_USAGE,
-            model_name="test",
-        ),
-        ModelRequest(parts=[UserPromptPart(content="try config.py")]),
-        _resp(
-            ToolCallPart(tool_name="read_file", args={"path": "config.py"}, tool_call_id="c2"),
-        ),
-        ModelRequest(
-            parts=[
-                ToolReturnPart(tool_name="read_file", content="DEBUG=True", tool_call_id="c2"),
-            ]
-        ),
-        ModelResponse(
-            parts=[TextPart(content="config.py has DEBUG=True.")],
-            usage=_USAGE,
-            model_name="test",
-        ),
-        ModelRequest(parts=[UserPromptPart(content="any other issues?")]),
-        ModelResponse(
-            parts=[TextPart(content="No issues.")],
-            usage=_USAGE,
-            model_name="test",
-        ),
-        ModelRequest(parts=[UserPromptPart(content="ship it")]),
-        ModelResponse(
-            parts=[TextPart(content="LGTM.")],
-            usage=_USAGE,
-            model_name="test",
-        ),
-    ]
 
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
@@ -228,43 +121,28 @@ def test_compaction_with_failed_tools_produces_valid_history(
 
 # ── 5. Broken history recovery ───────────────────────────────────────
 
+# Intentionally malformed histories — each exercises a different
+# level-0 repair in `_prepare_turn`.  Inline as `@case` functions
+# discovered via `cases="."`.
 
-def test_engine_recovers_from_dangling_tool_call(
-    llm_engine: Engine, stub_provider: StubProvider
-) -> None:
-    """Engine handles history with a dangling tool call — no crash.
 
-    Seed a dangling call (response with ToolCallPart, no ToolReturnPart),
-    send a message, verify the task succeeds.
-    """
-    dangling: list[ModelMessage] = [
+@case(tags=["broken"])
+def case_dangling_tool_call() -> list[ModelMessage]:
+    """Tool call at end of history with no return — cancelled mid-tool."""
+    return [
         ModelRequest(parts=[UserPromptPart(content="check files")]),
         _resp(
             TextPart(content="Checking."),
             ToolCallPart(tool_name="read_file", args={"path": "x.py"}, tool_call_id="tc1"),
         ),
-        # Missing ToolReturnPart — cancelled mid-tool.
+        # Missing ToolReturnPart — simulates Ctrl+C.
     ]
-    llm_engine.store.save_messages(llm_engine.state.session_id, dangling)
-
-    llm_engine.run_task(TaskType.LLM, "continue from where you left off")
-    events = drain(llm_engine.events)
-
-    assert any(isinstance(e, TaskFinished) and e.success for e in events)
-
-    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
-    assert len(loaded) >= 4  # original 2 + new request + response
 
 
-def test_engine_recovers_from_orphaned_tool_return(
-    llm_engine: Engine, stub_provider: StubProvider
-) -> None:
-    """Engine handles history with an orphaned tool return — no crash.
-
-    Seed a return with no matching call (can happen after compaction
-    of straddling tool calls), send a message, verify success.
-    """
-    orphaned: list[ModelMessage] = [
+@case(tags=["broken"])
+def case_orphaned_tool_return() -> list[ModelMessage]:
+    """Tool return with no matching call — can happen after compaction."""
+    return [
         ModelRequest(
             parts=[
                 ToolReturnPart(tool_name="list_files", content="a.py", tool_call_id="gone"),
@@ -277,9 +155,69 @@ def test_engine_recovers_from_orphaned_tool_return(
             model_name="test",
         ),
     ]
-    llm_engine.store.save_messages(llm_engine.state.session_id, orphaned)
 
-    llm_engine.run_task(TaskType.LLM, "anything else?")
+
+@case(tags=["broken"])
+def case_corrupt_tool_args() -> list[ModelMessage]:
+    """Corrupt tool-call args from a streaming failure."""
+    return [
+        ModelRequest(parts=[UserPromptPart(content="read it")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="read_file",
+                    args='{"path": "a.py",\n<parameter name="offset": 10}',
+                    tool_call_id="tc1",
+                ),
+            ],
+            model_name="test",
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="read_file", content="contents", tool_call_id="tc1"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done.")], model_name="test"),
+    ]
+
+
+@case(tags=["broken"])
+def case_gemini_tool_ids() -> list[ModelMessage]:
+    """Gemini-style tool IDs with dots and colons."""
+    return [
+        ModelRequest(parts=[UserPromptPart(content="search")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="grep",
+                    args={"pattern": "TODO"},
+                    tool_call_id="functions.grep:4",
+                ),
+            ],
+            model_name="gemini",
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(tool_name="grep", content="found", tool_call_id="functions.grep:4"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Done.")], model_name="gemini"),
+    ]
+
+
+@parametrize_with_cases("history", cases=".", has_tag="broken")
+def test_engine_recovers_from_broken_history(
+    history: list[ModelMessage],
+    llm_engine: Engine,
+    stub_provider: StubProvider,
+) -> None:
+    """Level-0 repairs handle each broken shape transparently."""
+    llm_engine.store.save_messages(llm_engine.state.session_id, list(history))
+
+    llm_engine.run_task(TaskType.LLM, "continue")
     events = drain(llm_engine.events)
 
     assert any(isinstance(e, TaskFinished) and e.success for e in events)
+
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert_ordering(loaded)

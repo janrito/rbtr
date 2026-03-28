@@ -14,19 +14,15 @@ from typing import TYPE_CHECKING
 
 from pydantic_ai.messages import (
     ModelRequest,
-    ModelResponse,
-    TextPart,
-    ToolCallPart,
-    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.test import TestModel
 
 from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
-from rbtr.events import Event, TaskFinished, ToolCallFinished, ToolCallStarted
+from rbtr.events import Event, TaskFinished
 from rbtr.llm.compact import compact_agent
-from tests.helpers import StubProvider, drain, has_event_type, output_texts
+from tests.helpers import StubProvider, drain, output_texts
 from tests.sessions.assertions import assert_ordering
 
 if TYPE_CHECKING:
@@ -47,84 +43,6 @@ def _assert_task_succeeded(events: list[Event]) -> None:
     finished = [e for e in events if isinstance(e, TaskFinished)]
     assert finished, "No TaskFinished event found"
     assert finished[-1].success, f"Task failed: {finished[-1]}"
-
-
-# ── Multi-turn with tools ───────────────────────────────────────────
-
-
-def test_multi_turn_roundtrip(llm_engine: Engine, stub_provider: StubProvider) -> None:
-    """Run 3 user turns, verify store.load_messages() returns the
-    full conversation and messages round-trip correctly.
-    """
-    stub_provider.set_model(TestModel(custom_output_text="test response", call_tools=[]))
-
-    prompts = ["first question", "second question", "third question"]
-    for prompt in prompts:
-        events = _run_llm_turn(llm_engine, prompt)
-        _assert_task_succeeded(events)
-
-    # Verify all messages are in the store.
-    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
-
-    # Each turn = 1 request + 1 response = 2 messages, 3 turns = 6.
-    assert len(loaded) == 6
-
-    # Verify user prompts are preserved.
-    user_texts = []
-    for msg in loaded:
-        if isinstance(msg, ModelRequest):
-            for req_part in msg.parts:
-                if isinstance(req_part, UserPromptPart) and isinstance(req_part.content, str):
-                    user_texts.append(req_part.content)
-    assert user_texts == prompts
-
-    # Verify responses are preserved.
-    response_texts: list[str] = []
-    for msg in loaded:
-        if isinstance(msg, ModelResponse):
-            for resp_part in msg.parts:
-                if isinstance(resp_part, TextPart):
-                    response_texts.append(resp_part.content)
-    assert len(response_texts) == 3
-    assert all("test response" in t for t in response_texts)
-
-
-def test_multi_turn_with_tool_calls(llm_engine: Engine, stub_provider: StubProvider) -> None:
-    """Run a turn with tool calls, verify tool call and return parts
-    are persisted in the store.
-    """
-    stub_provider.set_model(TestModel(custom_output_text="analysis complete", call_tools="all"))
-
-    events = _run_llm_turn(llm_engine, "analyse the code")
-    _assert_task_succeeded(events)
-
-    # Verify tool events were emitted.
-    assert has_event_type(events, ToolCallStarted)
-    assert has_event_type(events, ToolCallFinished)
-
-    # Verify messages are in the store.
-    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
-    assert (
-        len(loaded) >= 3
-    )  # request, response (tool calls), request (tool returns), response (text)
-
-    # Verify tool call parts exist in the loaded messages.
-    has_tool_call = any(
-        isinstance(part, ToolCallPart)
-        for msg in loaded
-        if isinstance(msg, ModelResponse)
-        for part in msg.parts
-    )
-    assert has_tool_call
-
-    # Verify tool return parts exist.
-    has_tool_return = any(
-        isinstance(part, ToolReturnPart)
-        for msg in loaded
-        if isinstance(msg, ModelRequest)
-        for part in msg.parts
-    )
-    assert has_tool_return
 
 
 # ── Session listing ──────────────────────────────────────────────────
@@ -212,40 +130,6 @@ def test_session_resume_loads_messages(llm_engine: Engine, stub_provider: StubPr
 # ── Compaction + resume ──────────────────────────────────────────────
 
 
-def test_compaction_reduces_history(llm_engine: Engine, stub_provider: StubProvider) -> None:
-    """Run enough turns to compact, verify history is shorter after."""
-    stub_provider.set_model(TestModel(custom_output_text="reply", call_tools=[]))
-
-    # Build enough history to compact (15 turns).
-    for i in range(15):
-        _run_llm_turn(llm_engine, f"question {i}")
-        drain(llm_engine.events)
-
-    pre_compact_count = len(llm_engine.store.load_messages(llm_engine.state.session_id))
-    assert pre_compact_count == 30  # 15 turns x 2
-
-    llm_engine.state.usage.context_window = 200_000
-    with compact_agent.override(
-        model=TestModel(custom_output_text="Summary: discussed 15 questions.")
-    ):
-        llm_engine.run_task(TaskType.COMMAND, "/compact")
-    drain(llm_engine.events)
-
-    post_compact = llm_engine.store.load_messages(llm_engine.state.session_id)
-    assert len(post_compact) < pre_compact_count
-    assert_ordering(post_compact)
-
-    # Summary message is present with the configured text.
-    first = post_compact[0]
-    assert isinstance(first, ModelRequest)
-    assert any(
-        isinstance(p, UserPromptPart)
-        and isinstance(p.content, str)
-        and "discussed 15 questions" in p.content
-        for p in first.parts
-    )
-
-
 def test_compaction_then_resume(llm_engine: Engine, stub_provider: StubProvider) -> None:
     """After compaction, resume from a different session and verify
     the compacted state loads correctly.
@@ -328,38 +212,3 @@ def test_compaction_preserves_continuity(llm_engine: Engine, stub_provider: Stub
 
     # Summary from compaction is still present.
     assert any("Compacted summary" in t for t in user_texts)
-
-
-# ── Command/shell rows don't pollute history ─────────────────────────
-
-
-def test_command_shell_rows_excluded_from_history(
-    llm_engine: Engine, stub_provider: StubProvider
-) -> None:
-    """Command and shell rows stored between LLM turns don't appear
-    in load_messages().
-    """
-    stub_provider.set_model(TestModel(custom_output_text="ok", call_tools=[]))
-
-    # LLM turn.
-    _run_llm_turn(llm_engine, "hello")
-    drain(llm_engine.events)
-
-    # Persist command/shell inputs via the store API — these
-    # should be excluded from load_messages but visible in
-    # search_history.
-    llm_engine.store.save_input(llm_engine.state.session_id, "/help", "command")
-    llm_engine.store.save_input(llm_engine.state.session_id, "!git status", "shell")
-
-    # Another LLM turn.
-    _run_llm_turn(llm_engine, "world")
-    drain(llm_engine.events)
-
-    # load_messages should only return LLM messages.
-    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
-    assert len(loaded) == 4  # 2 turns x 2 messages
-
-    # But search_history should find the command.
-    results = llm_engine.store.search_history()
-    assert "/help" in results
-    assert "!git status" in results

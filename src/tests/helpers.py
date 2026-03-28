@@ -5,6 +5,13 @@ from __future__ import annotations
 import queue
 from dataclasses import dataclass
 
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.settings import ModelSettings
@@ -81,6 +88,31 @@ class HeadlessUI(UI):
 
     def __init__(self, inp: InputState) -> None:
         self.inp = inp
+
+
+# ── Message extraction helpers ────────────────────────────────────────
+
+
+def user_texts(messages: list[ModelMessage]) -> list[str]:
+    """Extract user prompt strings from loaded messages."""
+    texts: list[str] = []
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, UserPromptPart) and isinstance(p.content, str):
+                    texts.append(p.content)
+    return texts
+
+
+def response_texts(messages: list[ModelMessage]) -> list[str]:
+    """Extract response text strings from loaded messages."""
+    texts: list[str] = []
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for p in msg.parts:
+                if isinstance(p, TextPart):
+                    texts.append(p.content)
+    return texts
 
 
 # ── Event queue helpers ──────────────────────────────────────────────

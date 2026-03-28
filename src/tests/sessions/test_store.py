@@ -18,7 +18,6 @@ Organisation:
 
 from __future__ import annotations
 
-import base64
 import time
 import time as _time
 import uuid
@@ -27,9 +26,6 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai.messages import (
-    BinaryContent,
-    BuiltinToolCallPart,
-    BuiltinToolReturnPart,
     FilePart,
     ModelMessage,
     ModelRequest,
@@ -46,17 +42,10 @@ from pydantic_ai.usage import RequestUsage
 from pytest_cases import parametrize_with_cases
 from uuid_utils import uuid7
 
-from rbtr.sessions.history import (
-    consolidate_tool_returns,
-    demote_thinking,
-    flatten_tool_exchanges,
-    repair_dangling_tool_calls,
-    sanitize_tool_call_ids,
-    validate_tool_call_args,
-)
 from rbtr.sessions.kinds import FragmentKind, FragmentStatus
 from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
-from tests.sessions.assertions import assert_messages_match, assert_ordering, assert_tool_pairing
+from tests.engine.builders import _assistant, _user
+from tests.sessions.assertions import assert_ordering, assert_tool_pairing
 
 # ═══════════════════════════════════════════════════════════════════════
 # Shared test data
@@ -66,16 +55,8 @@ _USAGE = RequestUsage(input_tokens=100, output_tokens=50)
 _USAGE_LARGE = RequestUsage(input_tokens=5000, output_tokens=200)
 
 
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
 def _system(text: str) -> ModelRequest:
     return ModelRequest(parts=[SystemPromptPart(content=text)])
-
-
-def _assistant(text: str, *, model: str = "test-model") -> ModelResponse:
-    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name=model)
 
 
 def _response(input_tokens: int, output_tokens: int, *, model: str = "test") -> ModelResponse:
@@ -110,54 +91,9 @@ def _thinking_response(thinking: str, text: str) -> ModelResponse:
     )
 
 
-# A realistic multi-turn conversation with tool calls and thinking.
-# Each ModelResponse matches real LLM output — text + tool call in
-# one message, thinking + text in one message.
-CONVERSATION: list[ModelRequest | ModelResponse] = [
-    _user("review src/tui.py"),
-    ModelResponse(
-        parts=[
-            TextPart(content="I'll read the file."),
-            ToolCallPart(tool_name="read_file", args={"path": "src/tui.py"}, tool_call_id="tc1"),
-        ],
-        usage=_USAGE_LARGE,
-        model_name="test-model",
-    ),
-    _tool_return_request("read_file", "class TUI:\n    pass"),
-    _thinking_response("The TUI class is minimal...", "Here's my analysis."),
-    _user("any security issues?"),
-    _assistant("No security issues found."),
-]
-
-# Tool return request for standalone tests.
-TOOL_RETURN = _tool_return_request("read_file", "def hello(): ...")
-
-# Multi-tool response.
-MULTI_TOOL_RESPONSE = ModelResponse(
-    parts=[
-        TextPart(content="Let me check."),
-        ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc1"),
-        ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="tc2"),
-    ],
-    usage=_USAGE_LARGE,
-    model_name="claude-sonnet-4-20250514",
-)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Save → load round-trips
 # ═══════════════════════════════════════════════════════════════════════
-
-
-def test_roundtrip_full_conversation() -> None:
-    """The full realistic conversation round-trips losslessly."""
-    with SessionStore() as store:
-        store.save_messages("s1", CONVERSATION)
-        loaded = store.load_messages("s1")
-
-    assert len(loaded) == len(CONVERSATION)
-    for original, restored in zip(CONVERSATION, loaded, strict=True):
-        assert restored == original
 
 
 @parametrize_with_cases("history", cases="tests.sessions.case_histories")
@@ -174,52 +110,37 @@ def test_roundtrip_all_history_shapes(history: list[ModelMessage]) -> None:
     assert_tool_pairing(loaded)
 
 
-@pytest.mark.parametrize(
-    ("label", "message"),
-    [
-        ("user_prompt", _user("explain closures")),
-        ("system_prompt", _system("be helpful")),
-        ("text_response", _assistant("A closure captures variables.")),
-        ("tool_call", _tool_call_response("read_file", {"path": "a.py"})),
-        ("tool_return", TOOL_RETURN),
-        ("thinking", _thinking_response("hmm...", "Here's my answer.")),
-        ("multi_tool", MULTI_TOOL_RESPONSE),
-        (
-            "retry",
-            ModelRequest(
-                parts=[
-                    RetryPromptPart(content="try again", tool_name="f", tool_call_id="tc1"),
-                ]
-            ),
-        ),
-        (
-            "zero_usage",
-            ModelResponse(
-                parts=[TextPart(content="hi")],
-                model_name="test",
-            ),
-        ),
-    ],
-    ids=lambda x: x if isinstance(x, str) else "",
-)
-def test_roundtrip_single_message(label: str, message: ModelRequest | ModelResponse) -> None:
-    """Each message type round-trips individually."""
+@parametrize_with_cases("message", cases="tests.sessions.case_messages")
+def test_roundtrip_single_message(message: ModelRequest | ModelResponse) -> None:
+    """Every message/part type round-trips through the DB.
+
+    FilePart with BinaryContent deserialises to BinaryImage (a subclass) —
+    PydanticAI's after-validator narrows the type.  For those parts we
+    compare data/media_type rather than strict equality.
+    """
     with SessionStore() as store:
         store.save_messages("s1", [message])
         loaded = store.load_messages("s1")
 
     assert len(loaded) == 1
-    assert loaded[0] == message
+    restored = loaded[0]
+    assert len(restored.parts) == len(message.parts)
+    for orig_part, rest_part in zip(message.parts, restored.parts, strict=True):
+        if isinstance(orig_part, FilePart) and isinstance(rest_part, FilePart):
+            assert rest_part.content.data == orig_part.content.data  # type: ignore[union-attr]
+            assert rest_part.content.media_type == orig_part.content.media_type  # type: ignore[union-attr]
+        else:
+            assert rest_part == orig_part
 
 
 def test_incremental_saves() -> None:
     """Multiple save_messages calls accumulate."""
     with SessionStore() as store:
-        store.save_messages("s1", CONVERSATION[:2])
-        store.save_messages("s1", CONVERSATION[2:])
+        store.save_messages("s1", [_user("q1"), _assistant("a1")])
+        store.save_messages("s1", [_user("q2"), _assistant("a2")])
         loaded = store.load_messages("s1")
 
-    assert len(loaded) == len(CONVERSATION)
+    assert len(loaded) == 4
 
 
 def test_save_empty_is_noop() -> None:
@@ -239,7 +160,7 @@ def test_sessions_dont_mix() -> None:
     """Messages saved to different sessions are isolated."""
     with SessionStore() as store:
         store.save_messages("s1", [_user("q1")])
-        store.save_messages("s2", CONVERSATION[:2])
+        store.save_messages("s2", [_user("q2"), _assistant("a2")])
         assert len(store.load_messages("s1")) == 1
         assert len(store.load_messages("s2")) == 2
 
@@ -421,8 +342,15 @@ def test_save_input_prefix_search() -> None:
 def test_list_sessions_groups_by_id() -> None:
     """Each session appears once with correct counts."""
     with SessionStore() as store:
-        store.save_messages("s1", CONVERSATION[:2], repo_owner="acme", repo_name="app")
-        store.save_messages("s2", CONVERSATION[:4], repo_owner="acme", repo_name="lib")
+        store.save_messages(
+            "s1", [_user("q1"), _assistant("a1")], repo_owner="acme", repo_name="app"
+        )
+        store.save_messages(
+            "s2",
+            [_user("q1"), _assistant("a1"), _user("q2"), _assistant("a2")],
+            repo_owner="acme",
+            repo_name="lib",
+        )
         sessions = store.list_sessions()
 
     assert len(sessions) == 2
@@ -565,7 +493,7 @@ def test_compact_does_not_affect_other_sessions() -> None:
 
 def test_delete_session() -> None:
     with SessionStore() as store:
-        store.save_messages("s1", CONVERSATION[:2])
+        store.save_messages("s1", [_user("q1"), _assistant("a1")])
         deleted = store.delete_session("s1")
         assert deleted > 0
         assert store.load_messages("s1") == []
@@ -831,107 +759,6 @@ def test_migration_fixes_tool_pairing_cascade(tmp_path: Path) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 # Round-trip: additional part types (FilePart, Builtin*)
 # ═══════════════════════════════════════════════════════════════════════
-
-# A tiny 1x1 red PNG for FilePart tests.
-_TINY_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
-    "2mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=="
-)
-
-
-@pytest.mark.parametrize(
-    ("label", "message"),
-    [
-        (
-            "file_image",
-            ModelResponse(
-                parts=[
-                    FilePart(content=BinaryContent(data=_TINY_PNG, media_type="image/png")),
-                    TextPart(content="A 1x1 red pixel."),
-                ],
-                usage=_USAGE,
-                model_name="test",
-            ),
-        ),
-        (
-            "builtin_tool_call",
-            ModelResponse(
-                parts=[
-                    BuiltinToolCallPart(
-                        tool_name="web_search",
-                        args={"query": "weather today"},
-                        tool_call_id="bt1",
-                    ),
-                ],
-                usage=_USAGE,
-                model_name="test",
-            ),
-        ),
-        (
-            "builtin_tool_return",
-            ModelResponse(
-                parts=[
-                    BuiltinToolReturnPart(
-                        tool_name="web_search",
-                        content="Sunny, 72°F",
-                        tool_call_id="bt1",
-                    ),
-                ],
-                usage=_USAGE,
-                model_name="test",
-            ),
-        ),
-        (
-            "mixed_response_file_and_text",
-            ModelResponse(
-                parts=[
-                    ThinkingPart(content="analysing the image"),
-                    FilePart(content=BinaryContent(data=_TINY_PNG, media_type="image/png")),
-                    TextPart(content="review complete"),
-                ],
-                usage=_USAGE,
-                model_name="test",
-            ),
-        ),
-        (
-            "mixed_response_thinking_tool_text",
-            ModelResponse(
-                parts=[
-                    ThinkingPart(content="need to search first"),
-                    ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="tc1"),
-                    TextPart(content="let me check"),
-                ],
-                usage=_USAGE_LARGE,
-                model_name="test",
-            ),
-        ),
-    ],
-    ids=lambda x: x if isinstance(x, str) else "",
-)
-def test_roundtrip_extended_part_types(label: str, message: ModelRequest | ModelResponse) -> None:
-    """Part types beyond the basic set round-trip correctly.
-
-    FilePart with BinaryContent deserialises to BinaryImage (a subclass) —
-    PydanticAI's after-validator narrows the type.  For those cases we
-    compare data/media_type rather than strict equality.
-    """
-    with SessionStore() as store:
-        store.save_messages("s1", [message])
-        loaded = store.load_messages("s1")
-
-    assert len(loaded) == 1
-
-    original = message
-    restored = loaded[0]
-
-    # Compare part-by-part to handle BinaryContent → BinaryImage narrowing.
-    assert len(restored.parts) == len(original.parts)
-    for orig_part, rest_part in zip(original.parts, restored.parts, strict=True):
-        if isinstance(orig_part, FilePart) and isinstance(rest_part, FilePart):
-            assert rest_part.content.data == orig_part.content.data  # type: ignore[union-attr]
-            assert rest_part.content.media_type == orig_part.content.media_type  # type: ignore[union-attr]
-        else:
-            assert rest_part == orig_part
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2346,516 +2173,3 @@ def test_redacted_thinking_survives_roundtrip() -> None:
     assert tp.content == ""
     assert tp.signature == "redacted_sig_data"
     assert tp.provider_name == "anthropic"
-
-
-# ── Full conversation lifecycle ──────────────────────────────────────
-
-
-# A realistic multi-turn conversation with signed thinking, tool
-# calls, and multiple tool returns — the exact shape that broke.
-LIFECYCLE_CONVERSATION: list[ModelRequest | ModelResponse] = [
-    # Turn 1: user prompt → thinking + tool call → tool return → thinking + text
-    _user("review the draft"),
-    ModelResponse(
-        parts=[
-            ThinkingPart(
-                content="User wants a review. Let me find the draft.",
-                signature="sig_t1",
-                provider_name="anthropic",
-            ),
-            ToolCallPart(tool_name="list_files", args={"pattern": "draft"}, tool_call_id="tc_list"),
-        ],
-        usage=_USAGE_LARGE,
-        model_name="claude-sonnet-4-6",
-    ),
-    ModelRequest(
-        parts=[
-            ToolReturnPart(
-                tool_name="list_files",
-                content="draft.md\nnotes.md",
-                tool_call_id="tc_list",
-            ),
-        ]
-    ),
-    ModelResponse(
-        parts=[
-            ThinkingPart(
-                content="Found the draft. Let me read it.",
-                signature="sig_t2",
-                provider_name="anthropic",
-            ),
-            ToolCallPart(tool_name="read_file", args={"path": "draft.md"}, tool_call_id="tc_read1"),
-            ToolCallPart(tool_name="read_file", args={"path": "notes.md"}, tool_call_id="tc_read2"),
-        ],
-        usage=_USAGE_LARGE,
-        model_name="claude-sonnet-4-6",
-    ),
-    ModelRequest(
-        parts=[
-            ToolReturnPart(
-                tool_name="read_file",
-                content="# Draft\n\nContent here.",
-                tool_call_id="tc_read1",
-            ),
-            ToolReturnPart(
-                tool_name="read_file",
-                content="# Notes\n\nReview notes.",
-                tool_call_id="tc_read2",
-            ),
-        ]
-    ),
-    ModelResponse(
-        parts=[
-            ThinkingPart(
-                content="Analysing both documents for cohesion.",
-                signature="sig_t3",
-                provider_name="anthropic",
-            ),
-            TextPart(content="Here's my analysis of the draft."),
-        ],
-        usage=_USAGE_LARGE,
-        model_name="claude-sonnet-4-6",
-    ),
-    # Turn 2: follow-up question → text response
-    _user("any issues with section 3?"),
-    ModelResponse(
-        parts=[
-            ThinkingPart(
-                content="Let me check section 3 specifically.",
-                signature="sig_t4",
-                provider_name="anthropic",
-            ),
-            TextPart(content="Section 3 has a coherence issue."),
-        ],
-        usage=_USAGE,
-        model_name="claude-sonnet-4-6",
-    ),
-]
-
-
-def test_lifecycle_conversation_roundtrip() -> None:
-    """Full multi-turn conversation with signed thinking + tool calls
-    round-trips losslessly: fidelity, tool pairing, and alternation.
-    """
-
-    with SessionStore() as store:
-        store.save_messages("s1", LIFECYCLE_CONVERSATION)
-        loaded = store.load_messages("s1")
-
-    assert_messages_match(LIFECYCLE_CONVERSATION, loaded)
-    assert_tool_pairing(loaded)
-    assert_ordering(loaded)
-
-
-# ── Save → load → repair chain ──────────────────────────────────────
-
-
-def test_dangling_tool_call_repaired_after_load() -> None:
-    """A cancelled tool call saved to DB is repaired after load.
-
-    Simulates Ctrl+C during a tool-calling turn: the response
-    with tool calls is saved (complete), but no tool return
-    follows.  After load, `repair_dangling_tool_calls` injects
-    synthetic `(cancelled)` returns.
-    """
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        store.save_messages(
-            "s1",
-            [
-                _user("read it"),
-                ModelResponse(
-                    parts=[
-                        ThinkingPart(
-                            content="Let me read.",
-                            signature="sig_dangle",
-                            provider_name="anthropic",
-                        ),
-                        ToolCallPart(
-                            tool_name="read_file",
-                            args={"path": "a.py"},
-                            tool_call_id="tc_dangle",
-                        ),
-                    ],
-                    usage=_USAGE,
-                    model_name="test",
-                ),
-                # No ToolReturnPart — cancelled.
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    repaired, tool_names, call_ids = repair_dangling_tool_calls(loaded)
-
-    assert tool_names == ["read_file"]
-    assert call_ids == ["tc_dangle"]
-    assert len(repaired) == 3  # request, response, synthetic return
-    synthetic = repaired[2]
-    assert isinstance(synthetic, ModelRequest)
-    assert any(
-        isinstance(p, ToolReturnPart) and p.content == "(cancelled)" for p in synthetic.parts
-    )
-
-
-def test_consolidate_tool_returns_after_load() -> None:
-    """Scattered tool returns saved to DB are consolidated after load.
-
-    Simulates a history where tool returns ended up in a different
-    request than expected (e.g. after compaction or cross-provider
-    resume).
-    """
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        store.save_messages(
-            "s1",
-            [
-                _user("analyse"),
-                # Response with 2 tool calls.
-                ModelResponse(
-                    parts=[
-                        ToolCallPart(
-                            tool_name="read_file",
-                            args={"path": "a.py"},
-                            tool_call_id="tc_a",
-                        ),
-                        ToolCallPart(
-                            tool_name="read_file",
-                            args={"path": "b.py"},
-                            tool_call_id="tc_b",
-                        ),
-                    ],
-                    usage=_USAGE,
-                    model_name="test",
-                ),
-                # Returns scattered across two requests.
-                ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="read_file",
-                            content="def foo(): ...",
-                            tool_call_id="tc_a",
-                        ),
-                    ]
-                ),
-                ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="read_file",
-                            content="def bar(): ...",
-                            tool_call_id="tc_b",
-                        ),
-                    ]
-                ),
-                _assistant("Done."),
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    result = consolidate_tool_returns(loaded)
-
-    # The two scattered returns should be consolidated into one request.
-    assert result.turns_fixed == 1
-    # Find the consolidated request (right after the response with tool calls).
-    resp_idx = next(
-        i
-        for i, m in enumerate(result.history)
-        if isinstance(m, ModelResponse) and any(isinstance(p, ToolCallPart) for p in m.parts)
-    )
-    consolidated_req = result.history[resp_idx + 1]
-    assert isinstance(consolidated_req, ModelRequest)
-    return_ids = {p.tool_call_id for p in consolidated_req.parts if isinstance(p, ToolReturnPart)}
-    assert return_ids == {"tc_a", "tc_b"}
-
-
-def test_demote_thinking_after_load() -> None:
-    """Signed thinking parts loaded from DB are demoted to text.
-
-    Simulates cross-provider resume where the new provider doesn't
-    support thinking blocks.  Verifies that content is preserved
-    as `<thinking>` tags and signatures are dropped.
-    """
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        store.save_messages(
-            "s1",
-            [
-                _user("explain"),
-                _signed_thinking("deep reasoning here", "The answer is 42."),
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    result = demote_thinking(loaded)
-
-    assert result.parts_demoted == 1
-    resp = result.history[1]
-    assert isinstance(resp, ModelResponse)
-    # Thinking converted to text with tags.
-    tp = resp.parts[0]
-    assert isinstance(tp, TextPart)
-    assert "<thinking>" in tp.content
-    assert "deep reasoning here" in tp.content
-    # Original text part preserved.
-    assert isinstance(resp.parts[1], TextPart)
-    assert resp.parts[1].content == "The answer is 42."
-
-
-def test_flatten_tool_exchanges_after_load() -> None:
-    """Tool calls loaded from DB are flattened to plain text.
-
-    Last-resort repair: tool-call/return structure removed,
-    content preserved as readable text.
-    """
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        store.save_messages(
-            "s1",
-            [
-                _user("search"),
-                _tool_call_response("grep", {"pattern": "TODO"}),
-                _tool_return_request("grep", "a.py:10: # TODO fix this"),
-                _assistant("Found one TODO."),
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    result = flatten_tool_exchanges(loaded)
-
-    assert result.tool_calls_flattened == 1
-    assert result.tool_returns_flattened == 1
-    # Tool call converted to text.
-    resp = result.history[1]
-    assert isinstance(resp, ModelResponse)
-    assert all(isinstance(p, TextPart) for p in resp.parts)
-    # Tool return content preserved.
-    req = result.history[2]
-    assert isinstance(req, ModelRequest)
-    assert any(
-        isinstance(p, UserPromptPart) and "a.py:10: # TODO fix this" in str(p.content)
-        for p in req.parts
-    )
-
-
-def test_validate_tool_call_args_after_load() -> None:
-    """Corrupt tool-call args saved to DB are repaired in memory."""
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        # Save a tool call with corrupt args (mixed XML/JSON).
-        corrupt = ToolCallPart(
-            tool_name="read_file",
-            args='{"path": "a.py",\n<parameter name="offset": 10}',
-            tool_call_id="tc_corrupt",
-        )
-        store.save_messages(
-            "s1",
-            [
-                _user("read it"),
-                ModelResponse(parts=[corrupt], usage=_USAGE, model_name="test"),
-                ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="read_file",
-                            content="file contents",
-                            tool_call_id="tc_corrupt",
-                        )
-                    ]
-                ),
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    repaired = validate_tool_call_args(loaded)
-
-    assert len(repaired) == 1
-    assert repaired[0] == ("read_file", "tc_corrupt")
-    # Args replaced with {} — parseable.
-    resp = loaded[1]
-    assert isinstance(resp, ModelResponse)
-    tc = resp.parts[0]
-    assert isinstance(tc, ToolCallPart)
-    assert tc.args_as_dict() == {}
-
-
-def test_sanitize_tool_call_ids_after_load() -> None:
-    """Tool-call IDs with invalid characters are sanitized after load.
-
-    Gemini-style IDs (e.g. `functions.grep:4`) contain characters
-    rejected by Anthropic.  Sanitization replaces them with `_`
-    and preserves pairing.
-    """
-
-    with SessionStore() as store:
-        store.set_context("s1")
-        store.save_messages(
-            "s1",
-            [
-                _user("search"),
-                ModelResponse(
-                    parts=[
-                        ToolCallPart(
-                            tool_name="grep",
-                            args={"pattern": "x"},
-                            tool_call_id="functions.grep:4",
-                        ),
-                    ],
-                    usage=_USAGE,
-                    model_name="gemini",
-                ),
-                ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="grep",
-                            content="found",
-                            tool_call_id="functions.grep:4",
-                        ),
-                    ]
-                ),
-            ],
-        )
-        loaded = store.load_messages("s1")
-
-    sanitized, bad_ids = sanitize_tool_call_ids(loaded)
-
-    assert bad_ids == ["functions.grep:4"]
-    # IDs are sanitized consistently.
-    resp = sanitized[1]
-    assert isinstance(resp, ModelResponse)
-    tc = resp.parts[0]
-    assert isinstance(tc, ToolCallPart)
-    assert tc.tool_call_id == "functions_grep_4"
-    req = sanitized[2]
-    assert isinstance(req, ModelRequest)
-    tr = req.parts[0]
-    assert isinstance(tr, ToolReturnPart)
-    assert tr.tool_call_id == "functions_grep_4"
-
-
-# ── Compaction with tool pairing ─────────────────────────────────────
-
-
-def test_compaction_preserves_tool_pairing() -> None:
-    """After compaction, kept messages have valid tool pairing.
-
-    Compacts the first turn (which includes tool calls). The kept
-    turn's tool calls must still have matching returns.
-    """
-    with SessionStore() as store:
-        store.set_context("s1")
-        # Turn 1: will be compacted.
-        store.save_messages(
-            "s1",
-            [
-                _user("old question"),
-                _assistant("old answer"),
-            ],
-        )
-        # Turn 2: tool-calling turn, will be kept.
-        store.save_messages(
-            "s1",
-            [
-                _user("read file"),
-                _tool_call_response("read_file", {"path": "x.py"}),
-                _tool_return_request("read_file", "def x(): ..."),
-                _assistant("Here's the file."),
-            ],
-        )
-
-        all_ids = store.load_message_ids("s1")
-        # Compact first turn (2 messages).
-        store.compact_session(
-            "s1",
-            summary=_user("[Summary of turn 1]"),
-            compact_ids=all_ids[:2],
-        )
-
-        loaded = store.load_messages("s1")
-
-    # summary + 4 kept messages
-    assert len(loaded) == 5
-    assert isinstance(loaded[0], ModelRequest)  # summary
-
-    # Verify tool pairing in kept messages.
-    for i, msg in enumerate(loaded):
-        if not isinstance(msg, ModelResponse):
-            continue
-        call_ids = {p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)}
-        if not call_ids:
-            continue
-        next_msg = loaded[i + 1]
-        assert isinstance(next_msg, ModelRequest)
-        return_ids = {
-            p.tool_call_id
-            for p in next_msg.parts
-            if isinstance(p, (ToolReturnPart, RetryPromptPart))
-        }
-        assert call_ids == return_ids
-
-
-def test_compaction_preserves_parallel_tool_pairing() -> None:
-    """After compaction, parallel tool calls in kept messages stay paired.
-
-    The kept turn has two tool calls in one response — both returns
-    must survive compaction with correct pairing.
-    """
-    with SessionStore() as store:
-        store.set_context("s1")
-        # Turn 1: will be compacted.
-        store.save_messages("s1", [_user("old"), _assistant("old reply")])
-        # Turn 2: parallel tool calls, will be kept.
-        store.save_messages(
-            "s1",
-            [
-                _user("check both files"),
-                ModelResponse(
-                    parts=[
-                        TextPart(content="Checking…"),
-                        ToolCallPart(
-                            tool_name="read_file",
-                            args={"path": "a.py"},
-                            tool_call_id="tc_a",
-                        ),
-                        ToolCallPart(
-                            tool_name="read_file",
-                            args={"path": "b.py"},
-                            tool_call_id="tc_b",
-                        ),
-                    ],
-                    model_name="test",
-                ),
-                ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="read_file",
-                            content="def a(): ...",
-                            tool_call_id="tc_a",
-                        ),
-                        ToolReturnPart(
-                            tool_name="read_file",
-                            content="def b(): ...",
-                            tool_call_id="tc_b",
-                        ),
-                    ]
-                ),
-                _assistant("Both files read."),
-            ],
-        )
-
-        all_ids = store.load_message_ids("s1")
-        store.compact_session("s1", summary=_user("[Summary]"), compact_ids=all_ids[:2])
-
-        loaded = store.load_messages("s1")
-
-    assert_ordering(loaded)
-    assert_tool_pairing(loaded)
-
-    # Both tool call IDs survive.
-    for msg in loaded:
-        if isinstance(msg, ModelResponse):
-            call_ids = {p.tool_call_id for p in msg.parts if isinstance(p, ToolCallPart)}
-            if call_ids:
-                assert call_ids == {"tc_a", "tc_b"}

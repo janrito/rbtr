@@ -44,7 +44,6 @@ from rbtr.sessions.kinds import SUMMARY_MARKER
 from tests.engine.builders import (
     _USAGE,
     _assistant,
-    _resp,
     _seed,
     _tool_call_only,
     _tool_result,
@@ -54,7 +53,7 @@ from tests.engine.builders import (
 )
 from tests.helpers import StubProvider, drain, has_event_type, output_texts
 from tests.sessions.assertions import assert_ordering
-from tests.sessions.case_histories import case_single_tool
+from tests.sessions.case_histories import case_single_tool, case_tool_boundary_straddle
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +65,6 @@ def _disable_memory() -> None:
 # Test data is centralised in tests/sessions/case_histories.py.
 # Specific histories are imported as case functions and called
 # where needed.
-HISTORY_SINGLE_TOOL = case_single_tool()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -114,18 +112,19 @@ def test_split_history_tool_requests_not_turn_boundaries() -> None:
     assert kept == history[4:]  # second turn only
 
 
-def test_split_history_realistic() -> None:
+@parametrize_with_cases("history", cases=[case_single_tool])
+def test_split_history_realistic(history: list[ModelMessage]) -> None:
     """Split the realistic conversation — keep 1 turn, compact the rest."""
-    old, kept = split_history(HISTORY_SINGLE_TOOL, keep_turns=1)
+    old, kept = split_history(history, keep_turns=1)
     # Last user turn starts at "Any issues?"
     last_user_idx = next(
         i
-        for i in reversed(range(len(HISTORY_SINGLE_TOOL)))
-        if isinstance(HISTORY_SINGLE_TOOL[i], ModelRequest)
-        and any(isinstance(p, UserPromptPart) for p in HISTORY_SINGLE_TOOL[i].parts)
+        for i in reversed(range(len(history)))
+        if isinstance(history[i], ModelRequest)
+        and any(isinstance(p, UserPromptPart) for p in history[i].parts)
     )
-    assert kept == HISTORY_SINGLE_TOOL[last_user_idx:]
-    assert old == HISTORY_SINGLE_TOOL[:last_user_idx]
+    assert kept == history[last_user_idx:]
+    assert old == history[:last_user_idx]
 
 
 @parametrize_with_cases("history", cases="tests.sessions.case_histories")
@@ -445,9 +444,10 @@ def test_orphan_reproduces_real_bug() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def test_serialise_realistic_conversation() -> None:
+@parametrize_with_cases("history", cases=[case_single_tool])
+def test_serialise_realistic_conversation(history: list[ModelMessage]) -> None:
     """Serialise the full realistic history and check all section types."""
-    result = serialise_for_summary(HISTORY_SINGLE_TOOL)
+    result = serialise_for_summary(history)
     assert "## User\nRead foo.py" in result
     assert "## Assistant\nLet me read that." in result
     assert '## Tool call: read_file({"path": "foo.py"})' in result
@@ -704,7 +704,9 @@ def test_compact_fewer_turns_than_keep_falls_back(
     assert started[0].kept_messages == 2  # 1 turn kept
 
 
+@parametrize_with_cases("history", cases=[case_single_tool])
 def test_compact_replaces_history(
+    history: list[ModelMessage],
     config_path: Path,
     mocker: MockerFixture,
     engine: Engine,
@@ -714,7 +716,7 @@ def test_compact_replaces_history(
     """After compaction, history = [summary_msg] + kept turns."""
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
-    _seed(engine, list(HISTORY_SINGLE_TOOL))
+    _seed(engine, list(history))
     engine.state.usage.context_window = 200_000
 
     summary_text = "Reviewed PR #42. Found unused import in foo.py."
@@ -734,7 +736,7 @@ def test_compact_replaces_history(
     assert "Reviewed PR #42" in part.content
 
     # History is shorter than before, structurally valid.
-    assert len(loaded) < len(HISTORY_SINGLE_TOOL)
+    assert len(loaded) < len(history)
     assert_ordering(loaded)
 
     # Last message is preserved (the last assistant response)
@@ -1314,51 +1316,6 @@ def test_compact_reset_allowed_immediately_after_compaction(
 #
 # With keep_turns=2, the cut falls before turn 4.  The response
 # containing call_DDD is in old, but return_DDD is in kept.
-TOOL_BOUNDARY_HISTORY: list[ModelMessage] = [
-    # Turn 1: single tool call
-    _user("find all TODO comments"),
-    _resp(
-        TextPart(content="Searching..."),
-        ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="call_AAA"),
-    ),
-    _tool_result("grep", "foo.py:10 TODO\nbar.py:3 TODO", call_id="call_AAA"),
-    _assistant("Found 2 TODOs."),
-    # Turn 2: chained tool calls
-    _user("show me foo.py"),
-    _resp(
-        TextPart(content="Reading foo.py."),
-        ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="call_BBB"),
-    ),
-    _tool_result("read_file", "def main(): pass", call_id="call_BBB"),
-    _resp(
-        TextPart(content="Checking references."),
-        ToolCallPart(tool_name="grep", args={"pattern": "main"}, tool_call_id="call_CCC"),
-    ),
-    _tool_result("grep", "foo.py:1 def main()", call_id="call_CCC"),
-    _assistant("foo.py has one function."),
-    # Turn 3: text + tool call in one response
-    _user("what other files?"),
-    _resp(
-        TextPart(content="Let me check."),
-        ToolCallPart(tool_name="list_files", args={"path": "."}, tool_call_id="call_DDD"),
-    ),
-    # ---- cut falls here with keep_turns=2 ----
-    # Turn 4: tool return from previous turn arrives alongside new user prompt.
-    # This simulates the straddling case — call_DDD's return is in a later
-    # request, separated from its call by a turn boundary.
-    ModelRequest(
-        parts=[
-            ToolReturnPart(
-                tool_name="list_files", content="foo.py\nbar.py", tool_call_id="call_DDD"
-            ),
-            UserPromptPart(content="any security concerns?"),
-        ]
-    ),
-    _assistant("No issues."),
-    # Turn 5
-    _user("summarise"),
-    _assistant("All good."),
-]
 
 
 def _assert_valid_history(messages: list[ModelMessage]) -> None:
@@ -1419,7 +1376,9 @@ def _assert_loaded_valid(engine: Engine) -> None:
     _assert_valid_history(loaded)
 
 
+@parametrize_with_cases("boundary_history", cases=[case_tool_boundary_straddle])
 def test_compaction_across_tool_boundaries_no_orphans(
+    boundary_history: list[ModelMessage],
     config_path: Path,
     engine: Engine,
     llm_ctx: LLMContext,
@@ -1437,7 +1396,7 @@ def test_compaction_across_tool_boundaries_no_orphans(
     engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
 
-    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+    _seed(engine, list(boundary_history))
     with compact_agent.override(model=TestModel(custom_output_text="Tool boundary summary.")):
         compact_history(llm_ctx)  # keep_turns=2 from config
     drain(engine.events)
@@ -1453,7 +1412,9 @@ def test_compaction_across_tool_boundaries_no_orphans(
     )
 
 
+@parametrize_with_cases("boundary_history", cases=[case_tool_boundary_straddle])
 def test_compact_reset_restores_original_messages_without_summary(
+    boundary_history: list[ModelMessage],
     config_path: Path,
     mocker: MockerFixture,
     engine: Engine,
@@ -1467,11 +1428,11 @@ def test_compact_reset_restores_original_messages_without_summary(
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
-    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+    _seed(engine, list(boundary_history))
 
     # Snapshot original messages before compaction.
     original = engine.store.load_messages(engine.state.session_id)
-    assert len(original) == len(TOOL_BOUNDARY_HISTORY)
+    assert len(original) == len(boundary_history)
 
     # Compact.
     with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
@@ -1503,7 +1464,9 @@ def test_compact_reset_restores_original_messages_without_summary(
         assert type(orig) is type(rest)
 
 
+@parametrize_with_cases("boundary_history", cases=[case_tool_boundary_straddle])
 def test_compaction_reset_and_recompact_no_orphans(
+    boundary_history: list[ModelMessage],
     config_path: Path,
     mocker: MockerFixture,
     engine: Engine,
@@ -1519,7 +1482,7 @@ def test_compaction_reset_and_recompact_no_orphans(
     engine.state.connected_providers.add("test")
     engine.state.model_name = "test/default"
     engine.state.usage.context_window = 200_000
-    _seed(engine, list(TOOL_BOUNDARY_HISTORY))
+    _seed(engine, list(boundary_history))
 
     # First compaction.
     with compact_agent.override(model=TestModel(custom_output_text="Summary.")):
@@ -1532,7 +1495,7 @@ def test_compaction_reset_and_recompact_no_orphans(
     reset_compaction(llm_ctx)
     drain(engine.events)
     after_reset = engine.store.load_messages(engine.state.session_id)
-    assert len(after_reset) == len(TOOL_BOUNDARY_HISTORY)
+    assert len(after_reset) == len(boundary_history)
     _assert_loaded_valid(engine)
 
     # Recompact.

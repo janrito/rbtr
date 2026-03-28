@@ -113,3 +113,30 @@ def test_failure_roundtrip(messages: list[ModelMessage], llm_engine: Engine) -> 
     assert any(isinstance(e, ToolCallFinished) and e.error for e in replay_events), (
         "Expected ToolCallFinished with error"
     )
+
+
+@parametrize_with_cases("messages", cases="tests.sessions.case_histories")
+def test_stored_history_replays_cleanly(messages: list[ModelMessage], llm_engine: Engine) -> None:
+    """Every case shape survives save → load → replay."""
+    llm_engine._sync_store_context()
+    llm_engine.store.save_messages(llm_engine.state.session_id, list(messages))
+
+    stored = llm_engine.store.load_messages(llm_engine.state.session_id)
+    replay_events: list[object] = []
+    replay_history(replay_events.append, stored)
+
+    assert replay_events, "replay_history produced no events"
+
+    # Every MarkdownOutput/Output is followed by FlushPanel.
+    for i, event in enumerate(replay_events):
+        if isinstance(event, (MarkdownOutput, Output)):
+            assert i + 1 < len(replay_events), "output at end without FlushPanel"
+            assert isinstance(replay_events[i + 1], FlushPanel)
+
+    # Every ToolCallStarted has a matching ToolCallFinished.
+    for event in replay_events:
+        if isinstance(event, ToolCallStarted):
+            assert any(
+                isinstance(f, ToolCallFinished) and f.tool_call_id == event.tool_call_id
+                for f in replay_events
+            )
