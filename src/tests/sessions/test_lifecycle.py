@@ -13,8 +13,6 @@ from collections.abc import AsyncIterator
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
-    ModelResponse,
-    TextPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -25,32 +23,9 @@ from rbtr.engine.core import Engine
 from rbtr.engine.types import TaskType
 from rbtr.events import TaskFinished, TextDelta
 from tests.engine.builders import _streaming_model
-from tests.helpers import StubProvider, drain
+from tests.helpers import StubProvider, drain, response_texts, user_texts
 
 from .assertions import assert_ordering, assert_tool_pairing
-
-
-def _user_texts(messages: list[ModelMessage]) -> list[str]:
-    """Extract user prompt strings from loaded messages."""
-    texts: list[str] = []
-    for msg in messages:
-        if isinstance(msg, ModelRequest):
-            for p in msg.parts:
-                if isinstance(p, UserPromptPart) and isinstance(p.content, str):
-                    texts.append(p.content)
-    return texts
-
-
-def _response_texts(messages: list[ModelMessage]) -> list[str]:
-    """Extract response text strings from loaded messages."""
-    texts: list[str] = []
-    for msg in messages:
-        if isinstance(msg, ModelResponse):
-            for p in msg.parts:
-                if isinstance(p, TextPart):
-                    texts.append(p.content)
-    return texts
-
 
 # ── Text responses ───────────────────────────────────────────────────
 
@@ -66,8 +41,8 @@ def test_prompt_and_response_persisted(llm_engine: Engine, stub_provider: StubPr
 
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
-    assert "review my code" in _user_texts(loaded)
-    assert "Here's my review." in _response_texts(loaded)
+    assert "review my code" in user_texts(loaded)
+    assert "Here's my review." in response_texts(loaded)
 
 
 def test_streamed_text_matches_db(llm_engine: Engine, stub_provider: StubProvider) -> None:
@@ -79,7 +54,7 @@ def test_streamed_text_matches_db(llm_engine: Engine, stub_provider: StubProvide
     events = drain(llm_engine.events)
 
     streamed = "".join(e.delta for e in events if isinstance(e, TextDelta))
-    db_texts = _response_texts(llm_engine.store.load_messages(llm_engine.state.session_id))
+    db_texts = response_texts(llm_engine.store.load_messages(llm_engine.state.session_id))
 
     assert streamed == "Hello world!"
     assert "Hello world!" in db_texts
@@ -100,7 +75,7 @@ def test_multi_turn_preserves_order(llm_engine: Engine, stub_provider: StubProvi
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
 
-    prompts = _user_texts(loaded)
+    prompts = user_texts(loaded)
     assert prompts[0] == "first question"
     assert prompts[1] == "second question"
 
@@ -168,7 +143,7 @@ def test_tool_call_then_text_resume(llm_engine: Engine, stub_provider: StubProvi
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
     assert_tool_pairing(loaded)
-    assert "Follow-up." in _response_texts(loaded)
+    assert "Follow-up." in response_texts(loaded)
 
 
 # ── Error recovery ───────────────────────────────────────────────────
@@ -207,8 +182,8 @@ def test_error_does_not_corrupt_prior_turn(llm_engine: Engine, stub_provider: St
 
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
-    assert "turn 1" in _user_texts(loaded)
-    assert "All good." in _response_texts(loaded)
+    assert "turn 1" in user_texts(loaded)
+    assert "All good." in response_texts(loaded)
 
 
 def test_resume_after_crash(llm_engine: Engine, stub_provider: StubProvider) -> None:
@@ -231,10 +206,10 @@ def test_resume_after_crash(llm_engine: Engine, stub_provider: StubProvider) -> 
 
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
-    prompts = _user_texts(loaded)
+    prompts = user_texts(loaded)
     assert "turn 1" in prompts
     assert "turn 3" in prompts
-    assert "Recovered." in _response_texts(loaded)
+    assert "Recovered." in response_texts(loaded)
 
 
 # ── All history shapes as prior context ──────────────────────────────
@@ -256,4 +231,4 @@ def test_engine_handles_all_history_shapes(
 
     loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
     assert_ordering(loaded)
-    assert "follow-up question" in _user_texts(loaded)
+    assert "follow-up question" in user_texts(loaded)

@@ -50,6 +50,7 @@ from rbtr.sessions.serialise import (
     prepare_part_rows,
     reconstruct_message,
 )
+from tests.engine.builders import _assistant, _user
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -63,18 +64,6 @@ _CTX = SessionContext(
 )
 
 _USAGE = RequestUsage(input_tokens=100, output_tokens=50)
-
-
-def _user(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text)])
-
-
-def _assistant(text: str) -> ModelResponse:
-    return ModelResponse(
-        parts=[TextPart(content=text)],
-        usage=_USAGE,
-        model_name="test-model",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -101,7 +90,7 @@ def test_prepare_message_row_request() -> None:
 
 def test_prepare_message_row_response_tokens() -> None:
     """Response message row captures token counts from usage."""
-    msg = _assistant("hi")
+    msg = _assistant("hi", usage=_USAGE)
     row = prepare_message_row(msg, context=_CTX, row_id="r2")
 
     assert row.fragment_kind == FragmentKind.RESPONSE_MESSAGE

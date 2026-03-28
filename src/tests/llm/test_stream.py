@@ -28,6 +28,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
+from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.engine.core import Engine
@@ -50,6 +51,7 @@ from rbtr.sessions.incidents import (
 from rbtr.sessions.kinds import FragmentKind
 from tests.engine.builders import _turns
 from tests.helpers import StubProvider, drain
+from tests.sessions.case_histories import case_thinking_with_tools
 
 # ── Shared data ──────────────────────────────────────────────────────
 
@@ -845,3 +847,148 @@ def test_simplify_history_persists_incidents(
     consolidate = [r for r in repairs if r.strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS]
     assert len(consolidate) == 1
     assert consolidate[0].turns_fixed == 1
+
+
+def test_scattered_returns_consolidated_on_format_error(
+    llm_engine: Engine,
+    stub_provider: StubProvider,
+) -> None:
+    """Level-1 retry consolidates tool returns scattered across requests.
+
+    Seeds history where two parallel tool calls have their returns
+    split into two separate ``ModelRequest`` messages.  The model
+    rejects this layout with a format error; the level-1 retry runs
+    ``consolidate_tool_returns`` which merges them into one request.
+    """
+    history: list[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content="analyse both")]),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="read_file", args={"path": "a.py"}, tool_call_id="tc_a"),
+                ToolCallPart(tool_name="read_file", args={"path": "b.py"}, tool_call_id="tc_b"),
+            ],
+            model_name="test",
+        ),
+        # Returns scattered across two requests — triggers consolidation.
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="read_file", content="def foo(): ...", tool_call_id="tc_a"
+                ),
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="read_file", content="def bar(): ...", tool_call_id="tc_b"
+                ),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Both read.")], model_name="test"),
+    ]
+    llm_engine.store.save_messages(llm_engine.state.session_id, history)
+
+    call_count = 0
+
+    async def _format_error_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise _make_http_error(
+                HTTPStatus.BAD_REQUEST,
+                "tool_use ids ['tc_a'] without matching tool_result blocks",
+            )
+        yield "consolidated and recovered"
+
+    stub_provider.set_model(FunctionModel(stream_function=_format_error_then_ok))
+
+    handle_llm(llm_engine._llm_context(), "what did you find?")
+
+    assert call_count == 2
+
+    # Failure incident for the format error.
+    failures = _failure_incidents(llm_engine)
+    assert len(failures) == 1
+    assert failures[0].failure_kind == FailureKind.HISTORY_FORMAT
+    assert failures[0].outcome == IncidentOutcome.RECOVERED
+
+    # Repair incident for consolidation.
+    repairs = _repair_incidents(llm_engine)
+    consolidate = [r for r in repairs if r.strategy == RecoveryStrategy.CONSOLIDATE_TOOL_RETURNS]
+    assert len(consolidate) == 1
+    assert consolidate[0].turns_fixed == 1
+
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "what did you find?"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )
+
+
+# ── Level-2 recovery: demote thinking + flatten tool exchanges ───────
+
+
+@parametrize_with_cases("history", cases=[case_thinking_with_tools])
+def test_level2_recovery_demotes_and_flattens(
+    history: list[ModelMessage],
+    llm_engine: Engine,
+    stub_provider: StubProvider,
+) -> None:
+    """Level-2 retry demotes thinking and flattens tool exchanges.
+
+    Seeds history with ``case_thinking_with_tools`` (thinking +
+    tool calls), triggers a ``ValueError`` so ``handle_llm``
+    retries at ``history_repair_level=2``.  Asserts incident rows
+    record non-zero ``parts_demoted`` and ``tool_calls_flattened``.
+    """
+    llm_engine.store.save_messages(llm_engine.state.session_id, list(history))
+
+    call_count = 0
+
+    async def _value_error_then_ok(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ValueError("key must be a string at line 2 column 1")
+        yield "recovered after level-2 repair"
+
+    stub_provider.set_model(FunctionModel(stream_function=_value_error_then_ok))
+
+    handle_llm(llm_engine._llm_context(), "continue analysis")
+
+    assert call_count == 2
+
+    # Failure incident for the ValueError.
+    failures = _failure_incidents(llm_engine)
+    assert len(failures) == 1
+    assert failures[0].failure_kind == FailureKind.TOOL_ARGS
+    assert failures[0].strategy == RecoveryStrategy.SIMPLIFY_HISTORY
+    assert failures[0].outcome == IncidentOutcome.RECOVERED
+
+    # Repair incidents: demote_thinking + flatten_tool_exchanges.
+    repairs = _repair_incidents(llm_engine)
+    demote = [r for r in repairs if r.strategy == RecoveryStrategy.DEMOTE_THINKING]
+    assert len(demote) == 1
+    assert demote[0].parts_demoted is not None
+    assert demote[0].parts_demoted > 0
+
+    flatten = [r for r in repairs if r.strategy == RecoveryStrategy.FLATTEN_TOOL_EXCHANGES]
+    assert len(flatten) == 1
+    assert flatten[0].tool_calls_flattened is not None
+    assert flatten[0].tool_calls_flattened > 0
+
+    # User prompt survived recovery.
+    loaded = llm_engine.store.load_messages(llm_engine.state.session_id)
+    assert any(
+        isinstance(p, UserPromptPart) and p.content == "continue analysis"
+        for m in loaded
+        if isinstance(m, ModelRequest)
+        for p in m.parts
+    )

@@ -4,7 +4,6 @@ and format-error detection.
 
 from __future__ import annotations
 
-import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelMessage,
@@ -17,7 +16,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pytest_cases import parametrize_with_cases
+from pytest_cases import case, parametrize_with_cases
 
 from rbtr.sessions.history import (
     consolidate_tool_returns,
@@ -178,73 +177,91 @@ def test_flatten_empty_request_after_stripping() -> None:
 
 # ── is_history_format_error ──────────────────────────────────────────
 
-# Each tuple: (id, error_message, expected_result)
-_FORMAT_ERROR_CASES: list[tuple[str, str, bool]] = [
-    (
-        "invalid_reasoning_id",
-        "Invalid 'input[6].id': 'reasoning_content'. Expected an ID that begins with 'rs'.",
-        True,
-    ),
-    (
-        "missing_reasoning_item",
+
+@case(tags=["format_error"])
+def case_invalid_reasoning_id() -> str:
+    """OpenAI rejects non-`rs` reasoning IDs."""
+    return "Invalid 'input[6].id': 'reasoning_content'. Expected an ID that begins with 'rs'."
+
+
+@case(tags=["format_error"])
+def case_missing_reasoning_item() -> str:
+    """OpenAI requires reasoning item paired with function_call."""
+    return (
         "Item 'fc_07f6' of type 'function_call' was provided without its "
-        "required 'reasoning' item: 'rs_07f6'.",
-        True,
-    ),
-    (
-        "claude_tool_pairing",
+        "required 'reasoning' item: 'rs_07f6'."
+    )
+
+
+@case(tags=["format_error"])
+def case_claude_tool_pairing() -> str:
+    """Claude rejects unpaired `tool_use` IDs."""
+    return (
         "messages.2: `tool_use` ids were found without `tool_result` blocks "
-        "immediately after: call_XFAP, call_f0Sg.",
-        True,
-    ),
-    (
-        "gemini_function_count",
+        "immediately after: call_XFAP, call_f0Sg."
+    )
+
+
+@case(tags=["format_error"])
+def case_gemini_function_count() -> str:
+    """Gemini requires equal function call and response counts."""
+    return (
         "Please ensure that the number of function response parts is equal "
-        "to the number of function call parts of the function call turn.",
-        True,
-    ),
-    (
-        "orphaned_tool_return",
-        "No tool call found for function call output with call_id call_2dSru.",
-        True,
-    ),
-    (
-        "extra_inputs",
+        "to the number of function call parts of the function call turn."
+    )
+
+
+@case(tags=["format_error"])
+def case_orphaned_tool_return() -> str:
+    """Provider rejects tool return with no matching call."""
+    return "No tool call found for function call output with call_id call_2dSru."
+
+
+@case(tags=["format_error"])
+def case_extra_inputs() -> str:
+    """Provider rejects extra/unexpected input fields."""
+    return (
         "18 request validation errors: Extra inputs are not permitted, "
-        "field: 'messages[1].rs_0cae3ab1ca0a8b8'",
-        True,
-    ),
-    (
-        "required_field",
-        "The content field is a required field.",
-        True,
-    ),
-    (
-        "tool_use_id_invalid_pattern",
-        "messages.0.content.2.tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+'",
-        True,
-    ),
-    (
-        "unrelated_context_overflow",
-        "maximum context length exceeded",
-        False,
-    ),
-    (
-        "unrelated_rate_limit",
-        "Rate limit exceeded. Please retry after 10 seconds.",
-        False,
-    ),
-]
+        "field: 'messages[1].rs_0cae3ab1ca0a8b8'"
+    )
 
 
-@pytest.mark.parametrize(
-    ("error_msg", "expected"),
-    [(msg, exp) for _, msg, exp in _FORMAT_ERROR_CASES],
-    ids=[name for name, _, _ in _FORMAT_ERROR_CASES],
-)
-def test_is_history_format_error(error_msg: str, expected: bool) -> None:
+@case(tags=["format_error"])
+def case_required_field() -> str:
+    """Provider rejects missing required content field."""
+    return "The content field is a required field."
+
+
+@case(tags=["format_error"])
+def case_tool_use_id_invalid_pattern() -> str:
+    """Claude rejects tool_use IDs with invalid characters."""
+    return "messages.0.content.2.tool_use.id: String should match pattern '^[a-zA-Z0-9_-]+'"
+
+
+@case(tags=["not_format_error"])
+def case_context_overflow() -> str:
+    """Context overflow is not a format error."""
+    return "maximum context length exceeded"
+
+
+@case(tags=["not_format_error"])
+def case_rate_limit() -> str:
+    """Rate limiting is not a format error."""
+    return "Rate limit exceeded. Please retry after 10 seconds."
+
+
+@parametrize_with_cases("error_msg", cases=".", has_tag="format_error")
+def test_is_history_format_error_positive(error_msg: str) -> None:
+    """Error messages that indicate history format problems are detected."""
     exc = ModelHTTPError(400, "test-model", body={"message": error_msg})
-    assert is_history_format_error(exc) == expected
+    assert is_history_format_error(exc)
+
+
+@parametrize_with_cases("error_msg", cases=".", has_tag="not_format_error")
+def test_is_history_format_error_negative(error_msg: str) -> None:
+    """Unrelated errors are not misidentified as format errors."""
+    exc = ModelHTTPError(400, "test-model", body={"message": error_msg})
+    assert not is_history_format_error(exc)
 
 
 # ── repair_dangling_tool_calls ───────────────────────────────────────

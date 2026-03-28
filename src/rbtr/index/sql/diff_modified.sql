@@ -19,5 +19,5 @@ INNER JOIN file_snapshots AS base_fs ON head_fs.file_path = base_fs.file_path
 WHERE
   head_fs.commit_sha = ?
   AND base_fs.commit_sha = ?
-  AND head_fs.blob_sha != base_fs.blob_sha
+  AND head_fs.blob_sha <> base_fs.blob_sha
 ORDER BY c.file_path, c.line_start

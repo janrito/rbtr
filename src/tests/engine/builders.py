@@ -35,9 +35,14 @@ def _user(text: str) -> ModelRequest:
     return ModelRequest(parts=[UserPromptPart(content=text)])
 
 
-def _assistant(text: str) -> ModelResponse:
+def _assistant(
+    text: str,
+    *,
+    usage: RequestUsage | None = None,
+    model: str = "test",
+) -> ModelResponse:
     """Text-only response → ``ModelResponse[TextPart]``."""
-    return ModelResponse(parts=[TextPart(content=text)], usage=_USAGE, model_name="test")
+    return ModelResponse(parts=[TextPart(content=text)], usage=usage or _USAGE, model_name=model)
 
 
 def _resp(*parts: TextPart | ToolCallPart | ThinkingPart) -> ModelResponse:

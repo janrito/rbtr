@@ -272,3 +272,148 @@ def case_empty_tool_args() -> list[ModelMessage]:
         _user("Thanks"),
         _assistant("Done."),
     ]
+
+
+# ── Thinking + tools ─────────────────────────────────────────────────
+
+
+@case(tags=["conversation", "tool", "thinking", "compactable"])
+def case_thinking_tool_multi_turn() -> list[ModelMessage]:
+    """Thinking + tool call + tool return + text follow-up.
+
+    Multi-turn: tool-calling turn with text preamble, then a
+    thinking response, then a text-only Q/A turn.
+    """
+    return [
+        _user("review src/tui.py"),
+        _resp(
+            TextPart(content="I'll read the file."),
+            ToolCallPart(tool_name="read_file", args={"path": "src/tui.py"}, tool_call_id="c1"),
+        ),
+        _tool_result("read_file", "class TUI:\n    pass", call_id="c1"),
+        _resp(
+            ThinkingPart(content="The TUI class is minimal..."),
+            TextPart(content="Here's my analysis."),
+        ),
+        _user("any security issues?"),
+        _assistant("No security issues found."),
+    ]
+
+
+@case(tags=["conversation", "tool", "thinking", "compactable"])
+def case_signed_thinking_multi_turn() -> list[ModelMessage]:
+    """Signed thinking + parallel tool calls + chained tool rounds.
+
+    Exercises provider-metadata fidelity: ``ThinkingPart`` with
+    ``signature`` and ``provider_name`` fields that Anthropic
+    requires on round-trip.
+    """
+    return [
+        # Turn 1: thinking + tool call → return → thinking + parallel calls → returns → thinking + text
+        _user("review the draft"),
+        _resp(
+            ThinkingPart(
+                content="User wants a review. Let me find the draft.",
+                signature="sig_t1",
+                provider_name="anthropic",
+            ),
+            ToolCallPart(tool_name="list_files", args={"pattern": "draft"}, tool_call_id="c1"),
+        ),
+        _tool_result("list_files", "draft.md\nnotes.md", call_id="c1"),
+        _resp(
+            ThinkingPart(
+                content="Found the draft. Let me read it.",
+                signature="sig_t2",
+                provider_name="anthropic",
+            ),
+            ToolCallPart(tool_name="read_file", args={"path": "draft.md"}, tool_call_id="c2"),
+            ToolCallPart(tool_name="read_file", args={"path": "notes.md"}, tool_call_id="c3"),
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="read_file",
+                    content="# Draft\n\nContent here.",
+                    tool_call_id="c2",
+                ),
+                ToolReturnPart(
+                    tool_name="read_file",
+                    content="# Notes\n\nReview notes.",
+                    tool_call_id="c3",
+                ),
+            ]
+        ),
+        _resp(
+            ThinkingPart(
+                content="Analysing both documents for cohesion.",
+                signature="sig_t3",
+                provider_name="anthropic",
+            ),
+            TextPart(content="Here's my analysis of the draft."),
+        ),
+        # Turn 2: follow-up → thinking + text
+        _user("any issues with section 3?"),
+        _resp(
+            ThinkingPart(
+                content="Let me check section 3 specifically.",
+                signature="sig_t4",
+                provider_name="anthropic",
+            ),
+            TextPart(content="Section 3 has a coherence issue."),
+        ),
+    ]
+
+
+@case(tags=["conversation", "tool", "compactable"])
+def case_tool_boundary_straddle() -> list[ModelMessage]:
+    """Tool return straddling a turn boundary.
+
+    Turn 3 ends with a tool call; its return arrives in the same
+    ``ModelRequest`` as turn 4's user prompt.  Compaction at the
+    turn boundary would orphan the return without special handling.
+    Reproduces a production bug.
+    """
+    return [
+        # Turn 1: single tool call
+        _user("find all TODO comments"),
+        _resp(
+            TextPart(content="Searching..."),
+            ToolCallPart(tool_name="grep", args={"pattern": "TODO"}, tool_call_id="c1"),
+        ),
+        _tool_result("grep", "foo.py:10 TODO\nbar.py:3 TODO", call_id="c1"),
+        _assistant("Found 2 TODOs."),
+        # Turn 2: chained tool calls
+        _user("show me foo.py"),
+        _resp(
+            TextPart(content="Reading foo.py."),
+            ToolCallPart(tool_name="read_file", args={"path": "foo.py"}, tool_call_id="c2"),
+        ),
+        _tool_result("read_file", "def main(): pass", call_id="c2"),
+        _resp(
+            TextPart(content="Checking references."),
+            ToolCallPart(tool_name="grep", args={"pattern": "main"}, tool_call_id="c3"),
+        ),
+        _tool_result("grep", "foo.py:1 def main()", call_id="c3"),
+        _assistant("foo.py has one function."),
+        # Turn 3: text + tool call (return arrives in turn 4's request)
+        _user("what other files?"),
+        _resp(
+            TextPart(content="Let me check."),
+            ToolCallPart(tool_name="list_files", args={"path": "."}, tool_call_id="c4"),
+        ),
+        # Turn 4: straddling — tool return + user prompt in one request
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="list_files",
+                    content="foo.py\nbar.py",
+                    tool_call_id="c4",
+                ),
+                UserPromptPart(content="any security concerns?"),
+            ]
+        ),
+        _assistant("No issues."),
+        # Turn 5
+        _user("summarise"),
+        _assistant("All good."),
+    ]
