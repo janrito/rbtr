@@ -512,10 +512,13 @@ def test_embed_failure_is_nonfatal(tmp_path: Path, mocker: MockerFixture) -> Non
     mocker.stopall()
 
     # Make the deferred import inside _embed_missing raise ImportError.
-    # Setting sys.modules[key] = None causes `from key import ...` to
-    # raise ImportError without touching builtins.__import__.
-
-    mocker.patch.dict(sys.modules, {"rbtr.index.embeddings": None})
+    # Manually poison and restore sys.modules instead of using
+    # mocker.patch.dict — patch.dict snapshots the entire dict and
+    # on restore removes modules added during the test (like
+    # pyarrow.dataset, which duckdb imports lazily), breaking
+    # subsequent tests in the same xdist worker.
+    original = sys.modules.get("rbtr.index.embeddings")
+    sys.modules["rbtr.index.embeddings"] = None  # type: ignore[assignment]  # intentional poison
 
     repo = pygit2.init_repository(str(tmp_path / "embed_fail"), bare=False)
     (tmp_path / "embed_fail" / "hello.py").write_text("def greet(): pass\n")
@@ -540,6 +543,10 @@ def test_embed_failure_is_nonfatal(tmp_path: Path, mocker: MockerFixture) -> Non
         assert all(not c.embedding for c in chunks)
     finally:
         store.close()
+        if original is not None:
+            sys.modules["rbtr.index.embeddings"] = original
+        else:
+            sys.modules.pop("rbtr.index.embeddings", None)
 
 
 def test_embed_batch_failure_skips_batch(tmp_path: Path, mocker: MockerFixture) -> None:
