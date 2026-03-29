@@ -103,7 +103,14 @@ def test_expand_single_context_marker(input_state: InputState) -> None:
     input_state.set_text("what changed?")
     input_state.add_context("[/review → PR #42]", "Selected PR #42.")
     result = input_state.expand_markers(input_state.text)
-    assert result == "[Recent actions]\n- Selected PR #42.\n\n---\nwhat changed?"
+    assert result == (
+        "<recent_actions>\n"
+        "The user ran the following commands since the last message:\n"
+        "- Selected PR #42.\n"
+        "</recent_actions>\n"
+        "\n"
+        "what changed?"
+    )
 
 
 def test_expand_multiple_context_markers(input_state: InputState) -> None:
@@ -111,16 +118,21 @@ def test_expand_multiple_context_markers(input_state: InputState) -> None:
     input_state.add_context("[/review → PR #42]", "Selected PR #42.")
     input_state.add_context("[/model → gpt-4o]", "Switched model.")
     result = input_state.expand_markers(input_state.text)
-    assert "[Recent actions]" in result
+    assert "<recent_actions>" in result
     assert "- Selected PR #42." in result
     assert "- Switched model." in result
-    assert result.endswith("---\nsummarise")
+    assert result.endswith("</recent_actions>\n\nsummarise")
 
 
 def test_expand_context_markers_only_no_user_text(input_state: InputState) -> None:
     input_state.add_context("[/review → PR #42]", "Selected PR #42.")
     result = input_state.expand_markers(input_state.text)
-    assert result == "[Recent actions]\n- Selected PR #42."
+    assert result == (
+        "<recent_actions>\n"
+        "The user ran the following commands since the last message:\n"
+        "- Selected PR #42.\n"
+        "</recent_actions>"
+    )
 
 
 def test_expand_mixed_paste_and_context(input_state: InputState) -> None:
@@ -128,7 +140,9 @@ def test_expand_mixed_paste_and_context(input_state: InputState) -> None:
     input_state.add_context("[/review → PR #42]", "Selected PR #42.")
     input_state.paste_regions.append(PasteRegion(marker="[pasted 4 lines]", content="a\nb\nc\nd"))
     result = input_state.expand_markers(input_state.text)
-    assert result.startswith("[Recent actions]\n- Selected PR #42.\n\n---\n")
+    assert result.startswith("<recent_actions>\n")
+    assert "- Selected PR #42." in result
+    assert "</recent_actions>\n\n" in result
     assert "a\nb\nc\nd" in result
     assert "[pasted 4 lines]" not in result
 
@@ -307,7 +321,7 @@ def test_submit_regular_text_expands_markers(
     input_reader._on_key(KeyPress(Keys.Enter, "\r"))
 
     submitted = input_state.submitted.get_nowait()
-    assert "[Recent actions]" in submitted
+    assert "<recent_actions>" in submitted
     assert "what changed?" in submitted
     # Buffer fully cleared after expansion.
     assert input_state.text == ""

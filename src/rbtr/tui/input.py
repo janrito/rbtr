@@ -420,11 +420,12 @@ class InputState:
         Context regions (stored outside the buffer on
         `context_regions`) are prepended as a structured block::
 
-            [Recent actions]
+            <recent_actions>
+            The user ran the following commands since the last message:
             - Connected to Claude.
             - Selected PR #42: Fix auth (main → fix-auth)
+            </recent_actions>
 
-            ---
             <user's actual message>
         """
         # Expand paste markers inline.
@@ -438,10 +439,15 @@ class InputState:
 
         # Context regions are in insertion order (chronological).
         lines = [f"- {cr.content}" for cr in self.context_regions]
-        prefix = "[Recent actions]\n" + "\n".join(lines)
+        body = "\n".join(lines)
+        prefix = f"""\
+<recent_actions>
+The user ran the following commands since the last message:
+{body}
+</recent_actions>"""
 
         if user_text:
-            return f"{prefix}\n\n---\n{user_text}"
+            return f"{prefix}\n\n{user_text}"
         return prefix
 
     def marker_span_at(self, pos: int) -> MarkerSpan | None:

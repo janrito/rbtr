@@ -119,7 +119,7 @@ def _build_index(engine: Engine) -> None:
             )
         )
         engine._context(
-            f"[index ready → {result.stats.total_chunks} symbols]",
+            f"[/index ready → {result.stats.total_chunks} symbols]",
             f"Code index built: {result.stats.total_chunks} symbols, "
             f"{result.stats.total_edges} edges.",
         )
