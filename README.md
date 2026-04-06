@@ -283,7 +283,7 @@ model summarises its progress and asks whether to continue.
 | `/session`                | List, inspect, or delete sessions           | partial |
 | `/stats`                  | Show session token and cost statistics      | ✓       |
 | `/memory`                 | List, extract, or purge cross-session facts | partial |
-| `/skill`                  | List or load a skill                        | ✓       |
+| `/skill`                  | List or load a skill                        |         |
 | `/reload`                 | Show active prompt sources                  |         |
 | `/new`                    | Start a new conversation                    |         |
 | `/quit`                   | Exit (also `/q`)                            |         |
@@ -712,7 +712,9 @@ so existing skills work with zero configuration:
 Skills use the [Agent Skills standard][agent-skills] format:
 a markdown file with YAML frontmatter (`name`, `description`).
 The model sees a catalog of available skills in its system
-prompt and reads the full skill file on demand via `read_file`.
+prompt and can read the full skill file on demand via
+`read_file`. Users can also force-load a skill with the
+`/skill` command, which sends the content directly to the LLM.
 
 [agent-skills]: https://agentskills.io/specification
 
@@ -720,9 +722,15 @@ prompt and reads the full skill file on demand via `read_file`.
 
 ```text
 /skill                         List discovered skills
-/skill brave-search            Load a skill into context
-/skill brave-search "query"    Load with a follow-up message
+/skill brave-search            Load and send to the LLM
+/skill brave-search "query"    Load with arguments appended
 ```
+
+The skill's `SKILL.md` is read, wrapped in an XML `<skill>`
+block (matching pi's format), and submitted as a user message.
+The model reads the instructions and follows them using its
+tools. When arguments are provided, they are appended after the
+skill block.
 
 Tab-completes skill names. Skills marked with
 `disable-model-invocation: true` are hidden from the prompt

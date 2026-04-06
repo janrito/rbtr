@@ -38,6 +38,7 @@ from rich.text import Text
 from rbtr.config import ThinkingEffort, config
 from rbtr.engine.types import Command, Service, TaskType
 from rbtr.events import (
+    AutoSubmit,
     CompactionFinished,
     CompactionStarted,
     ContextMarkerReady,
@@ -273,6 +274,9 @@ class UI:
 
         self._current_task_type: str = ""  # set from TaskStarted.task_type
         self._pending_commands: list[str] = []
+        # Messages queued by engine commands for auto-submission to the LLM.
+        # Dispatched after the command task finishes.
+        self._auto_submit: list[AutoSubmit] = []
         # Startup commands (e.g. /review <n>, /session resume-last) —
         # dispatched after setup, not echoed or persisted to history.
         self._startup_commands: list[str] = []
@@ -765,6 +769,8 @@ class UI:
                 pass  # Visual feedback handled by LinkOutput
             case ContextMarkerReady(marker=marker, content=content):
                 self.inp.add_context(marker, content)
+            case AutoSubmit() as auto:
+                self._auto_submit.append(auto)
             case TaskFinished(success=success, cancelled=cancelled):
                 if not success:
                     self._active_had_error = True
@@ -779,6 +785,7 @@ class UI:
                     ]
                     self._active_lines.append(Text("Cancelled.", style=STYLE_WARNING))
                     self._pending_commands.clear()
+                    self._auto_submit.clear()
                 self._active_task = False
                 # LLM tasks with streaming markdown get transparent
                 # background; all other tasks get succeeded/failed.
@@ -1206,6 +1213,7 @@ class UI:
                 if self.inp.cancel_requested:
                     self.inp.cancel_requested = False
                     self._pending_commands.clear()
+                    self._auto_submit.clear()
                     if self._active_task:
                         self._active_lines.append(Text("Cancelling…", style=STYLE_DIM_ITALIC))
 
@@ -1235,6 +1243,16 @@ class UI:
                 if self._reload_after_startup and not self._active_task:
                     self._reload_after_startup = False
                     self._reload_history()
+
+                # Process auto-submitted messages from engine commands.
+                # Process auto-submitted messages from engine commands.
+                # No InputEcho — the command was already echoed when
+                # the user submitted it.  No append_history — the
+                # Enter handler already added the raw command.
+                if not self._active_task and self._auto_submit:
+                    submit = self._auto_submit.pop(0)
+                    self._dispatch(submit.message)
+                    live.update(self._render_view())
 
                 # Process queued commands when task finishes
                 if not self._active_task and self._pending_commands:

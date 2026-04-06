@@ -264,6 +264,19 @@ class ContextMarkerReady(BaseModel):
     content: str
 
 
+class AutoSubmit(BaseModel):
+    """A command wants to chain an LLM submission.
+
+    Emitted by engine commands that need to follow up with
+    an LLM request (e.g. ``/skill name msg``).  The TUI
+    dispatches it as an LLM task after the current command
+    finishes.  No echo — the command was already echoed
+    when the user submitted it.
+    """
+
+    message: str
+
+
 # ── Review events ────────────────────────────────────────────────────
 
 
@@ -294,6 +307,7 @@ Event = (
     | CompactionStarted
     | CompactionFinished
     | ContextMarkerReady
+    | AutoSubmit
     | FactExtractionStarted
     | FactExtractionFinished
     | ReviewPosted
