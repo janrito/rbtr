@@ -529,3 +529,77 @@ def test_doc_edges_multiple_symbols() -> None:
     assert len(edges) == 2
     target_ids = {e.target_id for e in edges}
     assert target_ids == {"fn1", "fn2"}
+
+
+# ── Coverage gap tests ──────────────────────────────────────────────
+
+
+def test_relative_import_overflow_returns_no_edges() -> None:
+    """Relative import with more dots than path depth produces no edges.
+
+    Covers `edges.py` line 100 (`_resolve_relative_module` returning
+    `None` when `len(parts) < dots`).
+    """
+    imp = _chunk(
+        chunk_id="imp1",
+        file_path="a/b.py",
+        kind=ChunkKind.IMPORT,
+        name="from .....deep import thing",
+        metadata={"dots": "5", "module": "deep", "names": "thing"},
+    )
+    target = _chunk(
+        chunk_id="fn1",
+        file_path="deep.py",
+        kind=ChunkKind.FUNCTION,
+        name="thing",
+    )
+    repo_files = {"a/b.py", "deep.py"}
+    edges = infer_import_edges([imp, target], repo_files)
+    assert edges == []
+
+
+def test_import_metadata_without_module_or_dots() -> None:
+    """Metadata with only `names` (no `module`, no `dots`) produces no edges.
+
+    Covers `edges.py` line 119 (`_resolve_import_module` returning
+    `None`).
+    """
+    imp = _chunk(
+        chunk_id="imp1",
+        file_path="src/app.py",
+        kind=ChunkKind.IMPORT,
+        name="import something",
+        metadata={"names": "Foo"},
+    )
+    target = _chunk(
+        chunk_id="fn1",
+        file_path="src/foo.py",
+        kind=ChunkKind.FUNCTION,
+        name="Foo",
+    )
+    repo_files = {"src/app.py", "src/foo.py"}
+    edges = infer_import_edges([imp, target], repo_files)
+    assert edges == []
+
+
+def test_test_file_with_imports_but_no_functions() -> None:
+    """Test file containing only imports and no test functions produces no edges.
+
+    Covers `edges.py` line 395 (`if not test_fns: continue`).
+    """
+    test_imp = _chunk(
+        chunk_id="imp1",
+        file_path="tests/test_foo.py",
+        kind=ChunkKind.IMPORT,
+        name="from src.foo import do_stuff",
+        metadata={"module": "src.foo", "names": "do_stuff"},
+    )
+    src_fn = _chunk(
+        chunk_id="fn1",
+        file_path="src/foo.py",
+        kind=ChunkKind.FUNCTION,
+        name="do_stuff",
+    )
+    repo_files = {"src/foo.py", "tests/test_foo.py"}
+    edges = infer_test_edges([test_imp, src_fn], repo_files)
+    assert edges == []
