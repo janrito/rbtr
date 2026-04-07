@@ -11,7 +11,7 @@ from pytest_cases import parametrize_with_cases
 from rbtr.index.models import ChunkKind
 from rbtr.index.treesitter import extract_symbols
 from rbtr.plugins.manager import get_manager
-from tests.plugins.conftest import extract_chunks
+from tests.plugins.conftest import extract_chunks, skip_unless_grammar
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ def test_extracts_all_expected_kinds(
 # ── Language-specific edge cases ─────────────────────────────────────
 
 
+@skip_unless_grammar("java")
 def test_java_constructor_not_captured() -> None:
     """Java constructors use constructor_declaration, not method_declaration."""
     src = """\
@@ -68,6 +69,7 @@ class Foo {
     assert methods == []
 
 
+@skip_unless_grammar("rust")
 def test_rust_impl_captures_struct_and_impl() -> None:
     """Both struct and impl produce class chunks for the same type."""
     src = """\
@@ -81,6 +83,7 @@ impl Svc {
     assert len(svc_classes) == 2  # struct + impl
 
 
+@skip_unless_grammar("bash")
 def test_bash_no_imports_extracted() -> None:
     """source/. commands are not captured as imports."""
     src = """\
