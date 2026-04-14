@@ -212,6 +212,15 @@ class IndexStore:
         self._fts_dirty = True
         self._fts_lock = threading.Lock()
 
+    @classmethod
+    def from_config(cls) -> IndexStore:
+        """Open the store at the config-derived path."""
+        from rbtr.config import config
+        from rbtr.workspace import resolve_path
+
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        return cls(db)
+
     def _purge_stale_fts_schema(self, dsn: str) -> None:
         """Work around a DuckDB FTS bug on reconnect.
 

@@ -39,7 +39,7 @@ _DEFAULT_USER_DIR = str(Path.home() / ".rbtr")
 class Config(BaseSettings):
     """Schema and defaults — no file sources."""
 
-    model_config = SettingsConfigDict(env_prefix="RBTR_")
+    model_config = SettingsConfigDict(env_prefix="RBTR_", populate_by_name=True)
 
     user_dir: Annotated[
         str,
@@ -68,6 +68,13 @@ class Config(BaseSettings):
     embedding_batch_size: Annotated[
         int, Field(description="Batch size for embedding inference.")
     ] = 32
+    json_output: Annotated[
+        bool,
+        Field(
+            alias="json",
+            description="Force JSON output.",
+        ),
+    ] = False
 
 
 # ── TOML file helpers ────────────────────────────────────────────────
