@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING
 
 from rbtr.config import config
 
-log = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
     from llama_cpp import Llama
 
@@ -62,13 +60,26 @@ def _install_llama_log_callback() -> None:
 # ── Singleton ────────────────────────────────────────────────────────
 
 
-def _download(repo_id: str, filename: str, cache_dir: str) -> str:
-    """Download a file from HuggingFace Hub, returning local path."""
-    from huggingface_hub import hf_hub_download  # heavy startup cost
+def _silence_hf_hub() -> None:
+    """Suppress noisy warnings and progress bars from huggingface_hub."""
+    import os
 
-    logging.getLogger("huggingface_hub").handlers.clear()
-    # token=False: the embedding model repo is public — explicitly
-    # opt out of auth to suppress the "unauthenticated requests" warning.
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
+
+def _download(repo_id: str, filename: str, cache_dir: str) -> str:
+    """Download a file from HuggingFace Hub, returning local path.
+
+    Checks the local cache first. Only hits the network if the
+    file hasn't been downloaded yet.
+    """
+    from huggingface_hub import hf_hub_download, try_to_load_from_cache
+
+    cached = try_to_load_from_cache(repo_id, filename, cache_dir=cache_dir)
+    if cached is not None:
+        return str(cached)
+    _silence_hf_hub()
     return hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=cache_dir, token=False)
 
 
@@ -76,8 +87,8 @@ def _list_repo(repo_id: str) -> list[str]:
     """List files in a HuggingFace repo."""
     from huggingface_hub import list_repo_files  # heavy startup cost
 
-    logging.getLogger("huggingface_hub").handlers.clear()
-    return list(list_repo_files(repo_id))
+    _silence_hf_hub()
+    return list(list_repo_files(repo_id, token=False))
 
 
 def _resolve_model_path() -> Path:
