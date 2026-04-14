@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
 from enum import StrEnum
+
+from pydantic import BaseModel
 
 from rbtr.index.models import Chunk, ChunkKind
 
@@ -287,8 +288,7 @@ DEFAULT_BETA = 0.3  # lexical (BM25)
 DEFAULT_GAMMA = 0.4  # name match
 
 
-@dataclass(frozen=True)
-class ScoredResult:
+class ScoredResult(BaseModel, frozen=True):
     """A search result with full signal breakdown."""
 
     chunk: Chunk

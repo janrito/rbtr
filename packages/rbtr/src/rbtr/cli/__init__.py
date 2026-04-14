@@ -24,11 +24,15 @@ from pydantic_settings import (
     CliSubCommand,
     get_subcommand,
 )
+from rich.progress import Progress
 
-from rbtr.cli.models import BuildResult, IndexStatus, SearchHit
-from rbtr.cli.output import emit, err_console, is_json
+from rbtr.cli.models import BuildResult, IndexStatus
+from rbtr.cli.output import _err, emit, is_json, print_err
 from rbtr.config import RenderedConfig, config
-from rbtr.git import open_repo
+from rbtr.git import changed_files, open_repo
+from rbtr.index.orchestrator import build_index
+from rbtr.index.store import IndexStore
+from rbtr.workspace import resolve_path
 
 # ── Subcommands ──────────────────────────────────────────────────────
 
@@ -40,18 +44,13 @@ class Build(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rich.progress import Progress
-
-        from rbtr.index.orchestrator import build_index
-        from rbtr.index.store import IndexStore
-
         repo = open_repo(self.repo_path)
         store = IndexStore.from_config()
 
         if is_json():
             result = build_index(repo, self.ref, store)
         else:
-            with Progress(console=err_console) as progress:
+            with Progress(console=_err) as progress:
                 parse_task = progress.add_task("Parsing files...", total=None)
                 embed_task = progress.add_task("Embedding...", total=None, visible=False)
 
@@ -87,23 +86,9 @@ class Search(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.index.store import IndexStore
-
         store = IndexStore.from_config()
         for r in store.search("HEAD", self.query, top_k=self.limit):
-            emit(
-                SearchHit(
-                    score=round(r.score, 4),
-                    lexical=round(r.lexical, 4),
-                    semantic=round(r.semantic, 4),
-                    name_score=round(r.name, 4),
-                    kind_boost=round(r.kind_boost, 4),
-                    file_penalty=round(r.file_penalty, 4),
-                    importance=round(r.importance, 4),
-                    proximity=round(r.proximity, 4),
-                    chunk=r.chunk,
-                )
-            )
+            emit(r)
 
 
 class ReadSymbol(BaseModel):
@@ -114,12 +99,10 @@ class ReadSymbol(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.index.store import IndexStore
-
         store = IndexStore.from_config()
         chunks = store.search_by_name("HEAD", self.symbol)
         if not chunks:
-            err_console.print(f"[red]error:[/] symbol not found: {self.symbol}")
+            print_err(f"[red]error:[/] symbol not found: {self.symbol}")
             sys.exit(1)
         for c in chunks:
             emit(c)
@@ -133,8 +116,6 @@ class ListSymbols(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.index.store import IndexStore
-
         store = IndexStore.from_config()
         for c in store.get_chunks("HEAD", file_path=self.file):
             emit(c)
@@ -148,8 +129,6 @@ class FindRefs(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.index.store import IndexStore
-
         store = IndexStore.from_config()
         for e in store.get_edges("HEAD", target_id=self.symbol):
             emit(e)
@@ -163,9 +142,6 @@ class ChangedSymbols(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.git import changed_files
-        from rbtr.index.store import IndexStore
-
         repo = open_repo(self.repo_path)
         changed = changed_files(repo, self.base, self.head)
         store = IndexStore.from_config()
@@ -180,9 +156,6 @@ class Status(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        from rbtr.index.store import IndexStore
-        from rbtr.workspace import resolve_path
-
         db = resolve_path(config.db_dir) / "index.duckdb"
         if not db.exists():
             emit(IndexStatus(exists=False))

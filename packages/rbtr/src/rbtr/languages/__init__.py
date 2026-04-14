@@ -346,7 +346,7 @@ class LanguageManager:
         if lang_id is None:
             return "text"
         reg = self._registrations[lang_id]
-        return reg.pygments_lexer
+        return reg.pygments_lexer if reg.pygments_lexer is not None else reg.id
 
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs.

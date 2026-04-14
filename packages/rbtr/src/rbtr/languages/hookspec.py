@@ -253,11 +253,9 @@ class LanguageRegistration:
     import_extractor: ImportExtractor = None
     scope_types: frozenset[str] = field(default=DEFAULT_SCOPE_TYPES)
     chunker: Callable[[str, str, str], list[Chunk]] | None = None
-    pygments_lexer: str = ""
+    pygments_lexer: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.pygments_lexer:
-            object.__setattr__(self, "pygments_lexer", self.id)
         if not _VALID_ID.fullmatch(self.id):
             msg = (
                 f"invalid language id {self.id!r} — must be lowercase ascii, digits, or underscores"

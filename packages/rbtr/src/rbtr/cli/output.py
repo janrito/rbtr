@@ -18,24 +18,14 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.text import Text
 
-from rbtr.cli.models import BuildResult, IndexStatus, SearchHit
+from rbtr.cli.models import BuildResult, IndexStatus
 from rbtr.config import config
 from rbtr.index.models import Chunk, Edge
+from rbtr.index.search import ScoredResult
+from rbtr.languages import get_manager
 
-console = Console(highlight=False)
-err_console = Console(stderr=True, highlight=False)
-
-
-def lexer_for(file_path: str) -> str:
-    """Derive a Pygments lexer name from a file path.
-
-    Delegates to `LanguageManager.get_pygments_lexer`, which
-    reads the `pygments_lexer` field from the language
-    registration.
-    """
-    from rbtr.languages import get_manager
-
-    return get_manager().get_pygments_lexer(file_path)
+_out = Console(highlight=False)
+_err = Console(stderr=True, highlight=False)
 
 
 def is_json() -> bool:
@@ -50,6 +40,11 @@ def emit(model: BaseModel) -> None:
         sys.stdout.write("\n")
     else:
         _print_rich(model)
+
+
+def print_err(msg: str) -> None:
+    """Print a rich-formatted message to stderr."""
+    _err.print(msg)
 
 
 # ── Rich formatting ─────────────────────────────────────────────────
@@ -72,8 +67,8 @@ def _print_rich(model: BaseModel) -> None:
     match model:
         case BuildResult():
             _render_build_result(model)
-        case SearchHit():
-            _render_search_hit(model)
+        case ScoredResult():
+            _render_scored_result(model)
         case Chunk():
             _render_chunk(model)
         case Edge():
@@ -81,7 +76,7 @@ def _print_rich(model: BaseModel) -> None:
         case IndexStatus():
             _render_index_status(model)
         case _:
-            console.print(model.model_dump_json())
+            _out.print(model.model_dump_json())
 
 
 def _render_build_result(m: BuildResult) -> None:
@@ -94,13 +89,14 @@ def _render_build_result(m: BuildResult) -> None:
     t.append(f"  {s.total_chunks} chunks", style="cyan")
     t.append(f"  {s.total_edges} edges", style="cyan")
     t.append(f"  {s.elapsed_seconds}s", style="dim")
-    console.print(t)
+    _out.print(t)
     for e in m.errors:
-        err_console.print(f"  [red]error:[/] {e}")
+        print_err(f"  [red]error:[/] {e}")
 
 
-def _render_search_hit(m: SearchHit) -> None:
+def _render_scored_result(m: ScoredResult) -> None:
     c = m.chunk
+    lexer = get_manager().get_pygments_lexer(c.file_path)
     t = Text()
     t.append(f"  {m.score:.2f}", style=_score_style(m.score))
     t.append(f"  {c.file_path}", style="bold")
@@ -108,24 +104,25 @@ def _render_search_hit(m: SearchHit) -> None:
     t.append(f"  {c.kind}", style="dim")
     t.append(f"  {c.name}")
     t.append(f"  [{c.id[:8]}]", style="dim")
-    console.print(t)
+    _out.print(t)
 
     lines = c.content.splitlines()
     preview = "\n".join(lines[:3]) if len(lines) > 3 else c.content
-    console.print(
+    _out.print(
         Syntax(
             preview,
-            lexer_for(c.file_path),
+            lexer,
             theme="monokai",
             line_numbers=False,
             padding=(0, 2),
         )
     )
     if len(lines) > 3:
-        console.print(f"    [dim]... ({len(lines)} lines)[/]")
+        _out.print(f"    [dim]... ({len(lines)} lines)[/]")
 
 
 def _render_chunk(m: Chunk) -> None:
+    lexer = get_manager().get_pygments_lexer(m.file_path)
     t = Text()
     t.append(m.file_path, style="bold")
     t.append(f":{m.line_start}-{m.line_end}", style="dim")
@@ -135,11 +132,11 @@ def _render_chunk(m: Chunk) -> None:
         t.append(f"  scope={m.scope}", style="dim")
     if m.metadata:
         t.append(f"  {m.metadata}", style="dim")
-    console.print(t)
-    console.print(
+    _out.print(t)
+    _out.print(
         Syntax(
             m.content,
-            lexer_for(m.file_path),
+            lexer,
             theme="monokai",
             line_numbers=True,
             start_line=m.line_start,
@@ -153,11 +150,11 @@ def _render_edge(m: Edge) -> None:
     t.append(" → ", style="dim")
     t.append(m.target_id)
     t.append(f"  ({m.kind})", style="dim")
-    console.print(t)
+    _out.print(t)
 
 
 def _render_index_status(m: IndexStatus) -> None:
     if not m.exists:
-        console.print("[red]✗[/] No index found")
+        _out.print("[red]✗[/] No index found")
     else:
-        console.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
+        _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
