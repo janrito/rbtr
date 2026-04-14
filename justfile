@@ -53,30 +53,30 @@ dead-code:
 
 # Usage: just bench [repo-path] [base-ref] [head-ref]
 bench *ARGS:
-    uv run packages/rbtr-legacy/scripts/bench_index.py {{ ARGS }}
+    uv run packages/rbtr/scripts/bench_index.py {{ ARGS }}
 
 # Mine real search queries from session history and replay them.
 # Usage: just bench-search [path/to/sessions.db]
 bench-search *ARGS:
-    uv run packages/rbtr-legacy/scripts/bench_search.py {{ ARGS }}
+    uv run packages/rbtr/scripts/bench_search.py {{ ARGS }}
 
 # Evaluate search quality against curated queries (rbtr repo only).
 
 # Usage: just eval-search [ref]
 eval-search *ARGS:
-    uv run packages/rbtr-legacy/scripts/eval_search.py {{ ARGS }}
+    uv run packages/rbtr/scripts/eval_search.py {{ ARGS }}
 
 # Tune search fusion weights via grid search (rbtr repo only).
 
 # Usage: just tune-search [--step 0.05]
 tune-search *ARGS:
-    uv run packages/rbtr-legacy/scripts/tune_search.py {{ ARGS }}
+    uv run packages/rbtr/scripts/tune_search.py {{ ARGS }}
 
 # Run bench_index.py under scalene (line-level CPU + memory).
 
 # Usage: just bench-scalene [repo-path] [base-ref] [head-ref]
 bench-scalene *ARGS:
-    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json packages/rbtr-legacy/scripts/bench_index.py {{ ARGS }}
+    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json packages/rbtr/scripts/bench_index.py {{ ARGS }}
 
 # View a scalene profile in browser (defaults to bench profile).
 
