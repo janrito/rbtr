@@ -93,7 +93,8 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
         case IndexStatus():
             _render_index_status(model)
         case _:
-            _out.print(model.model_dump_json())
+            msg = f"No rich renderer for {type(model).__name__}"
+            raise TypeError(msg)
 
 
 def _render_build_result(m: BuildResult) -> None:
@@ -116,32 +117,36 @@ def _render_scored_result(m: ScoredResult) -> None:
     path = _short_path(c.file_path)
     lexer = get_manager().get_pygments_lexer(c.file_path)
 
-    # Header line
+    # Header — same layout as _render_chunk
     t = Text()
-    t.append(f"{m.score:.2f}", style=_score_style(m.score))
-    t.append(f"  {path}", style="bold")
+    t.append(path, style="bold")
     t.append(f":{c.line_start}-{c.line_end}", style="dim")
     t.append(f"  {c.kind}", style="dim")
     t.append(f"  {c.name}")
-    t.append(f"  [{c.id[:8]}]", style="dim")
     _out.print(t)
+
+    # Score line
+    s = Text("  ")
+    s.append(f"{m.score:.2f}", style=_score_style(m.score))
+    s.append(f"  [{c.id[:8]}]", style="dim")
+    _out.print(s)
 
     # Code preview — skip for single-line chunks (header is enough)
     lines = c.content.splitlines()
     if len(lines) > 1:
-        preview_lines = min(len(lines), 4)
-        preview = "\n".join(lines[:preview_lines])
+        max_preview = 4
+        preview = lines[:max_preview]
+        if len(lines) > max_preview:
+            preview.append(f"… {len(lines)} lines total")
         _out.print(
             Syntax(
-                preview,
+                "\n".join(preview),
                 lexer,
                 theme="monokai",
                 line_numbers=False,
                 padding=(0, 4),
             )
         )
-        if len(lines) > preview_lines:
-            _out.print(f"      [dim]… {len(lines)} lines total[/]")
 
     _out.print()  # blank line between results
 
@@ -161,18 +166,30 @@ def _render_chunk(m: Chunk, *, compact: bool = False) -> None:
         _out.print(t)
         return
 
-    # Full view for read-symbol
+    # Full view for read-symbol — same header structure as search
     t = Text()
     t.append(path, style="bold")
     t.append(f":{m.line_start}-{m.line_end}", style="dim")
     t.append(f"  {m.kind}", style="dim")
     t.append(f"  {m.name}")
-    if m.scope:
-        t.append(f"  ({m.scope})", style="dim")
     _out.print(t)
 
-    if m.metadata:
-        _out.print(Text(f"  {m.metadata}", style="dim"))
+    # Detail line — scope and metadata
+    if m.scope or m.metadata:
+        d = Text("  ")
+        if m.scope:
+            d.append(m.scope, style="dim")
+        if m.metadata:
+            meta = m.metadata
+            if m.scope:
+                d.append("  ", style="dim")
+            if "module" in meta:
+                d.append(meta["module"], style="dim")
+            if "names" in meta:
+                d.append(f" ({meta['names']})", style="dim")
+            if "dots" in meta:
+                d.append(f" dots={meta['dots']}", style="dim")
+        _out.print(d)
 
     _out.print(
         Syntax(

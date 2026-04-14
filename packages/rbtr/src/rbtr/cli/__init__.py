@@ -21,10 +21,12 @@ from pydantic import BaseModel, Field
 from pydantic_settings import (
     CliApp,
     CliPositionalArg,
+    CliSettingsSource,
     CliSubCommand,
     get_subcommand,
 )
 from rich.progress import Progress
+from rich_argparse import RichHelpFormatter
 
 from rbtr.cli.models import BuildResult, IndexStatus
 from rbtr.cli.output import _err, emit, is_json, print_err
@@ -204,4 +206,5 @@ class Rbtr(
 
 def main() -> None:
     """Entry point for the rbtr CLI."""
-    CliApp.run(Rbtr)
+    cli_source: CliSettingsSource[Rbtr] = CliSettingsSource(Rbtr, formatter_class=RichHelpFormatter)
+    CliApp.run(Rbtr, cli_settings_source=cli_source)
