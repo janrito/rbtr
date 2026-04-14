@@ -25,14 +25,7 @@ from pydantic_settings import (
     get_subcommand,
 )
 
-from rbtr.cli.models import (
-    BuildResult,
-    EdgeInfo,
-    IndexStatus,
-    SearchHit,
-    SymbolInfo,
-    SymbolSummary,
-)
+from rbtr.cli.models import BuildResult, IndexStatus, SearchHit
 from rbtr.cli.output import emit, err_console, is_json
 from rbtr.config import RenderedConfig, config
 from rbtr.git import open_repo
@@ -79,12 +72,7 @@ class Build(BaseModel):
         emit(
             BuildResult(
                 ref=self.ref,
-                total_files=result.stats.total_files,
-                parsed_files=result.stats.parsed_files,
-                skipped_files=result.stats.skipped_files,
-                total_chunks=result.stats.total_chunks,
-                total_edges=result.stats.total_edges,
-                elapsed_seconds=round(result.stats.elapsed_seconds, 2),
+                stats=result.stats,
                 errors=result.errors,
             )
         )
@@ -105,14 +93,15 @@ class Search(BaseModel):
         for r in store.search("HEAD", self.query, top_k=self.limit):
             emit(
                 SearchHit(
-                    id=r.chunk.id,
-                    file_path=r.chunk.file_path,
-                    name=r.chunk.name,
-                    kind=r.chunk.kind.value,
                     score=round(r.score, 4),
-                    line_start=r.chunk.line_start,
-                    line_end=r.chunk.line_end,
-                    content=r.chunk.content,
+                    lexical=round(r.lexical, 4),
+                    semantic=round(r.semantic, 4),
+                    name_score=round(r.name, 4),
+                    kind_boost=round(r.kind_boost, 4),
+                    file_penalty=round(r.file_penalty, 4),
+                    importance=round(r.importance, 4),
+                    proximity=round(r.proximity, 4),
+                    chunk=r.chunk,
                 )
             )
 
@@ -133,16 +122,7 @@ class ReadSymbol(BaseModel):
             err_console.print(f"[red]error:[/] symbol not found: {self.symbol}")
             sys.exit(1)
         for c in chunks:
-            emit(
-                SymbolInfo(
-                    file_path=c.file_path,
-                    name=c.name,
-                    kind=c.kind.value,
-                    line_start=c.line_start,
-                    line_end=c.line_end,
-                    content=c.content,
-                )
-            )
+            emit(c)
 
 
 class ListSymbols(BaseModel):
@@ -157,14 +137,7 @@ class ListSymbols(BaseModel):
 
         store = IndexStore.from_config()
         for c in store.get_chunks("HEAD", file_path=self.file):
-            emit(
-                SymbolSummary(
-                    name=c.name,
-                    kind=c.kind.value,
-                    line_start=c.line_start,
-                    line_end=c.line_end,
-                )
-            )
+            emit(c)
 
 
 class FindRefs(BaseModel):
@@ -179,13 +152,7 @@ class FindRefs(BaseModel):
 
         store = IndexStore.from_config()
         for e in store.get_edges("HEAD", target_id=self.symbol):
-            emit(
-                EdgeInfo(
-                    source_id=e.source_id,
-                    target_id=e.target_id,
-                    kind=e.kind.value,
-                )
-            )
+            emit(e)
 
 
 class ChangedSymbols(BaseModel):
@@ -204,15 +171,7 @@ class ChangedSymbols(BaseModel):
         store = IndexStore.from_config()
         for path in sorted(changed):
             for c in store.get_chunks("HEAD", file_path=path):
-                emit(
-                    SymbolSummary(
-                        file_path=c.file_path,
-                        name=c.name,
-                        kind=c.kind.value,
-                        line_start=c.line_start,
-                        line_end=c.line_end,
-                    )
-                )
+                emit(c)
 
 
 class Status(BaseModel):

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -89,12 +89,12 @@ class Chunk(BaseModel):
     name: str
     scope: str = ""
     content: str
-    content_tokens: str = ""
-    name_tokens: str = ""
+    content_tokens: Annotated[str, Field(exclude=True)] = ""
+    name_tokens: Annotated[str, Field(exclude=True)] = ""
     line_start: int
     line_end: int
     metadata: ImportMeta = {}
-    embedding: list[float] = []
+    embedding: Annotated[list[float], Field(exclude=True)] = []
 
 
 class Edge(BaseModel):
