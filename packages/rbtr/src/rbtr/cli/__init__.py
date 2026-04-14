@@ -118,7 +118,7 @@ class ListSymbols(BaseModel):
     def cli_cmd(self) -> None:
         store = IndexStore.from_config()
         for c in store.get_chunks("HEAD", file_path=self.file):
-            emit(c)
+            emit(c, compact=True)
 
 
 class FindRefs(BaseModel):
@@ -147,7 +147,7 @@ class ChangedSymbols(BaseModel):
         store = IndexStore.from_config()
         for path in sorted(changed):
             for c in store.get_chunks("HEAD", file_path=path):
-                emit(c)
+                emit(c, compact=True)
 
 
 class Status(BaseModel):

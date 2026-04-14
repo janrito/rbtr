@@ -11,6 +11,7 @@ layout of the same fields; it never drops or adds information.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from pydantic import BaseModel
@@ -33,13 +34,18 @@ def is_json() -> bool:
     return config.json_output or not sys.stdout.isatty()
 
 
-def emit(model: BaseModel) -> None:
-    """Print a single output model — JSON or rich-formatted."""
+def emit(model: BaseModel, *, compact: bool = False) -> None:
+    """Print a single output model — JSON or rich-formatted.
+
+    *compact* only affects TTY mode — JSON is always the full
+    model. When True, chunk renderers show a one-line summary
+    instead of the full source.
+    """
     if is_json():
         sys.stdout.write(model.model_dump_json())
         sys.stdout.write("\n")
     else:
-        _print_rich(model)
+        _print_rich(model, compact=compact)
 
 
 def print_err(msg: str) -> None:
@@ -47,7 +53,15 @@ def print_err(msg: str) -> None:
     _err.print(msg)
 
 
-# ── Rich formatting ─────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _short_path(file_path: str) -> str:
+    """Shorten a file path relative to CWD when possible."""
+    try:
+        return os.path.relpath(file_path)
+    except ValueError:
+        return file_path
 
 
 def _score_style(score: float) -> str:
@@ -59,7 +73,10 @@ def _score_style(score: float) -> str:
     return "dim"
 
 
-def _print_rich(model: BaseModel) -> None:
+# ── Rich formatting ─────────────────────────────────────────────────
+
+
+def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
     """Format a model with rich for interactive terminal output.
 
     Rule: every field in the model must appear in the output.
@@ -70,7 +87,7 @@ def _print_rich(model: BaseModel) -> None:
         case ScoredResult():
             _render_scored_result(model)
         case Chunk():
-            _render_chunk(model)
+            _render_chunk(model, compact=compact)
         case Edge():
             _render_edge(model)
         case IndexStatus():
@@ -96,43 +113,67 @@ def _render_build_result(m: BuildResult) -> None:
 
 def _render_scored_result(m: ScoredResult) -> None:
     c = m.chunk
+    path = _short_path(c.file_path)
     lexer = get_manager().get_pygments_lexer(c.file_path)
+
+    # Header line
     t = Text()
-    t.append(f"  {m.score:.2f}", style=_score_style(m.score))
-    t.append(f"  {c.file_path}", style="bold")
+    t.append(f"{m.score:.2f}", style=_score_style(m.score))
+    t.append(f"  {path}", style="bold")
     t.append(f":{c.line_start}-{c.line_end}", style="dim")
     t.append(f"  {c.kind}", style="dim")
     t.append(f"  {c.name}")
     t.append(f"  [{c.id[:8]}]", style="dim")
     _out.print(t)
 
+    # Code preview — skip for single-line chunks (header is enough)
     lines = c.content.splitlines()
-    preview = "\n".join(lines[:3]) if len(lines) > 3 else c.content
-    _out.print(
-        Syntax(
-            preview,
-            lexer,
-            theme="monokai",
-            line_numbers=False,
-            padding=(0, 2),
+    if len(lines) > 1:
+        preview_lines = min(len(lines), 4)
+        preview = "\n".join(lines[:preview_lines])
+        _out.print(
+            Syntax(
+                preview,
+                lexer,
+                theme="monokai",
+                line_numbers=False,
+                padding=(0, 4),
+            )
         )
-    )
-    if len(lines) > 3:
-        _out.print(f"    [dim]... ({len(lines)} lines)[/]")
+        if len(lines) > preview_lines:
+            _out.print(f"      [dim]… {len(lines)} lines total[/]")
+
+    _out.print()  # blank line between results
 
 
-def _render_chunk(m: Chunk) -> None:
+def _render_chunk(m: Chunk, *, compact: bool = False) -> None:
+    path = _short_path(m.file_path)
     lexer = get_manager().get_pygments_lexer(m.file_path)
+
+    if compact:
+        # One-line summary for list-symbols / changed-symbols
+        t = Text()
+        t.append(f"  {m.line_start:>4}-{m.line_end:<4}", style="dim")
+        t.append(f"  {m.kind:<10}", style="cyan")
+        t.append(m.name)
+        if m.scope:
+            t.append(f"  ({m.scope})", style="dim")
+        _out.print(t)
+        return
+
+    # Full view for read-symbol
     t = Text()
-    t.append(m.file_path, style="bold")
+    t.append(path, style="bold")
     t.append(f":{m.line_start}-{m.line_end}", style="dim")
     t.append(f"  {m.kind}", style="dim")
     t.append(f"  {m.name}")
     if m.scope:
-        t.append(f"  scope={m.scope}", style="dim")
-    if m.metadata:
-        t.append(f"  {m.metadata}", style="dim")
+        t.append(f"  ({m.scope})", style="dim")
     _out.print(t)
+
+    if m.metadata:
+        _out.print(Text(f"  {m.metadata}", style="dim"))
+
     _out.print(
         Syntax(
             m.content,
@@ -142,6 +183,7 @@ def _render_chunk(m: Chunk) -> None:
             start_line=m.line_start,
         )
     )
+    _out.print()  # blank line between results
 
 
 def _render_edge(m: Edge) -> None:
