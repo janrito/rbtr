@@ -4,13 +4,20 @@ Uses pydantic-settings CliApp for subcommand parsing. Config is
 loaded from TOML/env, subcommand args from the CLI.
 
 Output modes:
-- **TTY** (interactive): human-readable text.
+- **TTY** (interactive): rich-formatted text with syntax
+  highlighting, coloured scores, and progress bars.
 - **Piped / --json**: JSON or NDJSON to stdout.
+
+Both modes emit the **same data** — the pydantic output models
+are the single source of truth. The human format is a richer
+layout of the same fields; it never drops or adds information.
 """
 
 from __future__ import annotations
 
+import contextvars
 import sys
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -20,12 +27,25 @@ from pydantic_settings import (
     CliSubCommand,
     get_subcommand,
 )
+from rich.console import Console
+from rich.syntax import Syntax
+from rich.text import Text
 
 from rbtr.config import RenderedConfig, config
 from rbtr.git import open_repo
 from rbtr.workspace import resolve_path
 
+# ── Consoles ─────────────────────────────────────────────────────────
+
+_console = Console(highlight=False)
+_err = Console(stderr=True, highlight=False)
+
+
 # ── Output models ────────────────────────────────────────────────────
+#
+# These are the strict interface between the index layer and the
+# CLI. All output flows through these models — in both JSON and
+# TTY mode. No ad-hoc dicts, no data outside the schema.
 
 
 class BuildResult(BaseModel):
@@ -93,77 +113,162 @@ class IndexStatus(BaseModel):
 
 # ── Output dispatch ──────────────────────────────────────────────────
 
-_json_mode = False
+_force_json: contextvars.ContextVar[bool] = contextvars.ContextVar("_force_json", default=False)
+
+_EXT_TO_LEXER: dict[str, str] = {
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".rb": "ruby",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".json": "json",
+    ".md": "markdown",
+    ".sql": "sql",
+    ".css": "css",
+    ".html": "html",
+    ".xml": "xml",
+}
+
+
+def _lexer_for(file_path: str) -> str:
+    """Guess a Pygments lexer name from a file path."""
+    suffix = Path(file_path).suffix.lower()
+    return _EXT_TO_LEXER.get(suffix, "text")
 
 
 def _is_json() -> bool:
-    return _json_mode or not sys.stdout.isatty()
+    return _force_json.get() or not sys.stdout.isatty()
 
 
 def emit(model: BaseModel) -> None:
-    """Print a single output model — JSON or human-readable.
+    """Print a single output model — JSON or rich-formatted.
 
-    Both modes must present the **same data**. The human format
-    is a more readable layout of the same fields — it must never
-    drop or add information relative to the JSON format.
+    Both modes present the **same data**. The rich format is a
+    more readable layout of the same fields — it never drops or
+    adds information relative to the JSON format.
     """
     if _is_json():
-        print(model.model_dump_json())
+        sys.stdout.write(model.model_dump_json())
+        sys.stdout.write("\n")
     else:
-        _print_human(model)
+        _print_rich(model)
 
 
-def _print_human(model: BaseModel) -> None:
-    """Format a model for interactive terminal output.
+def _score_style(score: float) -> str:
+    """Return a rich style for a search score."""
+    if score >= 1.0:
+        return "bold green"
+    if score >= 0.5:
+        return "yellow"
+    return "dim"
+
+
+def _print_rich(model: BaseModel) -> None:
+    """Format a model with rich for interactive terminal output.
 
     Rule: every field in the model must appear in the output.
     """
     match model:
         case BuildResult():
-            print(
-                f"ref={model.ref}"
-                f"  {model.parsed_files}/{model.total_files} files"
-                f" ({model.skipped_files} skipped)"
-                f"  {model.total_chunks} chunks"
-                f"  {model.total_edges} edges"
-                f"  {model.elapsed_seconds}s"
-            )
+            t = Text()
+            t.append("ref=", style="dim")
+            t.append(model.ref, style="bold")
+            t.append(f"  {model.parsed_files}/{model.total_files} files", style="bold")
+            t.append(f" ({model.skipped_files} skipped)", style="dim")
+            t.append(f"  {model.total_chunks} chunks", style="cyan")
+            t.append(f"  {model.total_edges} edges", style="cyan")
+            t.append(f"  {model.elapsed_seconds}s", style="dim")
+            _console.print(t)
             for err in model.errors:
-                print(f"  error: {err}")
+                _err.print(f"  [red]error:[/] {err}")
 
         case SearchHit():
-            print(
-                f"  {model.score:.2f}"
-                f"  {model.file_path}:{model.line_start}-{model.line_end}"
-                f"  {model.kind}  {model.name}"
-                f"  [{model.id}]"
+            t = Text()
+            t.append(f"  {model.score:.2f}", style=_score_style(model.score))
+            t.append(f"  {model.file_path}", style="bold")
+            t.append(f":{model.line_start}-{model.line_end}", style="dim")
+            t.append(f"  {model.kind}", style="dim")
+            t.append(f"  {model.name}")
+            t.append(f"  [{model.id[:8]}]", style="dim")
+            _console.print(t)
+            syntax = Syntax(
+                model.content,
+                _lexer_for(model.file_path),
+                theme="monokai",
+                line_numbers=False,
+                padding=(0, 2),
             )
-            for line in model.content.splitlines()[:3]:
-                print(f"    {line}")
-            if model.content.count("\n") > 3:
-                print(f"    ... ({model.content.count(chr(10)) + 1} lines)")
+            lines = model.content.splitlines()
+            if len(lines) > 3:
+                preview = "\n".join(lines[:3])
+                syntax = Syntax(
+                    preview,
+                    _lexer_for(model.file_path),
+                    theme="monokai",
+                    line_numbers=False,
+                    padding=(0, 2),
+                )
+                _console.print(syntax)
+                _console.print(f"    [dim]... ({len(lines)} lines)[/]")
+            else:
+                _console.print(syntax)
 
         case SymbolInfo():
-            print(
-                f"{model.file_path}:{model.line_start}-{model.line_end}  {model.kind}  {model.name}"
+            t = Text()
+            t.append(f"{model.file_path}", style="bold")
+            t.append(f":{model.line_start}-{model.line_end}", style="dim")
+            t.append(f"  {model.kind}", style="dim")
+            t.append(f"  {model.name}")
+            _console.print(t)
+            _console.print(
+                Syntax(
+                    model.content,
+                    _lexer_for(model.file_path),
+                    theme="monokai",
+                    line_numbers=True,
+                    start_line=model.line_start,
+                )
             )
-            print(model.content)
 
         case SymbolSummary():
             prefix = f"{model.file_path}:" if model.file_path else ""
-            print(f"  {prefix}{model.line_start}-{model.line_end}  {model.kind}  {model.name}")
+            t = Text()
+            t.append(f"  {prefix}{model.line_start}-{model.line_end}", style="dim")
+            t.append(f"  {model.kind}", style="cyan")
+            t.append(f"  {model.name}")
+            _console.print(t)
 
         case EdgeInfo():
-            print(f"  {model.source_id} → {model.target_id}  ({model.kind})")
+            t = Text()
+            t.append(f"  {model.source_id}")
+            t.append(" → ", style="dim")
+            t.append(model.target_id)
+            t.append(f"  ({model.kind})", style="dim")
+            _console.print(t)
 
         case IndexStatus():
             if not model.exists:
-                print("exists=false")
+                _console.print("[red]✗[/] No index found")
             else:
-                print(f"exists=true  {model.total_chunks} chunks  {model.db_path}")
+                _console.print(f"[green]✓[/] {model.total_chunks} chunks  [dim]{model.db_path}[/]")
 
         case _:
-            print(model.model_dump_json())
+            _console.print(model.model_dump_json())
 
 
 # ── Subcommands ──────────────────────────────────────────────────────
@@ -176,6 +281,8 @@ class Build(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
+        from rich.progress import Progress
+
         from rbtr.index.orchestrator import build_index
         from rbtr.index.store import IndexStore
 
@@ -183,7 +290,27 @@ class Build(BaseModel):
         db = resolve_path(config.db_dir) / "index.duckdb"
         store = IndexStore(db)
 
-        result = build_index(repo, self.ref, store)
+        if _is_json():
+            result = build_index(repo, self.ref, store)
+        else:
+            with Progress(console=_err) as progress:
+                parse_task = progress.add_task("Parsing files...", total=None)
+                embed_task = progress.add_task("Embedding...", total=None, visible=False)
+
+                def on_progress(done: int, total: int) -> None:
+                    progress.update(parse_task, completed=done, total=total)
+
+                def on_embed_progress(done: int, total: int) -> None:
+                    progress.update(embed_task, completed=done, total=total, visible=True)
+
+                result = build_index(
+                    repo,
+                    self.ref,
+                    store,
+                    on_progress=on_progress,
+                    on_embed_progress=on_embed_progress,
+                )
+
         emit(
             BuildResult(
                 ref=self.ref,
@@ -240,7 +367,7 @@ class ReadSymbol(BaseModel):
         store = IndexStore(db)
         chunks = store.search_by_name("HEAD", self.symbol)
         if not chunks:
-            print(f"error: symbol not found: {self.symbol}", file=sys.stderr)
+            _err.print(f"[red]error:[/] symbol not found: {self.symbol}")
             sys.exit(1)
         for c in chunks:
             emit(
@@ -376,8 +503,7 @@ class Rbtr(
     status: CliSubCommand[Status]
 
     def cli_cmd(self) -> None:
-        global _json_mode
-        _json_mode = self.json_output
+        _force_json.set(self.json_output)
 
         sub = get_subcommand(self, is_required=False)
         if sub is None:
