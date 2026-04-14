@@ -9,8 +9,8 @@ from __future__ import annotations
 import pluggy
 import pytest
 
+from rbtr.languages import LanguageManager, get_manager
 from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
-from rbtr.languages.manager import LanguageManager, get_manager
 
 _mgr = get_manager()
 

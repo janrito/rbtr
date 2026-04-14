@@ -6,7 +6,7 @@ import pytest
 
 from rbtr.index.models import Chunk
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages.manager import get_manager
+from rbtr.languages import get_manager
 
 _manager = get_manager()
 

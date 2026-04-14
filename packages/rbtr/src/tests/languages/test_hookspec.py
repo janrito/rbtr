@@ -6,13 +6,13 @@ import pytest
 from tree_sitter import Language, Node, Parser
 
 from rbtr.index.models import ImportMeta
+from rbtr.languages import get_manager
 from rbtr.languages.hookspec import (
     DEFAULT_SCOPE_TYPES,
     LanguageRegistration,
     collect_scoped_path,
     parse_path_relative,
 )
-from rbtr.languages.manager import get_manager
 
 # ── parse_path_relative ──────────────────────────────────────────────
 

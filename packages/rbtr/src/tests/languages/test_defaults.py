@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+from rbtr.languages import get_manager
 from rbtr.languages.hookspec import DEFAULT_SCOPE_TYPES
-from rbtr.languages.manager import get_manager
 
 _mgr = get_manager()
 
