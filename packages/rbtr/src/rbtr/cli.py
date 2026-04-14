@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
-import pygit2
 from pydantic import BaseModel, Field
 from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand, get_subcommand
 
@@ -18,34 +16,10 @@ from rbtr.config import RenderedConfig, config
 from rbtr.git import open_repo
 from rbtr.workspace import resolve_path
 
-# ── Helpers ──────────────────────────────────────────────────────────
 
-
-def _open_repo(repo_path: str) -> pygit2.Repository:
-    """Open a repo at *repo_path*, or CWD if '.'."""
-    if repo_path == ".":
-        return open_repo()
-    path = pygit2.discover_repository(repo_path)
-    if path is None:
-        print(f"error: not a git repository: {repo_path}", file=sys.stderr)
-        sys.exit(1)
-    return pygit2.Repository(path)
-
-
-def _db_path() -> Path:
-    """Resolve the index database path from config."""
-    return resolve_path(config.db_dir) / "index.duckdb"
-
-
-def _json(obj: object) -> None:
+def _out(obj: object) -> None:
     """Print a JSON object to stdout."""
     print(json.dumps(obj, default=str))
-
-
-def _ndjson(items: list[dict[str, object]]) -> None:
-    """Print newline-delimited JSON to stdout."""
-    for item in items:
-        print(json.dumps(item, default=str))
 
 
 # ── Subcommands ──────────────────────────────────────────────────────
@@ -61,11 +35,12 @@ class Build(BaseModel):
         from rbtr.index.orchestrator import build_index
         from rbtr.index.store import IndexStore
 
-        repo = _open_repo(self.repo_path)
-        store = IndexStore(_db_path())
+        repo = open_repo(self.repo_path)
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
 
         result = build_index(repo, self.ref, store)
-        _json(
+        _out(
             {
                 "ref": self.ref,
                 "total_files": result.stats.total_files,
@@ -90,10 +65,10 @@ class Search(BaseModel):
     def cli_cmd(self) -> None:
         from rbtr.index.store import IndexStore
 
-        store = IndexStore(_db_path())
-        results = store.search("HEAD", self.query, top_k=self.limit)
-        _ndjson(
-            [
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
+        for r in store.search("HEAD", self.query, top_k=self.limit):
+            _out(
                 {
                     "id": r.chunk.id,
                     "file_path": r.chunk.file_path,
@@ -104,9 +79,7 @@ class Search(BaseModel):
                     "line_end": r.chunk.line_end,
                     "content": r.chunk.content,
                 }
-                for r in results
-            ]
-        )
+            )
 
 
 class ReadSymbol(BaseModel):
@@ -119,13 +92,14 @@ class ReadSymbol(BaseModel):
     def cli_cmd(self) -> None:
         from rbtr.index.store import IndexStore
 
-        store = IndexStore(_db_path())
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
         chunks = store.search_by_name("HEAD", self.symbol)
         if not chunks:
             print(f"error: symbol not found: {self.symbol}", file=sys.stderr)
             sys.exit(1)
-        _ndjson(
-            [
+        for c in chunks:
+            _out(
                 {
                     "file_path": c.file_path,
                     "name": c.name,
@@ -134,9 +108,7 @@ class ReadSymbol(BaseModel):
                     "line_end": c.line_end,
                     "content": c.content,
                 }
-                for c in chunks
-            ]
-        )
+            )
 
 
 class ListSymbols(BaseModel):
@@ -149,19 +121,17 @@ class ListSymbols(BaseModel):
     def cli_cmd(self) -> None:
         from rbtr.index.store import IndexStore
 
-        store = IndexStore(_db_path())
-        chunks = store.get_chunks("HEAD", file_path=self.file)
-        _ndjson(
-            [
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
+        for c in store.get_chunks("HEAD", file_path=self.file):
+            _out(
                 {
                     "name": c.name,
                     "kind": c.kind.value,
                     "line_start": c.line_start,
                     "line_end": c.line_end,
                 }
-                for c in chunks
-            ]
-        )
+            )
 
 
 class FindRefs(BaseModel):
@@ -174,18 +144,16 @@ class FindRefs(BaseModel):
     def cli_cmd(self) -> None:
         from rbtr.index.store import IndexStore
 
-        store = IndexStore(_db_path())
-        edges = store.get_edges("HEAD", target_id=self.symbol)
-        _ndjson(
-            [
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
+        for e in store.get_edges("HEAD", target_id=self.symbol):
+            _out(
                 {
                     "source_id": e.source_id,
                     "target_id": e.target_id,
                     "kind": e.kind.value,
                 }
-                for e in edges
-            ]
-        )
+            )
 
 
 class ChangedSymbols(BaseModel):
@@ -199,14 +167,13 @@ class ChangedSymbols(BaseModel):
         from rbtr.git import changed_files
         from rbtr.index.store import IndexStore
 
-        repo = _open_repo(self.repo_path)
+        repo = open_repo(self.repo_path)
         changed = changed_files(repo, self.base, self.head)
-        store = IndexStore(_db_path())
-        results: list[dict[str, object]] = []
+        db = resolve_path(config.db_dir) / "index.duckdb"
+        store = IndexStore(db)
         for path in sorted(changed):
-            chunks = store.get_chunks("HEAD", file_path=path)
-            for c in chunks:
-                results.append(
+            for c in store.get_chunks("HEAD", file_path=path):
+                _out(
                     {
                         "file_path": c.file_path,
                         "name": c.name,
@@ -215,7 +182,6 @@ class ChangedSymbols(BaseModel):
                         "line_end": c.line_end,
                     }
                 )
-        _ndjson(results)
 
 
 class Status(BaseModel):
@@ -226,19 +192,17 @@ class Status(BaseModel):
     def cli_cmd(self) -> None:
         from rbtr.index.store import IndexStore
 
-        db = _db_path()
+        db = resolve_path(config.db_dir) / "index.duckdb"
         if not db.exists():
-            _json({"exists": False})
+            _out({"exists": False})
             return
         store = IndexStore(db)
-        total = (
-            row[0] if (row := store._cur().execute("SELECT count(*) FROM chunks").fetchone()) else 0
-        )
-        _json(
+        row = store._cur().execute("SELECT count(*) FROM chunks").fetchone()
+        _out(
             {
                 "exists": True,
                 "db_path": str(db),
-                "total_chunks": total,
+                "total_chunks": row[0] if row else 0,
             }
         )
 

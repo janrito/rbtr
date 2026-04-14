@@ -187,40 +187,15 @@ class IndexStore:
     can safely share one `IndexStore` instance.
     """
 
-    @staticmethod
-    def _open_and_clean_fts(dsn: str) -> duckdb.DuckDBPyConnection:
-        """Open a DuckDB connection and clean stale FTS state.
-
-        DuckDB's FTS extension persists its internal schema
-        (`fts_main_chunks`) to disk but not the index data. On
-        reconnect, this stale schema causes `create_fts_index` to
-        fail with a `TransactionException`. The fix is to drop the
-        schema, checkpoint, close, and reopen — forcing DuckDB to
-        flush the catalog change to the WAL before the new
-        connection reads it.
-        """
-        con = duckdb.connect(dsn)
-        con.execute("INSTALL fts; LOAD fts;")
-        schemas = {
-            row[0]
-            for row in con.execute("SELECT schema_name FROM information_schema.schemata").fetchall()
-        }
-        if "fts_main_chunks" in schemas:
-            with contextlib.suppress(duckdb.CatalogException):
-                con.execute("DROP SCHEMA IF EXISTS fts_main_chunks CASCADE;")
-            con.execute("CHECKPOINT;")
-            con.close()
-            con = duckdb.connect(dsn)
-            con.execute("INSTALL fts; LOAD fts;")
-        return con
-
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is not None:
             resolved = Path(db_path)
             resolved.parent.mkdir(parents=True, exist_ok=True)
             _check_schema_version(resolved)
         dsn = str(db_path) if db_path else ":memory:"
-        self._con = self._open_and_clean_fts(dsn)
+        self._con = duckdb.connect(dsn)
+        self._con.execute("INSTALL fts; LOAD fts;")
+        self._purge_stale_fts_schema(dsn)
         self._local = threading.local()
         for stmt in _SCHEMA_SQL.strip().split(";"):
             stmt = stmt.strip()
@@ -236,6 +211,34 @@ class IndexStore:
         self._check_embedding_version()
         self._fts_dirty = True
         self._fts_lock = threading.Lock()
+
+    def _purge_stale_fts_schema(self, dsn: str) -> None:
+        """Work around a DuckDB FTS bug on reconnect.
+
+        DuckDB's FTS extension persists its internal schema
+        (`fts_main_chunks`) to disk but not the actual index.
+        When a new connection opens the same database, the stale
+        schema causes `create_fts_index` to fail with:
+
+            TransactionException: subject "stopwords" has been deleted
+
+        The fix is to drop the schema, checkpoint to flush the WAL,
+        then reconnect. Only triggers when the stale schema exists.
+        """
+        schemas = {
+            row[0]
+            for row in self._con.execute(
+                "SELECT schema_name FROM information_schema.schemata"
+            ).fetchall()
+        }
+        if "fts_main_chunks" not in schemas:
+            return
+        with contextlib.suppress(duckdb.CatalogException):
+            self._con.execute("DROP SCHEMA IF EXISTS fts_main_chunks CASCADE;")
+        self._con.execute("CHECKPOINT;")
+        self._con.close()
+        self._con = duckdb.connect(dsn)
+        self._con.execute("INSTALL fts; LOAD fts;")
 
     def _check_embedding_version(self) -> None:
         """Clear embeddings if the text format or model changed."""
