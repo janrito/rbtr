@@ -2,24 +2,168 @@
 
 Uses pydantic-settings CliApp for subcommand parsing. Config is
 loaded from TOML/env, subcommand args from the CLI.
+
+Output modes:
+- **TTY** (interactive): human-readable text.
+- **Piped / --json**: JSON or NDJSON to stdout.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 
 from pydantic import BaseModel, Field
-from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand, get_subcommand
+from pydantic_settings import (
+    CliApp,
+    CliImplicitFlag,
+    CliPositionalArg,
+    CliSubCommand,
+    get_subcommand,
+)
 
 from rbtr.config import RenderedConfig, config
 from rbtr.git import open_repo
 from rbtr.workspace import resolve_path
 
+# ── Output models ────────────────────────────────────────────────────
 
-def _out(obj: object) -> None:
-    """Print a JSON object to stdout."""
-    print(json.dumps(obj, default=str))
+
+class BuildResult(BaseModel):
+    """Output of `rbtr build`."""
+
+    ref: str
+    total_files: int
+    parsed_files: int
+    skipped_files: int
+    total_chunks: int
+    total_edges: int
+    elapsed_seconds: float
+    errors: list[str]
+
+
+class SearchHit(BaseModel):
+    """One result from `rbtr search`."""
+
+    id: str
+    file_path: str
+    name: str
+    kind: str
+    score: float
+    line_start: int
+    line_end: int
+    content: str
+
+
+class SymbolInfo(BaseModel):
+    """A symbol with its full source (`rbtr read-symbol`)."""
+
+    file_path: str
+    name: str
+    kind: str
+    line_start: int
+    line_end: int
+    content: str
+
+
+class SymbolSummary(BaseModel):
+    """A symbol without content (`rbtr list-symbols`, `rbtr changed-symbols`)."""
+
+    name: str
+    kind: str
+    line_start: int
+    line_end: int
+    file_path: str | None = None
+
+
+class EdgeInfo(BaseModel):
+    """A dependency edge (`rbtr find-refs`)."""
+
+    source_id: str
+    target_id: str
+    kind: str
+
+
+class IndexStatus(BaseModel):
+    """Output of `rbtr status`."""
+
+    exists: bool
+    db_path: str | None = None
+    total_chunks: int | None = None
+
+
+# ── Output dispatch ──────────────────────────────────────────────────
+
+_json_mode = False
+
+
+def _is_json() -> bool:
+    return _json_mode or not sys.stdout.isatty()
+
+
+def emit(model: BaseModel) -> None:
+    """Print a single output model — JSON or human-readable.
+
+    Both modes must present the **same data**. The human format
+    is a more readable layout of the same fields — it must never
+    drop or add information relative to the JSON format.
+    """
+    if _is_json():
+        print(model.model_dump_json())
+    else:
+        _print_human(model)
+
+
+def _print_human(model: BaseModel) -> None:
+    """Format a model for interactive terminal output.
+
+    Rule: every field in the model must appear in the output.
+    """
+    match model:
+        case BuildResult():
+            print(
+                f"ref={model.ref}"
+                f"  {model.parsed_files}/{model.total_files} files"
+                f" ({model.skipped_files} skipped)"
+                f"  {model.total_chunks} chunks"
+                f"  {model.total_edges} edges"
+                f"  {model.elapsed_seconds}s"
+            )
+            for err in model.errors:
+                print(f"  error: {err}")
+
+        case SearchHit():
+            print(
+                f"  {model.score:.2f}"
+                f"  {model.file_path}:{model.line_start}-{model.line_end}"
+                f"  {model.kind}  {model.name}"
+                f"  [{model.id}]"
+            )
+            for line in model.content.splitlines()[:3]:
+                print(f"    {line}")
+            if model.content.count("\n") > 3:
+                print(f"    ... ({model.content.count(chr(10)) + 1} lines)")
+
+        case SymbolInfo():
+            print(
+                f"{model.file_path}:{model.line_start}-{model.line_end}  {model.kind}  {model.name}"
+            )
+            print(model.content)
+
+        case SymbolSummary():
+            prefix = f"{model.file_path}:" if model.file_path else ""
+            print(f"  {prefix}{model.line_start}-{model.line_end}  {model.kind}  {model.name}")
+
+        case EdgeInfo():
+            print(f"  {model.source_id} → {model.target_id}  ({model.kind})")
+
+        case IndexStatus():
+            if not model.exists:
+                print("exists=false")
+            else:
+                print(f"exists=true  {model.total_chunks} chunks  {model.db_path}")
+
+        case _:
+            print(model.model_dump_json())
 
 
 # ── Subcommands ──────────────────────────────────────────────────────
@@ -40,17 +184,17 @@ class Build(BaseModel):
         store = IndexStore(db)
 
         result = build_index(repo, self.ref, store)
-        _out(
-            {
-                "ref": self.ref,
-                "total_files": result.stats.total_files,
-                "parsed_files": result.stats.parsed_files,
-                "skipped_files": result.stats.skipped_files,
-                "total_chunks": result.stats.total_chunks,
-                "total_edges": result.stats.total_edges,
-                "elapsed_seconds": round(result.stats.elapsed_seconds, 2),
-                "errors": result.errors,
-            }
+        emit(
+            BuildResult(
+                ref=self.ref,
+                total_files=result.stats.total_files,
+                parsed_files=result.stats.parsed_files,
+                skipped_files=result.stats.skipped_files,
+                total_chunks=result.stats.total_chunks,
+                total_edges=result.stats.total_edges,
+                elapsed_seconds=round(result.stats.elapsed_seconds, 2),
+                errors=result.errors,
+            )
         )
 
 
@@ -68,17 +212,17 @@ class Search(BaseModel):
         db = resolve_path(config.db_dir) / "index.duckdb"
         store = IndexStore(db)
         for r in store.search("HEAD", self.query, top_k=self.limit):
-            _out(
-                {
-                    "id": r.chunk.id,
-                    "file_path": r.chunk.file_path,
-                    "name": r.chunk.name,
-                    "kind": r.chunk.kind.value,
-                    "score": round(r.score, 4),
-                    "line_start": r.chunk.line_start,
-                    "line_end": r.chunk.line_end,
-                    "content": r.chunk.content,
-                }
+            emit(
+                SearchHit(
+                    id=r.chunk.id,
+                    file_path=r.chunk.file_path,
+                    name=r.chunk.name,
+                    kind=r.chunk.kind.value,
+                    score=round(r.score, 4),
+                    line_start=r.chunk.line_start,
+                    line_end=r.chunk.line_end,
+                    content=r.chunk.content,
+                )
             )
 
 
@@ -99,15 +243,15 @@ class ReadSymbol(BaseModel):
             print(f"error: symbol not found: {self.symbol}", file=sys.stderr)
             sys.exit(1)
         for c in chunks:
-            _out(
-                {
-                    "file_path": c.file_path,
-                    "name": c.name,
-                    "kind": c.kind.value,
-                    "line_start": c.line_start,
-                    "line_end": c.line_end,
-                    "content": c.content,
-                }
+            emit(
+                SymbolInfo(
+                    file_path=c.file_path,
+                    name=c.name,
+                    kind=c.kind.value,
+                    line_start=c.line_start,
+                    line_end=c.line_end,
+                    content=c.content,
+                )
             )
 
 
@@ -124,13 +268,13 @@ class ListSymbols(BaseModel):
         db = resolve_path(config.db_dir) / "index.duckdb"
         store = IndexStore(db)
         for c in store.get_chunks("HEAD", file_path=self.file):
-            _out(
-                {
-                    "name": c.name,
-                    "kind": c.kind.value,
-                    "line_start": c.line_start,
-                    "line_end": c.line_end,
-                }
+            emit(
+                SymbolSummary(
+                    name=c.name,
+                    kind=c.kind.value,
+                    line_start=c.line_start,
+                    line_end=c.line_end,
+                )
             )
 
 
@@ -147,12 +291,12 @@ class FindRefs(BaseModel):
         db = resolve_path(config.db_dir) / "index.duckdb"
         store = IndexStore(db)
         for e in store.get_edges("HEAD", target_id=self.symbol):
-            _out(
-                {
-                    "source_id": e.source_id,
-                    "target_id": e.target_id,
-                    "kind": e.kind.value,
-                }
+            emit(
+                EdgeInfo(
+                    source_id=e.source_id,
+                    target_id=e.target_id,
+                    kind=e.kind.value,
+                )
             )
 
 
@@ -173,14 +317,14 @@ class ChangedSymbols(BaseModel):
         store = IndexStore(db)
         for path in sorted(changed):
             for c in store.get_chunks("HEAD", file_path=path):
-                _out(
-                    {
-                        "file_path": c.file_path,
-                        "name": c.name,
-                        "kind": c.kind.value,
-                        "line_start": c.line_start,
-                        "line_end": c.line_end,
-                    }
+                emit(
+                    SymbolSummary(
+                        file_path=c.file_path,
+                        name=c.name,
+                        kind=c.kind.value,
+                        line_start=c.line_start,
+                        line_end=c.line_end,
+                    )
                 )
 
 
@@ -194,16 +338,16 @@ class Status(BaseModel):
 
         db = resolve_path(config.db_dir) / "index.duckdb"
         if not db.exists():
-            _out({"exists": False})
+            emit(IndexStatus(exists=False))
             return
         store = IndexStore(db)
         row = store._cur().execute("SELECT count(*) FROM chunks").fetchone()
-        _out(
-            {
-                "exists": True,
-                "db_path": str(db),
-                "total_chunks": row[0] if row else 0,
-            }
+        emit(
+            IndexStatus(
+                exists=True,
+                db_path=str(db),
+                total_chunks=row[0] if row else 0,
+            )
         )
 
 
@@ -218,6 +362,11 @@ class Rbtr(
 ):
     """rbtr — structural code index."""
 
+    json_output: CliImplicitFlag[bool] = Field(
+        False,
+        alias="json",
+        description="Force JSON output",
+    )
     search: CliSubCommand[Search]
     build: CliSubCommand[Build]
     read_symbol: CliSubCommand[ReadSymbol]
@@ -227,6 +376,9 @@ class Rbtr(
     status: CliSubCommand[Status]
 
     def cli_cmd(self) -> None:
+        global _json_mode
+        _json_mode = self.json_output
+
         sub = get_subcommand(self, is_required=False)
         if sub is None:
             CliApp.print_help(self)
