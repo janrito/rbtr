@@ -15,10 +15,10 @@ lint-py:
     uv run ruff format --check .
 
 fmt-sql:
-    uv run sqlfluff fix .
+    uv run sqlfluff fix packages/rbtr-legacy
 
 lint-sql:
-    uv run sqlfluff lint .
+    uv run sqlfluff lint packages/rbtr-legacy
 
 fmt-md *FILES:
     uv run rumdl check --fix {{ if FILES == "" { "." } else { FILES } }}
@@ -36,7 +36,7 @@ test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
 build:
-    uv build
+    uv build --package rbtr-legacy
 
 # ── dead code detection (requires `uv sync --group debug`) ──
 
@@ -48,36 +48,38 @@ dead-code:
 
 # Usage: just bench [repo-path] [base-ref] [head-ref]
 bench *ARGS:
-    uv run scripts/bench_index.py {{ ARGS }}
+    uv run packages/rbtr-legacy/scripts/bench_index.py {{ ARGS }}
 
 # Mine real search queries from session history and replay them.
 # Usage: just bench-search [path/to/sessions.db]
 bench-search *ARGS:
-    uv run scripts/bench_search.py {{ ARGS }}
+    uv run packages/rbtr-legacy/scripts/bench_search.py {{ ARGS }}
 
 # Evaluate search quality against curated queries (rbtr repo only).
 
 # Usage: just eval-search [ref]
 eval-search *ARGS:
-    uv run scripts/eval_search.py {{ ARGS }}
+    uv run packages/rbtr-legacy/scripts/eval_search.py {{ ARGS }}
 
 # Tune search fusion weights via grid search (rbtr repo only).
 
 # Usage: just tune-search [--step 0.05]
 tune-search *ARGS:
-    uv run scripts/tune_search.py {{ ARGS }}
+    uv run packages/rbtr-legacy/scripts/tune_search.py {{ ARGS }}
 
 # Run bench_index.py under scalene (line-level CPU + memory).
 
 # Usage: just bench-scalene [repo-path] [base-ref] [head-ref]
 bench-scalene *ARGS:
-    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json scripts/bench_index.py {{ ARGS }}
+    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json packages/rbtr-legacy/scripts/bench_index.py {{ ARGS }}
 
 # View a scalene profile in browser (defaults to bench profile).
 
 # Usage: just scalene-view [path-to-json]
 scalene-view *ARGS:
     uv run --group debug python -m scalene view {{ ARGS }}
+
+# ── release ──
 
 # Get the current version from pyproject.toml
 

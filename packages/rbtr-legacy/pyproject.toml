@@ -1,0 +1,80 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr"
+
+# -- Project metadata --
+
+[project]
+name = "rbtr-legacy"
+version = "2026.4.0"
+description = "rbtr — Interactive LLM-powered PR review workbench (legacy)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "anyio>=4.0",
+  "httpx",
+  "pydantic>=2.12.5",
+  "pydantic-ai>=1.70.0",
+  "pydantic-settings[toml]>=2.12.0",
+  "tomli-w",
+  "PyGithub",
+  "pygit2",
+  "rich",
+  "prompt-toolkit>=3.0",
+  "minijinja>=2.15.1",
+  "tree-sitter>=0.24",
+  "tree-sitter-python",
+  "tree-sitter-json",
+  "tree-sitter-yaml",
+  "tree-sitter-toml",
+  "tree-sitter-bash",
+  "duckdb>=1.0",
+  "pyarrow>=17.0",
+  "llama-cpp-python",
+  "huggingface-hub",
+  "pluggy>=1.6.0",
+  "uuid-utils>=0.14.1",
+  "ruamel-yaml>=0.19.1",
+  "python-frontmatter>=1.1.0",
+]
+
+[project.optional-dependencies]
+languages = [
+  "tree-sitter-c",
+  "tree-sitter-c-sharp",
+  "tree-sitter-cpp",
+  "tree-sitter-css",
+  "tree-sitter-go",
+  "tree-sitter-hcl",
+  "tree-sitter-html",
+  "tree-sitter-java",
+  "tree-sitter-javascript",
+  "tree-sitter-kotlin",
+  "tree-sitter-ruby",
+  "tree-sitter-rust",
+  "tree-sitter-scala",
+  "tree-sitter-swift",
+  "tree-sitter-typescript",
+]
+
+[project.scripts]
+rbtr-legacy = "rbtr.cli:main"
+
+[dependency-groups]
+debug = ["ipython>=9.10.0", "scalene>=2.1", "vulture>=2.14"]
+dev = [
+  "mypy",
+  "pytest",
+  "pytest-cases>=3.10.1",
+  "pytest-cov",
+  "pytest-httpx>=0.36.0",
+  "pytest-mock",
+  "pytest-xdist>=3.8.0",
+  "ruff",
+  "rumdl>=0.1.43",
+  "sqlfluff>=4.0.4",
+]

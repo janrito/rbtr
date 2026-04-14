@@ -79,6 +79,7 @@ from typing import assert_never
 from pydantic_ai.messages import (
     BuiltinToolCallPart,
     BuiltinToolReturnPart,
+    CompactionPart,
     FilePart,
     ModelMessage,
     ModelRequest,
@@ -936,7 +937,13 @@ def _replay_response(
                         error=result_text if failed else None,
                     )
                 )
-            case ThinkingPart() | BuiltinToolCallPart() | BuiltinToolReturnPart() | FilePart():
+            case (
+                ThinkingPart()
+                | BuiltinToolCallPart()
+                | BuiltinToolReturnPart()
+                | FilePart()
+                | CompactionPart()
+            ):
                 pass
             case _:
                 assert_never(part)
