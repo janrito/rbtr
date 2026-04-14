@@ -34,7 +34,7 @@ def _open_repo(repo_path: str) -> pygit2.Repository:
 
 def _db_path() -> Path:
     """Resolve the index database path from config."""
-    return resolve_path(config.index.db_dir) / "index.duckdb"
+    return resolve_path(config.db_dir) / "index.duckdb"
 
 
 def _json(obj: object) -> None:

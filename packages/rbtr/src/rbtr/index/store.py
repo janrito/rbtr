@@ -218,7 +218,7 @@ class IndexStore:
         stored = dict(rows)
         stored_version = int(stored.get("embedding_version", "0"))
         stored_model = stored.get("embedding_model", "")
-        current_model = config.index.embedding_model
+        current_model = config.embedding_model
 
         version_changed = stored_version != EMBEDDING_VERSION
         model_changed = stored_model != current_model

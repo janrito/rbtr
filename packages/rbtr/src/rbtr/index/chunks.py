@@ -75,8 +75,8 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> list[Chunk]:
 
     Chunk size and overlap come from `config.index`.
     """
-    chunk_lines = config.index.chunk_lines
-    overlap = config.index.chunk_overlap
+    chunk_lines = config.chunk_lines
+    overlap = config.chunk_overlap
     lines = content.split("\n")
     chunks: list[Chunk] = []
     start = 0

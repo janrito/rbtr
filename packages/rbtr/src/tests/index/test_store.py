@@ -908,7 +908,7 @@ def test_embedding_model_change_clears_embeddings(tmp_path: Path, mocker: Mocker
     s1.close()
 
     # Simulate a config change to a different model.
-    mocker.patch("rbtr.index.store.config.index.embedding_model", "other/model.gguf")
+    mocker.patch("rbtr.index.store.config.embedding_model", "other/model.gguf")
 
     s2 = IndexStore(db_path)
     chunks = s2.get_chunks("head")

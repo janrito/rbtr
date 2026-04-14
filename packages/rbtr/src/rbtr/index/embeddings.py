@@ -2,8 +2,7 @@
 
 The model is lazily initialised on first use and kept in memory
 for the lifetime of the process.  GGUF model files are downloaded
-via `huggingface_hub` and stored at `config.index.model_cache_dir`
-(default `~/.config/rbtr/models/`).
+via `huggingface_hub` and stored at `~/.rbtr/models/`.
 """
 
 from __future__ import annotations
@@ -85,15 +84,15 @@ def _resolve_model_path() -> Path:
     """Download the GGUF file if needed and return its local path.
 
     Uses `huggingface_hub` for resumable downloads and caching.
-    The model ID from `config.index.embedding_model` is resolved
+    The model ID from `config.embedding_model` is resolved
     to a `<org>/<repo>` HuggingFace repo and a GGUF filename.
 
-    Supports two formats for `config.index.embedding_model`:
+    Supports two formats for `config.embedding_model`:
 
     - `<org>/<repo>/<filename.gguf>` — explicit file.
     - `<org>/<repo>` — picks the first `.gguf` file in the repo.
     """
-    model_id = config.index.embedding_model
+    model_id = config.embedding_model
     cache_dir = str(Path(config.user_dir) / "models")
 
     parts = model_id.split("/")

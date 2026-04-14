@@ -128,9 +128,9 @@ def build_index(
         list_files(
             repo,
             commit_sha,
-            max_file_size=config.index.max_file_size,
-            include=config.index.include,
-            exclude=config.index.extend_exclude,
+            max_file_size=config.max_file_size,
+            include=config.include,
+            exclude=config.extend_exclude,
         )
     )
     total = len(files)
@@ -250,9 +250,9 @@ def update_index(
         list_files(
             repo,
             head_sha,
-            max_file_size=config.index.max_file_size,
-            include=config.index.include,
-            exclude=config.index.extend_exclude,
+            max_file_size=config.max_file_size,
+            include=config.include,
+            exclude=config.extend_exclude,
         )
     )
     result.stats.total_files = len(head_files)
@@ -469,7 +469,7 @@ def _embed_missing(
         log.warning("Embedding model unavailable — skipping embeddings", exc_info=True)
         return
 
-    batch_size = config.index.embedding_batch_size
+    batch_size = config.embedding_batch_size
     total = len(missing)
     log.info("Embedding %d chunks", total)
     done = 0

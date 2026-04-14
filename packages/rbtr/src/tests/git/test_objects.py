@@ -71,8 +71,8 @@ def _lf(
             repo,
             ref,
             max_file_size=max_file_size,
-            include=include if include is not None else config.index.include,
-            exclude=exclude if exclude is not None else config.index.extend_exclude,
+            include=include if include is not None else config.include,
+            exclude=exclude if exclude is not None else config.extend_exclude,
         )
     )
 

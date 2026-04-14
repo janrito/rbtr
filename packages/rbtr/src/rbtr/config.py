@@ -2,7 +2,7 @@
 
 Sources are loaded in order (each overrides the previous via deep merge):
 
-1. Class defaults  — field defaults on the models below
+1. Class defaults  — field defaults on the model below
 2. User settings   — `~/.rbtr/config.toml`
 3. Workspace       — `.rbtr/config.toml` (relative to CWD)
 
@@ -11,7 +11,7 @@ import is safe — identity never changes::
 
     from rbtr.config import config
 
-    config.index.chunk_lines      # read nested
+    config.chunk_lines      # read
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -33,11 +33,21 @@ from rbtr import workspace  # module import so tests can patch workspace.workspa
 _DEFAULT_USER_DIR = str(Path.home() / ".rbtr")
 
 
-# ── Index config ─────────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────
 
 
-class IndexConfig(BaseModel):
-    enabled: Annotated[bool, Field(description="Enable code indexing.")] = True
+class Config(BaseSettings):
+    """Schema and defaults — no file sources."""
+
+    model_config = SettingsConfigDict(env_prefix="RBTR_")
+
+    user_dir: Annotated[
+        str,
+        Field(
+            exclude=True,
+            description="User-level storage root. Override with `RBTR_USER_DIR` env var.",
+        ),
+    ] = _DEFAULT_USER_DIR
     db_dir: Annotated[
         str, Field(description="Directory for the DuckDB index. Supports `${WORKSPACE}`.")
     ] = "${WORKSPACE}/index"
@@ -58,24 +68,6 @@ class IndexConfig(BaseModel):
     embedding_batch_size: Annotated[
         int, Field(description="Batch size for embedding inference.")
     ] = 32
-
-
-# ── Root config ──────────────────────────────────────────────────────
-
-
-class Config(BaseSettings):
-    """Schema and defaults — no file sources."""
-
-    model_config = SettingsConfigDict(env_prefix="RBTR_")
-
-    user_dir: Annotated[
-        str,
-        Field(
-            exclude=True,
-            description="User-level storage root. Override with `RBTR_USER_DIR` env var.",
-        ),
-    ] = _DEFAULT_USER_DIR
-    index: IndexConfig = IndexConfig()
 
 
 # ── TOML file helpers ────────────────────────────────────────────────

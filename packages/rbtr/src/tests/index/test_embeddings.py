@@ -133,7 +133,7 @@ def test_resolve_explicit_three_part(
 ) -> None:
 
     fake_path = str(tmp_path / "model.gguf")
-    config.index.embedding_model = "org/repo/model.gguf"
+    config.embedding_model = "org/repo/model.gguf"
     dl = mocker.patch.object(embeddings, "_download", return_value=fake_path)
     path = embeddings._resolve_model_path()
     assert path == Path(fake_path)
@@ -145,7 +145,7 @@ def test_resolve_two_part_picks_first_gguf(
 ) -> None:
 
     fake_path = str(tmp_path / "weights.gguf")
-    config.index.embedding_model = "org/repo"
+    config.embedding_model = "org/repo"
     mocker.patch.object(
         embeddings,
         "_list_repo",
@@ -159,14 +159,14 @@ def test_resolve_two_part_picks_first_gguf(
 
 def test_resolve_invalid_format_raises(config_path: Path) -> None:
 
-    config.index.embedding_model = "bge-m3"
+    config.embedding_model = "bge-m3"
     with pytest.raises(ValueError, match="Invalid embedding_model"):
         embeddings._resolve_model_path()
 
 
 def test_resolve_two_part_no_gguf_raises(mocker: MockerFixture, config_path: Path) -> None:
 
-    config.index.embedding_model = "org/repo"
+    config.embedding_model = "org/repo"
     mocker.patch.object(
         embeddings,
         "_list_repo",
@@ -186,7 +186,7 @@ def test_load_model_orchestrates_download_and_init(
 
     fake_path = tmp_path / "model.gguf"
     fake_path.touch()
-    config.index.embedding_model = "org/repo/model.gguf"
+    config.embedding_model = "org/repo/model.gguf"
 
     mocker.patch.object(embeddings, "_resolve_model_path", return_value=fake_path)
     install_cb = mocker.patch.object(embeddings, "_install_llama_log_callback")
