@@ -237,6 +237,11 @@ class LanguageRegistration:
                           chunking.  `None` uses the default
                           strategy (tree-sitter if grammar + query,
                           plaintext otherwise).
+        pygments_lexer:   Pygments lexer name for syntax highlighting.
+                          Defaults to `id`, which works for most
+                          languages.  Override when the language ID
+                          doesn't match the Pygments name (e.g.
+                          `c_sharp` → `"csharp"`).
     """
 
     id: str
@@ -248,8 +253,11 @@ class LanguageRegistration:
     import_extractor: ImportExtractor = None
     scope_types: frozenset[str] = field(default=DEFAULT_SCOPE_TYPES)
     chunker: Callable[[str, str, str], list[Chunk]] | None = None
+    pygments_lexer: str = ""
 
     def __post_init__(self) -> None:
+        if not self.pygments_lexer:
+            object.__setattr__(self, "pygments_lexer", self.id)
         if not _VALID_ID.fullmatch(self.id):
             msg = (
                 f"invalid language id {self.id!r} — must be lowercase ascii, digits, or underscores"

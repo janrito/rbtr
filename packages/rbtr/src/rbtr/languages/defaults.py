@@ -59,6 +59,7 @@ class DefaultsPlugin:
                 id="c_sharp",
                 extensions=frozenset({".cs"}),
                 grammar_module="tree_sitter_c_sharp",
+                pygments_lexer="csharp",
             ),
             LanguageRegistration(
                 id="css",

@@ -31,24 +31,17 @@ from rbtr.config import config
 console = Console(highlight=False)
 err_console = Console(stderr=True, highlight=False)
 
-# Language IDs that don't match their Pygments lexer name.
-_LEXER_OVERRIDES: dict[str, str] = {
-    "c_sharp": "csharp",
-}
-
 
 def lexer_for(file_path: str) -> str:
     """Derive a Pygments lexer name from a file path.
 
-    Uses the language manager's extension map — no duplicate
-    mapping to maintain.
+    Delegates to `LanguageManager.get_pygments_lexer`, which
+    reads the `pygments_lexer` field from the language
+    registration.
     """
     from rbtr.languages import get_manager
 
-    lang_id = get_manager().detect_language(file_path)
-    if lang_id is None:
-        return "text"
-    return _LEXER_OVERRIDES.get(lang_id, lang_id)
+    return get_manager().get_pygments_lexer(file_path)
 
 
 def is_json() -> bool:

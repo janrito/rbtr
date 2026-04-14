@@ -325,6 +325,29 @@ class LanguageManager:
             return False
         return self.load_grammar(language_id) is None
 
+    def get_pygments_lexer(self, file_path: str) -> str:
+        """Return the Pygments lexer name for a file path.
+
+        Uses `detect_language` and the registration's
+        `pygments_lexer` field.  Returns `"text"` for
+        unrecognised files.
+
+        Examples::
+
+            >>> mgr = get_manager()
+            >>> mgr.get_pygments_lexer("app.py")
+            'python'
+            >>> mgr.get_pygments_lexer("Program.cs")
+            'csharp'
+            >>> mgr.get_pygments_lexer("data.xyz")
+            'text'
+        """
+        lang_id = self.detect_language(file_path)
+        if lang_id is None:
+            return "text"
+        reg = self._registrations[lang_id]
+        return reg.pygments_lexer
+
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs.
 
