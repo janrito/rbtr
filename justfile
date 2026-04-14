@@ -29,11 +29,16 @@ lint-md *FILES:
 typecheck:
     uv run mypy
 
-test:
-    uv run pytest
+test: test-rbtr test-legacy
+
+test-legacy:
+    uv run pytest packages/rbtr-legacy/src/tests
+
+test-rbtr:
+    uv run pytest packages/rbtr/src/tests
 
 test-cov:
-    uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
+    uv run pytest packages/rbtr-legacy/src/tests --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
 build:
     uv build --package rbtr-legacy

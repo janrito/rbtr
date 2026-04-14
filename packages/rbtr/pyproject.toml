@@ -1,0 +1,56 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[project]
+name = "rbtr"
+version = "0.1.0"
+description = "rbtr — structural code index"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "pygit2",
+  "pydantic>=2.12",
+  "pydantic-settings[toml]>=2.12",
+  "tree-sitter>=0.24",
+  "tree-sitter-python",
+  "tree-sitter-json",
+  "tree-sitter-yaml",
+  "tree-sitter-toml",
+  "tree-sitter-bash",
+  "duckdb>=1.0",
+  "pyarrow>=17.0",
+  "llama-cpp-python",
+  "huggingface-hub",
+  "pluggy>=1.6",
+]
+
+[project.optional-dependencies]
+languages = [
+  "tree-sitter-c",
+  "tree-sitter-c-sharp",
+  "tree-sitter-cpp",
+  "tree-sitter-css",
+  "tree-sitter-go",
+  "tree-sitter-hcl",
+  "tree-sitter-html",
+  "tree-sitter-java",
+  "tree-sitter-javascript",
+  "tree-sitter-kotlin",
+  "tree-sitter-ruby",
+  "tree-sitter-rust",
+  "tree-sitter-scala",
+  "tree-sitter-swift",
+  "tree-sitter-typescript",
+]
+
+[project.scripts]
+rbtr = "rbtr.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-cases>=3.10.1",
+  "pytest-mock",
+  "pytest-xdist>=3.8.0",
+]
