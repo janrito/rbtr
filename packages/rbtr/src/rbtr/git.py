@@ -1,26 +1,23 @@
-"""Git operations — all pygit2 interaction lives here.
+"""Git operations for the code index.
 
-Flat module covering: repo open, ref resolution, tree walking,
-file listing, diffs, logs, and path filtering. Only what the
-index needs plus functions covered by ported tests.
+All repository interaction goes through pygit2's object store —
+no working-tree checkout is needed. This module provides the
+minimal surface the index requires: opening a repo, resolving
+refs, walking trees, listing files, and detecting changes.
 """
 
 from __future__ import annotations
 
 import fnmatch
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pygit2
-from pygit2.enums import SortMode
 
 from rbtr.errors import RbtrError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-
-type _PathMatcher = Callable[[str, str], bool]
+    from collections.abc import Iterator
 
 
 # ── Data types ───────────────────────────────────────────────────────
@@ -28,55 +25,45 @@ type _PathMatcher = Callable[[str, str], bool]
 
 @dataclass(frozen=True)
 class FileEntry:
-    """A file in the git tree with its content."""
+    """A file in the git tree with its decoded content.
+
+    Produced by `list_files` for every indexable file. The
+    `blob_sha` uniquely identifies the content and is used as
+    the cache key in the DuckDB index — if a file's blob SHA
+    hasn't changed, its chunks don't need re-parsing.
+    """
 
     path: str
     blob_sha: str
     content: bytes
 
 
-@dataclass(frozen=True)
-class DiffStats:
-    """Raw numeric statistics for a diff."""
-
-    files_changed: int
-    insertions: int
-    deletions: int
-
-
-@dataclass(frozen=True)
-class DiffResult:
-    """Unified diff output between two commits."""
-
-    stats: DiffStats
-    patch_lines: list[str]
-
-
-@dataclass(frozen=True)
-class LogEntry:
-    """One commit in a log range."""
-
-    sha: str
-    author: str
-    message: str
-
-
 # ── Repo open ────────────────────────────────────────────────────────
 
 
-def open_repo() -> pygit2.Repository:
-    """Open the git repository containing the current directory."""
-    path = pygit2.discover_repository(".")
-    if path is None:
-        raise RbtrError("rbtr must be run from inside a git repository.")
-    return pygit2.Repository(path)
+def open_repo(path: str = ".") -> pygit2.Repository:
+    """Open the git repository containing *path*.
+
+    Walks upward from *path* to find the `.git` directory.
+    Raises `RbtrError` if *path* is not inside a git repository.
+    """
+    discovered = pygit2.discover_repository(path)
+    if discovered is None:
+        msg = f"Not a git repository: {path}"
+        raise RbtrError(msg)
+    return pygit2.Repository(discovered)
 
 
 # ── Path filtering ───────────────────────────────────────────────────
 
 
 def _matches_globs(path: str, patterns: list[str]) -> bool:
-    """Check whether *path* matches any of the given globs."""
+    """Return whether *path* matches any glob in *patterns*.
+
+    A literal pattern (no wildcards) also matches child paths —
+    e.g. pattern `".rbtr/"` matches `".rbtr/index/data.db"`.
+    Trailing slashes on directory patterns are handled correctly.
+    """
     for pat in patterns:
         if fnmatch.fnmatch(path, pat):
             return True
@@ -93,7 +80,14 @@ def is_path_ignored(
     include: list[str],
     exclude: list[str],
 ) -> bool:
-    """Check whether *path* should be excluded from indexing."""
+    """Determine whether *path* should be excluded from indexing.
+
+    Applies a three-layer filter in order:
+
+    1. **include** globs force-include (override gitignore and exclude).
+    2. `.gitignore` via `repo.path_is_ignored` (when *repo* is available).
+    3. **exclude** globs remove remaining matches.
+    """
     forced = bool(include) and _matches_globs(path, include)
     if forced:
         return False
@@ -103,7 +97,11 @@ def is_path_ignored(
 
 
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:
-    """Heuristic: binary if first *sample_size* bytes contain a null."""
+    """Heuristic binary detection.
+
+    Returns `True` if a null byte appears in the first
+    *sample_size* bytes of *data*.
+    """
     return b"\x00" in data[:sample_size]
 
 
@@ -111,7 +109,14 @@ def is_binary(data: bytes, sample_size: int = 8192) -> bool:
 
 
 def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
-    """Resolve a ref (SHA, branch name, tag) to a Commit object."""
+    """Resolve *ref* to a `pygit2.Commit`.
+
+    Accepts a SHA, branch name, or tag. Tries the bare ref first,
+    then `origin/<ref>` for remote-tracking branches (common when
+    the branch only exists on the remote).
+
+    Raises `KeyError` if neither resolves.
+    """
     for candidate in (ref, f"origin/{ref}"):
         try:
             obj = repo.revparse_single(candidate)
@@ -130,7 +135,12 @@ def walk_tree(
     tree: pygit2.Tree,
     prefix: str,
 ) -> Iterator[tuple[str, pygit2.Blob]]:
-    """Recursively walk a git tree, yielding `(path, blob)` pairs."""
+    """Recursively walk *tree*, yielding `(path, blob)` pairs.
+
+    Descends into subtrees. Skips non-blob entries (submodules,
+    symlinks). Paths are built by joining *prefix* with each
+    entry name.
+    """
     for entry in tree:
         path = f"{prefix}{entry.name}" if not prefix else f"{prefix}/{entry.name}"
         match entry.type_str:
@@ -152,7 +162,16 @@ def list_files(
     include: list[str],
     exclude: list[str],
 ) -> Iterator[FileEntry]:
-    """Yield every indexable file in the tree at *ref*."""
+    """Yield every indexable file in the tree at *ref*.
+
+    Applies layered filtering:
+
+    1. **include** globs force-include paths (override gitignore).
+    2. `.gitignore` rules via `repo.path_is_ignored`.
+    3. **exclude** globs.
+    4. Files larger than *max_file_size* are skipped.
+    5. Binary files (null-byte heuristic) are skipped.
+    """
     commit = resolve_commit(repo, ref)
     tree = commit.tree
 
@@ -177,7 +196,12 @@ def read_blob(
     ref: str,
     path: str,
 ) -> pygit2.Blob | None:
-    """Return the blob for *path* at *ref*, or `None` if not found."""
+    """Read a single blob from the object store.
+
+    Returns the `pygit2.Blob` for *path* at *ref*, or `None` if
+    the file doesn't exist at that ref. Uses tree-path lookup
+    for O(log n) access.
+    """
     try:
         commit = resolve_commit(repo, ref)
     except KeyError:
@@ -192,279 +216,6 @@ def read_blob(
     return None
 
 
-# ── Anchor resolution ────────────────────────────────────────────────
-
-
-def resolve_anchor(
-    repo: pygit2.Repository,
-    ref: str,
-    path: str,
-    anchor: str,
-) -> int | str:
-    """Find *anchor* in the file at *ref*/*path* and return the line number.
-
-    Returns the 1-indexed line number of the last line of the match,
-    or an error string when the anchor cannot be resolved.
-    """
-    blob = read_blob(repo, ref, path)
-    if blob is None:
-        return f"File '{path}' not found at ref '{ref}'."
-    if is_binary(blob.data):
-        return f"File '{path}' is binary \u2014 cannot resolve anchor."
-    text = blob.data.decode(errors="replace")
-    if not anchor:
-        return "Anchor text is empty."
-
-    matches: list[int] = []
-    start = 0
-    while True:
-        idx = text.find(anchor, start)
-        if idx == -1:
-            break
-        line = text[:idx].count("\n") + anchor.count("\n") + 1
-        matches.append(line)
-        start = idx + 1
-
-    if not matches:
-        return (
-            f"Anchor text not found in '{path}' at ref '{ref}'. "
-            f"Make sure the text is an exact substring of the file content."
-        )
-    if len(matches) > 1:
-        locations = ", ".join(f"line {m}" for m in matches)
-        return (
-            f"Anchor text matches {len(matches)} locations in '{path}': {locations}. "
-            f"Use a longer or more unique snippet."
-        )
-    return matches[0]
-
-
-# ── Line translation ─────────────────────────────────────────────────
-
-
-def translate_line(
-    repo: pygit2.Repository,
-    path: str,
-    old_ref: str,
-    new_ref: str,
-    old_line: int,
-) -> int | None:
-    """Translate *old_line* from *old_ref* to *new_ref* via diff hunks."""
-    old_commit = resolve_commit(repo, old_ref)
-    new_commit = resolve_commit(repo, new_ref)
-    d = repo.diff(old_commit, new_commit)
-
-    patch: pygit2.Patch | None = None
-    for p in d:
-        if p is None:
-            continue
-        delta = p.delta
-        if delta.old_file.path == path or delta.new_file.path == path:
-            patch = p
-            break
-
-    if patch is None:
-        return old_line
-
-    if patch.delta.status == pygit2.GIT_DELTA_DELETED:
-        return None
-
-    offset = 0
-    for hunk in patch.hunks:
-        hunk_old_start = hunk.old_start
-        hunk_old_end = hunk_old_start + hunk.old_lines - 1
-
-        if old_line < hunk_old_start:
-            return old_line + offset
-
-        if old_line <= hunk_old_end:
-            for diff_line in hunk.lines:
-                if diff_line.old_lineno == old_line:
-                    if diff_line.new_lineno >= 0:
-                        return diff_line.new_lineno
-                    return None
-            return None  # pragma: no cover
-
-        offset += hunk.new_lines - hunk.old_lines
-
-    return old_line + offset
-
-
-# ── Diffs ────────────────────────────────────────────────────────────
-
-
-def diff_refs(
-    repo: pygit2.Repository,
-    base_ref: str,
-    head_ref: str,
-    *,
-    pattern: str = "",
-    match_fn: _PathMatcher | None = None,
-) -> DiffResult:
-    """Compute a diff between two refs."""
-    base_commit = resolve_commit(repo, base_ref)
-    head_commit = resolve_commit(repo, head_ref)
-    d = repo.diff(base_commit, head_commit)
-    return _build_diff_result(d, pattern, match_fn)
-
-
-def diff_single(
-    repo: pygit2.Repository,
-    ref: str,
-    *,
-    pattern: str = "",
-    match_fn: _PathMatcher | None = None,
-) -> DiffResult:
-    """Diff a single commit against its parent."""
-    commit = resolve_commit(repo, ref)
-    if not commit.parent_ids:
-        msg = f"Commit {ref} has no parent (initial commit)."
-        raise ValueError(msg)
-    parent_obj = repo.get(commit.parent_ids[0])
-    if parent_obj is None:
-        msg = f"Parent of {ref} not found."
-        raise ValueError(msg)
-    parent = parent_obj.peel(pygit2.Commit)
-    d = repo.diff(parent, commit)
-    return _build_diff_result(d, pattern, match_fn)
-
-
-def _build_diff_result(
-    d: pygit2.Diff,
-    pattern: str,
-    match_fn: _PathMatcher | None = None,
-) -> DiffResult:
-    """Build a `DiffResult` from a pygit2 Diff."""
-    if pattern:
-        _match = match_fn or (lambda p, pat: p == pat)
-        patches = [
-            p
-            for p in d
-            if p is not None
-            and (_match(p.delta.old_file.path, pattern) or _match(p.delta.new_file.path, pattern))
-        ]
-        if not patches:
-            return DiffResult(
-                stats=DiffStats(files_changed=0, insertions=0, deletions=0),
-                patch_lines=[],
-            )
-        patch_text = "\n".join(p.text for p in patches if p.text)
-        n_files = len(patches)
-        insertions = sum(p.line_stats[1] for p in patches)
-        deletions = sum(p.line_stats[2] for p in patches)
-    else:
-        raw = d.stats
-        n_files = raw.files_changed
-        insertions = raw.insertions
-        deletions = raw.deletions
-        patch_text = d.patch or "(empty diff)"
-
-    return DiffResult(
-        stats=DiffStats(files_changed=n_files, insertions=insertions, deletions=deletions),
-        patch_lines=patch_text.splitlines(),
-    )
-
-
-# ── Diff line ranges ─────────────────────────────────────────────────
-
-type DiffLineRanges = dict[str, set[int]]
-
-type SideDiffRanges = tuple[DiffLineRanges, DiffLineRanges]
-
-
-def nearest_commentable_line(
-    ranges: DiffLineRanges,
-    path: str,
-    line: int,
-) -> int | None:
-    """Return the commentable line closest to *line* in *path*."""
-    valid = ranges.get(path)
-    if not valid:
-        return None
-    return min(valid, key=lambda n: abs(n - line))
-
-
-def diff_line_ranges(
-    repo: pygit2.Repository,
-    base_ref: str,
-    head_ref: str,
-) -> SideDiffRanges:
-    """Return commentable line ranges for both sides of the diff."""
-    base_commit = resolve_commit(repo, base_ref)
-    head_commit = resolve_commit(repo, head_ref)
-
-    merge_base_oid = repo.merge_base(base_commit.id, head_commit.id)
-    if merge_base_oid is not None:
-        mb_obj = repo.get(merge_base_oid)
-        if mb_obj is not None:
-            base_commit = mb_obj.peel(pygit2.Commit)
-
-    d = repo.diff(base_commit, head_commit)
-
-    right: DiffLineRanges = {}
-    left: DiffLineRanges = {}
-    for patch in d:
-        if patch is None:
-            continue
-
-        right_lines: set[int] = set()
-        left_lines: set[int] = set()
-        for hunk in patch.hunks:
-            for diff_line in hunk.lines:
-                if diff_line.new_lineno >= 0:
-                    right_lines.add(diff_line.new_lineno)
-                if diff_line.old_lineno >= 0:
-                    left_lines.add(diff_line.old_lineno)
-
-        if right_lines:
-            right[patch.delta.new_file.path] = right_lines
-        if left_lines:
-            left[patch.delta.old_file.path] = left_lines
-
-    return right, left
-
-
-HUNK_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-
-
-def patch_line_ranges(patch: str) -> tuple[set[int], set[int]]:
-    """Extract commentable `(right_lines, left_lines)` from a unified patch."""
-    right_lines: set[int] = set()
-    left_lines: set[int] = set()
-
-    old_line = 0
-    new_line = 0
-    in_hunk = False
-
-    for line in patch.splitlines():
-        if line.startswith("@@"):
-            match = HUNK_RE.match(line)
-            if not match:
-                in_hunk = False
-                continue
-            old_line = int(match.group(1))
-            new_line = int(match.group(2))
-            in_hunk = True
-            continue
-
-        if not in_hunk or line.startswith("\\"):
-            continue
-
-        if line.startswith("+"):
-            right_lines.add(new_line)
-            new_line += 1
-        elif line.startswith("-"):
-            left_lines.add(old_line)
-            old_line += 1
-        else:
-            right_lines.add(new_line)
-            left_lines.add(old_line)
-            old_line += 1
-            new_line += 1
-
-    return right_lines, left_lines
-
-
 # ── Changed files ────────────────────────────────────────────────────
 
 
@@ -473,7 +224,12 @@ def changed_files(
     base_ref: str,
     head_ref: str,
 ) -> set[str]:
-    """Return file paths that differ between two refs."""
+    """Return file paths that differ between *base_ref* and *head_ref*.
+
+    Includes added, modified, and deleted files. Used by the index
+    to determine which files need re-parsing during incremental
+    updates.
+    """
     base_commit = resolve_commit(repo, base_ref)
     head_commit = resolve_commit(repo, head_ref)
     diff = repo.diff(base_commit, head_commit)
@@ -488,30 +244,3 @@ def changed_files(
         if delta.new_file.path:
             paths.add(delta.new_file.path)
     return paths
-
-
-# ── Commit log ───────────────────────────────────────────────────────
-
-
-def commit_log_between(
-    repo: pygit2.Repository,
-    base_ref: str,
-    head_ref: str,
-) -> list[LogEntry]:
-    """Return commits on *head_ref* not reachable from *base_ref*."""
-    head_commit = resolve_commit(repo, head_ref)
-    base_commit = resolve_commit(repo, base_ref)
-
-    walker = repo.walk(head_commit.id, SortMode.TOPOLOGICAL)
-    walker.hide(base_commit.id)
-
-    entries: list[LogEntry] = []
-    for commit in walker:
-        entries.append(
-            LogEntry(
-                sha=str(commit.id),
-                author=commit.author.name,
-                message=commit.message.strip().split("\n", 1)[0],
-            )
-        )
-    return entries
