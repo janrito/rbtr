@@ -19,17 +19,17 @@ from pydantic_ai.messages import (
 )
 from rich.text import Text
 
-from rbtr.events import ToolCallFinished, ToolCallStarted
-from rbtr.llm.stream import _emit_tool_event
-from rbtr.tui.ui import (
+from rbtr_legacy.events import ToolCallFinished, ToolCallStarted
+from rbtr_legacy.llm.stream import _emit_tool_event
+from rbtr_legacy.tui.ui import (
     _LivePanel,
     _render_head_tail,
     _truncate_head_tail,
 )
 
 if TYPE_CHECKING:
-    from rbtr.engine.core import Engine
-    from rbtr.llm.context import LLMContext
+    from rbtr_legacy.engine.core import Engine
+    from rbtr_legacy.llm.context import LLMContext
 
 pytest_plugins = ["tests.llm.conftest"]
 

@@ -12,11 +12,11 @@ from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.engine.model_cmd import get_models
-from rbtr.engine.types import TaskType
-from rbtr.exceptions import RbtrError
-from rbtr.providers import BuiltinProvider, claude
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.model_cmd import get_models
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.providers import BuiltinProvider, claude
 from tests.helpers import drain, output_texts
 
 # ── Shared data ──────────────────────────────────────────────────────

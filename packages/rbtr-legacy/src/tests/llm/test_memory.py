@@ -25,7 +25,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pytest_mock import MockerFixture
 
-from rbtr.llm.memory import (
+from rbtr_legacy.llm.memory import (
     ExtractedFact,
     FactAction,
     FactExtractionDeps,
@@ -37,8 +37,8 @@ from rbtr.llm.memory import (
     process_extracted_facts,
     render_facts_instruction,
 )
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 from tests.helpers import MemCtx
 from tests.sessions.fact_data import GLOBAL, RBTR_KEY
 

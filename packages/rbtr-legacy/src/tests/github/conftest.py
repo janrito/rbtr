@@ -18,11 +18,11 @@ from github.Repository import Repository
 from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.llm.deps import AgentDeps
-from rbtr.models import PRTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.models import PRTarget
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 from tests.llm.ctx import build_tool_ctx
 
 type MockReview = PullRequestReview
@@ -236,7 +236,7 @@ def repo_draft_engine(
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point drafts_dir at a temp directory for draft persistence."""
-    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
+    monkeypatch.setattr("rbtr_legacy.config.config.tools.drafts_dir", str(tmp_path / "drafts"))
     return tmp_path
 
 

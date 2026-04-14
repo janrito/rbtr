@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
 from tests.helpers import drain, output_texts
 
 
@@ -118,7 +118,7 @@ def test_custom_project_filenames(
     _, repo_dir = prompt_dirs
     (repo_dir / "REVIEW.md").write_text("Review focus.")
     monkeypatch.setattr(
-        "rbtr.engine.reload_cmd.config.project_instructions",
+        "rbtr_legacy.engine.reload_cmd.config.project_instructions",
         ["REVIEW.md", "MISSING.md"],
     )
     engine.run_task(TaskType.COMMAND, "/reload")
@@ -133,7 +133,7 @@ def test_no_project_instructions_configured(
     engine: Engine,
 ) -> None:
     """When project_instructions is empty, /reload says none configured."""
-    monkeypatch.setattr("rbtr.engine.reload_cmd.config.project_instructions", [])
+    monkeypatch.setattr("rbtr_legacy.engine.reload_cmd.config.project_instructions", [])
     engine.run_task(TaskType.COMMAND, "/reload")
     texts = output_texts(drain(engine.events))
     assert any("none configured" in t for t in texts)

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pydantic_ai.models.anthropic import AnthropicModel
 from pytest_mock import MockerFixture
 
-from rbtr.config import ThinkingEffort
-from rbtr.providers import model_settings
+from rbtr_legacy.config import ThinkingEffort
+from rbtr_legacy.providers import model_settings
 
 
 def test_model_settings_returns_effort(mocker: MockerFixture) -> None:

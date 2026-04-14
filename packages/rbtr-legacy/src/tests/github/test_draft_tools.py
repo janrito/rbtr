@@ -13,10 +13,10 @@ import pygit2
 import pytest
 from pydantic_ai import RunContext
 
-from rbtr.git.objects import DiffLineRanges
-from rbtr.github.draft import draft_path, load_draft, save_draft, snap_to_commentable_line
-from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.draft import (
+from rbtr_legacy.git.objects import DiffLineRanges
+from rbtr_legacy.github.draft import draft_path, load_draft, save_draft, snap_to_commentable_line
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.llm.tools.draft import (
     _get_diff_ranges,
     add_draft_comment,
     edit_draft_comment,
@@ -24,9 +24,9 @@ from rbtr.llm.tools.draft import (
     remove_draft_comment,
     set_draft_summary,
 )
-from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.models import DiffSide, InlineComment, PRTarget, ReviewDraft
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 from tests.llm.ctx import build_tool_ctx
 
 # ── Fixtures ─────────────────────────────────────────────────────────

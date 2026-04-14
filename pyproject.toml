@@ -34,7 +34,7 @@ ignore = ["E501", "W191"]
 unfixable = ["B"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"packages/*/src/tests/**/*.py" = [
+"packages/rbtr-legacy/src/tests/**/*.py" = [
   "S101", # asserts allowed in tests
   "S105", # hardcoded password in test assertions
   "S106", # hardcoded password in test arguments
@@ -45,7 +45,7 @@ unfixable = ["B"]
 docstring-quotes = "double"
 
 [tool.ruff.lint.isort]
-known-first-party = ["rbtr"]
+known-first-party = ["rbtr_legacy"]
 combine-as-imports = true
 
 [tool.ruff.lint.mccabe]
@@ -87,7 +87,7 @@ param_style = "question_mark"
 [tool.mypy]
 python_version = "3.13"
 mypy_path = "packages/rbtr-legacy/src"
-packages = ["rbtr"]
+packages = ["rbtr_legacy"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
@@ -115,7 +115,7 @@ show_missing = true
 
 [tool.vulture]
 min_confidence = 80
-paths = ["packages/rbtr-legacy/src/rbtr"]
+paths = ["packages/rbtr-legacy/src/rbtr_legacy"]
 ignore_names = [
   "init_settings",        # pydantic_settings settings_customise_sources
   "dotenv_settings",      # pydantic_settings settings_customise_sources

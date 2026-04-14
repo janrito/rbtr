@@ -8,10 +8,10 @@ from pytest_mock import MockerFixture
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from rbtr.state import EngineState
-from rbtr.styles import THEME
-from rbtr.tui.input import PasteRegion
-from rbtr.tui.ui import UI, _LivePanel, _render_lines, _tail_renderable_lines
+from rbtr_legacy.state import EngineState
+from rbtr_legacy.styles import THEME
+from rbtr_legacy.tui.input import PasteRegion
+from rbtr_legacy.tui.ui import UI, _LivePanel, _render_lines, _tail_renderable_lines
 
 
 def _plain_lines(console: Console, renderable: RenderableType) -> list[str]:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rbtr.index.embeddings import embedding_text
+from rbtr_legacy.index.embeddings import embedding_text
 
 
 def test_embedding_text_is_name_plus_content() -> None:

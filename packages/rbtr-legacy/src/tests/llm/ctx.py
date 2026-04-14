@@ -6,9 +6,9 @@ from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 
-from rbtr.llm.deps import AgentDeps
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 
 def build_tool_ctx(state: EngineState, store: SessionStore) -> RunContext[AgentDeps]:

@@ -6,9 +6,9 @@ import pytest
 from pydantic import ValidationError
 from rich.errors import StyleSyntaxError
 
-import rbtr.styles as s
-from rbtr.config import DarkPalette, LightPalette, PaletteConfig, ThemeConfig
-from rbtr.styles import _field_to_key, build_theme, palette_to_styles
+import rbtr_legacy.styles as s
+from rbtr_legacy.config import DarkPalette, LightPalette, PaletteConfig, ThemeConfig
+from rbtr_legacy.styles import _field_to_key, build_theme, palette_to_styles
 
 # ── Field-to-key mapping ─────────────────────────────────────────────
 

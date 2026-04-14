@@ -19,9 +19,9 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import TaskFinished, TextDelta
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import TaskFinished, TextDelta
 from tests.engine.builders import _streaming_model
 from tests.helpers import StubProvider, drain, response_texts, user_texts
 

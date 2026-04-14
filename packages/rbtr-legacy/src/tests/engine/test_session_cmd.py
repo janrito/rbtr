@@ -8,10 +8,10 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.engine.session_cmd import _format_age, parse_duration
-from rbtr.engine.types import TaskType
-from rbtr.llm.compact import compact_history
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.session_cmd import _format_age, parse_duration
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.llm.compact import compact_history
 from tests.engine.builders import _assistant, _seed, _user
 from tests.helpers import drain, output_texts
 

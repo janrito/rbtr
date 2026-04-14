@@ -11,12 +11,12 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.creds import OAuthCreds
-from rbtr.engine.core import Engine
-from rbtr.events import Event, IndexReady, Output
-from rbtr.models import BranchSummary, BranchTarget, PRSummary, PRTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.creds import OAuthCreds
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.events import Event, IndexReady, Output
+from rbtr_legacy.models import BranchSummary, BranchTarget, PRSummary, PRTarget
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 from tests.helpers import drain
 
 # ── Data fixtures ────────────────────────────────────────────────────

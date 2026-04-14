@@ -23,10 +23,10 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.config import config
-from rbtr.git import FileEntry, changed_files, is_binary, list_files
-from rbtr.git.filters import _matches_globs
-from rbtr.git.objects import (
+from rbtr_legacy.config import config
+from rbtr_legacy.git import FileEntry, changed_files, is_binary, list_files
+from rbtr_legacy.git.filters import _matches_globs
+from rbtr_legacy.git.objects import (
     DiffLineRanges,
     DiffStats,
     commit_log_between,

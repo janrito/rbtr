@@ -64,8 +64,8 @@ def _section(title: str) -> None:
 
 def _bench_file_listing(repo, ref: str) -> tuple[list, float, dict[str, int]]:
     """Benchmark file listing and return language distribution."""
-    from rbtr.index.git import list_files
-    from rbtr.plugins.manager import get_manager
+    from rbtr_legacy.index.git import list_files
+    from rbtr_legacy.plugins.manager import get_manager
 
     t0 = time.monotonic()
     files = list(list_files(repo, ref))
@@ -82,7 +82,7 @@ def _bench_file_listing(repo, ref: str) -> tuple[list, float, dict[str, int]]:
 
 def _bench_extraction(files: list) -> tuple[list, float, dict[str, int]]:
     """Benchmark chunk extraction (parsing + tree-sitter + chunking)."""
-    from rbtr.index.orchestrator import _extract_file
+    from rbtr_legacy.index.orchestrator import _extract_file
 
     kind_counts: dict[str, int] = Counter()
     all_chunks = []
@@ -110,7 +110,7 @@ def _bench_db_insert(store, chunks: list, snapshot_rows: list) -> float:
 
 def _bench_edge_inference(store, chunks: list, files: list, commit_sha: str) -> tuple[int, float]:
     """Benchmark edge inference."""
-    from rbtr.index.edges import infer_doc_edges, infer_import_edges, infer_test_edges
+    from rbtr_legacy.index.edges import infer_doc_edges, infer_import_edges, infer_test_edges
 
     repo_files = {entry.path for entry in files}
     t0 = time.monotonic()
@@ -137,7 +137,7 @@ def _bench_fts(store) -> float:
 
 def _bench_queries(store, ref: str, chunk_count: int) -> None:
     """Benchmark query latency with detailed stats."""
-    from rbtr.index.models import ChunkKind
+    from rbtr_legacy.index.models import ChunkKind
 
     _section("Query latency")
     runs = 10
@@ -206,8 +206,8 @@ def _bench_queries(store, ref: str, chunk_count: int) -> None:
 def main() -> None:
     import pygit2
 
-    from rbtr.index.orchestrator import build_index, update_index
-    from rbtr.index.store import IndexStore
+    from rbtr_legacy.index.orchestrator import build_index, update_index
+    from rbtr_legacy.index.store import IndexStore
 
     repo_path = sys.argv[1] if len(sys.argv) > 1 else "."
     base_ref = sys.argv[2] if len(sys.argv) > 2 else "HEAD"
@@ -337,7 +337,7 @@ def main() -> None:
         if head_ref:
             _section(f"Incremental update ({base_ref} → {head_ref})")
 
-            from rbtr.index.git import changed_files
+            from rbtr_legacy.index.git import changed_files
 
             changed = changed_files(repo, base_ref, head_ref)
             print(f"  changed files: {len(changed)}")

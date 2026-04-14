@@ -16,12 +16,12 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.settings import ModelSettings
 
-from rbtr.config import ThinkingEffort
-from rbtr.events import Event, MarkdownOutput, Output
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
-from rbtr.tui.input import InputState
-from rbtr.tui.ui import UI
+from rbtr_legacy.config import ThinkingEffort
+from rbtr_legacy.events import Event, MarkdownOutput, Output
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
+from rbtr_legacy.tui.input import InputState
+from rbtr_legacy.tui.ui import UI
 
 # ── Test provider ────────────────────────────────────────────────────
 

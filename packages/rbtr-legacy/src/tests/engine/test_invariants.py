@@ -21,11 +21,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.test import TestModel
 from pytest_cases import case, parametrize_with_cases
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import TaskFinished
-from rbtr.llm.compact import compact_agent, compact_history
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import TaskFinished
+from rbtr_legacy.llm.compact import compact_agent, compact_history
 from tests.engine.builders import _USAGE, _resp
 from tests.helpers import StubProvider, drain
 from tests.sessions.assertions import assert_ordering, assert_tool_pairing

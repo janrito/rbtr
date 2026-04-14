@@ -9,8 +9,8 @@ import pygit2
 import pytest
 from pydantic_ai.tools import ToolDefinition
 
-from rbtr.index.store import IndexStore
-from rbtr.llm.tools.common import (
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.llm.tools.common import (
     has_diff_target,
     has_index,
     has_pr_target,
@@ -18,11 +18,11 @@ from rbtr.llm.tools.common import (
     require_diff_target,
     resolve_tool_ref,
 )
-from rbtr.llm.tools.git import changed_files, commit_log, diff
-from rbtr.models import BranchTarget, PRTarget, SnapshotTarget, Target
-from rbtr.prompts import render_review
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.llm.tools.git import changed_files, commit_log, diff
+from rbtr_legacy.models import BranchTarget, PRTarget, SnapshotTarget, Target
+from rbtr_legacy.prompts import render_review
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 from .ctx import build_tool_ctx
 

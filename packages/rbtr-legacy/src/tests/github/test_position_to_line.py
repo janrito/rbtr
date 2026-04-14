@@ -13,8 +13,8 @@ from dataclasses import dataclass
 import pytest
 from _pytest.mark.structures import ParameterSet
 
-from rbtr.github.client import _line_to_position, _position_to_line
-from rbtr.models import DiffSide
+from rbtr_legacy.github.client import _line_to_position, _position_to_line
+from rbtr_legacy.models import DiffSide
 
 # ── Shared diff data ─────────────────────────────────────────────────
 

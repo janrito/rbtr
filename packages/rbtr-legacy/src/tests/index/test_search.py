@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.search import (
+from rbtr_legacy.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr_legacy.index.search import (
     DEFAULT_ALPHA,
     DEFAULT_BETA,
     DEFAULT_GAMMA,
@@ -27,8 +27,8 @@ from rbtr.index.search import (
     proximity_score,
     weights_for_query,
 )
-from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.index.tokenise import tokenise_code
 
 # ── normalise_scores ─────────────────────────────────────────────────
 

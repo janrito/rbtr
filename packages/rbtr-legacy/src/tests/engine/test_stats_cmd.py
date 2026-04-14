@@ -19,16 +19,16 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.sessions.incidents import (
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.sessions.incidents import (
     FailedAttempt,
     FailureKind,
     HistoryRepair,
     IncidentOutcome,
     RecoveryStrategy,
 )
-from rbtr.sessions.kinds import FragmentKind
+from rbtr_legacy.sessions.kinds import FragmentKind
 from tests.engine.builders import _user
 from tests.helpers import drain, output_texts
 

@@ -14,13 +14,13 @@ import pytest
 from pydantic_ai.models.test import TestModel
 from pytest_mock import MockerFixture
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.events import CompactionFinished, FactExtractionFinished
-from rbtr.llm.compact import compact_agent, compact_history
-from rbtr.llm.context import LLMContext
-from rbtr.models import PRTarget
-from rbtr.sessions.kinds import GLOBAL_SCOPE
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.events import CompactionFinished, FactExtractionFinished
+from rbtr_legacy.llm.compact import compact_agent, compact_history
+from rbtr_legacy.llm.context import LLMContext
+from rbtr_legacy.models import PRTarget
+from rbtr_legacy.sessions.kinds import GLOBAL_SCOPE
 from tests.engine.builders import _assistant, _seed, _turns, _user
 from tests.helpers import StubProvider, drain, output_texts
 
@@ -164,7 +164,7 @@ def test_compaction_extraction_failure_non_fatal(
     """If extraction fails during compaction, compaction still succeeds."""
     config.update(memory={"enabled": True})
     mocker.patch(
-        "rbtr.llm.compact.run_fact_extraction",
+        "rbtr_legacy.llm.compact.run_fact_extraction",
         side_effect=RuntimeError("LLM exploded"),
     )
 
@@ -196,13 +196,13 @@ def test_draft_post_triggers_extraction(
 ) -> None:
     """/draft post calls extraction after posting."""
     mock_extract = mocker.patch(
-        "rbtr.engine.draft_cmd.extract_facts_from_ctx",
+        "rbtr_legacy.engine.draft_cmd.extract_facts_from_ctx",
     )
     mocker.patch(
-        "rbtr.engine.draft_cmd.post_review_draft",
+        "rbtr_legacy.engine.draft_cmd.post_review_draft",
     )
     mocker.patch(
-        "rbtr.engine.draft_cmd.load_draft",
+        "rbtr_legacy.engine.draft_cmd.load_draft",
         return_value=mocker.MagicMock(summary="Good PR", comments=[]),
     )
     _seed(mem_engine, [_user("review this"), _assistant("LGTM")])

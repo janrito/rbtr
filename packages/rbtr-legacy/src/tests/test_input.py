@@ -7,9 +7,15 @@ Buffer editing — pure state manipulation, no threads or I/O.
 from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 
-from rbtr.config import config
-from rbtr.tui.input import ContextRegion, InputReader, InputState, PasteRegion, make_paste_marker
-from rbtr.tui.key_encoding import preprocess as preprocess_keys
+from rbtr_legacy.config import config
+from rbtr_legacy.tui.input import (
+    ContextRegion,
+    InputReader,
+    InputState,
+    PasteRegion,
+    make_paste_marker,
+)
+from rbtr_legacy.tui.key_encoding import preprocess as preprocess_keys
 
 # ── set_text ─────────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 if TYPE_CHECKING:
-    from rbtr.index.store import IndexStore
+    from rbtr_legacy.index.store import IndexStore
 
 # ── Eval data model ──────────────────────────────────────────────────
 
@@ -913,8 +913,8 @@ def _print_misses(run: EvalRun, backend: str) -> None:
 def main() -> None:
     import pygit2
 
-    from rbtr.index.orchestrator import build_index
-    from rbtr.index.store import IndexStore
+    from rbtr_legacy.index.orchestrator import build_index
+    from rbtr_legacy.index.store import IndexStore
 
     # Parse args.  Strip leading `--` that `just` passes through.
     args = sys.argv[1:]

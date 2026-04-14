@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.index.models import ChunkKind
-from rbtr.index.treesitter import extract_symbols
-from rbtr.plugins.manager import get_manager
+from rbtr_legacy.index.models import ChunkKind
+from rbtr_legacy.index.treesitter import extract_symbols
+from rbtr_legacy.plugins.manager import get_manager
 from tests.plugins.conftest import extract_chunks, skip_unless_grammar
 
 # ── Symbol extraction ────────────────────────────────────────────────

@@ -10,14 +10,14 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.index.models import ChunkKind, EdgeKind, IndexResult, SemanticDiff
-from rbtr.index.orchestrator import (
+from rbtr_legacy.index.models import ChunkKind, EdgeKind, IndexResult, SemanticDiff
+from rbtr_legacy.index.orchestrator import (
     build_index,
     compute_diff,
     update_index,
 )
-from rbtr.index.store import IndexStore
-from rbtr.index.treesitter import _get_query
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.index.treesitter import _get_query
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ from rbtr.index.treesitter import _get_query
 @pytest.fixture(autouse=True)
 def _mock_embeddings(mocker: MockerFixture) -> None:
     """Stub out the embedding step — no GGUF model needed in tests."""
-    mocker.patch("rbtr.index.orchestrator._embed_missing")
+    mocker.patch("rbtr_legacy.index.orchestrator._embed_missing")
 
 
 @pytest.fixture
@@ -517,8 +517,8 @@ def test_embed_failure_is_nonfatal(tmp_path: Path, mocker: MockerFixture) -> Non
     # on restore removes modules added during the test (like
     # pyarrow.dataset, which duckdb imports lazily), breaking
     # subsequent tests in the same xdist worker.
-    original = sys.modules.get("rbtr.index.embeddings")
-    sys.modules["rbtr.index.embeddings"] = None  # type: ignore[assignment]  # intentional poison
+    original = sys.modules.get("rbtr_legacy.index.embeddings")
+    sys.modules["rbtr_legacy.index.embeddings"] = None  # type: ignore[assignment]  # intentional poison
 
     repo = pygit2.init_repository(str(tmp_path / "embed_fail"), bare=False)
     (tmp_path / "embed_fail" / "hello.py").write_text("def greet(): pass\n")
@@ -544,9 +544,9 @@ def test_embed_failure_is_nonfatal(tmp_path: Path, mocker: MockerFixture) -> Non
     finally:
         store.close()
         if original is not None:
-            sys.modules["rbtr.index.embeddings"] = original
+            sys.modules["rbtr_legacy.index.embeddings"] = original
         else:
-            sys.modules.pop("rbtr.index.embeddings", None)
+            sys.modules.pop("rbtr_legacy.index.embeddings", None)
 
 
 def test_embed_batch_failure_skips_batch(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -564,7 +564,7 @@ def test_embed_batch_failure_skips_batch(tmp_path: Path, mocker: MockerFixture) 
 
     # Patch the function on the module so the deferred `from ... import`
     # inside `_embed_missing` picks up the mock.
-    mocker.patch("rbtr.index.embeddings.embed_texts", _flaky_embed)
+    mocker.patch("rbtr_legacy.index.embeddings.embed_texts", _flaky_embed)
 
     repo = pygit2.init_repository(str(tmp_path / "batch_fail"), bare=False)
     # Create enough symbols to span multiple batches (batch_size=32).

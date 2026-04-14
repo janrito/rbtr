@@ -8,17 +8,17 @@ from typing import no_type_check
 
 import pytest
 
-from rbtr.config import SkillsConfig, config
-from rbtr.creds import creds
-from rbtr.engine.core import Engine
-from rbtr.llm.agent import register_tools
-from rbtr.llm.context import LLMContext
-from rbtr.providers import endpoint as endpoint_mod
-from rbtr.providers.types import Provider
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
-from rbtr.tui.input import InputReader, InputState
-from rbtr.tui.ui import UI
+from rbtr_legacy.config import SkillsConfig, config
+from rbtr_legacy.creds import creds
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.llm.agent import register_tools
+from rbtr_legacy.llm.context import LLMContext
+from rbtr_legacy.providers import endpoint as endpoint_mod
+from rbtr_legacy.providers.types import Provider
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
+from rbtr_legacy.tui.input import InputReader, InputState
+from rbtr_legacy.tui.ui import UI
 from tests.helpers import HeadlessUI, StubProvider
 
 # Register all tool submodules in the correct order before any test
@@ -91,7 +91,7 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
     mock_ws = lambda: ws_dir  # noqa: E731
 
     monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
-    monkeypatch.setattr("rbtr.workspace.workspace_dir", mock_ws)
+    monkeypatch.setattr("rbtr_legacy.workspace.workspace_dir", mock_ws)
 
     config.reload()
     monkeypatch.setattr(config, "skills", SkillsConfig(project_dirs=[], user_dirs=[]))
@@ -142,7 +142,7 @@ def creds_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def config_path(tmp_path: Path) -> Path:
     """Return the temp user config path (already isolated by `_isolate_config`)."""
-    return tmp_path / "rbtr" / "config.toml"
+    return tmp_path / "rbtr" / "config-legacy.toml"
 
 
 # ── Session store ────────────────────────────────────────────────────

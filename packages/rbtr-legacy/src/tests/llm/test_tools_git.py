@@ -10,12 +10,12 @@ import pygit2
 import pytest
 from pydantic_ai import RunContext
 
-from rbtr.config import config as cfg
-from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.git import changed_files, commit_log, diff
-from rbtr.models import BranchTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.config import config as cfg
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.llm.tools.git import changed_files, commit_log, diff
+from rbtr_legacy.models import BranchTarget
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 from .ctx import build_tool_ctx
 

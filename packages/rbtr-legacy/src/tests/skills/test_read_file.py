@@ -8,11 +8,11 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.llm.tools.file import read_file
-from rbtr.models import BranchTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
-from rbtr.state import EngineState
+from rbtr_legacy.llm.tools.file import read_file
+from rbtr_legacy.models import BranchTarget
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.skills.registry import Skill, SkillRegistry, SkillSource
+from rbtr_legacy.state import EngineState
 from tests.llm.ctx import build_tool_ctx
 
 

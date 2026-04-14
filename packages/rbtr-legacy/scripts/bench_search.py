@@ -27,10 +27,10 @@ from typing import Any
 
 import pygit2
 
-from rbtr.index import orchestrator
-from rbtr.index.orchestrator import build_index
-from rbtr.index.search import ScoredResult
-from rbtr.index.store import IndexStore
+from rbtr_legacy.index import orchestrator
+from rbtr_legacy.index.orchestrator import build_index
+from rbtr_legacy.index.search import ScoredResult
+from rbtr_legacy.index.store import IndexStore
 
 # ── Data types ───────────────────────────────────────────────────────
 
@@ -372,7 +372,7 @@ def _print_detail(replays: list[ReplayResult]) -> None:
 
 def _print_query_distribution(events: list[SearchEvent]) -> None:
     """Show what kinds of queries the LLM actually generates."""
-    from rbtr.index.search import QueryKind, classify_query
+    from rbtr_legacy.index.search import QueryKind, classify_query
 
     counts: dict[QueryKind, int] = {}
     for ev in events:

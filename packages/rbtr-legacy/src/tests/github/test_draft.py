@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.engine.draft_cmd import _resolve_event
-from rbtr.git.objects import DiffLineRanges
-from rbtr.github.client import format_comment_body, parse_comment_body
-from rbtr.github.draft import (
+from rbtr_legacy.engine.draft_cmd import _resolve_event
+from rbtr_legacy.git.objects import DiffLineRanges
+from rbtr_legacy.github.client import format_comment_body, parse_comment_body
+from rbtr_legacy.github.draft import (
     _comment_hash,
     comment_sync_status,
     delete_draft,
@@ -18,7 +18,7 @@ from rbtr.github.draft import (
     save_draft,
     stamp_synced,
 )
-from rbtr.models import DiffSide, InlineComment, ReviewDraft, ReviewEvent
+from rbtr_legacy.models import DiffSide, InlineComment, ReviewDraft, ReviewEvent
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -54,7 +54,7 @@ def draft(comment_a: InlineComment, comment_b: InlineComment) -> ReviewDraft:
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point drafts_dir at a temp directory."""
     drafts = tmp_path / "drafts"
-    monkeypatch.setattr("rbtr.config.config.tools.drafts_dir", str(drafts))
+    monkeypatch.setattr("rbtr_legacy.config.config.tools.drafts_dir", str(drafts))
     return drafts
 
 

@@ -7,13 +7,19 @@ from datetime import UTC, datetime
 from pydantic_ai import RunContext
 from pytest_mock import MockerFixture
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import IndexStore
-from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.index import changed_symbols, find_references, list_symbols, read_symbol, search
-from rbtr.models import BranchTarget
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.llm.tools.index import (
+    changed_symbols,
+    find_references,
+    list_symbols,
+    read_symbol,
+    search,
+)
+from rbtr_legacy.models import BranchTarget
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 from .ctx import build_tool_ctx
 
@@ -66,7 +72,7 @@ def test_search_similar_ranks_math_first(
     index_ctx_embedded: RunContext[AgentDeps], mocker: MockerFixture
 ) -> None:
     """Query near the math axis ranks math chunks above HTTP."""
-    mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
+    mocker.patch("rbtr_legacy.index.embeddings.embed_text", return_value=[0.1, 0.9, 0.0])
     result = search(index_ctx_embedded, "statistics calculations")
 
     sections = result.strip().split("\n\n")
@@ -81,7 +87,7 @@ def test_search_similar_ranks_http_first(
     index_ctx_embedded: RunContext[AgentDeps], mocker: MockerFixture
 ) -> None:
     """Query near the HTTP axis ranks HTTP chunks above math."""
-    mocker.patch("rbtr.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
+    mocker.patch("rbtr_legacy.index.embeddings.embed_text", return_value=[0.9, 0.1, 0.0])
     result = search(index_ctx_embedded, "web request handling")
 
     sections = result.strip().split("\n\n")
@@ -93,7 +99,7 @@ def test_search_similar_no_embeddings(
     index_ctx: RunContext[AgentDeps], mocker: MockerFixture
 ) -> None:
     """Unified search still returns results when embeddings are unavailable."""
-    mocker.patch("rbtr.index.embeddings.embed_text", side_effect=RuntimeError("no model"))
+    mocker.patch("rbtr_legacy.index.embeddings.embed_text", side_effect=RuntimeError("no model"))
     # Without embeddings, search falls back to BM25 + name match.
     result = search(index_ctx, "handle_request")
     assert "handle_request" in result
@@ -773,7 +779,7 @@ def test_search_similar_embedding_error(
 ) -> None:
     """Embedding model failure gracefully falls back to BM25 + name."""
     mocker.patch(
-        "rbtr.index.store.IndexStore.search_by_text",
+        "rbtr_legacy.index.store.IndexStore.search_by_text",
         side_effect=RuntimeError("model not loaded"),
     )
     # Unified search falls back to BM25 + name match without crashing.

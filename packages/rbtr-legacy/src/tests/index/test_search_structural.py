@@ -7,8 +7,8 @@ ranking as expected.
 
 from __future__ import annotations
 
-from rbtr.index.search import ScoredResult
-from rbtr.index.store import IndexStore
+from rbtr_legacy.index.search import ScoredResult
+from rbtr_legacy.index.store import IndexStore
 
 from .conftest import COMMIT
 

@@ -5,9 +5,9 @@ from __future__ import annotations
 import pygit2
 import pytest
 
-from rbtr.engine.core import Engine
-from rbtr.engine.setup import _make_session_label
-from rbtr.engine.types import TaskType
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.setup import _make_session_label
+from rbtr_legacy.engine.types import TaskType
 from tests.helpers import drain
 
 from .conftest import make_repo_with_file

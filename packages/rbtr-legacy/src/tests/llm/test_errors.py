@@ -7,7 +7,7 @@ from http import HTTPStatus
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 
-from rbtr.llm.errors import is_context_overflow, is_effort_unsupported
+from rbtr_legacy.llm.errors import is_context_overflow, is_effort_unsupported
 
 
 def _make_http_error(status: HTTPStatus, body: str) -> ModelHTTPError:

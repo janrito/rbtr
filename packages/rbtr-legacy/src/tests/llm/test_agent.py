@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from rbtr.llm.tools.common import _index_tool_names
-from rbtr.prompts import render_index_status
+from rbtr_legacy.llm.tools.common import _index_tool_names
+from rbtr_legacy.prompts import render_index_status
 
 
 def test_index_ready_mentions_tools() -> None:

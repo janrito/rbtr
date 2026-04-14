@@ -24,8 +24,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from rbtr.sessions.kinds import Fact
-from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
+from rbtr_legacy.sessions.kinds import Fact
+from rbtr_legacy.sessions.store import _SCHEMA_VERSION, SessionStore
 
 from .fact_data import (
     ALL_BASELINE,

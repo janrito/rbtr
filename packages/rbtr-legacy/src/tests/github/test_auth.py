@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from pytest_httpx import HTTPXMock
 
-from rbtr.creds import creds
-from rbtr.exceptions import RbtrError
-from rbtr.github import auth
+from rbtr_legacy.creds import creds
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.github import auth
 
 _OAUTH_URL = "https://github.com/login/oauth/access_token"
 

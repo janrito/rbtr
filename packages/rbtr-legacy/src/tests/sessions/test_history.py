@@ -18,7 +18,7 @@ from pydantic_ai.messages import (
 )
 from pytest_cases import case, parametrize_with_cases
 
-from rbtr.sessions.history import (
+from rbtr_legacy.sessions.history import (
     consolidate_tool_returns,
     demote_thinking,
     flatten_tool_exchanges,

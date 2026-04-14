@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
+from rbtr_legacy.skills.registry import Skill, SkillRegistry, SkillSource
 
 
 def _skill(

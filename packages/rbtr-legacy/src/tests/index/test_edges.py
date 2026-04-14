@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rbtr.index.edges import (
+from rbtr_legacy.index.edges import (
     _find_source_file,
     _resolve_module_to_file,
     _strip_test_prefix,
@@ -10,7 +10,7 @@ from rbtr.index.edges import (
     infer_import_edges,
     infer_test_edges,
 )
-from rbtr.index.models import Chunk, ChunkKind, EdgeKind, ImportMeta
+from rbtr_legacy.index.models import Chunk, ChunkKind, EdgeKind, ImportMeta
 
 # ── Helpers ──────────────────────────────────────────────────────────
 

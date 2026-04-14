@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import AutoSubmit
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import AutoSubmit
 from tests.helpers import drain, has_event_type
 
 

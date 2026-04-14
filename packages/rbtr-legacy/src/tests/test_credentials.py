@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import config
-from rbtr.creds import OAuthCreds, creds
+from rbtr_legacy.config import config
+from rbtr_legacy.creds import OAuthCreds, creds
 
 # ── Shared test data ─────────────────────────────────────────────────
 #

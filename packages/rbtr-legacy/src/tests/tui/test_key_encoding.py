@@ -2,7 +2,7 @@
 
 import pytest
 
-from rbtr.tui.key_encoding import preprocess
+from rbtr_legacy.tui.key_encoding import preprocess
 
 # ── Shift+Enter / Alt+Enter ─────────────────────────────────────────
 

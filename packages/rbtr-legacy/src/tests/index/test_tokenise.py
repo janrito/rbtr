@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.tokenise import tokenise_code
+from rbtr_legacy.index.tokenise import tokenise_code
 
 
 @pytest.mark.parametrize(

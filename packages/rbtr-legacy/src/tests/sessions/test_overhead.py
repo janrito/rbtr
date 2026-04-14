@@ -12,17 +12,17 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.llm.memory import _persist_overhead
-from rbtr.sessions.kinds import FragmentKind
-from rbtr.sessions.overhead import (
+from rbtr_legacy.llm.memory import _persist_overhead
+from rbtr_legacy.sessions.kinds import FragmentKind
+from rbtr_legacy.sessions.overhead import (
     CompactionOverhead,
     CompactionTrigger,
     FactExtractionOverhead,
     FactExtractionSource,
 )
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
-from rbtr.usage import SessionUsage
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
+from rbtr_legacy.usage import SessionUsage
 from tests.helpers import MemCtx
 
 SESSION_A = "session-a"

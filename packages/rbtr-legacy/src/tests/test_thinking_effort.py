@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import Config, ThinkingEffort, config
+from rbtr_legacy.config import Config, ThinkingEffort, config
 
 # ── Enum basics ──────────────────────────────────────────────────────
 

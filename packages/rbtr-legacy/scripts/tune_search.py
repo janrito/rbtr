@@ -54,9 +54,9 @@ def _recall_at_k(rank: int | None, k: int) -> float:
 def main() -> None:
     import pygit2
 
-    from rbtr.index.models import Chunk
-    from rbtr.index.orchestrator import build_index
-    from rbtr.index.search import (
+    from rbtr_legacy.index.models import Chunk
+    from rbtr_legacy.index.orchestrator import build_index
+    from rbtr_legacy.index.search import (
         QueryKind,
         classify_query,
         fuse_scores,
@@ -64,7 +64,7 @@ def main() -> None:
         name_score,
         proximity_score,
     )
-    from rbtr.index.store import IndexStore
+    from rbtr_legacy.index.store import IndexStore
 
     # ── Parse args ───────────────────────────────────────────
     args = sys.argv[1:]
@@ -313,7 +313,7 @@ def main() -> None:
 
         # ── Current weights for reference ────────────────────
         _print_header("Current weights")
-        from rbtr.index.search import _KIND_WEIGHTS
+        from rbtr_legacy.index.search import _KIND_WEIGHTS
 
         for kind, weights in _KIND_WEIGHTS.items():
             a, b, g = weights

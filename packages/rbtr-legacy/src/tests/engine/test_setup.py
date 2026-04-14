@@ -13,15 +13,15 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-import rbtr.engine.connect_cmd as connect_mod
-from rbtr.config import config
-from rbtr.creds import OAuthCreds, creds
-from rbtr.engine.core import Engine
-from rbtr.engine.setup import ensure_gh_username
-from rbtr.engine.types import TaskType
-from rbtr.events import TaskFinished
-from rbtr.providers import BuiltinProvider
-from rbtr.providers.endpoint import save_endpoint
+import rbtr_legacy.engine.connect_cmd as connect_mod
+from rbtr_legacy.config import config
+from rbtr_legacy.creds import OAuthCreds, creds
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.setup import ensure_gh_username
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import TaskFinished
+from rbtr_legacy.providers import BuiltinProvider
+from rbtr_legacy.providers.endpoint import save_endpoint
 from tests.helpers import drain, output_texts
 
 
@@ -55,7 +55,7 @@ def test_setup_detects_github_token(
 
     fake_gh = mocker.MagicMock()
     fake_gh.get_user.return_value.login = "testuser"
-    monkeypatch.setattr("rbtr.engine.setup.Github", lambda **_kw: fake_gh)
+    monkeypatch.setattr("rbtr_legacy.engine.setup.Github", lambda **_kw: fake_gh)
 
     engine = setup_engine
 

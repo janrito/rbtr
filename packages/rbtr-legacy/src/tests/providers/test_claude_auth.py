@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.config import config
-from rbtr.creds import OAuthCreds, creds
-from rbtr.exceptions import RbtrError
-from rbtr.oauth import make_challenge, make_verifier, oauth_is_set
-from rbtr.providers.claude import (
+from rbtr_legacy.config import config
+from rbtr_legacy.creds import OAuthCreds, creds
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.oauth import make_challenge, make_verifier, oauth_is_set
+from rbtr_legacy.providers.claude import (
     _AUTHORIZE_URL,
     _CLIENT_ID,
     begin_login,
@@ -45,7 +45,7 @@ def test_challenge_is_s256() -> None:
 
 
 def test_begin_login_returns_url_and_pending(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.oauth.webbrowser.open")
+    mocker.patch("rbtr_legacy.oauth.webbrowser.open")
     url, pending = begin_login()
     assert url.startswith(_AUTHORIZE_URL)
     assert _CLIENT_ID in url
@@ -55,7 +55,7 @@ def test_begin_login_returns_url_and_pending(mocker: MockerFixture) -> None:
 
 
 def test_begin_login_opens_browser(mocker: MockerFixture) -> None:
-    mock_open = mocker.patch("rbtr.oauth.webbrowser.open")
+    mock_open = mocker.patch("rbtr_legacy.oauth.webbrowser.open")
     url, _ = begin_login()
 
     time.sleep(0.1)
@@ -129,7 +129,7 @@ def test_ensure_refreshes_expired_token(creds_path: Path, mocker: MockerFixture)
         creds_path, access_token="old-tok", refresh_token="ref-tok", expires_at=time.time() - 100
     )
     refreshed = _make_oauth(access_token="new-tok", refresh_token="new-ref")
-    mocker.patch("rbtr.providers.claude._refresh", return_value=refreshed)
+    mocker.patch("rbtr_legacy.providers.claude._refresh", return_value=refreshed)
 
     oauth = ensure_credentials()
     assert oauth.access_token == "new-tok"
@@ -139,7 +139,7 @@ def test_ensure_refreshes_expired_token(creds_path: Path, mocker: MockerFixture)
 def test_ensure_refreshes_within_buffer(creds_path: Path, mocker: MockerFixture) -> None:
     _store_oauth(creds_path, expires_at=time.time() + config.oauth.refresh_buffer_seconds - 10)
     refreshed = _make_oauth(access_token="refreshed")
-    mocker.patch("rbtr.providers.claude._refresh", return_value=refreshed)
+    mocker.patch("rbtr_legacy.providers.claude._refresh", return_value=refreshed)
 
     oauth = ensure_credentials()
     assert oauth.access_token == "refreshed"
@@ -161,7 +161,7 @@ def test_ensure_clears_creds_on_refresh_failure(creds_path: Path, mocker: Mocker
     stale credentials are cleared so `is_connected()` reflects reality."""
     _store_oauth(creds_path, expires_at=time.time() - 100)
     mocker.patch(
-        "rbtr.providers.claude._refresh",
+        "rbtr_legacy.providers.claude._refresh",
         side_effect=RbtrError("Token request failed (400): invalid_grant"),
     )
 

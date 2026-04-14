@@ -25,7 +25,7 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
-from rbtr.engine.core import Engine
+from rbtr_legacy.engine.core import Engine
 
 _USAGE = RequestUsage(input_tokens=0, output_tokens=0)
 

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import AutoSubmit, ContextMarkerReady
-from rbtr.skills.registry import Skill, SkillRegistry, SkillSource
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import AutoSubmit, ContextMarkerReady
+from rbtr_legacy.skills.registry import Skill, SkillRegistry, SkillSource
 from tests.helpers import drain, has_event_type, output_texts
 
 

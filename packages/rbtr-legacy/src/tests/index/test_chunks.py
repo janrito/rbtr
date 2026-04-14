@@ -1,7 +1,7 @@
 """Tests for prose and fallback chunking."""
 
-from rbtr.index.chunks import chunk_markdown, chunk_plaintext
-from rbtr.index.models import ChunkKind
+from rbtr_legacy.index.chunks import chunk_markdown, chunk_plaintext
+from rbtr_legacy.index.models import ChunkKind
 
 
 def test_markdown_splits_by_heading() -> None:

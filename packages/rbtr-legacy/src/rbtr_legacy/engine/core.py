@@ -1,0 +1,374 @@
+"""Engine — runs commands in daemon threads, emits Events.
+
+Heavy dependencies (`pydantic_ai`, `PyGithub`, `duckdb`, etc.)
+are imported lazily inside methods — not at module level — so
+that importing `engine.core` doesn't trigger the full dependency
+chain.  See ``todo/TODO-startup-time.md`` Phase 3c.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+import queue
+import signal
+import subprocess
+import sys
+import threading
+import traceback
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import anyio
+from anyio.from_thread import BlockingPortal, start_blocking_portal
+
+from rbtr_legacy.config import config
+from rbtr_legacy.events import (
+    ContextMarkerReady,
+    Event,
+    FlushPanel,
+    MarkdownOutput,
+    Output,
+    OutputLevel,
+    TaskFinished,
+    TaskStarted,
+)
+from rbtr_legacy.exceptions import RbtrError, TaskCancelled
+from rbtr_legacy.llm.types import CancelSlot
+from rbtr_legacy.models import BranchTarget, PRTarget, SnapshotTarget, Target
+from rbtr_legacy.sessions.scrub import scrub_secrets
+from rbtr_legacy.state import EngineState
+
+from .shell import handle_shell
+from .types import Command, TaskType
+
+if TYPE_CHECKING:
+    from rbtr_legacy.llm.context import LLMContext
+    from rbtr_legacy.sessions.store import SessionStore
+
+log = logging.getLogger(__name__)
+
+
+async def _capture_token() -> anyio.lowlevel.EventLoopToken:
+    """Return the `anyio` token for the current event loop."""
+    return anyio.lowlevel.current_token()
+
+
+class Engine:
+    """Executes commands and emits typed events. Knows nothing about the UI."""
+
+    def __init__(
+        self,
+        state: EngineState,
+        events: queue.Queue[Event],
+        *,
+        store: SessionStore | None = None,
+    ) -> None:
+        self.state = state
+        self.events = events
+        self._last_shell_full_output: tuple[str, str, int, int] | None = (
+            None  # (stdout, stderr, returncode, hidden_count)
+        )
+        self._cancel = threading.Event()
+        self._cancel_slot: CancelSlot = [None]
+        self._shell_proc: subprocess.Popen[str] | None = None
+        self._shell_pgid: int | None = None
+        self._index_thread: threading.Thread | None = None
+        # Session persistence store.
+        if store is None:
+            from rbtr_legacy.sessions.store import (
+                SessionStore,  # deferred: avoids pydantic_ai at import time
+            )
+
+            store = SessionStore(Path(config.user_dir) / "sessions.db")
+        self.store = store
+        state.session_id = self.store.new_id()
+        # Async portal for LLM streaming (keeps httpx pools alive).
+        self._portal_cm = start_blocking_portal(backend="asyncio")
+        self._portal: BlockingPortal = self._portal_cm.__enter__()
+        self._anyio_token = self._portal.call(_capture_token)
+
+    # ── Context manager ──────────────────────────────────────────────
+
+    def __enter__(self) -> Engine:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        self.close()
+
+    # ── Cancellation ─────────────────────────────────────────────────
+
+    def cancel(self) -> None:
+        """Signal the running task to stop. Thread-safe."""
+        self._cancel.set()
+        # Signal the anyio cancel watcher (zero-latency bridge).
+        evt = self._cancel_slot[0]
+        if evt is not None:
+            with contextlib.suppress(Exception):
+                anyio.from_thread.run_sync(evt.set, token=self._anyio_token)
+        pgid = self._shell_pgid
+        if pgid is not None:
+            with contextlib.suppress(OSError):
+                os.killpg(pgid, signal.SIGTERM)
+
+    def _check_cancel(self) -> None:
+        """Raise TaskCancelled if cancellation was requested."""
+        if self._cancel.is_set():
+            raise TaskCancelled
+
+    # ── Event emitters ───────────────────────────────────────────────
+
+    def _emit(self, event: Event) -> None:
+        self.events.put(event)
+
+    def _out(self, text: str, level: OutputLevel = OutputLevel.INFO) -> None:
+        self._check_cancel()
+        self._emit(Output(text=text, level=level))
+
+    def _warn(self, text: str) -> None:
+        self._out(text, level=OutputLevel.WARNING)
+
+    def _error(self, text: str) -> None:
+        self._out(text, level=OutputLevel.ERROR)
+
+    def _markdown(self, text: str) -> None:
+        self._check_cancel()
+        self._emit(MarkdownOutput(text=text))
+
+    def _context(self, marker: str, content: str) -> None:
+        """Emit a context marker for the LLM conversation.
+
+        The TUI inserts *marker* into the input buffer. On submit
+        it expands to *content*.  The user can delete the marker
+        to exclude the context.
+        """
+        self._emit(ContextMarkerReady(marker=marker, content=content))
+
+    def _flush(self) -> None:
+        """Flush current output as a completed panel and start fresh."""
+        self._emit(FlushPanel())
+
+    def _clear(self) -> None:
+        """Discard current transient output (e.g. "Fetching…" messages)."""
+        self._emit(FlushPanel(discard=True))
+
+    def _sync_store_context(self) -> None:
+        """Push current engine metadata to the store context.
+
+        Called before each task so `save_messages` / `save_input` /
+        `compact_session` inherit metadata without explicit kwargs.
+        """
+        self.store.set_context(
+            self.state.session_id,
+            session_label=self.state.session_label,
+            repo_owner=self.state.owner,
+            repo_name=self.state.repo_name,
+            model_name=self.state.model_name,
+            review_target=_review_target_str(self.state.review_target),
+        )
+
+    # ── LLM context ───────────────────────────────────────────────────
+
+    def _llm_context(self) -> LLMContext:
+        """Build an `LLMContext` for the LLM pipeline."""
+        from rbtr_legacy.llm.context import (
+            LLMContext,  # deferred: avoids pydantic_ai at import time
+        )
+
+        return LLMContext(
+            state=self.state,
+            store=self.store,
+            events=self.events,
+            cancel=self._cancel,
+            portal=self._portal,
+            anyio_token=self._anyio_token,
+            cancel_slot=self._cancel_slot,
+        )
+
+    # ── Task runner ──────────────────────────────────────────────────
+
+    def run_task(self, task_type: TaskType, arg: str, *, persist: bool = True) -> None:
+        """Run a task synchronously (called from a daemon thread)."""
+        self._emit(TaskStarted(task_type=str(task_type)))
+        self._sync_store_context()
+        success = True
+        cancelled = False
+        try:
+            match task_type:
+                case TaskType.SETUP:
+                    from .setup import run_setup  # deferred: avoids PyGithub at import time
+
+                    run_setup(self)
+                case TaskType.COMMAND:
+                    if persist:
+                        self._persist_input(arg, "command")
+                    self._handle_command(arg)
+                case TaskType.SHELL:
+                    self._persist_input(f"!{arg}", "shell")
+                    handle_shell(self, arg)
+                case TaskType.LLM:
+                    from rbtr_legacy.llm.stream import (
+                        handle_llm,  # deferred: avoids pydantic_ai at import time
+                    )
+
+                    handle_llm(self._llm_context(), arg)
+        except TaskCancelled:
+            success = False
+            cancelled = True
+        except RbtrError as e:
+            self._error(str(e))
+            success = False
+        except Exception as e:
+            self._emit(
+                Output(
+                    text=f"Unexpected error: {e}",
+                    level=OutputLevel.ERROR,
+                    detail=scrub_secrets("".join(traceback.format_exception(e))),
+                )
+            )
+            success = False
+        self._emit(TaskFinished(success=success, cancelled=cancelled))
+
+    # ── Commands ─────────────────────────────────────────────────────
+
+    def _handle_command(self, raw: str) -> None:
+        parts = raw.split(maxsplit=1)
+        args = parts[1].strip() if len(parts) > 1 else ""
+
+        try:
+            cmd = Command(parts[0].lower())
+        except ValueError:
+            self._warn(f"Unknown command: {parts[0]}. Type /help for commands.")
+            return
+
+        match cmd:
+            case Command.HELP:
+                self._cmd_help()
+            case Command.REVIEW:
+                from .review_cmd import cmd_review
+
+                cmd_review(self, args)
+            case Command.DRAFT:
+                from .draft_cmd import cmd_draft
+
+                cmd_draft(self, args)
+            case Command.CONNECT:
+                from .connect_cmd import cmd_connect
+
+                cmd_connect(self, args)
+            case Command.MODEL:
+                from .model_cmd import cmd_model
+
+                cmd_model(self, args)
+            case Command.INDEX:
+                from .index_cmd import cmd_index
+
+                cmd_index(self, args)
+            case Command.COMPACT:
+                from rbtr_legacy.llm.compact import compact_history, reset_compaction
+
+                ctx = self._llm_context()
+                sub = args.split(maxsplit=1)[0].lower() if args else ""
+                if sub == "reset":
+                    reset_compaction(ctx)
+                    self._context("[/compact reset]", "Reset last compaction.")
+                else:
+                    compact_history(ctx, extra_instructions=args)
+                    self._context(
+                        "[/compact]",
+                        f"Compacted conversation history (keeping {config.compaction.keep_turns} recent turns).",
+                    )
+            case Command.SESSION:
+                from .session_cmd import cmd_session
+
+                cmd_session(self, args)
+            case Command.STATS:
+                from .stats_cmd import cmd_stats
+
+                cmd_stats(self, args)
+            case Command.MEMORY:
+                from .memory_cmd import cmd_memory
+
+                cmd_memory(self, args)
+            case Command.SKILL:
+                from .skill_cmd import cmd_skill
+
+                cmd_skill(self, args)
+            case Command.RELOAD:
+                from .reload_cmd import cmd_reload
+
+                cmd_reload(self)
+            case Command.NEW:
+                self._cmd_new()
+            case Command.QUIT:
+                pass  # handled by caller
+
+    def _cmd_help(self) -> None:
+        for c in Command:
+            self._out(f"  {c.slash:<12}{c.description}")
+
+    def _cmd_new(self) -> None:
+        import time
+
+        self.state.usage.reset()
+        self.state.session_id = self.store.new_id()
+        self.state.session_started_at = time.time()
+        self._out("Conversation cleared.")
+
+    def _persist_input(self, text: str, kind: str) -> None:
+        """Save a command or shell input to the session store."""
+        try:
+            self.store.save_input(self.state.session_id, text, kind)
+        except OSError:
+            log.warning("sessions: failed to persist input", exc_info=True)
+
+    # ── Lifecycle ─────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        """Release resources — call on shutdown."""
+        if self._index_thread is not None:
+            self._index_thread.join(timeout=30)
+            self._index_thread = None
+        with contextlib.suppress(ImportError, OSError):
+            from rbtr_legacy.index.embeddings import reset_model
+
+            reset_model()
+        self.store.close()
+        with contextlib.suppress(Exception):
+            self._portal_cm.__exit__(None, None, None)
+
+    # ── Utilities ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _copy_to_clipboard(text: str) -> None:
+        if sys.platform == "darwin":
+            with contextlib.suppress(FileNotFoundError, subprocess.SubprocessError):
+                subprocess.run(
+                    ["pbcopy"],  # noqa: S607
+                    input=text.encode("utf-8"),
+                    check=True,
+                    timeout=2,
+                )
+
+
+def _review_target_str(target: Target | None) -> str | None:
+    """Encode a review target as the string you'd pass to `/review`.
+
+    `"42"` for PRs, `"main feature"` for branches,
+    `"main"` for snapshots.
+    """
+    match target:
+        case PRTarget(number=n):
+            return str(n)
+        case BranchTarget(base_branch=base, head_branch=head):
+            return f"{base} {head}"
+        case SnapshotTarget(ref_label=label):
+            return label
+        case None:
+            return None

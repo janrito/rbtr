@@ -6,14 +6,14 @@ from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from rbtr.creds import OAuthCreds, creds
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import LinkOutput, TaskFinished
-from rbtr.exceptions import PortBusyError, RbtrError
-from rbtr.oauth import PendingLogin
-from rbtr.providers import BuiltinProvider
-from rbtr.providers.endpoint import load_endpoint, save_endpoint
+from rbtr_legacy.creds import OAuthCreds, creds
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import LinkOutput, TaskFinished
+from rbtr_legacy.exceptions import PortBusyError, RbtrError
+from rbtr_legacy.oauth import PendingLogin
+from rbtr_legacy.providers import BuiltinProvider
+from rbtr_legacy.providers.endpoint import load_endpoint, save_endpoint
 from tests.helpers import drain, has_event_type, output_texts
 
 # ── /connect openai ───────────────────────────────────────────────────
@@ -98,10 +98,10 @@ def test_connect_claude_auto_flow(
 ) -> None:
     """Automatic localhost callback flow → sets connected."""
     mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.claude_provider.authenticate",
         return_value=claude_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect claude")
     drained_events = drain(engine.events)
@@ -117,11 +117,11 @@ def test_connect_claude_port_busy_falls_back_to_manual(
 ) -> None:
     """Port busy → falls back to manual URL paste flow."""
     mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.claude_provider.authenticate",
         side_effect=PortBusyError("port busy"),
     )
     mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.begin_login",
+        "rbtr_legacy.engine.connect_cmd.claude_provider.begin_login",
         return_value=(_CLAUDE_AUTH_URL, _CLAUDE_PENDING),
     )
 
@@ -141,10 +141,10 @@ def test_connect_claude_manual_phase2_completes(
     engine.state.pending_logins[BuiltinProvider.CLAUDE] = _CLAUDE_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.complete_login",
+        "rbtr_legacy.engine.connect_cmd.claude_provider.complete_login",
         return_value=claude_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(
         TaskType.COMMAND, "/connect claude http://localhost:53692/callback?code=abc&state=xyz"
@@ -165,10 +165,10 @@ def test_connect_claude_already_connected_restarts_login(
     creds.update(claude=claude_oauth)
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.claude_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.claude_provider.authenticate",
         return_value=claude_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect claude")
     texts = output_texts(drain(engine.events))
@@ -190,10 +190,10 @@ def test_connect_chatgpt_auto_flow(
     """Automatic localhost callback flow → sets connected."""
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.authenticate",
         return_value=chatgpt_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt")
     drained_events = drain(engine.events)
@@ -210,11 +210,11 @@ def test_connect_chatgpt_port_busy_fallback(
     """Port-busy error falls back to manual paste flow."""
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.authenticate",
         side_effect=PortBusyError("Port 1455 is busy"),
     )
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.begin_login",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.begin_login",
         return_value=(_CHATGPT_AUTH_URL, _CHATGPT_PENDING),
     )
 
@@ -233,7 +233,7 @@ def test_connect_chatgpt_non_port_error_warns(
     """Non-port RbtrError warns without fallback."""
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.authenticate",
         side_effect=RbtrError("token exchange failed"),
     )
 
@@ -250,7 +250,7 @@ def test_connect_chatgpt_generic_error_warns(
     """Generic exception warns without fallback."""
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.authenticate",
         side_effect=RuntimeError("unexpected"),
     )
 
@@ -268,10 +268,10 @@ def test_connect_chatgpt_phase2_completes_login(
     engine.state.pending_logins[BuiltinProvider.CHATGPT] = _CHATGPT_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.complete_login",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.complete_login",
         return_value=chatgpt_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt http://localhost:1455/callback?code=x")
     drained_events = drain(engine.events)
@@ -298,7 +298,7 @@ def test_connect_chatgpt_phase2_failure_clears_pending(
     engine.state.pending_logins[BuiltinProvider.CHATGPT] = _CHATGPT_PENDING
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.complete_login",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.complete_login",
         side_effect=ValueError("bad redirect URL"),
     )
 
@@ -316,10 +316,10 @@ def test_connect_chatgpt_already_connected_restarts_login(
     creds.update(chatgpt=chatgpt_oauth)
 
     mocker.patch(
-        "rbtr.engine.connect_cmd.codex_provider.authenticate",
+        "rbtr_legacy.engine.connect_cmd.codex_provider.authenticate",
         return_value=chatgpt_oauth,
     )
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
 
     engine.run_task(TaskType.COMMAND, "/connect chatgpt")
     texts = output_texts(drain(engine.events))
@@ -348,7 +348,7 @@ def test_connect_endpoint_saves_and_confirms(
     config_path: Path, creds_path: Path, mocker: MockerFixture, engine: Engine
 ) -> None:
     """/connect endpoint name url key saves the endpoint."""
-    mocker.patch("rbtr.engine.connect_cmd.get_models")
+    mocker.patch("rbtr_legacy.engine.connect_cmd.get_models")
     engine.run_task(
         TaskType.COMMAND,
         "/connect endpoint myendpoint http://localhost:11434/v1 sk-test",

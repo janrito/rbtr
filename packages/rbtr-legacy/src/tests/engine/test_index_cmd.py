@@ -9,16 +9,16 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.config import config as cfg
-from rbtr.engine.core import Engine
-from rbtr.engine.indexing import _build_index
-from rbtr.engine.types import TaskType
-from rbtr.events import IndexCleared, IndexReady, TableOutput
-from rbtr.index.models import Chunk, ChunkKind
-from rbtr.index.orchestrator import build_index
-from rbtr.index.store import IndexStore
-from rbtr.models import BranchTarget
-from rbtr.tui.footer import _format_count
+from rbtr_legacy.config import config as cfg
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.indexing import _build_index
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import IndexCleared, IndexReady, TableOutput
+from rbtr_legacy.index.models import Chunk, ChunkKind
+from rbtr_legacy.index.orchestrator import build_index
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.models import BranchTarget
+from rbtr_legacy.tui.footer import _format_count
 from tests.helpers import drain, output_texts
 
 from .conftest import wait_for_index
@@ -29,7 +29,7 @@ from .conftest import wait_for_index
 @pytest.fixture(autouse=True)
 def _mock_embeddings(mocker: MockerFixture) -> None:
     """Stub out the embedding step — no GGUF model needed in tests."""
-    mocker.patch("rbtr.index.orchestrator._embed_missing")
+    mocker.patch("rbtr_legacy.index.orchestrator._embed_missing")
 
 
 @pytest.fixture

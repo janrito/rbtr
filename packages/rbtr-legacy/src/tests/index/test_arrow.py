@@ -5,8 +5,8 @@ from __future__ import annotations
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr_legacy.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
+from rbtr_legacy.index.models import Chunk, ChunkKind, Edge, EdgeKind
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 

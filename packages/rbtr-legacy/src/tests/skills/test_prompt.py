@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from rbtr.prompts import render_skills
-from rbtr.skills.registry import Skill, SkillSource
+from rbtr_legacy.prompts import render_skills
+from rbtr_legacy.skills.registry import Skill, SkillSource
 
 
 def _skill(name: str, description: str, file_path: str = "/s/SKILL.md") -> Skill:

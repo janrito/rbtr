@@ -8,8 +8,8 @@ import openai.types
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.exceptions import RbtrError
-from rbtr.providers.endpoint import (
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.providers.endpoint import (
     ModelMetadata,
     _metadata_cache,
     build_model,

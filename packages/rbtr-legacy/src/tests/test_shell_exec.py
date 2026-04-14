@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.shell_exec import truncate_for_agent
+from rbtr_legacy.shell_exec import truncate_for_agent
 
 
 def test_empty_input() -> None:

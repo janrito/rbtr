@@ -8,12 +8,12 @@ import pytest
 from pydantic_ai import RunContext
 from pydantic_ai.tools import ToolDefinition
 
-from rbtr.config import config
-from rbtr.llm.deps import AgentDeps
-from rbtr.llm.tools.memory import _require_memory, remember
-from rbtr.sessions.kinds import GLOBAL_SCOPE
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.config import config
+from rbtr_legacy.llm.deps import AgentDeps
+from rbtr_legacy.llm.tools.memory import _require_memory, remember
+from rbtr_legacy.sessions.kinds import GLOBAL_SCOPE
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 from .ctx import build_tool_ctx
 

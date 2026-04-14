@@ -7,7 +7,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.workspace import resolve_path, workspace_dir
+from rbtr_legacy.workspace import resolve_path, workspace_dir
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ def _git_repo(path: Path) -> None:
 @pytest.fixture(autouse=True)
 def _real_workspace_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     """Undo the conftest mock so these tests exercise the real function."""
-    monkeypatch.setattr("rbtr.workspace.workspace_dir", workspace_dir)
+    monkeypatch.setattr("rbtr_legacy.workspace.workspace_dir", workspace_dir)
     workspace_dir.cache_clear()
 
 

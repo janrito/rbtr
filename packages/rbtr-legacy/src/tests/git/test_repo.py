@@ -22,13 +22,13 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.exceptions import RbtrError
-from rbtr.git.repo import (
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.git.repo import (
     list_local_branches,
     open_repo,
     require_clean,
 )
-from rbtr.github.client import parse_github_remote
+from rbtr_legacy.github.client import parse_github_remote
 
 from .conftest import make_commit
 

@@ -18,10 +18,10 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.test import TestModel
 
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import Event, TaskFinished
-from rbtr.llm.compact import compact_agent
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import Event, TaskFinished
+from rbtr_legacy.llm.compact import compact_agent
 from tests.helpers import StubProvider, drain, output_texts
 from tests.sessions.assertions import assert_ordering
 

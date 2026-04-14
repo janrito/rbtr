@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
+from rbtr_legacy.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.index.tokenise import tokenise_code
 
 # ── Commit SHA used for all snapshots ────────────────────────────────
 

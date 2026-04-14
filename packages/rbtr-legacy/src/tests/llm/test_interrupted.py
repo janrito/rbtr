@@ -28,8 +28,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RunUsage
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.llm.stream import (
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.llm.stream import (
     _check_interrupted_response,
     _replace_truncated_retry_prompts,
     _StreamResult,
@@ -340,7 +340,7 @@ def test_text_continuation_retries_with_prompt(
             return _interrupted_result()
         return _ok_result()
 
-    mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
+    mocker.patch("rbtr_legacy.llm.stream._do_stream", fake_do_stream)
 
     handle_llm(llm_engine._llm_context(), "analyse the code")
 
@@ -370,7 +370,7 @@ def test_text_continuation_stops_after_max_retries(
         call_count += 1
         return _interrupted_result()
 
-    mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
+    mocker.patch("rbtr_legacy.llm.stream._do_stream", fake_do_stream)
 
     handle_llm(llm_engine._llm_context(), "write the review")
 
@@ -398,7 +398,7 @@ def test_text_continuation_not_triggered_on_normal_completion(
         call_count += 1
         return _ok_result()
 
-    mocker.patch("rbtr.llm.stream._do_stream", fake_do_stream)
+    mocker.patch("rbtr_legacy.llm.stream._do_stream", fake_do_stream)
 
     handle_llm(llm_engine._llm_context(), "hello")
 

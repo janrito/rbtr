@@ -33,7 +33,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pytest_cases import parametrize_with_cases
 
-from rbtr.sessions.incidents import (
+from rbtr_legacy.sessions.incidents import (
     FailedAttempt,
     FailureKind,
     HistoryRepair,
@@ -41,8 +41,8 @@ from rbtr.sessions.incidents import (
     IncidentOutcome,
     RecoveryStrategy,
 )
-from rbtr.sessions.kinds import FragmentKind, FragmentStatus, SessionContext
-from rbtr.sessions.serialise import (
+from rbtr_legacy.sessions.kinds import FragmentKind, FragmentStatus, SessionContext
+from rbtr_legacy.sessions.serialise import (
     dump_part,
     prepare_incident_row,
     prepare_input_row,

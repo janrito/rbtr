@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import Chunk
-from rbtr.index.treesitter import extract_symbols
-from rbtr.plugins.manager import get_manager
+from rbtr_legacy.index.models import Chunk
+from rbtr_legacy.index.treesitter import extract_symbols
+from rbtr_legacy.plugins.manager import get_manager
 
 _manager = get_manager()
 

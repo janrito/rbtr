@@ -10,12 +10,12 @@ import pytest
 from github.PullRequest import PullRequest
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.engine.draft_cmd import cmd_draft
-from rbtr.events import MarkdownOutput
-from rbtr.exceptions import RbtrError
-from rbtr.github.draft import _comment_hash, load_draft, save_draft, stamp_synced
-from rbtr.models import DiffSide, InlineComment, PRTarget, ReviewDraft
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.draft_cmd import cmd_draft
+from rbtr_legacy.events import MarkdownOutput
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.github.draft import _comment_hash, load_draft, save_draft, stamp_synced
+from rbtr_legacy.models import DiffSide, InlineComment, PRTarget, ReviewDraft
 from tests.helpers import drain, output_texts
 
 from .conftest import MockPRComment, MockReview, make_comment

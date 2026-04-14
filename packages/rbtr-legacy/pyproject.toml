@@ -3,7 +3,7 @@ requires = ["uv_build>=0.9,<1"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "rbtr"
+module-name = "rbtr_legacy"
 
 # -- Project metadata --
 

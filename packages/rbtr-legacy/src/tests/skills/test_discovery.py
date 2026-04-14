@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import SkillsConfig
-from rbtr.skills.discovery import _parse_skill_file, _scan_dir, load_skills
-from rbtr.skills.registry import SkillRegistry, SkillSource
+from rbtr_legacy.config import SkillsConfig
+from rbtr_legacy.skills.discovery import _parse_skill_file, _scan_dir, load_skills
+from rbtr_legacy.skills.registry import SkillRegistry, SkillSource
 
 
 @pytest.fixture

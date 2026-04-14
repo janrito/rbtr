@@ -12,9 +12,14 @@ import duckdb
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-from rbtr.index.store import EMBEDDING_VERSION, SCHEMA_VERSION, IndexStore, _check_schema_version
-from rbtr.index.tokenise import tokenise_code
+from rbtr_legacy.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr_legacy.index.store import (
+    EMBEDDING_VERSION,
+    SCHEMA_VERSION,
+    IndexStore,
+    _check_schema_version,
+)
+from rbtr_legacy.index.tokenise import tokenise_code
 
 
 @pytest.fixture
@@ -903,7 +908,7 @@ def test_embedding_model_change_clears_embeddings(tmp_path: Path, mocker: Mocker
     s1.close()
 
     # Simulate a config change to a different model.
-    mocker.patch("rbtr.index.store.config.index.embedding_model", "other/model.gguf")
+    mocker.patch("rbtr_legacy.index.store.config.index.embedding_model", "other/model.gguf")
 
     s2 = IndexStore(db_path)
     chunks = s2.get_chunks("head")

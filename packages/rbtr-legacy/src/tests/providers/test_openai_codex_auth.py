@@ -10,11 +10,17 @@ import pytest
 from pytest_httpx import HTTPXMock
 from pytest_mock import MockerFixture
 
-from rbtr.creds import OAuthCreds, creds
-from rbtr.exceptions import RbtrError
-from rbtr.oauth import PendingLogin, make_challenge, make_verifier, oauth_is_set, parse_callback_url
-from rbtr.providers import openai_codex as codex_mod
-from rbtr.providers.openai_codex import (
+from rbtr_legacy.creds import OAuthCreds, creds
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.oauth import (
+    PendingLogin,
+    make_challenge,
+    make_verifier,
+    oauth_is_set,
+    parse_callback_url,
+)
+from rbtr_legacy.providers import openai_codex as codex_mod
+from rbtr_legacy.providers.openai_codex import (
     _AUTHORIZE_URL,
     _CLIENT_ID,
     _read_account_id,
@@ -97,7 +103,7 @@ def test_parse_callback_query_string() -> None:
 
 
 def test_begin_login_returns_url_and_pending(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.oauth.webbrowser.open")
+    mocker.patch("rbtr_legacy.oauth.webbrowser.open")
     url, pending = begin_login()
     assert url.startswith(_AUTHORIZE_URL)
     assert _CLIENT_ID in url
@@ -178,7 +184,7 @@ def test_ensure_refreshes_expired_token(creds_path: Path, mocker: MockerFixture)
         expires_at=time.time() + 3600,
         account_id="acct_new",
     )
-    mocker.patch("rbtr.providers.openai_codex._refresh", return_value=refreshed)
+    mocker.patch("rbtr_legacy.providers.openai_codex._refresh", return_value=refreshed)
 
     oauth = ensure_credentials()
     assert oauth.access_token == new_jwt
@@ -201,10 +207,10 @@ def test_ensure_raises_when_expired_no_refresh(creds_path: Path) -> None:
 
 def test_list_models_caches_context_window(mocker: MockerFixture, httpx_mock: HTTPXMock) -> None:
     mocker.patch(
-        "rbtr.providers.openai_codex.ensure_credentials",
+        "rbtr_legacy.providers.openai_codex.ensure_credentials",
         return_value=_make_oauth(),
     )
-    mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
+    mocker.patch.dict("rbtr_legacy.providers.openai_codex._metadata_cache", {}, clear=True)
 
     httpx_mock.add_response(
         url="https://chatgpt.com/backend-api/codex/models?client_version=0.101.0",
@@ -228,7 +234,7 @@ def test_list_models_caches_context_window(mocker: MockerFixture, httpx_mock: HT
 
 def test_fetch_model_metadata_refetches_on_cache_miss(mocker: MockerFixture) -> None:
 
-    mocker.patch.dict("rbtr.providers.openai_codex._metadata_cache", {}, clear=True)
+    mocker.patch.dict("rbtr_legacy.providers.openai_codex._metadata_cache", {}, clear=True)
 
     def _fake_list_models() -> list[str]:
         codex_mod._metadata_cache["gpt-5.2-codex"] = None
@@ -251,7 +257,7 @@ def test_fetch_model_metadata_refetches_on_cache_miss(mocker: MockerFixture) -> 
 
 def test_complete_login_exchanges_code(mocker: MockerFixture) -> None:
     oauth = _make_oauth()
-    mocker.patch("rbtr.providers.openai_codex._exchange_code", return_value=oauth)
+    mocker.patch("rbtr_legacy.providers.openai_codex._exchange_code", return_value=oauth)
 
     pending = PendingLogin(code_verifier="verifier", state="st")
     result = complete_login("mycode", pending)

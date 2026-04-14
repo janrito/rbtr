@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.sessions.scrub import scrub_secrets
+from rbtr_legacy.sessions.scrub import scrub_secrets
 
 
 @pytest.mark.parametrize(

@@ -8,16 +8,16 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.engine.core import Engine
-from rbtr.engine.indexing import _build_index
-from rbtr.engine.types import TaskType
-from rbtr.events import (
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.indexing import _build_index
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import (
     IndexProgress,
     IndexReady,
     IndexStarted,
     Output,
 )
-from rbtr.models import BranchTarget
+from rbtr_legacy.models import BranchTarget
 from tests.helpers import drain
 
 from .conftest import wait_for_index
@@ -26,7 +26,7 @@ from .conftest import wait_for_index
 @pytest.fixture(autouse=True)
 def _mock_embeddings(mocker: MockerFixture) -> None:
     """Stub out the embedding step — no GGUF model needed in tests."""
-    mocker.patch("rbtr.index.orchestrator._embed_missing")
+    mocker.patch("rbtr_legacy.index.orchestrator._embed_missing")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ def test_index_sets_store_on_state(review_engine: Engine) -> None:
 
 def test_index_skipped_when_disabled(mocker: MockerFixture, review_engine: Engine) -> None:
     """Indexing is skipped when config.index.enabled is False."""
-    mocker.patch("rbtr.engine.indexing.config.index.enabled", False)
+    mocker.patch("rbtr_legacy.engine.indexing.config.index.enabled", False)
 
     engine = review_engine
 

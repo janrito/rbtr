@@ -30,25 +30,25 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 from pytest_cases import parametrize_with_cases
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.events import CompactionStarted, ToolCallFinished, ToolCallStarted
-from rbtr.llm.context import LLMContext
-from rbtr.llm.costs import record_run_usage
-from rbtr.llm.stream import (
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.events import CompactionStarted, ToolCallFinished, ToolCallStarted
+from rbtr_legacy.llm.context import LLMContext
+from rbtr_legacy.llm.costs import record_run_usage
+from rbtr_legacy.llm.stream import (
     _auto_compact_on_overflow,
     _emit_tool_event,
     _update_live_usage,
     handle_llm,
 )
-from rbtr.sessions.incidents import (
+from rbtr_legacy.sessions.incidents import (
     FailedAttempt,
     FailureKind,
     HistoryRepair,
     IncidentOutcome,
     RecoveryStrategy,
 )
-from rbtr.sessions.kinds import FragmentKind
+from rbtr_legacy.sessions.kinds import FragmentKind
 from tests.engine.builders import _turns
 from tests.helpers import StubProvider, drain
 from tests.sessions.case_histories import case_thinking_with_tools

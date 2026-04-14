@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 import tomli_w
 
-from rbtr.config import Config, EndpointConfig, GithubConfig, _deep_merge, config
+from rbtr_legacy.config import Config, EndpointConfig, GithubConfig, _deep_merge, config
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ def config_dirs(tmp_path: Path) -> tuple[Path, Path]:
     fixture.  Neither file exists yet — tests write whichever they
     need via `tomli_w`.
     """
-    return tmp_path / "rbtr" / "config.toml", tmp_path / "ws" / "config.toml"
+    return tmp_path / "rbtr" / "config-legacy.toml", tmp_path / "ws" / "config-legacy.toml"
 
 
 def _write(path: Path, data: dict[str, Any]) -> None:

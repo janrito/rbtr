@@ -10,7 +10,7 @@ from __future__ import annotations
 from pydantic_ai.messages import ModelMessage
 from pytest_cases import parametrize_with_cases
 
-from rbtr.events import (
+from rbtr_legacy.events import (
     FlushPanel,
     InputEcho,
     MarkdownOutput,
@@ -19,7 +19,7 @@ from rbtr.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from rbtr.sessions.history import replay_history
+from rbtr_legacy.sessions.history import replay_history
 
 # ── Structural invariants (all cases) ────────────────────────────────
 

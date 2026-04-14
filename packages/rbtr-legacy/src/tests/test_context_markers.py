@@ -15,15 +15,15 @@ from prompt_toolkit.key_binding import KeyPress
 from prompt_toolkit.keys import Keys
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.engine.shell import _emit_shell_context
-from rbtr.engine.types import TaskType
-from rbtr.events import ContextMarkerReady, Event
-from rbtr.sessions.store import SessionStore
-from rbtr.shell_exec import ShellResult
-from rbtr.state import EngineState
-from rbtr.tui.input import InputReader, InputState, PasteRegion
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.shell import _emit_shell_context
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import ContextMarkerReady, Event
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.shell_exec import ShellResult
+from rbtr_legacy.state import EngineState
+from rbtr_legacy.tui.input import InputReader, InputState, PasteRegion
 from tests.helpers import drain
 
 # ── Helpers ──────────────────────────────────────────────────────────

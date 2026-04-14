@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 from tree_sitter import Language, Node, Parser
 
-from rbtr.index.models import ImportMeta
-from rbtr.plugins.hookspec import (
+from rbtr_legacy.index.models import ImportMeta
+from rbtr_legacy.plugins.hookspec import (
     DEFAULT_SCOPE_TYPES,
     LanguageRegistration,
     collect_scoped_path,
     parse_path_relative,
 )
-from rbtr.plugins.manager import get_manager
+from rbtr_legacy.plugins.manager import get_manager
 
 # ── parse_path_relative ──────────────────────────────────────────────
 

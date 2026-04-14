@@ -10,10 +10,10 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.test import TestModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import (
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import (
     FlushPanel,
     MarkdownOutput,
     Output,
@@ -22,8 +22,8 @@ from rbtr.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from rbtr.llm.compact import compact_agent, compact_history
-from rbtr.sessions.history import replay_history
+from rbtr_legacy.llm.compact import compact_agent, compact_history
+from rbtr_legacy.sessions.history import replay_history
 from tests.helpers import StubProvider, drain
 from tests.sessions.case_scenarios import Scenario
 

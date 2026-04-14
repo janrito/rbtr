@@ -13,9 +13,9 @@ import pytest
 from llama_cpp import Llama
 from pytest_mock import MockerFixture
 
-from rbtr.config import config
-from rbtr.index import embeddings
-from rbtr.index.store import IndexStore
+from rbtr_legacy.config import config
+from rbtr_legacy.index import embeddings
+from rbtr_legacy.index.store import IndexStore
 
 type MockLlama = Llama
 
@@ -194,7 +194,7 @@ def test_load_model_orchestrates_download_and_init(
     mock_llama_cls = mocker.MagicMock()
     mock_llama_instance = mock_model
     mock_llama_cls.return_value = mock_llama_instance
-    mocker.patch("rbtr.index.embeddings.Llama", mock_llama_cls, create=True)
+    mocker.patch("rbtr_legacy.index.embeddings.Llama", mock_llama_cls, create=True)
     # Patch the deferred import inside _load_model
     mocker.patch.dict("sys.modules", {"llama_cpp": mocker.MagicMock(Llama=mock_llama_cls)})
 
@@ -248,7 +248,7 @@ def test_search_by_text_embeds_and_searches(
     mocker: MockerFixture,
 ) -> None:
     mock_embed = mocker.patch(
-        "rbtr.index.embeddings.embed_text",
+        "rbtr_legacy.index.embeddings.embed_text",
         return_value=[0.1, 0.2, 0.3],
     )
 

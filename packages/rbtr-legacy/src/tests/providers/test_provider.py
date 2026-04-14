@@ -13,9 +13,9 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pytest_mock import MockerFixture
 
-from rbtr.creds import OAuthCreds, creds
-from rbtr.exceptions import RbtrError
-from rbtr.providers import (
+from rbtr_legacy.creds import OAuthCreds, creds
+from rbtr_legacy.exceptions import RbtrError
+from rbtr_legacy.providers import (
     PROVIDERS,
     BuiltinProvider,
     Provider,
@@ -26,12 +26,12 @@ from rbtr.providers import (
     openai_codex,
     openrouter,
 )
-from rbtr.providers.claude import provider as claude_prov
-from rbtr.providers.endpoint import Endpoint
-from rbtr.providers.fireworks import provider as fireworks_prov
-from rbtr.providers.openai import provider as openai_prov
-from rbtr.providers.openai_codex import provider as codex_prov
-from rbtr.providers.openrouter import provider as openrouter_prov
+from rbtr_legacy.providers.claude import provider as claude_prov
+from rbtr_legacy.providers.endpoint import Endpoint
+from rbtr_legacy.providers.fireworks import provider as fireworks_prov
+from rbtr_legacy.providers.openai import provider as openai_prov
+from rbtr_legacy.providers.openai_codex import provider as codex_prov
+from rbtr_legacy.providers.openrouter import provider as openrouter_prov
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ _OPENROUTER_KEY = "sk-or-v1-test-key-789"
 
 
 def test_build_claude_model(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
+    mocker.patch("rbtr_legacy.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
 
     model = claude_prov.build_model("claude-sonnet-4-20250514")
 
@@ -70,7 +70,7 @@ def test_build_claude_model(mocker: MockerFixture) -> None:
 
 def test_build_claude_model_sets_oauth_headers(mocker: MockerFixture) -> None:
     """OAuth bearer auth requires Claude Code identity headers."""
-    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
+    mocker.patch("rbtr_legacy.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
 
     model = claude_prov.build_model("claude-sonnet-4-20250514")
 
@@ -81,7 +81,7 @@ def test_build_claude_model_sets_oauth_headers(mocker: MockerFixture) -> None:
 
 
 def test_build_claude_model_custom_name(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
+    mocker.patch("rbtr_legacy.providers.claude.ensure_credentials", return_value=_CLAUDE_OAUTH)
 
     model = claude_prov.build_model("claude-opus-4-20250514")
     assert model.model_name == "claude-opus-4-20250514"
@@ -89,7 +89,7 @@ def test_build_claude_model_custom_name(mocker: MockerFixture) -> None:
 
 def test_build_claude_model_no_credentials(mocker: MockerFixture) -> None:
     mocker.patch(
-        "rbtr.providers.claude.ensure_credentials",
+        "rbtr_legacy.providers.claude.ensure_credentials",
         side_effect=RbtrError("Not connected"),
     )
 
@@ -130,7 +130,7 @@ def test_build_openai_model_no_key(creds_path: Path) -> None:
 
 def test_build_chatgpt_model(mocker: MockerFixture) -> None:
     mocker.patch(
-        "rbtr.providers.openai_codex.ensure_credentials",
+        "rbtr_legacy.providers.openai_codex.ensure_credentials",
         return_value=_CHATGPT_OAUTH,
     )
 
@@ -229,7 +229,7 @@ def test_build_model_by_name_openrouter(creds_path: Path, mocker: MockerFixture)
 
 
 def test_build_model_by_name_unknown_raises(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.providers.endpoint.load_endpoint", return_value=None)
+    mocker.patch("rbtr_legacy.providers.endpoint.load_endpoint", return_value=None)
 
     with pytest.raises(RbtrError, match="Unknown provider"):
         build_model("fakeprovider/some-model")
@@ -276,10 +276,10 @@ def test_build_model_by_name_endpoint(
 ) -> None:
 
     mocker.patch(
-        "rbtr.providers.endpoint.load_endpoint",
+        "rbtr_legacy.providers.endpoint.load_endpoint",
         return_value=Endpoint(name="myep", base_url="http://localhost:11434/v1", api_key=""),
     )
-    mock_build = mocker.patch("rbtr.providers.endpoint.build_model")
+    mock_build = mocker.patch("rbtr_legacy.providers.endpoint.build_model")
     build_model("myep/llama3")
     mock_build.assert_called_once_with("myep", "llama3")
 

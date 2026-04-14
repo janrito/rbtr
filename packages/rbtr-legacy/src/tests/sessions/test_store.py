@@ -42,8 +42,8 @@ from pydantic_ai.usage import RequestUsage
 from pytest_cases import parametrize_with_cases
 from uuid_utils import uuid7
 
-from rbtr.sessions.kinds import FragmentKind, FragmentStatus
-from rbtr.sessions.store import _SCHEMA_VERSION, SessionStore
+from rbtr_legacy.sessions.kinds import FragmentKind, FragmentStatus
+from rbtr_legacy.sessions.store import _SCHEMA_VERSION, SessionStore
 from tests.engine.builders import _assistant, _user
 from tests.sessions.assertions import assert_ordering, assert_tool_pairing
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.llm.tools.common import (
+from rbtr_legacy.llm.tools.common import (
     diff_toolset,
     file_toolset,
     index_toolset,

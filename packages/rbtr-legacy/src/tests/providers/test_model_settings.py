@@ -9,13 +9,13 @@ from pydantic_ai.models import Model
 from pydantic_ai.models.test import TestModel
 from pytest_mock import MockerFixture
 
-from rbtr.config import ThinkingEffort
-from rbtr.creds import creds
-from rbtr.providers import model_context_window
-from rbtr.providers.claude import provider as claude_prov
-from rbtr.providers.endpoint import Endpoint, EndpointProvider, ModelMetadata
-from rbtr.providers.google import provider as google_prov
-from rbtr.providers.openai import provider as openai_prov
+from rbtr_legacy.config import ThinkingEffort
+from rbtr_legacy.creds import creds
+from rbtr_legacy.providers import model_context_window
+from rbtr_legacy.providers.claude import provider as claude_prov
+from rbtr_legacy.providers.endpoint import Endpoint, EndpointProvider, ModelMetadata
+from rbtr_legacy.providers.google import provider as google_prov
+from rbtr_legacy.providers.openai import provider as openai_prov
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ from rbtr.providers.openai import provider as openai_prov
 def _claude_model(mocker: MockerFixture) -> Model:
     """Build a real AnthropicModel with mocked credentials."""
     mocker.patch(
-        "rbtr.providers.claude.ensure_credentials",
+        "rbtr_legacy.providers.claude.ensure_credentials",
         return_value=mocker.MagicMock(
             access_token="test-token",
             refresh_token="ref",
@@ -121,7 +121,7 @@ def test_endpoint_model_settings_from_metadata(mocker: MockerFixture) -> None:
     """Auto-fetched context_window → max_tokens = context_window // 2."""
 
     mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
+        "rbtr_legacy.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=196608),
     )
     prov = EndpointProvider("myep")
@@ -134,7 +134,7 @@ def test_endpoint_model_settings_caps_at_131072(mocker: MockerFixture) -> None:
     """For very large context windows, max_tokens is capped at 128 k."""
 
     mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
+        "rbtr_legacy.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=1_000_000),
     )
     prov = EndpointProvider("myep")
@@ -146,7 +146,7 @@ def test_endpoint_model_settings_caps_at_131072(mocker: MockerFixture) -> None:
 def test_endpoint_model_settings_none_when_no_metadata(mocker: MockerFixture) -> None:
 
     mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
+        "rbtr_legacy.providers.endpoint.fetch_model_metadata",
         return_value=None,
     )
     prov = EndpointProvider("myep")
@@ -174,11 +174,11 @@ def test_model_context_window_endpoint(mocker: MockerFixture) -> None:
     """model_context_window prefers endpoint metadata over genai-prices."""
 
     mocker.patch(
-        "rbtr.providers.endpoint.load_endpoint",
+        "rbtr_legacy.providers.endpoint.load_endpoint",
         return_value=Endpoint(name="myep", base_url="http://localhost:11434/v1", api_key=""),
     )
     mocker.patch(
-        "rbtr.providers.endpoint.fetch_model_metadata",
+        "rbtr_legacy.providers.endpoint.fetch_model_metadata",
         return_value=ModelMetadata(context_window=327_680),
     )
     ctx = model_context_window("myep/custom-model")
@@ -188,7 +188,7 @@ def test_model_context_window_endpoint(mocker: MockerFixture) -> None:
 def test_model_context_window_chatgpt_prefers_codex_metadata(mocker: MockerFixture) -> None:
     """ChatGPT model metadata overrides missing/unknown genai-prices entries."""
     mocker.patch(
-        "rbtr.providers.openai_codex.fetch_model_metadata",
+        "rbtr_legacy.providers.openai_codex.fetch_model_metadata",
         return_value=ModelMetadata(context_window=200_000),
     )
     ctx = model_context_window("chatgpt/o3-pro")
@@ -198,7 +198,7 @@ def test_model_context_window_chatgpt_prefers_codex_metadata(mocker: MockerFixtu
 def test_model_context_window_chatgpt_falls_back_to_genai_prices(mocker: MockerFixture) -> None:
     """When Codex metadata is unavailable, fallback to genai-prices."""
     mocker.patch(
-        "rbtr.providers.openai_codex.fetch_model_metadata",
+        "rbtr_legacy.providers.openai_codex.fetch_model_metadata",
         return_value=None,
     )
     ctx = model_context_window("chatgpt/gpt-4o")
@@ -216,7 +216,7 @@ def test_model_context_window_none_for_invalid(model_name: str | None) -> None:
 
 
 def test_model_context_window_none_for_unknown_provider(mocker: MockerFixture) -> None:
-    mocker.patch("rbtr.providers.endpoint.load_endpoint", return_value=None)
+    mocker.patch("rbtr_legacy.providers.endpoint.load_endpoint", return_value=None)
     assert model_context_window("fakeprovider/unknown-model") is None
 
 

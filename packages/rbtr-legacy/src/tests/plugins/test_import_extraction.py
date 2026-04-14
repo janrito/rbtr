@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.index.models import ChunkKind
+from rbtr_legacy.index.models import ChunkKind
 from tests.plugins.conftest import extract_chunks
 
 # ── Single-import metadata ───────────────────────────────────────────

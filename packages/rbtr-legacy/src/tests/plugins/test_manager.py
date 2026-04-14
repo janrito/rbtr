@@ -9,8 +9,8 @@ from __future__ import annotations
 import pluggy
 import pytest
 
-from rbtr.plugins.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
-from rbtr.plugins.manager import LanguageManager, get_manager
+from rbtr_legacy.plugins.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
+from rbtr_legacy.plugins.manager import LanguageManager, get_manager
 
 _mgr = get_manager()
 
@@ -306,7 +306,7 @@ def test_duplicate_id_in_single_plugin_raises() -> None:
     mgr._filename_map = {}
     mgr._grammar_cache = {}
 
-    mgr._pm = pluggy.PluginManager("rbtr")
+    mgr._pm = pluggy.PluginManager("rbtr_legacy")
 
     # Avoid circular import — import spec directly.
 

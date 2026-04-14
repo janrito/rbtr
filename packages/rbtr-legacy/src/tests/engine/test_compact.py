@@ -26,13 +26,19 @@ from pydantic_ai.models.test import TestModel
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
-from rbtr.config import config
-from rbtr.engine.core import Engine
-from rbtr.engine.types import TaskType
-from rbtr.events import CompactionFinished, CompactionStarted, Output, OutputLevel, TaskFinished
-from rbtr.llm.compact import compact_agent, compact_history, find_fit_count, reset_compaction
-from rbtr.llm.context import LLMContext
-from rbtr.sessions.history import (
+from rbtr_legacy.config import config
+from rbtr_legacy.engine.core import Engine
+from rbtr_legacy.engine.types import TaskType
+from rbtr_legacy.events import (
+    CompactionFinished,
+    CompactionStarted,
+    Output,
+    OutputLevel,
+    TaskFinished,
+)
+from rbtr_legacy.llm.compact import compact_agent, compact_history, find_fit_count, reset_compaction
+from rbtr_legacy.llm.context import LLMContext
+from rbtr_legacy.sessions.history import (
     build_summary_message,
     estimate_tokens,
     serialise_for_summary,
@@ -40,7 +46,7 @@ from rbtr.sessions.history import (
     split_history,
     strip_orphaned_tool_returns,
 )
-from rbtr.sessions.kinds import SUMMARY_MARKER
+from rbtr_legacy.sessions.kinds import SUMMARY_MARKER
 from tests.engine.builders import (
     _USAGE,
     _assistant,

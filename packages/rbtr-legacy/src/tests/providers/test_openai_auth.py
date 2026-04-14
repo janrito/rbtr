@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from rbtr.creds import creds
+from rbtr_legacy.creds import creds
 
 
 def test_save_load_clear_api_key(creds_path: Path) -> None:

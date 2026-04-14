@@ -215,8 +215,8 @@ def case_py_from_import_multiple():
     """from module import multiple names."""
     return (
         "python",
-        "from rbtr.index.models import Chunk, Edge\n",
-        {"module": "rbtr.index.models", "names": "Chunk,Edge"},
+        "from rbtr_legacy.index.models import Chunk, Edge\n",
+        {"module": "rbtr_legacy.index.models", "names": "Chunk,Edge"},
     )
 
 

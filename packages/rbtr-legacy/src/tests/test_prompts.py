@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.config import config
-from rbtr.models import BranchTarget, PRTarget, Target
-from rbtr.prompts import render_review, render_system
-from rbtr.state import EngineState
+from rbtr_legacy.config import config
+from rbtr_legacy.models import BranchTarget, PRTarget, Target
+from rbtr_legacy.prompts import render_review, render_system
+from rbtr_legacy.state import EngineState
 
 # ── Shared test data ─────────────────────────────────────────────────
 
@@ -199,7 +199,9 @@ def test_project_instructions_multiple_concatenated_in_order(
     (tmp_path / "AGENTS.md").write_text("Rule one.")
     (tmp_path / "REVIEW.md").write_text("Rule two.")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("rbtr.prompts.config.project_instructions", ["AGENTS.md", "REVIEW.md"])
+    monkeypatch.setattr(
+        "rbtr_legacy.prompts.config.project_instructions", ["AGENTS.md", "REVIEW.md"]
+    )
     text = render_system()
     assert text.index("Rule one.") < text.index("Rule two.")
 
@@ -216,7 +218,7 @@ def test_project_instructions_custom_filenames(
 ) -> None:
     (tmp_path / "CUSTOM.md").write_text("Custom rules.")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("rbtr.prompts.config.project_instructions", ["CUSTOM.md"])
+    monkeypatch.setattr("rbtr_legacy.prompts.config.project_instructions", ["CUSTOM.md"])
     assert "Custom rules." in render_system()
 
 

@@ -8,7 +8,7 @@ from github import Github
 from github.PullRequest import PullRequest
 from pytest_mock import MockerFixture
 
-from rbtr.github.client import (
+from rbtr_legacy.github.client import (
     GitHubCtx,
     _aggregate_reactions,
     _inline_to_entry,
@@ -16,8 +16,8 @@ from rbtr.github.client import (
     _review_to_entry,
     get_pr_discussion,
 )
-from rbtr.llm.tools.discussion import format_discussion_entry
-from rbtr.models import DiscussionEntryKind
+from rbtr_legacy.llm.tools.discussion import format_discussion_entry
+from rbtr_legacy.models import DiscussionEntryKind
 
 from .conftest import (
     make_comment,

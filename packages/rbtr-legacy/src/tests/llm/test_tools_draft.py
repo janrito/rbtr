@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.github.draft import find_comment
-from rbtr.models import InlineComment
+from rbtr_legacy.github.draft import find_comment
+from rbtr_legacy.models import InlineComment
 
 # ── find_comment ─────────────────────────────────────────────────────
 

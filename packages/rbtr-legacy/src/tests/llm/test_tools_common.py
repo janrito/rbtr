@@ -11,17 +11,17 @@ from github import Github
 from pydantic_ai.tools import ToolDefinition
 from pytest_mock import MockerFixture
 
-from rbtr.index.store import IndexStore
-from rbtr.llm.tools.common import (
+from rbtr_legacy.index.store import IndexStore
+from rbtr_legacy.llm.tools.common import (
     has_index,
     has_pr_target,
     has_repo,
     matches_pathspec,
     require_pr,
 )
-from rbtr.models import BranchTarget, PRTarget, Target
-from rbtr.sessions.store import SessionStore
-from rbtr.state import EngineState
+from rbtr_legacy.models import BranchTarget, PRTarget, Target
+from rbtr_legacy.sessions.store import SessionStore
+from rbtr_legacy.state import EngineState
 
 from .ctx import build_tool_ctx
 
