@@ -187,14 +187,41 @@ class IndexStore:
     can safely share one `IndexStore` instance.
     """
 
+    @staticmethod
+    def _open_and_clean_fts(dsn: str) -> duckdb.DuckDBPyConnection:
+        """Open a DuckDB connection and clean stale FTS state.
+
+        DuckDB's FTS extension persists its internal schema
+        (`fts_main_chunks`) to disk but not the index data. On
+        reconnect, this stale schema causes `create_fts_index` to
+        fail with a `TransactionException`. The fix is to drop the
+        schema, checkpoint, close, and reopen — forcing DuckDB to
+        flush the catalog change to the WAL before the new
+        connection reads it.
+        """
+        con = duckdb.connect(dsn)
+        con.execute("INSTALL fts; LOAD fts;")
+        schemas = {
+            row[0]
+            for row in con.execute("SELECT schema_name FROM information_schema.schemata").fetchall()
+        }
+        if "fts_main_chunks" in schemas:
+            with contextlib.suppress(duckdb.CatalogException):
+                con.execute("DROP SCHEMA IF EXISTS fts_main_chunks CASCADE;")
+            con.execute("CHECKPOINT;")
+            con.close()
+            con = duckdb.connect(dsn)
+            con.execute("INSTALL fts; LOAD fts;")
+        return con
+
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is not None:
             resolved = Path(db_path)
             resolved.parent.mkdir(parents=True, exist_ok=True)
             _check_schema_version(resolved)
-        self._con = duckdb.connect(str(db_path) if db_path else ":memory:")
+        dsn = str(db_path) if db_path else ":memory:"
+        self._con = self._open_and_clean_fts(dsn)
         self._local = threading.local()
-        self._con.execute("INSTALL fts; LOAD fts;")
         for stmt in _SCHEMA_SQL.strip().split(";"):
             stmt = stmt.strip()
             if stmt:
@@ -519,6 +546,7 @@ class IndexStore:
         cur = self._cur()
         with contextlib.suppress(duckdb.CatalogException):
             cur.execute("PRAGMA drop_fts_index('chunks');")
+
         cur.execute(
             "PRAGMA create_fts_index("
             "  'chunks', 'id', 'name_tokens', 'content_tokens',"
