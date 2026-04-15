@@ -41,7 +41,8 @@ log = logging.getLogger(__name__)
 
 # Bump this when the schema changes.  On open, if the stored version
 # doesn't match, the DB file is deleted and rebuilt from scratch.
-SCHEMA_VERSION = 3
+# Uses calver (YYYY.M.NUM) matching the project version format.
+SCHEMA_VERSION = "2026.4.1"
 
 # Bump this when the embedding text format changes.  On open, if the
 # stored version doesn't match, all embeddings are cleared so
@@ -167,11 +168,11 @@ def _check_schema_version(db_path: Path) -> None:
         # Corrupt or locked — nuke it.
         rows = []
 
-    stored = int(rows[0][0]) if rows else 0
+    stored = str(rows[0][0]) if rows else ""
     if stored != SCHEMA_VERSION:
         log.warning(
-            "Index schema changed (v%d→v%d), rebuilding.",
-            stored,
+            "Index schema changed (%s→%s), rebuilding.",
+            stored or "none",
             SCHEMA_VERSION,
         )
         db_path.unlink(missing_ok=True)
