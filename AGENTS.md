@@ -104,3 +104,12 @@
 - **Don't lint TODO files.** `TODO-*.md` files are planning
   documents with tables and free-form prose. Don't run
   `just lint-md` on them or try to fix their warnings.
+- **Never `git add -f` gitignored paths.** If a path is in
+  `.gitignore`, it stays out of version control. No
+  exceptions without explicit instruction.
+- **TODO plans are ephemeral.** Never reference phase
+  numbers, plan names, or TODO file contents in commit
+  messages, code comments, docstrings, or documentation.
+  Those are work-in-progress scratchpads that won't live
+  next to the code. Commit messages describe *what changed
+  and why*, not which plan step was executed.
