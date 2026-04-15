@@ -27,10 +27,10 @@ lint-md *FILES:
     uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
 fmt-ts:
-    bunx @biomejs/biome check --fix packages/pi-review
+    bunx @biomejs/biome check --fix packages/pi-rbtr
 
 lint-ts:
-    bunx @biomejs/biome check packages/pi-review
+    bunx @biomejs/biome check packages/pi-rbtr
 
 typecheck: typecheck-py typecheck-ts
 
@@ -38,7 +38,7 @@ typecheck-py:
     uv run mypy
 
 typecheck-ts:
-    cd packages/pi-review && bunx tsc --noEmit
+    cd packages/pi-rbtr && bunx tsc --noEmit
 
 test: test-rbtr test-legacy
 

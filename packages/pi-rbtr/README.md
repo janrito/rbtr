@@ -1,4 +1,4 @@
-# pi-review
+# pi-rbtr
 
 A [pi] extension package that gives the LLM access to
 rbtr's structural code index. The agent can search by name,
@@ -18,7 +18,7 @@ The extension requires the `rbtr` CLI. Install both:
 uv tool install rbtr
 
 # Install the pi extension (project-local)
-pi install -l ./packages/pi-review
+pi install -l ./packages/pi-rbtr
 ```
 
 For development from a local clone (no global install):
@@ -32,15 +32,15 @@ For development from a local clone (no global install):
 
 Seven tools, registered automatically on session start:
 
-| Tool | Description |
-| ---- | ----------- |
-| `rbtr_search` | Search by name, keyword, or concept (BM25 + semantic + name fusion) |
-| `rbtr_read_symbol` | Read a symbol's full source by name |
-| `rbtr_list_symbols` | Structural table of contents for a file |
-| `rbtr_find_refs` | Find references via the dependency graph (imports, tests, docs) |
-| `rbtr_changed_symbols` | Symbols that changed between two git refs |
-| `rbtr_build` | Build or update the index (background, incremental) |
-| `rbtr_status` | Check whether the index exists and how many symbols it contains |
+| Tool                   | Description                                                         |
+| ---------------------- | ------------------------------------------------------------------- |
+| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion) |
+| `rbtr_read_symbol`     | Read a symbol's full source by name                                 |
+| `rbtr_list_symbols`    | Structural table of contents for a file                             |
+| `rbtr_find_refs`       | Find references via the dependency graph (imports, tests, docs)     |
+| `rbtr_changed_symbols` | Symbols that changed between two git refs                           |
+| `rbtr_build`           | Build or update the index (background, incremental)                 |
+| `rbtr_status`          | Check whether the index exists and how many symbols it contains     |
 
 The extension also injects a system prompt note so the agent
 knows the index is available without being told.
@@ -64,21 +64,21 @@ knows the index is available without being told.
 
 Three user-facing commands (no LLM involved):
 
-| Command | Description |
-| ------- | ----------- |
-| `/rbtr-status` | Show index status (chunk count, path) |
-| `/rbtr-build` | Trigger a background index build |
-| `/rbtr-settings` | View and toggle extension settings |
+| Command          | Description                           |
+| ---------------- | ------------------------------------- |
+| `/rbtr-status`   | Show index status (chunk count, path) |
+| `/rbtr-build`    | Trigger a background index build      |
+| `/rbtr-settings` | View and toggle extension settings    |
 
 ## Configuration
 
 Settings are read from JSON config files. Project-local
 overrides global:
 
-| File | Scope |
-| ---- | ----- |
-| `~/.pi/agent/rbtr-index.json` | Global |
-| `.pi/rbtr-index.json` | Project-local |
+| File                          | Scope         |
+| ----------------------------- | ------------- |
+| `~/.pi/agent/rbtr-index.json` | Global        |
+| `.pi/rbtr-index.json`         | Project-local |
 
 ```json
 {
@@ -87,20 +87,20 @@ overrides global:
 }
 ```
 
-| Key | Default | Description |
-| --- | ------- | ----------- |
-| `command` | `"rbtr"` | How to invoke the CLI (see below) |
-| `autoBuild` | `true` | Auto-build on session start when no index exists |
+| Key         | Default  | Description                                      |
+| ----------- | -------- | ------------------------------------------------ |
+| `command`   | `"rbtr"` | How to invoke the CLI (see below)                |
+| `autoBuild` | `true`   | Auto-build on session start when no index exists |
 
 ### CLI invocation modes
 
 The `command` setting determines how `rbtr` is called:
 
-| Value | Invocation | Use case |
-| ----- | ---------- | -------- |
-| `"rbtr"` | `rbtr --json <cmd>` | Installed globally (`uv tool install rbtr`) |
-| `"uvx"` | `uvx rbtr --json <cmd>` | Published on PyPI, no global install |
-| `"uvx --from <path>"` | `uvx --from <path> rbtr --json <cmd>` | Local development from a directory |
+| Value                 | Invocation                            | Use case                                    |
+| --------------------- | ------------------------------------- | ------------------------------------------- |
+| `"rbtr"`              | `rbtr --json <cmd>`                   | Installed globally (`uv tool install rbtr`) |
+| `"uvx"`               | `uvx rbtr --json <cmd>`               | Published on PyPI, no global install        |
+| `"uvx --from <path>"` | `uvx --from <path> rbtr --json <cmd>` | Local development from a directory          |
 
 The extension validates the command on session start and
 shows an error with install instructions if it fails.
@@ -152,7 +152,7 @@ just typecheck-ts         # tsc --noEmit
 ### Project structure
 
 ```text
-packages/pi-review/
+packages/pi-rbtr/
 ├── package.json              # pi manifest, npm dependencies
 ├── tsconfig.json             # strict TypeScript config
 └── extensions/

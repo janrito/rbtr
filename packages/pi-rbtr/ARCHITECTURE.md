@@ -7,7 +7,7 @@ For usage, see [README.md](README.md).
 
 ## Overview
 
-pi-review is a [pi extension package][pi-pkg] that bridges
+pi-rbtr is a [pi extension package][pi-pkg] that bridges
 the `rbtr` code index CLI with pi's tool system. The
 extension registers tools that the LLM can call, handles
 CLI invocation and output parsing, manages background
