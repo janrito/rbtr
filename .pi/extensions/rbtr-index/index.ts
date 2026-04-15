@@ -11,7 +11,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { resolveCommand, runRbtrJson, type ResolvedCommand } from "./exec.js";
+import { resolveCommand, runRbtr, runRbtrJson, type ResolvedCommand } from "./exec.js";
 import { loadSettings, saveProjectSettings, type RbtrIndexSettings } from "./settings.js";
 
 interface IndexStatus {
@@ -102,6 +102,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		return true;
 	}
 
+	/**
+	 * Guard used by query tools: throws if CLI unavailable or
+	 * build is in progress so the LLM gets a clear error.
+	 */
+	function requireReady(): void {
+		if (!resolved || !cliAvailable) {
+			throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
+		}
+		if (isBuilding()) {
+			throw new Error("Index build is in progress. Try again after it completes.");
+		}
+	}
+
 	// ── Session lifecycle ───────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -129,6 +142,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		} else {
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-build"));
 		}
+	});
+
+	pi.on("before_agent_start", async (event) => {
+		if (!cliAvailable) return;
+		return {
+			systemPrompt:
+				event.systemPrompt +
+				"\n\nThe rbtr code index is available for this repository. " +
+				"Use rbtr_search for concept queries (more precise than grep for semantic searches), " +
+				"rbtr_read_symbol to read a symbol's full source by name, " +
+				"rbtr_list_symbols for a file's structural table of contents.",
+		};
 	});
 
 	// ── Commands ────────────────────────────────────────────────
@@ -311,6 +336,110 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: "No index found. Use rbtr_build to create one." }],
 				details: status,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "rbtr_search",
+		label: "rbtr search",
+		description: "Search the structural code index for symbols, functions, classes, and code patterns.",
+		promptSnippet: "Search the structural code index for symbols, functions, classes, and code patterns",
+		promptGuidelines: [
+			"Use rbtr_search for conceptual queries like 'retry logic' or 'error handling'. For exact string matches, use grep instead.",
+			"Search results include score breakdown. Higher scores indicate better matches.",
+			"Use rbtr_read_symbol to read the full source of a result.",
+		],
+		parameters: Type.Object({
+			query: Type.String({ description: "Search query" }),
+			limit: Type.Optional(Type.Number({ description: "Maximum results to return (default: 10)" })),
+		}),
+
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+			requireReady();
+
+			const args = ["search", params.query];
+			if (params.limit) args.push("--limit", String(params.limit));
+
+			const result = await runRbtr(pi, resolved!, args, { signal, timeout: 30_000 });
+			const text = result.stdout.trim();
+
+			if (!text) {
+				return {
+					content: [{ type: "text", text: "No results found." }],
+					details: { results: [] },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: { query: params.query, limit: params.limit },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "rbtr_read_symbol",
+		label: "rbtr read-symbol",
+		description: "Read a symbol's full source code by name from the code index.",
+		promptSnippet: "Read a symbol's full source code by name from the code index",
+		promptGuidelines: [
+			"Use rbtr_read_symbol after rbtr_search to read the full source of a specific symbol.",
+			"More precise than grep or read for navigating to a known symbol by name.",
+		],
+		parameters: Type.Object({
+			symbol: Type.String({ description: "Symbol name (e.g. HttpClient.retry, fuse_scores)" }),
+		}),
+
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+			requireReady();
+
+			const result = await runRbtr(pi, resolved!, ["read-symbol", params.symbol], { signal, timeout: 30_000 });
+			const text = result.stdout.trim();
+
+			if (!text) {
+				return {
+					content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
+					details: { symbol: params.symbol, found: false },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: { symbol: params.symbol, found: true },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "rbtr_list_symbols",
+		label: "rbtr list-symbols",
+		description: "List all symbols (functions, classes, methods) in a file as a structural table of contents.",
+		promptSnippet: "List all symbols (functions, classes, methods) in a file as a structural table of contents",
+		promptGuidelines: [
+			"Use rbtr_list_symbols to understand the structure of a file before reading specific parts.",
+			"More informative than reading the whole file.",
+		],
+		parameters: Type.Object({
+			file: Type.String({ description: "File path (relative to repo root)" }),
+		}),
+
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+			requireReady();
+
+			const result = await runRbtr(pi, resolved!, ["list-symbols", params.file], { signal, timeout: 30_000 });
+			const text = result.stdout.trim();
+
+			if (!text) {
+				return {
+					content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
+					details: { file: params.file, found: false },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: { file: params.file, found: true },
 			};
 		},
 	});

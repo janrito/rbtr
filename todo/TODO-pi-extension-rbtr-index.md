@@ -1,6 +1,6 @@
 # Pi Extension for rbtr Code Index
 
-## Status: Phase 2 ✅ — Phase 3 next
+## Status: Phase 3 ✅ — Phase 4 next
 
 ## Index
 
@@ -639,24 +639,26 @@ footer. Auto-build on session start when configured.
 - ✅ Build completion notification with stats.
 - ✅ Null build output handled gracefully (re-checks status).
 
-### Phase 3: Core tools (search, read-symbol, list-symbols)
+### Phase 3: Core tools (search, read-symbol, list-symbols) ✅
 
 **Goal:** LLM can search the index and read symbol source.
 
 **Steps:**
-1. Register `rbtr_search` tool with schema, execute, and basic
-   text rendering (no custom renderer yet).
-2. Register `rbtr_read_symbol` tool.
-3. Register `rbtr_list_symbols` tool.
-4. Add `promptSnippet` and `promptGuidelines` to all three.
-5. Add `before_agent_start` handler to inject index availability
-   note into the system prompt.
-6. Test: ask the agent "search for retry logic" — it should use
-   `rbtr_search` and return results.
+1. ✅ Register `rbtr_search` tool — passes raw NDJSON to LLM.
+2. ✅ Register `rbtr_read_symbol` tool.
+3. ✅ Register `rbtr_list_symbols` tool.
+4. ✅ `promptSnippet` and `promptGuidelines` on all three.
+5. ✅ `before_agent_start` handler injects index availability
+   note into system prompt.
+6. ✅ Added `requireReady()` guard — throws if CLI unavailable
+   or build in progress.
 
-**Verify:** Agent uses `rbtr_search` unprompted when asked a
-concept question. `rbtr_read_symbol` returns full source.
-`rbtr_list_symbols` shows structural TOC.
+**Verify:**
+- ✅ `rbtr_search "search scoring"` returns ranked results.
+- ✅ `rbtr_read_symbol "classify_query"` returns full source.
+- ✅ `rbtr_list_symbols` shows structural TOC with line ranges.
+- ✅ Agent uses `rbtr_search` unprompted when asked "How does
+  search scoring work?" (system prompt injection works).
 
 ### Phase 4: Navigation tools (find-refs, changed-symbols)
 
