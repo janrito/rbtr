@@ -49,5 +49,5 @@ export function saveProjectSettings(cwd: string, settings: Partial<RbtrIndexSett
 	const merged = { ...existing, ...settings };
 
 	mkdirSync(projectDir, { recursive: true });
-	writeFileSync(projectPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+	writeFileSync(projectPath, `${JSON.stringify(merged, null, 2)}\n`, "utf-8");
 }

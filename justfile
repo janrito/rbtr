@@ -2,9 +2,9 @@ check: lint typecheck test
 
 ci: lint typecheck test-cov
 
-fmt: fmt-py fmt-sql fmt-md
+fmt: fmt-py fmt-ts fmt-sql fmt-md
 
-lint: lint-py lint-sql lint-md
+lint: lint-py lint-ts lint-sql lint-md
 
 fmt-py:
     uv run ruff check --fix .
@@ -26,8 +26,19 @@ fmt-md *FILES:
 lint-md *FILES:
     uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
-typecheck:
+fmt-ts:
+    bunx @biomejs/biome check --fix packages/pi-review
+
+lint-ts:
+    bunx @biomejs/biome check packages/pi-review
+
+typecheck: typecheck-py typecheck-ts
+
+typecheck-py:
     uv run mypy
+
+typecheck-ts:
+    cd packages/pi-review && bunx tsc --noEmit
 
 test: test-rbtr test-legacy
 

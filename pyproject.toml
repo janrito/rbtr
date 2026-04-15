@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/rbtr", "packages/rbtr-legacy"]
 
 # -- ruff --
 

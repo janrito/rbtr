@@ -16,6 +16,9 @@ htmlcov/
 
 .rbtr/
 
+node_modules/
+bun.lock
+
 todo/
 development_scripts/
 tmp/

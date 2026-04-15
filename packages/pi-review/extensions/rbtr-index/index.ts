@@ -8,10 +8,15 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, getSettingsListTheme, truncateHead } from "@mariozechner/pi-coding-agent";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	getSettingsListTheme,
+	truncateHead,
+} from "@mariozechner/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { resolveCommand, runRbtr, runRbtrJson, type ResolvedCommand } from "./exec.js";
+import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import {
 	renderBuildCall,
 	renderBuildResult,
@@ -28,7 +33,7 @@ import {
 	renderStatusCall,
 	renderStatusResult,
 } from "./render.js";
-import { loadSettings, saveProjectSettings, type RbtrIndexSettings } from "./settings.js";
+import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 
 interface IndexStatus {
 	exists: boolean;
@@ -111,7 +116,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
 		ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: building\u2026"));
 
-		const captured = { setStatus: ctx.ui.setStatus.bind(ctx.ui), notify: ctx.ui.notify.bind(ctx.ui), theme: ctx.ui.theme };
+		const captured = {
+			setStatus: ctx.ui.setStatus.bind(ctx.ui),
+			notify: ctx.ui.notify.bind(ctx.ui),
+			theme: ctx.ui.theme,
+		};
 
 		buildPromise = runRbtrJson<BuildResult>(pi, resolved, ["build", "--ref", ref], { timeout: 600_000 })
 			.then(async (results) => {
@@ -122,7 +131,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 					const count = status?.total_chunks ?? 0;
 					captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${count} symbols`));
 					captured.notify("Index build completed.", "info");
-					return { ref, stats: { total_chunks: count, total_edges: 0, total_files: 0, skipped_files: 0, parsed_files: 0, elapsed_seconds: 0 }, errors: [] };
+					return {
+						ref,
+						stats: {
+							total_chunks: count,
+							total_edges: 0,
+							total_files: 0,
+							skipped_files: 0,
+							parsed_files: 0,
+							elapsed_seconds: 0,
+						},
+						errors: [],
+					};
 				}
 				const s = result.stats;
 				captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${s.total_chunks} symbols`));

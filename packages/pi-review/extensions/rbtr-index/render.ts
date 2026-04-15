@@ -5,14 +5,16 @@
  * renderResult (collapsed/expanded views).
  */
 
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
+
+type ToolResult = AgentToolResult<unknown>;
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-function getContentText(result: { content: Array<{ type: string; text?: string }> }): string {
+function getContentText(result: ToolResult): string {
 	for (const part of result.content) {
-		if (part.type === "text" && part.text) return part.text;
+		if (part.type === "text" && "text" in part) return part.text;
 	}
 	return "";
 }
@@ -89,7 +91,7 @@ export function renderSearchCall(args: Record<string, unknown>, theme: Theme): T
 }
 
 export function renderSearchResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: Record<string, unknown> },
+	result: ToolResult,
 	options: { expanded: boolean; isPartial: boolean },
 	theme: Theme,
 ): Text {
@@ -137,11 +139,15 @@ export function renderSearchResult(
 // ── Read symbol ─────────────────────────────────────────────────
 
 export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme): Text {
-	return new Text(theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + theme.fg("accent", String(args.symbol)), 0, 0);
+	return new Text(
+		theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + theme.fg("accent", String(args.symbol)),
+		0,
+		0,
+	);
 }
 
 export function renderReadSymbolResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: Record<string, unknown> },
+	result: ToolResult,
 	options: { expanded: boolean; isPartial: boolean },
 	theme: Theme,
 ): Text {
@@ -162,7 +168,9 @@ export function renderReadSymbolResult(
 	const lines: string[] = [];
 	for (const c of chunks) {
 		const path = shortenPath(c.file_path);
-		lines.push(`${theme.fg("accent", path)}${theme.fg("dim", `:${c.line_start}-${c.line_end}`)}  ${theme.fg("muted", c.kind)}  ${c.name}`);
+		lines.push(
+			`${theme.fg("accent", path)}${theme.fg("dim", `:${c.line_start}-${c.line_end}`)}  ${theme.fg("muted", c.kind)}  ${c.name}`,
+		);
 
 		if (options.expanded) {
 			for (const cl of c.content.split("\n")) {
@@ -184,14 +192,14 @@ export function renderReadSymbolResult(
 // ── List symbols ────────────────────────────────────────────────
 
 export function renderListSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
-	return new Text(theme.fg("toolTitle", theme.bold("rbtr_list_symbols ")) + theme.fg("accent", String(args.file)), 0, 0);
+	return new Text(
+		theme.fg("toolTitle", theme.bold("rbtr_list_symbols ")) + theme.fg("accent", String(args.file)),
+		0,
+		0,
+	);
 }
 
-export function renderListSymbolsResult(
-	result: { content: Array<{ type: string; text?: string }> },
-	options: { isPartial: boolean },
-	theme: Theme,
-): Text {
+export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Listing…"), 0, 0);
 
 	const raw = getContentText(result);
@@ -215,11 +223,7 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
 	return new Text(theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) + theme.fg("accent", String(args.symbol)), 0, 0);
 }
 
-export function renderFindRefsResult(
-	result: { content: Array<{ type: string; text?: string }> },
-	options: { isPartial: boolean },
-	theme: Theme,
-): Text {
+export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Finding…"), 0, 0);
 
 	const raw = getContentText(result);
@@ -246,11 +250,7 @@ export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: T
 	);
 }
 
-export function renderChangedSymbolsResult(
-	result: { content: Array<{ type: string; text?: string }> },
-	options: { isPartial: boolean },
-	theme: Theme,
-): Text {
+export function renderChangedSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Comparing…"), 0, 0);
 
 	const raw = getContentText(result);
@@ -275,11 +275,7 @@ export function renderBuildCall(args: Record<string, unknown>, theme: Theme): Te
 	return new Text(theme.fg("toolTitle", theme.bold("rbtr_build ")) + theme.fg("accent", ref), 0, 0);
 }
 
-export function renderBuildResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: Record<string, unknown> },
-	options: { isPartial: boolean },
-	theme: Theme,
-): Text {
+export function renderBuildResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Building…"), 0, 0);
 
 	const details = result.details as { status?: string } | undefined;
@@ -302,11 +298,7 @@ export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): 
 	return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
 }
 
-export function renderStatusResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: Record<string, unknown> },
-	options: { isPartial: boolean },
-	theme: Theme,
-): Text {
+export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Checking…"), 0, 0);
 
 	const details = result.details as { exists?: boolean; total_chunks?: number; building?: boolean } | undefined;
