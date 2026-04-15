@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { getSettingsListTheme } from "@mariozechner/pi-coding-agent";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, getSettingsListTheme, truncateHead } from "@mariozechner/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { resolveCommand, runRbtr, runRbtrJson, type ResolvedCommand } from "./exec.js";
@@ -52,6 +52,33 @@ interface BuildResult {
 }
 
 export default function rbtrIndexExtension(pi: ExtensionAPI) {
+	/**
+	 * Apply pi's truncation limits to tool output.
+	 * Keeps content within 50KB / 2000 lines so it doesn't
+	 * overflow the LLM context.
+	 */
+	function truncateOutput(
+		text: string,
+		details: Record<string, unknown>,
+	): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
+		const truncation = truncateHead(text, {
+			maxLines: DEFAULT_MAX_LINES,
+			maxBytes: DEFAULT_MAX_BYTES,
+		});
+
+		let content = truncation.content;
+		if (truncation.truncated) {
+			content +=
+				`\n\n[Output truncated: showing ${truncation.outputLines} of ` +
+				`${truncation.totalLines} lines. Use --limit or rbtr_read_symbol for details.]`;
+		}
+
+		return {
+			content: [{ type: "text", text: content }],
+			details: { ...details, truncated: truncation.truncated },
+		};
+	}
+
 	let resolved: ResolvedCommand | null = null;
 	let settings: RbtrIndexSettings = { command: "rbtr", autoBuild: true };
 	let cliAvailable = false;
@@ -393,10 +420,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			return {
-				content: [{ type: "text", text }],
-				details: { query: params.query, limit: params.limit },
-			};
+			return truncateOutput(text, { query: params.query, limit: params.limit });
 		},
 	});
 
@@ -428,10 +452,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			return {
-				content: [{ type: "text", text }],
-				details: { symbol: params.symbol, found: true },
-			};
+			return truncateOutput(text, { symbol: params.symbol, found: true });
 		},
 	});
 
@@ -463,10 +484,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			return {
-				content: [{ type: "text", text }],
-				details: { symbol: params.symbol, found: true },
-			};
+			return truncateOutput(text, { symbol: params.symbol, found: true });
 		},
 	});
 
@@ -502,10 +520,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			return {
-				content: [{ type: "text", text }],
-				details: { base: params.base, head: params.head, found: true },
-			};
+			return truncateOutput(text, { base: params.base, head: params.head, found: true });
 		},
 	});
 
@@ -537,10 +552,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			return {
-				content: [{ type: "text", text }],
-				details: { file: params.file, found: true },
-			};
+			return truncateOutput(text, { file: params.file, found: true });
 		},
 	});
 }

@@ -1,6 +1,6 @@
 # Pi Extension for rbtr Code Index
 
-## Status: Phase 5 ✅ — Phase 6 next
+## Status: ✅ All phases complete
 
 ## Index
 
@@ -694,19 +694,21 @@ diffs.
 - ✅ Extension loads with renderers, tools work in print mode.
 - Interactive TUI rendering deferred to manual session.
 
-### Phase 6: Output truncation & polish
+### Phase 6: Output truncation & polish ✅
 
 **Goal:** Large result sets don't overflow the context.
 
 **Steps:**
-1. Apply `truncateHead` to search results and list-symbols
-   output.
-2. When truncated, note how many results were omitted and
-   suggest using `--limit` or `rbtr_read_symbol` for details.
-3. Handle edge cases: empty results, index not found, rbtr
-   not installed, build in progress.
-4. Final pass: review `promptGuidelines` for clarity and
-   accuracy.
+1. ✅ `truncateOutput()` helper using pi's `truncateHead` with
+   `DEFAULT_MAX_BYTES` (50KB) / `DEFAULT_MAX_LINES` (2000).
+2. ✅ Applied to all query tools: search, read-symbol,
+   list-symbols, find-refs, changed-symbols.
+3. ✅ Truncation note appended when output is clipped.
+4. ✅ Edge cases handled: empty results, not found, CLI
+   unavailable, build in progress (`requireReady()`).
+5. ✅ Prompt guidelines reviewed — clear and accurate.
 
-**Verify:** Searching a large codebase with many matches stays
-within 50KB. Error messages are actionable.
+**Verify:**
+- ✅ All tools return results within context limits.
+- ✅ Truncation message visible when output is clipped.
+- ✅ Error messages are actionable.
