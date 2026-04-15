@@ -3,6 +3,7 @@ SELECT
   count(*) AS degree
 FROM edges
 WHERE
-  commit_sha = ?
+  repo_id = ?
+  AND commit_sha = ?
   AND target_id IN (SELECT unnest(?::text []))
 GROUP BY target_id

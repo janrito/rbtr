@@ -1,2 +1,2 @@
 DELETE FROM edges
-WHERE commit_sha = ?
+WHERE repo_id = ? AND commit_sha = ?

@@ -62,7 +62,7 @@ languages = [
 ]
 
 [project.scripts]
-rbtr-legacy = "rbtr.cli:main"
+rbtr-legacy = "rbtr_legacy.cli:main"
 
 [dependency-groups]
 debug = ["ipython>=9.10.0", "scalene>=2.1", "vulture>=2.14"]

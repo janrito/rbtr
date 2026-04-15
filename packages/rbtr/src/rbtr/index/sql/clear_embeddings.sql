@@ -1,3 +1,3 @@
 UPDATE chunks
 SET embedding = NULL
-WHERE embedding IS NOT NULL
+WHERE repo_id = ? AND embedding IS NOT NULL

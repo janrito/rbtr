@@ -13,12 +13,15 @@ SELECT
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON
-    c.blob_sha = fs.blob_sha
+    c.repo_id = fs.repo_id
+    AND c.blob_sha = fs.blob_sha
     AND c.file_path = fs.file_path
 WHERE
-  fs.commit_sha = ?
+  fs.repo_id = ?
+  AND fs.commit_sha = ?
   AND fs.file_path NOT IN (
     SELECT file_snapshots.file_path FROM file_snapshots
-    WHERE file_snapshots.commit_sha = ?
+    WHERE file_snapshots.repo_id = ?
+      AND file_snapshots.commit_sha = ?
   )
 ORDER BY c.file_path, c.line_start

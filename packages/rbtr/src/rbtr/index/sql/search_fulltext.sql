@@ -18,11 +18,14 @@ FROM (
     *,
     fts_main_chunks.match_bm25(id, ?) AS score
   FROM chunks
+  WHERE repo_id = ?
 ) AS fts
-INNER JOIN chunks AS c ON fts.id = c.id
+INNER JOIN chunks AS c
+  ON fts.repo_id = c.repo_id AND fts.id = c.id
 INNER JOIN file_snapshots AS fs
   ON
-    c.blob_sha = fs.blob_sha
+    c.repo_id = fs.repo_id
+    AND c.blob_sha = fs.blob_sha
     AND c.file_path = fs.file_path
 WHERE
   fs.commit_sha = ?

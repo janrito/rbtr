@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 # Bump this when the schema changes.  On open, if the stored version
 # doesn't match, the DB file is deleted and rebuilt from scratch.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Bump this when the embedding text format changes.  On open, if the
 # stored version doesn't match, all embeddings are cleared so
@@ -214,12 +214,32 @@ class IndexStore:
 
     @classmethod
     def from_config(cls) -> IndexStore:
-        """Open the store at the config-derived path."""
+        """Open the store at the central DB path."""
         from rbtr.config import config
-        from rbtr.workspace import resolve_path
 
-        db = resolve_path(config.db_dir) / "index.duckdb"
+        db = Path(config.db_path).expanduser()
         return cls(db)
+
+    def register_repo(self, path: str) -> int:
+        """Register a repo path and return its integer ID.
+
+        Idempotent — returns the existing ID if already registered.
+        """
+        cur = self._cur()
+        row = cur.execute("SELECT id FROM repos WHERE path = ?", [path]).fetchone()
+        if row:
+            return int(row[0])
+        cur.execute(
+            "INSERT INTO repos (id, path) VALUES (nextval('repos_id_seq'), ?)",
+            [path],
+        )
+        row = cur.execute("SELECT id FROM repos WHERE path = ?", [path]).fetchone()
+        return int(row[0])  # type: ignore[index]  # row is never None after insert
+
+    def list_repos(self) -> list[tuple[int, str]]:
+        """Return all registered repos as `(id, path)` tuples."""
+        rows = self._cur().execute("SELECT id, path FROM repos ORDER BY id").fetchall()
+        return [(int(r[0]), str(r[1])) for r in rows]
 
     def _purge_stale_fts_schema(self, dsn: str) -> None:
         """Work around a DuckDB FTS bug on reconnect.
@@ -277,7 +297,7 @@ class IndexStore:
                     reason,
                     count,
                 )
-                self._con.execute(_CLEAR_EMBEDDINGS_SQL)
+                self._con.execute("UPDATE chunks SET embedding = NULL WHERE embedding IS NOT NULL")
             self._con.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES "
                 "('embedding_version', ?), ('embedding_model', ?)",
@@ -313,13 +333,15 @@ class IndexStore:
 
     # ── Writes ───────────────────────────────────────────────────────
 
-    def insert_snapshot(self, commit_sha: str, file_path: str, blob_sha: str) -> None:
+    def insert_snapshot(
+        self, commit_sha: str, file_path: str, blob_sha: str, repo_id: int = 1
+    ) -> None:
         """Record that *commit_sha* contains *file_path* at *blob_sha*."""
-        self._cur().execute(_INSERT_SNAPSHOT_SQL, [commit_sha, file_path, blob_sha])
+        self._cur().execute(_INSERT_SNAPSHOT_SQL, [repo_id, commit_sha, file_path, blob_sha])
 
-    def delete_snapshots(self, commit_sha: str) -> None:
+    def delete_snapshots(self, commit_sha: str, repo_id: int = 1) -> None:
         """Remove all file snapshots scoped to *commit_sha*."""
-        self._cur().execute(_DELETE_SNAPSHOTS_SQL, [commit_sha])
+        self._cur().execute(_DELETE_SNAPSHOTS_SQL, [repo_id, commit_sha])
 
     def _bulk_insert(self, sql: str, table: pa.Table) -> None:
         """Register *table* as `_stg`, execute *sql*, then unregister.
@@ -335,13 +357,13 @@ class IndexStore:
         finally:
             cur.unregister("_stg")
 
-    def insert_snapshots(self, rows: list[tuple[str, str, str]]) -> None:
+    def insert_snapshots(self, rows: list[tuple[str, str, str]], repo_id: int = 1) -> None:
         """Batch insert snapshot rows: `[(commit_sha, file_path, blob_sha), ...]`."""
         if not rows:
             return
-        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, snapshots_to_table(rows))
+        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, snapshots_to_table(rows, repo_id))
 
-    def insert_chunks(self, chunks: list[Chunk]) -> None:
+    def insert_chunks(self, chunks: list[Chunk], repo_id: int = 1) -> None:
         """Batch insert chunks via DuckDB's columnar register API.
 
         Conversion to PyArrow is handled by `chunks_to_table`.
@@ -350,24 +372,29 @@ class IndexStore:
         """
         if not chunks:
             return
-        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks_to_table(chunks))
+        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks_to_table(chunks, repo_id))
         self._fts_dirty = True
 
-    def delete_edges(self, commit_sha: str) -> None:
+    def delete_edges(self, commit_sha: str, repo_id: int = 1) -> None:
         """Remove all edges scoped to *commit_sha*."""
-        self._cur().execute(_DELETE_EDGES_SQL, [commit_sha])
+        self._cur().execute(_DELETE_EDGES_SQL, [repo_id, commit_sha])
 
-    def insert_edges(self, edges: list[Edge], commit_sha: str) -> None:
+    def insert_edges(self, edges: list[Edge], commit_sha: str, repo_id: int = 1) -> None:
         """Batch insert edges scoped to *commit_sha*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_to_table(edges, commit_sha))
+        self._bulk_insert(_INSERT_EDGES_SQL, edges_to_table(edges, commit_sha, repo_id))
 
-    def update_embedding(self, chunk_id: str, embedding: list[float]) -> None:
+    def update_embedding(self, chunk_id: str, embedding: list[float], repo_id: int = 1) -> None:
         """Set the embedding vector for a single chunk."""
-        self._cur().execute(_UPDATE_EMBEDDING_SQL, [embedding, chunk_id])
+        self._cur().execute(_UPDATE_EMBEDDING_SQL, [embedding, repo_id, chunk_id])
 
-    def update_embeddings(self, ids: list[str], embeddings: list[list[float]]) -> None:
+    def update_embeddings(
+        self,
+        ids: list[str],
+        embeddings: list[list[float]],
+        repo_id: int = 1,
+    ) -> None:
         """Batch-update embedding vectors via PyArrow join.
 
         Individual `UPDATE ... WHERE id = ?` costs ~67 ms/call due to
@@ -380,36 +407,36 @@ class IndexStore:
         cur = self._cur()
         cur.register("_emb_stg", table)
         try:
-            cur.execute(_UPDATE_EMBEDDINGS_SQL)
+            cur.execute(_UPDATE_EMBEDDINGS_SQL, [repo_id])
         finally:
             cur.unregister("_emb_stg")
 
-    def clear_embeddings(self) -> int:
-        """Set all embeddings to NULL.
+    def clear_embeddings(self, repo_id: int = 1) -> int:
+        """Set all embeddings to NULL for a repo.
 
         Returns the number of chunks that had embeddings cleared.
         Used when switching embedding models — vectors from different
         models are not comparable.
         """
-        row = self._cur().execute(_CLEAR_EMBEDDINGS_SQL).fetchone()
+        row = self._cur().execute(_CLEAR_EMBEDDINGS_SQL, [repo_id]).fetchone()
         return int(row[0]) if row else 0
 
     # ── Hygiene ──────────────────────────────────────────────────────
 
-    def count_orphan_chunks(self) -> int:
+    def count_orphan_chunks(self, repo_id: int = 1) -> int:
         """Count chunks not referenced by any file snapshot."""
-        row = self._cur().execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone()
+        row = self._cur().execute(_COUNT_ORPHAN_CHUNKS_SQL, [repo_id]).fetchone()
         return int(row[0]) if row else 0
 
-    def prune_orphans(self) -> tuple[int, int]:
+    def prune_orphans(self, repo_id: int = 1) -> tuple[int, int]:
         """Delete chunks and edges not referenced by any file snapshot.
 
         Returns `(chunks_deleted, edges_deleted)`.
         """
         cur = self._cur()
-        edge_row = cur.execute(_PRUNE_EDGES_SQL).fetchone()
+        edge_row = cur.execute(_PRUNE_EDGES_SQL, [repo_id, repo_id]).fetchone()
         edges_deleted = int(edge_row[0]) if edge_row else 0
-        chunk_row = cur.execute(_PRUNE_CHUNKS_SQL).fetchone()
+        chunk_row = cur.execute(_PRUNE_CHUNKS_SQL, [repo_id]).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
@@ -417,9 +444,9 @@ class IndexStore:
 
     # ── Reads ────────────────────────────────────────────────────────
 
-    def has_blob(self, blob_sha: str) -> bool:
+    def has_blob(self, blob_sha: str, repo_id: int = 1) -> bool:
         """Check whether any chunks exist for *blob_sha*."""
-        result = self._cur().execute(_HAS_BLOB_SQL, [blob_sha]).fetchone()
+        result = self._cur().execute(_HAS_BLOB_SQL, [repo_id, blob_sha]).fetchone()
         return result is not None
 
     def get_chunks(
@@ -429,10 +456,12 @@ class IndexStore:
         file_path: str | None = None,
         kind: ChunkKind | None = None,
         name: str | None = None,
+        repo_id: int = 1,
     ) -> list[Chunk]:
         """Query chunks visible at *commit_sha* with optional filters."""
         kind_val = kind.value if kind is not None else None
-        params: list[str | None] = [
+        params: list[str | int | None] = [
+            repo_id,
             commit_sha,
             file_path,
             file_path,
@@ -451,10 +480,12 @@ class IndexStore:
         source_id: str | None = None,
         target_id: str | None = None,
         kind: EdgeKind | None = None,
+        repo_id: int = 1,
     ) -> list[Edge]:
         """Query edges scoped to *commit_sha* with optional filters."""
         kind_val = kind.value if kind is not None else None
-        params: list[str | None] = [
+        params: list[str | int | None] = [
+            repo_id,
             commit_sha,
             source_id,
             source_id,
@@ -477,35 +508,47 @@ class IndexStore:
         self,
         commit_sha: str,
         chunk_ids: list[str],
+        repo_id: int = 1,
     ) -> dict[str, int]:
         """Return inbound edge counts for the given chunk IDs."""
         if not chunk_ids:
             return {}
-        rows = _fetch_dicts(self._cur().execute(_INBOUND_DEGREE_SQL, [commit_sha, chunk_ids]))
+        rows = _fetch_dicts(
+            self._cur().execute(_INBOUND_DEGREE_SQL, [repo_id, commit_sha, chunk_ids])
+        )
         return {str(r["chunk_id"]): int(r["degree"]) for r in rows}
 
     def diff_chunks(
         self,
         base_sha: str,
         head_sha: str,
+        repo_id: int = 1,
     ) -> tuple[list[Chunk], list[Chunk], list[Chunk]]:
         """Compare chunks between two commits.
 
         Returns `(added, removed, modified)` where *modified* means
         the same file path exists in both but with a different blob SHA.
         """
-        added = _fetch_dicts(self._cur().execute(_DIFF_ADDED_SQL, [head_sha, base_sha]))
-        removed = _fetch_dicts(self._cur().execute(_DIFF_REMOVED_SQL, [base_sha, head_sha]))
-        modified = _fetch_dicts(self._cur().execute(_DIFF_MODIFIED_SQL, [head_sha, base_sha]))
+        added = _fetch_dicts(
+            self._cur().execute(_DIFF_ADDED_SQL, [repo_id, head_sha, repo_id, base_sha])
+        )
+        removed = _fetch_dicts(
+            self._cur().execute(_DIFF_REMOVED_SQL, [repo_id, base_sha, repo_id, head_sha])
+        )
+        modified = _fetch_dicts(
+            self._cur().execute(_DIFF_MODIFIED_SQL, [repo_id, head_sha, base_sha])
+        )
         return (
             [_row_to_chunk(r) for r in added],
             [_row_to_chunk(r) for r in removed],
             [_row_to_chunk(r) for r in modified],
         )
 
-    def search_by_name(self, commit_sha: str, pattern: str) -> list[Chunk]:
+    def search_by_name(self, commit_sha: str, pattern: str, repo_id: int = 1) -> list[Chunk]:
         """Find chunks whose name contains *pattern* (case-insensitive)."""
-        rows = _fetch_dicts(self._cur().execute(_SEARCH_BY_NAME_SQL, [commit_sha, f"%{pattern}%"]))
+        rows = _fetch_dicts(
+            self._cur().execute(_SEARCH_BY_NAME_SQL, [repo_id, commit_sha, f"%{pattern}%"])
+        )
         return [_row_to_chunk(r) for r in rows]
 
     def search_similar(
@@ -513,13 +556,14 @@ class IndexStore:
         commit_sha: str,
         query_embedding: list[float],
         top_k: int = 10,
+        repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """Find the *top_k* chunks most similar to *query_embedding*.
 
         Uses DuckDB built-in `list_cosine_similarity()`.
         """
         rows = _fetch_dicts(
-            self._cur().execute(_SEARCH_SIMILAR_SQL, [query_embedding, commit_sha, top_k])
+            self._cur().execute(_SEARCH_SIMILAR_SQL, [query_embedding, repo_id, commit_sha, top_k])
         )
         return [(_row_to_chunk(r), float(r["score"])) for r in rows]
 
@@ -528,6 +572,7 @@ class IndexStore:
         commit_sha: str,
         query: str,
         top_k: int = 10,
+        repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """Semantic search: embed *query* then find similar chunks.
 
@@ -537,7 +582,7 @@ class IndexStore:
         from rbtr.index.embeddings import embed_text  # deferred: heavy native lib
 
         query_embedding = embed_text(query)
-        return self.search_similar(commit_sha, query_embedding, top_k)
+        return self.search_similar(commit_sha, query_embedding, top_k, repo_id=repo_id)
 
     # ── FTS ──────────────────────────────────────────────────────────
 
@@ -595,6 +640,7 @@ class IndexStore:
         commit_sha: str,
         query: str,
         top_k: int = 10,
+        repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """BM25 keyword search across chunk name and content.
 
@@ -612,7 +658,7 @@ class IndexStore:
         if not tokenised_query:
             return []
         rows = _fetch_dicts(
-            self._cur().execute(_SEARCH_FULLTEXT_SQL, [tokenised_query, commit_sha, top_k])
+            self._cur().execute(_SEARCH_FULLTEXT_SQL, [tokenised_query, repo_id, commit_sha, top_k])
         )
         return [(_row_to_chunk(r), float(r["score"])) for r in rows]
 
@@ -628,6 +674,7 @@ class IndexStore:
         beta: float | None = None,
         gamma: float | None = None,
         changed_files: set[str] | None = None,
+        repo_id: int = 1,
     ) -> list[ScoredResult]:
         """Unified search fusing lexical, semantic, and name signals.
 
@@ -662,7 +709,7 @@ class IndexStore:
         # ── Channel 1: BM25 lexical ─────────────────────────────
         # Fetch more than top_k so fusion has a good candidate pool.
         pool_size = top_k * 5
-        lexical_results = self.search_fulltext(commit_sha, query, top_k=pool_size)
+        lexical_results = self.search_fulltext(commit_sha, query, top_k=pool_size, repo_id=repo_id)
         lexical_scores: dict[str, float] = {}
         candidates: dict[str, Chunk] = {}
         for chunk, score in lexical_results:
@@ -673,7 +720,9 @@ class IndexStore:
         semantic_scores: dict[str, float] = {}
         try:
             sem_fetch = pool_size * 2  # over-fetch to compensate
-            semantic_results = self.search_by_text(commit_sha, query, top_k=sem_fetch)
+            semantic_results = self.search_by_text(
+                commit_sha, query, top_k=sem_fetch, repo_id=repo_id
+            )
             for chunk, score in semantic_results:
                 if chunk.kind in _SEMANTIC_EXCLUDE:
                     continue
@@ -694,7 +743,7 @@ class IndexStore:
         # For multi-word queries, also search individual tokens
         # so that token-level matches enter the candidate pool
         # (e.g. "import edge" → "infer_import_edges").
-        name_matches = self.search_by_name(commit_sha, query)
+        name_matches = self.search_by_name(commit_sha, query, repo_id=repo_id)
         for chunk in name_matches:
             if chunk.id not in candidates:
                 candidates[chunk.id] = chunk
@@ -703,7 +752,7 @@ class IndexStore:
         if len(tokens) > 1:
             for token in tokens:
                 if len(token) >= 3:
-                    for chunk in self.search_by_name(commit_sha, token):
+                    for chunk in self.search_by_name(commit_sha, token, repo_id=repo_id):
                         if chunk.id not in candidates:
                             candidates[chunk.id] = chunk
 
@@ -715,7 +764,7 @@ class IndexStore:
 
         # ── Importance (inbound-degree) ──────────────────────
         candidate_ids = list(candidates.keys())
-        degrees = self.inbound_degrees(commit_sha, candidate_ids)
+        degrees = self.inbound_degrees(commit_sha, candidate_ids, repo_id=repo_id)
         importance_map: dict[str, float] = {
             cid: importance_score(degrees.get(cid, 0)) for cid in candidate_ids
         }
@@ -726,7 +775,7 @@ class IndexStore:
             # Collect IDs of candidate-adjacent chunks via edges.
             # Then check if any neighbour lives in a changed file.
             candidate_set = set(candidate_ids)
-            all_edges = self.get_edges(commit_sha)
+            all_edges = self.get_edges(commit_sha, repo_id=repo_id)
 
             # Neighbours: for each candidate, collect IDs of chunks
             # on the other end of an edge.

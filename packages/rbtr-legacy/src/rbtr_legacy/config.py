@@ -3,7 +3,7 @@
 Sources are loaded in order (each overrides the previous via deep merge):
 
 1. Class defaults  — field defaults on the models below
-2. User settings   — `~/.rbtr/config-legacy.toml`
+2. User settings   — `~/.config/rbtr-legacy/config-legacy.toml`
 3. Workspace       — `.rbtr/config-legacy.toml` (relative to CWD)
 
 The `config` instance reloads in place via `reload()`, so a direct
@@ -34,7 +34,7 @@ from pydantic_settings import (
 
 from rbtr_legacy import workspace  # module import so tests can patch workspace.workspace_dir once
 
-_DEFAULT_USER_DIR = str(Path.home() / ".config" / "rbtr")
+_DEFAULT_USER_DIR = str(Path.home() / ".config" / "rbtr-legacy")
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -140,7 +140,7 @@ class SkillsConfig(BaseModel):
     user_dirs: Annotated[
         list[str], Field(description="Absolute paths (tilde-expanded) for user-level skills.")
     ] = [
-        "~/.config/rbtr/skills",
+        "~/.config/rbtr-legacy/skills",
         "~/.claude/skills",
         "~/.pi/agent/skills",
         "~/.agents/skills",

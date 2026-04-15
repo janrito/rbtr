@@ -77,7 +77,7 @@ def headless_ui(input_state: InputState) -> UI:
 def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Redirect all config paths to temp dirs.
 
-    Prevents tests from touching real user data (`~/.config/rbtr/`),
+    Prevents tests from touching real user data (`~/.config/rbtr-legacy/`),
     the workspace (`.rbtr/`), or the developer's skill directories.
 
     `config` is a module-level singleton — every module holds a

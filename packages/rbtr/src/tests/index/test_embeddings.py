@@ -258,5 +258,5 @@ def test_search_by_text_embeds_and_searches(
     result = store.search_by_text("abc123", "find this", top_k=5)
     assert result == []
     mock_embed.assert_called_once_with("find this")
-    spy.assert_called_once_with("abc123", [0.1, 0.2, 0.3], 5)
+    spy.assert_called_once_with("abc123", [0.1, 0.2, 0.3], 5, repo_id=1)
     store.close()

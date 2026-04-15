@@ -48,9 +48,9 @@ class Config(BaseSettings):
             description="User-level storage root. Override with `RBTR_USER_DIR` env var.",
         ),
     ] = _DEFAULT_USER_DIR
-    db_dir: Annotated[
-        str, Field(description="Directory for the DuckDB index. Supports `${WORKSPACE}`.")
-    ] = "${WORKSPACE}/index"
+    db_path: Annotated[str, Field(description="Path to the central DuckDB index file.")] = (
+        "~/.rbtr/index.duckdb"
+    )
     max_file_size: Annotated[int, Field(description="Skip files larger than this (bytes).")] = (
         512 * 1024
     )

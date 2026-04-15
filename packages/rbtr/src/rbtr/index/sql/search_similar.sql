@@ -16,10 +16,12 @@ SELECT
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON
-    c.blob_sha = fs.blob_sha
+    c.repo_id = fs.repo_id
+    AND c.blob_sha = fs.blob_sha
     AND c.file_path = fs.file_path
 WHERE
-  fs.commit_sha = ?
+  c.repo_id = ?
+  AND fs.commit_sha = ?
   AND c.embedding IS NOT NULL
 ORDER BY score DESC
 LIMIT ?

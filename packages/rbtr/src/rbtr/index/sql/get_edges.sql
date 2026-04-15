@@ -4,7 +4,8 @@ SELECT
   kind
 FROM edges
 WHERE
-  commit_sha = ?
+  repo_id = ?
+  AND commit_sha = ?
   AND (? IS NULL OR source_id = ?)
   AND (? IS NULL OR target_id = ?)
   AND (? IS NULL OR kind = ?)

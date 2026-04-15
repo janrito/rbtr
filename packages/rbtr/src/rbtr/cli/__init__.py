@@ -16,6 +16,7 @@ layout of the same fields; it never drops or adds information.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -34,7 +35,6 @@ from rbtr.config import RenderedConfig, config
 from rbtr.git import changed_files, open_repo
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
-from rbtr.workspace import resolve_path
 
 # ── Subcommands ──────────────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ class Status(BaseModel):
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        db = resolve_path(config.db_dir) / "index.duckdb"
+        db = Path(config.db_path).expanduser()
         if not db.exists():
             emit(IndexStatus(exists=False))
             return

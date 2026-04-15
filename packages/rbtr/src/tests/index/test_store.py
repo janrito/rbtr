@@ -1016,3 +1016,153 @@ def test_schema_check_skips_when_db_already_open(tmp_path: Path) -> None:
     store2 = IndexStore(db_path)
     store2.close()
     store.close()
+
+
+# ── Multi-repo isolation ───────────────────────────────────────────────
+
+
+def test_register_repo_returns_id(store: IndexStore) -> None:
+    """register_repo returns an integer ID."""
+    repo_id = store.register_repo("/path/to/repo-a")
+    assert isinstance(repo_id, int)
+    assert repo_id >= 1
+
+
+def test_register_repo_idempotent(store: IndexStore) -> None:
+    """Registering the same path twice returns the same ID."""
+    id1 = store.register_repo("/path/to/repo")
+    id2 = store.register_repo("/path/to/repo")
+    assert id1 == id2
+
+
+def test_register_repo_distinct_ids(store: IndexStore) -> None:
+    """Different paths get different IDs."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+    assert id_a != id_b
+
+
+def test_list_repos(store: IndexStore) -> None:
+    """list_repos returns all registered repos."""
+    store.register_repo("/repo-a")
+    store.register_repo("/repo-b")
+    repos = store.list_repos()
+    assert len(repos) == 2
+    assert {path for _, path in repos} == {"/repo-a", "/repo-b"}
+
+
+def test_chunks_isolated_by_repo(store: IndexStore) -> None:
+    """Chunks from different repos don't leak across repo_id boundaries."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+
+    chunk_a = Chunk(
+        id="a1",
+        blob_sha="ba",
+        file_path="src/a.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_a",
+        content="def func_a(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    chunk_b = Chunk(
+        id="b1",
+        blob_sha="bb",
+        file_path="src/b.py",
+        kind=ChunkKind.FUNCTION,
+        name="func_b",
+        content="def func_b(): pass",
+        line_start=1,
+        line_end=1,
+    )
+
+    store.insert_chunks([chunk_a], repo_id=id_a)
+    store.insert_chunks([chunk_b], repo_id=id_b)
+    store.insert_snapshot("HEAD", "src/a.py", "ba", repo_id=id_a)
+    store.insert_snapshot("HEAD", "src/b.py", "bb", repo_id=id_b)
+
+    results_a = store.get_chunks("HEAD", repo_id=id_a)
+    results_b = store.get_chunks("HEAD", repo_id=id_b)
+
+    assert len(results_a) == 1
+    assert results_a[0].name == "func_a"
+    assert len(results_b) == 1
+    assert results_b[0].name == "func_b"
+
+
+def test_edges_isolated_by_repo(store: IndexStore) -> None:
+    """Edges from different repos don't leak."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+
+    edge_a = Edge(source_id="s_a", target_id="t_a", kind=EdgeKind.IMPORTS)
+    edge_b = Edge(source_id="s_b", target_id="t_b", kind=EdgeKind.TESTS)
+
+    store.insert_edges([edge_a], "HEAD", repo_id=id_a)
+    store.insert_edges([edge_b], "HEAD", repo_id=id_b)
+
+    edges_a = store.get_edges("HEAD", repo_id=id_a)
+    edges_b = store.get_edges("HEAD", repo_id=id_b)
+
+    assert len(edges_a) == 1
+    assert edges_a[0].source_id == "s_a"
+    assert len(edges_b) == 1
+    assert edges_b[0].source_id == "s_b"
+
+
+def test_search_by_name_isolated_by_repo(store: IndexStore) -> None:
+    """Name search only returns chunks from the queried repo."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+
+    chunk_a = Chunk(
+        id="a1",
+        blob_sha="ba",
+        file_path="src/a.py",
+        kind=ChunkKind.CLASS,
+        name="Config",
+        content="class Config: pass",
+        line_start=1,
+        line_end=1,
+    )
+    chunk_b = Chunk(
+        id="b1",
+        blob_sha="bb",
+        file_path="src/b.py",
+        kind=ChunkKind.CLASS,
+        name="Config",
+        content="class Config: pass",
+        line_start=1,
+        line_end=1,
+    )
+
+    store.insert_chunks([chunk_a], repo_id=id_a)
+    store.insert_chunks([chunk_b], repo_id=id_b)
+    store.insert_snapshot("HEAD", "src/a.py", "ba", repo_id=id_a)
+    store.insert_snapshot("HEAD", "src/b.py", "bb", repo_id=id_b)
+
+    results = store.search_by_name("HEAD", "Config", repo_id=id_a)
+    assert len(results) == 1
+    assert results[0].id == "a1"
+
+
+def test_has_blob_isolated_by_repo(store: IndexStore) -> None:
+    """has_blob is repo-scoped."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+
+    chunk = Chunk(
+        id="c1",
+        blob_sha="blob_x",
+        file_path="f.py",
+        kind=ChunkKind.FUNCTION,
+        name="f",
+        content="pass",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk], repo_id=id_a)
+
+    assert store.has_blob("blob_x", repo_id=id_a)
+    assert not store.has_blob("blob_x", repo_id=id_b)

@@ -3,7 +3,7 @@
 The model is lazily initialised on first use and kept in memory
 for the lifetime of the process.  GGUF model files are downloaded
 via `huggingface_hub` and stored at `config.index.model_cache_dir`
-(default `~/.config/rbtr/models/`).
+(default `~/.config/rbtr-legacy/models/`).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Credential storage — `~/.config/rbtr/creds.toml`.
+"""Credential storage — `~/.config/rbtr-legacy/creds.toml`.
 
 The `creds` instance reloads in place via `reload()`, so a direct
 import is safe — identity never changes::

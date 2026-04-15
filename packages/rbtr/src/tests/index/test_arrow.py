@@ -58,6 +58,7 @@ def test_chunks_to_table_schema() -> None:
     table = chunks_to_table([_FUNC_CHUNK])
     assert table.num_rows == 1
     assert table.column_names == [
+        "repo_id",
         "id",
         "blob_sha",
         "file_path",
@@ -134,8 +135,8 @@ def test_edges_to_table_schema() -> None:
     """Returned table has four string columns."""
     table = edges_to_table([_CALL_EDGE], "abc123")
     assert table.num_rows == 1
-    assert table.column_names == ["source_id", "target_id", "kind", "commit_sha"]
-    for name in table.column_names:
+    assert table.column_names == ["repo_id", "source_id", "target_id", "kind", "commit_sha"]
+    for name in ["source_id", "target_id", "kind", "commit_sha"]:
         assert table.schema.field(name).type == pa.string()
 
 
@@ -178,8 +179,8 @@ def test_snapshots_to_table_schema() -> None:
     rows = [("sha1", "file.py", "blob1")]
     table = snapshots_to_table(rows)
     assert table.num_rows == 1
-    assert table.column_names == ["commit_sha", "file_path", "blob_sha"]
-    for name in table.column_names:
+    assert table.column_names == ["repo_id", "commit_sha", "file_path", "blob_sha"]
+    for name in ["commit_sha", "file_path", "blob_sha"]:
         assert table.schema.field(name).type == pa.string()
 
 

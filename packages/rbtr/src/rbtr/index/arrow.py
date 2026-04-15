@@ -20,7 +20,7 @@ import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 from rbtr.index.models import Chunk, Edge
 
 
-def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
+def chunks_to_table(chunks: list[Chunk], repo_id: int = 1) -> pa.Table:
     """Convert chunks to a PyArrow table for `upsert_chunks.sql`.
 
     Builds all columns in a single pass.  The `embedding` column is
@@ -31,6 +31,7 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
     pre-populated on each `Chunk` via `tokenise_code`
     before calling this function.
     """
+    repo_ids: list[int] = []
     ids: list[str] = []
     blob_shas: list[str] = []
     file_paths: list[str] = []
@@ -45,6 +46,7 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
     metadatas: list[str] = []
 
     for c in chunks:
+        repo_ids.append(repo_id)
         ids.append(c.id)
         blob_shas.append(c.blob_sha)
         file_paths.append(c.file_path)
@@ -60,6 +62,7 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
 
     return pa.table(
         {
+            "repo_id": pa.array(repo_ids, type=pa.int32()),
             "id": pa.array(ids, type=pa.string()),
             "blob_sha": pa.array(blob_shas, type=pa.string()),
             "file_path": pa.array(file_paths, type=pa.string()),
@@ -76,23 +79,26 @@ def chunks_to_table(chunks: list[Chunk]) -> pa.Table:
     )
 
 
-def edges_to_table(edges: list[Edge], commit_sha: str) -> pa.Table:
+def edges_to_table(edges: list[Edge], commit_sha: str, repo_id: int = 1) -> pa.Table:
     """Convert edges to a PyArrow table for `insert_edges.sql`.
 
-    All edges in a batch share the same *commit_sha*.
+    All edges in a batch share the same *commit_sha* and *repo_id*.
     Builds all columns in a single pass.
     """
+    repo_ids: list[int] = []
     source_ids: list[str] = []
     target_ids: list[str] = []
     kinds: list[str] = []
 
     for e in edges:
+        repo_ids.append(repo_id)
         source_ids.append(e.source_id)
         target_ids.append(e.target_id)
         kinds.append(e.kind.value)
 
     return pa.table(
         {
+            "repo_id": pa.array(repo_ids, type=pa.int32()),
             "source_id": pa.array(source_ids, type=pa.string()),
             "target_id": pa.array(target_ids, type=pa.string()),
             "kind": pa.array(kinds, type=pa.string()),
@@ -101,23 +107,26 @@ def edges_to_table(edges: list[Edge], commit_sha: str) -> pa.Table:
     )
 
 
-def snapshots_to_table(rows: list[tuple[str, str, str]]) -> pa.Table:
+def snapshots_to_table(rows: list[tuple[str, str, str]], repo_id: int = 1) -> pa.Table:
     """Convert snapshot tuples to a PyArrow table for `upsert_snapshots.sql`.
 
     Each tuple is `(commit_sha, file_path, blob_sha)`.
     Builds all columns in a single pass.
     """
+    repo_ids: list[int] = []
     commit_shas: list[str] = []
     file_paths: list[str] = []
     blob_shas: list[str] = []
 
     for commit_sha, file_path, blob_sha in rows:
+        repo_ids.append(repo_id)
         commit_shas.append(commit_sha)
         file_paths.append(file_path)
         blob_shas.append(blob_sha)
 
     return pa.table(
         {
+            "repo_id": pa.array(repo_ids, type=pa.int32()),
             "commit_sha": pa.array(commit_shas, type=pa.string()),
             "file_path": pa.array(file_paths, type=pa.string()),
             "blob_sha": pa.array(blob_shas, type=pa.string()),

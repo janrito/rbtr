@@ -1,1 +1,1 @@
-INSERT OR REPLACE INTO file_snapshots VALUES (?, ?, ?)
+INSERT OR REPLACE INTO file_snapshots VALUES (?, ?, ?, ?)

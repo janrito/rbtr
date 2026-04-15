@@ -97,7 +97,7 @@ def _render(template: str, **ctx: Any) -> str:
 def render_system() -> str:
     """Render the system prompt (identity, language, project rules).
 
-    If `~/.config/rbtr/SYSTEM.md` exists, it replaces the
+    If `~/.config/rbtr-legacy/SYSTEM.md` exists, it replaces the
     built-in template.  The same template variables are available.
     """
     template = _load_system_override() or _load_template("system.md")

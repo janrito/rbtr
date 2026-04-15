@@ -1,3 +1,3 @@
 UPDATE chunks
 SET embedding = ?
-WHERE id = ?
+WHERE repo_id = ? AND id = ?
