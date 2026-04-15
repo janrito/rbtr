@@ -13,12 +13,8 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
     """Redirect all config paths to temp dirs."""
     user_dir = tmp_path / "rbtr"
     user_dir.mkdir()
-    ws_dir = tmp_path / "ws"
-    ws_dir.mkdir()
-    mock_ws = lambda: ws_dir  # noqa: E731
 
     monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
-    monkeypatch.setattr("rbtr.workspace.workspace_dir", mock_ws)
 
     from rbtr.config import config
 

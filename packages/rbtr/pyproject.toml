@@ -26,6 +26,8 @@ dependencies = [
   "rich>=13.0",
   "rich-argparse>=1.7.2",
   "pathspec>=1.0.4",
+  "anyio>=4.13.0",
+  "pyzmq>=27.1.0",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +54,7 @@ rbtr = "rbtr.cli:main"
 
 [dependency-groups]
 dev = [
+  "anyio>=4.13.0",
   "pytest",
   "pytest-cases>=3.10.1",
   "pytest-mock",

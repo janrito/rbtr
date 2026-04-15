@@ -31,7 +31,7 @@ from rich_argparse import RichHelpFormatter
 
 from rbtr.cli.models import BuildResult, IndexStatus
 from rbtr.cli.output import _err, emit, is_json, print_err
-from rbtr.config import RenderedConfig, config
+from rbtr.config import Config, config
 from rbtr.git import changed_files, open_repo
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
@@ -177,7 +177,7 @@ class Status(BaseModel):
 
 
 class Rbtr(
-    RenderedConfig,
+    Config,
     cli_prog_name="rbtr",
     cli_kebab_case=True,
     cli_implicit_flags=True,

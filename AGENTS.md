@@ -51,14 +51,25 @@
   when in doubt.
 - `Protocol` for interfaces. Subclassing only for strict is-a.
 - Start with duplication — extract when the pattern is clear.
-- All imports at module level. Nested only with a concrete
-  reason and a comment explaining why.
+- **All imports at module level.** Deferred (nested) imports
+  are almost never justified. Valid reasons: heavy native
+  libraries that add measurable import latency (`tree_sitter`,
+  `llama_cpp`), or breaking a genuine circular import that
+  cannot be restructured. Every deferred import must have a
+  `# deferred: <reason>` comment. "Might be slow" or "avoid
+  importing too much" are not valid reasons — measure first.
 - Never embed multi-line code in another language as string
   literals. Write it to its own file and load at runtime.
 - **No implicit string concatenation.** Use `\` line
   continuation or triple-quoted strings for long strings.
   Never rely on adjacent-literal concatenation.
-- Every `# type: ignore` must have a reason on the same line.
+- **`# type: ignore` is a last resort.** Fix the type first.
+  Use the correct generic parameters, narrow with `isinstance`,
+  or restructure the code. Only suppress when the type system
+  genuinely cannot express the situation (e.g. pydantic
+  `__init__` re-init, untyped third-party libraries). Every
+  suppression must include the error code and a reason:
+  `# type: ignore[code]  # why`.
 - **Markdown-style backticks in docs.** Use single backticks
   (`` ` ``) in docstrings, comments, and documentation.
   Never use rST double-backtick (` `` `) literals.

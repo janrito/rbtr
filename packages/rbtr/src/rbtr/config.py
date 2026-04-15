@@ -1,10 +1,10 @@
-"""Layered configuration for rbtr.
+"""Configuration for rbtr.
 
-Sources are loaded in order (each overrides the previous via deep merge):
+Sources are loaded in order (each overrides the previous):
 
-1. Class defaults  — field defaults on the model below
-2. User settings   — `~/.rbtr/config.toml`
-3. Workspace       — `.rbtr/config.toml` (relative to CWD)
+1. Class defaults — field defaults on the model below
+2. User settings  — `~/.rbtr/config.toml`
+3. Environment    — `RBTR_` prefix (e.g. `RBTR_CHUNK_LINES=100`)
 
 The `config` instance reloads in place via `reload()`, so a direct
 import is safe — identity never changes::
@@ -28,16 +28,11 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr import workspace  # module import so tests can patch workspace.workspace_dir once
-
 _DEFAULT_USER_DIR = str(Path.home() / ".rbtr")
 
 
-# ── Config ───────────────────────────────────────────────────────────
-
-
 class Config(BaseSettings):
-    """Schema and defaults — no file sources."""
+    """rbtr configuration — defaults, TOML, env vars."""
 
     model_config = SettingsConfigDict(env_prefix="RBTR_", populate_by_name=True)
 
@@ -70,24 +65,6 @@ class Config(BaseSettings):
         ),
     ] = False
 
-
-# ── TOML file helpers ────────────────────────────────────────────────
-
-
-def _toml_file(*candidates: Path) -> Path | list[Path]:
-    """Return existing TOML files from *candidates*."""
-    found = [p for p in candidates if p.exists()]
-    if len(found) == 1:
-        return found[0]
-    return found
-
-
-# ── Rendered config (merged) ─────────────────────────────────────────
-
-
-class RenderedConfig(Config):
-    """Merged view: defaults → user → workspace (deep merge)."""
-
     @classmethod
     def settings_customise_sources(
         cls,
@@ -98,21 +75,18 @@ class RenderedConfig(Config):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         user_dir = Path(os.environ.get("RBTR_USER_DIR", _DEFAULT_USER_DIR))
+        toml = user_dir / "config.toml"
         return (
             TomlConfigSettingsSource(
                 settings_cls,
-                toml_file=_toml_file(
-                    user_dir / "config.toml",
-                    workspace.workspace_dir() / "config.toml",
-                ),
-                deep_merge=True,
+                toml_file=toml if toml.exists() else [],
             ),
             env_settings,
         )
 
     def reload(self) -> None:
-        """Re-read all sources (env vars, TOML files) in place."""
+        """Re-read all sources (env vars, TOML file) in place."""
         self.__init__()  # type: ignore[misc]  # pydantic re-init
 
 
-config = RenderedConfig()
+config = Config()

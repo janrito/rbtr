@@ -19,7 +19,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
@@ -27,9 +27,15 @@ import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 from rbtr.config import config
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
-
-if TYPE_CHECKING:
-    from rbtr.index.search import ScoredResult
+from rbtr.index.search import (
+    ScoredResult,
+    fuse_scores,
+    importance_score,
+    name_score,
+    proximity_score,
+    weights_for_query,
+)
+from rbtr.index.tokenise import tokenise_code
 
 log = logging.getLogger(__name__)
 
@@ -215,8 +221,6 @@ class IndexStore:
     @classmethod
     def from_config(cls) -> IndexStore:
         """Open the store at the central DB path."""
-        from rbtr.config import config
-
         db = Path(config.db_path).expanduser()
         return cls(db)
 
@@ -651,8 +655,6 @@ class IndexStore:
         Automatically rebuilds the FTS index if it is stale or was
         lost (DuckDB FTS indexes are in-memory only).
         """
-        from rbtr.index.tokenise import tokenise_code
-
         self._ensure_fts()
         tokenised_query = tokenise_code(query)
         if not tokenised_query:
@@ -693,14 +695,6 @@ class IndexStore:
                 When provided, chunks near changed files get a
                 proximity boost.
         """
-        from rbtr.index.search import (
-            fuse_scores,
-            importance_score,
-            name_score,
-            proximity_score,
-            weights_for_query,
-        )
-
         if alpha is not None and beta is not None and gamma is not None:
             a, b, g = alpha, beta, gamma
         else:
