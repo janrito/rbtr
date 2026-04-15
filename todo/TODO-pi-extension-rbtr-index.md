@@ -1,6 +1,6 @@
 # Pi Extension for rbtr Code Index
 
-## Status: Phase 3 ✅ — Phase 4 next
+## Status: Phase 4 ✅ — Phase 5 next
 
 ## Index
 
@@ -660,18 +660,18 @@ footer. Auto-build on session start when configured.
 - ✅ Agent uses `rbtr_search` unprompted when asked "How does
   search scoring work?" (system prompt injection works).
 
-### Phase 4: Navigation tools (find-refs, changed-symbols)
+### Phase 4: Navigation tools (find-refs, changed-symbols) ✅
 
 **Goal:** LLM can explore the dependency graph and structural
 diffs.
 
 **Steps:**
-1. Register `rbtr_find_refs` tool.
-2. Register `rbtr_changed_symbols` tool.
-3. Test: ask "what calls fuse_scores?" and "what changed between
-   main and HEAD?".
+1. ✅ Register `rbtr_find_refs` tool.
+2. ✅ Register `rbtr_changed_symbols` tool.
 
-**Verify:** Tools return correct edges and changed symbols.
+**Verify:**
+- ✅ `rbtr_find_refs "fuse_scores"` returns edge references.
+- ✅ `rbtr_changed_symbols HEAD~5 HEAD` returns changed symbols.
 
 ### Phase 5: Custom rendering
 

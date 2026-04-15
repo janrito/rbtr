@@ -412,6 +412,76 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
+		name: "rbtr_find_refs",
+		label: "rbtr find-refs",
+		description: "Find references to a symbol via the dependency graph (imports, tests, docs).",
+		promptSnippet: "Find references to a symbol via the dependency graph (imports, tests, docs)",
+		promptGuidelines: [
+			"Use rbtr_find_refs to find where a symbol is imported, tested, or documented.",
+			"Shows structural relationships, not just text matches.",
+		],
+		parameters: Type.Object({
+			symbol: Type.String({ description: "Symbol name" }),
+		}),
+
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+			requireReady();
+
+			const result = await runRbtr(pi, resolved!, ["find-refs", params.symbol], { signal, timeout: 30_000 });
+			const text = result.stdout.trim();
+
+			if (!text) {
+				return {
+					content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
+					details: { symbol: params.symbol, found: false },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: { symbol: params.symbol, found: true },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "rbtr_changed_symbols",
+		label: "rbtr changed-symbols",
+		description: "Show symbols that changed between two git refs (structural diff).",
+		promptSnippet: "Show symbols that changed between two git refs (structural diff)",
+		promptGuidelines: [
+			"Use rbtr_changed_symbols to understand what code changed structurally between branches.",
+			"Shows function/class-level changes, not line-level diffs.",
+		],
+		parameters: Type.Object({
+			base: Type.String({ description: "Base ref (e.g. main)" }),
+			head: Type.String({ description: "Head ref (e.g. feature-branch)" }),
+		}),
+
+		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+			requireReady();
+
+			const result = await runRbtr(pi, resolved!, ["changed-symbols", "--base", params.base, "--head", params.head], {
+				signal,
+				timeout: 30_000,
+			});
+			const text = result.stdout.trim();
+
+			if (!text) {
+				return {
+					content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
+					details: { base: params.base, head: params.head, found: false },
+				};
+			}
+
+			return {
+				content: [{ type: "text", text }],
+				details: { base: params.base, head: params.head, found: true },
+			};
+		},
+	});
+
+	pi.registerTool({
 		name: "rbtr_list_symbols",
 		label: "rbtr list-symbols",
 		description: "List all symbols (functions, classes, methods) in a file as a structural table of contents.",
