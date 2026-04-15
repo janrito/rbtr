@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pathspec
 import pygit2
 import pytest
 
-from rbtr.config import config
 from rbtr.git import (
     FileEntry,
     _matches_globs,
@@ -32,6 +32,7 @@ from rbtr.git import (
     resolve_commit,
     walk_tree,
 )
+from rbtr.rbtrignore import parse_ignore
 
 from .conftest import (
     BINARY_PNG,
@@ -51,8 +52,7 @@ def _lf(
     ref: str,
     *,
     max_file_size: int = _MAX,
-    include: list[str] | None = None,
-    exclude: list[str] | None = None,
+    ignore: pathspec.PathSpec | None = None,
 ) -> list[FileEntry]:
     """Shorthand for `list(list_files(...))` with config defaults."""
     return list(
@@ -60,8 +60,7 @@ def _lf(
             repo,
             ref,
             max_file_size=max_file_size,
-            include=include if include is not None else config.include,
-            exclude=exclude if exclude is not None else config.extend_exclude,
+            ignore=ignore,
         )
     )
 
@@ -218,16 +217,16 @@ def test_list_files_max_file_size(sample_repo: SampleRepo, config_path: Path) ->
     assert entries == []
 
 
-def test_list_files_extend_exclude(sample_repo: SampleRepo, config_path: Path) -> None:
-    entries = _lf(sample_repo.repo, "feature", exclude=["*.yaml"])
+def test_list_files_rbtrignore(sample_repo: SampleRepo, config_path: Path) -> None:
+    ignore = parse_ignore("*.yaml\n")
+    entries = _lf(sample_repo.repo, "feature", ignore=ignore)
     paths = {e.path for e in entries}
     assert "config.yaml" not in paths
 
 
-def test_list_files_include_overrides_extend_exclude(
-    sample_repo: SampleRepo, config_path: Path
-) -> None:
-    entries = _lf(sample_repo.repo, "feature", include=["config.yaml"], exclude=["*.yaml"])
+def test_list_files_rbtrignore_negation(sample_repo: SampleRepo, config_path: Path) -> None:
+    ignore = parse_ignore("*.yaml\n!config.yaml\n")
+    entries = _lf(sample_repo.repo, "feature", ignore=ignore)
     paths = {e.path for e in entries}
     assert "config.yaml" in paths
 
@@ -236,7 +235,7 @@ def test_list_files_gitignore(sample_repo: SampleRepo, config_path: Path) -> Non
     workdir = Path(sample_repo.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / ".gitignore").write_text("config.yaml\n")
 
-    entries = _lf(sample_repo.repo, "feature", exclude=[])
+    entries = _lf(sample_repo.repo, "feature")
     paths = {e.path for e in entries}
     assert "config.yaml" not in paths
 
@@ -315,35 +314,19 @@ def git_repo(tmp_path: Path) -> pygit2.Repository:
     return pygit2.init_repository(str(tmp_path / "edge"))
 
 
-def test_list_files_include_overrides_gitignore_nested(
+def test_list_files_rbtrignore_still_skips_binary(
     git_repo: pygit2.Repository, config_path: Path
 ) -> None:
-    workdir = Path(git_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
-    (workdir / ".gitignore").write_text("vendor/\n")
-
-    oid = make_commit(
-        git_repo,
-        {
-            "app.py": b"x = 1\n",
-            "vendor/important.py": b"keep\n",
-            "vendor/junk.py": b"skip\n",
-        },
-    )
-    paths = {e.path for e in _lf(git_repo, str(oid), include=["vendor/important.py"], exclude=[])}
-    assert paths == {"app.py", "vendor/important.py"}
-
-
-def test_list_files_include_still_skips_binary(
-    git_repo: pygit2.Repository, config_path: Path
-) -> None:
+    """Binary files are skipped even without an ignore spec."""
     oid = make_commit(git_repo, {"image.png": b"\x89PNG\r\n\x1a\n\x00\x00"})
-    paths = {e.path for e in _lf(git_repo, str(oid), include=["image.png"])}
+    paths = {e.path for e in _lf(git_repo, str(oid))}
     assert paths == set()
 
 
-def test_list_files_include_still_skips_oversized(
+def test_list_files_rbtrignore_still_skips_oversized(
     git_repo: pygit2.Repository, config_path: Path
 ) -> None:
+    """Oversized files are skipped even without an ignore spec."""
     oid = make_commit(git_repo, {"big.py": b"x" * 200})
-    paths = {e.path for e in _lf(git_repo, str(oid), max_file_size=50, include=["big.py"])}
+    paths = {e.path for e in _lf(git_repo, str(oid), max_file_size=50)}
     assert paths == set()

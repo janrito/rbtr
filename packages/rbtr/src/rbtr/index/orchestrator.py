@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import pygit2
 
@@ -102,6 +103,7 @@ def build_index(
     commit_sha: str,
     store: IndexStore,
     *,
+    repo_id: int = 1,
     on_progress: ProgressCallback | None = None,
     on_embed_progress: ProgressCallback | None = None,
 ) -> IndexResult:
@@ -115,13 +117,19 @@ def build_index(
         repo:              Open pygit2 repository.
         commit_sha:        Git ref or SHA to index.
         store:             DuckDB store (already initialised).
+        repo_id:           Repo ID in the central store.
         on_progress:       Optional callback `(done, total)` for file
                            extraction progress.
         on_embed_progress: Optional callback `(done, total)` for
                            embedding progress.
     """
+    from rbtr.rbtrignore import load_ignore
+
     t0 = time.monotonic()
     result = IndexResult()
+
+    repo_root = Path(repo.workdir).resolve() if repo.workdir else Path.cwd()
+    ignore = load_ignore(repo_root)
 
     # 1. List indexable files.
     files = list(
@@ -129,8 +137,7 @@ def build_index(
             repo,
             commit_sha,
             max_file_size=config.max_file_size,
-            include=config.include,
-            exclude=config.extend_exclude,
+            ignore=ignore,
         )
     )
     total = len(files)
@@ -144,7 +151,7 @@ def build_index(
     for i, entry in enumerate(files):
         snapshot_rows.append((commit_sha, entry.path, entry.blob_sha))
 
-        if store.has_blob(entry.blob_sha):
+        if store.has_blob(entry.blob_sha, repo_id=repo_id):
             result.stats.skipped_files += 1
         else:
             try:
@@ -164,24 +171,24 @@ def build_index(
     _tokenise_chunks(all_chunks)
 
     # Batch insert all chunks and snapshots in one call each.
-    store.insert_chunks(all_chunks)
+    store.insert_chunks(all_chunks, repo_id=repo_id)
     # Replace the snapshot set for this ref so deleted files from
     # older reviews don't leak into current queries.
-    store.delete_snapshots(commit_sha)
-    store.insert_snapshots(snapshot_rows)
+    store.delete_snapshots(commit_sha, repo_id=repo_id)
+    store.insert_snapshots(snapshot_rows, repo_id=repo_id)
 
     # We also need chunks from skipped (already stored) files for edge inference.
     if result.stats.skipped_files > 0:
-        all_chunks = store.get_chunks(commit_sha)
+        all_chunks = store.get_chunks(commit_sha, repo_id=repo_id)
 
     # 3. Cross-file edges (clear stale edges first for idempotency).
-    store.delete_edges(commit_sha)
+    store.delete_edges(commit_sha, repo_id=repo_id)
     repo_files = {entry.path for entry in files}
     edges: list[Edge] = []
     edges.extend(infer_import_edges(all_chunks, repo_files))
     edges.extend(infer_test_edges(all_chunks, repo_files))
     edges.extend(infer_doc_edges(all_chunks))
-    store.insert_edges(edges, commit_sha)
+    store.insert_edges(edges, commit_sha, repo_id=repo_id)
     result.stats.total_edges = len(edges)
 
     # 4. Flush inserts so reads from the UI thread see chunks/edges
@@ -189,14 +196,14 @@ def build_index(
     store.checkpoint()
 
     # 5. Embeddings.
-    _embed_missing(store, all_chunks, on_progress=on_embed_progress)
+    _embed_missing(store, all_chunks, repo_id=repo_id, on_progress=on_embed_progress)
 
     # 6. FTS index is rebuilt lazily on first search_fulltext call
     #    via store._ensure_fts().  No explicit rebuild needed here —
     #    insert_chunks already sets _fts_dirty.
 
     # 7. Prune orphaned chunks/edges from previous runs.
-    pruned_chunks, pruned_edges = store.prune_orphans()
+    pruned_chunks, pruned_edges = store.prune_orphans(repo_id=repo_id)
     if pruned_chunks or pruned_edges:
         log.info("Pruned %d orphan chunks, %d orphan edges", pruned_chunks, pruned_edges)
 
@@ -220,6 +227,7 @@ def update_index(
     head_sha: str,
     store: IndexStore,
     *,
+    repo_id: int = 1,
     on_progress: ProgressCallback | None = None,
     on_embed_progress: ProgressCallback | None = None,
 ) -> IndexResult:
@@ -234,10 +242,12 @@ def update_index(
         base_sha:          Already-indexed commit (the base branch).
         head_sha:          New commit to index (the PR head).
         store:             DuckDB store with *base_sha* already indexed.
+        repo_id:           Repo ID in the central store.
         on_progress:       Optional file extraction progress callback.
         on_embed_progress: Optional embedding progress callback.
     """
     from rbtr.git import changed_files
+    from rbtr.rbtrignore import load_ignore
 
     t0 = time.monotonic()
     result = IndexResult()
@@ -245,14 +255,16 @@ def update_index(
     changed = changed_files(repo, base_sha, head_sha)
     log.info("Incremental index: %d changed files", len(changed))
 
+    repo_root = Path(repo.workdir).resolve() if repo.workdir else Path.cwd()
+    ignore = load_ignore(repo_root)
+
     # List all files at head_sha for snapshots + edge inference.
     head_files = list(
         list_files(
             repo,
             head_sha,
             max_file_size=config.max_file_size,
-            include=config.include,
-            exclude=config.extend_exclude,
+            ignore=ignore,
         )
     )
     result.stats.total_files = len(head_files)
@@ -270,14 +282,14 @@ def update_index(
 
     # Replace snapshots for the entire head tree so deleted files
     # from previous runs at this ref do not linger.
-    store.delete_snapshots(head_sha)
-    store.insert_snapshots(snapshot_rows)
+    store.delete_snapshots(head_sha, repo_id=repo_id)
+    store.insert_snapshots(snapshot_rows, repo_id=repo_id)
 
     # Extract only changed files.
     new_chunks: list[Chunk] = []
     total = len(changed_entries)
     for i, entry in enumerate(changed_entries):
-        if store.has_blob(entry.blob_sha):
+        if store.has_blob(entry.blob_sha, repo_id=repo_id):
             result.stats.skipped_files += 1
         else:
             try:
@@ -297,19 +309,19 @@ def update_index(
     _tokenise_chunks(new_chunks)
 
     # Batch insert new chunks.
-    store.insert_chunks(new_chunks)
+    store.insert_chunks(new_chunks, repo_id=repo_id)
 
     # Fetch all chunks at head for edge inference.
-    all_chunks = store.get_chunks(head_sha)
+    all_chunks = store.get_chunks(head_sha, repo_id=repo_id)
 
     # Re-infer edges for the head commit (clear stale edges first).
-    store.delete_edges(head_sha)
+    store.delete_edges(head_sha, repo_id=repo_id)
     repo_files = {entry.path for entry in head_files}
     edges: list[Edge] = []
     edges.extend(infer_import_edges(all_chunks, repo_files))
     edges.extend(infer_test_edges(all_chunks, repo_files))
     edges.extend(infer_doc_edges(all_chunks))
-    store.insert_edges(edges, head_sha)
+    store.insert_edges(edges, head_sha, repo_id=repo_id)
     result.stats.total_edges = len(edges)
 
     # Flush inserts so reads from the UI thread see chunks/edges
@@ -317,12 +329,12 @@ def update_index(
     store.checkpoint()
 
     # Embeddings for new chunks.
-    _embed_missing(store, all_chunks, on_progress=on_embed_progress)
+    _embed_missing(store, all_chunks, repo_id=repo_id, on_progress=on_embed_progress)
 
     # FTS index is rebuilt lazily on first search_fulltext call.
 
     # Prune orphaned chunks/edges from previous runs.
-    pruned_chunks, pruned_edges = store.prune_orphans()
+    pruned_chunks, pruned_edges = store.prune_orphans(repo_id=repo_id)
     if pruned_chunks or pruned_edges:
         log.info("Pruned %d orphan chunks, %d orphan edges", pruned_chunks, pruned_edges)
 
@@ -344,6 +356,7 @@ def compute_diff(
     base_sha: str,
     head_sha: str,
     store: IndexStore,
+    repo_id: int = 1,
 ) -> SemanticDiff:
     """Compute structural differences between two indexed commits.
 
@@ -358,7 +371,7 @@ def compute_diff(
     symbol_kinds = frozenset({ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD})
 
     # 1. File-level diff from DuckDB.
-    added_raw, removed_raw, modified_raw = store.diff_chunks(base_sha, head_sha)
+    added_raw, removed_raw, modified_raw = store.diff_chunks(base_sha, head_sha, repo_id=repo_id)
 
     # Symbols in entirely new files → added.
     diff.added = [c for c in added_raw if c.kind in symbol_kinds]
@@ -370,7 +383,7 @@ def compute_diff(
     #    modified_raw contains head-side chunks of files that changed.
     #    We need base-side chunks too to compare.
     modified_files = {c.file_path for c in modified_raw}
-    base_chunks = store.get_chunks(base_sha)
+    base_chunks = store.get_chunks(base_sha, repo_id=repo_id)
     base_by_key: dict[tuple[str, str, str], Chunk] = {}
     for c in base_chunks:
         if c.file_path in modified_files and c.kind in symbol_kinds:
@@ -396,9 +409,9 @@ def compute_diff(
 
     # 3. Stale docs: doc edges that point at modified code but
     #    the doc chunk itself is unchanged.
-    head_edges = store.get_edges(head_sha)
+    head_edges = store.get_edges(head_sha, repo_id=repo_id)
     head_chunks_by_id: dict[str, Chunk] = {}
-    for c in store.get_chunks(head_sha):
+    for c in store.get_chunks(head_sha, repo_id=repo_id):
         head_chunks_by_id[c.id] = c
 
     modified_code_files = {c.file_path for c in diff.modified}
@@ -447,6 +460,7 @@ def _embed_missing(
     store: IndexStore,
     chunks: list[Chunk],
     *,
+    repo_id: int = 1,
     on_progress: ProgressCallback | None = None,
 ) -> None:
     """Embed chunks that don't have an embedding yet.
@@ -484,7 +498,7 @@ def _embed_missing(
             if on_progress is not None:
                 on_progress(done, total)
             continue
-        store.update_embeddings([c.id for c in batch], vectors)
+        store.update_embeddings([c.id for c in batch], vectors, repo_id=repo_id)
         done += len(batch)
         if on_progress is not None:
             on_progress(done, total)

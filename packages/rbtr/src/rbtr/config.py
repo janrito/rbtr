@@ -54,12 +54,6 @@ class Config(BaseSettings):
     max_file_size: Annotated[int, Field(description="Skip files larger than this (bytes).")] = (
         512 * 1024
     )
-    include: Annotated[
-        list[str], Field(description="Extra glob patterns to index (outside git tree).")
-    ] = [".rbtr/notes/*", ".rbtr/AGENTS.md"]
-    extend_exclude: Annotated[
-        list[str], Field(description="Glob patterns to exclude from indexing.")
-    ] = [".rbtr/"]
     chunk_lines: Annotated[int, Field(description="Lines per index chunk.")] = 50
     chunk_overlap: Annotated[int, Field(description="Overlap lines between adjacent chunks.")] = 5
     embedding_model: Annotated[str, Field(description="HuggingFace model ID for embeddings.")] = (

@@ -12,6 +12,7 @@ import fnmatch
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pathspec
 import pygit2
 
 from rbtr.errors import RbtrError
@@ -71,29 +72,6 @@ def _matches_globs(path: str, patterns: list[str]) -> bool:
         if not any(c in pat for c in "*?[") and (path == prefix or path.startswith(prefix + "/")):
             return True
     return False
-
-
-def is_path_ignored(
-    path: str,
-    repo: pygit2.Repository | None,
-    *,
-    include: list[str],
-    exclude: list[str],
-) -> bool:
-    """Determine whether *path* should be excluded from indexing.
-
-    Applies a three-layer filter in order:
-
-    1. **include** globs force-include (override gitignore and exclude).
-    2. `.gitignore` via `repo.path_is_ignored` (when *repo* is available).
-    3. **exclude** globs remove remaining matches.
-    """
-    forced = bool(include) and _matches_globs(path, include)
-    if forced:
-        return False
-    if repo is not None and repo.path_is_ignored(path):
-        return True
-    return _matches_globs(path, exclude)
 
 
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:
@@ -159,25 +137,25 @@ def list_files(
     ref: str,
     *,
     max_file_size: int,
-    include: list[str],
-    exclude: list[str],
+    ignore: pathspec.PathSpec | None = None,
 ) -> Iterator[FileEntry]:
     """Yield every indexable file in the tree at *ref*.
 
     Applies layered filtering:
 
-    1. **include** globs force-include paths (override gitignore).
-    2. `.gitignore` rules via `repo.path_is_ignored`.
-    3. **exclude** globs.
-    4. Files larger than *max_file_size* are skipped.
-    5. Binary files (null-byte heuristic) are skipped.
+    1. `.gitignore` rules via `repo.path_is_ignored`.
+    2. `.rbtrignore` rules via *ignore* (when provided).
+    3. Files larger than *max_file_size* are skipped.
+    4. Binary files (null-byte heuristic) are skipped.
     """
     commit = resolve_commit(repo, ref)
     tree = commit.tree
 
     for entry in walk_tree(repo, tree, ""):
         path, blob = entry
-        if is_path_ignored(path, repo, include=include, exclude=exclude):
+        if repo.path_is_ignored(path):
+            continue
+        if ignore is not None and ignore.match_file(path):
             continue
         if blob.size > max_file_size:
             continue
