@@ -98,6 +98,13 @@
   `@pytest.fixture`, not in loose helper functions or methods.
 - **No test classes.** Plain test functions only.
 
+## Git
+
+- **Never rewrite history.** No `git commit --amend`,
+  no `git rebase`, no `git push --force`. Every commit
+  is final. If a commit is wrong, fix it in a new commit.
+  Amending destroys context and makes the log a lie.
+
 ## Dependencies & tooling
 
 - Prefer maintained libraries over reimplementing.
