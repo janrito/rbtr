@@ -12,6 +12,22 @@ import { getSettingsListTheme } from "@mariozechner/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { resolveCommand, runRbtr, runRbtrJson, type ResolvedCommand } from "./exec.js";
+import {
+	renderBuildCall,
+	renderBuildResult,
+	renderChangedSymbolsCall,
+	renderChangedSymbolsResult,
+	renderFindRefsCall,
+	renderFindRefsResult,
+	renderListSymbolsCall,
+	renderListSymbolsResult,
+	renderReadSymbolCall,
+	renderReadSymbolResult,
+	renderSearchCall,
+	renderSearchResult,
+	renderStatusCall,
+	renderStatusResult,
+} from "./render.js";
 import { loadSettings, saveProjectSettings, type RbtrIndexSettings } from "./settings.js";
 
 interface IndexStatus {
@@ -276,6 +292,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			ref: Type.Optional(Type.String({ description: "Git ref to index (default: HEAD)" })),
 		}),
+		renderCall: (args, theme) => renderBuildCall(args, theme),
+		renderResult: (result, options, theme) => renderBuildResult(result, options, theme),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!resolved || !cliAvailable) {
@@ -309,6 +327,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		description: "Check whether the code index exists and how many symbols it contains.",
 		promptSnippet: "Check whether the code index exists and how many symbols it contains",
 		parameters: Type.Object({}),
+		renderCall: (args, theme) => renderStatusCall(args, theme),
+		renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
 
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			if (!resolved || !cliAvailable) {
@@ -354,6 +374,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			query: Type.String({ description: "Search query" }),
 			limit: Type.Optional(Type.Number({ description: "Maximum results to return (default: 10)" })),
 		}),
+		renderCall: (args, theme) => renderSearchCall(args, theme),
+		renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
 
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			requireReady();
@@ -390,6 +412,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			symbol: Type.String({ description: "Symbol name (e.g. HttpClient.retry, fuse_scores)" }),
 		}),
+		renderCall: (args, theme) => renderReadSymbolCall(args, theme),
+		renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
 
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			requireReady();
@@ -423,6 +447,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			symbol: Type.String({ description: "Symbol name" }),
 		}),
+		renderCall: (args, theme) => renderFindRefsCall(args, theme),
+		renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
 
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			requireReady();
@@ -457,6 +483,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			base: Type.String({ description: "Base ref (e.g. main)" }),
 			head: Type.String({ description: "Head ref (e.g. feature-branch)" }),
 		}),
+		renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
+		renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
 
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			requireReady();
@@ -493,6 +521,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			file: Type.String({ description: "File path (relative to repo root)" }),
 		}),
+		renderCall: (args, theme) => renderListSymbolsCall(args, theme),
+		renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
 
 		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
 			requireReady();

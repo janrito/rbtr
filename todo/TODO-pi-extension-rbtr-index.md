@@ -1,6 +1,6 @@
 # Pi Extension for rbtr Code Index
 
-## Status: Phase 4 ✅ — Phase 5 next
+## Status: Phase 5 ✅ — Phase 6 next
 
 ## Index
 
@@ -673,22 +673,26 @@ diffs.
 - ✅ `rbtr_find_refs "fuse_scores"` returns edge references.
 - ✅ `rbtr_changed_symbols HEAD~5 HEAD` returns changed symbols.
 
-### Phase 5: Custom rendering
+### Phase 5: Custom rendering ✅
 
 **Goal:** Tool results render beautifully in the TUI.
 
 **Steps:**
-1. Write `render.ts` — `renderCall` and `renderResult` functions
-   for each tool.
-2. Search results: score-coloured, file path, kind badge, code
-   preview on expand.
-3. Read symbol: syntax-highlighted source code on expand.
-4. Build result: ✓/✗ with stats summary.
-5. Status: ✓/✗ with chunk count.
-6. Wire renderers into tool definitions.
+1. ✅ Write `render.ts` with `renderCall` + `renderResult` for
+   all 7 tools.
+2. ✅ Search: score-coloured, shortened path, kind, name.
+   Collapsed = 5 results. Expanded = all + code preview.
+3. ✅ Read symbol: path + line range. Expanded = source lines.
+4. ✅ List symbols: compact `line-range  kind  name` table.
+5. ✅ Find refs: `source → target (kind)` per edge.
+6. ✅ Changed symbols: `kind  name  path` per symbol.
+7. ✅ Build: ✓ started / ⏳ in progress.
+8. ✅ Status: ✓ count / ✗ not found / ⏳ building.
+9. ✅ Wired into all tool definitions in `index.ts`.
 
-**Verify:** Tool output is visually clear and compact.
-Expand (Ctrl+O) reveals full details.
+**Verify:**
+- ✅ Extension loads with renderers, tools work in print mode.
+- Interactive TUI rendering deferred to manual session.
 
 ### Phase 6: Output truncation & polish
 
