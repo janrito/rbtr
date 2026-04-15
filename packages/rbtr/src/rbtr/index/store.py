@@ -87,6 +87,17 @@ _UPDATE_EMBEDDING_SQL = _load_sql("update_embedding.sql")
 _UPDATE_EMBEDDINGS_SQL = _load_sql("update_embeddings.sql")
 _HAS_BLOB_SQL = _load_sql("has_blob.sql")
 _CLEAR_EMBEDDINGS_SQL = _load_sql("clear_embeddings.sql")
+_CLEAR_ALL_EMBEDDINGS_SQL = _load_sql("clear_all_embeddings.sql")
+_GET_SCHEMA_VERSION_SQL = _load_sql("get_schema_version.sql")
+_SET_SCHEMA_VERSION_SQL = _load_sql("set_schema_version.sql")
+_GET_EMBEDDING_META_SQL = _load_sql("get_embedding_meta.sql")
+_SET_EMBEDDING_META_SQL = _load_sql("set_embedding_meta.sql")
+_COUNT_EMBEDDINGS_SQL = _load_sql("count_embeddings.sql")
+_REGISTER_REPO_SQL = _load_sql("register_repo.sql")
+_GET_REPO_SQL = _load_sql("get_repo.sql")
+_LIST_REPOS_SQL = _load_sql("list_repos.sql")
+_NEUTRALISE_FTS_IDF_SQL = _load_sql("neutralise_fts_idf.sql")
+_GET_CHUNK_PATHS_SQL = _load_sql("get_chunk_paths.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -154,7 +165,7 @@ def _check_schema_version(db_path: Path) -> None:
     try:
         con = duckdb.connect(str(db_path), read_only=True)
         try:
-            rows = con.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchall()
+            rows = con.execute(_GET_SCHEMA_VERSION_SQL).fetchall()
         except duckdb.CatalogException:
             # No meta table at all → old schema.
             rows = []
@@ -209,10 +220,7 @@ class IndexStore:
             if stmt:
                 self._con.execute(stmt)
         # Stamp the schema version so future opens can detect staleness.
-        self._con.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
-            [str(SCHEMA_VERSION)],
-        )
+        self._con.execute(_SET_SCHEMA_VERSION_SQL, [str(SCHEMA_VERSION)])
         # Check embedding version — clear embeddings if the text format
         # changed, so _embed_missing() re-computes them on next build.
         self._check_embedding_version()
@@ -231,19 +239,16 @@ class IndexStore:
         Idempotent — returns the existing ID if already registered.
         """
         cur = self._cur()
-        row = cur.execute("SELECT id FROM repos WHERE path = ?", [path]).fetchone()
+        row = cur.execute(_GET_REPO_SQL, [path]).fetchone()
         if row:
             return int(row[0])
-        cur.execute(
-            "INSERT INTO repos (id, path) VALUES (nextval('repos_id_seq'), ?)",
-            [path],
-        )
-        row = cur.execute("SELECT id FROM repos WHERE path = ?", [path]).fetchone()
+        cur.execute(_REGISTER_REPO_SQL, [path])
+        row = cur.execute(_GET_REPO_SQL, [path]).fetchone()
         return int(row[0])  # type: ignore[index]  # row is never None after insert
 
     def list_repos(self) -> list[tuple[int, str]]:
         """Return all registered repos as `(id, path)` tuples."""
-        rows = self._cur().execute("SELECT id, path FROM repos ORDER BY id").fetchall()
+        rows = self._cur().execute(_LIST_REPOS_SQL).fetchall()
         return [(int(r[0]), str(r[1])) for r in rows]
 
     def _purge_stale_fts_schema(self, dsn: str) -> None:
@@ -288,9 +293,7 @@ class IndexStore:
         model_changed = stored_model != current_model
 
         if version_changed or model_changed:
-            n = self._con.execute(
-                "SELECT count(*) FROM chunks WHERE embedding IS NOT NULL"
-            ).fetchone()
+            n = self._con.execute(_COUNT_EMBEDDINGS_SQL).fetchone()
             count = n[0] if n else 0
             if count > 0:
                 if version_changed:
@@ -302,12 +305,8 @@ class IndexStore:
                     reason,
                     count,
                 )
-                self._con.execute("UPDATE chunks SET embedding = NULL WHERE embedding IS NOT NULL")
-            self._con.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES "
-                "('embedding_version', ?), ('embedding_model', ?)",
-                [str(EMBEDDING_VERSION), current_model],
-            )
+                self._con.execute(_CLEAR_ALL_EMBEDDINGS_SQL)
+            self._con.execute(_SET_EMBEDDING_META_SQL, [str(EMBEDDING_VERSION), current_model])
 
     def _cur(self) -> duckdb.DuckDBPyConnection:
         """Return a thread-local cursor — safe to call from any thread.
@@ -618,7 +617,7 @@ class IndexStore:
         )
         # Neutralise IDF: every term gets df=1 so BM25 scores
         # depend only on term frequency and document length.
-        cur.execute("UPDATE fts_main_chunks.dict SET df = 1")
+        cur.execute(_NEUTRALISE_FTS_IDF_SQL)
         self._fts_dirty = False
 
     def _ensure_fts(self) -> None:
@@ -791,10 +790,7 @@ class IndexStore:
             neighbour_paths: dict[str, str] = {cid: c.file_path for cid, c in candidates.items()}
             if unknown_ids:
                 rows = _fetch_dicts(
-                    self._cur().execute(
-                        "SELECT id, file_path FROM chunks WHERE id IN (SELECT unnest(?::text[]))",
-                        [list(unknown_ids)],
-                    )
+                    self._cur().execute(_GET_CHUNK_PATHS_SQL, [repo_id, list(unknown_ids)])
                 )
                 for r in rows:
                     neighbour_paths[str(r["id"])] = str(r["file_path"])
