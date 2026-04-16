@@ -11,10 +11,9 @@ Timeouts: 10 s receive, 5 s send.
 
 Usage::
 
-    client = DaemonClient(Path.home() / ".rbtr")
-    resp = client.send(PingRequest())
-    assert isinstance(resp, PingResponse)
-    client.close()
+    with DaemonClient(Path.home() / ".rbtr") as client:
+        resp = client.send(PingRequest())
+        assert isinstance(resp, PingResponse)
 
 For fire-and-forget from the CLI::
 
@@ -24,6 +23,7 @@ For fire-and-forget from the CLI::
 from __future__ import annotations
 
 from pathlib import Path
+from types import TracebackType
 
 import zmq
 
@@ -34,6 +34,7 @@ from rbtr.daemon.messages import (
     Response,
     response_adapter,
 )
+from rbtr.errors import RbtrError
 
 
 class DaemonClient:
@@ -50,29 +51,37 @@ class DaemonClient:
         self._ctx: zmq.Context[zmq.Socket[bytes]] | None = None
         self._sock: zmq.Socket[bytes] | None = None
 
-    def _connect(self) -> None:
+    def __enter__(self) -> DaemonClient:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def _connect(self) -> zmq.Socket[bytes]:
+        """Connect and return the socket."""
         rpc_path = self._sock_dir / "daemon.rpc"
         if not rpc_path.exists():
             msg = f"Daemon not running (no socket at {rpc_path})"
             raise ConnectionError(msg)
         self._ctx = zmq.Context()
-        self._sock = self._ctx.socket(zmq.REQ)
-        self._sock.setsockopt(zmq.RCVTIMEO, 10_000)
-        self._sock.setsockopt(zmq.SNDTIMEO, 5_000)
-        self._sock.connect(self._rpc_addr)
+        sock = self._ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.RCVTIMEO, 10_000)
+        sock.setsockopt(zmq.SNDTIMEO, 5_000)
+        sock.connect(self._rpc_addr)
+        self._sock = sock
+        return sock
 
     def send(self, request: Request) -> Response:
         """Send a request, return the typed response.
 
         Raises `ConnectionError` if the daemon is unreachable.
         """
-        if self._sock is None:
-            self._connect()
-
-        sock = self._sock  # guaranteed non-None after _connect
-        if sock is None:  # unreachable, but satisfies type checker
-            msg = "Not connected"
-            raise ConnectionError(msg)
+        sock = self._sock or self._connect()
 
         try:
             sock.send(request.model_dump_json().encode())
@@ -83,10 +92,10 @@ class DaemonClient:
         return response_adapter.validate_json(raw)
 
     def send_or_raise(self, request: Request) -> Response:
-        """Like `send`, but raises on `ErrorResponse`."""
+        """Like `send`, but raises `RbtrError` on `ErrorResponse`."""
         resp = self.send(request)
         if isinstance(resp, ErrorResponse):
-            raise Exception(resp.message)
+            raise RbtrError(resp.message)
         return resp
 
     def close(self) -> None:
@@ -100,16 +109,18 @@ class DaemonClient:
 
 
 def try_daemon(request: Request) -> Response | None:
-    """Try to send a request to the daemon. Return None if not running."""
+    """Try to send a request to the daemon. Return None if not running.
+
+    Only catches `ConnectionError` — daemon protocol errors
+    (e.g. `ErrorResponse`) are returned normally.
+    """
     sock_dir = Path(config.user_dir)
     rpc_path = sock_dir / "daemon.rpc"
     if not rpc_path.exists():
         return None
-    client = DaemonClient(sock_dir)
-    try:
-        return client.send(request)
-    except ConnectionError:
-        rpc_path.unlink(missing_ok=True)
-        return None
-    finally:
-        client.close()
+    with DaemonClient(sock_dir) as client:
+        try:
+            return client.send(request)
+        except ConnectionError:
+            rpc_path.unlink(missing_ok=True)
+            return None

@@ -1,24 +1,35 @@
-"""Tests for the ZMQ daemon server and sync client."""
+"""Tests for the ZMQ daemon server and sync client.
+
+Uses a shared `running_server` fixture that starts a real
+ZMQ server in a background thread. Tests exercise the full
+send → dispatch → respond path through the actual socket.
+"""
 
 from __future__ import annotations
 
 import tempfile
 import threading
 import time
+from collections.abc import Generator
 from pathlib import Path
 
 import anyio
 import pytest
+import zmq
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    ErrorCode,
     ErrorResponse,
+    OkResponse,
     PingRequest,
     PingResponse,
+    Response,
     ShutdownRequest,
-    ShutdownResponse,
+    response_adapter,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.errors import RbtrError
 
 
 @pytest.fixture
@@ -27,69 +38,61 @@ def sock_dir() -> Path:
     return Path(tempfile.mkdtemp(prefix="rbtr"))
 
 
-@pytest.fixture
-def running_server(sock_dir: Path) -> DaemonServer:
-    """Start a server in a background thread, shut down after test."""
+def _start_server(sock_dir: Path) -> tuple[DaemonServer, threading.Thread]:
+    """Start a server and wait for the socket file to appear."""
     server = DaemonServer(sock_dir)
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
-
     rpc_path = sock_dir / "daemon.rpc"
     for _ in range(100):
         if rpc_path.exists():
             break
         time.sleep(0.02)
+    return server, t
 
-    yield server  # type: ignore[misc]
 
+@pytest.fixture
+def running_server(sock_dir: Path) -> Generator[DaemonServer]:
+    """Start a server in a background thread, shut down after test."""
+    server, t = _start_server(sock_dir)
+    yield server
     server.request_shutdown()
     t.join(timeout=3)
 
 
-# ── Ping ─────────────────────────────────────────────────────────────
+# ── Request/response round-trips ─────────────────────────────────────
 
 
 def test_ping(running_server: DaemonServer) -> None:
-    client = DaemonClient(running_server.sock_dir)
-    resp = client.send(PingRequest())
+    with DaemonClient(running_server.sock_dir) as client:
+        resp = client.send(PingRequest())
     assert isinstance(resp, PingResponse)
-    assert resp.version == "0.1.0"
+    assert isinstance(resp.version, str)
     assert resp.uptime >= 0
-    client.close()
-
-
-# ── Shutdown ─────────────────────────────────────────────────────────
 
 
 def test_shutdown(sock_dir: Path) -> None:
-    server = DaemonServer(sock_dir)
-    t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
-    t.start()
-
-    rpc_path = sock_dir / "daemon.rpc"
-    for _ in range(100):
-        if rpc_path.exists():
-            break
-        time.sleep(0.02)
-
-    client = DaemonClient(sock_dir)
-    resp = client.send(ShutdownRequest())
-    assert isinstance(resp, ShutdownResponse)
-    client.close()
-
+    _server, t = _start_server(sock_dir)
+    with DaemonClient(sock_dir) as client:
+        resp = client.send(ShutdownRequest())
+    assert isinstance(resp, OkResponse)
     t.join(timeout=3)
     assert not t.is_alive()
 
 
-# ── Unknown kind ─────────────────────────────────────────────────────
+def test_multiple_requests(running_server: DaemonServer) -> None:
+    with DaemonClient(running_server.sock_dir) as client:
+        r1 = client.send(PingRequest())
+        r2 = client.send(PingRequest())
+    assert isinstance(r1, PingResponse)
+    assert isinstance(r2, PingResponse)
 
 
-def test_garbage_request(running_server: DaemonServer) -> None:
-    """Raw garbage bytes return an ErrorResponse."""
-    import zmq
+# ── Error handling ───────────────────────────────────────────────────
 
-    from rbtr.daemon.messages import response_adapter
 
+def test_garbage_returns_error(running_server: DaemonServer) -> None:
+    """Unparseable bytes produce an ErrorResponse."""
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.setsockopt(zmq.RCVTIMEO, 5000)
@@ -98,27 +101,49 @@ def test_garbage_request(running_server: DaemonServer) -> None:
     raw = sock.recv()
     resp = response_adapter.validate_json(raw)
     assert isinstance(resp, ErrorResponse)
+    assert resp.code == ErrorCode.INVALID_REQUEST
     sock.close()
     ctx.term()
 
 
-# ── Client connection refused ────────────────────────────────────────
+def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
+    """A handler that raises produces an ErrorResponse."""
+
+    def bad_handler(_request: object) -> Response:
+        msg = "handler broke"
+        raise ValueError(msg)
+
+    running_server.register("ping", bad_handler)
+
+    with DaemonClient(running_server.sock_dir) as client:
+        resp = client.send(PingRequest())
+    assert isinstance(resp, ErrorResponse)
+    assert resp.code == ErrorCode.INTERNAL
+    assert "handler broke" in resp.message
 
 
-def test_client_connection_refused(sock_dir: Path) -> None:
-    """Client raises ConnectionError when no server is listening."""
-    client = DaemonClient(sock_dir)
-    with pytest.raises(ConnectionError):
+# ── Client behaviour ────────────────────────────────────────────────
+
+
+def test_connection_refused(sock_dir: Path) -> None:
+    """Client raises ConnectionError when no daemon is running."""
+    with DaemonClient(sock_dir) as client, pytest.raises(ConnectionError):
         client.send(PingRequest())
 
 
-# ── Multiple requests ────────────────────────────────────────────────
+def test_send_or_raise_on_success(running_server: DaemonServer) -> None:
+    with DaemonClient(running_server.sock_dir) as client:
+        resp = client.send_or_raise(PingRequest())
+    assert isinstance(resp, PingResponse)
 
 
-def test_multiple_requests(running_server: DaemonServer) -> None:
-    client = DaemonClient(running_server.sock_dir)
-    r1 = client.send(PingRequest())
-    r2 = client.send(PingRequest())
-    assert isinstance(r1, PingResponse)
-    assert isinstance(r2, PingResponse)
-    client.close()
+def test_send_or_raise_on_error(running_server: DaemonServer) -> None:
+    """send_or_raise raises RbtrError on ErrorResponse."""
+
+    def fail(_request: object) -> ErrorResponse:
+        return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
+
+    running_server.register("ping", fail)
+
+    with DaemonClient(running_server.sock_dir) as client, pytest.raises(RbtrError, match="boom"):
+        client.send_or_raise(PingRequest())

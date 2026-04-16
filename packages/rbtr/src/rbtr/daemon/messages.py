@@ -50,23 +50,6 @@ class ShutdownRequest(BaseModel):
     kind: Literal["shutdown"] = "shutdown"
 
 
-class RegisterRequest(BaseModel):
-    model_config = _STRICT
-    kind: Literal["register"] = "register"
-    repo: str
-
-
-class UnregisterRequest(BaseModel):
-    model_config = _STRICT
-    kind: Literal["unregister"] = "unregister"
-    repo: str
-
-
-class ReposRequest(BaseModel):
-    model_config = _STRICT
-    kind: Literal["repos"] = "repos"
-
-
 class BuildRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["build"] = "build"
@@ -124,9 +107,6 @@ class StatusRequest(BaseModel):
 Request = Annotated[
     PingRequest
     | ShutdownRequest
-    | RegisterRequest
-    | UnregisterRequest
-    | ReposRequest
     | BuildRequest
     | SearchRequest
     | ReadSymbolRequest
@@ -150,41 +130,16 @@ class ErrorResponse(BaseModel):
     message: str
 
 
+class OkResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["ok"] = "ok"
+
+
 class PingResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["ping"] = "ping"
     version: str
     uptime: float
-
-
-class ShutdownResponse(BaseModel):
-    model_config = _STRICT
-    kind: Literal["shutdown"] = "shutdown"
-
-
-class RegisterResponse(BaseModel):
-    model_config = _STRICT
-    kind: Literal["register"] = "register"
-    repo_id: int
-
-
-class UnregisterResponse(BaseModel):
-    model_config = _STRICT
-    kind: Literal["unregister"] = "unregister"
-
-
-class RepoInfo(BaseModel):
-    model_config = _STRICT
-    repo: str
-    repo_id: int
-    last_ref: str | None = None
-    chunks: int | None = None
-
-
-class ReposResponse(BaseModel):
-    model_config = _STRICT
-    kind: Literal["repos"] = "repos"
-    repos: list[RepoInfo]
 
 
 class BuildResponse(BaseModel):
@@ -235,11 +190,8 @@ class StatusResponse(BaseModel):
 
 Response = Annotated[
     ErrorResponse
+    | OkResponse
     | PingResponse
-    | ShutdownResponse
-    | RegisterResponse
-    | UnregisterResponse
-    | ReposResponse
     | BuildResponse
     | SearchResponse
     | ReadSymbolResponse

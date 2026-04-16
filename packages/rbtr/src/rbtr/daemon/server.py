@@ -24,8 +24,10 @@ Lifecycle::
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -36,17 +38,26 @@ from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
     Notification,
-    PingRequest,
+    OkResponse,
     PingResponse,
+    Request,
     Response,
     ShutdownRequest,
-    ShutdownResponse,
     request_adapter,
 )
 
 log = logging.getLogger(__name__)
 
-type Handler = dict[str, Any]
+
+def _package_version() -> str:
+    """Read the rbtr package version, or ``'dev'`` if not installed."""
+    try:
+        return importlib.metadata.version("rbtr")
+    except importlib.metadata.PackageNotFoundError:
+        return "dev"
+
+
+type RequestHandler = Callable[[Any], Response]
 
 
 class DaemonServer:
@@ -66,12 +77,12 @@ class DaemonServer:
         self._start_time = time.monotonic()
         self._shutdown = False
         self._pub_socket: zmq.asyncio.Socket | None = None
-        self._handlers: dict[str, Any] = {
+        self._handlers: dict[str, RequestHandler] = {
             "ping": self._handle_ping,
             "shutdown": self._handle_shutdown,
         }
 
-    def register(self, kind: str, handler: Any) -> None:
+    def register(self, kind: str, handler: RequestHandler) -> None:
         """Register a handler for a request kind."""
         self._handlers[kind] = handler
 
@@ -88,11 +99,11 @@ class DaemonServer:
         pub: zmq.asyncio.Socket = ctx.socket(zmq.PUB)
         self._pub_socket = pub
 
-        rep.bind(self.rpc_addr)
-        pub.bind(self.pub_addr)
-        log.info("Daemon listening: rpc=%s pub=%s", self.rpc_addr, self.pub_addr)
-
         try:
+            rep.bind(self.rpc_addr)
+            pub.bind(self.pub_addr)
+            log.info("Daemon listening: rpc=%s pub=%s", self.rpc_addr, self.pub_addr)
+
             while not self._shutdown:
                 if await rep.poll(timeout=100):
                     raw = await rep.recv()
@@ -138,12 +149,12 @@ class DaemonServer:
                 message=str(exc),
             )
 
-    def _handle_ping(self, request: PingRequest) -> PingResponse:
+    def _handle_ping(self, _request: Request) -> PingResponse:
         return PingResponse(
-            version="0.1.0",
+            version=_package_version(),
             uptime=round(time.monotonic() - self._start_time, 1),
         )
 
-    def _handle_shutdown(self, request: ShutdownRequest) -> ShutdownResponse:
+    def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
         self.request_shutdown()
-        return ShutdownResponse()
+        return OkResponse()
