@@ -1,8 +1,8 @@
 """Edge inference — imports, tests, docs relationships.
 
 All public functions are pure: chunks in, edges out.  No I/O, no
-store access.  The orchestration layer (Phase 5) feeds them chunks
-and writes the results.
+store access.  The orchestrator feeds them chunks and writes
+the results.
 
 Two resolution strategies are used:
 
