@@ -268,24 +268,24 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
 	return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── Build ───────────────────────────────────────────────────────
+// ── Index ───────────────────────────────────────────────────────
 
-export function renderBuildCall(args: Record<string, unknown>, theme: Theme): Text {
-	const ref = (args.ref as string) || "HEAD";
-	return new Text(theme.fg("toolTitle", theme.bold("rbtr_build ")) + theme.fg("accent", ref), 0, 0);
+export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
+	const refs = (args.refs as string[]) || ["HEAD"];
+	return new Text(theme.fg("toolTitle", theme.bold("rbtr_index ")) + theme.fg("accent", refs.join(", ")), 0, 0);
 }
 
-export function renderBuildResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
-	if (options.isPartial) return new Text(theme.fg("warning", "Building…"), 0, 0);
+export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+	if (options.isPartial) return new Text(theme.fg("warning", "Indexing…"), 0, 0);
 
 	const details = result.details as { status?: string } | undefined;
 	const status = details?.status;
 
 	if (status === "in_progress") {
-		return new Text(theme.fg("warning", "⏳ Build in progress"), 0, 0);
+		return new Text(theme.fg("warning", "⏳ Indexing in progress"), 0, 0);
 	}
 	if (status === "started") {
-		return new Text(theme.fg("success", "✓ Build started"), 0, 0);
+		return new Text(theme.fg("success", "✓ Indexing started"), 0, 0);
 	}
 
 	const text = getContentText(result);
@@ -301,10 +301,10 @@ export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): 
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Checking…"), 0, 0);
 
-	const details = result.details as { exists?: boolean; total_chunks?: number; building?: boolean } | undefined;
+	const details = result.details as { exists?: boolean; total_chunks?: number; indexing?: boolean } | undefined;
 
-	if (details?.building) {
-		return new Text(theme.fg("warning", "⏳ Build in progress"), 0, 0);
+	if (details?.indexing) {
+		return new Text(theme.fg("warning", "⏳ Indexing in progress"), 0, 0);
 	}
 	if (details?.exists) {
 		return new Text(theme.fg("success", `✓ ${details.total_chunks} symbols`), 0, 0);

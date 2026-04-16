@@ -39,7 +39,7 @@ Seven tools, registered automatically on session start:
 | `rbtr_list_symbols`    | Structural table of contents for a file                             |
 | `rbtr_find_refs`       | Find references via the dependency graph (imports, tests, docs)     |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                           |
-| `rbtr_build`           | Build or update the index (background, incremental)                 |
+| `rbtr_index`           | Index the repository (background, incremental)                      |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains     |
 
 The extension also injects a system prompt note so the agent
@@ -67,7 +67,7 @@ Three user-facing commands (no LLM involved):
 | Command          | Description                           |
 | ---------------- | ------------------------------------- |
 | `/rbtr-status`   | Show index status (chunk count, path) |
-| `/rbtr-build`    | Trigger a background index build      |
+| `/rbtr-index`    | Trigger a background indexing         |
 | `/rbtr-settings` | View and toggle extension settings    |
 
 ## Configuration
@@ -83,14 +83,14 @@ overrides global:
 ```json
 {
   "command": "rbtr",
-  "autoBuild": true
+  "autoIndex": true
 }
 ```
 
 | Key         | Default  | Description                                      |
 | ----------- | -------- | ------------------------------------------------ |
 | `command`   | `"rbtr"` | How to invoke the CLI (see below)                |
-| `autoBuild` | `true`   | Auto-build on session start when no index exists |
+| `autoIndex` | `true`   | Auto-index on session start when no index exists |
 
 ### CLI invocation modes
 
@@ -116,16 +116,16 @@ are incremental (blob-SHA dedup) so repeated calls are fast.
 
 1. **`session_start`** — load settings, resolve CLI command,
    run `rbtr status`. If the index exists, show the symbol
-   count in the footer. If not and `autoBuild` is true,
-   start a background build.
+   count in the footer. If not and `autoIndex` is true,
+   start a background indexing.
 2. **`before_agent_start`** — append a note to the system
    prompt telling the agent the index is available.
 3. **Tool calls** — each tool runs `rbtr --json <subcommand>`
-   with a 30-second timeout (10 minutes for builds).
+   with a 30-second timeout (10 minutes for indexing).
 
-### Background builds
+### Background indexing
 
-`rbtr_build` and `/rbtr-build` launch the build as a
+`rbtr_index` and `/rbtr-index` launch indexing as a
 background process. The footer shows "building…" and updates
 to the symbol count on completion. If the LLM searches
 while a build is running, it gets an error asking it to

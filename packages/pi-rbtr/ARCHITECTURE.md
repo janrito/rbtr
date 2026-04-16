@@ -25,7 +25,7 @@ The design prioritises three properties:
    forking, and resuming have no effect on the extension.
 3. **Graceful degradation.** If `rbtr` is not installed,
    the extension notifies the user and disables tools.
-   If a build is running, query tools report "in progress"
+   If indexing is running, query tools report "in progress"
    instead of failing silently.
 
 ### Modules
@@ -40,7 +40,7 @@ extensions/rbtr-index/
 
 `index.ts` is the extension factory. It registers
 everything and holds the runtime state (resolved command,
-build promise, settings). The other modules are pure
+index promise, settings). The other modules are pure
 helpers with no side effects.
 
 ---
@@ -79,12 +79,12 @@ All CLI calls go through `pi.exec()`, which returns
 
 ### Error handling
 
-| Condition | Behaviour |
-| --------- | --------- |
+| Condition         | Behaviour                                                                |
+| ----------------- | ------------------------------------------------------------------------ |
 | Command not found | `session_start` sets footer to error, notifies with install instructions |
-| Non-zero exit | `runRbtr` throws with stderr content |
-| Timeout | `pi.exec()` kills the process; `runRbtr` throws |
-| Empty output | Callers handle gracefully (e.g. "no results") |
+| Non-zero exit     | `runRbtr` throws with stderr content                                     |
+| Timeout           | `pi.exec()` kills the process; `runRbtr` throws                          |
+| Empty output      | Callers handle gracefully (e.g. "no results")                            |
 
 ### Validation
 
@@ -139,7 +139,7 @@ A shared guard function checks two conditions before any
 query tool executes:
 
 - `cliAvailable` is true (validated on session start).
-- `buildPromise` is null (no build in progress).
+- `indexPromise` is null (no indexing in progress).
 
 If either check fails, the guard throws an error that the
 LLM receives as an `isError` tool result with an
@@ -147,31 +147,32 @@ actionable message.
 
 ---
 
-## Build management
+## Index management
 
-### Background execution
+### Background indexing
 
-`startBuild()` fires a `pi.exec()` call for `rbtr build`
-and stores the returned promise in `buildPromise`. The
-function returns `false` if a build is already running
+`startIndexing()` fires a `pi.exec()` call for `rbtr index`
+and stores the returned promise in `indexPromise`. The
+function returns `false` if a indexing is already running
 (promise is non-null).
 
 The promise chain:
-1. On success — parse build stats, update footer with
+
+1. On success — parse index stats, update footer with
    symbol count, notify user.
-2. On failure — set footer to "build failed", notify
+2. On failure — set footer to "indexing failed", notify
    with error message.
-3. Finally — clear `buildPromise` to null.
+3. Finally — clear `indexPromise` to null.
 
 UI context (`setStatus`, `notify`, `theme`) is captured
-by reference at build start so the callbacks can update
+by reference at indexing start so the callbacks can update
 the TUI after the event handler returns.
 
-### Auto-build
+### Auto-index
 
 On `session_start`, if the index does not exist and
-`autoBuild` is true, `startBuild()` is called
-automatically. The build runs in the background — the
+`autoIndex` is true, `startIndexing()` is called
+automatically. Indexing runs in the background — the
 session is immediately usable for other work.
 
 ### Timeout
@@ -217,7 +218,7 @@ with code previews when expanded (Ctrl+O).
 Read-symbol shows path and line range when collapsed,
 full source when expanded.
 
-Status, build, list-symbols, find-refs, and
+Status, index, list-symbols, find-refs, and
 changed-symbols always show their compact form — the
 data fits in a few lines.
 
@@ -229,10 +230,10 @@ data fits in a few lines.
 
 Settings are plain JSON files at two locations:
 
-| Path | Scope |
-| ---- | ----- |
+| Path                          | Scope                 |
+| ----------------------------- | --------------------- |
 | `~/.pi/agent/rbtr-index.json` | Global (all projects) |
-| `<cwd>/.pi/rbtr-index.json` | Project-local |
+| `<cwd>/.pi/rbtr-index.json`   | Project-local         |
 
 ### Merge order
 
@@ -281,9 +282,9 @@ object. There is no need for streaming stdout (all `rbtr`
 commands produce output only at the end), so `spawn` would
 add complexity without benefit.
 
-### Captured UI context for build callbacks
+### Captured UI context for indexing callbacks
 
-The `startBuild()` function captures `ctx.ui.setStatus`,
+The `startIndexing()` function captures `ctx.ui.setStatus`,
 `ctx.ui.notify`, and `ctx.ui.theme` by reference before
 returning. This allows the promise callbacks to update the
 TUI after the `session_start` handler has returned. The

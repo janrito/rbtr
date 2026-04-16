@@ -12,12 +12,12 @@ import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export interface RbtrIndexSettings {
 	command: string;
-	autoBuild: boolean;
+	autoIndex: boolean;
 }
 
 const DEFAULTS: RbtrIndexSettings = {
 	command: "rbtr",
-	autoBuild: true,
+	autoIndex: true,
 };
 
 const CONFIG_FILENAME = "rbtr-index.json";
