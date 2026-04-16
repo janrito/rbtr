@@ -19,8 +19,8 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.text import Text
 
-from rbtr.cli.models import BuildIndexResult, IndexStatus
 from rbtr.config import config
+from rbtr.daemon.messages import BuildIndexResponse, StatusResponse
 from rbtr.index.models import Chunk, Edge
 from rbtr.index.search import ScoredResult
 from rbtr.languages import get_manager
@@ -82,22 +82,22 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
     Rule: every field in the model must appear in the output.
     """
     match model:
-        case BuildIndexResult():
-            _render_build_index_result(model)
+        case BuildIndexResponse():
+            _render_build_index_response(model)
         case ScoredResult():
             _render_scored_result(model)
         case Chunk():
             _render_chunk(model, compact=compact)
         case Edge():
             _render_edge(model)
-        case IndexStatus():
-            _render_index_status(model)
+        case StatusResponse():
+            _render_status_response(model)
         case _:
             msg = f"No rich renderer for {type(model).__name__}"
             raise TypeError(msg)
 
 
-def _render_build_index_result(m: BuildIndexResult) -> None:
+def _render_build_index_response(m: BuildIndexResponse) -> None:
     s = m.stats
     t = Text()
     t.append("refs=", style="dim")
@@ -212,7 +212,7 @@ def _render_edge(m: Edge) -> None:
     _out.print(t)
 
 
-def _render_index_status(m: IndexStatus) -> None:
+def _render_status_response(m: StatusResponse) -> None:
     if not m.exists:
         _out.print("[red]✗[/] No index found")
     else:

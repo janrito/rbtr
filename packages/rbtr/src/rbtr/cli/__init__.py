@@ -29,9 +29,9 @@ from pydantic_settings import (
 from rich.progress import Progress
 from rich_argparse import RichHelpFormatter
 
-from rbtr.cli.models import BuildIndexResult, IndexStatus
 from rbtr.cli.output import _err, emit, is_json, print_err
 from rbtr.config import Config, config
+from rbtr.daemon.messages import BuildIndexResponse, StatusResponse
 from rbtr.git import changed_files, open_repo
 from rbtr.index.models import IndexResult
 from rbtr.index.orchestrator import ProgressCallback, build_index, update_index
@@ -98,7 +98,7 @@ class Index(BaseModel):
                 )
 
         emit(
-            BuildIndexResult(
+            BuildIndexResponse(
                 refs=self.refs,
                 stats=result.stats,
                 errors=result.errors,
@@ -187,14 +187,14 @@ class Status(BaseModel):
     def cli_cmd(self) -> None:
         db = Path(config.db_path).expanduser()
         if not db.exists():
-            emit(IndexStatus(exists=False))
+            emit(StatusResponse(exists=False))
             return
         store = IndexStore(db)
         repo = open_repo(self.repo_path)
         repo_id = store.register_repo(str(Path(repo.workdir).resolve()))
         count = store.count_chunks("HEAD", repo_id=repo_id)
         emit(
-            IndexStatus(
+            StatusResponse(
                 exists=count > 0,
                 db_path=str(db),
                 total_chunks=count,
