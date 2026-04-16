@@ -1,9 +1,8 @@
 """Sync ZMQ client for the rbtr daemon.
 
-Connects to the daemon's REQ socket at
-`ipc://<sock_dir>/daemon.rpc`. Sends typed `Request` models,
-receives typed `Response` models — both validated through
-pydantic `TypeAdapter`.
+Connects to the daemon's REQ socket at the endpoint stored in
+`daemon.json`. Sends typed `Request` models, receives typed
+`Response` models — both validated through pydantic `TypeAdapter`.
 
 The client is synchronous (plain `zmq.Socket`, not async)
 because the CLI is a short-lived process with no event loop.
@@ -11,7 +10,7 @@ Timeouts: 10 s receive, 5 s send.
 
 Usage::
 
-    with DaemonClient(Path.home() / ".rbtr") as client:
+    with DaemonClient() as client:
         resp = client.send(PingRequest())
         assert isinstance(resp, PingResponse)
 
@@ -22,32 +21,147 @@ For fire-and-forget from the CLI::
 
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 from types import TracebackType
 
 import zmq
 
+from rbtr import get_version
 from rbtr.config import config
 from rbtr.daemon.messages import (
     ErrorResponse,
+    PingRequest,
+    PingResponse,
     Request,
     Response,
     response_adapter,
 )
+from rbtr.daemon.pidfile import is_pid_alive
+from rbtr.daemon.status import DaemonStatus, read_status, remove_status
 from rbtr.errors import RbtrError
+
+
+def _sock_dir() -> Path:
+    """Path to the daemon socket directory."""
+    return Path(config.user_dir)
+
+
+def _status() -> DaemonStatus | None:
+    """Read the daemon status file, or None if missing."""
+    return read_status(_sock_dir())
+
+
+def is_daemon_running() -> bool:
+    """Check whether a daemon is currently running."""
+    status = _status()
+    if status is None:
+        return False
+    return is_pid_alive(status.pid)
+
+
+def start_daemon() -> DaemonStatus:
+    """Start the daemon and wait for it to become ready.
+
+    Returns the daemon status on success. Raises `RuntimeError`
+    if the daemon fails to start within the timeout.
+    """
+    user_dir = _sock_dir()
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = user_dir / "daemon.log"
+    with open(log_path, "a") as log:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "rbtr", "daemon", "_serve"],
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    # Wait for the status file to appear (daemon writes it after bind)
+    for _ in range(50):  # 5 s at 100 ms intervals
+        time.sleep(0.1)
+        status = _status()
+        if status is not None and status.pid == proc.pid:
+            return status
+
+    proc.terminate()
+    raise RuntimeError(
+        f"Daemon failed to start within 5 s. "
+        f"Check {log_path} for details."
+    )
+
+
+def stop_daemon(*, timeout: float = 10.0) -> None:
+    """Stop the running daemon gracefully.
+
+    Sends a `ShutdownRequest` first. If the daemon does not exit
+    within *timeout* seconds, falls back to SIGTERM.
+    """
+    status = _status()
+    if status is None:
+        return  # already stopped
+
+    pid = status.pid
+
+    # Try graceful ZMQ shutdown first
+    try:
+        with DaemonClient(_sock_dir()) as client:
+            from rbtr.daemon.messages import ShutdownRequest
+
+            client.send_or_raise(ShutdownRequest())
+    except Exception:
+        pass  # best-effort
+
+    # Wait for the process to exit
+    for _ in range(int(timeout / 0.5)):
+        time.sleep(0.5)
+        if not is_pid_alive(pid):
+            remove_status(_sock_dir())
+            return
+
+    # Escalate: SIGTERM
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        remove_status(_sock_dir())
+        return
+
+    for _ in range(6):  # 3 s at 0.5 s intervals
+        time.sleep(0.5)
+        if not is_pid_alive(pid):
+            remove_status(_sock_dir())
+            return
+
+    raise RuntimeError(
+        f"Daemon (PID {pid}) did not stop cleanly. "
+        f"Check {_sock_dir() / 'daemon.log'} for details."
+    )
+
+
+def ping_daemon() -> PingResponse | None:
+    """Ping the daemon. Returns `PingResponse` or ``None`` if unreachable."""
+    resp = try_daemon(PingRequest())
+    if isinstance(resp, PingResponse):
+        return resp
+    return None
 
 
 class DaemonClient:
     """Sync ZMQ REQ client.
 
-    Connects lazily on first `send()`. A single client instance
-    holds one REQ socket — calls are serialised (ZMQ REQ
-    enforces strict send/recv alternation).
+    Reads the RPC endpoint from the status file on first `send()`.
+    A single client instance holds one REQ socket — calls are
+    serialised (ZMQ REQ enforces strict send/recv alternation).
     """
 
-    def __init__(self, sock_dir: Path) -> None:
-        self._sock_dir = sock_dir
-        self._rpc_addr = f"ipc://{sock_dir / 'daemon.rpc'}"
+    def __init__(self, sock_dir: Path | None = None) -> None:
+        self._sock_dir = sock_dir or _sock_dir()
         self._ctx: zmq.Context[zmq.Socket[bytes]] | None = None
         self._sock: zmq.Socket[bytes] | None = None
 
@@ -63,16 +177,16 @@ class DaemonClient:
         self.close()
 
     def _connect(self) -> zmq.Socket[bytes]:
-        """Connect and return the socket."""
-        rpc_path = self._sock_dir / "daemon.rpc"
-        if not rpc_path.exists():
-            msg = f"Daemon not running (no socket at {rpc_path})"
+        """Read status file and connect the socket."""
+        status = read_status(self._sock_dir)
+        if status is None:
+            msg = "Daemon not running (no status file)"
             raise ConnectionError(msg)
         self._ctx = zmq.Context()
         sock = self._ctx.socket(zmq.REQ)
         sock.setsockopt(zmq.RCVTIMEO, 10_000)
         sock.setsockopt(zmq.SNDTIMEO, 5_000)
-        sock.connect(self._rpc_addr)
+        sock.connect(status.rpc)
         self._sock = sock
         return sock
 
@@ -114,13 +228,14 @@ def try_daemon(request: Request) -> Response | None:
     Only catches `ConnectionError` — daemon protocol errors
     (e.g. `ErrorResponse`) are returned normally.
     """
-    sock_dir = Path(config.user_dir)
-    rpc_path = sock_dir / "daemon.rpc"
-    if not rpc_path.exists():
+    sock_dir = _sock_dir()
+    status = read_status(sock_dir)
+    if status is None or not is_pid_alive(status.pid):
+        remove_status(sock_dir)
         return None
     with DaemonClient(sock_dir) as client:
         try:
             return client.send(request)
         except ConnectionError:
-            rpc_path.unlink(missing_ok=True)
+            remove_status(sock_dir)
             return None

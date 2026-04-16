@@ -24,8 +24,11 @@ Lifecycle::
 
 from __future__ import annotations
 
+import atexit
 import logging
+import os
 import queue
+import signal
 import threading
 import time
 from collections.abc import Callable
@@ -59,6 +62,7 @@ from rbtr.daemon.messages import (
     request_adapter,
 )
 from rbtr.daemon.repos import RepoManager
+from rbtr.daemon.status import remove_status, write_status
 from rbtr.daemon.watcher import RefWatcher
 from rbtr.index.store import IndexStore
 
@@ -94,6 +98,14 @@ class DaemonServer:
         if store is not None:
             self._register_index_handlers(store)
 
+    def _register_atexit(self) -> None:
+        atexit.register(self._cleanup)
+
+    def _cleanup(self) -> None:
+        remove_status(self.sock_dir)
+        (self.sock_dir / "daemon.rpc").unlink(missing_ok=True)
+        (self.sock_dir / "daemon.pub").unlink(missing_ok=True)
+
     def _register_index_handlers(self, store: IndexStore) -> None:
         mgr = RepoManager(store)
         bq = BuildQueue(mgr, self._notification_queue.put)
@@ -118,8 +130,28 @@ class DaemonServer:
         if self._build_queue is not None:
             self._build_queue.stop()
 
+    def _setup_signal_handlers(self) -> None:
+        # Only set up signal handlers in the main thread. In tests
+        # the server may run in a worker thread where signal.signal
+        # raises ValueError.
+        try:
+            import threading
+        except ImportError:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            return
+
+        def _handle_shutdown_signal(signum: int, _frame: Any) -> None:
+            log.info("Received signal %d, shutting down", signum)
+            self.request_shutdown()
+
+        signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+        signal.signal(signal.SIGINT, _handle_shutdown_signal)
+
     async def serve(self) -> None:
         self.sock_dir.mkdir(parents=True, exist_ok=True)
+        self._register_atexit()
+        self._setup_signal_handlers()
 
         ctx = zmq.asyncio.Context()
         rep: zmq.asyncio.Socket = ctx.socket(zmq.REP)
@@ -140,6 +172,16 @@ class DaemonServer:
         try:
             rep.bind(self.rpc_addr)
             pub.bind(self.pub_addr)
+
+            # Write status file only after sockets are bound so clients
+            # never see a file with stale endpoints.
+            write_status(
+                self.sock_dir,
+                pid=os.getpid(),
+                rpc=self.rpc_addr,
+                pub=self.pub_addr,
+                version=get_version(),
+            )
             log.info("Daemon listening: rpc=%s pub=%s", self.rpc_addr, self.pub_addr)
 
             while not self._shutdown:
@@ -149,12 +191,11 @@ class DaemonServer:
                     response = self._dispatch(raw)
                     await rep.send(response.model_dump_json().encode())
         finally:
+            self._cleanup()
             self._pub_socket = None
             rep.close()
             pub.close()
             ctx.term()
-            (self.sock_dir / "daemon.rpc").unlink(missing_ok=True)
-            (self.sock_dir / "daemon.pub").unlink(missing_ok=True)
             for t in threads:
                 t.join(timeout=2)
             log.info("Daemon stopped")
