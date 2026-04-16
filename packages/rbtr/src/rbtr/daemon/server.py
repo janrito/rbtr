@@ -34,6 +34,15 @@ import zmq
 import zmq.asyncio
 
 from rbtr import get_version
+from rbtr.daemon.handlers import (
+    handle_build,
+    handle_changed_symbols,
+    handle_find_refs,
+    handle_list_symbols,
+    handle_read_symbol,
+    handle_search,
+    handle_status,
+)
 from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
@@ -45,6 +54,8 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     request_adapter,
 )
+from rbtr.daemon.repos import RepoManager
+from rbtr.index.store import IndexStore
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +73,7 @@ class DaemonServer:
     `register()`.
     """
 
-    def __init__(self, sock_dir: Path) -> None:
+    def __init__(self, sock_dir: Path, store: IndexStore | None = None) -> None:
         self.sock_dir = sock_dir
         self.rpc_addr = f"ipc://{sock_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{sock_dir / 'daemon.pub'}"
@@ -73,6 +84,23 @@ class DaemonServer:
             "ping": self._handle_ping,
             "shutdown": self._handle_shutdown,
         }
+        if store is not None:
+            self._register_index_handlers(store)
+
+    def _register_index_handlers(self, store: IndexStore) -> None:
+        """Register all index method handlers."""
+        mgr = RepoManager(store)
+        self._handlers.update(
+            {
+                "search": lambda req: handle_search(req, mgr),
+                "read_symbol": lambda req: handle_read_symbol(req, mgr),
+                "list_symbols": lambda req: handle_list_symbols(req, mgr),
+                "find_refs": lambda req: handle_find_refs(req, mgr),
+                "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
+                "status": lambda req: handle_status(req, mgr),
+                "build": lambda req: handle_build(req, mgr),
+            }
+        )
 
     def register(self, kind: str, handler: RequestHandler) -> None:
         """Register a handler for a request kind."""

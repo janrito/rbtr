@@ -1,19 +1,13 @@
 """Tests for the ZMQ daemon server and sync client.
 
-Uses a shared `running_server` fixture that starts a real
-ZMQ server in a background thread. Tests exercise the full
-send → dispatch → respond path through the actual socket.
+Uses shared fixtures from conftest.py. Tests exercise the full
+send → dispatch → respond path through the actual ZMQ socket.
 """
 
 from __future__ import annotations
 
-import tempfile
-import threading
-import time
-from collections.abc import Generator
 from pathlib import Path
 
-import anyio
 import pytest
 import zmq
 
@@ -31,36 +25,9 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.errors import RbtrError
 
+from .conftest import start_server
 
-@pytest.fixture
-def sock_dir() -> Path:
-    """Short temp dir for IPC sockets (avoids AF_UNIX path limit)."""
-    return Path(tempfile.mkdtemp(prefix="rbtr"))
-
-
-def _start_server(sock_dir: Path) -> tuple[DaemonServer, threading.Thread]:
-    """Start a server and wait for the socket file to appear."""
-    server = DaemonServer(sock_dir)
-    t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
-    t.start()
-    rpc_path = sock_dir / "daemon.rpc"
-    for _ in range(100):
-        if rpc_path.exists():
-            break
-        time.sleep(0.02)
-    return server, t
-
-
-@pytest.fixture
-def running_server(sock_dir: Path) -> Generator[DaemonServer]:
-    """Start a server in a background thread, shut down after test."""
-    server, t = _start_server(sock_dir)
-    yield server
-    server.request_shutdown()
-    t.join(timeout=3)
-
-
-# ── Request/response round-trips ─────────────────────────────────────
+# ── Ping / shutdown ──────────────────────────────────────────────────
 
 
 def test_ping(running_server: DaemonServer) -> None:
@@ -72,7 +39,7 @@ def test_ping(running_server: DaemonServer) -> None:
 
 
 def test_shutdown(sock_dir: Path) -> None:
-    _server, t = _start_server(sock_dir)
+    _server, t = start_server(sock_dir)
     with DaemonClient(sock_dir) as client:
         resp = client.send(ShutdownRequest())
     assert isinstance(resp, OkResponse)
@@ -92,7 +59,6 @@ def test_multiple_requests(running_server: DaemonServer) -> None:
 
 
 def test_garbage_returns_error(running_server: DaemonServer) -> None:
-    """Unparseable bytes produce an ErrorResponse."""
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.setsockopt(zmq.RCVTIMEO, 5000)
@@ -107,8 +73,6 @@ def test_garbage_returns_error(running_server: DaemonServer) -> None:
 
 
 def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
-    """A handler that raises produces an ErrorResponse."""
-
     def bad_handler(_request: object) -> Response:
         msg = "handler broke"
         raise ValueError(msg)
@@ -126,7 +90,6 @@ def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
 
 
 def test_connection_refused(sock_dir: Path) -> None:
-    """Client raises ConnectionError when no daemon is running."""
     with DaemonClient(sock_dir) as client, pytest.raises(ConnectionError):
         client.send(PingRequest())
 
@@ -138,8 +101,6 @@ def test_send_or_raise_on_success(running_server: DaemonServer) -> None:
 
 
 def test_send_or_raise_on_error(running_server: DaemonServer) -> None:
-    """send_or_raise raises RbtrError on ErrorResponse."""
-
     def fail(_request: object) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 

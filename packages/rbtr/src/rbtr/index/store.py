@@ -206,6 +206,7 @@ class IndexStore:
     """
 
     def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path: str | None = str(db_path) if db_path else None
         if db_path is not None:
             resolved = Path(db_path)
             resolved.parent.mkdir(parents=True, exist_ok=True)
