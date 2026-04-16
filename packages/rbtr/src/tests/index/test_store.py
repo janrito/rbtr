@@ -1166,3 +1166,25 @@ def test_has_blob_isolated_by_repo(store: IndexStore) -> None:
 
     assert store.has_blob("blob_x", repo_id=id_a)
     assert not store.has_blob("blob_x", repo_id=id_b)
+
+
+def test_count_chunks_by_repo(store: IndexStore) -> None:
+    """count_chunks returns count without loading data."""
+    id_a = store.register_repo("/repo-a")
+    id_b = store.register_repo("/repo-b")
+
+    chunk = Chunk(
+        id="c1",
+        blob_sha="b1",
+        file_path="f.py",
+        kind=ChunkKind.FUNCTION,
+        name="f",
+        content="pass",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk], repo_id=id_a)
+    store.insert_snapshot("HEAD", "f.py", "b1", repo_id=id_a)
+
+    assert store.count_chunks("HEAD", repo_id=id_a) == 1
+    assert store.count_chunks("HEAD", repo_id=id_b) == 0

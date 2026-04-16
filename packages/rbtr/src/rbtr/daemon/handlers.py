@@ -29,8 +29,8 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.repos import RepoManager
-from rbtr.git import changed_files, open_repo
-from rbtr.index.orchestrator import build_index, update_index
+from rbtr.git import changed_files, open_repo, resolve_commit
+from rbtr.index.orchestrator import build_index
 
 log = logging.getLogger(__name__)
 
@@ -82,19 +82,20 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, mgr: RepoManager) -> 
 def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     """Check index status for a repo."""
     repo_id = mgr.resolve(request.repo)
-    chunks = mgr.store.get_chunks("HEAD", repo_id=repo_id)
+    count = mgr.store.count_chunks("HEAD", repo_id=repo_id)
     return StatusResponse(
-        exists=len(chunks) > 0,
+        exists=count > 0,
         db_path=mgr.store.db_path,
-        total_chunks=len(chunks),
+        total_chunks=count,
     )
 
 
 def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response:
-    """Index one or two refs for a repo.
+    """Index refs for a repo.
 
-    Single ref: full index at that commit.
-    Two refs: index base, then incremental update for head.
+    Each ref is resolved to a commit SHA before indexing.
+    Blob dedup means indexing multiple refs only extracts
+    files that differ between them.
     """
     repo_id = mgr.resolve(request.repo)
     try:
@@ -102,20 +103,26 @@ def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response
     except Exception as exc:
         return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
 
-    refs = request.refs
-    if len(refs) == 1:
-        result = build_index(repo, refs[0], mgr.store, repo_id=repo_id)
-    elif len(refs) == 2:
-        build_index(repo, refs[0], mgr.store, repo_id=repo_id)
-        result = update_index(repo, refs[0], refs[1], mgr.store, repo_id=repo_id)
-    else:
+    resolved: list[str] = []
+    for ref in request.refs:
+        try:
+            sha = str(resolve_commit(repo, ref).id)
+        except KeyError as exc:
+            return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
+        resolved.append(sha)
+
+    result = None
+    for sha in resolved:
+        result = build_index(repo, sha, mgr.store, repo_id=repo_id)
+
+    if result is None:
         return ErrorResponse(
             code=ErrorCode.INVALID_REQUEST,
-            message=f"Expected 1 or 2 refs, got {len(refs)}",
+            message="No refs to index",
         )
 
     return BuildIndexResponse(
-        refs=refs,
+        refs=resolved,
         stats=result.stats,
         errors=result.errors,
     )

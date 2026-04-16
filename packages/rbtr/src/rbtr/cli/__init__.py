@@ -55,25 +55,25 @@ class Index(BaseModel):
             on_progress: ProgressCallback | None = None,
             on_embed_progress: ProgressCallback | None = None,
         ) -> IndexResult:
-            if len(self.refs) == 1:
-                return build_index(
+            if len(self.refs) == 2:
+                build_index(
                     repo,
                     self.refs[0],
                     store,
                     on_progress=on_progress,
                     on_embed_progress=on_embed_progress,
                 )
-            build_index(
+                return update_index(
+                    repo,
+                    self.refs[0],
+                    self.refs[1],
+                    store,
+                    on_progress=on_progress,
+                    on_embed_progress=on_embed_progress,
+                )
+            return build_index(
                 repo,
                 self.refs[0],
-                store,
-                on_progress=on_progress,
-                on_embed_progress=on_embed_progress,
-            )
-            return update_index(
-                repo,
-                self.refs[0],
-                self.refs[1],
                 store,
                 on_progress=on_progress,
                 on_embed_progress=on_embed_progress,
@@ -190,12 +190,14 @@ class Status(BaseModel):
             emit(IndexStatus(exists=False))
             return
         store = IndexStore(db)
-        row = store._cur().execute("SELECT count(*) FROM chunks").fetchone()
+        repo = open_repo(self.repo_path)
+        repo_id = store.register_repo(str(Path(repo.workdir).resolve()))
+        count = store.count_chunks("HEAD", repo_id=repo_id)
         emit(
             IndexStatus(
-                exists=True,
+                exists=count > 0,
                 db_path=str(db),
-                total_chunks=row[0] if row else 0,
+                total_chunks=count,
             )
         )
 

@@ -98,6 +98,7 @@ _GET_REPO_SQL = _load_sql("get_repo.sql")
 _LIST_REPOS_SQL = _load_sql("list_repos.sql")
 _NEUTRALISE_FTS_IDF_SQL = _load_sql("neutralise_fts_idf.sql")
 _GET_CHUNK_PATHS_SQL = _load_sql("get_chunk_paths.sql")
+_COUNT_CHUNKS_SQL = _load_sql("count_chunks.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -453,6 +454,11 @@ class IndexStore:
         """Check whether any chunks exist for *blob_sha*."""
         result = self._cur().execute(_HAS_BLOB_SQL, [repo_id, blob_sha]).fetchone()
         return result is not None
+
+    def count_chunks(self, commit_sha: str, repo_id: int = 1) -> int:
+        """Count chunks visible at *commit_sha* without loading them."""
+        row = self._cur().execute(_COUNT_CHUNKS_SQL, [repo_id, commit_sha]).fetchone()
+        return int(row[0]) if row else 0
 
     def get_chunks(
         self,
