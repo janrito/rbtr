@@ -24,7 +24,6 @@ Lifecycle::
 
 from __future__ import annotations
 
-import importlib.metadata
 import logging
 import time
 from collections.abc import Callable
@@ -34,6 +33,7 @@ from typing import Any
 import zmq
 import zmq.asyncio
 
+from rbtr import get_version
 from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
@@ -47,14 +47,6 @@ from rbtr.daemon.messages import (
 )
 
 log = logging.getLogger(__name__)
-
-
-def _package_version() -> str:
-    """Read the rbtr package version, or ``'dev'`` if not installed."""
-    try:
-        return importlib.metadata.version("rbtr")
-    except importlib.metadata.PackageNotFoundError:
-        return "dev"
 
 
 type RequestHandler = Callable[[Any], Response]
@@ -151,7 +143,7 @@ class DaemonServer:
 
     def _handle_ping(self, _request: Request) -> PingResponse:
         return PingResponse(
-            version=_package_version(),
+            version=get_version(),
             uptime=round(time.monotonic() - self._start_time, 1),
         )
 
