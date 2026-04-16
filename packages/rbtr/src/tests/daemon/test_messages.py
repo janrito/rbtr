@@ -12,8 +12,8 @@ from pydantic import ValidationError
 
 from rbtr.daemon.messages import (
     AutoRebuildNotification,
-    BuildRequest,
-    BuildResponse,
+    BuildIndexRequest,
+    BuildIndexResponse,
     ErrorCode,
     ErrorResponse,
     OkResponse,
@@ -47,11 +47,18 @@ def test_request_search_with_defaults() -> None:
     assert req.ref == "HEAD"
 
 
-def test_request_build_with_defaults() -> None:
-    raw = b'{"kind":"build","repo":"/r"}'
+def test_request_build_index_with_defaults() -> None:
+    raw = b'{"kind":"build_index","repo":"/r"}'
     req = request_adapter.validate_json(raw)
-    assert isinstance(req, BuildRequest)
-    assert req.ref == "HEAD"
+    assert isinstance(req, BuildIndexRequest)
+    assert req.refs == ["HEAD"]
+
+
+def test_request_build_index_two_refs() -> None:
+    raw = b'{"kind":"build_index","repo":"/r","refs":["main","HEAD"]}'
+    req = request_adapter.validate_json(raw)
+    assert isinstance(req, BuildIndexRequest)
+    assert req.refs == ["main", "HEAD"]
 
 
 def test_request_unknown_kind_rejected() -> None:
@@ -127,9 +134,9 @@ def test_request_roundtrip() -> None:
 
 
 def test_response_roundtrip() -> None:
-    resp = BuildResponse(ref="HEAD", stats=IndexStats(), errors=[])
+    resp = BuildIndexResponse(refs=["HEAD"], stats=IndexStats(), errors=[])
     parsed = response_adapter.validate_json(resp.model_dump_json())
-    assert isinstance(parsed, BuildResponse)
+    assert isinstance(parsed, BuildIndexResponse)
 
 
 def test_notification_roundtrip() -> None:

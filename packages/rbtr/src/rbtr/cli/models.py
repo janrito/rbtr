@@ -13,10 +13,10 @@ from pydantic import BaseModel
 from rbtr.index.models import IndexStats
 
 
-class BuildResult(BaseModel):
-    """Output of `rbtr build`."""
+class BuildIndexResult(BaseModel):
+    """Output of `rbtr index`."""
 
-    ref: str
+    refs: list[str]
     stats: IndexStats
     errors: list[str]
 

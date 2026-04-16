@@ -27,7 +27,7 @@ class ErrorCode(StrEnum):
 
     INVALID_REQUEST = "invalid_request"
     INDEX_NOT_BUILT = "index_not_built"
-    BUILD_IN_PROGRESS = "build_in_progress"
+    INDEX_IN_PROGRESS = "index_in_progress"
     REPO_NOT_FOUND = "repo_not_found"
     INTERNAL = "internal"
 
@@ -50,11 +50,11 @@ class ShutdownRequest(BaseModel):
     kind: Literal["shutdown"] = "shutdown"
 
 
-class BuildRequest(BaseModel):
+class BuildIndexRequest(BaseModel):
     model_config = _STRICT
-    kind: Literal["build"] = "build"
+    kind: Literal["build_index"] = "build_index"
     repo: str
-    ref: str = "HEAD"
+    refs: list[str] = ["HEAD"]
 
 
 class SearchRequest(BaseModel):
@@ -107,7 +107,7 @@ class StatusRequest(BaseModel):
 Request = Annotated[
     PingRequest
     | ShutdownRequest
-    | BuildRequest
+    | BuildIndexRequest
     | SearchRequest
     | ReadSymbolRequest
     | ListSymbolsRequest
@@ -142,10 +142,10 @@ class PingResponse(BaseModel):
     uptime: float
 
 
-class BuildResponse(BaseModel):
+class BuildIndexResponse(BaseModel):
     model_config = _STRICT
-    kind: Literal["build"] = "build"
-    ref: str
+    kind: Literal["build_index"] = "build_index"
+    refs: list[str]
     stats: IndexStats
     errors: list[str]
 
@@ -192,7 +192,7 @@ Response = Annotated[
     ErrorResponse
     | OkResponse
     | PingResponse
-    | BuildResponse
+    | BuildIndexResponse
     | SearchResponse
     | ReadSymbolResponse
     | ListSymbolsResponse

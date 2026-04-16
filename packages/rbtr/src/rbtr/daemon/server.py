@@ -6,7 +6,7 @@ Binds two sockets in `sock_dir`:
   Receives a `Request` (discriminated on `kind`), dispatches
   to the matching handler, returns a `Response`.
 - **PUB** (`daemon.pub`) — fan-out notifications.
-  Broadcasts `Notification` messages (build progress, index
+  Broadcasts `Notification` messages (index progress,
   ready, auto-rebuild) to any connected SUB clients (pi-rbtr
   extension, CLI listeners).
 
@@ -35,7 +35,7 @@ import zmq.asyncio
 
 from rbtr import get_version
 from rbtr.daemon.handlers import (
-    handle_build,
+    handle_build_index,
     handle_changed_symbols,
     handle_find_refs,
     handle_list_symbols,
@@ -98,7 +98,7 @@ class DaemonServer:
                 "find_refs": lambda req: handle_find_refs(req, mgr),
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
                 "status": lambda req: handle_status(req, mgr),
-                "build": lambda req: handle_build(req, mgr),
+                "build_index": lambda req: handle_build_index(req, mgr),
             }
         )
 

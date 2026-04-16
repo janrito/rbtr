@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 
 from rbtr.daemon.messages import (
-    BuildRequest,
-    BuildResponse,
+    BuildIndexRequest,
+    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     ErrorCode,
@@ -30,7 +30,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.repos import RepoManager
 from rbtr.git import changed_files, open_repo
-from rbtr.index.orchestrator import build_index
+from rbtr.index.orchestrator import build_index, update_index
 
 log = logging.getLogger(__name__)
 
@@ -90,17 +90,32 @@ def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     )
 
 
-def handle_build(request: BuildRequest, mgr: RepoManager) -> Response:
-    """Build the index for a repo. Runs synchronously."""
+def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response:
+    """Index one or two refs for a repo.
+
+    Single ref: full index at that commit.
+    Two refs: index base, then incremental update for head.
+    """
     repo_id = mgr.resolve(request.repo)
     try:
         repo = open_repo(request.repo)
     except Exception as exc:
         return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
 
-    result = build_index(repo, request.ref, mgr.store, repo_id=repo_id)
-    return BuildResponse(
-        ref=request.ref,
+    refs = request.refs
+    if len(refs) == 1:
+        result = build_index(repo, refs[0], mgr.store, repo_id=repo_id)
+    elif len(refs) == 2:
+        build_index(repo, refs[0], mgr.store, repo_id=repo_id)
+        result = update_index(repo, refs[0], refs[1], mgr.store, repo_id=repo_id)
+    else:
+        return ErrorResponse(
+            code=ErrorCode.INVALID_REQUEST,
+            message=f"Expected 1 or 2 refs, got {len(refs)}",
+        )
+
+    return BuildIndexResponse(
+        refs=refs,
         stats=result.stats,
         errors=result.errors,
     )

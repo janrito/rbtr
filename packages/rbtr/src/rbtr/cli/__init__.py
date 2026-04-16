@@ -29,28 +29,58 @@ from pydantic_settings import (
 from rich.progress import Progress
 from rich_argparse import RichHelpFormatter
 
-from rbtr.cli.models import BuildResult, IndexStatus
+from rbtr.cli.models import BuildIndexResult, IndexStatus
 from rbtr.cli.output import _err, emit, is_json, print_err
 from rbtr.config import Config, config
 from rbtr.git import changed_files, open_repo
-from rbtr.index.orchestrator import build_index
+from rbtr.index.models import IndexResult
+from rbtr.index.orchestrator import ProgressCallback, build_index, update_index
 from rbtr.index.store import IndexStore
 
 # ── Subcommands ──────────────────────────────────────────────────────
 
 
-class Build(BaseModel):
-    """Build or update the index for a repository."""
+class Index(BaseModel):
+    """Index a repository (one ref or base + head)."""
 
-    ref: str = Field("HEAD", description="Git ref to index")
+    refs: list[str] = Field(["HEAD"], description="Refs to index (1 = snapshot, 2 = base + head)")
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
         repo = open_repo(self.repo_path)
         store = IndexStore.from_config()
 
+        def _run(
+            *,
+            on_progress: ProgressCallback | None = None,
+            on_embed_progress: ProgressCallback | None = None,
+        ) -> IndexResult:
+            if len(self.refs) == 1:
+                return build_index(
+                    repo,
+                    self.refs[0],
+                    store,
+                    on_progress=on_progress,
+                    on_embed_progress=on_embed_progress,
+                )
+            build_index(
+                repo,
+                self.refs[0],
+                store,
+                on_progress=on_progress,
+                on_embed_progress=on_embed_progress,
+            )
+            return update_index(
+                repo,
+                self.refs[0],
+                self.refs[1],
+                store,
+                on_progress=on_progress,
+                on_embed_progress=on_embed_progress,
+            )
+
         if is_json():
-            result = build_index(repo, self.ref, store)
+            result = _run()
         else:
             with Progress(console=_err) as progress:
                 parse_task = progress.add_task("Parsing files...", total=None)
@@ -62,17 +92,14 @@ class Build(BaseModel):
                 def on_embed_progress(done: int, total: int) -> None:
                     progress.update(embed_task, completed=done, total=total, visible=True)
 
-                result = build_index(
-                    repo,
-                    self.ref,
-                    store,
+                result = _run(
                     on_progress=on_progress,
                     on_embed_progress=on_embed_progress,
                 )
 
         emit(
-            BuildResult(
-                ref=self.ref,
+            BuildIndexResult(
+                refs=self.refs,
                 stats=result.stats,
                 errors=result.errors,
             )
@@ -185,7 +212,7 @@ class Rbtr(
     """rbtr — structural code index."""
 
     search: CliSubCommand[Search]
-    build: CliSubCommand[Build]
+    index: CliSubCommand[Index]
     read_symbol: CliSubCommand[ReadSymbol]
     list_symbols: CliSubCommand[ListSymbols]
     find_refs: CliSubCommand[FindRefs]

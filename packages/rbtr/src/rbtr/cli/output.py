@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.text import Text
 
-from rbtr.cli.models import BuildResult, IndexStatus
+from rbtr.cli.models import BuildIndexResult, IndexStatus
 from rbtr.config import config
 from rbtr.index.models import Chunk, Edge
 from rbtr.index.search import ScoredResult
@@ -82,8 +82,8 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
     Rule: every field in the model must appear in the output.
     """
     match model:
-        case BuildResult():
-            _render_build_result(model)
+        case BuildIndexResult():
+            _render_build_index_result(model)
         case ScoredResult():
             _render_scored_result(model)
         case Chunk():
@@ -97,11 +97,11 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
             raise TypeError(msg)
 
 
-def _render_build_result(m: BuildResult) -> None:
+def _render_build_index_result(m: BuildIndexResult) -> None:
     s = m.stats
     t = Text()
-    t.append("ref=", style="dim")
-    t.append(m.ref, style="bold")
+    t.append("refs=", style="dim")
+    t.append(", ".join(m.refs), style="bold")
     t.append(f"  {s.parsed_files}/{s.total_files} files", style="bold")
     t.append(f" ({s.skipped_files} skipped)", style="dim")
     t.append(f"  {s.total_chunks} chunks", style="cyan")
