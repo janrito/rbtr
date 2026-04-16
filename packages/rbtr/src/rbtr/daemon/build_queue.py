@@ -32,33 +32,21 @@ type NotifyFn = Callable[[Notification], None]
 class BuildQueue:
     """Serialised build queue with a single worker thread.
 
-    Two internal structures, two jobs:
-
-    - ``_queue`` blocks the worker thread until work arrives
-      (`SimpleQueue.get` with timeout).
-    - ``_submitted`` deduplicates — O(1) check whether a repo
-      is already queued or actively building. Cleared when the
-      build finishes (success or failure).
+    No dedup — redundant builds are cheap (blob dedup in
+    `build_index` skips files whose blob_sha is already
+    indexed).
     """
 
     def __init__(self, mgr: RepoManager, notify: NotifyFn) -> None:
         self._mgr = mgr
         self._notify = notify
         self._queue: queue.SimpleQueue[tuple[str, list[str]]] = queue.SimpleQueue()
-        self._submitted: set[str] = set()
         self._shutdown = False
+        self.active_repo: str | None = None
 
-    def submit(self, repo: str, refs: list[str]) -> bool:
-        """Enqueue a build. Returns False if already submitted."""
-        if repo in self._submitted:
-            return False
-        self._submitted.add(repo)
+    def submit(self, repo: str, refs: list[str]) -> None:
+        """Enqueue a build."""
         self._queue.put((repo, refs))
-        return True
-
-    def is_busy(self, repo: str) -> bool:
-        """Check if a repo has a queued or active build."""
-        return repo in self._submitted
 
     def start(self) -> threading.Thread:
         """Start the worker thread."""
@@ -76,12 +64,13 @@ class BuildQueue:
                 repo, refs = self._queue.get(timeout=1)
             except queue.Empty:
                 continue
+            self.active_repo = repo
             try:
                 self._build(repo, refs)
             except Exception:
                 log.exception("Build failed for %s", repo)
             finally:
-                self._submitted.discard(repo)
+                self.active_repo = None
 
     def _build(self, repo_path: str, refs: list[str]) -> None:
         repo = open_repo(repo_path)

@@ -113,8 +113,5 @@ def handle_build_index(
     if not isinstance(build_queue, BuildQueue):
         return ErrorResponse(code=ErrorCode.INTERNAL, message="No build queue")
 
-    if build_queue.is_busy(request.repo):
-        return OkResponse()  # already queued
-
     build_queue.submit(request.repo, request.refs)
     return OkResponse()
