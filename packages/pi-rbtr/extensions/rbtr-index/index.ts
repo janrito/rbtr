@@ -18,12 +18,12 @@ import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui"
 import { Type } from "@sinclair/typebox";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import {
-	renderBuildCall,
-	renderBuildResult,
 	renderChangedSymbolsCall,
 	renderChangedSymbolsResult,
 	renderFindRefsCall,
 	renderFindRefsResult,
+	renderIndexCall,
+	renderIndexResult,
 	renderListSymbolsCall,
 	renderListSymbolsResult,
 	renderReadSymbolCall,
@@ -41,7 +41,7 @@ interface IndexStatus {
 	total_chunks?: number;
 }
 
-interface BuildStats {
+interface IndexStats {
 	total_chunks: number;
 	total_edges: number;
 	total_files: number;
@@ -50,9 +50,9 @@ interface BuildStats {
 	elapsed_seconds: number;
 }
 
-interface BuildResult {
-	ref: string;
-	stats: BuildStats;
+interface IndexResult {
+	refs: string[];
+	stats: IndexStats;
 	errors: string[];
 }
 
@@ -85,9 +85,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	}
 
 	let resolved: ResolvedCommand | null = null;
-	let settings: RbtrIndexSettings = { command: "rbtr", autoBuild: true };
+	let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true };
 	let cliAvailable = false;
-	let buildPromise: Promise<BuildResult> | null = null;
+	let indexPromise: Promise<IndexResult> | null = null;
 
 	async function checkStatus(): Promise<IndexStatus | null> {
 		if (!resolved) return null;
@@ -99,22 +99,21 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		}
 	}
 
-	// ── Build management ───────────────────────────────────────
+	// ── Index management ───────────────────────────────────────
 
-	function isBuilding(): boolean {
-		return buildPromise !== null;
+	function isIndexing(): boolean {
+		return indexPromise !== null;
 	}
 
 	/**
-	 * Launch a background index build. Returns false if a build
-	 * is already running. Updates footer status and notifies
-	 * on completion.
+	 * Launch a background index. Returns false if already
+	 * indexing. Updates footer status and notifies on completion.
 	 */
-	function startBuild(ctx: ExtensionContext, ref = "HEAD"): boolean {
+	function startIndexing(ctx: ExtensionContext, ...refs: string[]): boolean {
 		if (!resolved || !cliAvailable) return false;
-		if (buildPromise) return false;
+		if (indexPromise) return false;
 
-		ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: building\u2026"));
+		ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: indexing\u2026"));
 
 		const captured = {
 			setStatus: ctx.ui.setStatus.bind(ctx.ui),
@@ -122,17 +121,21 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			theme: ctx.ui.theme,
 		};
 
-		buildPromise = runRbtrJson<BuildResult>(pi, resolved, ["build", "--ref", ref], { timeout: 600_000 })
+		const args = ["index"];
+		if (refs.length > 0) {
+			args.push("--refs", ...refs);
+		}
+
+		indexPromise = runRbtrJson<IndexResult>(pi, resolved, args, { timeout: 600_000 })
 			.then(async (results) => {
 				const result = results[0];
 				if (!result) {
-					// Build produced no JSON output — re-check status for the count
 					const status = await checkStatus();
 					const count = status?.total_chunks ?? 0;
 					captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${count} symbols`));
-					captured.notify("Index build completed.", "info");
+					captured.notify("Indexing completed.", "info");
 					return {
-						ref,
+						refs: refs.length > 0 ? refs : ["HEAD"],
 						stats: {
 							total_chunks: count,
 							total_edges: 0,
@@ -147,19 +150,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				const s = result.stats;
 				captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${s.total_chunks} symbols`));
 				captured.notify(
-					`Index built: ${s.total_chunks} chunks, ${s.total_edges} edges \u2014 ${s.elapsed_seconds.toFixed(1)}s` +
+					`Indexed: ${s.total_chunks} chunks, ${s.total_edges} edges \u2014 ${s.elapsed_seconds.toFixed(1)}s` +
 						(result.errors.length > 0 ? `\n${result.errors.length} error(s)` : ""),
 					result.errors.length > 0 ? "warning" : "info",
 				);
 				return result;
 			})
 			.catch((err) => {
-				captured.setStatus("rbtr", captured.theme.fg("error", "rbtr: build failed"));
-				captured.notify(`Index build failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+				captured.setStatus("rbtr", captured.theme.fg("error", "rbtr: indexing failed"));
+				captured.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
 				throw err;
 			})
 			.finally(() => {
-				buildPromise = null;
+				indexPromise = null;
 			});
 
 		return true;
@@ -167,14 +170,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
 	/**
 	 * Guard used by query tools: throws if CLI unavailable or
-	 * build is in progress so the LLM gets a clear error.
+	 * indexing is in progress so the LLM gets a clear error.
 	 */
 	function requireReady(): void {
 		if (!resolved || !cliAvailable) {
 			throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
 		}
-		if (isBuilding()) {
-			throw new Error("Index build is in progress. Try again after it completes.");
+		if (isIndexing()) {
+			throw new Error("Indexing is in progress. Try again after it completes.");
 		}
 	}
 
@@ -200,10 +203,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
 		if (status.exists) {
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("success", `rbtr: ${status.total_chunks} symbols`));
-		} else if (settings.autoBuild) {
-			startBuild(ctx);
+		} else if (settings.autoIndex) {
+			startIndexing(ctx);
 		} else {
-			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-build"));
+			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-index"));
 		}
 	});
 
@@ -236,24 +239,24 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			if (status.exists) {
 				ctx.ui.notify(`Index: ${status.total_chunks} symbols\nPath: ${status.db_path}`, "info");
 			} else {
-				ctx.ui.notify("No index found. Use /rbtr-build to create one.", "warning");
+				ctx.ui.notify("No index found. Use /rbtr-index to create one.", "warning");
 			}
 		},
 	});
 
-	pi.registerCommand("rbtr-build", {
-		description: "Build or rebuild the rbtr code index",
+	pi.registerCommand("rbtr-index", {
+		description: "Index the repository (or rebuild the index)",
 		handler: async (_args, ctx) => {
 			if (!cliAvailable || !resolved) {
 				ctx.ui.notify("rbtr CLI not available", "error");
 				return;
 			}
-			if (isBuilding()) {
-				ctx.ui.notify("Build already in progress", "warning");
+			if (isIndexing()) {
+				ctx.ui.notify("Indexing already in progress", "warning");
 				return;
 			}
-			startBuild(ctx);
-			ctx.ui.notify("Index build started. Progress in the footer.", "info");
+			startIndexing(ctx);
+			ctx.ui.notify("Indexing started. Progress in the footer.", "info");
 		},
 	});
 
@@ -268,16 +271,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			await ctx.ui.custom((tui, theme, _kb, done) => {
 				const items: SettingItem[] = [
 					{
-						id: "autoBuild",
-						label: "Auto-build on session start",
-						currentValue: settings.autoBuild ? "on" : "off",
+						id: "autoIndex",
+						label: "Auto-index on session start",
+						currentValue: settings.autoIndex ? "on" : "off",
 						values: ["on", "off"],
 					},
 				];
 
 				const container = new Container();
 
-				// Header with resolved command info
 				container.addChild({
 					render(_width: number) {
 						const desc = resolved ? resolved.description : "not resolved";
@@ -298,9 +300,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 					Math.min(items.length + 2, 15),
 					getSettingsListTheme(),
 					(id, newValue) => {
-						if (id === "autoBuild") {
-							settings.autoBuild = newValue === "on";
-							saveProjectSettings(ctx.cwd, { autoBuild: settings.autoBuild });
+						if (id === "autoIndex") {
+							settings.autoIndex = newValue === "on";
+							saveProjectSettings(ctx.cwd, { autoIndex: settings.autoIndex });
 						}
 					},
 					() => done(undefined),
@@ -327,43 +329,45 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	// ── Tools ──────────────────────────────────────────────────
 
 	pi.registerTool({
-		name: "rbtr_build",
-		label: "rbtr build",
-		description: "Build or update the structural code index for the repository.",
-		promptSnippet: "Build or update the structural code index for the repository",
+		name: "rbtr_index",
+		label: "rbtr index",
+		description: "Index the repository so the code index tools can be used.",
+		promptSnippet: "Index the repository so the code index tools can be used",
 		promptGuidelines: [
-			"Use rbtr_build when the user asks to index the codebase or when rbtr_search returns no results.",
-			"Building is incremental — unchanged files are skipped.",
-			"The build runs in background. Use rbtr_status to check when it completes.",
+			"Use rbtr_index when the user asks to index the codebase or when rbtr_search returns no results.",
+			"Indexing is incremental — unchanged files are skipped.",
+			"The index runs in background. Use rbtr_status to check when it completes.",
 		],
 		parameters: Type.Object({
-			ref: Type.Optional(Type.String({ description: "Git ref to index (default: HEAD)" })),
+			refs: Type.Optional(
+				Type.Array(Type.String(), { description: "Git refs to index (default: ['HEAD']). Two refs = base + head." }),
+			),
 		}),
-		renderCall: (args, theme) => renderBuildCall(args, theme),
-		renderResult: (result, options, theme) => renderBuildResult(result, options, theme),
+		renderCall: (args, theme) => renderIndexCall(args, theme),
+		renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (!resolved || !cliAvailable) {
 				throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
 			}
-			if (isBuilding()) {
+			if (isIndexing()) {
 				return {
-					content: [{ type: "text", text: "Build already in progress. Use rbtr_status to check progress." }],
+					content: [{ type: "text", text: "Indexing already in progress. Use rbtr_status to check progress." }],
 					details: { status: "in_progress" },
 				};
 			}
 
-			const ref = params.ref || "HEAD";
-			startBuild(ctx, ref);
+			const refs = params.refs ?? ["HEAD"];
+			startIndexing(ctx, ...refs);
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Build started for ref ${ref}. Progress is shown in the footer. Use rbtr_status to check when complete.`,
+						text: `Indexing started for refs ${refs.join(", ")}. Progress is shown in the footer. Use rbtr_status to check when complete.`,
 					},
 				],
-				details: { status: "started", ref },
+				details: { status: "started", refs },
 			};
 		},
 	});
@@ -381,10 +385,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			if (!resolved || !cliAvailable) {
 				throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
 			}
-			if (isBuilding()) {
+			if (isIndexing()) {
 				return {
-					content: [{ type: "text", text: "Index build is in progress. Check again shortly." }],
-					details: { building: true },
+					content: [{ type: "text", text: "Indexing is in progress. Check again shortly." }],
+					details: { indexing: true },
 				};
 			}
 
@@ -401,7 +405,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			}
 
 			return {
-				content: [{ type: "text", text: "No index found. Use rbtr_build to create one." }],
+				content: [{ type: "text", text: "No index found. Use rbtr_index to create one." }],
 				details: status,
 			};
 		},

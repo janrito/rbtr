@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+import pygit2
+
 from rbtr.daemon.messages import (
     BuildIndexRequest,
     BuildIndexResponse,
@@ -90,8 +92,20 @@ def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     )
 
 
+def resolve_refs(repo: pygit2.Repository, refs: list[str]) -> list[str] | ErrorResponse:
+    """Resolve symbolic refs to commit SHAs. Returns error on failure."""
+    resolved: list[str] = []
+    for ref in refs:
+        try:
+            sha = str(resolve_commit(repo, ref).id)
+        except KeyError as exc:
+            return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
+        resolved.append(sha)
+    return resolved
+
+
 def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response:
-    """Index refs for a repo.
+    """Index refs for a repo. Runs synchronously.
 
     Each ref is resolved to a commit SHA before indexing.
     Blob dedup means indexing multiple refs only extracts
@@ -103,13 +117,9 @@ def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response
     except Exception as exc:
         return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
 
-    resolved: list[str] = []
-    for ref in request.refs:
-        try:
-            sha = str(resolve_commit(repo, ref).id)
-        except KeyError as exc:
-            return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-        resolved.append(sha)
+    resolved = resolve_refs(repo, request.refs)
+    if isinstance(resolved, ErrorResponse):
+        return resolved
 
     result = None
     for sha in resolved:
