@@ -43,7 +43,7 @@ from rbtr.index.store import IndexStore
 class Index(BaseModel):
     """Index a repository (one ref or base + head)."""
 
-    refs: list[str] = Field(["HEAD"], description="Refs to index (1 = snapshot, 2 = base + head)")
+    refs: CliPositionalArg[list[str]] = Field(["HEAD"], description="Refs to index")
     repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
