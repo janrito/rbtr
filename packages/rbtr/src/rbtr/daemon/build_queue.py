@@ -30,12 +30,7 @@ type NotifyFn = Callable[[Notification], None]
 
 
 class BuildQueue:
-    """Serialised build queue with a single worker thread.
-
-    No dedup — redundant builds are cheap (blob dedup in
-    `build_index` skips files whose blob_sha is already
-    indexed).
-    """
+    """Serialised build queue with a single worker thread."""
 
     def __init__(self, mgr: RepoManager, notify: NotifyFn) -> None:
         self._mgr = mgr
