@@ -102,6 +102,8 @@ class DaemonServer:
         atexit.register(self._cleanup)
 
     def _cleanup(self) -> None:
+        # Save watched repos before exit
+        self._watcher.save(self.sock_dir)
         remove_status(self.sock_dir)
         (self.sock_dir / "daemon.rpc").unlink(missing_ok=True)
         (self.sock_dir / "daemon.pub").unlink(missing_ok=True)
@@ -118,7 +120,7 @@ class DaemonServer:
                 "find_refs": lambda req: handle_find_refs(req, mgr),
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
                 "status": lambda req: handle_status(req, mgr),
-                "build_index": lambda req: handle_build_index(req, bq),
+                "build_index": lambda req: handle_build_index(req, bq, self._watcher),
             }
         )
 
@@ -151,6 +153,18 @@ class DaemonServer:
     async def serve(self) -> None:
         self.sock_dir.mkdir(parents=True, exist_ok=True)
         self._register_atexit()
+
+        # Load persisted watched repos on startup
+        self._watcher.load(self.sock_dir)
+
+        # Start the embedding idle-unload monitor if a store was provided
+        # (store init loads the model, so we track from here).
+        if self._build_queue is not None:
+            # deferred: embeddings is a heavy import
+            from rbtr.config import config
+            from rbtr.index import embeddings  # noqa: PLC0415
+
+            embeddings.start_idle_monitor(config.embed_idle_timeout)
         self._setup_signal_handlers()
 
         ctx = zmq.asyncio.Context()

@@ -3,16 +3,23 @@
 Pure polling logic with no threads or daemon dependencies.
 The daemon server runs `poll()` periodically and acts on
 the returned changes.
+
+Watched repos are persisted to a JSON file so they survive
+daemon restarts.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import pygit2
 
 log = logging.getLogger(__name__)
+
+_WATCHED_PATH = "watched.json"
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,37 @@ class RefWatcher:
     def repos(self) -> list[str]:
         """Return all watched repo paths."""
         return list(self._refs)
+
+    def save(self, user_dir: Path) -> None:
+        """Persist the watched repo list to *user_dir*."""
+        if not self._refs:
+            return
+        path = user_dir / _WATCHED_PATH
+        try:
+            path.write_text(json.dumps(list(self._refs)) + "\n")
+        except OSError:
+            log.warning("Failed to persist watched repos to %s", path)
+
+    def load(self, user_dir: Path) -> None:
+        """Load previously watched repos from *user_dir*.
+
+        Repos that no longer exist are skipped silently.
+        """
+        path = user_dir / _WATCHED_PATH
+        if not path.exists():
+            return
+        try:
+            paths: list[str] = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            log.warning("Failed to load watched repos from %s", path)
+            return
+        for repo_path in paths:
+            try:
+                # Only register if the path exists as a git repo
+                pygit2.Repository(repo_path)
+                self._refs.setdefault(repo_path, _read_head(repo_path))
+            except Exception:
+                log.debug("Skipping non-existent watched repo: %s", repo_path)
 
     def poll(self) -> list[RefChange]:
         """Check all watched repos for HEAD changes.

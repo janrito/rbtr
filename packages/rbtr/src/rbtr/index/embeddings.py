@@ -11,6 +11,8 @@ import contextlib
 import ctypes
 import functools
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,6 +38,9 @@ _log = logging.getLogger(__name__)
 
 _llama_log_cb_ref: object = None  # prevent GC of ctypes callback
 _model_ref: Llama | None = None
+_last_use_time: float = 0.0  # monotonic seconds at last embed call
+_idle_monitor_running: bool = False
+_idle_stop_event: threading.Event | None = None
 
 
 def _install_llama_log_callback() -> None:
@@ -163,9 +168,10 @@ def _get_model_cached() -> Llama:
 
 def get_model() -> Llama:
     """Return the model instance, loading on first call."""
-    global _model_ref
+    global _model_ref, _last_use_time
     model = _get_model_cached()
     _model_ref = model
+    _last_use_time = time.monotonic()
     return model
 
 
@@ -180,10 +186,11 @@ def _close_model(model: Llama) -> None:
 
 def reset_model() -> None:
     """Release the loaded model (useful for tests and cleanup)."""
-    global _model_ref
+    global _model_ref, _last_use_time
     if _model_ref is not None:
         _close_model(_model_ref)
         _model_ref = None
+    _last_use_time = 0.0
     _get_model_cached.cache_clear()
 
 
@@ -224,6 +231,56 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         vec = model.embed(text, normalize=True)
         vectors.append(vec)  # type: ignore[arg-type]  # single input returns list[float]
     return vectors
+
+
+# ── Idle unload ──────────────────────────────────────────────────────
+
+
+def start_idle_monitor(timeout: float) -> None:
+    """Start the idle-unload background thread.
+
+    After *timeout* seconds of inactivity (no embedding calls),
+    the loaded model is released.  Set *timeout* to 0 to disable.
+    A model that has never been loaded is not loaded by this thread.
+    """
+    global _idle_monitor_running, _idle_stop_event
+    if timeout <= 0:
+        return
+    if _idle_monitor_running:
+        return
+    _idle_stop_event = threading.Event()
+    _idle_monitor_running = True
+    thread = threading.Thread(target=_idle_loop, args=(timeout,), daemon=True)
+    thread.start()
+
+
+def stop_idle_monitor() -> None:
+    """Stop the idle-unload background thread."""
+    global _idle_monitor_running, _idle_stop_event
+    if not _idle_monitor_running or _idle_stop_event is None:
+        return
+    _idle_stop_event.set()
+    _idle_monitor_running = False
+    _idle_stop_event = None
+
+
+def _idle_loop(timeout: float) -> None:
+    """Background loop: unload model after *timeout* seconds idle."""
+    global _last_use_time, _idle_stop_event
+    check_interval = min(timeout, 30.0)  # check at most every 30 s
+    while True:
+        if _idle_stop_event is not None and _idle_stop_event.wait(timeout=check_interval):
+            break
+        if _model_ref is None:
+            continue  # never loaded, nothing to unload
+        idle = time.monotonic() - _last_use_time
+        if idle >= timeout:
+            _log.info(
+                "Embedding model idle for %.0f s (limit: %.0f s), unloading.",
+                idle,
+                timeout,
+            )
+            reset_model()
 
 
 def embed_text(text: str) -> list[float]:

@@ -64,6 +64,14 @@ class Config(BaseSettings):
             description="Force JSON output.",
         ),
     ] = False
+    embed_idle_timeout: Annotated[
+        int,
+        Field(
+            description=(
+                "Seconds before unloading the embedding model when idle. "
+                "Set to 0 to keep the model loaded. Only used by the daemon."            ),
+        ),
+    ] = 300
 
     @classmethod
     def settings_customise_sources(
