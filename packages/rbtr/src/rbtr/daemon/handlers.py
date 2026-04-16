@@ -8,22 +8,28 @@ resolve repo paths to `repo_id`s.
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Callable
 
 import pygit2
 
 from rbtr.daemon.messages import (
     BuildIndexRequest,
-    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     ErrorCode,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
+    IndexErrorNotification,
     ListSymbolsRequest,
     ListSymbolsResponse,
+    Notification,
+    OkResponse,
+    ProgressNotification,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    ReadyNotification,
     Response,
     SearchRequest,
     SearchResponse,
@@ -35,6 +41,24 @@ from rbtr.git import changed_files, open_repo, resolve_commit
 from rbtr.index.orchestrator import build_index
 
 log = logging.getLogger(__name__)
+
+# Track which repos are currently building (thread-safe via GIL)
+_building: set[str] = set()
+
+
+def resolve_refs(repo: pygit2.Repository, refs: list[str]) -> list[str] | ErrorResponse:
+    """Resolve symbolic refs to commit SHAs. Returns error on failure."""
+    resolved: list[str] = []
+    for ref in refs:
+        try:
+            sha = str(resolve_commit(repo, ref).id)
+        except KeyError as exc:
+            return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
+        resolved.append(sha)
+    return resolved
+
+
+# ── Read-only handlers ───────────────────────────────────────────────
 
 
 def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
@@ -92,47 +116,95 @@ def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     )
 
 
-def resolve_refs(repo: pygit2.Repository, refs: list[str]) -> list[str] | ErrorResponse:
-    """Resolve symbolic refs to commit SHAs. Returns error on failure."""
-    resolved: list[str] = []
-    for ref in refs:
-        try:
-            sha = str(resolve_commit(repo, ref).id)
-        except KeyError as exc:
-            return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-        resolved.append(sha)
-    return resolved
+# ── Build handler (async — returns immediately) ─────────────────────
+
+type NotifyFn = Callable[[Notification], None]
 
 
-def handle_build_index(request: BuildIndexRequest, mgr: RepoManager) -> Response:
-    """Index refs for a repo. Runs synchronously.
+def handle_build_index_async(
+    request: BuildIndexRequest,
+    mgr: RepoManager,
+    notify: NotifyFn,
+) -> Response:
+    """Start an async index build. Returns immediately.
 
-    Each ref is resolved to a commit SHA before indexing.
-    Blob dedup means indexing multiple refs only extracts
-    files that differ between them.
+    Progress and completion are published via *notify*.
     """
-    repo_id = mgr.resolve(request.repo)
-    try:
-        repo = open_repo(request.repo)
-    except Exception as exc:
-        return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-
-    resolved = resolve_refs(repo, request.refs)
-    if isinstance(resolved, ErrorResponse):
-        return resolved
-
-    result = None
-    for sha in resolved:
-        result = build_index(repo, sha, mgr.store, repo_id=repo_id)
-
-    if result is None:
+    if request.repo in _building:
         return ErrorResponse(
-            code=ErrorCode.INVALID_REQUEST,
-            message="No refs to index",
+            code=ErrorCode.INDEX_IN_PROGRESS,
+            message=f"Build already in progress for {request.repo}",
         )
 
-    return BuildIndexResponse(
-        refs=resolved,
-        stats=result.stats,
-        errors=result.errors,
+    thread = threading.Thread(
+        target=_do_build,
+        args=(request.repo, request.refs, mgr, notify),
+        daemon=True,
     )
+    thread.start()
+    return OkResponse()
+
+
+def _do_build(
+    repo_path: str,
+    refs: list[str],
+    mgr: RepoManager,
+    notify: NotifyFn,
+) -> None:
+    """Run build_index in a thread. Publishes notifications."""
+    _building.add(repo_path)
+    try:
+        repo = open_repo(repo_path)
+        repo_id = mgr.resolve(repo_path)
+
+        resolved = resolve_refs(repo, refs)
+        if isinstance(resolved, ErrorResponse):
+            notify(IndexErrorNotification(repo=repo_path, message=resolved.message))
+            return
+
+        for sha in resolved:
+
+            def on_progress(done: int, total: int) -> None:
+                notify(
+                    ProgressNotification(
+                        repo=repo_path,
+                        phase="parsing",
+                        current=done,
+                        total=total,
+                    )
+                )
+
+            def on_embed_progress(done: int, total: int) -> None:
+                notify(
+                    ProgressNotification(
+                        repo=repo_path,
+                        phase="embedding",
+                        current=done,
+                        total=total,
+                    )
+                )
+
+            result = build_index(
+                repo,
+                sha,
+                mgr.store,
+                repo_id=repo_id,
+                on_progress=on_progress,
+                on_embed_progress=on_embed_progress,
+            )
+
+            notify(
+                ReadyNotification(
+                    repo=repo_path,
+                    ref=sha,
+                    chunks=result.stats.total_chunks,
+                    edges=result.stats.total_edges,
+                    elapsed=round(result.stats.elapsed_seconds, 2),
+                )
+            )
+
+    except Exception as exc:
+        log.exception("Build failed for %s", repo_path)
+        notify(IndexErrorNotification(repo=repo_path, message=str(exc)))
+    finally:
+        _building.discard(repo_path)

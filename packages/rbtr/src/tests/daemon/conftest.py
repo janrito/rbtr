@@ -98,10 +98,13 @@ def seeded_store() -> IndexStore:
 
 
 def start_server(
-    sock_dir: Path, store: IndexStore | None = None
+    sock_dir: Path,
+    store: IndexStore | None = None,
+    *,
+    poll_interval: float = 60.0,
 ) -> tuple[DaemonServer, threading.Thread]:
     """Start a server and wait for the socket file to appear."""
-    server = DaemonServer(sock_dir, store=store)
+    server = DaemonServer(sock_dir, store=store, poll_interval=poll_interval)
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
     rpc_path = sock_dir / "daemon.rpc"
