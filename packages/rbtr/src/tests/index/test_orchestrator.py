@@ -239,6 +239,21 @@ def test_build_index_marks_commit_indexed(
     assert store.has_indexed(1, commit_sha) is True
 
 
+def test_build_index_sweeps_residue_from_crashed_builds(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
+    """A successful build cleans up dangling snapshots/edges from prior crashes."""
+    # Simulate residue: a snapshot for a commit that never finished.
+    store.insert_snapshot("crashed_sha", "leftover.py", "leftover_blob")
+    assert store.has_indexed(1, "crashed_sha") is False
+
+    build_index(git_repo, commit_sha, store)
+
+    # The legit commit is indexed; the crashed residue is gone.
+    assert store.has_indexed(1, commit_sha) is True
+    assert store.get_chunks("crashed_sha") == []
+
+
 # ── update_index tests ──────────────────────────────────────────────
 
 

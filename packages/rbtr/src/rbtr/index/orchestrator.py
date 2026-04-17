@@ -212,6 +212,18 @@ def build_index(
     #    and the watcher re-detects the stale HEAD on the next poll.
     store.mark_indexed(repo_id, commit_sha)
 
+    # 9. Auto-GC crashed-build residue. Safe to run only after the
+    #    mark above, otherwise this build's own snapshots would be
+    #    deleted as “orphan” (no indexed_commits row yet).
+    residue = store.sweep_orphan_commits(repo_id)
+    if residue.snapshots or residue.edges or residue.chunks:
+        log.info(
+            "Auto-GC swept %d snapshots, %d edges, %d chunks",
+            residue.snapshots,
+            residue.edges,
+            residue.chunks,
+        )
+
     result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
     log.info(
@@ -346,6 +358,16 @@ def update_index(
     # Mark head fully indexed — must be the last write so a crash
     # above leaves no completion row and the watcher retries.
     store.mark_indexed(repo_id, head_sha)
+
+    # Auto-GC crashed-build residue (safe post-mark; see build_index).
+    residue = store.sweep_orphan_commits(repo_id)
+    if residue.snapshots or residue.edges or residue.chunks:
+        log.info(
+            "Auto-GC swept %d snapshots, %d edges, %d chunks",
+            residue.snapshots,
+            residue.edges,
+            residue.chunks,
+        )
 
     result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
