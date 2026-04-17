@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from pydantic import BaseModel
 from rich.console import Console
+from rich.progress import Progress
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -25,12 +28,14 @@ from rbtr.index.models import Chunk, Edge
 from rbtr.index.search import ScoredResult
 from rbtr.languages import get_manager
 
+type ProgressCallback = Callable[[int, int], None]
+
 _out = Console(highlight=False)
 _err = Console(stderr=True, highlight=False)
 
 
-def is_json() -> bool:
-    """Whether output should be JSON (piped or ``--json``)."""
+def _json_output() -> bool:
+    """Whether stdout should carry JSON (piped or ``--json``)."""
     return config.json_output or not sys.stdout.isatty()
 
 
@@ -41,7 +46,7 @@ def emit(model: BaseModel, *, compact: bool = False) -> None:
     model. When True, chunk renderers show a one-line summary
     instead of the full source.
     """
-    if is_json():
+    if _json_output():
         sys.stdout.write(model.model_dump_json())
         sys.stdout.write("\n")
     else:
@@ -51,6 +56,38 @@ def emit(model: BaseModel, *, compact: bool = False) -> None:
 def print_err(msg: str) -> None:
     """Print a rich-formatted message to stderr."""
     _err.print(msg)
+
+
+@contextmanager
+def progress_reporter(
+    *,
+    parse_label: str = "Parsing files...",
+    embed_label: str = "Embedding...",
+) -> Iterator[tuple[ProgressCallback | None, ProgressCallback | None]]:
+    """Yield ``(on_parse, on_embed)`` progress callbacks.
+
+    When stderr is not a TTY the callbacks are ``None`` — callers
+    pass them straight through without needing to know the output
+    mode. Otherwise they drive a `rich.progress.Progress` rendered
+    on stderr so it never interferes with JSON on stdout.
+    """
+    if not _err.is_terminal:
+        yield None, None
+        return
+
+    with Progress(console=_err) as progress:
+        parse_task = progress.add_task(f"[cyan]{parse_label}[/]", total=None)
+        embed_task = progress.add_task(
+            f"[cyan]{embed_label}[/]", total=None, visible=False
+        )
+
+        def on_parse(done: int, total: int) -> None:
+            progress.update(parse_task, completed=done, total=total)
+
+        def on_embed(done: int, total: int) -> None:
+            progress.update(embed_task, completed=done, total=total, visible=True)
+
+        yield on_parse, on_embed
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

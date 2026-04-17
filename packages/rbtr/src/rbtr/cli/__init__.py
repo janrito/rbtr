@@ -36,10 +36,9 @@ from pydantic_settings import (
     CliSubCommand,
     get_subcommand,
 )
-from rich.progress import Progress
 from rich_argparse import RichHelpFormatter
 
-from rbtr.cli.output import _err, emit, is_json, print_err
+from rbtr.cli.output import emit, print_err, progress_reporter
 from rbtr.config import Config, config
 from rbtr.daemon.client import (
     _status,
@@ -70,8 +69,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.git import changed_files, open_repo
-from rbtr.index.models import IndexResult
-from rbtr.index.orchestrator import ProgressCallback, build_index, update_index
+from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
 from rbtr.daemon.messages import Notification, Request, Response
 
@@ -216,30 +214,31 @@ class Index(BaseModel):
         repo = open_repo(resolved_repo)
         store = IndexStore.from_config()
 
-        def _run(
-            *,
-            on_progress: ProgressCallback | None = None,
-            on_embed_progress: ProgressCallback | None = None,
-        ) -> IndexResult:
+        with progress_reporter() as (on_parse, on_embed):
             if len(resolved_refs) == 2:
-                build_index(repo, resolved_refs[0], store, on_progress=on_progress, on_embed_progress=on_embed_progress)
-                return update_index(repo, resolved_refs[0], resolved_refs[1], store, on_progress=on_progress, on_embed_progress=on_embed_progress)
-            return build_index(repo, resolved_refs[0], store, on_progress=on_progress, on_embed_progress=on_embed_progress)
-
-        if is_json():
-            result = _run()
-        else:
-            with Progress(console=_err) as progress:
-                parse_task = progress.add_task("[cyan]Parsing files...[/]", total=None)
-                embed_task = progress.add_task("[cyan]Embedding...[/]", total=None, visible=False)
-
-                def on_progress(done: int, total: int) -> None:
-                    progress.update(parse_task, completed=done, total=total)
-
-                def on_embed_progress(done: int, total: int) -> None:
-                    progress.update(embed_task, completed=done, total=total, visible=True)
-
-                result = _run(on_progress=on_progress, on_embed_progress=on_embed_progress)
+                build_index(
+                    repo,
+                    resolved_refs[0],
+                    store,
+                    on_progress=on_parse,
+                    on_embed_progress=on_embed,
+                )
+                result = update_index(
+                    repo,
+                    resolved_refs[0],
+                    resolved_refs[1],
+                    store,
+                    on_progress=on_parse,
+                    on_embed_progress=on_embed,
+                )
+            else:
+                result = build_index(
+                    repo,
+                    resolved_refs[0],
+                    store,
+                    on_progress=on_parse,
+                    on_embed_progress=on_embed,
+                )
 
         emit(
             BuildIndexResponse(
