@@ -23,7 +23,7 @@ from rbtr.index.treesitter import _get_query
 
 
 @pytest.fixture(autouse=True)
-def _mock_embeddings(mocker: MockerFixture) -> None:
+def mock_embeddings(mocker: MockerFixture) -> None:
     """Stub out the embedding step — no GGUF model needed in tests."""
     mocker.patch("rbtr.index.orchestrator._embed_missing")
 

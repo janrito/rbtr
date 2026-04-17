@@ -14,15 +14,14 @@ These tests verify that:
 from __future__ import annotations
 
 import pytest
+from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
+from tests.index.case_tokenise_keywords import KeywordCase
 
 # ── Tokenisation: keywords survive ───────────────────────────────────
-#
-# Each case is (code_snippet, keywords_that_must_appear_in_tokens).
-# Grouped by language.
 
 
 @pytest.mark.parametrize(
@@ -59,20 +58,20 @@ from rbtr.index.tokenise import tokenise_code
         ("switch (action) { case 'add': break; }", {"switch", "case", "break"}),
         ("try { } catch (e) { throw e; }", {"try", "catch", "throw"}),
         # ── Go ───────────────────────────────────────────────────
-        ("if err != nil { return err }", {"if", "err", "nil", "return"}),
-        ("for i, v := range items {", {"for", "range"}),
-        ("func (s *Server) handle()", {"func"}),
-        ("switch v := value.(type) {", {"switch", "type"}),
-        ("go handleConnection(conn)", {"go"}),
+        ("func handle(w http.ResponseWriter, r *http.Request) {", {"func", "handle"}),
         ("defer file.Close()", {"defer"}),
-        ("select { case msg := <-ch: }", {"select", "case"}),
-        ("chan int", {"chan", "int"}),
-        ("interface{}", {"interface"}),
+        ("go process(item)", {"go", "process"}),
+        ("select { case x := <-ch: }", {"select", "case"}),
+        ("chan int", {"chan"}),
+        ("package main", {"package", "main"}),
+        ("struct { name string }", {"struct", "name", "string"}),
+        ("interface { Read() }", {"interface"}),
         # ── Rust ─────────────────────────────────────────────────
-        ("impl Display for MyStruct {", {"impl", "for"}),
-        ("if let Some(v) = option {", {"if", "let"}),
-        ("match result { Ok(v) => v }", {"match"}),
-        ("pub fn process(data: &[u8]) -> Result<()>", {"pub", "fn"}),
+        ("impl Display for Config {", {"impl", "for"}),
+        ("let mut data = Vec::new();", {"let", "mut"}),
+        ("fn process(item: &str) -> Result<T, E> {", {"fn"}),
+        ("pub fn main() {", {"pub", "fn"}),
+        ("match value { Some(x) => x, None => 0 }", {"match"}),
         ("use std::collections::HashMap", {"use", "std"}),
         ("async fn fetch() -> Result<()>", {"async", "fn"}),
         ("mod tests { }", {"mod"}),
@@ -133,97 +132,44 @@ def test_keywords_survive_tokenisation(code: str, expected_keywords: set[str]) -
         assert kw in tokens, f"keyword {kw!r} missing from tokens of {code!r}"
 
 
-# ── FTS roundtrip: keywords are searchable ───────────────────────────
-#
-# Insert chunks containing keyword-heavy code, verify that searching
-# for those keywords finds them.  This catches regressions in FTS
-# settings (e.g. accidentally re-enabling stopwords).
+# ── FTS roundtrip: keywords are searchable ──────────────────────────
 
 
-def _make_chunk(chunk_id: str, name: str, content: str) -> Chunk:
-    return Chunk(
-        id=chunk_id,
-        blob_sha=f"blob_{chunk_id}",
-        file_path=f"src/{chunk_id}.py",
+@fixture
+@parametrize_with_cases(
+    "case",
+    cases="tests.index.case_tokenise_keywords",
+    prefix="case_",
+)
+def keyword_store_and_case(case: KeywordCase) -> tuple[IndexStore, KeywordCase]:
+    """Seed a fresh store with the single chunk the case describes."""
+    chunk = Chunk(
+        id=case.chunk_id,
+        blob_sha=f"blob_{case.chunk_id}",
+        file_path=f"src/{case.chunk_id}.py",
         kind=ChunkKind.FUNCTION,
-        name=name,
-        content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
+        name=case.name,
+        content=case.content,
+        content_tokens=tokenise_code(case.content),
+        name_tokens=tokenise_code(case.name),
         line_start=1,
         line_end=1,
     )
-
-
-# Keywords that were killed by English stopwords in the old FTS config.
-# Each tuple: (keyword, chunk with that keyword in content)
-_KEYWORD_CHUNKS: list[tuple[str, Chunk]] = [
-    (
-        "import",
-        _make_chunk("py_import", "load_modules", "from pathlib import Path"),
-    ),
-    (
-        "for",
-        _make_chunk("py_for", "process_items", "for item in collection: yield item"),
-    ),
-    (
-        "if",
-        _make_chunk("py_if", "check_value", "if value is not None: return value"),
-    ),
-    (
-        "with",
-        _make_chunk("py_with", "read_file", "with open(path) as f: data = f.read()"),
-    ),
-    (
-        "async",
-        _make_chunk("py_async", "fetch_data", "async def fetch_data(url): return await get(url)"),
-    ),
-    (
-        "select",
-        _make_chunk("sql_select", "query_users", "SELECT id, name FROM users WHERE active"),
-    ),
-    (
-        "into",
-        _make_chunk("sql_insert", "save_record", "INSERT INTO chunks (id, content) VALUES (?, ?)"),
-    ),
-    (
-        "impl",
-        _make_chunk("rs_impl", "display_impl", "impl Display for Config { fn fmt() }"),
-    ),
-    (
-        "defer",
-        _make_chunk("go_defer", "close_file", "defer file.Close()"),
-    ),
-    (
-        "this",
-        _make_chunk("js_this", "set_state", "this.setState({loading: true})"),
-    ),
-]
-
-
-@pytest.fixture
-def keyword_store() -> IndexStore:
-    """Store seeded with keyword-containing chunks."""
     store = IndexStore()
-    chunks = [chunk for _, chunk in _KEYWORD_CHUNKS]
-    store.insert_chunks(chunks)
-    for c in chunks:
-        store.insert_snapshot("head", c.file_path, c.blob_sha)
+    store.insert_chunks([chunk])
+    store.insert_snapshot("head", chunk.file_path, chunk.blob_sha)
     store.rebuild_fts_index()
-    return store
+    return store, case
 
 
-@pytest.mark.parametrize(
-    ("keyword", "expected_id"),
-    [(kw, chunk.id) for kw, chunk in _KEYWORD_CHUNKS],
-    ids=[kw for kw, _ in _KEYWORD_CHUNKS],
-)
 def test_keyword_searchable_via_fts(
-    keyword_store: IndexStore,
-    keyword: str,
-    expected_id: str,
+    keyword_store_and_case: tuple[IndexStore, KeywordCase],
 ) -> None:
     """Keywords that were English stopwords are now findable via BM25."""
-    results = keyword_store.search_fulltext("head", keyword, top_k=10)
+    store, case = keyword_store_and_case
+    results = store.search_fulltext("head", case.keyword, top_k=10)
     ids = [c.id for c, _ in results]
-    assert expected_id in ids, f"searching for {keyword!r} did not find {expected_id!r}, got {ids}"
+    assert case.chunk_id in ids, (
+        f"searching for {case.keyword!r} did not find {case.chunk_id!r}, "
+        f"got {ids}"
+    )

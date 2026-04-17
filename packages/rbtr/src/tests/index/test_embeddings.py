@@ -21,7 +21,7 @@ type MockLlama = Llama
 
 
 @pytest.fixture(autouse=True)
-def _reset_singleton() -> Generator[None]:
+def reset_singleton() -> Generator[None]:
     """Ensure the module-level singleton is clean for each test."""
     embeddings.reset_model()
     yield
