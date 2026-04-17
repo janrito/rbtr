@@ -7,8 +7,10 @@
  * attach a subscriber), invalidating on transport errors.
  */
 
+import { Subscriber as ZmqSubscriber } from "zeromq";
+
 import { type DaemonStatus, queryDaemonStatus, send } from "./daemon-client.js";
-import type { Request, Response } from "./generated/protocol.js";
+import type { Notification, Request, Response } from "./generated/protocol.js";
 
 /**
  * A transport-level failure talking to the daemon — socket
@@ -28,8 +30,12 @@ export class DaemonUnavailableError extends Error {
 /** Narrow ``Response`` to the variant for a request of *kind* K. */
 type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 
+/** Called once per notification received on the SUB socket. */
+export type NotificationHandler = (notification: Notification) => void;
+
 export class DaemonSession {
 	private status: DaemonStatus | null = null;
+	private subscriber: ZmqSubscriber | null = null;
 
 	/** ``true`` if the daemon has been reachable at least once this session. */
 	get available(): boolean {
@@ -100,5 +106,57 @@ export class DaemonSession {
 				throw new DaemonUnavailableError(err2);
 			}
 		}
+	}
+
+	/**
+	 * Subscribe to the daemon's PUB stream for the session.
+	 *
+	 * *handler* is called once per deserialised ``Notification``.
+	 * Callers typically filter on ``notification.repo === cwd``
+	 * themselves — the daemon publishes for all watched repos.
+	 *
+	 * Returns a disposer.  Calling it (or ``stopSubscribing()``)
+	 * closes the SUB socket.  Safe to call twice.
+	 */
+	subscribe(handler: NotificationHandler): () => void {
+		if (this.subscriber !== null) {
+			return () => {
+				this.stopSubscribing();
+			};
+		}
+		if (!this.pubEndpoint) {
+			throw new DaemonUnavailableError("no pub endpoint");
+		}
+
+		const sub = new ZmqSubscriber();
+		sub.connect(this.pubEndpoint);
+		sub.subscribe(); // empty prefix — server publishes untopiced frames
+		this.subscriber = sub;
+
+		void (async () => {
+			for await (const [frame] of sub) {
+				let parsed: Notification;
+				try {
+					parsed = JSON.parse(frame.toString()) as Notification;
+				} catch {
+					continue; // malformed frame — skip
+				}
+				try {
+					handler(parsed);
+				} catch {
+					// Handler errors must not kill the loop.
+				}
+			}
+		})();
+
+		return () => {
+			this.stopSubscribing();
+		};
+	}
+
+	stopSubscribing(): void {
+		if (this.subscriber === null) return;
+		this.subscriber.close();
+		this.subscriber = null;
 	}
 }

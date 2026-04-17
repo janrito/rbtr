@@ -51,10 +51,18 @@ describe("DaemonSession.send", () => {
 		);
 	});
 
-	test("sends without cached endpoint raise DaemonUnavailableError before any CLI call", async () => {
-		const session = new DaemonSession();
-		// Not primed.  refresh() will shell out to rbtr daemon status,
-		// which returns a not-running report in our isolated PATH.
-		await expect(session.send({ kind: "shutdown" })).rejects.toBeInstanceOf(DaemonUnavailableError);
+	test("unprimed session rejects when CLI cannot find a daemon", async () => {
+		// Isolate PATH so `rbtr` is not found — refresh() fails, and
+		// send() must reject with DaemonUnavailableError.  Without
+		// this, a daemon left running by a parallel test would make
+		// the CLI call succeed and the assertion flake.
+		const originalPath = process.env.PATH;
+		process.env.PATH = "/nonexistent";
+		try {
+			const session = new DaemonSession();
+			await expect(session.send({ kind: "shutdown" })).rejects.toBeInstanceOf(DaemonUnavailableError);
+		} finally {
+			process.env.PATH = originalPath;
+		}
 	});
 });

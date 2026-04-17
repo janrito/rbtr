@@ -146,6 +146,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		// unavailable and the tools fall back to CLI exec.
 		await session.refresh();
 
+		if (session.available) {
+			startSubscription(ctx);
+		}
+
 		const status = await queryIndexStatus(ctx.cwd);
 		if (status === null) {
 			cliAvailable = false;
@@ -168,6 +172,47 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-index"));
 		}
 	});
+
+	pi.on("session_shutdown", async () => {
+		session.stopSubscribing();
+	});
+
+	/**
+	 * Subscribe to daemon notifications and drive the footer off
+	 * them.  Filters to ``notification.repo === ctx.cwd`` so we
+	 * ignore traffic from other repos the daemon might be
+	 * watching.
+	 */
+	function startSubscription(ctx: ExtensionContext): void {
+		try {
+			session.subscribe((notification) => {
+				if (notification.repo !== ctx.cwd) return;
+				const theme = ctx.ui.theme;
+				switch (notification.kind) {
+					case "progress":
+						ctx.ui.setStatus(
+							"rbtr",
+							theme.fg("warning", `rbtr: ⌒ ${notification.phase} ${notification.current}/${notification.total}…`),
+						);
+						break;
+					case "ready":
+						ctx.ui.setStatus("rbtr", theme.fg("success", `rbtr: ● ${notification.chunks} symbols`));
+						break;
+					case "auto_rebuild":
+						ctx.ui.setStatus("rbtr", theme.fg("warning", "rbtr: ⌒ rebuilding…"));
+						break;
+					case "index_error":
+						ctx.ui.setStatus("rbtr", theme.fg("error", "rbtr: ✗ error"));
+						ctx.ui.notify(notification.message, "error");
+						break;
+				}
+			});
+		} catch {
+			// PUB subscription is best-effort; a failure here doesn't
+			// make the extension non-functional, just means the
+			// footer won't update on its own.
+		}
+	}
 
 	pi.on("before_agent_start", async (event) => {
 		if (!cliAvailable) return;

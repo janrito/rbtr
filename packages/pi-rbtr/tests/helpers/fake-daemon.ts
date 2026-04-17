@@ -20,9 +20,9 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Reply as ZmqReply } from "zeromq";
+import { Publisher as ZmqPublisher, Reply as ZmqReply } from "zeromq";
 
-import type { Request, Response } from "../../extensions/rbtr-index/generated/protocol.js";
+import type { Notification, Request, Response } from "../../extensions/rbtr-index/generated/protocol.js";
 
 /**
  * A canned reply, or a function that computes the reply from the
@@ -32,10 +32,21 @@ import type { Request, Response } from "../../extensions/rbtr-index/generated/pr
 export type FakeReply = Response | ((request: Request) => Response);
 
 export interface FakeDaemonHandle extends AsyncDisposable {
-	/** ``ipc://...`` endpoint to pass as ``rpcEndpoint`` to ``send()``. */
+	/** ``ipc://...`` REP endpoint (for ``send()``). */
 	readonly endpoint: string;
+	/** ``ipc://...`` PUB endpoint (for ``DaemonSession.subscribe()``). */
+	readonly pubEndpoint: string;
 	/** Every request the fake has received, in order. */
 	readonly received: readonly Request[];
+	/**
+	 * Publish a notification on the PUB socket.
+	 *
+	 * A short delay after creation is usually needed before the
+	 * first subscriber receives anything (PUB/SUB slow joiner);
+	 * tests that rely on timing should sleep ~50 ms after
+	 * subscribing.
+	 */
+	publish(notification: Notification): Promise<void>;
 }
 
 /**
@@ -45,13 +56,18 @@ export interface FakeDaemonHandle extends AsyncDisposable {
  * The socket is cleaned up when the returned handle is disposed
  * (``await using`` / explicit ``[Symbol.asyncDispose]``).
  */
-export async function startFakeDaemon(opts: { reply: FakeReply }): Promise<FakeDaemonHandle> {
+export async function startFakeDaemon(opts: { reply?: FakeReply } = {}): Promise<FakeDaemonHandle> {
 	// macOS caps unix-domain socket paths at ~104 bytes.
 	// Keep the endpoint short: 8 random hex chars, no suffix.
 	const dir = mkdtempSync(join(tmpdir(), "rbtr-fd-"));
-	const endpoint = `ipc://${dir}/${randomBytes(4).toString("hex")}.rpc`;
-	const sock = new ZmqReply();
-	await sock.bind(endpoint);
+	const token = randomBytes(4).toString("hex");
+	const endpoint = `ipc://${dir}/${token}.rpc`;
+	const pubEndpoint = `ipc://${dir}/${token}.pub`;
+
+	const rep = new ZmqReply();
+	await rep.bind(endpoint);
+	const pub = new ZmqPublisher();
+	await pub.bind(pubEndpoint);
 
 	const received: Request[] = [];
 	let stopped = false;
@@ -61,23 +77,29 @@ export async function startFakeDaemon(opts: { reply: FakeReply }): Promise<FakeD
 		while (!stopped) {
 			let rawRequest: Buffer;
 			try {
-				[rawRequest] = await sock.receive();
+				[rawRequest] = await rep.receive();
 			} catch {
 				return; // socket closed
 			}
 			const request = JSON.parse(rawRequest.toString()) as Request;
 			received.push(request);
+			if (opts.reply === undefined) continue;
 			const response = typeof opts.reply === "function" ? opts.reply(request) : opts.reply;
-			await sock.send(JSON.stringify(response));
+			await rep.send(JSON.stringify(response));
 		}
 	})();
 
 	return {
 		endpoint,
+		pubEndpoint,
 		received,
+		async publish(notification: Notification) {
+			await pub.send(JSON.stringify(notification));
+		},
 		async [Symbol.asyncDispose]() {
 			stopped = true;
-			sock.close();
+			rep.close();
+			pub.close();
 		},
 	};
 }
