@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-import pygit2
+from rbtr.git import read_head
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +27,6 @@ class RefChange:
     repo_path: str
     old_ref: str
     new_ref: str
-
-
-def _read_head(repo_path: str) -> str | None:
-    """Read the current HEAD SHA for a repo, or None on error."""
-    try:
-        repo = pygit2.Repository(repo_path)
-        if repo.head_is_unborn:
-            return None
-        return str(repo.head.target)
-    except Exception:
-        log.warning("Failed to read HEAD for %s", repo_path, exc_info=True)
-        return None
 
 
 class RefWatcher:
@@ -54,7 +42,7 @@ class RefWatcher:
 
     def register(self, repo_path: str) -> None:
         """Start watching a repo. Records current HEAD."""
-        self._refs[repo_path] = _read_head(repo_path)
+        self._refs[repo_path] = read_head(repo_path)
 
     def unregister(self, repo_path: str) -> None:
         """Stop watching a repo."""
@@ -72,7 +60,7 @@ class RefWatcher:
         """
         changes: list[RefChange] = []
         for repo_path, last_ref in self._refs.items():
-            current = _read_head(repo_path)
+            current = read_head(repo_path)
             if current is not None and current != last_ref:
                 if last_ref is not None:
                     changes.append(

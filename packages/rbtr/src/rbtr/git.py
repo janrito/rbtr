@@ -86,6 +86,23 @@ def is_binary(data: bytes, sample_size: int = 8192) -> bool:
 # ── Ref resolution ───────────────────────────────────────────────────
 
 
+def read_head(repo_path: str) -> str | None:
+    """Return the current HEAD SHA for the repo at *repo_path*.
+
+    Returns ``None`` if the repo is unborn (no commits yet), if
+    the path is not a git repository, or if HEAD is unreadable
+    for any other reason. Does not raise — intended for use by
+    pollers that should tolerate misconfigured repos.
+    """
+    try:
+        repo = pygit2.Repository(repo_path)
+        if repo.head_is_unborn:
+            return None
+        return str(repo.head.target)
+    except Exception:
+        return None
+
+
 def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
     """Resolve *ref* to a `pygit2.Commit`.
 

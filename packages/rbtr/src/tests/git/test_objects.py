@@ -29,6 +29,7 @@ from rbtr.git import (
     is_binary,
     list_files,
     read_blob,
+    read_head,
     resolve_commit,
     walk_tree,
 )
@@ -330,3 +331,23 @@ def test_list_files_rbtrignore_still_skips_oversized(
     oid = make_commit(git_repo, {"big.py": b"x" * 200})
     paths = {e.path for e in _lf(git_repo, str(oid), max_file_size=50)}
     assert paths == set()
+
+
+def test_read_head_returns_sha_of_current_head(sample_repo: SampleRepo) -> None:
+    workdir = sample_repo.repo.workdir
+    assert workdir is not None
+    sha = read_head(workdir)
+    assert sha == str(sample_repo.base)  # main is kept at base
+
+
+def test_read_head_unborn_returns_none(tmp_path: Path) -> None:
+    """A freshly-init'd repo with no commits has no HEAD."""
+    path = tmp_path / "empty"
+    path.mkdir()
+    pygit2.init_repository(str(path))
+    assert read_head(str(path)) is None
+
+
+def test_read_head_missing_path_returns_none(tmp_path: Path) -> None:
+    """Non-git paths yield None, not an exception."""
+    assert read_head(str(tmp_path / "does-not-exist")) is None
