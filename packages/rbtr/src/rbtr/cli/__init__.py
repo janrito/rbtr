@@ -75,7 +75,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
-from rbtr.git import changed_files, open_repo
+from rbtr.git import changed_files, open_repo, resolve_commit
 from rbtr.index.gc import run_gc
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
@@ -187,8 +187,6 @@ class Index(BaseModel):
         repo = open_repo(resolved_repo)
 
         # Resolve refs to SHAs
-        from rbtr.git import resolve_commit
-
         resolved_refs = [str(resolve_commit(repo, r).id) for r in self.refs]
 
         if not self.daemon:
@@ -286,9 +284,11 @@ class Search(BaseModel):
             return
 
         # Fallback: direct execution
+        repo = open_repo(resolved_repo)
+        ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        for r in store.search(self.ref, self.query, top_k=self.limit, repo_id=repo_id):
+        for r in store.search(ref, self.query, top_k=self.limit, repo_id=repo_id):
             emit(r)
 
 
@@ -310,9 +310,11 @@ class ReadSymbol(BaseModel):
             return
 
         # Fallback: direct execution
+        repo = open_repo(resolved_repo)
+        ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        chunks = store.search_by_name(self.ref, self.symbol, repo_id=repo_id)
+        chunks = store.search_by_name(ref, self.symbol, repo_id=repo_id)
         if not chunks:
             print_err(f"[red]error:[/] symbol not found: {self.symbol}")
             sys.exit(1)
@@ -338,9 +340,11 @@ class ListSymbols(BaseModel):
             return
 
         # Fallback: direct execution
+        repo = open_repo(resolved_repo)
+        ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        for c in store.get_chunks(self.ref, file_path=self.file, repo_id=repo_id):
+        for c in store.get_chunks(ref, file_path=self.file, repo_id=repo_id):
             emit(c, compact=True)
 
 
@@ -362,9 +366,11 @@ class FindRefs(BaseModel):
             return
 
         # Fallback: direct execution
+        repo = open_repo(resolved_repo)
+        ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        for e in store.get_edges(self.ref, target_id=self.symbol, repo_id=repo_id):
+        for e in store.get_edges(ref, target_id=self.symbol, repo_id=repo_id):
             emit(e)
 
 
@@ -387,11 +393,13 @@ class ChangedSymbols(BaseModel):
 
         # Fallback: direct execution
         repo = open_repo(resolved_repo)
-        changed = changed_files(repo, self.base, self.head)
+        base = str(resolve_commit(repo, self.base).id)
+        head = str(resolve_commit(repo, self.head).id)
+        changed = changed_files(repo, base, head)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
         for path in sorted(changed):
-            for c in store.get_chunks(self.head, file_path=path, repo_id=repo_id):
+            for c in store.get_chunks(head, file_path=path, repo_id=repo_id):
                 emit(c, compact=True)
 
 
@@ -414,7 +422,10 @@ class Status(BaseModel):
             return
         store = IndexStore(db)
         repo_id = store.register_repo(resolved_repo)
-        count = store.count_chunks("HEAD", repo_id=repo_id)
+
+        repo = open_repo(resolved_repo)
+        head = str(resolve_commit(repo, "HEAD").id)
+        count = store.count_chunks(head, repo_id=repo_id)
         indexed_refs = [sha for sha, _ in store.list_indexed_commits(repo_id)]
         emit(
             StatusResponse(

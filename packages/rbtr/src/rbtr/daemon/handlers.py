@@ -58,8 +58,10 @@ def resolve_refs(repo: pygit2.Repository, refs: list[str]) -> list[str] | ErrorR
 
 def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
+    repo = open_repo(request.repo)
+    ref = str(resolve_commit(repo, request.ref).id)
     results = mgr.store.search(
-        request.ref,
+        ref,
         request.query,
         top_k=request.limit,
         repo_id=repo_id,
@@ -69,35 +71,45 @@ def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
 
 def handle_read_symbol(request: ReadSymbolRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    chunks = mgr.store.search_by_name(request.ref, request.name, repo_id=repo_id)
+    repo = open_repo(request.repo)
+    ref = str(resolve_commit(repo, request.ref).id)
+    chunks = mgr.store.search_by_name(ref, request.name, repo_id=repo_id)
     return ReadSymbolResponse(chunks=chunks)
 
 
 def handle_list_symbols(request: ListSymbolsRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    chunks = mgr.store.get_chunks(request.ref, file_path=request.file_path, repo_id=repo_id)
+    repo = open_repo(request.repo)
+    ref = str(resolve_commit(repo, request.ref).id)
+    chunks = mgr.store.get_chunks(ref, file_path=request.file_path, repo_id=repo_id)
     return ListSymbolsResponse(chunks=chunks)
 
 
 def handle_find_refs(request: FindRefsRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    edges = mgr.store.get_edges(request.ref, target_id=request.symbol, repo_id=repo_id)
+    repo = open_repo(request.repo)
+    ref = str(resolve_commit(repo, request.ref).id)
+    edges = mgr.store.get_edges(ref, target_id=request.symbol, repo_id=repo_id)
     return FindRefsResponse(edges=edges)
 
 
 def handle_changed_symbols(request: ChangedSymbolsRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
     repo = open_repo(request.repo)
-    changed = changed_files(repo, request.base, request.head)
+    base = str(resolve_commit(repo, request.base).id)
+    head = str(resolve_commit(repo, request.head).id)
+    changed = changed_files(repo, base, head)
     chunks = []
     for path in sorted(changed):
-        chunks.extend(mgr.store.get_chunks(request.head, file_path=path, repo_id=repo_id))
+        chunks.extend(mgr.store.get_chunks(head, file_path=path, repo_id=repo_id))
     return ChangedSymbolsResponse(chunks=chunks)
 
 
 def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    count = mgr.store.count_chunks("HEAD", repo_id=repo_id)
+    repo = open_repo(request.repo)
+    head = str(resolve_commit(repo, "HEAD").id)
+    count = mgr.store.count_chunks(head, repo_id=repo_id)
     indexed_refs = [sha for sha, _ in mgr.store.list_indexed_commits(repo_id)]
     return StatusResponse(
         exists=count > 0,
