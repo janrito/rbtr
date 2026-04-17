@@ -18,7 +18,7 @@ from contextlib import contextmanager
 
 from pydantic import BaseModel
 from rich.console import Console
-from rich.progress import Progress
+from rich.progress import Progress, TaskID
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -58,36 +58,38 @@ def print_err(msg: str) -> None:
     _err.print(msg)
 
 
-@contextmanager
-def progress_reporter(
-    *,
-    parse_label: str = "Parsing files...",
-    embed_label: str = "Embedding...",
-) -> Iterator[tuple[ProgressCallback | None, ProgressCallback | None]]:
-    """Yield ``(on_parse, on_embed)`` progress callbacks.
+def _noop_progress(_done: int, _total: int) -> None:
+    """No-op callback used when stderr isn't a TTY."""
 
-    When stderr is not a TTY the callbacks are ``None`` — callers
-    pass them straight through without needing to know the output
-    mode. Otherwise they drive a `rich.progress.Progress` rendered
-    on stderr so it never interferes with JSON on stdout.
+
+def _make_progress_callback(progress: Progress, task_id: TaskID) -> ProgressCallback:
+    def on_update(done: int, total: int) -> None:
+        progress.update(task_id, completed=done, total=total, visible=True)
+
+    return on_update
+
+
+@contextmanager
+def progress_reporter(*labels: str) -> Iterator[list[ProgressCallback]]:
+    """Yield one progress callback per task *label*, in order.
+
+    When stderr is not a TTY every yielded callback is a no-op,
+    so callers can invoke them unconditionally. Otherwise the
+    callbacks drive a `rich.progress.Progress` on stderr so it
+    never interferes with JSON on stdout.
+
+    Tasks start hidden and become visible on their first update.
     """
     if not _err.is_terminal:
-        yield None, None
+        yield [_noop_progress for _ in labels]
         return
 
     with Progress(console=_err) as progress:
-        parse_task = progress.add_task(f"[cyan]{parse_label}[/]", total=None)
-        embed_task = progress.add_task(
-            f"[cyan]{embed_label}[/]", total=None, visible=False
-        )
-
-        def on_parse(done: int, total: int) -> None:
-            progress.update(parse_task, completed=done, total=total)
-
-        def on_embed(done: int, total: int) -> None:
-            progress.update(embed_task, completed=done, total=total, visible=True)
-
-        yield on_parse, on_embed
+        task_ids = [
+            progress.add_task(f"[cyan]{label}[/]", total=None, visible=False)
+            for label in labels
+        ]
+        yield [_make_progress_callback(progress, tid) for tid in task_ids]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

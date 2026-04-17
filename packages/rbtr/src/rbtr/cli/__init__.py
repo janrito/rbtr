@@ -214,7 +214,7 @@ class Index(BaseModel):
         repo = open_repo(resolved_repo)
         store = IndexStore.from_config()
 
-        with progress_reporter() as (on_parse, on_embed):
+        with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
             if len(resolved_refs) == 2:
                 build_index(
                     repo,
