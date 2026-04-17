@@ -18,6 +18,7 @@ import importlib.resources
 import json
 import logging
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,24 @@ SCHEMA_VERSION = "2026.4.2"
 # stored version doesn't match, all embeddings are cleared so
 # _embed_missing() re-computes them on the next index build.
 EMBEDDING_VERSION = 1
+
+
+@dataclass(frozen=True)
+class GcCounts:
+    """Rows removed by a garbage-collection operation."""
+
+    commits: int = 0
+    snapshots: int = 0
+    edges: int = 0
+    chunks: int = 0
+
+    def __add__(self, other: GcCounts) -> GcCounts:
+        return GcCounts(
+            commits=self.commits + other.commits,
+            snapshots=self.snapshots + other.snapshots,
+            edges=self.edges + other.edges,
+            chunks=self.chunks + other.chunks,
+        )
 
 # Import and doc_section chunks have short, keyword-dense content
 # that produces misleadingly high cosine scores.  Filtering them
@@ -102,6 +121,8 @@ _COUNT_CHUNKS_SQL = _load_sql("count_chunks.sql")
 _MARK_INDEXED_SQL = _load_sql("mark_indexed.sql")
 _HAS_INDEXED_SQL = _load_sql("has_indexed.sql")
 _LIST_INDEXED_COMMITS_SQL = _load_sql("list_indexed_commits.sql")
+_DROP_COMMIT_SQL = _load_sql("drop_commit.sql")
+_SWEEP_ORPHAN_CHUNKS_SQL = _load_sql("sweep_orphan_chunks.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -276,6 +297,50 @@ class IndexStore:
         """Return ``(commit_sha, indexed_at)`` for this repo, newest first."""
         rows = self._cur().execute(_LIST_INDEXED_COMMITS_SQL, [repo_id]).fetchall()
         return [(str(r[0]), str(r[1])) for r in rows]
+
+    # ── Garbage collection ───────────────────────────────────────
+
+    def drop_commit(self, repo_id: int, commit_sha: str) -> GcCounts:
+        """Remove all trace of *commit_sha* from this repo.
+
+        Deletes the indexed_commits row, file_snapshots rows, edges,
+        and any chunks whose blob is no longer referenced by any
+        remaining snapshot. Chunks whose blob is still referenced
+        by another commit's snapshot are preserved.
+
+        Idempotent: running twice is a no-op on the second call.
+        Runs inside a single transaction so a crash leaves either
+        the pre-drop or post-drop state, never a partial one.
+        """
+        cur = self._cur()
+        cur.begin()
+        try:
+            commit_row = cur.execute(
+                _DROP_COMMIT_SQL, [repo_id, commit_sha]
+            ).fetchone()
+            snap_row = cur.execute(
+                _DELETE_SNAPSHOTS_SQL, [repo_id, commit_sha]
+            ).fetchone()
+            edge_row = cur.execute(
+                _DELETE_EDGES_SQL, [repo_id, commit_sha]
+            ).fetchone()
+            chunk_row = cur.execute(
+                _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
+            ).fetchone()
+        except Exception:
+            cur.rollback()
+            raise
+        else:
+            cur.commit()
+        chunks_deleted = int(chunk_row[0]) if chunk_row else 0
+        if chunks_deleted > 0:
+            self._fts_dirty = True
+        return GcCounts(
+            commits=int(commit_row[0]) if commit_row else 0,
+            snapshots=int(snap_row[0]) if snap_row else 0,
+            edges=int(edge_row[0]) if edge_row else 0,
+            chunks=chunks_deleted,
+        )
 
     def _purge_stale_fts_schema(self, dsn: str) -> None:
         """Work around a DuckDB FTS bug on reconnect.

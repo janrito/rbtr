@@ -1230,3 +1230,125 @@ def test_list_indexed_commits_returns_newest_first(store: IndexStore) -> None:
 
 def test_list_indexed_commits_empty(store: IndexStore) -> None:
     assert store.list_indexed_commits(1) == []
+
+
+# ── Garbage collection: drop_commit ──────────────────────────────────
+
+
+def _seed_for_drop(store: IndexStore) -> None:
+    """Two commits sharing some blobs, distinct blobs, and edges.
+
+    commit_a references blobs X, Y
+    commit_b references blobs Y, Z
+    Dropping commit_a should keep Y (still referenced by b) and X's
+    chunks should disappear. Z is untouched.
+    """
+    chunk_x = Chunk(
+        id="cx",
+        blob_sha="blob_x",
+        file_path="x.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_x",
+        content="def f_x(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    chunk_y = Chunk(
+        id="cy",
+        blob_sha="blob_y",
+        file_path="y.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_y",
+        content="def f_y(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    chunk_z = Chunk(
+        id="cz",
+        blob_sha="blob_z",
+        file_path="z.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_z",
+        content="def f_z(): pass",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk_x, chunk_y, chunk_z])
+    store.insert_snapshot("commit_a", "x.py", "blob_x")
+    store.insert_snapshot("commit_a", "y.py", "blob_y")
+    store.insert_snapshot("commit_b", "y.py", "blob_y")
+    store.insert_snapshot("commit_b", "z.py", "blob_z")
+    store.insert_edges(
+        [Edge(source_id="cx", target_id="cy", kind=EdgeKind.IMPORTS)],
+        "commit_a",
+    )
+    store.insert_edges(
+        [Edge(source_id="cy", target_id="cz", kind=EdgeKind.IMPORTS)],
+        "commit_b",
+    )
+    store.mark_indexed(1, "commit_a")
+    store.mark_indexed(1, "commit_b")
+
+
+def test_drop_commit_removes_completion_row(store: IndexStore) -> None:
+    _seed_for_drop(store)
+    store.drop_commit(1, "commit_a")
+    assert store.has_indexed(1, "commit_a") is False
+    assert store.has_indexed(1, "commit_b") is True
+
+
+def test_drop_commit_removes_own_snapshots_and_edges(store: IndexStore) -> None:
+    _seed_for_drop(store)
+    store.drop_commit(1, "commit_a")
+    assert store.get_chunks("commit_a") == []
+    assert store.get_edges("commit_a") == []
+    assert store.get_edges("commit_b") != []
+
+
+def test_drop_commit_preserves_chunks_shared_with_other_commit(
+    store: IndexStore,
+) -> None:
+    """blob_y is referenced by both commits; must survive drop of commit_a."""
+    _seed_for_drop(store)
+    store.drop_commit(1, "commit_a")
+
+    remaining_ids = {c.id for c in store.get_chunks("commit_b")}
+    assert "cy" in remaining_ids  # shared blob survived
+    assert "cz" in remaining_ids  # untouched
+
+
+def test_drop_commit_deletes_orphaned_chunks(store: IndexStore) -> None:
+    """blob_x is only referenced by commit_a; its chunks must vanish."""
+    _seed_for_drop(store)
+    counts = store.drop_commit(1, "commit_a")
+    assert counts.chunks == 1  # only chunk_x was orphaned
+
+
+def test_drop_commit_reports_accurate_counts(store: IndexStore) -> None:
+    _seed_for_drop(store)
+    counts = store.drop_commit(1, "commit_a")
+    assert counts.commits == 1
+    assert counts.snapshots == 2  # x.py + y.py at commit_a
+    assert counts.edges == 1
+    assert counts.chunks == 1
+
+
+def test_drop_commit_is_idempotent(store: IndexStore) -> None:
+    _seed_for_drop(store)
+    first = store.drop_commit(1, "commit_a")
+    second = store.drop_commit(1, "commit_a")
+    assert first.commits == 1
+    assert second.commits == 0
+    assert second.snapshots == 0
+
+
+def test_drop_commit_scoped_per_repo(store: IndexStore) -> None:
+    a = store.register_repo("/a")
+    b = store.register_repo("/b")
+    store.mark_indexed(a, "shared_sha")
+    store.mark_indexed(b, "shared_sha")
+
+    store.drop_commit(a, "shared_sha")
+
+    assert store.has_indexed(a, "shared_sha") is False
+    assert store.has_indexed(b, "shared_sha") is True
