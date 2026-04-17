@@ -44,7 +44,6 @@ from rbtr.config import Config, config
 from rbtr.daemon.client import (
     _status,
     is_daemon_running,
-    ping_daemon,
     start_daemon,
     stop_daemon,
     try_daemon,
@@ -63,7 +62,6 @@ from rbtr.daemon.messages import (
     ListSymbolsResponse,
     Notification,
     OkResponse,
-    PingResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
     Request,
@@ -75,7 +73,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.daemon.status import DaemonStatusReport
+from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, open_repo
 from rbtr.index.gc import run_gc
@@ -149,20 +147,14 @@ class DaemonStatusCmd(BaseModel):
         if status is None or not is_daemon_running():
             emit(DaemonStatusReport(running=False))
             return
-
-        t0 = time.monotonic()
-        ping = ping_daemon()
-        ping_ms = (time.monotonic() - t0) * 1000.0 if ping is not None else None
-
         emit(
             DaemonStatusReport(
-                running=ping is not None,
+                running=True,
                 pid=status.pid,
                 rpc=status.rpc,
                 pub=status.pub,
-                version=ping.version if ping is not None else status.version,
-                uptime_seconds=ping.uptime if ping is not None else None,
-                ping_ms=ping_ms,
+                version=status.version,
+                uptime_seconds=_uptime_seconds(status.started_at),
             )
         )
 
@@ -543,6 +535,12 @@ class SchemaDump(BaseModel):
             "request": TypeAdapter(Request).json_schema(),
             "response": TypeAdapter(Response).json_schema(),
             "notification": TypeAdapter(Notification).json_schema(),
+            # CLI-only shapes — not part of any protocol union but
+            # exported so TypeScript can deserialise the JSON that
+            # ``rbtr daemon status --json`` prints.
+            "cli": {
+                "DaemonStatusReport": DaemonStatusReport.model_json_schema(),
+            },
         }
         print(json.dumps(out, indent=2))
 

@@ -11,12 +11,7 @@ Timeouts: 10 s receive, 5 s send.
 Usage::
 
     with DaemonClient() as client:
-        resp = client.send(PingRequest())
-        assert isinstance(resp, PingResponse)
-
-For fire-and-forget from the CLI::
-
-    resp = try_daemon(PingRequest())  # None if daemon not running
+        resp = client.send(StatusRequest(repo="/path"))
 """
 
 from __future__ import annotations
@@ -31,12 +26,9 @@ from types import TracebackType
 
 import zmq
 
-from rbtr import get_version
 from rbtr.config import config
 from rbtr.daemon.messages import (
     ErrorResponse,
-    PingRequest,
-    PingResponse,
     Request,
     Response,
     response_adapter,
@@ -142,14 +134,6 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
         f"Daemon (PID {pid}) did not stop cleanly. "
         f"Check {_sock_dir() / 'daemon.log'} for details."
     )
-
-
-def ping_daemon() -> PingResponse | None:
-    """Ping the daemon. Returns `PingResponse` or ``None`` if unreachable."""
-    resp = try_daemon(PingRequest())
-    if isinstance(resp, PingResponse):
-        return resp
-    return None
 
 
 class DaemonClient:

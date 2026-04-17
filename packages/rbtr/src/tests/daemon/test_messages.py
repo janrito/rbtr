@@ -17,8 +17,6 @@ from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
     OkResponse,
-    PingRequest,
-    PingResponse,
     ProgressNotification,
     ReadyNotification,
     SearchRequest,
@@ -30,11 +28,6 @@ from rbtr.daemon.messages import (
 from rbtr.index.models import IndexStats
 
 # ── Request discriminator ────────────────────────────────────────────
-
-
-def test_request_ping() -> None:
-    req = request_adapter.validate_json(b'{"kind":"ping"}')
-    assert isinstance(req, PingRequest)
 
 
 def test_request_search_with_defaults() -> None:
@@ -68,16 +61,10 @@ def test_request_unknown_kind_rejected() -> None:
 
 def test_request_extra_field_rejected() -> None:
     with pytest.raises(ValidationError, match="extra"):
-        request_adapter.validate_json(b'{"kind":"ping","bogus":1}')
+        request_adapter.validate_json(b'{"kind":"status","repo":"/r","bogus":1}')
 
 
 # ── Response discriminator ───────────────────────────────────────────
-
-
-def test_response_ping() -> None:
-    resp = response_adapter.validate_json(b'{"kind":"ping","version":"0.1.0","uptime":1.5}')
-    assert isinstance(resp, PingResponse)
-    assert resp.version == "0.1.0"
 
 
 def test_response_ok() -> None:

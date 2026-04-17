@@ -33,6 +33,7 @@ interface Schemas {
 	request: JSONSchema;
 	response: JSONSchema;
 	notification: JSONSchema;
+	cli: Record<string, JSONSchema>;
 }
 
 function runSchemaDump(): Schemas {
@@ -48,11 +49,7 @@ function runSchemaDump(): Schemas {
 		throw new Error(`rbtr schema-dump exited with code ${result.status}`);
 	}
 
-	const parsed = JSON.parse(result.stdout) as {
-		request: JSONSchema;
-		response: JSONSchema;
-		notification: JSONSchema;
-	};
+	const parsed = JSON.parse(result.stdout) as Schemas;
 	return parsed;
 }
 
@@ -63,9 +60,16 @@ async function main(): Promise<void> {
 	// compilation.  Without this, json-schema-to-typescript emits
 	// a named alias for every titled property (`Kind`, `Kind1`,
 	// `Repo`, `Repo1`, ...), which clutters the output.
-	for (const schema of [schemas.request, schemas.response, schemas.notification]) {
+	const cliSchemas = Object.values(schemas.cli);
+	for (const schema of [schemas.request, schemas.response, schemas.notification, ...cliSchemas]) {
 		stripPropertyTitles(schema);
 	}
+
+	const cliCompiled = await Promise.all(
+		Object.entries(schemas.cli).map(([name, schema]) =>
+			compile(schema, name, { bannerComment: "", additionalProperties: false }),
+		),
+	);
 
 	const compiled = [
 		await compile(schemas.request as JSONSchema, "Request", {
@@ -80,6 +84,7 @@ async function main(): Promise<void> {
 			bannerComment: "",
 			additionalProperties: false,
 		}),
+		...cliCompiled,
 	];
 
 	// Dedupe shared $defs that reappear across groups

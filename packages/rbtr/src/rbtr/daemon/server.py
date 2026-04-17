@@ -56,7 +56,7 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     Notification,
     OkResponse,
-    PingResponse,
+
     Request,
     Response,
     ShutdownRequest,
@@ -85,12 +85,10 @@ class DaemonServer:
         self.sock_dir = sock_dir
         self.rpc_addr = f"ipc://{sock_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{sock_dir / 'daemon.pub'}"
-        self._start_time = time.monotonic()
         self._shutdown = False
         self._pub_socket: zmq.asyncio.Socket | None = None
         self._notification_queue: queue.SimpleQueue[Notification] = queue.SimpleQueue()
         self._handlers: dict[str, RequestHandler] = {
-            "ping": self._handle_ping,
             "shutdown": self._handle_shutdown,
         }
         self._build_queue: BuildQueue | None = None
@@ -260,12 +258,6 @@ class DaemonServer:
         except Exception as exc:
             log.exception("Handler error for %s", request.kind)
             return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
-
-    def _handle_ping(self, _request: Request) -> PingResponse:
-        return PingResponse(
-            version=get_version(),
-            uptime=round(time.monotonic() - self._start_time, 1),
-        )
 
     def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
         self.request_shutdown()

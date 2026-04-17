@@ -8,7 +8,6 @@
  */
 
 export type Request =
-	| PingRequest
 	| ShutdownRequest
 	| BuildIndexRequest
 	| SearchRequest
@@ -23,9 +22,6 @@ export type Request =
  */
 export type GcMode = "head_only" | "keep_refs" | "keep" | "drop" | "orphans";
 
-export interface PingRequest {
-	kind?: "ping";
-}
 export interface ShutdownRequest {
 	kind?: "shutdown";
 }
@@ -80,7 +76,6 @@ export interface GcRequest {
 export type Response =
 	| ErrorResponse
 	| OkResponse
-	| PingResponse
 	| BuildIndexResponse
 	| SearchResponse
 	| ReadSymbolResponse
@@ -120,11 +115,6 @@ export interface ErrorResponse {
 }
 export interface OkResponse {
 	kind?: "ok";
-}
-export interface PingResponse {
-	kind?: "ping";
-	version: string;
-	uptime: number;
 }
 export interface BuildIndexResponse {
 	kind?: "index";
@@ -271,4 +261,21 @@ export interface IndexErrorNotification {
 	kind?: "index_error";
 	repo: string;
 	message: string;
+}
+
+/**
+ * CLI output for ``rbtr daemon status``.
+ *
+ * Answers the *process* question — is the daemon running,
+ * what's its PID, uptime, ZMQ endpoints — and is **not** a
+ * ZMQ protocol response.  Derived entirely from the on-disk
+ * status file plus a liveness check on the PID.
+ */
+export interface DaemonStatusReport {
+	running: boolean;
+	pid?: number | null;
+	rpc?: string | null;
+	pub?: string | null;
+	version?: string | null;
+	uptime_seconds?: number | null;
 }

@@ -19,24 +19,15 @@ from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
     OkResponse,
-    PingRequest,
-    PingResponse,
     Response,
     ShutdownRequest,
+    StatusRequest,
     response_adapter,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.errors import RbtrError
 
 # ── Ping / shutdown ──────────────────────────────────────────────────
-
-
-def test_ping(running_server: DaemonServer) -> None:
-    with DaemonClient(running_server.sock_dir) as client:
-        resp = client.send(PingRequest())
-    assert isinstance(resp, PingResponse)
-    assert isinstance(resp.version, str)
-    assert resp.uptime >= 0
 
 
 def test_shutdown(sock_dir: Path) -> None:
@@ -57,12 +48,12 @@ def test_shutdown(sock_dir: Path) -> None:
     assert not t.is_alive()
 
 
-def test_multiple_requests(running_server: DaemonServer) -> None:
-    with DaemonClient(running_server.sock_dir) as client:
-        r1 = client.send(PingRequest())
-        r2 = client.send(PingRequest())
-    assert isinstance(r1, PingResponse)
-    assert isinstance(r2, PingResponse)
+def test_multiple_requests(running_server_with_index: DaemonServer) -> None:
+    with DaemonClient(running_server_with_index.sock_dir) as client:
+        r1 = client.send(StatusRequest(repo="/test/repo"))
+        r2 = client.send(StatusRequest(repo="/test/repo"))
+    assert r1.kind == "status"
+    assert r2.kind == "status"
 
 
 # ── Error handling ───────────────────────────────────────────────────
@@ -87,10 +78,10 @@ def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
         msg = "handler broke"
         raise ValueError(msg)
 
-    running_server.register("ping", bad_handler)
+    running_server.register("shutdown", bad_handler)
 
     with DaemonClient(running_server.sock_dir) as client:
-        resp = client.send(PingRequest())
+        resp = client.send(ShutdownRequest())
     assert isinstance(resp, ErrorResponse)
     assert resp.code == ErrorCode.INTERNAL
     assert "handler broke" in resp.message
@@ -101,20 +92,20 @@ def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
 
 def test_connection_refused(sock_dir: Path) -> None:
     with DaemonClient(sock_dir) as client, pytest.raises(ConnectionError):
-        client.send(PingRequest())
+        client.send(ShutdownRequest())
 
 
 def test_send_or_raise_on_success(running_server: DaemonServer) -> None:
     with DaemonClient(running_server.sock_dir) as client:
-        resp = client.send_or_raise(PingRequest())
-    assert isinstance(resp, PingResponse)
+        resp = client.send_or_raise(ShutdownRequest())
+    assert isinstance(resp, OkResponse)
 
 
 def test_send_or_raise_on_error(running_server: DaemonServer) -> None:
     def fail(_request: object) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 
-    running_server.register("ping", fail)
+    running_server.register("shutdown", fail)
 
     with DaemonClient(running_server.sock_dir) as client, pytest.raises(RbtrError, match="boom"):
-        client.send_or_raise(PingRequest())
+        client.send_or_raise(ShutdownRequest())

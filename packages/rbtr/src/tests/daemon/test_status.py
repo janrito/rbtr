@@ -96,7 +96,6 @@ def test_daemon_status_report_running_false_has_only_required_field() -> None:
     assert report.pub is None
     assert report.version is None
     assert report.uptime_seconds is None
-    assert report.ping_ms is None
 
 
 def test_daemon_status_report_running_true_populated() -> None:
@@ -109,11 +108,26 @@ def test_daemon_status_report_running_true_populated() -> None:
         pub="ipc:///tmp/daemon.pub",
         version="1.2.3",
         uptime_seconds=42.5,
-        ping_ms=1.2,
     )
     assert report.running is True
     assert report.pid == 12345
     assert report.uptime_seconds == 42.5
+
+
+def test_uptime_seconds_from_started_at() -> None:
+    from datetime import datetime, timezone
+
+    from rbtr.daemon.status import uptime_seconds
+
+    # 60 s ago
+    started = (
+        datetime.now(tz=timezone.utc).replace(microsecond=0).timestamp() - 60
+    )
+    import time as _time
+
+    iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(started))
+    assert uptime_seconds(iso) >= 60.0
+    assert uptime_seconds(iso) < 62.0
 
 
 def test_daemon_status_report_forbids_extra_fields() -> None:

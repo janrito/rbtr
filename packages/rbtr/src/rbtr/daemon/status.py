@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -46,9 +47,8 @@ class DaemonStatusReport(BaseModel):
 
     Answers the *process* question — is the daemon running,
     what's its PID, uptime, ZMQ endpoints — and is **not** a
-    ZMQ protocol response.  It composes the on-disk status
-    file with a live ``PingResponse`` when the daemon is
-    reachable.
+    ZMQ protocol response.  Derived entirely from the on-disk
+    status file plus a liveness check on the PID.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -59,7 +59,6 @@ class DaemonStatusReport(BaseModel):
     pub: str | None = None
     version: str | None = None
     uptime_seconds: float | None = None
-    ping_ms: float | None = None
 
 
 def status_path(home: Path) -> Path:
@@ -120,3 +119,11 @@ def remove_status(home: Path) -> None:
 def _iso_now() -> str:
     """Current UTC time as ISO 8601 string."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def uptime_seconds(started_at: str) -> float:
+    """Seconds elapsed since *started_at* (ISO 8601 UTC, Z-suffixed)."""
+    started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=timezone.utc,
+    )
+    return (datetime.now(tz=timezone.utc) - started).total_seconds()

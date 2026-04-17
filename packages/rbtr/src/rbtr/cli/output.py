@@ -266,8 +266,6 @@ def _render_daemon_status_report(m: DaemonStatusReport) -> None:
         t.append(f"  v{m.version}", style="dim")
     if m.uptime_seconds is not None:
         t.append(f"  up {m.uptime_seconds:.1f}s", style="dim")
-    if m.ping_ms is not None:
-        t.append(f"  ping {m.ping_ms:.1f}ms", style="dim")
     _out.print(t)
     if m.rpc is not None:
         _out.print(f"  [dim]rpc:[/] {m.rpc}")

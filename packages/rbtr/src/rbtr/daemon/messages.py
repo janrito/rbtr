@@ -40,11 +40,6 @@ _STRICT = ConfigDict(extra="forbid")
 # ── Requests (client → server) ──────────────────────────────────────
 
 
-class PingRequest(BaseModel):
-    model_config = _STRICT
-    kind: Literal["ping"] = "ping"
-
-
 class ShutdownRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["shutdown"] = "shutdown"
@@ -124,8 +119,7 @@ class GcRequest(BaseModel):
 
 
 Request = Annotated[
-    PingRequest
-    | ShutdownRequest
+    ShutdownRequest
     | BuildIndexRequest
     | SearchRequest
     | ReadSymbolRequest
@@ -153,13 +147,6 @@ class ErrorResponse(BaseModel):
 class OkResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["ok"] = "ok"
-
-
-class PingResponse(BaseModel):
-    model_config = _STRICT
-    kind: Literal["ping"] = "ping"
-    version: str
-    uptime: float
 
 
 class BuildIndexResponse(BaseModel):
@@ -223,7 +210,6 @@ class GcResponse(BaseModel):
 Response = Annotated[
     ErrorResponse
     | OkResponse
-    | PingResponse
     | BuildIndexResponse
     | SearchResponse
     | ReadSymbolResponse
