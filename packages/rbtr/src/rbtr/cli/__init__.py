@@ -23,6 +23,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -55,12 +56,18 @@ from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     FindRefsRequest,
     FindRefsResponse,
+    GcMode,
+    GcRequest,
+    GcResponse,
     ListSymbolsRequest,
     ListSymbolsResponse,
+    Notification,
     OkResponse,
     PingResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    Request,
+    Response,
     SearchRequest,
     SearchResponse,
     ShutdownRequest,
@@ -68,10 +75,11 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.errors import RbtrError
 from rbtr.git import changed_files, open_repo
+from rbtr.index.gc import run_gc
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
-from rbtr.daemon.messages import Notification, Request, Response
 
 log = logging.getLogger(__name__)
 
@@ -410,6 +418,101 @@ class Status(BaseModel):
         )
 
 
+class Gc(BaseModel):
+    """Garbage-collect a repository's index.
+
+    By default drops every indexed commit except the current HEAD
+    and sweeps crashed-build residue. Alternate modes let you keep
+    specific refs, drop specific refs, or sweep residue only.
+    """
+
+    repo_path: str = Field(".", description="Repository path")
+    keep_head_only: bool = Field(
+        False, description="Keep only HEAD; default behaviour"
+    )
+    keep_refs: bool = Field(
+        False,
+        description="Keep HEAD, local branches, tags, and notes",
+    )
+    keep: CliPositionalArg[list[str]] = Field(
+        [],
+        description="Keep these refs (implicitly keeps HEAD); drops the rest",
+    )
+    drop: list[str] = Field(
+        [],
+        description="Drop these refs; mutually exclusive with --keep",
+    )
+    orphans: bool = Field(
+        False,
+        description="Sweep crashed-build residue only; no commits dropped",
+    )
+    dry_run: bool = Field(
+        False, description="Report what would be removed without writing"
+    )
+
+    def cli_cmd(self) -> None:
+        mode, refs = self._resolve_mode()
+        resolved_repo = str(Path(self.repo_path).resolve())
+
+        resp = try_daemon(
+            GcRequest(
+                repo=resolved_repo,
+                mode=mode,
+                refs=refs,
+                dry_run=self.dry_run,
+            )
+        )
+        if isinstance(resp, GcResponse):
+            emit(resp)
+            return
+
+        # Fallback: direct execution.
+        repo = open_repo(resolved_repo)
+        store = IndexStore.from_config()
+        repo_id = store.register_repo(resolved_repo)
+
+        t0 = time.monotonic()
+        try:
+            counts = run_gc(
+                store,
+                repo,
+                repo_id,
+                mode=mode,
+                refs=refs,
+                dry_run=self.dry_run,
+            )
+        except RbtrError as exc:
+            print_err(f"[red]error:[/] {exc}")
+            sys.exit(1)
+
+        emit(
+            GcResponse(
+                commits_dropped=counts.commits,
+                snapshots_dropped=counts.snapshots,
+                edges_dropped=counts.edges,
+                chunks_dropped=counts.chunks,
+                elapsed_seconds=time.monotonic() - t0,
+                dry_run=self.dry_run,
+            )
+        )
+
+    def _resolve_mode(self) -> tuple[GcMode, list[str]]:
+        """Pick the mode from the set of flags; enforce exclusivity."""
+        if self.keep and self.drop:
+            print_err("[red]error:[/] --keep and --drop are mutually exclusive")
+            sys.exit(2)
+        if self.orphans:
+            return GcMode.ORPHANS, []
+        if self.drop:
+            return GcMode.DROP, self.drop
+        if self.keep:
+            return GcMode.KEEP, self.keep
+        if self.keep_refs:
+            return GcMode.KEEP_REFS, []
+        # keep_head_only is the default whether or not the flag is set
+        return GcMode.HEAD_ONLY, []
+
+
 class SchemaDump(BaseModel):
     """Dump JSON Schema for the daemon protocol.
 
@@ -447,6 +550,7 @@ class Rbtr(
     find_refs: CliSubCommand[FindRefs]
     changed_symbols: CliSubCommand[ChangedSymbols]
     status: CliSubCommand[Status]
+    gc: CliSubCommand[Gc]
     schema_dump: CliSubCommand[SchemaDump]
 
     def cli_cmd(self) -> None:

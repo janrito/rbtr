@@ -125,6 +125,8 @@ _DROP_COMMIT_SQL = _load_sql("drop_commit.sql")
 _SWEEP_ORPHAN_CHUNKS_SQL = _load_sql("sweep_orphan_chunks.sql")
 _SWEEP_ORPHAN_SNAPSHOTS_SQL = _load_sql("sweep_orphan_snapshots.sql")
 _SWEEP_ORPHAN_EDGES_SQL = _load_sql("sweep_orphan_edges.sql")
+_COUNT_SNAPSHOTS_FOR_COMMIT_SQL = _load_sql("count_snapshots_for_commit.sql")
+_COUNT_EDGES_FOR_COMMIT_SQL = _load_sql("count_edges_for_commit.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -343,6 +345,30 @@ class IndexStore:
             edges=int(edge_row[0]) if edge_row else 0,
             chunks=chunks_deleted,
         )
+
+    def count_snapshots_for_commit(self, repo_id: int, commit_sha: str) -> int:
+        """Return the number of ``file_snapshots`` rows for this commit.
+
+        Read-only. Used by dry-run GC reporting.
+        """
+        row = (
+            self._cur()
+            .execute(_COUNT_SNAPSHOTS_FOR_COMMIT_SQL, [repo_id, commit_sha])
+            .fetchone()
+        )
+        return int(row[0]) if row else 0
+
+    def count_edges_for_commit(self, repo_id: int, commit_sha: str) -> int:
+        """Return the number of ``edges`` rows for this commit.
+
+        Read-only. Used by dry-run GC reporting.
+        """
+        row = (
+            self._cur()
+            .execute(_COUNT_EDGES_FOR_COMMIT_SQL, [repo_id, commit_sha])
+            .fetchone()
+        )
+        return int(row[0]) if row else 0
 
     def sweep_orphan_chunks(self, repo_id: int) -> int:
         """Delete chunks whose blob is no longer referenced by any snapshot.

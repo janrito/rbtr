@@ -104,6 +104,25 @@ class StatusRequest(BaseModel):
     repo: str
 
 
+class GcMode(StrEnum):
+    """What a ``rbtr gc`` invocation is allowed to delete."""
+
+    HEAD_ONLY = "head_only"       # keep current HEAD, drop the rest
+    KEEP_REFS = "keep_refs"       # keep all local refs (branches/tags/notes/HEAD)
+    KEEP = "keep"                 # keep only listed refs
+    DROP = "drop"                 # drop only listed refs
+    ORPHANS = "orphans"           # sweep residue only, drop no commits
+
+
+class GcRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["gc"] = "gc"
+    repo: str
+    mode: GcMode
+    refs: list[str] = []
+    dry_run: bool = False
+
+
 Request = Annotated[
     PingRequest
     | ShutdownRequest
@@ -113,7 +132,8 @@ Request = Annotated[
     | ListSymbolsRequest
     | FindRefsRequest
     | ChangedSymbolsRequest
-    | StatusRequest,
+    | StatusRequest
+    | GcRequest,
     Field(discriminator="kind"),
 ]
 
@@ -188,6 +208,17 @@ class StatusResponse(BaseModel):
     total_chunks: int | None = None
 
 
+class GcResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["gc"] = "gc"
+    commits_dropped: int
+    snapshots_dropped: int
+    edges_dropped: int
+    chunks_dropped: int
+    elapsed_seconds: float
+    dry_run: bool = False
+
+
 Response = Annotated[
     ErrorResponse
     | OkResponse
@@ -198,7 +229,8 @@ Response = Annotated[
     | ListSymbolsResponse
     | FindRefsResponse
     | ChangedSymbolsResponse
-    | StatusResponse,
+    | StatusResponse
+    | GcResponse,
     Field(discriminator="kind"),
 ]
 

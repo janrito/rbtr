@@ -8,7 +8,7 @@ resolve repo paths to `repo_id`s.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import time
 
 import pygit2
 
@@ -20,6 +20,8 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
+    GcRequest,
+    GcResponse,
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
@@ -32,7 +34,9 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.repos import RepoManager
+from rbtr.errors import RbtrError
 from rbtr.git import changed_files, open_repo, resolve_commit
+from rbtr.index.gc import run_gc
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +106,31 @@ def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
 
 
 # ── Build handler ────────────────────────────────────────────────────
+
+
+def handle_gc(request: GcRequest, mgr: RepoManager) -> Response:
+    repo_id = mgr.resolve(request.repo)
+    repo = open_repo(request.repo)
+    t0 = time.monotonic()
+    try:
+        counts = run_gc(
+            mgr.store,
+            repo,
+            repo_id,
+            mode=request.mode,
+            refs=request.refs,
+            dry_run=request.dry_run,
+        )
+    except RbtrError as exc:
+        return ErrorResponse(code=ErrorCode.INVALID_REQUEST, message=str(exc))
+    return GcResponse(
+        commits_dropped=counts.commits,
+        snapshots_dropped=counts.snapshots,
+        edges_dropped=counts.edges,
+        chunks_dropped=counts.chunks,
+        elapsed_seconds=time.monotonic() - t0,
+        dry_run=request.dry_run,
+    )
 
 
 def handle_build_index(

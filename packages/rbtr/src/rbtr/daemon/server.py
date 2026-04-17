@@ -44,6 +44,7 @@ from rbtr.daemon.handlers import (
     handle_build_index,
     handle_changed_symbols,
     handle_find_refs,
+    handle_gc,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
@@ -118,6 +119,7 @@ class DaemonServer:
                 "find_refs": lambda req: handle_find_refs(req, mgr),
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
                 "status": lambda req: handle_status(req, mgr),
+                "gc": lambda req: handle_gc(req, mgr),
                 "build_index": lambda req: handle_build_index(req, bq),
             }
         )

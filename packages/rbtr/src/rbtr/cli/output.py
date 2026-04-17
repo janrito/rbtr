@@ -23,7 +23,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from rbtr.config import config
-from rbtr.daemon.messages import BuildIndexResponse, StatusResponse
+from rbtr.daemon.messages import BuildIndexResponse, GcResponse, StatusResponse
 from rbtr.index.models import Chunk, Edge
 from rbtr.index.search import ScoredResult
 from rbtr.languages import get_manager
@@ -131,6 +131,8 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
             _render_edge(model)
         case StatusResponse():
             _render_status_response(model)
+        case GcResponse():
+            _render_gc_response(model)
         case _:
             msg = f"No rich renderer for {type(model).__name__}"
             raise TypeError(msg)
@@ -256,3 +258,15 @@ def _render_status_response(m: StatusResponse) -> None:
         _out.print("[red]✗[/] No index found")
     else:
         _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
+
+
+def _render_gc_response(m: GcResponse) -> None:
+    prefix = "[yellow]would remove[/]" if m.dry_run else "[green]removed[/]"
+    t = Text.from_markup(
+        f"{prefix}  {m.commits_dropped} commits, "
+        f"{m.snapshots_dropped} snapshots, "
+        f"{m.edges_dropped} edges, "
+        f"{m.chunks_dropped} chunks"
+    )
+    t.append(f"  ({m.elapsed_seconds:.2f}s)", style="dim")
+    _out.print(t)
