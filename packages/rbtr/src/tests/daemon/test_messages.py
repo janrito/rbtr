@@ -48,14 +48,14 @@ def test_request_search_with_defaults() -> None:
 
 
 def test_request_build_index_with_defaults() -> None:
-    raw = b'{"kind":"build_index","repo":"/r"}'
+    raw = b'{"kind":"index","repo":"/r"}'
     req = request_adapter.validate_json(raw)
     assert isinstance(req, BuildIndexRequest)
     assert req.refs == ["HEAD"]
 
 
 def test_request_build_index_two_refs() -> None:
-    raw = b'{"kind":"build_index","repo":"/r","refs":["main","HEAD"]}'
+    raw = b'{"kind":"index","repo":"/r","refs":["main","HEAD"]}'
     req = request_adapter.validate_json(raw)
     assert isinstance(req, BuildIndexRequest)
     assert req.refs == ["main", "HEAD"]

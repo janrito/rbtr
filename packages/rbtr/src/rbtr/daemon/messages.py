@@ -52,7 +52,7 @@ class ShutdownRequest(BaseModel):
 
 class BuildIndexRequest(BaseModel):
     model_config = _STRICT
-    kind: Literal["build_index"] = "build_index"
+    kind: Literal["index"] = "index"
     repo: str
     refs: list[str] = ["HEAD"]
 
@@ -164,7 +164,7 @@ class PingResponse(BaseModel):
 
 class BuildIndexResponse(BaseModel):
     model_config = _STRICT
-    kind: Literal["build_index"] = "build_index"
+    kind: Literal["index"] = "index"
     refs: list[str]
     stats: IndexStats
     errors: list[str]

@@ -120,7 +120,7 @@ class DaemonServer:
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
                 "status": lambda req: handle_status(req, mgr),
                 "gc": lambda req: handle_gc(req, mgr),
-                "build_index": lambda req: handle_build_index(req, bq),
+                "index": lambda req: handle_build_index(req, bq),
             }
         )
 
