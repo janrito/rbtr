@@ -6,8 +6,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import { DaemonSession } from "../extensions/rbtr-index/daemon-session.js";
-import type { Notification } from "../extensions/rbtr-index/generated/protocol.js";
+import { DaemonSession } from "../extensions/rbtr/daemon-session.js";
+import type { Notification } from "../extensions/rbtr/generated/protocol.js";
 import { startFakeDaemon } from "./helpers/fake-daemon.js";
 
 /**

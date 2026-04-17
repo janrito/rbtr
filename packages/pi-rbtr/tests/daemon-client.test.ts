@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { RbtrDaemonError, send } from "../extensions/rbtr-index/daemon-client.js";
+import { RbtrDaemonError, send } from "../extensions/rbtr/daemon-client.js";
 import { sendScenarios } from "./daemon-client.cases.js";
 import { startFakeDaemon } from "./helpers/fake-daemon.js";
 

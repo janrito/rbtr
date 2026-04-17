@@ -14,13 +14,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { queryDaemonStatus, send } from "../extensions/rbtr-index/daemon-client.js";
+import { queryDaemonStatus, send } from "../extensions/rbtr/daemon-client.js";
 
 // macOS socket path limit — keep prefix short.
 const home = mkdtempSync(join(tmpdir(), `rbtr-${randomBytes(3).toString("hex")}-`));
+const repo = mkdtempSync(join(tmpdir(), `rbtr-r-${randomBytes(3).toString("hex")}-`));
 const env = { ...process.env, RBTR_HOME: home };
 
 beforeAll(() => {
+	// handle_status on the daemon calls git.open_repo, so the test
+	// repo has to be a real git directory with at least one commit.
+	const g = (args: string[]) => {
+		const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+		if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+	};
+	g(["init", "-q", "-b", "main"]);
+	g(["config", "user.email", "t@t.t"]);
+	g(["config", "user.name", "t"]);
+	g(["commit", "--allow-empty", "-qm", "init"]);
+
 	const start = spawnSync("rbtr", ["daemon", "start"], { env, encoding: "utf8" });
 	if (start.status !== 0) {
 		throw new Error(`daemon start failed (code=${start.status}):\nstdout: ${start.stdout}\nstderr: ${start.stderr}`);
@@ -30,6 +42,7 @@ beforeAll(() => {
 afterAll(() => {
 	spawnSync("rbtr", ["daemon", "stop"], { env, encoding: "utf8" });
 	rmSync(home, { recursive: true, force: true });
+	rmSync(repo, { recursive: true, force: true });
 });
 
 test("queryDaemonStatus reports running with pid + rpc endpoint", async () => {
@@ -51,10 +64,10 @@ test("send(StatusRequest) round-trips against a real daemon", async () => {
 	const previous = process.env.RBTR_HOME;
 	process.env.RBTR_HOME = home;
 	try {
-		const response = await send({ kind: "status", repo: home });
+		const response = await send({ kind: "status", repo });
 		expect(response.kind).toBe("status");
 		if (response.kind === "status") {
-			// Fresh daemon, empty tmpdir → no index.
+			// Fresh daemon, freshly-initialised repo → no index yet.
 			expect(response.exists).toBe(false);
 			expect(response.indexed_refs).toEqual([]);
 		}

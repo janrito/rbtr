@@ -1,5 +1,5 @@
 /**
- * Custom TUI renderers for rbtr-index tools.
+ * Custom TUI renderers for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
  * renderResult (collapsed/expanded views).

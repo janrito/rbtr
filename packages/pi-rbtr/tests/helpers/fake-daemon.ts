@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Publisher as ZmqPublisher, Reply as ZmqReply } from "zeromq";
 
-import type { Notification, Request, Response } from "../../extensions/rbtr-index/generated/protocol.js";
+import type { Notification, Request, Response } from "../../extensions/rbtr/generated/protocol.js";
 
 /**
  * A canned reply, or a function that computes the reply from the

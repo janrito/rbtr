@@ -8,8 +8,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import { RbtrDaemonError } from "../extensions/rbtr-index/daemon-client.js";
-import { DaemonSession, DaemonUnavailableError } from "../extensions/rbtr-index/daemon-session.js";
+import { RbtrDaemonError } from "../extensions/rbtr/daemon-client.js";
+import { DaemonSession, DaemonUnavailableError } from "../extensions/rbtr/daemon-session.js";
 import { sessionScenarios } from "./daemon-session.cases.js";
 import { startFakeDaemon } from "./helpers/fake-daemon.js";
 

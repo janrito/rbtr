@@ -6,7 +6,7 @@
  * iterates over these cases with ``test.each``.
  */
 
-import type { ErrorCode, Request, Response } from "../extensions/rbtr-index/generated/protocol.js";
+import type { ErrorCode, Request, Response } from "../extensions/rbtr/generated/protocol.js";
 
 export interface SendScenario {
 	/** Human-readable name (used as the test case ID). */

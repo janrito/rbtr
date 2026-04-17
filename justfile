@@ -46,7 +46,7 @@ typecheck-ts:
 # `git diff --exit-code` fails on any drift.
 schema-check:
     cd packages/pi-rbtr && bun run scripts/gen-types.ts
-    git diff --exit-code packages/pi-rbtr/extensions/rbtr-index/generated/protocol.ts
+    git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
 
 test: test-rbtr test-legacy test-ts
 

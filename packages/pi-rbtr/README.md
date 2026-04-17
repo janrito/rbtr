@@ -156,7 +156,7 @@ packages/pi-rbtr/
 ├── package.json              # pi manifest, npm dependencies
 ├── tsconfig.json             # strict TypeScript config
 └── extensions/
-    └── rbtr-index/
+    └── rbtr/
         ├── index.ts          # extension entry point
         ├── exec.ts           # CLI resolution, pi.exec() helpers
         ├── render.ts         # custom TUI renderers for all tools

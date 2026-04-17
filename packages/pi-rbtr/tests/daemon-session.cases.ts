@@ -2,7 +2,7 @@
  * Scenarios for ``daemon-session.test.ts``.
  */
 
-import type { Request, Response } from "../extensions/rbtr-index/generated/protocol.js";
+import type { Request, Response } from "../extensions/rbtr/generated/protocol.js";
 
 export interface SessionScenario {
 	readonly name: string;

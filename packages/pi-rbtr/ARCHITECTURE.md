@@ -31,7 +31,7 @@ The design prioritises three properties:
 ### Modules
 
 ```text
-extensions/rbtr-index/
+extensions/rbtr/
 ├── index.ts      Entry point — events, commands, tools
 ├── exec.ts       CLI resolution and invocation
 ├── render.ts     Custom TUI renderers

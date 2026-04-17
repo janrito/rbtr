@@ -1,12 +1,12 @@
 /**
- * rbtr-index — pi extension for the rbtr structural code index.
+ * rbtr — pi extension for the rbtr structural code index.
  *
  * Gives the LLM access to rbtr's code index via registered tools.
  * Tries the ZMQ daemon first; falls back to shelling the CLI on
  * transport errors.  Protocol types come from the generated
  * `./generated/protocol.ts` — Python is the source of truth.
  *
- * Placement: .pi/extensions/rbtr-index/index.ts
+ * Placement: .pi/extensions/rbtr/index.ts
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";

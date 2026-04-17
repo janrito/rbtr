@@ -1,5 +1,5 @@
 /**
- * Settings for the rbtr-index extension.
+ * Settings for the rbtr extension.
  *
  * Config files (project overrides global):
  * - ~/.pi/agent/rbtr-index.json
