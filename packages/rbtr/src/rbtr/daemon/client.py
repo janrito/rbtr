@@ -76,7 +76,7 @@ def start_daemon() -> DaemonStatus:
     log_path = user_dir / "daemon.log"
     with open(log_path, "a") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "rbtr", "daemon", "_serve"],
+            [sys.executable, "-m", "rbtr", "daemon", "serve"],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,

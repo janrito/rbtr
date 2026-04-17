@@ -78,8 +78,8 @@ log = logging.getLogger(__name__)
 # ── Internal server entry point ───────────────────────────────────────
 
 
-class Serve(BaseModel):
-    """Internal: run the daemon server (called by `start`)."""
+class DaemonServe(BaseModel):
+    """Internal: run the daemon server (spawned by `daemon start`)."""
 
     def cli_cmd(self) -> None:
         sock_dir = Path(config.user_dir)
@@ -151,6 +151,7 @@ class Daemon(BaseModel):
     start: CliSubCommand[DaemonStart]
     stop: CliSubCommand[DaemonStop]
     status: CliSubCommand[DaemonStatus]
+    serve: CliSubCommand[DaemonServe]
 
     def cli_cmd(self) -> None:
         # config.json_output is already set by root Rbtr.cli_cmd()
@@ -447,7 +448,6 @@ class Rbtr(
     changed_symbols: CliSubCommand[ChangedSymbols]
     status: CliSubCommand[Status]
     schema_dump: CliSubCommand[SchemaDump]
-    _serve: CliSubCommand[Serve]
 
     def cli_cmd(self) -> None:
         config.json_output = self.json_output
