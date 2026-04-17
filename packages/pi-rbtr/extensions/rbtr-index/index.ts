@@ -17,6 +17,7 @@ import {
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
+import type { BuildIndexResponse, StatusResponse } from "./generated/protocol.js";
 import {
 	renderChangedSymbolsCall,
 	renderChangedSymbolsResult,
@@ -34,27 +35,6 @@ import {
 	renderStatusResult,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
-
-interface IndexStatus {
-	exists: boolean;
-	db_path?: string;
-	total_chunks?: number;
-}
-
-interface IndexStats {
-	total_chunks: number;
-	total_edges: number;
-	total_files: number;
-	skipped_files: number;
-	parsed_files: number;
-	elapsed_seconds: number;
-}
-
-interface IndexResult {
-	refs: string[];
-	stats: IndexStats;
-	errors: string[];
-}
 
 export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	/**
@@ -87,12 +67,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	let resolved: ResolvedCommand | null = null;
 	let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true };
 	let cliAvailable = false;
-	let indexPromise: Promise<IndexResult> | null = null;
+	let indexPromise: Promise<BuildIndexResponse> | null = null;
 
-	async function checkStatus(): Promise<IndexStatus | null> {
+	async function checkStatus(): Promise<StatusResponse | null> {
 		if (!resolved) return null;
 		try {
-			const results = await runRbtrJson<IndexStatus>(pi, resolved, ["status"], { timeout: 5000 });
+			const results = await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
 			return results[0] ?? null;
 		} catch {
 			return null;
@@ -126,7 +106,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 			args.push("--refs", ...refs);
 		}
 
-		indexPromise = runRbtrJson<IndexResult>(pi, resolved, args, { timeout: 600_000 })
+		indexPromise = runRbtrJson<BuildIndexResponse>(pi, resolved, args, { timeout: 600_000 })
 			.then(async (results) => {
 				const result = results[0];
 				if (!result) {
@@ -150,7 +130,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				const s = result.stats;
 				captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${s.total_chunks} symbols`));
 				captured.notify(
-					`Indexed: ${s.total_chunks} chunks, ${s.total_edges} edges \u2014 ${s.elapsed_seconds.toFixed(1)}s` +
+					`Indexed: ${s.total_chunks} chunks, ${s.total_edges} edges \u2014 ${(s.elapsed_seconds ?? 0).toFixed(1)}s` +
 						(result.errors.length > 0 ? `\n${result.errors.length} error(s)` : ""),
 					result.errors.length > 0 ? "warning" : "info",
 				);

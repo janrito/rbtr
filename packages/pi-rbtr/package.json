@@ -21,6 +21,7 @@
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*",
+    "json-schema-to-typescript": "^15.0.4",
     "typescript": "^5.8"
   }
 }

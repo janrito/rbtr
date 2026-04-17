@@ -1,6 +1,6 @@
-check: lint typecheck test
+check: schema-check lint typecheck test
 
-ci: lint typecheck test-cov
+ci: schema-check lint typecheck test-cov
 
 fmt: fmt-py fmt-ts fmt-sql fmt-md
 
@@ -39,6 +39,14 @@ typecheck-py:
 
 typecheck-ts:
     cd packages/pi-rbtr && bunx tsc --noEmit
+
+# Regenerate the pi-rbtr TypeScript protocol types from the
+# Python models (via `rbtr schema-dump`).  The generated file is
+# committed, so CI (and local `just check`) runs this before
+# `git diff --exit-code` fails on any drift.
+schema-check:
+    cd packages/pi-rbtr && bun run scripts/gen-types.ts
+    git diff --exit-code packages/pi-rbtr/extensions/rbtr-index/generated/protocol.ts
 
 test: test-rbtr test-legacy
 

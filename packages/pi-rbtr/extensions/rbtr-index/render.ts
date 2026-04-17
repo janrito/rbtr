@@ -8,6 +8,8 @@
 import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 
+import type { Chunk, Edge, ScoredResult } from "./generated/protocol.js";
+
 type ToolResult = AgentToolResult<unknown>;
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -33,46 +35,6 @@ function tryParseNdjson<T>(text: string): T[] {
 function shortenPath(filePath: string): string {
 	// Remove common prefixes for readability
 	return filePath.replace(/^packages\/rbtr\/src\//, "").replace(/^packages\/rbtr-legacy\/src\//, "legacy/");
-}
-
-// ── Types matching rbtr JSON output ─────────────────────────────
-
-interface ScoredResult {
-	chunk: {
-		id: string;
-		file_path: string;
-		kind: string;
-		name: string;
-		scope: string;
-		content: string;
-		line_start: number;
-		line_end: number;
-	};
-	score: number;
-	lexical: number;
-	semantic: number;
-	name: number;
-	kind_boost: number;
-	file_penalty: number;
-	importance: number;
-	proximity: number;
-}
-
-interface Chunk {
-	id: string;
-	file_path: string;
-	kind: string;
-	name: string;
-	scope: string;
-	content: string;
-	line_start: number;
-	line_end: number;
-}
-
-interface Edge {
-	source_id: string;
-	target_id: string;
-	kind: string;
 }
 
 // ── Search ──────────────────────────────────────────────────────
