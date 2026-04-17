@@ -11,10 +11,10 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Redirect all config paths to temp dirs."""
-    user_dir = tmp_path / "rbtr"
-    user_dir.mkdir()
+    home = tmp_path / "rbtr"
+    home.mkdir()
 
-    monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
+    monkeypatch.setenv("RBTR_HOME", str(home))
 
     from rbtr.config import config
 

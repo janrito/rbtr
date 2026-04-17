@@ -48,7 +48,7 @@ from rbtr.errors import RbtrError
 
 def _sock_dir() -> Path:
     """Path to the daemon socket directory."""
-    return Path(config.user_dir)
+    return config.home
 
 
 def _status() -> DaemonStatus | None:
@@ -70,10 +70,10 @@ def start_daemon() -> DaemonStatus:
     Returns the daemon status on success. Raises `RuntimeError`
     if the daemon fails to start within the timeout.
     """
-    user_dir = _sock_dir()
-    user_dir.mkdir(parents=True, exist_ok=True)
+    home = _sock_dir()
+    home.mkdir(parents=True, exist_ok=True)
 
-    log_path = user_dir / "daemon.log"
+    log_path = home / "daemon.log"
     with open(log_path, "a") as log:
         proc = subprocess.Popen(
             [sys.executable, "-m", "rbtr", "daemon", "serve"],

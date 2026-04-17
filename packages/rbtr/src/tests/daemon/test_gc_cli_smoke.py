@@ -34,14 +34,13 @@ class TinyRepo:
 
 
 @pytest.fixture
-def isolated_user_dir(monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
-    user_dir = Path(tempfile.mkdtemp(prefix="rbtr"))
-    monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
-    monkeypatch.setenv("RBTR_DB_PATH", str(user_dir / "index.duckdb"))
+def isolated_home(monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
+    home = Path(tempfile.mkdtemp(prefix="rbtr"))
+    monkeypatch.setenv("RBTR_HOME", str(home))
     try:
-        yield user_dir
+        yield home
     finally:
-        shutil.rmtree(user_dir, ignore_errors=True)
+        shutil.rmtree(home, ignore_errors=True)
 
 
 @pytest.fixture
@@ -74,7 +73,7 @@ def tiny_repo(tmp_path: Path) -> TinyRepo:
 
 @pytest.fixture
 def seeded_repo_id_both_commits(
-    isolated_user_dir: Path, tiny_repo: TinyRepo
+    isolated_home: Path, tiny_repo: TinyRepo
 ) -> int:
     """Seed both commits and close the store so subprocesses can open it."""
     config.reload()
@@ -100,7 +99,7 @@ def seeded_repo_id_both_commits(
 
 @pytest.fixture
 def seeded_repo_id_first_commit(
-    isolated_user_dir: Path, tiny_repo: TinyRepo
+    isolated_home: Path, tiny_repo: TinyRepo
 ) -> int:
     """Seed only the first commit and close the store."""
     config.reload()
@@ -123,19 +122,18 @@ def seeded_repo_id_first_commit(
     return repo_id
 
 
-def _env(user_dir: Path) -> dict[str, str]:
+def _env(home: Path) -> dict[str, str]:
     # Pure projection: takes the caller-supplied path, returns the
     # env dict for subprocess.run.  No I/O, no state besides reading
     # os.environ.
     return {
         **os.environ,
-        "RBTR_USER_DIR": str(user_dir),
-        "RBTR_DB_PATH": str(user_dir / "index.duckdb"),
+        "RBTR_HOME": str(home),
     }
 
 
 def test_gc_drop_removes_commit(
-    isolated_user_dir: Path,
+    isolated_home: Path,
     tiny_repo: TinyRepo,
     seeded_repo_id_both_commits: int,
 ) -> None:
@@ -153,7 +151,7 @@ def test_gc_drop_removes_commit(
             "--drop",
             tiny_repo.c1,
         ],
-        env=_env(isolated_user_dir),
+        env=_env(isolated_home),
         capture_output=True,
         text=True,
         timeout=60,
@@ -169,7 +167,7 @@ def test_gc_drop_removes_commit(
 
 
 def test_gc_dry_run_changes_nothing(
-    isolated_user_dir: Path,
+    isolated_home: Path,
     tiny_repo: TinyRepo,
     seeded_repo_id_first_commit: int,
 ) -> None:
@@ -186,7 +184,7 @@ def test_gc_dry_run_changes_nothing(
             str(tiny_repo.path),
             "--dry-run",
         ],
-        env=_env(isolated_user_dir),
+        env=_env(isolated_home),
         capture_output=True,
         text=True,
         timeout=60,
@@ -200,7 +198,7 @@ def test_gc_dry_run_changes_nothing(
 
 
 def test_gc_keep_and_drop_are_mutually_exclusive(
-    isolated_user_dir: Path, tiny_repo: TinyRepo
+    isolated_home: Path, tiny_repo: TinyRepo
 ) -> None:
     r = subprocess.run(
         [
@@ -214,7 +212,7 @@ def test_gc_keep_and_drop_are_mutually_exclusive(
             "HEAD",
             "main",  # positional → --keep
         ],
-        env=_env(isolated_user_dir),
+        env=_env(isolated_home),
         capture_output=True,
         text=True,
         timeout=60,

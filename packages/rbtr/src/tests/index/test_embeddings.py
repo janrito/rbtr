@@ -137,7 +137,7 @@ def test_resolve_explicit_three_part(
     dl = mocker.patch.object(embeddings, "_download", return_value=fake_path)
     path = embeddings._resolve_model_path()
     assert path == Path(fake_path)
-    dl.assert_called_once_with("org/repo", "model.gguf", str(Path(config.user_dir) / "models"))
+    dl.assert_called_once_with("org/repo", "model.gguf", str(config.home / "models"))
 
 
 def test_resolve_two_part_picks_first_gguf(
@@ -154,7 +154,7 @@ def test_resolve_two_part_picks_first_gguf(
     dl = mocker.patch.object(embeddings, "_download", return_value=fake_path)
     path = embeddings._resolve_model_path()
     assert path == Path(fake_path)
-    dl.assert_called_once_with("org/repo", "weights.gguf", str(Path(config.user_dir) / "models"))
+    dl.assert_called_once_with("org/repo", "weights.gguf", str(config.home / "models"))
 
 
 def test_resolve_invalid_format_raises(config_path: Path) -> None:

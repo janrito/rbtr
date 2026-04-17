@@ -261,8 +261,7 @@ class IndexStore:
     @classmethod
     def from_config(cls) -> IndexStore:
         """Open the store at the central DB path."""
-        db = Path(config.db_path).expanduser()
-        return cls(db)
+        return cls(config.db_path)
 
     def register_repo(self, path: str) -> int:
         """Register a repo path and return its integer ID.

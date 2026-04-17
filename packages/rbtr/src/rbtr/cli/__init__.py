@@ -91,7 +91,7 @@ class DaemonServe(BaseModel):
     """Internal: run the daemon server (spawned by `daemon start`)."""
 
     def cli_cmd(self) -> None:
-        sock_dir = Path(config.user_dir)
+        sock_dir = config.home
         sock_dir.mkdir(parents=True, exist_ok=True)
         store = IndexStore.from_config()
         server = DaemonServer(sock_dir, store)
@@ -416,7 +416,7 @@ class Status(BaseModel):
             return
 
         # Fallback: direct execution
-        db = Path(config.db_path).expanduser()
+        db = config.db_path
         if not db.exists():
             emit(StatusResponse(exists=False))
             return

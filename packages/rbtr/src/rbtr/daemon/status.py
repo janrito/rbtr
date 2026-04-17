@@ -62,14 +62,14 @@ class DaemonStatusReport(BaseModel):
     ping_ms: float | None = None
 
 
-def status_path(user_dir: Path) -> Path:
+def status_path(home: Path) -> Path:
     """Path to the daemon status file."""
-    return user_dir / "daemon.json"
+    return home / "daemon.json"
 
 
-def read_status(user_dir: Path) -> DaemonStatus | None:
+def read_status(home: Path) -> DaemonStatus | None:
     """Read the daemon status file, or ``None`` if missing."""
-    path = status_path(user_dir)
+    path = status_path(home)
     try:
         with open(path) as f:
             data = json.load(f)
@@ -85,7 +85,7 @@ def read_status(user_dir: Path) -> DaemonStatus | None:
 
 
 def write_status(
-    user_dir: Path,
+    home: Path,
     *,
     pid: int,
     rpc: str,
@@ -98,7 +98,7 @@ def write_status(
     to the final name. This avoids a reader ever seeing a
     partial/truncated file.
     """
-    path = status_path(user_dir)
+    path = status_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(".daemon.json.tmp")
     data = {
@@ -112,9 +112,9 @@ def write_status(
     tmp.rename(path)
 
 
-def remove_status(user_dir: Path) -> None:
+def remove_status(home: Path) -> None:
     """Remove the status file if it exists."""
-    status_path(user_dir).unlink(missing_ok=True)
+    status_path(home).unlink(missing_ok=True)
 
 
 def _iso_now() -> str:

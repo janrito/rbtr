@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import AfterValidator, Field, computed_field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -28,7 +28,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-_DEFAULT_USER_DIR = str(Path.home() / ".rbtr")
+_DEFAULT_HOME = Path.home() / ".rbtr"
 
 
 class Config(BaseSettings):
@@ -36,16 +36,43 @@ class Config(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RBTR_", populate_by_name=True)
 
-    user_dir: Annotated[
-        str,
+    # `AfterValidator(Path.expanduser)` runs after pydantic's
+    # ``str -> Path`` coercion so ``RBTR_HOME=~/foo`` resolves
+    # properly; pydantic does not expand ``~`` by itself.
+    home: Annotated[
+        Path,
+        AfterValidator(Path.expanduser),
         Field(
             exclude=True,
-            description="User-level storage root. Override with `RBTR_USER_DIR` env var.",
+            description=(
+                "Base directory for all rbtr state — DB, config,"
+                " sockets, logs, models.  Override with `RBTR_HOME`"
+                " env var or `--home` flag."
+            ),
         ),
-    ] = _DEFAULT_USER_DIR
-    db_path: Annotated[str, Field(description="Path to the central DuckDB index file.")] = (
-        "~/.rbtr/index.duckdb"
-    )
+    ] = _DEFAULT_HOME
+    db_name: Annotated[
+        str,
+        Field(
+            description=(
+                "Filename for the central DuckDB index under ``home``. "
+                "Override with `RBTR_DB_NAME` env var."
+            ),
+        ),
+    ] = "index.duckdb"
+
+    @computed_field  # type: ignore[prop-decorator]  # mypy #1362: decorated property
+    @property
+    def db_path(self) -> Path:
+        """Full path to the DuckDB index, derived from ``home`` + ``db_name``.
+
+        Always ``{home}/{db_name}``. A read-only computed field
+        (no separate setting) so DB storage stays co-located with
+        everything else under ``home`` — ``RBTR_HOME=X`` gives
+        real isolation with no second knob to forget.
+        """
+        return self.home / self.db_name
+
     max_file_size: Annotated[int, Field(description="Skip files larger than this (bytes).")] = (
         512 * 1024
     )
@@ -69,7 +96,8 @@ class Config(BaseSettings):
         Field(
             description=(
                 "Seconds before unloading the embedding model when idle. "
-                "Set to 0 to keep the model loaded. Only used by the daemon."            ),
+                "Set to 0 to keep the model loaded. Only used by the daemon."
+            ),
         ),
     ] = 300
 
@@ -82,8 +110,8 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        user_dir = Path(os.environ.get("RBTR_USER_DIR", _DEFAULT_USER_DIR))
-        toml = user_dir / "config.toml"
+        home = Path(os.environ.get("RBTR_HOME", _DEFAULT_HOME)).expanduser()
+        toml = home / "config.toml"
         return (
             TomlConfigSettingsSource(
                 settings_cls,

@@ -15,6 +15,7 @@ cov-append.md
 htmlcov/
 
 .rbtr/
+.envrc
 
 node_modules/
 bun.lock
