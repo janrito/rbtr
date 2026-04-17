@@ -2,7 +2,9 @@
  * rbtr-index — pi extension for the rbtr structural code index.
  *
  * Gives the LLM access to rbtr's code index via registered tools.
- * Shells out to the `rbtr` CLI for all operations.
+ * Tries the ZMQ daemon first; falls back to shelling the CLI on
+ * transport errors.  Protocol types come from the generated
+ * `./generated/protocol.ts` — Python is the source of truth.
  *
  * Placement: .pi/extensions/rbtr-index/index.ts
  */
@@ -16,8 +18,11 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+
+import { RbtrDaemonError } from "./daemon-client.js";
+import { DaemonSession, DaemonUnavailableError } from "./daemon-session.js";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
-import type { BuildIndexResponse, StatusResponse } from "./generated/protocol.js";
+import type { BuildIndexResponse, Response, StatusResponse } from "./generated/protocol.js";
 import {
 	renderChangedSymbolsCall,
 	renderChangedSymbolsResult,
@@ -36,40 +41,91 @@ import {
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 
-export default function rbtrIndexExtension(pi: ExtensionAPI) {
-	/**
-	 * Apply pi's truncation limits to tool output.
-	 * Keeps content within 50KB / 2000 lines so it doesn't
-	 * overflow the LLM context.
-	 */
-	function truncateOutput(
-		text: string,
-		details: Record<string, unknown>,
-	): { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> } {
-		const truncation = truncateHead(text, {
-			maxLines: DEFAULT_MAX_LINES,
-			maxBytes: DEFAULT_MAX_BYTES,
-		});
+// ── Tool result shape ─────────────────────────────────────────
 
-		let content = truncation.content;
-		if (truncation.truncated) {
-			content +=
-				`\n\n[Output truncated: showing ${truncation.outputLines} of ` +
-				`${truncation.totalLines} lines. Use --limit or rbtr_read_symbol for details.]`;
-		}
+interface ToolReturn {
+	content: Array<{ type: "text"; text: string }>;
+	details: Record<string, unknown>;
+}
 
-		return {
-			content: [{ type: "text", text: content }],
-			details: { ...details, truncated: truncation.truncated },
-		};
+/** Pack a typed daemon response for the LLM + renderer. */
+function toolResultFromDaemon(response: Response): ToolReturn {
+	return {
+		content: [{ type: "text", text: JSON.stringify(response) }],
+		details: { fromDaemon: true, response },
+	};
+}
+
+/** Pack raw CLI stdout for the LLM + renderer. */
+function toolResultFromCli(stdout: string, extra: Record<string, unknown>): ToolReturn {
+	const truncation = truncateHead(stdout, {
+		maxLines: DEFAULT_MAX_LINES,
+		maxBytes: DEFAULT_MAX_BYTES,
+	});
+	let content = truncation.content;
+	if (truncation.truncated) {
+		content +=
+			`\n\n[Output truncated: showing ${truncation.outputLines} of ` +
+			`${truncation.totalLines} lines. Use --limit or rbtr_read_symbol for details.]`;
 	}
+	return {
+		content: [{ type: "text", text: content }],
+		details: { fromCli: true, truncated: truncation.truncated, ...extra },
+	};
+}
 
+// ── Extension ─────────────────────────────────────────────────
+
+export default function rbtrIndexExtension(pi: ExtensionAPI) {
+	const session = new DaemonSession();
 	let resolved: ResolvedCommand | null = null;
 	let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true };
 	let cliAvailable = false;
-	let indexPromise: Promise<BuildIndexResponse> | null = null;
 
-	async function checkStatus(): Promise<StatusResponse | null> {
+	/**
+	 * Try the daemon path, fall back to the CLI callback on
+	 * transport failure.  Propagates ``RbtrDaemonError`` from the
+	 * daemon untouched — that is an actionable reply, not a
+	 * transport problem.
+	 */
+	async function withFallback<T>(fromDaemon: () => Promise<T>, fromCli: () => Promise<T>): Promise<T> {
+		if (session.available) {
+			try {
+				return await fromDaemon();
+			} catch (err) {
+				if (err instanceof RbtrDaemonError) throw err;
+				if (err instanceof DaemonUnavailableError) {
+					// Transport failure — fall through to CLI.
+				} else {
+					throw err;
+				}
+			}
+		}
+		if (!resolved || !cliAvailable) {
+			throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
+		}
+		return fromCli();
+	}
+
+	function mapDaemonError(err: unknown): ToolReturn {
+		if (err instanceof RbtrDaemonError) {
+			return {
+				content: [{ type: "text", text: `${err.code}: ${err.message}` }],
+				details: { errorCode: err.code, message: err.message },
+			};
+		}
+		throw err;
+	}
+
+	async function queryIndexStatus(repo: string): Promise<StatusResponse | null> {
+		if (session.available) {
+			try {
+				return await session.send({ kind: "status", repo });
+			} catch (err) {
+				if (err instanceof RbtrDaemonError) return null;
+				// transport — fall through to CLI
+			}
+		}
 		if (!resolved) return null;
 		try {
 			const results = await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
@@ -79,95 +135,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		}
 	}
 
-	// ── Index management ───────────────────────────────────────
-
-	function isIndexing(): boolean {
-		return indexPromise !== null;
-	}
-
-	/**
-	 * Launch a background index. Returns false if already
-	 * indexing. Updates footer status and notifies on completion.
-	 */
-	function startIndexing(ctx: ExtensionContext, ...refs: string[]): boolean {
-		if (!resolved || !cliAvailable) return false;
-		if (indexPromise) return false;
-
-		ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: indexing\u2026"));
-
-		const captured = {
-			setStatus: ctx.ui.setStatus.bind(ctx.ui),
-			notify: ctx.ui.notify.bind(ctx.ui),
-			theme: ctx.ui.theme,
-		};
-
-		const args = ["index"];
-		if (refs.length > 0) {
-			args.push("--refs", ...refs);
-		}
-
-		indexPromise = runRbtrJson<BuildIndexResponse>(pi, resolved, args, { timeout: 600_000 })
-			.then(async (results) => {
-				const result = results[0];
-				if (!result) {
-					const status = await checkStatus();
-					const count = status?.total_chunks ?? 0;
-					captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${count} symbols`));
-					captured.notify("Indexing completed.", "info");
-					return {
-						refs: refs.length > 0 ? refs : ["HEAD"],
-						stats: {
-							total_chunks: count,
-							total_edges: 0,
-							total_files: 0,
-							skipped_files: 0,
-							parsed_files: 0,
-							elapsed_seconds: 0,
-						},
-						errors: [],
-					};
-				}
-				const s = result.stats;
-				captured.setStatus("rbtr", captured.theme.fg("success", `rbtr: ${s.total_chunks} symbols`));
-				captured.notify(
-					`Indexed: ${s.total_chunks} chunks, ${s.total_edges} edges \u2014 ${(s.elapsed_seconds ?? 0).toFixed(1)}s` +
-						(result.errors.length > 0 ? `\n${result.errors.length} error(s)` : ""),
-					result.errors.length > 0 ? "warning" : "info",
-				);
-				return result;
-			})
-			.catch((err) => {
-				captured.setStatus("rbtr", captured.theme.fg("error", "rbtr: indexing failed"));
-				captured.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
-				throw err;
-			})
-			.finally(() => {
-				indexPromise = null;
-			});
-
-		return true;
-	}
-
-	/**
-	 * Guard used by query tools: throws if CLI unavailable or
-	 * indexing is in progress so the LLM gets a clear error.
-	 */
-	function requireReady(): void {
-		if (!resolved || !cliAvailable) {
-			throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-		}
-		if (isIndexing()) {
-			throw new Error("Indexing is in progress. Try again after it completes.");
-		}
-	}
-
 	// ── Session lifecycle ───────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
 		settings = loadSettings(ctx.cwd);
 		resolved = resolveCommand(settings.command);
 
-		const status = await checkStatus();
+		// Look for the daemon first — one CLI shell-out here avoids
+		// a per-tool-call query.  Failure leaves the session marked
+		// unavailable and the tools fall back to CLI exec.
+		await session.refresh();
+
+		const status = await queryIndexStatus(ctx.cwd);
 		if (status === null) {
 			cliAvailable = false;
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("error", "rbtr: not found"));
@@ -184,7 +163,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		if (status.exists) {
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("success", `rbtr: ${status.total_chunks} symbols`));
 		} else if (settings.autoIndex) {
-			startIndexing(ctx);
+			await triggerIndex(ctx);
 		} else {
 			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-index"));
 		}
@@ -202,16 +181,44 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		};
 	});
 
+	/**
+	 * Submit a build to the daemon (or via CLI fallback).
+	 *
+	 * Fire-and-forget: the daemon returns OkResponse immediately
+	 * and runs the build on its internal queue.  Progress updates
+	 * arrive via PUB notifications (wired in Phase 8.4).
+	 */
+	async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
+		const targetRefs = refs.length > 0 ? refs : ["HEAD"];
+		ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: indexing\u2026"));
+		try {
+			await withFallback(
+				async () => {
+					await session.send({ kind: "index", repo: ctx.cwd, refs: targetRefs });
+				},
+				async () => {
+					if (!resolved) throw new Error("rbtr CLI not available");
+					const args = ["index"];
+					for (const r of targetRefs) args.push(r);
+					await runRbtrJson<BuildIndexResponse>(pi, resolved, args, { timeout: 600_000 });
+				},
+			);
+		} catch (err) {
+			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("error", "rbtr: indexing failed"));
+			ctx.ui.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+		}
+	}
+
 	// ── Commands ────────────────────────────────────────────────
 
 	pi.registerCommand("rbtr-status", {
 		description: "Show rbtr index status",
 		handler: async (_args, ctx) => {
-			if (!cliAvailable || !resolved) {
+			if (!cliAvailable) {
 				ctx.ui.notify("rbtr CLI not available", "error");
 				return;
 			}
-			const status = await checkStatus();
+			const status = await queryIndexStatus(ctx.cwd);
 			if (!status) {
 				ctx.ui.notify("Failed to get index status", "error");
 				return;
@@ -227,15 +234,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 	pi.registerCommand("rbtr-index", {
 		description: "Index the repository (or rebuild the index)",
 		handler: async (_args, ctx) => {
-			if (!cliAvailable || !resolved) {
+			if (!cliAvailable) {
 				ctx.ui.notify("rbtr CLI not available", "error");
 				return;
 			}
-			if (isIndexing()) {
-				ctx.ui.notify("Indexing already in progress", "warning");
-				return;
-			}
-			startIndexing(ctx);
+			await triggerIndex(ctx);
 			ctx.ui.notify("Indexing started. Progress in the footer.", "info");
 		},
 	});
@@ -263,12 +266,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 				container.addChild({
 					render(_width: number) {
 						const desc = resolved ? resolved.description : "not resolved";
+						const daemonMode = session.available ? "daemon" : "cli fallback";
 						return [
 							theme.fg("accent", theme.bold("rbtr Index Settings")),
 							"",
 							`${theme.fg("muted", "Command:")} ${settings.command}`,
 							`${theme.fg("muted", "Resolved:")} ${theme.fg("dim", desc)}`,
 							`${theme.fg("muted", "CLI available:")} ${cliAvailable ? theme.fg("success", "yes") : theme.fg("error", "no")}`,
+							`${theme.fg("muted", "Transport:")} ${theme.fg(session.available ? "success" : "warning", daemonMode)}`,
 							"",
 						];
 					},
@@ -327,19 +332,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!resolved || !cliAvailable) {
+			if (!cliAvailable) {
 				throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
 			}
-			if (isIndexing()) {
-				return {
-					content: [{ type: "text", text: "Indexing already in progress. Use rbtr_status to check progress." }],
-					details: { status: "in_progress" },
-				};
-			}
-
 			const refs = params.refs ?? ["HEAD"];
-			startIndexing(ctx, ...refs);
-
+			await triggerIndex(ctx, ...refs);
 			return {
 				content: [
 					{
@@ -361,32 +358,23 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderStatusCall(args, theme),
 		renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
 
-		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
-			if (!resolved || !cliAvailable) {
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			if (!cliAvailable) {
 				throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
 			}
-			if (isIndexing()) {
-				return {
-					content: [{ type: "text", text: "Indexing is in progress. Check again shortly." }],
-					details: { indexing: true },
-				};
-			}
-
-			const status = await checkStatus();
+			const status = await queryIndexStatus(ctx.cwd);
 			if (!status) {
 				throw new Error("Failed to check index status");
 			}
-
 			if (status.exists) {
 				return {
 					content: [{ type: "text", text: `Index: ${status.total_chunks} symbols\nPath: ${status.db_path}` }],
-					details: status,
+					details: { fromDaemon: true, response: status },
 				};
 			}
-
 			return {
 				content: [{ type: "text", text: "No index found. Use rbtr_index to create one." }],
-				details: status,
+				details: { fromDaemon: true, response: status },
 			};
 		},
 	});
@@ -408,23 +396,42 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderSearchCall(args, theme),
 		renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
 
-		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-			requireReady();
-
-			const args = ["search", params.query];
-			if (params.limit) args.push("--limit", String(params.limit));
-
-			const result = await runRbtr(pi, resolved!, args, { signal, timeout: 30_000 });
-			const text = result.stdout.trim();
-
-			if (!text) {
-				return {
-					content: [{ type: "text", text: "No results found." }],
-					details: { results: [] },
-				};
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			try {
+				return await withFallback<ToolReturn>(
+					async () => {
+						const resp = await session.send({
+							kind: "search",
+							repo: ctx.cwd,
+							query: params.query,
+							...(params.limit !== undefined ? { limit: params.limit } : {}),
+						});
+						if (resp.results.length === 0) {
+							return {
+								content: [{ type: "text", text: "No results found." }],
+								details: { fromDaemon: true, response: resp },
+							};
+						}
+						return toolResultFromDaemon(resp);
+					},
+					async () => {
+						if (!resolved) throw new Error("rbtr CLI not available");
+						const args = ["search", params.query];
+						if (params.limit !== undefined) args.push("--limit", String(params.limit));
+						const result = await runRbtr(pi, resolved, args, { signal, timeout: 30_000 });
+						const text = result.stdout.trim();
+						if (!text) {
+							return {
+								content: [{ type: "text", text: "No results found." }],
+								details: { fromCli: true, results: [] },
+							};
+						}
+						return toolResultFromCli(text, { query: params.query, limit: params.limit });
+					},
+				);
+			} catch (err) {
+				return mapDaemonError(err);
 			}
-
-			return truncateOutput(text, { query: params.query, limit: params.limit });
 		},
 	});
 
@@ -443,20 +450,39 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderReadSymbolCall(args, theme),
 		renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
 
-		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-			requireReady();
-
-			const result = await runRbtr(pi, resolved!, ["read-symbol", params.symbol], { signal, timeout: 30_000 });
-			const text = result.stdout.trim();
-
-			if (!text) {
-				return {
-					content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
-					details: { symbol: params.symbol, found: false },
-				};
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			try {
+				return await withFallback<ToolReturn>(
+					async () => {
+						const resp = await session.send({
+							kind: "read_symbol",
+							repo: ctx.cwd,
+							name: params.symbol,
+						});
+						if (resp.chunks.length === 0) {
+							return {
+								content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
+								details: { fromDaemon: true, response: resp },
+							};
+						}
+						return toolResultFromDaemon(resp);
+					},
+					async () => {
+						if (!resolved) throw new Error("rbtr CLI not available");
+						const result = await runRbtr(pi, resolved, ["read-symbol", params.symbol], { signal, timeout: 30_000 });
+						const text = result.stdout.trim();
+						if (!text) {
+							return {
+								content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
+								details: { fromCli: true, symbol: params.symbol, found: false },
+							};
+						}
+						return toolResultFromCli(text, { symbol: params.symbol, found: true });
+					},
+				);
+			} catch (err) {
+				return mapDaemonError(err);
 			}
-
-			return truncateOutput(text, { symbol: params.symbol, found: true });
 		},
 	});
 
@@ -475,20 +501,39 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderFindRefsCall(args, theme),
 		renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
 
-		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-			requireReady();
-
-			const result = await runRbtr(pi, resolved!, ["find-refs", params.symbol], { signal, timeout: 30_000 });
-			const text = result.stdout.trim();
-
-			if (!text) {
-				return {
-					content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
-					details: { symbol: params.symbol, found: false },
-				};
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			try {
+				return await withFallback<ToolReturn>(
+					async () => {
+						const resp = await session.send({
+							kind: "find_refs",
+							repo: ctx.cwd,
+							symbol: params.symbol,
+						});
+						if (resp.edges.length === 0) {
+							return {
+								content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
+								details: { fromDaemon: true, response: resp },
+							};
+						}
+						return toolResultFromDaemon(resp);
+					},
+					async () => {
+						if (!resolved) throw new Error("rbtr CLI not available");
+						const result = await runRbtr(pi, resolved, ["find-refs", params.symbol], { signal, timeout: 30_000 });
+						const text = result.stdout.trim();
+						if (!text) {
+							return {
+								content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
+								details: { fromCli: true, symbol: params.symbol, found: false },
+							};
+						}
+						return toolResultFromCli(text, { symbol: params.symbol, found: true });
+					},
+				);
+			} catch (err) {
+				return mapDaemonError(err);
 			}
-
-			return truncateOutput(text, { symbol: params.symbol, found: true });
 		},
 	});
 
@@ -508,23 +553,45 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
 		renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
 
-		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-			requireReady();
-
-			const result = await runRbtr(pi, resolved!, ["changed-symbols", "--base", params.base, "--head", params.head], {
-				signal,
-				timeout: 30_000,
-			});
-			const text = result.stdout.trim();
-
-			if (!text) {
-				return {
-					content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
-					details: { base: params.base, head: params.head, found: false },
-				};
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			try {
+				return await withFallback<ToolReturn>(
+					async () => {
+						const resp = await session.send({
+							kind: "changed_symbols",
+							repo: ctx.cwd,
+							base: params.base,
+							head: params.head,
+						});
+						if (resp.chunks.length === 0) {
+							return {
+								content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
+								details: { fromDaemon: true, response: resp },
+							};
+						}
+						return toolResultFromDaemon(resp);
+					},
+					async () => {
+						if (!resolved) throw new Error("rbtr CLI not available");
+						const result = await runRbtr(
+							pi,
+							resolved,
+							["changed-symbols", "--base", params.base, "--head", params.head],
+							{ signal, timeout: 30_000 },
+						);
+						const text = result.stdout.trim();
+						if (!text) {
+							return {
+								content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
+								details: { fromCli: true, base: params.base, head: params.head, found: false },
+							};
+						}
+						return toolResultFromCli(text, { base: params.base, head: params.head, found: true });
+					},
+				);
+			} catch (err) {
+				return mapDaemonError(err);
 			}
-
-			return truncateOutput(text, { base: params.base, head: params.head, found: true });
 		},
 	});
 
@@ -543,20 +610,42 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		renderCall: (args, theme) => renderListSymbolsCall(args, theme),
 		renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
 
-		async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-			requireReady();
-
-			const result = await runRbtr(pi, resolved!, ["list-symbols", params.file], { signal, timeout: 30_000 });
-			const text = result.stdout.trim();
-
-			if (!text) {
-				return {
-					content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
-					details: { file: params.file, found: false },
-				};
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			try {
+				return await withFallback<ToolReturn>(
+					async () => {
+						const resp = await session.send({
+							kind: "list_symbols",
+							repo: ctx.cwd,
+							file_path: params.file,
+						});
+						if (resp.chunks.length === 0) {
+							return {
+								content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
+								details: { fromDaemon: true, response: resp },
+							};
+						}
+						return toolResultFromDaemon(resp);
+					},
+					async () => {
+						if (!resolved) throw new Error("rbtr CLI not available");
+						const result = await runRbtr(pi, resolved, ["list-symbols", params.file], {
+							signal,
+							timeout: 30_000,
+						});
+						const text = result.stdout.trim();
+						if (!text) {
+							return {
+								content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
+								details: { fromCli: true, file: params.file, found: false },
+							};
+						}
+						return toolResultFromCli(text, { file: params.file, found: true });
+					},
+				);
+			} catch (err) {
+				return mapDaemonError(err);
 			}
-
-			return truncateOutput(text, { file: params.file, found: true });
 		},
 	});
 }

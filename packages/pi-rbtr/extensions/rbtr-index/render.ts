@@ -3,12 +3,28 @@
  *
  * Each tool gets a compact renderCall (one-liner) and a
  * renderResult (collapsed/expanded views).
+ *
+ * Two sources of payload:
+ *   - details.response        — typed response from the daemon
+ *                               (preferred path; no parsing).
+ *   - content[].text (NDJSON) — from the CLI fallback path.
  */
 
 import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 
-import type { Chunk, Edge, ScoredResult } from "./generated/protocol.js";
+import type {
+	ChangedSymbolsResponse,
+	Chunk,
+	Edge,
+	FindRefsResponse,
+	ListSymbolsResponse,
+	ReadSymbolResponse,
+	Response,
+	ScoredResult,
+	SearchResponse,
+	StatusResponse,
+} from "./generated/protocol.js";
 
 type ToolResult = AgentToolResult<unknown>;
 
@@ -30,6 +46,19 @@ function tryParseNdjson<T>(text: string): T[] {
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * Read the typed daemon response off ``result.details`` if it
+ * came from the daemon path; otherwise parse NDJSON stdout.
+ */
+function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
+	const details = result.details as { fromDaemon?: boolean; response?: Response } | undefined;
+	if (details?.fromDaemon && details.response?.kind === responseKind) {
+		const value = (details.response as unknown as Record<string, unknown>)[payloadKey];
+		return Array.isArray(value) ? (value as T[]) : [];
+	}
+	return tryParseNdjson<T>(getContentText(result));
 }
 
 function shortenPath(filePath: string): string {
@@ -59,14 +88,9 @@ export function renderSearchResult(
 ): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Searching…"), 0, 0);
 
-	const raw = getContentText(result);
-	if (!raw || raw === "No results found.") {
-		return new Text(theme.fg("dim", "No results found."), 0, 0);
-	}
-
-	const results = tryParseNdjson<ScoredResult>(raw);
+	const results = extractPayload<ScoredResult>(result, "search", "results") satisfies SearchResponse["results"];
 	if (results.length === 0) {
-		return new Text(theme.fg("dim", raw.slice(0, 200)), 0, 0);
+		return new Text(theme.fg("dim", "No results found."), 0, 0);
 	}
 
 	const lines: string[] = [];
@@ -115,16 +139,10 @@ export function renderReadSymbolResult(
 ): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Reading…"), 0, 0);
 
-	const raw = getContentText(result);
-	const details = result.details as { symbol?: string; found?: boolean } | undefined;
-
-	if (!details?.found) {
-		return new Text(theme.fg("error", `Symbol not found: ${details?.symbol ?? "?"}`), 0, 0);
-	}
-
-	const chunks = tryParseNdjson<Chunk>(raw);
+	const chunks = extractPayload<Chunk>(result, "read_symbol", "chunks") satisfies ReadSymbolResponse["chunks"];
+	const symbol = (result.details as { symbol?: string } | undefined)?.symbol;
 	if (chunks.length === 0) {
-		return new Text(theme.fg("dim", raw.slice(0, 200)), 0, 0);
+		return new Text(theme.fg("error", `Symbol not found${symbol ? `: ${symbol}` : ""}`), 0, 0);
 	}
 
 	const lines: string[] = [];
@@ -164,10 +182,9 @@ export function renderListSymbolsCall(args: Record<string, unknown>, theme: Them
 export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Listing…"), 0, 0);
 
-	const raw = getContentText(result);
-	const chunks = tryParseNdjson<Chunk>(raw);
+	const chunks = extractPayload<Chunk>(result, "list_symbols", "chunks") satisfies ListSymbolsResponse["chunks"];
 	if (chunks.length === 0) {
-		return new Text(theme.fg("dim", raw || "No symbols found."), 0, 0);
+		return new Text(theme.fg("dim", "No symbols found."), 0, 0);
 	}
 
 	const lines: string[] = [];
@@ -188,10 +205,9 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
 export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Finding…"), 0, 0);
 
-	const raw = getContentText(result);
-	const edges = tryParseNdjson<Edge>(raw);
+	const edges = extractPayload<Edge>(result, "find_refs", "edges") satisfies FindRefsResponse["edges"];
 	if (edges.length === 0) {
-		return new Text(theme.fg("dim", raw || "No references found."), 0, 0);
+		return new Text(theme.fg("dim", "No references found."), 0, 0);
 	}
 
 	const lines: string[] = [];
@@ -215,10 +231,9 @@ export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: T
 export function renderChangedSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Comparing…"), 0, 0);
 
-	const raw = getContentText(result);
-	const chunks = tryParseNdjson<Chunk>(raw);
+	const chunks = extractPayload<Chunk>(result, "changed_symbols", "chunks") satisfies ChangedSymbolsResponse["chunks"];
 	if (chunks.length === 0) {
-		return new Text(theme.fg("dim", raw || "No changed symbols."), 0, 0);
+		return new Text(theme.fg("dim", "No changed symbols."), 0, 0);
 	}
 
 	const lines: string[] = [];
@@ -241,12 +256,7 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
 	if (options.isPartial) return new Text(theme.fg("warning", "Indexing…"), 0, 0);
 
 	const details = result.details as { status?: string } | undefined;
-	const status = details?.status;
-
-	if (status === "in_progress") {
-		return new Text(theme.fg("warning", "⏳ Indexing in progress"), 0, 0);
-	}
-	if (status === "started") {
+	if (details?.status === "started") {
 		return new Text(theme.fg("success", "✓ Indexing started"), 0, 0);
 	}
 
@@ -263,13 +273,16 @@ export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): 
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
 	if (options.isPartial) return new Text(theme.fg("warning", "Checking…"), 0, 0);
 
-	const details = result.details as { exists?: boolean; total_chunks?: number; indexing?: boolean } | undefined;
+	// Daemon path packs a StatusResponse on details.response.
+	const details = result.details as
+		| { fromDaemon?: boolean; response?: StatusResponse; exists?: boolean; total_chunks?: number }
+		| undefined;
+	const response = details?.fromDaemon ? details.response : undefined;
+	const exists = response?.exists ?? details?.exists ?? false;
+	const total = response?.total_chunks ?? details?.total_chunks ?? 0;
 
-	if (details?.indexing) {
-		return new Text(theme.fg("warning", "⏳ Indexing in progress"), 0, 0);
-	}
-	if (details?.exists) {
-		return new Text(theme.fg("success", `✓ ${details.total_chunks} symbols`), 0, 0);
+	if (exists) {
+		return new Text(theme.fg("success", `✓ ${total} symbols`), 0, 0);
 	}
 	return new Text(theme.fg("error", "✗ No index found"), 0, 0);
 }

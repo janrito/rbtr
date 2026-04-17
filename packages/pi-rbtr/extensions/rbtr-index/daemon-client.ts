@@ -50,7 +50,7 @@ export interface SendOptions {
 }
 
 /** Narrow ``Response`` to the variant produced by a request of *kind* K. */
-type ResponseFor<K extends Request["kind"]> = Extract<Response, { kind: K }>;
+type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 
 /**
  * Ask the CLI for the running daemon's status.
@@ -97,10 +97,10 @@ export async function queryDaemonStatus(): Promise<DaemonStatus> {
  * A caller that does not want to shell out to the CLI on every
  * call can pass an explicit *rpcEndpoint* (an ``ipc://`` URI).
  */
-export async function send<K extends Request["kind"]>(
-	request: Request & { kind: K },
+export async function send<R extends Request>(
+	request: R,
 	options: SendOptions & { rpcEndpoint?: string } = {},
-): Promise<ResponseFor<K>> {
+): Promise<ResponseFor<R["kind"]>> {
 	const endpoint = options.rpcEndpoint ?? (await queryDaemonStatus()).rpc;
 	if (!endpoint) {
 		throw new Error("daemon has no rpc endpoint (not running?)");
@@ -123,7 +123,7 @@ export async function send<K extends Request["kind"]>(
 
 		// Discriminator guarantees the kind matches the request's
 		// kind for every non-error response (the server is typed).
-		return response as ResponseFor<K>;
+		return response as ResponseFor<R["kind"]>;
 	} finally {
 		sock.close();
 	}

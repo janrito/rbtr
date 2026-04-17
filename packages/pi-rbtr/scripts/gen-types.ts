@@ -63,6 +63,7 @@ async function main(): Promise<void> {
 	const cliSchemas = Object.values(schemas.cli);
 	for (const schema of [schemas.request, schemas.response, schemas.notification, ...cliSchemas]) {
 		stripPropertyTitles(schema);
+		requireKind(schema);
 	}
 
 	const cliCompiled = await Promise.all(
@@ -106,6 +107,37 @@ async function main(): Promise<void> {
 	}
 
 	process.stdout.write(`Wrote ${OUT_PATH}\n`);
+}
+
+/**
+ * Mark `kind` required on every object that has it as a property.
+ *
+ * Pydantic gives each message kind a default value, which makes
+ * the field non-required in JSON Schema and therefore optional
+ * in TypeScript.  But every real message on the wire has the
+ * discriminator — it has to, that's how the union works.
+ * Without this fix `Request["kind"]` is `string | undefined`
+ * and `Extract<Response, { kind: K }>` never narrows.
+ */
+function requireKind(schema: unknown): void {
+	if (!schema || typeof schema !== "object") return;
+	const node = schema as Record<string, unknown>;
+
+	const props = node.properties;
+	if (props && typeof props === "object" && "kind" in props) {
+		const required = Array.isArray(node.required) ? [...(node.required as string[])] : [];
+		if (!required.includes("kind")) required.push("kind");
+		node.required = required;
+	}
+
+	for (const key of ["$defs", "definitions", "oneOf", "anyOf", "allOf", "items"]) {
+		const child = node[key];
+		if (Array.isArray(child)) {
+			for (const item of child) requireKind(item);
+		} else if (child && typeof child === "object") {
+			for (const value of Object.values(child)) requireKind(value);
+		}
+	}
 }
 
 /**

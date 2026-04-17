@@ -23,50 +23,50 @@ export type Request =
 export type GcMode = "head_only" | "keep_refs" | "keep" | "drop" | "orphans";
 
 export interface ShutdownRequest {
-	kind?: "shutdown";
+	kind: "shutdown";
 }
 export interface BuildIndexRequest {
-	kind?: "index";
+	kind: "index";
 	repo: string;
 	refs?: string[];
 }
 export interface SearchRequest {
-	kind?: "search";
+	kind: "search";
 	repo: string;
 	query: string;
 	limit?: number;
 	ref?: string;
 }
 export interface ReadSymbolRequest {
-	kind?: "read_symbol";
+	kind: "read_symbol";
 	repo: string;
 	name: string;
 	ref?: string;
 }
 export interface ListSymbolsRequest {
-	kind?: "list_symbols";
+	kind: "list_symbols";
 	repo: string;
 	file_path: string;
 	ref?: string;
 }
 export interface FindRefsRequest {
-	kind?: "find_refs";
+	kind: "find_refs";
 	repo: string;
 	symbol: string;
 	ref?: string;
 }
 export interface ChangedSymbolsRequest {
-	kind?: "changed_symbols";
+	kind: "changed_symbols";
 	repo: string;
 	base: string;
 	head: string;
 }
 export interface StatusRequest {
-	kind?: "status";
+	kind: "status";
 	repo: string;
 }
 export interface GcRequest {
-	kind?: "gc";
+	kind: "gc";
 	repo: string;
 	mode: GcMode;
 	refs?: string[];
@@ -109,15 +109,15 @@ export type ChunkKind =
 export type EdgeKind = "calls" | "imports" | "inherits" | "tests" | "documents" | "configures";
 
 export interface ErrorResponse {
-	kind?: "error";
+	kind: "error";
 	code: ErrorCode;
 	message: string;
 }
 export interface OkResponse {
-	kind?: "ok";
+	kind: "ok";
 }
 export interface BuildIndexResponse {
-	kind?: "index";
+	kind: "index";
 	refs: string[];
 	stats: IndexStats;
 	errors: string[];
@@ -134,7 +134,7 @@ export interface IndexStats {
 	elapsed_seconds?: number;
 }
 export interface SearchResponse {
-	kind?: "search";
+	kind: "search";
 	results: ScoredResult[];
 }
 /**
@@ -195,15 +195,15 @@ export interface ImportMeta {
 	dots?: string;
 }
 export interface ReadSymbolResponse {
-	kind?: "read_symbol";
+	kind: "read_symbol";
 	chunks: Chunk[];
 }
 export interface ListSymbolsResponse {
-	kind?: "list_symbols";
+	kind: "list_symbols";
 	chunks: Chunk[];
 }
 export interface FindRefsResponse {
-	kind?: "find_refs";
+	kind: "find_refs";
 	edges: Edge[];
 }
 /**
@@ -215,18 +215,18 @@ export interface Edge {
 	kind: EdgeKind;
 }
 export interface ChangedSymbolsResponse {
-	kind?: "changed_symbols";
+	kind: "changed_symbols";
 	chunks: Chunk[];
 }
 export interface StatusResponse {
-	kind?: "status";
+	kind: "status";
 	exists: boolean;
 	db_path?: string | null;
 	total_chunks?: number | null;
 	indexed_refs?: string[];
 }
 export interface GcResponse {
-	kind?: "gc";
+	kind: "gc";
 	commits_dropped: number;
 	snapshots_dropped: number;
 	edges_dropped: number;
@@ -238,14 +238,14 @@ export interface GcResponse {
 export type Notification = ProgressNotification | ReadyNotification | AutoRebuildNotification | IndexErrorNotification;
 
 export interface ProgressNotification {
-	kind?: "progress";
+	kind: "progress";
 	repo: string;
 	phase: string;
 	current: number;
 	total: number;
 }
 export interface ReadyNotification {
-	kind?: "ready";
+	kind: "ready";
 	repo: string;
 	ref: string;
 	chunks: number;
@@ -253,12 +253,12 @@ export interface ReadyNotification {
 	elapsed: number;
 }
 export interface AutoRebuildNotification {
-	kind?: "auto_rebuild";
+	kind: "auto_rebuild";
 	repo: string;
 	new_ref: string;
 }
 export interface IndexErrorNotification {
-	kind?: "index_error";
+	kind: "index_error";
 	repo: string;
 	message: string;
 }
