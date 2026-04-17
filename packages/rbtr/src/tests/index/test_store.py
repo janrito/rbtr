@@ -1352,3 +1352,150 @@ def test_drop_commit_scoped_per_repo(store: IndexStore) -> None:
 
     assert store.has_indexed(a, "shared_sha") is False
     assert store.has_indexed(b, "shared_sha") is True
+
+
+# ── Garbage collection: sweep_orphan_* ───────────────────────────────
+
+
+def test_sweep_orphan_chunks_removes_unreferenced_blobs(
+    store: IndexStore,
+) -> None:
+    """Chunks with no matching snapshot row are deleted."""
+    # Insert a chunk but no snapshot — instant orphan.
+    store.insert_chunks(
+        [
+            Chunk(
+                id="orphan",
+                blob_sha="orphan_blob",
+                file_path="x.py",
+                kind=ChunkKind.FUNCTION,
+                name="f",
+                content="def f(): pass",
+                line_start=1,
+                line_end=1,
+            )
+        ]
+    )
+    # Also a referenced chunk: gets a snapshot.
+    store.insert_chunks(
+        [
+            Chunk(
+                id="live",
+                blob_sha="live_blob",
+                file_path="y.py",
+                kind=ChunkKind.FUNCTION,
+                name="g",
+                content="def g(): pass",
+                line_start=1,
+                line_end=1,
+            )
+        ]
+    )
+    store.insert_snapshot("sha", "y.py", "live_blob")
+
+    removed = store.sweep_orphan_chunks(1)
+
+    assert removed == 1
+    assert store.count_chunks("sha") == 1  # live chunk preserved
+
+
+def test_sweep_orphan_chunks_no_orphans_is_zero(store: IndexStore) -> None:
+    assert store.sweep_orphan_chunks(1) == 0
+
+
+def test_sweep_orphan_commits_removes_residue_from_crashed_build(
+    store: IndexStore,
+) -> None:
+    """Snapshots and edges from commits without completion rows are cleaned."""
+    # Simulate crash during build: snapshot written, but no mark_indexed.
+    store.insert_chunks(
+        [
+            Chunk(
+                id="c",
+                blob_sha="b",
+                file_path="f.py",
+                kind=ChunkKind.FUNCTION,
+                name="f",
+                content="def f(): pass",
+                line_start=1,
+                line_end=1,
+            )
+        ]
+    )
+    store.insert_snapshot("crashed_sha", "f.py", "b")
+    store.insert_edges(
+        [Edge(source_id="c", target_id="x", kind=EdgeKind.IMPORTS)],
+        "crashed_sha",
+    )
+    # No mark_indexed call — crashed commit.
+
+    counts = store.sweep_orphan_commits(1)
+
+    assert counts.snapshots == 1
+    assert counts.edges == 1
+    assert counts.chunks == 1  # blob no longer referenced
+    assert store.get_chunks("crashed_sha") == []
+
+
+def test_sweep_orphan_commits_preserves_completed_data(
+    store: IndexStore,
+) -> None:
+    """Data for commits marked via mark_indexed is untouched."""
+    store.insert_chunks(
+        [
+            Chunk(
+                id="c",
+                blob_sha="b",
+                file_path="f.py",
+                kind=ChunkKind.FUNCTION,
+                name="f",
+                content="def f(): pass",
+                line_start=1,
+                line_end=1,
+            )
+        ]
+    )
+    store.insert_snapshot("good_sha", "f.py", "b")
+    store.mark_indexed(1, "good_sha")
+
+    counts = store.sweep_orphan_commits(1)
+
+    assert counts.snapshots == 0
+    assert counts.chunks == 0
+    assert store.get_chunks("good_sha") != []
+
+
+def test_sweep_orphan_commits_mixed_state(store: IndexStore) -> None:
+    """Cleans crashed residue while preserving completed data."""
+    chunk_a = Chunk(
+        id="ca",
+        blob_sha="ba",
+        file_path="a.py",
+        kind=ChunkKind.FUNCTION,
+        name="a",
+        content="",
+        line_start=1,
+        line_end=1,
+    )
+    chunk_b = Chunk(
+        id="cb",
+        blob_sha="bb",
+        file_path="b.py",
+        kind=ChunkKind.FUNCTION,
+        name="b",
+        content="",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk_a, chunk_b])
+    store.insert_snapshot("sha_ok", "a.py", "ba")
+    store.mark_indexed(1, "sha_ok")
+    store.insert_snapshot("sha_crashed", "b.py", "bb")
+    # No mark_indexed for sha_crashed.
+
+    counts = store.sweep_orphan_commits(1)
+
+    assert counts.snapshots == 1  # only sha_crashed's
+    assert counts.chunks == 1  # only chunk_b (bb no longer referenced)
+    assert store.get_chunks("sha_ok") != []
+    assert store.get_chunks("sha_crashed") == []

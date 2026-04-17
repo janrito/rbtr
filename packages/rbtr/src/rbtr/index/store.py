@@ -123,6 +123,8 @@ _HAS_INDEXED_SQL = _load_sql("has_indexed.sql")
 _LIST_INDEXED_COMMITS_SQL = _load_sql("list_indexed_commits.sql")
 _DROP_COMMIT_SQL = _load_sql("drop_commit.sql")
 _SWEEP_ORPHAN_CHUNKS_SQL = _load_sql("sweep_orphan_chunks.sql")
+_SWEEP_ORPHAN_SNAPSHOTS_SQL = _load_sql("sweep_orphan_snapshots.sql")
+_SWEEP_ORPHAN_EDGES_SQL = _load_sql("sweep_orphan_edges.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -337,6 +339,52 @@ class IndexStore:
             self._fts_dirty = True
         return GcCounts(
             commits=int(commit_row[0]) if commit_row else 0,
+            snapshots=int(snap_row[0]) if snap_row else 0,
+            edges=int(edge_row[0]) if edge_row else 0,
+            chunks=chunks_deleted,
+        )
+
+    def sweep_orphan_chunks(self, repo_id: int) -> int:
+        """Delete chunks whose blob is no longer referenced by any snapshot.
+
+        Use after bulk drops or to clean up residue from crashed builds.
+        Returns the number of rows removed.
+        """
+        row = self._cur().execute(_SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]).fetchone()
+        n = int(row[0]) if row else 0
+        if n > 0:
+            self._fts_dirty = True
+        return n
+
+    def sweep_orphan_commits(self, repo_id: int) -> GcCounts:
+        """Remove snapshots, edges, and orphaned chunks from crashed builds.
+
+        Deletes every ``file_snapshots`` and ``edges`` row whose
+        ``(repo_id, commit_sha)`` has no matching ``indexed_commits`` row,
+        then sweeps chunks whose blob is no longer referenced by any
+        surviving snapshot. Runs in a single transaction.
+        """
+        cur = self._cur()
+        cur.begin()
+        try:
+            snap_row = cur.execute(
+                _SWEEP_ORPHAN_SNAPSHOTS_SQL, [repo_id]
+            ).fetchone()
+            edge_row = cur.execute(
+                _SWEEP_ORPHAN_EDGES_SQL, [repo_id]
+            ).fetchone()
+            chunk_row = cur.execute(
+                _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
+            ).fetchone()
+        except Exception:
+            cur.rollback()
+            raise
+        else:
+            cur.commit()
+        chunks_deleted = int(chunk_row[0]) if chunk_row else 0
+        if chunks_deleted > 0:
+            self._fts_dirty = True
+        return GcCounts(
             snapshots=int(snap_row[0]) if snap_row else 0,
             edges=int(edge_row[0]) if edge_row else 0,
             chunks=chunks_deleted,
