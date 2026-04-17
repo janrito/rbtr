@@ -1,127 +1,95 @@
-"""Test cases for ``rbtr.daemon.watcher.poll``.
+"""Scenarios for ``rbtr.daemon.watcher.poll``.
 
-Each case builds an ``IndexStore`` plus any git repos needed on
-disk, then returns ``(store, expected_stale_heads)``.  The cases
-are the only place watcher scenarios are described; the test in
-``test_watcher.py`` asserts the single behaviour ``poll`` returns
-the expected ``StaleHead`` list.
+Cases return a ``WatcherScenario`` — pure declarative data
+describing which repos exist, which commits they have, and which
+of those commits were marked as fully indexed.  A shared fixture
+in ``test_watcher.py`` converts a scenario into real git repos
+and a real ``IndexStore``, then asserts ``poll`` yields the
+expected ``StaleHead`` list.
 
-Cases are split by tag into two families:
-
-``no_stale``
-    ``poll`` returns ``[]``.
-``stale``
-    ``poll`` returns a non-empty list; the exact expected heads
-    are part of the case output.
+Cases hold no I/O, no helpers, no references to pygit2.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pygit2
-from pytest_cases import case
-
-from rbtr.daemon.watcher import StaleHead
-from rbtr.index.store import IndexStore
-
-_SIG = pygit2.Signature("t", "t@t.t")
+from dataclasses import dataclass, field
 
 
-def _init_repo(path: Path) -> pygit2.Repository:
-    """Create a repo at *path* with one commit on refs/heads/main."""
-    repo = pygit2.init_repository(str(path), bare=False)
-    tb = repo.TreeBuilder()
-    tb.insert("a.py", repo.create_blob(b"x = 1\n"), pygit2.GIT_FILEMODE_BLOB)
-    repo.create_commit("refs/heads/main", _SIG, _SIG, "init", tb.write(), [])
-    return repo
+@dataclass(frozen=True)
+class RepoSpec:
+    """A repository to build for a watcher scenario.
+
+    ``commits == 0`` means do not create a repo on disk — used to
+    exercise the path where ``list_repos`` returns a path the
+    filesystem no longer has.
+    ``register == False`` means do not call ``store.register_repo``
+    on this repo; used to prove the watcher only considers
+    registered repos.
+    """
+
+    name: str
+    commits: int = 1
+    register: bool = True
 
 
-def _commit(repo: pygit2.Repository, name: str, content: bytes) -> str:
-    """Append a second commit to *repo*; return its SHA."""
-    tb = repo.TreeBuilder()
-    tb.insert(name, repo.create_blob(content), pygit2.GIT_FILEMODE_BLOB)
-    parents = [repo.head.target]
-    new = repo.create_commit(
-        "refs/heads/main", _SIG, _SIG, "c", tb.write(), parents
+@dataclass(frozen=True)
+class WatcherScenario:
+    """Declarative description of a watcher test scenario."""
+
+    repos: list[RepoSpec] = field(default_factory=list)
+    # Map repo name -> zero-based commit index to mark as indexed.
+    # A name missing from this map means no ``indexed_commits`` row.
+    indexed_at: dict[str, int] = field(default_factory=dict)
+    # Repo names whose current HEAD should appear in ``poll``'s
+    # output.  The fixture resolves names to ``StaleHead`` objects.
+    expected_stale: list[str] = field(default_factory=list)
+
+
+# ── No-stale scenarios ───────────────────────────────────────────────
+
+
+def case_empty_store() -> WatcherScenario:
+    """No repos registered."""
+    return WatcherScenario()
+
+
+def case_head_already_indexed() -> WatcherScenario:
+    """Registered repo whose HEAD is recorded in ``indexed_commits``."""
+    return WatcherScenario(
+        repos=[RepoSpec(name="r")],
+        indexed_at={"r": 0},
     )
-    return str(new)
 
 
-def _workdir(repo: pygit2.Repository) -> str:
-    assert repo.workdir is not None
-    return repo.workdir
-
-
-# ── no_stale ─────────────────────────────────────────────────────────
-
-
-@case(tags=["no_stale"])
-def case_empty_store() -> tuple[IndexStore, list[StaleHead]]:
-    """No repos registered at all."""
-    return IndexStore(), []
-
-
-@case(tags=["no_stale"])
-def case_head_already_indexed(
-    tmp_path: Path,
-) -> tuple[IndexStore, list[StaleHead]]:
-    """Registered repo whose HEAD is recorded in indexed_commits."""
-    repo = _init_repo(tmp_path / "r")
-    store = IndexStore()
-    repo_id = store.register_repo(_workdir(repo))
-    store.mark_indexed(repo_id, str(repo.head.target))
-    return store, []
-
-
-@case(tags=["no_stale"])
-def case_registered_path_missing(
-    tmp_path: Path,
-) -> tuple[IndexStore, list[StaleHead]]:
+def case_registered_path_missing() -> WatcherScenario:
     """Registered path is not a git repo: silently skipped."""
-    store = IndexStore()
-    store.register_repo(str(tmp_path / "does-not-exist"))
-    return store, []
+    return WatcherScenario(repos=[RepoSpec(name="gone", commits=0)])
 
 
-# ── stale ────────────────────────────────────────────────────────────
+# ── Stale scenarios ──────────────────────────────────────────────────
 
 
-@case(tags=["stale"])
-def case_head_never_indexed(
-    tmp_path: Path,
-) -> tuple[IndexStore, list[StaleHead]]:
-    """First-time repo: registered but no indexed_commits row yet."""
-    repo = _init_repo(tmp_path / "r")
-    store = IndexStore()
-    store.register_repo(_workdir(repo))
-    return store, [StaleHead(_workdir(repo), str(repo.head.target))]
+def case_head_never_indexed() -> WatcherScenario:
+    """Registered repo with no ``indexed_commits`` row at all."""
+    return WatcherScenario(
+        repos=[RepoSpec(name="r")],
+        expected_stale=["r"],
+    )
 
 
-@case(tags=["stale"])
-def case_new_commit_since_indexing(
-    tmp_path: Path,
-) -> tuple[IndexStore, list[StaleHead]]:
+def case_new_commit_since_indexing() -> WatcherScenario:
     """HEAD has advanced past the last indexed SHA."""
-    repo = _init_repo(tmp_path / "r")
-    store = IndexStore()
-    repo_id = store.register_repo(_workdir(repo))
-    store.mark_indexed(repo_id, str(repo.head.target))
-    new_head = _commit(repo, "b.py", b"y = 2\n")
-    return store, [StaleHead(_workdir(repo), new_head)]
+    return WatcherScenario(
+        repos=[RepoSpec(name="r", commits=2)],
+        indexed_at={"r": 0},
+        expected_stale=["r"],
+    )
 
 
-@case(tags=["stale"])
-def case_mixed_multi_repo(
-    tmp_path: Path,
-) -> tuple[IndexStore, list[StaleHead]]:
+def case_mixed_multi_repo() -> WatcherScenario:
     """One repo up to date, one stale: only the stale one reports."""
-    repo_fresh = _init_repo(tmp_path / "fresh")
-    repo_stale = _init_repo(tmp_path / "stale")
-    store = IndexStore()
-    fresh_id = store.register_repo(_workdir(repo_fresh))
-    store.register_repo(_workdir(repo_stale))
-    store.mark_indexed(fresh_id, str(repo_fresh.head.target))
-    return store, [
-        StaleHead(_workdir(repo_stale), str(repo_stale.head.target))
-    ]
+    return WatcherScenario(
+        repos=[RepoSpec(name="fresh"), RepoSpec(name="stale")],
+        indexed_at={"fresh": 0},
+        expected_stale=["stale"],
+    )
