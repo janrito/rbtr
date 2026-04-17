@@ -230,6 +230,15 @@ def test_build_index_metadata_round_trip(
     assert has_metadata
 
 
+def test_build_index_marks_commit_indexed(
+    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+) -> None:
+    """Successful build_index records a completion row."""
+    assert store.has_indexed(1, commit_sha) is False
+    build_index(git_repo, commit_sha, store)
+    assert store.has_indexed(1, commit_sha) is True
+
+
 # ── update_index tests ──────────────────────────────────────────────
 
 
@@ -283,6 +292,20 @@ def test_update_index_incremental(
     names = {c.name for c in chunks}
     assert "new_func" in names
     assert "serve" in names
+
+
+def test_update_index_marks_head_indexed(
+    git_repo: pygit2.Repository, store: IndexStore, two_commits: tuple[str, str]
+) -> None:
+    """Incremental update marks head, leaving base's mark alone."""
+    base_sha, head_sha = two_commits
+    build_index(git_repo, base_sha, store)
+    assert store.has_indexed(1, head_sha) is False
+
+    update_index(git_repo, base_sha, head_sha, store)
+
+    assert store.has_indexed(1, head_sha) is True
+    assert store.has_indexed(1, base_sha) is True  # still marked
 
 
 def test_update_index_preserves_unchanged(

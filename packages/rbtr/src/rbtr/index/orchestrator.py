@@ -207,6 +207,11 @@ def build_index(
     if pruned_chunks or pruned_edges:
         log.info("Pruned %d orphan chunks, %d orphan edges", pruned_chunks, pruned_edges)
 
+    # 8. Mark the commit fully indexed. This must be the final write
+    #    so that a crash anywhere above leaves no indexed_commits row
+    #    and the watcher re-detects the stale HEAD on the next poll.
+    store.mark_indexed(repo_id, commit_sha)
+
     result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
     log.info(
@@ -337,6 +342,10 @@ def update_index(
     pruned_chunks, pruned_edges = store.prune_orphans(repo_id=repo_id)
     if pruned_chunks or pruned_edges:
         log.info("Pruned %d orphan chunks, %d orphan edges", pruned_chunks, pruned_edges)
+
+    # Mark head fully indexed — must be the last write so a crash
+    # above leaves no completion row and the watcher retries.
+    store.mark_indexed(repo_id, head_sha)
 
     result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
