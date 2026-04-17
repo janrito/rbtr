@@ -24,6 +24,7 @@ from rich.text import Text
 
 from rbtr.config import config
 from rbtr.daemon.messages import BuildIndexResponse, GcResponse, StatusResponse
+from rbtr.daemon.status import DaemonStatusReport
 from rbtr.index.models import Chunk, Edge
 from rbtr.index.search import ScoredResult
 from rbtr.languages import get_manager
@@ -131,6 +132,8 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
             _render_edge(model)
         case StatusResponse():
             _render_status_response(model)
+        case DaemonStatusReport():
+            _render_daemon_status_report(model)
         case GcResponse():
             _render_gc_response(model)
         case _:
@@ -251,6 +254,25 @@ def _render_edge(m: Edge) -> None:
     t.append(m.target_id)
     t.append(f"  ({m.kind})", style="dim")
     _out.print(t)
+
+
+def _render_daemon_status_report(m: DaemonStatusReport) -> None:
+    if not m.running:
+        _out.print("[red]✗[/] Daemon not running")
+        return
+    t = Text.from_markup("[green]✓[/] Daemon running")
+    t.append(f"  pid={m.pid}", style="dim")
+    if m.version is not None:
+        t.append(f"  v{m.version}", style="dim")
+    if m.uptime_seconds is not None:
+        t.append(f"  up {m.uptime_seconds:.1f}s", style="dim")
+    if m.ping_ms is not None:
+        t.append(f"  ping {m.ping_ms:.1f}ms", style="dim")
+    _out.print(t)
+    if m.rpc is not None:
+        _out.print(f"  [dim]rpc:[/] {m.rpc}")
+    if m.pub is not None:
+        _out.print(f"  [dim]pub:[/] {m.pub}")
 
 
 def _render_status_response(m: StatusResponse) -> None:

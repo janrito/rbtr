@@ -75,6 +75,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.status import DaemonStatusReport
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, open_repo
 from rbtr.index.gc import run_gc
@@ -135,22 +136,35 @@ class DaemonStop(BaseModel):
         emit(OkResponse())
 
 
-class DaemonStatus(BaseModel):
-    """Check daemon status."""
+class DaemonStatusCmd(BaseModel):
+    """Check daemon status.
+
+    Answers "is the daemon process running?" — distinct from
+    ``rbtr status`` which answers "does an index exist for this
+    repo?".
+    """
 
     def cli_cmd(self) -> None:
-        from rbtr.daemon.client import _status
-
         status = _status()
         if status is None or not is_daemon_running():
-            emit(StatusResponse(exists=False))
+            emit(DaemonStatusReport(running=False))
             return
 
+        t0 = time.monotonic()
         ping = ping_daemon()
-        if ping is not None:
-            emit(StatusResponse(exists=True))
-        else:
-            emit(StatusResponse(exists=False))
+        ping_ms = (time.monotonic() - t0) * 1000.0 if ping is not None else None
+
+        emit(
+            DaemonStatusReport(
+                running=ping is not None,
+                pid=status.pid,
+                rpc=status.rpc,
+                pub=status.pub,
+                version=ping.version if ping is not None else status.version,
+                uptime_seconds=ping.uptime if ping is not None else None,
+                ping_ms=ping_ms,
+            )
+        )
 
 
 class Daemon(BaseModel):
@@ -158,7 +172,7 @@ class Daemon(BaseModel):
 
     start: CliSubCommand[DaemonStart]
     stop: CliSubCommand[DaemonStop]
-    status: CliSubCommand[DaemonStatus]
+    status: CliSubCommand[DaemonStatusCmd]
     serve: CliSubCommand[DaemonServe]
 
     def cli_cmd(self) -> None:

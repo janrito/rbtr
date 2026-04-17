@@ -81,3 +81,45 @@ class TestStatusFile:
         path = status_dir / "daemon.json"
         data = json.loads(path.read_text())
         assert data["pid"] == 54321
+
+
+# ── DaemonStatusReport (CLI-only model) ──────────────────────────────
+
+
+def test_daemon_status_report_running_false_has_only_required_field() -> None:
+    from rbtr.daemon.status import DaemonStatusReport
+
+    report = DaemonStatusReport(running=False)
+    assert report.running is False
+    assert report.pid is None
+    assert report.rpc is None
+    assert report.pub is None
+    assert report.version is None
+    assert report.uptime_seconds is None
+    assert report.ping_ms is None
+
+
+def test_daemon_status_report_running_true_populated() -> None:
+    from rbtr.daemon.status import DaemonStatusReport
+
+    report = DaemonStatusReport(
+        running=True,
+        pid=12345,
+        rpc="ipc:///tmp/daemon.rpc",
+        pub="ipc:///tmp/daemon.pub",
+        version="1.2.3",
+        uptime_seconds=42.5,
+        ping_ms=1.2,
+    )
+    assert report.running is True
+    assert report.pid == 12345
+    assert report.uptime_seconds == 42.5
+
+
+def test_daemon_status_report_forbids_extra_fields() -> None:
+    from pydantic import ValidationError
+
+    from rbtr.daemon.status import DaemonStatusReport
+
+    with pytest.raises(ValidationError):
+        DaemonStatusReport(running=False, bogus="field")  # type: ignore[call-arg]  # testing strict

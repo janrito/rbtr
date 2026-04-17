@@ -27,6 +27,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
+
 
 @dataclass
 class DaemonStatus:
@@ -37,6 +39,27 @@ class DaemonStatus:
     pub: str
     started_at: str
     version: str
+
+
+class DaemonStatusReport(BaseModel):
+    """CLI output for ``rbtr daemon status``.
+
+    Answers the *process* question — is the daemon running,
+    what's its PID, uptime, ZMQ endpoints — and is **not** a
+    ZMQ protocol response.  It composes the on-disk status
+    file with a live ``PingResponse`` when the daemon is
+    reachable.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    running: bool
+    pid: int | None = None
+    rpc: str | None = None
+    pub: str | None = None
+    version: str | None = None
+    uptime_seconds: float | None = None
+    ping_ms: float | None = None
 
 
 def status_path(user_dir: Path) -> Path:

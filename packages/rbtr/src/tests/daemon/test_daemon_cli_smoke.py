@@ -8,6 +8,7 @@ from the subcommand parser).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -60,10 +61,13 @@ def test_start_stop_lifecycle(isolated_user_dir: Path) -> None:
     assert status.pid > 0
     assert status.rpc.startswith("ipc://")
 
-    # status command reports running
+    # daemon status reports running with pid + rpc endpoint
     proc = _run(["--json", "daemon", "status"], isolated_user_dir)
     assert proc.returncode == 0
-    assert '"exists":true' in proc.stdout
+    report = json.loads(proc.stdout)
+    assert report["running"] is True
+    assert report["pid"] > 0
+    assert report["rpc"].startswith("ipc://")
 
     # stop
     proc = _run(["daemon", "stop"], isolated_user_dir)
