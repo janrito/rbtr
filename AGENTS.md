@@ -109,18 +109,30 @@
   fixture B) are fine — they still expose the graph. Factories
   are a smell; reach for one only when the test truly needs many
   instances parametrised by caller-supplied arguments.
-- **Prefer fixtures to module-level constants.** Test data is
-  setup, and setup belongs in fixtures — where it is lazy,
-  composable, and parametrisable. Module-level constants
-  (including private `_FOO`) are tolerated only when:
-  (a) they are pure values, never callables,
-  (b) they are consumed *strictly* from fixtures or case
-      functions, never from test bodies, and
-  (c) turning them into fixtures would add significant
-      ceremony for no behavioural benefit (e.g. small frozen
-      dataclass instances used across many cases).
-  They are always a smell, never the default. When in doubt,
-  write a fixture.
+- **Test data lives in fixtures.**  Setup is setup — whether it
+  is an action or a value.  Module-level constants (including
+  private `_FOO`) and module-level helper functions are both
+  bad: they hide dependencies (no fixture parameter makes them
+  explicit), cannot be parametrised, and encourage tests to
+  import directly instead of declaring what they consume.
+
+  Rules:
+  1. No module-level constants used by tests or cases.
+     Even pure frozen values belong in fixtures.
+  2. No module-level functions used by tests or cases.
+     Long fixture bodies decompose into *smaller fixtures*,
+     never into helpers.
+  3. Shared values go into `conftest.py` fixtures so pytest
+     resolves them positionally.
+  4. The single exception is constants the *production code*
+     also uses (e.g. `SCHEMA_VERSION` imported for an
+     assertion).  These are not test data — they are the
+     production surface under test.
+
+  "It would add ceremony" is not a justification; one
+  `@fixture` line per value is not ceremony.  If a rewrite
+  touches many files, do the rewrite — file count is not a
+  design argument.
 - **No test classes.** Plain test functions only.
 
 ## Git
