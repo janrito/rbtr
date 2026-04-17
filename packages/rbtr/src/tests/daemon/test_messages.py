@@ -117,9 +117,10 @@ def test_notification_ready() -> None:
 
 def test_notification_auto_rebuild() -> None:
     n = notification_adapter.validate_json(
-        b'{"kind":"auto_rebuild","repo":"/r","old_ref":"a","new_ref":"b"}'
+        b'{"kind":"auto_rebuild","repo":"/r","new_ref":"b"}'
     )
     assert isinstance(n, AutoRebuildNotification)
+    assert n.new_ref == "b"
 
 
 # ── Roundtrip ────────────────────────────────────────────────────────

@@ -1,4 +1,11 @@
-"""Tests for the ref watcher — detects HEAD changes in repos."""
+"""Tests for the ref watcher.
+
+The watcher is a single stateless function: given an `IndexStore`,
+it iterates every registered repo and reports any whose current HEAD
+has not been marked as fully indexed. The tests exercise this
+function directly against a real `IndexStore` and real git repos,
+which keeps them honest — there is no `RefWatcher` class to mock.
+"""
 
 from __future__ import annotations
 
@@ -7,19 +14,11 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.daemon.watcher import RefWatcher
-
-
-@pytest.fixture
-def git_repo(tmp_path: Path) -> pygit2.Repository:
-    """A git repo with one commit."""
-    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False)
-    _make_commit(repo, {"a.py": b"x = 1\n"})
-    return repo
+from rbtr.daemon.watcher import StaleHead, poll
+from rbtr.index.store import IndexStore
 
 
 def _make_commit(repo: pygit2.Repository, files: dict[str, bytes]) -> pygit2.Oid:
-    """Create a commit with the given files."""
     tb = repo.TreeBuilder()
     for name, content in files.items():
         blob_id = repo.create_blob(content)
@@ -30,63 +29,88 @@ def _make_commit(repo: pygit2.Repository, files: dict[str, bytes]) -> pygit2.Oid
     return repo.create_commit("refs/heads/main", sig, sig, "commit", tree_id, parents)
 
 
-def test_no_change_after_initial_poll(git_repo: pygit2.Repository) -> None:
-    watcher = RefWatcher()
-    repo_path = str(Path(git_repo.workdir).resolve())
-    watcher.register(repo_path)
-    changes = watcher.poll()
-    assert changes == []
+@pytest.fixture
+def git_repo(tmp_path: Path) -> pygit2.Repository:
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False)
+    _make_commit(repo, {"a.py": b"x = 1\n"})
+    return repo
 
 
-def test_detects_new_commit(git_repo: pygit2.Repository) -> None:
-    watcher = RefWatcher()
-    repo_path = str(Path(git_repo.workdir).resolve())
-    watcher.register(repo_path)
-    watcher.poll()  # snapshot current HEAD
+@pytest.fixture
+def store() -> IndexStore:
+    return IndexStore()
+
+
+def _workdir(repo: pygit2.Repository) -> str:
+    assert repo.workdir is not None
+    return repo.workdir
+
+
+def test_unregistered_repo_is_ignored(store: IndexStore) -> None:
+    """Repos not in the store are not polled."""
+    assert poll(store) == []
+
+
+def test_indexed_head_yields_no_stale(
+    git_repo: pygit2.Repository, store: IndexStore
+) -> None:
+    path = _workdir(git_repo)
+    repo_id = store.register_repo(path)
+    store.mark_indexed(repo_id, str(git_repo.head.target))
+
+    assert poll(store) == []
+
+
+def test_unindexed_head_is_stale(
+    git_repo: pygit2.Repository, store: IndexStore
+) -> None:
+    """A registered repo whose HEAD has no indexed_commits row is stale."""
+    path = _workdir(git_repo)
+    store.register_repo(path)
+
+    out = poll(store)
+
+    assert out == [StaleHead(repo_path=path, new_ref=str(git_repo.head.target))]
+
+
+def test_new_commit_after_indexing_is_stale(
+    git_repo: pygit2.Repository, store: IndexStore
+) -> None:
+    """Indexing an older commit doesn't mark a new HEAD fresh."""
+    path = _workdir(git_repo)
+    repo_id = store.register_repo(path)
+    old_head = str(git_repo.head.target)
+    store.mark_indexed(repo_id, old_head)
 
     _make_commit(git_repo, {"b.py": b"y = 2\n"})
+    new_head = str(git_repo.head.target)
 
-    changes = watcher.poll()
-    assert len(changes) == 1
-    assert changes[0].repo_path == repo_path
-    assert changes[0].old_ref != changes[0].new_ref
-
-
-def test_no_change_without_commit(git_repo: pygit2.Repository) -> None:
-    watcher = RefWatcher()
-    repo_path = str(Path(git_repo.workdir).resolve())
-    watcher.register(repo_path)
-    watcher.poll()
-    changes = watcher.poll()
-    assert changes == []
+    out = poll(store)
+    assert out == [StaleHead(repo_path=path, new_ref=new_head)]
+    assert new_head != old_head
 
 
-def test_unregister(git_repo: pygit2.Repository) -> None:
-    watcher = RefWatcher()
-    repo_path = str(Path(git_repo.workdir).resolve())
-    watcher.register(repo_path)
-    watcher.unregister(repo_path)
-    _make_commit(git_repo, {"c.py": b"z = 3\n"})
-    changes = watcher.poll()
-    assert changes == []
+def test_missing_path_is_skipped(store: IndexStore, tmp_path: Path) -> None:
+    """A registered path that is not a git repo is silently skipped."""
+    store.register_repo(str(tmp_path / "does-not-exist"))
+    assert poll(store) == []
 
 
-def test_multiple_repos(tmp_path: Path) -> None:
+def test_multiple_repos_reports_only_stale(
+    tmp_path: Path, store: IndexStore
+) -> None:
     repo_a = pygit2.init_repository(str(tmp_path / "a"), bare=False)
-    repo_b = pygit2.init_repository(str(tmp_path / "b"), bare=False)
     _make_commit(repo_a, {"a.py": b"1\n"})
+    repo_b = pygit2.init_repository(str(tmp_path / "b"), bare=False)
     _make_commit(repo_b, {"b.py": b"2\n"})
 
-    watcher = RefWatcher()
-    path_a = str(Path(repo_a.workdir).resolve())
-    path_b = str(Path(repo_b.workdir).resolve())
-    watcher.register(path_a)
-    watcher.register(path_b)
-    watcher.poll()  # snapshot
+    path_a = _workdir(repo_a)
+    path_b = _workdir(repo_b)
+    id_a = store.register_repo(path_a)
+    store.register_repo(path_b)
 
-    _make_commit(repo_a, {"a2.py": b"3\n"})
-    # repo_b unchanged
+    # A is indexed; B is not.
+    store.mark_indexed(id_a, str(repo_a.head.target))
 
-    changes = watcher.poll()
-    assert len(changes) == 1
-    assert changes[0].repo_path == path_a
+    out = poll(store)
+    assert out == [StaleHead(repo_path=path_b, new_ref=str(repo_b.head.target))]

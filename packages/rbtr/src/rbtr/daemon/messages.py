@@ -231,7 +231,6 @@ class AutoRebuildNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["auto_rebuild"] = "auto_rebuild"
     repo: str
-    old_ref: str
     new_ref: str
 
 

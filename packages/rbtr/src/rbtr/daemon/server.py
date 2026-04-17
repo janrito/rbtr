@@ -61,9 +61,9 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     request_adapter,
 )
+from rbtr.daemon import watcher
 from rbtr.daemon.repos import RepoManager
 from rbtr.daemon.status import remove_status, write_status
-from rbtr.daemon.watcher import RefWatcher
 from rbtr.index.store import IndexStore
 
 log = logging.getLogger(__name__)
@@ -93,7 +93,6 @@ class DaemonServer:
             "shutdown": self._handle_shutdown,
         }
         self._build_queue: BuildQueue | None = None
-        self._watcher = RefWatcher()
         self._poll_interval = poll_interval
         self._store = store
         if store is not None:
@@ -119,7 +118,7 @@ class DaemonServer:
                 "find_refs": lambda req: handle_find_refs(req, mgr),
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
                 "status": lambda req: handle_status(req, mgr),
-                "build_index": lambda req: handle_build_index(req, bq, self._watcher),
+                "build_index": lambda req: handle_build_index(req, bq),
             }
         )
 
@@ -152,12 +151,6 @@ class DaemonServer:
     async def serve(self) -> None:
         self.sock_dir.mkdir(parents=True, exist_ok=True)
         self._register_atexit()
-
-        # Re-register every previously-indexed repo with the watcher.
-        # The repos table is the single source of truth for watched repos.
-        if self._store is not None:
-            for _repo_id, path in self._store.list_repos():
-                self._watcher.register(path)
 
         # Start the embedding idle-unload monitor if a store was provided
         # (store init loads the model, so we track from here).
@@ -229,23 +222,22 @@ class DaemonServer:
             time.sleep(self._poll_interval)
             if self._shutdown:
                 break
-            changes = self._watcher.poll()
-            for change in changes:
+            if self._store is None:
+                continue
+            for stale in watcher.poll(self._store):
                 log.info(
-                    "HEAD changed in %s: %s → %s",
-                    change.repo_path,
-                    change.old_ref[:12],
-                    change.new_ref[:12],
+                    "HEAD not indexed in %s: %s",
+                    stale.repo_path,
+                    stale.new_ref[:12],
                 )
                 self._notification_queue.put(
                     AutoRebuildNotification(
-                        repo=change.repo_path,
-                        old_ref=change.old_ref,
-                        new_ref=change.new_ref,
+                        repo=stale.repo_path,
+                        new_ref=stale.new_ref,
                     )
                 )
                 if self._build_queue is not None:
-                    self._build_queue.submit(change.repo_path, [change.new_ref])
+                    self._build_queue.submit(stale.repo_path, [stale.new_ref])
 
     def _dispatch(self, raw: bytes) -> Response:
         try:

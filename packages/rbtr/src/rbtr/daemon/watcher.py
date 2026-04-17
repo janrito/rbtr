@@ -1,74 +1,47 @@
-"""Ref watcher — polls git repos for HEAD changes.
+"""Ref watcher — detects repos whose HEAD is not indexed.
 
-Pure polling logic with no threads or daemon dependencies.
-The daemon server runs `poll()` periodically and acts on
-the returned changes.
+The watcher is stateless. On each poll it reads the current HEAD
+of every registered repo and asks the index store whether that
+exact commit has been marked as fully indexed. Every commit the
+store doesn't know about is reported as stale; callers (the daemon
+worker loop) decide what to do next.
 
-The set of watched repos is derived from the index store's
-`repos` table on startup — every repo that has ever been
-indexed is watched. New repos join the watcher when their
-first `build_index` request is handled.
+No in-memory state means no startup seeding, no register/unregister
+API, and no drift between the watcher and the index: the store's
+``indexed_commits`` table is the single source of truth.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 from rbtr.git import read_head
-
-log = logging.getLogger(__name__)
+from rbtr.index.store import IndexStore
 
 
 @dataclass(frozen=True)
-class RefChange:
-    """A detected HEAD change in a watched repo."""
+class StaleHead:
+    """A repo whose current HEAD is not recorded in ``indexed_commits``."""
 
     repo_path: str
-    old_ref: str
     new_ref: str
 
 
-class RefWatcher:
-    """Watches registered repos for HEAD changes.
+def poll(store: IndexStore) -> list[StaleHead]:
+    """Return every repo whose current HEAD has not been fully indexed.
 
-    Call `register()` to add repos, then `poll()` periodically.
-    `poll()` returns a list of repos whose HEAD changed since
-    the last poll.
+    Iterates over registered repos (``store.list_repos``), reads each
+    one's current HEAD with ``git.read_head``, and yields a ``StaleHead``
+    for any commit that has no ``indexed_commits`` row. Repos whose
+    HEAD cannot be read (unborn, missing path, permission error) are
+    silently skipped.
     """
-
-    def __init__(self) -> None:
-        self._refs: dict[str, str | None] = {}
-
-    def register(self, repo_path: str) -> None:
-        """Start watching a repo. Records current HEAD."""
-        self._refs[repo_path] = read_head(repo_path)
-
-    def unregister(self, repo_path: str) -> None:
-        """Stop watching a repo."""
-        self._refs.pop(repo_path, None)
-
-    def repos(self) -> list[str]:
-        """Return all watched repo paths."""
-        return list(self._refs)
-
-    def poll(self) -> list[RefChange]:
-        """Check all watched repos for HEAD changes.
-
-        Returns a list of changes since the last poll.
-        Updates stored refs for changed repos.
-        """
-        changes: list[RefChange] = []
-        for repo_path, last_ref in self._refs.items():
-            current = read_head(repo_path)
-            if current is not None and current != last_ref:
-                if last_ref is not None:
-                    changes.append(
-                        RefChange(
-                            repo_path=repo_path,
-                            old_ref=last_ref,
-                            new_ref=current,
-                        )
-                    )
-                self._refs[repo_path] = current
-        return changes
+    out: list[StaleHead] = []
+    for repo_id, path in store.list_repos():
+        current = read_head(path)
+        if current is None:
+            continue
+        if store.has_indexed(repo_id, current):
+            continue
+        out.append(StaleHead(repo_path=path, new_ref=current))
+    return out

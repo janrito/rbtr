@@ -107,21 +107,18 @@ def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
 def handle_build_index(
     request: BuildIndexRequest,
     build_queue: object,
-    watcher: object = None,
 ) -> Response:
-    """Submit a build to the queue. Registers the repo with the watcher on submit.
+    """Submit a build to the queue.
 
-    The watcher is registered immediately so that auto-rebuild polling
-    starts as soon as the first index job completes (or is queued).
+    The repo row is created (or fetched) by the build queue's own
+    call to ``RepoManager.resolve``, so no separate registration is
+    needed here. The watcher learns about the repo on its next poll
+    via ``store.list_repos``.
     """
     from rbtr.daemon.build_queue import BuildQueue
-    from rbtr.daemon.watcher import RefWatcher
 
     if not isinstance(build_queue, BuildQueue):
         return ErrorResponse(code=ErrorCode.INTERNAL, message="No build queue")
-
-    if isinstance(watcher, RefWatcher):
-        watcher.register(request.repo)
 
     build_queue.submit(request.repo, request.refs)
     return OkResponse()
