@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 # Bump this when the schema changes.  On open, if the stored version
 # doesn't match, the DB file is deleted and rebuilt from scratch.
 # Uses calver (YYYY.M.NUM) matching the project version format.
-SCHEMA_VERSION = "2026.4.1"
+SCHEMA_VERSION = "2026.4.2"
 
 # Bump this when the embedding text format changes.  On open, if the
 # stored version doesn't match, all embeddings are cleared so
@@ -99,6 +99,9 @@ _LIST_REPOS_SQL = _load_sql("list_repos.sql")
 _NEUTRALISE_FTS_IDF_SQL = _load_sql("neutralise_fts_idf.sql")
 _GET_CHUNK_PATHS_SQL = _load_sql("get_chunk_paths.sql")
 _COUNT_CHUNKS_SQL = _load_sql("count_chunks.sql")
+_MARK_INDEXED_SQL = _load_sql("mark_indexed.sql")
+_HAS_INDEXED_SQL = _load_sql("has_indexed.sql")
+_LIST_INDEXED_COMMITS_SQL = _load_sql("list_indexed_commits.sql")
 
 # diff_removed is the same query as diff_added with swapped params.
 _DIFF_REMOVED_SQL = _DIFF_ADDED_SQL
@@ -252,6 +255,27 @@ class IndexStore:
         """Return all registered repos as `(id, path)` tuples."""
         rows = self._cur().execute(_LIST_REPOS_SQL).fetchall()
         return [(int(r[0]), str(r[1])) for r in rows]
+
+    # ── Completion tracking (indexed_commits) ──────────────────────
+
+    def mark_indexed(self, repo_id: int, commit_sha: str) -> None:
+        """Record a commit as fully indexed.
+
+        Call only after all snapshots, chunks, and edges for this
+        commit have been written. Idempotent via upsert — re-indexing
+        the same commit refreshes ``indexed_at``.
+        """
+        self._cur().execute(_MARK_INDEXED_SQL, [repo_id, commit_sha])
+
+    def has_indexed(self, repo_id: int, commit_sha: str) -> bool:
+        """Return whether *commit_sha* was fully indexed for this repo."""
+        row = self._cur().execute(_HAS_INDEXED_SQL, [repo_id, commit_sha]).fetchone()
+        return row is not None
+
+    def list_indexed_commits(self, repo_id: int) -> list[tuple[str, str]]:
+        """Return ``(commit_sha, indexed_at)`` for this repo, newest first."""
+        rows = self._cur().execute(_LIST_INDEXED_COMMITS_SQL, [repo_id]).fetchall()
+        return [(str(r[0]), str(r[1])) for r in rows]
 
     def _purge_stale_fts_schema(self, dsn: str) -> None:
         """Work around a DuckDB FTS bug on reconnect.

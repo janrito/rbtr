@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS edges (
   commit_sha TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS indexed_commits (
+  repo_id INTEGER NOT NULL,
+  commit_sha TEXT NOT NULL,
+  indexed_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+  PRIMARY KEY (repo_id, commit_sha)
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_repo_blob
 ON chunks (repo_id, blob_sha);
 

@@ -1188,3 +1188,45 @@ def test_count_chunks_by_repo(store: IndexStore) -> None:
 
     assert store.count_chunks("HEAD", repo_id=id_a) == 1
     assert store.count_chunks("HEAD", repo_id=id_b) == 0
+
+
+# ── Completion tracking (indexed_commits) ────────────────────────────
+
+
+def test_has_indexed_false_by_default(store: IndexStore) -> None:
+    assert store.has_indexed(1, "deadbeef") is False
+
+
+def test_mark_indexed_roundtrip(store: IndexStore) -> None:
+    store.mark_indexed(1, "abc123")
+    assert store.has_indexed(1, "abc123") is True
+
+
+def test_mark_indexed_is_scoped_per_repo(store: IndexStore) -> None:
+    a = store.register_repo("/tmp/a")
+    b = store.register_repo("/tmp/b")
+    store.mark_indexed(a, "sha1")
+    assert store.has_indexed(a, "sha1") is True
+    assert store.has_indexed(b, "sha1") is False
+
+
+def test_mark_indexed_idempotent(store: IndexStore) -> None:
+    """Re-marking the same commit is a no-op (refreshes indexed_at)."""
+    store.mark_indexed(1, "sha1")
+    store.mark_indexed(1, "sha1")
+    assert len(store.list_indexed_commits(1)) == 1
+
+
+def test_list_indexed_commits_returns_newest_first(store: IndexStore) -> None:
+    import time
+
+    store.mark_indexed(1, "older")
+    time.sleep(0.01)
+    store.mark_indexed(1, "newer")
+
+    rows = store.list_indexed_commits(1)
+    assert [sha for sha, _ in rows] == ["newer", "older"]
+
+
+def test_list_indexed_commits_empty(store: IndexStore) -> None:
+    assert store.list_indexed_commits(1) == []
