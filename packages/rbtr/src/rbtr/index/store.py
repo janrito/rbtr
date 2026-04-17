@@ -20,6 +20,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 import duckdb
@@ -316,9 +317,7 @@ class IndexStore:
         Runs inside a single transaction so a crash leaves either
         the pre-drop or post-drop state, never a partial one.
         """
-        cur = self._cur()
-        cur.begin()
-        try:
+        with self.transaction() as cur:
             commit_row = cur.execute(
                 _DROP_COMMIT_SQL, [repo_id, commit_sha]
             ).fetchone()
@@ -331,11 +330,6 @@ class IndexStore:
             chunk_row = cur.execute(
                 _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
             ).fetchone()
-        except Exception:
-            cur.rollback()
-            raise
-        else:
-            cur.commit()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
@@ -390,9 +384,7 @@ class IndexStore:
         then sweeps chunks whose blob is no longer referenced by any
         surviving snapshot. Runs in a single transaction.
         """
-        cur = self._cur()
-        cur.begin()
-        try:
+        with self.transaction() as cur:
             snap_row = cur.execute(
                 _SWEEP_ORPHAN_SNAPSHOTS_SQL, [repo_id]
             ).fetchone()
@@ -402,11 +394,6 @@ class IndexStore:
             chunk_row = cur.execute(
                 _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
             ).fetchone()
-        except Exception:
-            cur.rollback()
-            raise
-        else:
-            cur.commit()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
@@ -485,6 +472,26 @@ class IndexStore:
             cur = self._con.cursor()
             self._local.cur = cur
         return cur
+
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Run a block of statements atomically on this thread's cursor.
+
+        Yields the cursor itself so callers can execute statements.
+        Commits on clean exit, rolls back on any exception.  DuckDB
+        does not support nested transactions, so callers must not
+        enter this context while another one is already open on the
+        same cursor.
+        """
+        cur = self._cur()
+        cur.begin()
+        try:
+            yield cur
+        except Exception:
+            cur.rollback()
+            raise
+        else:
+            cur.commit()
 
     def checkpoint(self) -> None:
         """Force-flush pending writes so other threads can read them.
