@@ -16,29 +16,27 @@ from rbtr.index.tokenise import tokenise_code
 from tests.index.case_store_search_e2e import ChunkSpec, StoreSearchCase
 
 
-def _chunk_from_spec(spec: ChunkSpec) -> Chunk:
-    # Pure projection (see test_fuse.py).
-    return Chunk(
-        id=spec.id,
-        blob_sha=f"blob_{spec.id}",
-        file_path=spec.file_path,
-        kind=spec.kind,
-        name=spec.name,
-        content=spec.content,
-        content_tokens=tokenise_code(spec.content),
-        name_tokens=tokenise_code(spec.name),
-        line_start=1,
-        line_end=1,
-    )
-
-
 @fixture
 @parametrize_with_cases("scenario", cases="tests.index.case_store_search_e2e")
 def searched(
     scenario: StoreSearchCase,
 ) -> tuple[StoreSearchCase, list[ScoredResult]]:
     store = IndexStore()
-    chunks = [_chunk_from_spec(spec) for spec in scenario.chunks]
+    chunks = [
+        Chunk(
+            id=spec.id,
+            blob_sha=f"blob_{spec.id}",
+            file_path=spec.file_path,
+            kind=spec.kind,
+            name=spec.name,
+            content=spec.content,
+            content_tokens=tokenise_code(spec.content),
+            name_tokens=tokenise_code(spec.name),
+            line_start=1,
+            line_end=1,
+        )
+        for spec in scenario.chunks
+    ]
     store.insert_chunks(chunks)
     for chunk in chunks:
         store.insert_snapshot("head", chunk.file_path, chunk.blob_sha)

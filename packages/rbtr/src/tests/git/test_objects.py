@@ -36,26 +36,26 @@ from rbtr.git import (
 from rbtr.rbtrignore import parse_ignore
 
 from .conftest import (
-    BINARY_PNG,
-    HANDLER_V1,
-    README,
-    UTILS,
     MergeRepo,
     SampleRepo,
     make_commit,
 )
-
-_MAX = 1_000_000  # default max_file_size for tests
 
 
 def _lf(
     repo: pygit2.Repository,
     ref: str,
     *,
-    max_file_size: int = _MAX,
+    max_file_size: int = 1_000_000,
     ignore: pathspec.PathSpec | None = None,
 ) -> list[FileEntry]:
-    """Shorthand for `list(list_files(...))` with config defaults."""
+    """Invokes ``list_files`` and collects the iterator into a list.
+
+    Not setup: ``list_files`` is the system under test.  This is a
+    pure wrapper that provides a default ``max_file_size`` and
+    materialises the result, expressed once instead of repeating at
+    every call site.
+    """
     return list(
         list_files(
             repo,
@@ -140,16 +140,20 @@ def test_resolve_unknown_ref_raises(sample_repo: SampleRepo) -> None:
 # ── read_blob ────────────────────────────────────────────────────────
 
 
-def test_read_blob_existing_file(sample_repo: SampleRepo) -> None:
+def test_read_blob_existing_file(
+    sample_repo: SampleRepo, handler_v1: bytes
+) -> None:
     blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/handler.py")
     assert blob is not None
-    assert blob.data == HANDLER_V1
+    assert blob.data == handler_v1
 
 
-def test_read_blob_nested_path(sample_repo: SampleRepo) -> None:
+def test_read_blob_nested_path(
+    sample_repo: SampleRepo, utils_content: bytes
+) -> None:
     blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/utils.py")
     assert blob is not None
-    assert blob.data == UTILS
+    assert blob.data == utils_content
 
 
 def test_read_blob_missing_file(sample_repo: SampleRepo) -> None:
@@ -162,10 +166,12 @@ def test_read_blob_missing_ref(sample_repo: SampleRepo) -> None:
     assert blob is None
 
 
-def test_read_blob_binary_file(sample_repo: SampleRepo) -> None:
+def test_read_blob_binary_file(
+    sample_repo: SampleRepo, binary_png_content: bytes
+) -> None:
     blob = read_blob(sample_repo.repo, "feature", "binary.png")
     assert blob is not None
-    assert blob.data == BINARY_PNG
+    assert blob.data == binary_png_content
 
 
 def test_read_blob_deleted_file(sample_repo: SampleRepo) -> None:
@@ -174,10 +180,12 @@ def test_read_blob_deleted_file(sample_repo: SampleRepo) -> None:
     assert read_blob(sample_repo.repo, "feature", "readme.md") is None
 
 
-def test_read_blob_by_branch_name(sample_repo: SampleRepo) -> None:
+def test_read_blob_by_branch_name(
+    sample_repo: SampleRepo, readme_content: bytes
+) -> None:
     blob = read_blob(sample_repo.repo, "main", "readme.md")
     assert blob is not None
-    assert blob.data == README
+    assert blob.data == readme_content
 
 
 # ── list_files ───────────────────────────────────────────────────────
@@ -198,11 +206,13 @@ def test_list_files_at_head(sample_repo: SampleRepo, config_path: Path) -> None:
     assert "readme.md" not in paths  # deleted
 
 
-def test_list_files_returns_file_entries(sample_repo: SampleRepo, config_path: Path) -> None:
+def test_list_files_returns_file_entries(
+    sample_repo: SampleRepo, config_path: Path, handler_v1: bytes
+) -> None:
     entries = _lf(sample_repo.repo, "main")
     assert all(isinstance(e, FileEntry) for e in entries)
     handler = next(e for e in entries if e.path == "src/handler.py")
-    assert handler.content == HANDLER_V1
+    assert handler.content == handler_v1
     assert handler.blob_sha  # non-empty
 
 

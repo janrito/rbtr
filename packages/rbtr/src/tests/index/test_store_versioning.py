@@ -19,41 +19,6 @@ from rbtr.index.store import IndexStore
 from tests.index.case_store_versioning import DbState, VersioningScenario
 
 
-def _write_before_state(path: Path, before: DbState) -> None:
-    """Apply *before* to the DB at *path*."""
-    if before.create_bare_file:
-        con = duckdb.connect(str(path))
-        con.execute("CREATE TABLE dummy (x INT)")
-        con.close()
-        return
-
-    # Seed through IndexStore so every internal invariant is set up
-    # (meta rows, schema_version, embedding_model, ...) before we
-    # mutate what we want to mutate.
-    store = IndexStore(path)
-    if before.seeded_chunks:
-        store.insert_chunks(list(before.seeded_chunks))
-        for chunk in before.seeded_chunks:
-            store.insert_snapshot("head", chunk.file_path, chunk.blob_sha)
-    for chunk_id, vec in before.seeded_embeddings.items():
-        store.update_embedding(chunk_id, vec)
-    store.close()
-
-    updates: list[tuple[str, str]] = []
-    if before.schema_version != "":
-        updates.append(("schema_version", str(before.schema_version)))
-    if before.embedding_version is not None:
-        updates.append(("embedding_version", str(before.embedding_version)))
-    if before.embedding_model is not None:
-        updates.append(("embedding_model", before.embedding_model))
-    if not updates:
-        return
-    con = duckdb.connect(str(path))
-    for key, value in updates:
-        con.execute("UPDATE meta SET value = ? WHERE key = ?", [value, key])
-    con.close()
-
-
 @fixture
 @parametrize_with_cases("scenario", cases="tests.index.case_store_versioning")
 def reopened(
@@ -62,7 +27,41 @@ def reopened(
     mocker: MockerFixture,
 ) -> Iterator[tuple[IndexStore, VersioningScenario]]:
     path = tmp_path / "index.duckdb"
-    _write_before_state(path, scenario.before)
+    before = scenario.before
+
+    if before.create_bare_file:
+        con = duckdb.connect(str(path))
+        con.execute("CREATE TABLE dummy (x INT)")
+        con.close()
+    else:
+        # Seed through IndexStore so every internal invariant is set up
+        # (meta rows, schema_version, embedding_model, ...) before we
+        # mutate what we want to mutate.
+        seed = IndexStore(path)
+        if before.seeded_chunks:
+            seed.insert_chunks(list(before.seeded_chunks))
+            for chunk in before.seeded_chunks:
+                seed.insert_snapshot("head", chunk.file_path, chunk.blob_sha)
+        for chunk_id, vec in before.seeded_embeddings.items():
+            seed.update_embedding(chunk_id, vec)
+        seed.close()
+
+        updates: list[tuple[str, str]] = []
+        if before.schema_version != "":
+            updates.append(("schema_version", str(before.schema_version)))
+        if before.embedding_version is not None:
+            updates.append(
+                ("embedding_version", str(before.embedding_version))
+            )
+        if before.embedding_model is not None:
+            updates.append(("embedding_model", before.embedding_model))
+        if updates:
+            con = duckdb.connect(str(path))
+            for key, value in updates:
+                con.execute(
+                    "UPDATE meta SET value = ? WHERE key = ?", [value, key]
+                )
+            con.close()
 
     if scenario.config_embedding_model is not None:
         mocker.patch(

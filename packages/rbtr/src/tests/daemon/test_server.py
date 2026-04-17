@@ -6,8 +6,11 @@ send → dispatch → respond path through the actual ZMQ socket.
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
+import anyio
 import pytest
 import zmq
 
@@ -25,8 +28,6 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.errors import RbtrError
 
-from .conftest import start_server
-
 # ── Ping / shutdown ──────────────────────────────────────────────────
 
 
@@ -39,7 +40,16 @@ def test_ping(running_server: DaemonServer) -> None:
 
 
 def test_shutdown(sock_dir: Path) -> None:
-    _server, t = start_server(sock_dir)
+    """Shutdown test runs its own server so it can assert the thread exits."""
+    server = DaemonServer(sock_dir, store=None, poll_interval=60.0)
+    t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
+    t.start()
+    rpc_path = sock_dir / "daemon.rpc"
+    for _ in range(100):
+        if rpc_path.exists():
+            break
+        time.sleep(0.02)
+
     with DaemonClient(sock_dir) as client:
         resp = client.send(ShutdownRequest())
     assert isinstance(resp, OkResponse)

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Generator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pygit2
@@ -23,6 +24,13 @@ import pytest
 from rbtr.config import config
 from rbtr.index.models import Chunk, ChunkKind
 from rbtr.index.store import IndexStore
+
+
+@dataclass(frozen=True)
+class TinyRepo:
+    path: Path
+    c1: str
+    c2: str
 
 
 @pytest.fixture
@@ -37,50 +45,42 @@ def isolated_user_dir(monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
 
 
 @pytest.fixture
-def tiny_repo(tmp_path: Path) -> tuple[Path, str, str]:
-    """A real git repo with two commits; returns (path, c1_sha, c2_sha)."""
+def tiny_repo(tmp_path: Path) -> TinyRepo:
+    """A real git repo with two commits."""
     path = tmp_path / "repo"
     repo = pygit2.init_repository(str(path), bare=False)
     sig = pygit2.Signature("t", "t@t.t")
 
-    def commit(files: dict[str, bytes]) -> str:
+    shas: list[str] = []
+    for i, files in enumerate(
+        [
+            {"a.py": b"def a():\n    return 1\n"},
+            {"a.py": b"def a():\n    return 2\n"},
+        ]
+    ):
         tb = repo.TreeBuilder()
         for name, content in files.items():
             tb.insert(name, repo.create_blob(content), pygit2.GIT_FILEMODE_BLOB)
         parents = [repo.head.target] if not repo.head_is_unborn else []
-        return str(
-            repo.create_commit(
-                "refs/heads/main", sig, sig, "c", tb.write(), parents
+        shas.append(
+            str(
+                repo.create_commit(
+                    "refs/heads/main", sig, sig, f"c{i}", tb.write(), parents
+                )
             )
         )
-
-    c1 = commit({"a.py": b"def a():\n    return 1\n"})
-    c2 = commit({"a.py": b"def a():\n    return 2\n"})
-    return path, c1, c2
+    return TinyRepo(path=path, c1=shas[0], c2=shas[1])
 
 
-def _run(args: list[str], user_dir: Path) -> subprocess.CompletedProcess[str]:
-    env = {
-        **os.environ,
-        "RBTR_USER_DIR": str(user_dir),
-        "RBTR_DB_PATH": str(user_dir / "index.duckdb"),
-    }
-    return subprocess.run(
-        [sys.executable, "-m", "rbtr", *args],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-
-
-def _seed_store(user_dir: Path, repo_path: str, *shas: str) -> int:
-    """Open the central store (from config), register repo, mark shas."""
-    # Configure the store to use the isolated user_dir.
+@pytest.fixture
+def seeded_repo_id_both_commits(
+    isolated_user_dir: Path, tiny_repo: TinyRepo
+) -> int:
+    """Seed both commits and close the store so subprocesses can open it."""
     config.reload()
     store = IndexStore.from_config()
-    repo_id = store.register_repo(repo_path)
-    for i, sha in enumerate(shas):
+    repo_id = store.register_repo(str(tiny_repo.path))
+    for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
         chunk = Chunk(
             id=f"c{i}",
             blob_sha=f"b{i}",
@@ -94,19 +94,69 @@ def _seed_store(user_dir: Path, repo_path: str, *shas: str) -> int:
         store.insert_chunks([chunk], repo_id=repo_id)
         store.insert_snapshot(sha, "a.py", f"b{i}", repo_id=repo_id)
         store.mark_indexed(repo_id, sha)
+    store.close()
     return repo_id
 
 
-def test_gc_drop_removes_commit(
-    isolated_user_dir: Path, tiny_repo: tuple[Path, str, str]
-) -> None:
-    path, c1, c2 = tiny_repo
-    repo_path = str(path)
-    repo_id = _seed_store(isolated_user_dir, repo_path, c1, c2)
+@pytest.fixture
+def seeded_repo_id_first_commit(
+    isolated_user_dir: Path, tiny_repo: TinyRepo
+) -> int:
+    """Seed only the first commit and close the store."""
+    config.reload()
+    store = IndexStore.from_config()
+    repo_id = store.register_repo(str(tiny_repo.path))
+    chunk = Chunk(
+        id="c0",
+        blob_sha="b0",
+        file_path="a.py",
+        kind=ChunkKind.FUNCTION,
+        name="f",
+        content="",
+        line_start=1,
+        line_end=1,
+    )
+    store.insert_chunks([chunk], repo_id=repo_id)
+    store.insert_snapshot(tiny_repo.c1, "a.py", "b0", repo_id=repo_id)
+    store.mark_indexed(repo_id, tiny_repo.c1)
+    store.close()
+    return repo_id
 
-    r = _run(
-        ["--json", "gc", "--repo-path", repo_path, "--drop", c1],
-        isolated_user_dir,
+
+def _env(user_dir: Path) -> dict[str, str]:
+    # Pure projection: takes the caller-supplied path, returns the
+    # env dict for subprocess.run.  No I/O, no state besides reading
+    # os.environ.
+    return {
+        **os.environ,
+        "RBTR_USER_DIR": str(user_dir),
+        "RBTR_DB_PATH": str(user_dir / "index.duckdb"),
+    }
+
+
+def test_gc_drop_removes_commit(
+    isolated_user_dir: Path,
+    tiny_repo: TinyRepo,
+    seeded_repo_id_both_commits: int,
+) -> None:
+    repo_id = seeded_repo_id_both_commits
+
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rbtr",
+            "--json",
+            "gc",
+            "--repo-path",
+            str(tiny_repo.path),
+            "--drop",
+            tiny_repo.c1,
+        ],
+        env=_env(isolated_user_dir),
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
@@ -114,43 +164,60 @@ def test_gc_drop_removes_commit(
     assert payload["commits_dropped"] == 1
 
     store = IndexStore.from_config()
-    assert store.has_indexed(repo_id, c1) is False
-    assert store.has_indexed(repo_id, c2) is True
+    assert store.has_indexed(repo_id, tiny_repo.c1) is False
+    assert store.has_indexed(repo_id, tiny_repo.c2) is True
 
 
 def test_gc_dry_run_changes_nothing(
-    isolated_user_dir: Path, tiny_repo: tuple[Path, str, str]
+    isolated_user_dir: Path,
+    tiny_repo: TinyRepo,
+    seeded_repo_id_first_commit: int,
 ) -> None:
-    path, c1, _c2 = tiny_repo
-    repo_path = str(path)
-    repo_id = _seed_store(isolated_user_dir, repo_path, c1)
+    repo_id = seeded_repo_id_first_commit
 
-    r = _run(
-        ["--json", "gc", "--repo-path", repo_path, "--dry-run"],
-        isolated_user_dir,
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "rbtr",
+            "--json",
+            "gc",
+            "--repo-path",
+            str(tiny_repo.path),
+            "--dry-run",
+        ],
+        env=_env(isolated_user_dir),
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["dry_run"] is True
 
     store = IndexStore.from_config()
-    assert store.has_indexed(repo_id, c1) is True
+    assert store.has_indexed(repo_id, tiny_repo.c1) is True
 
 
 def test_gc_keep_and_drop_are_mutually_exclusive(
-    isolated_user_dir: Path, tiny_repo: tuple[Path, str, str]
+    isolated_user_dir: Path, tiny_repo: TinyRepo
 ) -> None:
-    path, _c1, _c2 = tiny_repo
-    r = _run(
+    r = subprocess.run(
         [
+            sys.executable,
+            "-m",
+            "rbtr",
             "gc",
             "--repo-path",
-            str(path),
+            str(tiny_repo.path),
             "--drop",
             "HEAD",
             "main",  # positional → --keep
         ],
-        isolated_user_dir,
+        env=_env(isolated_user_dir),
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert r.returncode != 0
     assert "mutually exclusive" in r.stderr.lower()

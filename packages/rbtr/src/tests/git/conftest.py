@@ -70,14 +70,67 @@ from pathlib import Path
 import pygit2
 import pytest
 
-# ── Tree builder ─────────────────────────────────────────────────────
+
+# ── File-content fixtures ───────────────────────────────────────────
+
+
+@pytest.fixture
+def handler_v1() -> bytes:
+    return b'def handle(request):\n    return "ok"\n'
+
+
+@pytest.fixture
+def handler_v2() -> bytes:
+    return b'def handle(request):\n    validate(request)\n    return "ok"\n'
+
+
+@pytest.fixture
+def utils_content() -> bytes:
+    return b"def helper():\n    return 42\n"
+
+
+@pytest.fixture
+def readme_content() -> bytes:
+    return b"# Project\n\nA sample project.\n"
+
+
+@pytest.fixture
+def config_yaml_content() -> bytes:
+    return b"retries: 3\ntimeout: 30\n"
+
+
+@pytest.fixture
+def binary_png_content() -> bytes:
+    return b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+
+
+@pytest.fixture
+def app_v1_content() -> bytes:
+    return b"x = 1\n"
+
+
+@pytest.fixture
+def shared_py_content() -> bytes:
+    return b"s = 0\n"
+
+
+@pytest.fixture
+def feature_py_content() -> bytes:
+    return b"f = 1\n"
+
+
+# ── Tree builder (pure projection over caller-supplied paths) ──────
 
 
 def build_tree(
     repo: pygit2.Repository,
     files: dict[str, bytes],
 ) -> pygit2.Oid:
-    """Build a nested tree from `{"dir/file.py": b"..."}` paths."""
+    """Build a nested tree from ``{"dir/file.py": b"..."}`` paths.
+
+    Pure projection over the caller-supplied ``files`` mapping; does
+    not read from module state.
+    """
     subtrees: dict[str, dict[str, bytes]] = {}
     blobs: dict[str, bytes] = {}
 
@@ -105,36 +158,16 @@ def make_commit(
     ref: str = "refs/heads/main",
     author: str = "Test Author",
 ) -> pygit2.Oid:
-    """Create a commit with the given file tree and return its OID."""
+    """Create a commit with the given file tree and return its OID.
+
+    Pure projection over caller-supplied arguments.
+    """
     tree_oid = build_tree(repo, files)
     sig = pygit2.Signature(author, "test@test.com")
     return repo.create_commit(ref, sig, sig, message, tree_oid, parents or [])
 
 
-# ── Shared dataset ───────────────────────────────────────────────────
-
-# File contents — semantically distinct so tests can assert on them.
-HANDLER_V1 = b"""\
-def handle(request):
-    return "ok"
-"""
-
-HANDLER_V2 = b"""\
-def handle(request):
-    validate(request)
-    return "ok"
-"""
-
-UTILS = b"""\
-def helper():
-    return 42
-"""
-
-README = b"# Project\n\nA sample project.\n"
-
-CONFIG_YAML = b"retries: 3\ntimeout: 30\n"
-
-BINARY_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+# ── Repo datasets ───────────────────────────────────────────────────
 
 
 @dataclass
@@ -171,115 +204,104 @@ class MergeRepo:
 
 
 @pytest.fixture
-def sample_repo(tmp_path: Path) -> SampleRepo:
-    """A multi-commit repo with branches, adds, mods, and deletes.
-
-    Commit graph::
-
-        base (main) → mid → head (feature)
-
-    See module docstring for full file layout.
-    """
+def sample_repo(
+    tmp_path: Path,
+    handler_v1: bytes,
+    handler_v2: bytes,
+    utils_content: bytes,
+    readme_content: bytes,
+    config_yaml_content: bytes,
+    binary_png_content: bytes,
+) -> SampleRepo:
+    """A multi-commit repo with branches, adds, mods, and deletes."""
     repo = pygit2.init_repository(str(tmp_path / "repo"))
 
-    # base commit — initial state on main
     base = make_commit(
         repo,
         {
-            "src/handler.py": HANDLER_V1,
-            "src/utils.py": UTILS,
-            "readme.md": README,
+            "src/handler.py": handler_v1,
+            "src/utils.py": utils_content,
+            "readme.md": readme_content,
         },
         message="Initial commit",
         author="Alice",
     )
 
-    # mid commit — modify handler, add config
     mid = make_commit(
         repo,
         {
-            "src/handler.py": HANDLER_V2,
-            "src/utils.py": UTILS,
-            "readme.md": README,
-            "config.yaml": CONFIG_YAML,
+            "src/handler.py": handler_v2,
+            "src/utils.py": utils_content,
+            "readme.md": readme_content,
+            "config.yaml": config_yaml_content,
         },
         message="Add validation and config",
         parents=[base],
         author="Bob",
     )
 
-    # head commit — delete readme, add binary
     head = make_commit(
         repo,
         {
-            "src/handler.py": HANDLER_V2,
-            "src/utils.py": UTILS,
-            "config.yaml": CONFIG_YAML,
-            "binary.png": BINARY_PNG,
+            "src/handler.py": handler_v2,
+            "src/utils.py": utils_content,
+            "config.yaml": config_yaml_content,
+            "binary.png": binary_png_content,
         },
         message="Remove readme, add image",
         parents=[mid],
         author="Alice",
     )
 
-    # Create a feature branch pointing at head
     repo.references.create("refs/heads/feature", head)
-
-    # Keep main at base
     repo.references.create("refs/heads/main", base, force=True)
 
     return SampleRepo(repo=repo, base=base, mid=mid, head=head)
 
 
-# ── Merge dataset ────────────────────────────────────────────────────
-
-APP_V1 = b"x = 1\n"
-SHARED_PY = b"s = 0\n"
-FEATURE_PY = b"f = 1\n"
-
-
 @pytest.fixture
-def merge_repo(tmp_path: Path) -> MergeRepo:
+def merge_repo(
+    tmp_path: Path,
+    app_v1_content: bytes,
+    shared_py_content: bytes,
+    feature_py_content: bytes,
+) -> MergeRepo:
     """A repo with a merge commit in the head branch.
 
-    Commit graph::
-
-        A ─── B ─── C  (base)
-               \\
-                D ─── E ── F  (head, merge of E + C)
-
-    The head branch merges C back in, so C (and its ancestors)
-    are reachable from *both* branches.  Only D, E, F are
-    exclusive to head.
+    The head branch merges C back in, so C (and its ancestors) are
+    reachable from *both* branches.  Only D, E, F are exclusive to
+    head.
     """
     repo = pygit2.init_repository(str(tmp_path / "merge_repo"))
 
-    # Shared trunk: A → B → C
     a = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        {"app.py": app_v1_content, "shared.py": shared_py_content},
         message="A",
         author="X",
     )
     b = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        {"app.py": app_v1_content, "shared.py": shared_py_content},
         message="B",
         parents=[a],
         author="X",
     )
     c = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY},
+        {"app.py": app_v1_content, "shared.py": shared_py_content},
         message="C",
         parents=[b],
         author="X",
     )
 
-    # Side branch from B: D → E
     d = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        {
+            "app.py": app_v1_content,
+            "shared.py": shared_py_content,
+            "feature.py": feature_py_content,
+        },
         message="D",
         parents=[b],
         ref="refs/heads/side",
@@ -287,17 +309,24 @@ def merge_repo(tmp_path: Path) -> MergeRepo:
     )
     e = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        {
+            "app.py": app_v1_content,
+            "shared.py": shared_py_content,
+            "feature.py": feature_py_content,
+        },
         message="E",
         parents=[d],
         ref="refs/heads/side",
         author="Y",
     )
 
-    # Merge commit: F merges E + C
     f = make_commit(
         repo,
-        {"app.py": APP_V1, "shared.py": SHARED_PY, "feature.py": FEATURE_PY},
+        {
+            "app.py": app_v1_content,
+            "shared.py": shared_py_content,
+            "feature.py": feature_py_content,
+        },
         message="F",
         parents=[e, c],
         ref="refs/heads/side",

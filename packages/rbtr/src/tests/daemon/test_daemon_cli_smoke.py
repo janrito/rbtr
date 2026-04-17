@@ -34,7 +34,12 @@ def isolated_user_dir(monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
         shutil.rmtree(user_dir, ignore_errors=True)
 
 
-def _run(args: list[str], user_dir: Path, *, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str], user_dir: Path, *, timeout: float = 15.0
+) -> subprocess.CompletedProcess[str]:
+    # Invokes the system under test (the ``rbtr`` CLI).  Not setup
+    # — this is the test action, expressed once instead of repeating
+    # the same subprocess.run boilerplate at every call site.
     env = {**os.environ, "RBTR_USER_DIR": str(user_dir)}
     return subprocess.run(
         [sys.executable, "-m", "rbtr", *args],

@@ -4,58 +4,79 @@ from __future__ import annotations
 
 import duckdb
 import pyarrow as pa  # type: ignore[import-untyped]
+import pytest
 
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 
-# ── Fixtures ─────────────────────────────────────────────────────────
 
-_FUNC_CHUNK = Chunk(
-    id="fn_1",
-    blob_sha="abc",
-    file_path="src/main.py",
-    kind=ChunkKind.FUNCTION,
-    name="calculate",
-    scope="",
-    content="def calculate(x): return x * 2",
-    line_start=1,
-    line_end=1,
-    metadata={},
-)
+# ── Input fixtures ──────────────────────────────────────────────────
 
-_CLASS_CHUNK = Chunk(
-    id="cls_1",
-    blob_sha="def",
-    file_path="src/models.py",
-    kind=ChunkKind.CLASS,
-    name="User",
-    scope="",
-    content="class User:\n    pass",
-    line_start=5,
-    line_end=6,
-    metadata={"module": "models"},
-)
 
-_IMPORT_CHUNK = Chunk(
-    id="imp_1",
-    blob_sha="ghi",
-    file_path="src/main.py",
-    kind=ChunkKind.IMPORT,
-    name="import os",
-    scope="",
-    content="import os",
-    line_start=1,
-    line_end=1,
-    metadata={"module": "os", "names": "os"},
-)
+@pytest.fixture
+def func_chunk() -> Chunk:
+    return Chunk(
+        id="fn_1",
+        blob_sha="abc",
+        file_path="src/main.py",
+        kind=ChunkKind.FUNCTION,
+        name="calculate",
+        scope="",
+        content="def calculate(x): return x * 2",
+        line_start=1,
+        line_end=1,
+        metadata={},
+    )
+
+
+@pytest.fixture
+def class_chunk() -> Chunk:
+    return Chunk(
+        id="cls_1",
+        blob_sha="def",
+        file_path="src/models.py",
+        kind=ChunkKind.CLASS,
+        name="User",
+        scope="",
+        content="class User:\n    pass",
+        line_start=5,
+        line_end=6,
+        metadata={"module": "models"},
+    )
+
+
+@pytest.fixture
+def import_chunk() -> Chunk:
+    return Chunk(
+        id="imp_1",
+        blob_sha="ghi",
+        file_path="src/main.py",
+        kind=ChunkKind.IMPORT,
+        name="import os",
+        scope="",
+        content="import os",
+        line_start=1,
+        line_end=1,
+        metadata={"module": "os", "names": "os"},
+    )
+
+
+@pytest.fixture
+def call_edge() -> Edge:
+    return Edge(source_id="fn_1", target_id="fn_2", kind=EdgeKind.CALLS)
+
+
+@pytest.fixture
+def import_edge() -> Edge:
+    return Edge(source_id="imp_1", target_id="cls_1", kind=EdgeKind.IMPORTS)
 
 
 # ── chunks_to_table ─────────────────────────────────────────────────
 
 
-def test_chunks_to_table_schema() -> None:
+def test_chunks_to_table_schema(func_chunk: Chunk) -> None:
     """Returned table has the expected column names and types."""
-    table = chunks_to_table([_FUNC_CHUNK])
+    table = chunks_to_table([func_chunk])
     assert table.num_rows == 1
     assert table.column_names == [
         "repo_id",
@@ -77,9 +98,9 @@ def test_chunks_to_table_schema() -> None:
     assert table.schema.field("line_end").type == pa.int32()
 
 
-def test_chunks_to_table_values() -> None:
+def test_chunks_to_table_values(func_chunk: Chunk) -> None:
     """Column values match the source chunk attributes."""
-    table = chunks_to_table([_FUNC_CHUNK])
+    table = chunks_to_table([func_chunk])
     assert table.column("id")[0].as_py() == "fn_1"
     assert table.column("blob_sha")[0].as_py() == "abc"
     assert table.column("file_path")[0].as_py() == "src/main.py"
@@ -90,31 +111,33 @@ def test_chunks_to_table_values() -> None:
     assert table.column("line_end")[0].as_py() == 1
 
 
-def test_chunks_to_table_multiple_rows() -> None:
+def test_chunks_to_table_multiple_rows(
+    func_chunk: Chunk, class_chunk: Chunk, import_chunk: Chunk
+) -> None:
     """Multiple chunks produce one row per chunk, preserving order."""
-    table = chunks_to_table([_FUNC_CHUNK, _CLASS_CHUNK, _IMPORT_CHUNK])
+    table = chunks_to_table([func_chunk, class_chunk, import_chunk])
     assert table.num_rows == 3
     ids = [v.as_py() for v in table.column("id")]
     assert ids == ["fn_1", "cls_1", "imp_1"]
 
 
-def test_chunks_to_table_metadata_serialised() -> None:
+def test_chunks_to_table_metadata_serialised(class_chunk: Chunk) -> None:
     """Metadata dict is JSON-serialised to a string column."""
-    table = chunks_to_table([_CLASS_CHUNK])
+    table = chunks_to_table([class_chunk])
     meta = table.column("metadata")[0].as_py()
     assert isinstance(meta, str)
     assert '"module"' in meta
 
 
-def test_chunks_to_table_empty_metadata() -> None:
+def test_chunks_to_table_empty_metadata(func_chunk: Chunk) -> None:
     """Empty metadata produces '{}'."""
-    table = chunks_to_table([_FUNC_CHUNK])
+    table = chunks_to_table([func_chunk])
     assert table.column("metadata")[0].as_py() == "{}"
 
 
-def test_chunks_to_table_kind_is_string_value() -> None:
+def test_chunks_to_table_kind_is_string_value(class_chunk: Chunk) -> None:
     """ChunkKind enum is stored as its string value, not the enum name."""
-    table = chunks_to_table([_CLASS_CHUNK])
+    table = chunks_to_table([class_chunk])
     assert table.column("kind")[0].as_py() == "class"
 
 
@@ -127,38 +150,45 @@ def test_chunks_to_table_empty_list() -> None:
 
 # ── edges_to_table ───────────────────────────────────────────────────
 
-_CALL_EDGE = Edge(source_id="fn_1", target_id="fn_2", kind=EdgeKind.CALLS)
-_IMPORT_EDGE = Edge(source_id="imp_1", target_id="cls_1", kind=EdgeKind.IMPORTS)
 
-
-def test_edges_to_table_schema() -> None:
+def test_edges_to_table_schema(call_edge: Edge) -> None:
     """Returned table has four string columns."""
-    table = edges_to_table([_CALL_EDGE], "abc123")
+    table = edges_to_table([call_edge], "abc123")
     assert table.num_rows == 1
-    assert table.column_names == ["repo_id", "source_id", "target_id", "kind", "commit_sha"]
+    assert table.column_names == [
+        "repo_id",
+        "source_id",
+        "target_id",
+        "kind",
+        "commit_sha",
+    ]
     for name in ["source_id", "target_id", "kind", "commit_sha"]:
         assert table.schema.field(name).type == pa.string()
 
 
-def test_edges_to_table_values() -> None:
+def test_edges_to_table_values(call_edge: Edge) -> None:
     """Column values match the source edge plus the commit SHA."""
-    table = edges_to_table([_CALL_EDGE], "sha_abc")
+    table = edges_to_table([call_edge], "sha_abc")
     assert table.column("source_id")[0].as_py() == "fn_1"
     assert table.column("target_id")[0].as_py() == "fn_2"
     assert table.column("kind")[0].as_py() == "calls"
     assert table.column("commit_sha")[0].as_py() == "sha_abc"
 
 
-def test_edges_to_table_commit_sha_broadcast() -> None:
+def test_edges_to_table_commit_sha_broadcast(
+    call_edge: Edge, import_edge: Edge
+) -> None:
     """Every row gets the same commit_sha."""
-    table = edges_to_table([_CALL_EDGE, _IMPORT_EDGE], "head")
+    table = edges_to_table([call_edge, import_edge], "head")
     shas = [v.as_py() for v in table.column("commit_sha")]
     assert shas == ["head", "head"]
 
 
-def test_edges_to_table_multiple_rows() -> None:
+def test_edges_to_table_multiple_rows(
+    call_edge: Edge, import_edge: Edge
+) -> None:
     """Multiple edges produce correct row count and order."""
-    table = edges_to_table([_CALL_EDGE, _IMPORT_EDGE], "c1")
+    table = edges_to_table([call_edge, import_edge], "c1")
     assert table.num_rows == 2
     kinds = [v.as_py() for v in table.column("kind")]
     assert kinds == ["calls", "imports"]
@@ -211,10 +241,9 @@ def test_snapshots_to_table_empty_list() -> None:
 # ── Roundtrip through DuckDB ─────────────────────────────────────────
 
 
-def test_chunks_roundtrip_duckdb() -> None:
+def test_chunks_roundtrip_duckdb(func_chunk: Chunk, class_chunk: Chunk) -> None:
     """chunks_to_table output can be registered and queried in DuckDB."""
-
-    table = chunks_to_table([_FUNC_CHUNK, _CLASS_CHUNK])
+    table = chunks_to_table([func_chunk, class_chunk])
     con = duckdb.connect(":memory:")
     cur = con.cursor()
     cur.register("_stg", table)
@@ -224,10 +253,9 @@ def test_chunks_roundtrip_duckdb() -> None:
     assert result == [("cls_1", "class", 5), ("fn_1", "function", 1)]
 
 
-def test_edges_roundtrip_duckdb() -> None:
+def test_edges_roundtrip_duckdb(call_edge: Edge, import_edge: Edge) -> None:
     """edges_to_table output can be registered and queried in DuckDB."""
-
-    table = edges_to_table([_CALL_EDGE, _IMPORT_EDGE], "head_sha")
+    table = edges_to_table([call_edge, import_edge], "head_sha")
     con = duckdb.connect(":memory:")
     cur = con.cursor()
     cur.register("_stg", table)
@@ -239,13 +267,14 @@ def test_edges_roundtrip_duckdb() -> None:
 
 def test_snapshots_roundtrip_duckdb() -> None:
     """snapshots_to_table output can be registered and queried in DuckDB."""
-
-    rows = [("sha1", "a.py", "b1"), ("sha1", "b.py", "b2")]
+    rows = [("c1", "a.py", "b1"), ("c1", "b.py", "b2"), ("c2", "a.py", "b3")]
     table = snapshots_to_table(rows)
     con = duckdb.connect(":memory:")
     cur = con.cursor()
     cur.register("_stg", table)
-    result = cur.execute("SELECT file_path FROM _stg ORDER BY file_path").fetchall()
+    result = cur.execute(
+        "SELECT commit_sha, file_path FROM _stg ORDER BY commit_sha, file_path"
+    ).fetchall()
     cur.unregister("_stg")
     con.close()
-    assert result == [("a.py",), ("b.py",)]
+    assert result == [("c1", "a.py"), ("c1", "b.py"), ("c2", "a.py")]

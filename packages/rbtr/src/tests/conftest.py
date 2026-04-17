@@ -9,7 +9,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+def isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Redirect all config paths to temp dirs."""
     user_dir = tmp_path / "rbtr"
     user_dir.mkdir()
@@ -25,5 +25,5 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
 
 @pytest.fixture
 def config_path(tmp_path: Path) -> Path:
-    """Return the temp user config path (already isolated by `_isolate_config`)."""
+    """Return the temp user config path (already isolated by `isolate_config`)."""
     return tmp_path / "rbtr" / "config.toml"

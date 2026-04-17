@@ -23,29 +23,22 @@ from rbtr.index.search import (
 from tests.index.case_fuse import ChunkSpec, FuseCase
 
 
-def _chunk_from_spec(spec: ChunkSpec) -> Chunk:
-    # Pure projection: takes the input the case already named (an
-    # immutable ``ChunkSpec``) and returns a ``Chunk`` with the same
-    # identifying fields plus required pydantic boilerplate (blob_sha,
-    # line_start, line_end, content) set to fixed filler values.  Not
-    # a setup helper because the case already declares every field that
-    # affects behaviour; the filler is purely pydantic-required.
-    return Chunk(
-        id=spec.id,
-        blob_sha="blob",
-        file_path=spec.file_path,
-        kind=spec.kind,
-        name=spec.name,
-        content="",
-        line_start=1,
-        line_end=1,
-    )
-
-
 @fixture
 @parametrize_with_cases("scenario", cases="tests.index.case_fuse")
 def fused(scenario: FuseCase) -> tuple[FuseCase, list[ScoredResult]]:
-    chunks = {spec.id: _chunk_from_spec(spec) for spec in scenario.chunks}
+    chunks = {
+        spec.id: Chunk(
+            id=spec.id,
+            blob_sha="blob",
+            file_path=spec.file_path,
+            kind=spec.kind,
+            name=spec.name,
+            content="",
+            line_start=1,
+            line_end=1,
+        )
+        for spec in scenario.chunks
+    }
     results = fuse_scores(
         chunks,
         lexical_scores=scenario.lexical,

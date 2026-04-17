@@ -24,14 +24,7 @@ from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 
 
-def _tokenise(chunk: Chunk) -> Chunk:
-    """Return *chunk* with content/name token fields filled in."""
-    return chunk.model_copy(
-        update={
-            "content_tokens": tokenise_code(chunk.content),
-            "name_tokens": tokenise_code(chunk.name),
-        }
-    )
+
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -54,124 +47,136 @@ def ranking_commit() -> str:
 
 @pytest.fixture
 def ranking_config_class() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="config_class",
-            blob_sha="blob_config",
-            file_path="src/config.py",
-            kind=ChunkKind.CLASS,
-            name="AppConfig",
-            content=(
-                "class AppConfig:\n"
-                "    database_url: str\n"
-                "    max_retries: int = 3\n"
-                "    timeout: float = 30.0\n"
-            ),
-            line_start=1,
-            line_end=5,
-        )
+    name = "AppConfig"
+    content = (
+        "class AppConfig:\n"
+        "    database_url: str\n"
+        "    max_retries: int = 3\n"
+        "    timeout: float = 30.0\n"
+    )
+    return Chunk(
+        id="config_class",
+        blob_sha="blob_config",
+        file_path="src/config.py",
+        kind=ChunkKind.CLASS,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=1,
+        line_end=5,
     )
 
 
 @pytest.fixture
 def ranking_load_config() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="load_config",
-            blob_sha="blob_config",
-            file_path="src/config.py",
-            kind=ChunkKind.FUNCTION,
-            name="load_config",
-            content=(
-                "def load_config(path: str) -> AppConfig:\n"
-                "    with open(path) as f:\n"
-                "        data = json.load(f)\n"
-                "    return AppConfig(**data)\n"
-            ),
-            line_start=10,
-            line_end=14,
-        )
+    name = "load_config"
+    content = (
+        "def load_config(path: str) -> AppConfig:\n"
+        "    with open(path) as f:\n"
+        "        data = json.load(f)\n"
+        "    return AppConfig(**data)\n"
+    )
+    return Chunk(
+        id="load_config",
+        blob_sha="blob_config",
+        file_path="src/config.py",
+        kind=ChunkKind.FUNCTION,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=10,
+        line_end=14,
     )
 
 
 @pytest.fixture
 def ranking_import_config() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="import_config",
-            blob_sha="blob_server",
-            file_path="src/server.py",
-            kind=ChunkKind.IMPORT,
-            name="from config import AppConfig",
-            content="from config import AppConfig, load_config",
-            line_start=1,
-            line_end=1,
-        )
+    name = "from config import AppConfig"
+    content = "from config import AppConfig, load_config"
+    return Chunk(
+        id="import_config",
+        blob_sha="blob_server",
+        file_path="src/server.py",
+        kind=ChunkKind.IMPORT,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=1,
+        line_end=1,
     )
 
 
 @pytest.fixture
 def ranking_start_server() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="start_server",
-            blob_sha="blob_server",
-            file_path="src/server.py",
-            kind=ChunkKind.FUNCTION,
-            name="start_server",
-            content=(
-                "def start_server(config: AppConfig) -> None:\n"
-                "    app = create_app(config)\n"
-                '    app.run(host="0.0.0.0", port=config.port)\n'
-            ),
-            line_start=5,
-            line_end=8,
-        )
+    name = "start_server"
+    content = (
+        "def start_server(config: AppConfig) -> None:\n"
+        "    app = create_app(config)\n"
+        '    app.run(host="0.0.0.0", port=config.port)\n'
+    )
+    return Chunk(
+        id="start_server",
+        blob_sha="blob_server",
+        file_path="src/server.py",
+        kind=ChunkKind.FUNCTION,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=5,
+        line_end=8,
     )
 
 
 @pytest.fixture
 def ranking_test_config() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="test_config",
-            blob_sha="blob_test_config",
-            file_path="tests/test_config.py",
-            kind=ChunkKind.FUNCTION,
-            name="test_load_config",
-            content=(
-                "def test_load_config():\n"
-                '    config = load_config("test.json")\n'
-                "    assert isinstance(config, AppConfig)\n"
-                "    assert config.max_retries == 3\n"
-                '    config = load_config("other.json")\n'
-                "    assert config.timeout == 30.0\n"
-                '    config = load_config("empty.json")\n'
-            ),
-            line_start=1,
-            line_end=7,
-        )
+    name = "test_load_config"
+    content = (
+        "def test_load_config():\n"
+        '    config = load_config("test.json")\n'
+        "    assert isinstance(config, AppConfig)\n"
+        "    assert config.max_retries == 3\n"
+        '    config = load_config("other.json")\n'
+        "    assert config.timeout == 30.0\n"
+        '    config = load_config("empty.json")\n'
+    )
+    return Chunk(
+        id="test_config",
+        blob_sha="blob_test_config",
+        file_path="tests/test_config.py",
+        kind=ChunkKind.FUNCTION,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=1,
+        line_end=7,
     )
 
 
 @pytest.fixture
 def ranking_doc_section() -> Chunk:
-    return _tokenise(
-        Chunk(
-            id="doc_config",
-            blob_sha="blob_docs",
-            file_path="docs/setup.md",
-            kind=ChunkKind.DOC_SECTION,
-            name="Configuration",
-            content=(
-                "## Configuration\n"
-                "\n"
-                "Use `load_config` to load an `AppConfig` from a JSON file.\n"
-                "Set `database_url` and `max_retries` as needed.\n"
-            ),
-            line_start=1,
-            line_end=5,
-        )
+    name = "Configuration"
+    content = (
+        "## Configuration\n"
+        "\n"
+        "Use `load_config` to load an `AppConfig` from a JSON file.\n"
+        "Set `database_url` and `max_retries` as needed.\n"
+    )
+    return Chunk(
+        id="doc_config",
+        blob_sha="blob_docs",
+        file_path="docs/setup.md",
+        kind=ChunkKind.DOC_SECTION,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=1,
+        line_end=5,
     )
 
 
