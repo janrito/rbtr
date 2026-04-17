@@ -48,13 +48,16 @@ schema-check:
     cd packages/pi-rbtr && bun run scripts/gen-types.ts
     git diff --exit-code packages/pi-rbtr/extensions/rbtr-index/generated/protocol.ts
 
-test: test-rbtr test-legacy
+test: test-rbtr test-legacy test-ts
 
 test-legacy:
     uv run pytest packages/rbtr-legacy/src/tests
 
 test-rbtr:
     uv run pytest packages/rbtr/src/tests
+
+test-ts:
+    cd packages/pi-rbtr && bunx vitest run
 
 test-cov:
     uv run pytest packages/rbtr-legacy/src/tests --cov --cov-report=term --cov-report=markdown-append:cov-append.md
