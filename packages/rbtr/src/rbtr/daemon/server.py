@@ -95,6 +95,7 @@ class DaemonServer:
         self._build_queue: BuildQueue | None = None
         self._watcher = RefWatcher()
         self._poll_interval = poll_interval
+        self._store = store
         if store is not None:
             self._register_index_handlers(store)
 
@@ -102,8 +103,6 @@ class DaemonServer:
         atexit.register(self._cleanup)
 
     def _cleanup(self) -> None:
-        # Save watched repos before exit
-        self._watcher.save(self.sock_dir)
         remove_status(self.sock_dir)
         (self.sock_dir / "daemon.rpc").unlink(missing_ok=True)
         (self.sock_dir / "daemon.pub").unlink(missing_ok=True)
@@ -154,8 +153,11 @@ class DaemonServer:
         self.sock_dir.mkdir(parents=True, exist_ok=True)
         self._register_atexit()
 
-        # Load persisted watched repos on startup
-        self._watcher.load(self.sock_dir)
+        # Re-register every previously-indexed repo with the watcher.
+        # The repos table is the single source of truth for watched repos.
+        if self._store is not None:
+            for _repo_id, path in self._store.list_repos():
+                self._watcher.register(path)
 
         # Start the embedding idle-unload monitor if a store was provided
         # (store init loads the model, so we track from here).
