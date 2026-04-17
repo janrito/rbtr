@@ -146,6 +146,20 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 		// unavailable and the tools fall back to CLI exec.
 		await session.refresh();
 
+		// If the daemon isn't running, try to start it once.  A
+		// failure here just means the extension falls back to CLI
+		// exec mode — still fully functional, just slower.
+		if (!session.available && resolved) {
+			try {
+				await pi.exec(resolved.executable, [...resolved.baseArgs, "daemon", "start"], {
+					timeout: 10_000,
+				});
+				await session.refresh();
+			} catch {
+				// non-fatal — CLI fallback remains
+			}
+		}
+
 		if (session.available) {
 			startSubscription(ctx);
 		}
@@ -164,12 +178,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
 		cliAvailable = true;
 
+		const modeSuffix = session.available ? "" : " (cli)";
 		if (status.exists) {
-			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("success", `rbtr: ${status.total_chunks} symbols`));
+			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("success", `rbtr: ${status.total_chunks} symbols${modeSuffix}`));
 		} else if (settings.autoIndex) {
 			await triggerIndex(ctx);
 		} else {
-			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", "rbtr: no index \u2014 /rbtr-index"));
+			ctx.ui.setStatus("rbtr", ctx.ui.theme.fg("warning", `rbtr: no index${modeSuffix} — /rbtr-index`));
 		}
 	});
 
