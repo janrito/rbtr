@@ -135,6 +135,7 @@ def seeded_store(
             daemon_commit, c.file_path, c.blob_sha, repo_id=repo_id
         )
     store.insert_edges(daemon_edges, daemon_commit, repo_id=repo_id)
+    store.mark_indexed(repo_id, daemon_commit)
     store.rebuild_fts_index()
     return store
 

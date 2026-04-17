@@ -409,11 +409,13 @@ class Status(BaseModel):
         store = IndexStore(db)
         repo_id = store.register_repo(resolved_repo)
         count = store.count_chunks("HEAD", repo_id=repo_id)
+        indexed_refs = [sha for sha, _ in store.list_indexed_commits(repo_id)]
         emit(
             StatusResponse(
                 exists=count > 0,
                 db_path=str(db),
                 total_chunks=count,
+                indexed_refs=indexed_refs,
             )
         )
 

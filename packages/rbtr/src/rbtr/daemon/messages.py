@@ -206,6 +206,7 @@ class StatusResponse(BaseModel):
     exists: bool
     db_path: str | None = None
     total_chunks: int | None = None
+    indexed_refs: list[str] = []
 
 
 class GcResponse(BaseModel):

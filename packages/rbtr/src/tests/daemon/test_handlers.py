@@ -93,13 +93,17 @@ def test_find_refs(running_server_with_index: DaemonServer) -> None:
 # ── Status ───────────────────────────────────────────────────────────
 
 
-def test_status_with_index(running_server_with_index: DaemonServer) -> None:
+def test_status_with_index(
+    running_server_with_index: DaemonServer,
+    daemon_commit: str,
+) -> None:
     with DaemonClient(running_server_with_index.sock_dir) as client:
         resp = client.send(StatusRequest(repo="/test/repo"))
     assert isinstance(resp, StatusResponse)
     assert resp.exists is True
     assert resp.total_chunks is not None
     assert resp.total_chunks > 0
+    assert resp.indexed_refs == [daemon_commit]
 
 
 def test_status_unknown_repo(running_server_with_index: DaemonServer) -> None:
@@ -107,3 +111,4 @@ def test_status_unknown_repo(running_server_with_index: DaemonServer) -> None:
         resp = client.send(StatusRequest(repo="/unknown/repo"))
     assert isinstance(resp, StatusResponse)
     assert resp.total_chunks == 0
+    assert resp.indexed_refs == []

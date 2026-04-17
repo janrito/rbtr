@@ -95,6 +95,17 @@ def test_response_status() -> None:
     resp = response_adapter.validate_json(b'{"kind":"status","exists":true,"total_chunks":100}')
     assert isinstance(resp, StatusResponse)
     assert resp.total_chunks == 100
+    assert resp.indexed_refs == []
+
+
+def test_response_status_with_indexed_refs() -> None:
+    raw = (
+        b'{"kind":"status","exists":true,"total_chunks":100,'
+        b'"indexed_refs":["abc123","def456"]}'
+    )
+    resp = response_adapter.validate_json(raw)
+    assert isinstance(resp, StatusResponse)
+    assert resp.indexed_refs == ["abc123", "def456"]
 
 
 # ── Notification discriminator ───────────────────────────────────────

@@ -256,8 +256,13 @@ def _render_edge(m: Edge) -> None:
 def _render_status_response(m: StatusResponse) -> None:
     if not m.exists:
         _out.print("[red]✗[/] No index found")
+        return
+    _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
+    if m.indexed_refs:
+        short = ", ".join(sha[:12] for sha in m.indexed_refs)
+        _out.print(f"  [dim]indexed:[/] {short}")
     else:
-        _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
+        _out.print("  [dim]indexed:[/] [yellow]none[/]")
 
 
 def _render_gc_response(m: GcResponse) -> None:

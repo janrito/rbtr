@@ -98,10 +98,12 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, mgr: RepoManager) -> 
 def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
     count = mgr.store.count_chunks("HEAD", repo_id=repo_id)
+    indexed_refs = [sha for sha, _ in mgr.store.list_indexed_commits(repo_id)]
     return StatusResponse(
         exists=count > 0,
         db_path=mgr.store.db_path,
         total_chunks=count,
+        indexed_refs=indexed_refs,
     )
 
 
