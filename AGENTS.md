@@ -96,6 +96,31 @@
 - **No `unittest.mock`.** Use `pytest-mock` (`mocker` fixture).
 - **Fixtures over helpers.** Shared setup belongs in
   `@pytest.fixture`, not in loose helper functions or methods.
+  That includes private functions at module scope called only
+  from a fixture or a case — if a fixture body is too long,
+  decompose it into *smaller fixtures*, not helper functions.
+- **Prefer independent fixtures to factory fixtures.** A fixture
+  that returns a callable (a "factory") hides dependencies behind
+  invocation: the dependency graph pytest builds becomes opaque,
+  and fixtures can be called repeatedly or not at all without the
+  test making that explicit. When the resources a test needs are
+  independent, declare one fixture per resource and let pytest
+  compose them. Nested dependent fixtures (fixture A takes
+  fixture B) are fine — they still expose the graph. Factories
+  are a smell; reach for one only when the test truly needs many
+  instances parametrised by caller-supplied arguments.
+- **Prefer fixtures to module-level constants.** Test data is
+  setup, and setup belongs in fixtures — where it is lazy,
+  composable, and parametrisable. Module-level constants
+  (including private `_FOO`) are tolerated only when:
+  (a) they are pure values, never callables,
+  (b) they are consumed *strictly* from fixtures or case
+      functions, never from test bodies, and
+  (c) turning them into fixtures would add significant
+      ceremony for no behavioural benefit (e.g. small frozen
+      dataclass instances used across many cases).
+  They are always a smell, never the default. When in doubt,
+  write a fixture.
 - **No test classes.** Plain test functions only.
 
 ## Git
