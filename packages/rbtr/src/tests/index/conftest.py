@@ -179,3 +179,185 @@ def seeded_store() -> IndexStore:
     store.insert_edges(ALL_EDGES, COMMIT)
     store.rebuild_fts_index()
     return store
+
+
+# ── Store-family fixtures ───────────────────────────────────────
+#
+# Named chunk / edge fixtures consumed by the case_store_* /
+# test_store_* families.  Each case declares the ones it needs as
+# parameters; pytest-cases composes them into the case's return.
+# No module-level constants and no helper imports survive in the
+# case files themselves.
+
+
+@pytest.fixture
+def math_func() -> Chunk:
+    return Chunk(
+        id="math_1",
+        blob_sha="blob_math",
+        file_path="src/math_utils.py",
+        kind=ChunkKind.FUNCTION,
+        name="calculate_standard_deviation",
+        content=(
+            "def calculate_standard_deviation(values: list[float]) -> float:\n"
+            "    mean = sum(values) / len(values)\n"
+            "    variance = sum((x - mean) ** 2 for x in values) / len(values)\n"
+            "    return variance ** 0.5\n"
+        ),
+        line_start=1,
+        line_end=4,
+    )
+
+
+@pytest.fixture
+def http_func() -> Chunk:
+    return Chunk(
+        id="http_1",
+        blob_sha="blob_http",
+        file_path="src/api/client.py",
+        kind=ChunkKind.FUNCTION,
+        name="fetch_json_from_endpoint",
+        content=(
+            "async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:\n"
+            "    async with httpx.AsyncClient() as client:\n"
+            "        response = await client.get(url, headers=headers)\n"
+            "        response.raise_for_status()\n"
+            "        return response.json()\n"
+        ),
+        line_start=10,
+        line_end=15,
+    )
+
+
+@pytest.fixture
+def string_func() -> Chunk:
+    return Chunk(
+        id="string_1",
+        blob_sha="blob_string",
+        file_path="src/text/normalize.py",
+        kind=ChunkKind.FUNCTION,
+        name="normalize_whitespace",
+        content=(
+            "def normalize_whitespace(text: str) -> str:\n"
+            "    import re\n"
+            "    collapsed = re.sub(r'\\s+', ' ', text)\n"
+            "    return collapsed.strip()\n"
+        ),
+        line_start=1,
+        line_end=4,
+    )
+
+
+@pytest.fixture
+def math_class() -> Chunk:
+    """Shares ``blob_sha='blob_math'`` with ``math_func`` on purpose."""
+    return Chunk(
+        id="math_class_1",
+        blob_sha="blob_math",
+        file_path="src/math_utils.py",
+        kind=ChunkKind.CLASS,
+        name="StatisticsCalculator",
+        content=(
+            "class StatisticsCalculator:\n"
+            "    def __init__(self, data: list[float]):\n"
+            "        self.data = data\n"
+            "    def mean(self) -> float:\n"
+            "        return sum(self.data) / len(self.data)\n"
+        ),
+        line_start=10,
+        line_end=15,
+    )
+
+
+@pytest.fixture
+def all_store_chunks(
+    math_func: Chunk,
+    http_func: Chunk,
+    string_func: Chunk,
+    math_class: Chunk,
+) -> list[Chunk]:
+    return [math_func, http_func, string_func, math_class]
+
+
+@pytest.fixture
+def vec_math() -> list[float]:
+    return [1.0, 0.0, 0.0]
+
+
+@pytest.fixture
+def vec_http() -> list[float]:
+    return [0.0, 1.0, 0.0]
+
+
+@pytest.fixture
+def vec_string() -> list[float]:
+    return [0.0, 0.0, 1.0]
+
+
+# ── GC building-block chunks ──────────────────────────────────
+#
+# Blob-distinct minimal chunks used by GC scenarios to exercise the
+# shared-blob invariant.  Defined here so no case file needs its own
+# private constants.
+
+
+@pytest.fixture
+def gc_chunk_x() -> Chunk:
+    return Chunk(
+        id="cx",
+        blob_sha="blob_x",
+        file_path="x.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_x",
+        content="def f_x(): pass",
+        line_start=1,
+        line_end=1,
+    )
+
+
+@pytest.fixture
+def gc_chunk_y() -> Chunk:
+    return Chunk(
+        id="cy",
+        blob_sha="blob_y",
+        file_path="y.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_y",
+        content="def f_y(): pass",
+        line_start=1,
+        line_end=1,
+    )
+
+
+@pytest.fixture
+def gc_chunk_z() -> Chunk:
+    return Chunk(
+        id="cz",
+        blob_sha="blob_z",
+        file_path="z.py",
+        kind=ChunkKind.FUNCTION,
+        name="f_z",
+        content="def f_z(): pass",
+        line_start=1,
+        line_end=1,
+    )
+
+
+# ── Edge fixtures used by edge-family cases ─────────────────────
+
+
+@pytest.fixture
+def edge_math_calls_class() -> Edge:
+    return Edge(
+        source_id="math_1", target_id="math_class_1", kind=EdgeKind.CALLS
+    )
+
+
+@pytest.fixture
+def edge_a_calls_b() -> Edge:
+    return Edge(source_id="a", target_id="b", kind=EdgeKind.CALLS)
+
+
+@pytest.fixture
+def edge_c_imports_d() -> Edge:
+    return Edge(source_id="c", target_id="d", kind=EdgeKind.IMPORTS)

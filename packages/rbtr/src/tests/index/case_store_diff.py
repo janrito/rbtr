@@ -1,9 +1,7 @@
 """Scenarios for ``IndexStore.diff_chunks``.
 
-Each case describes two snapshots (base and head) and the
-expected (added, removed, modified) chunk ids returned.  The
-fixture in ``test_store_diff.py`` materialises the store and
-reads the diff back.
+Cases take the shared ``math_func`` and ``http_func`` fixtures
+from ``conftest.py``.
 """
 
 from __future__ import annotations
@@ -12,17 +10,13 @@ from dataclasses import dataclass, field
 
 from rbtr.index.models import Chunk
 
-from tests.index.cases_common import HTTP_FUNC, MATH_FUNC
-
 
 @dataclass(frozen=True)
 class DiffScenario:
     """Declarative diff-family test data."""
 
     chunks: list[Chunk] = field(default_factory=list)
-    # [(commit_sha, file_path, blob_sha)]
     snapshots: list[tuple[str, str, str]] = field(default_factory=list)
-
     base: str = "base"
     head: str = "head"
     expected_added: list[str] = field(default_factory=list)
@@ -30,81 +24,73 @@ class DiffScenario:
     expected_modified: list[str] = field(default_factory=list)
 
 
-# ── No change ────────────────────────────────────────────────────────
-
-
-def case_no_changes() -> DiffScenario:
-    """Base and head point to the same blob \u2192 empty diff."""
+def case_no_changes(math_func: Chunk) -> DiffScenario:
     return DiffScenario(
-        chunks=[MATH_FUNC],
+        chunks=[math_func],
         snapshots=[
-            ("base", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("head", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
+            ("base", math_func.file_path, math_func.blob_sha),
+            ("head", math_func.file_path, math_func.blob_sha),
         ],
     )
 
 
-# ── Added / removed / modified ───────────────────────────────────────
-
-
-def case_file_added_at_head() -> DiffScenario:
-    """Head has a file base does not; chunk for new file is added."""
+def case_file_added_at_head(
+    math_func: Chunk, http_func: Chunk
+) -> DiffScenario:
     return DiffScenario(
-        chunks=[MATH_FUNC, HTTP_FUNC],
+        chunks=[math_func, http_func],
         snapshots=[
-            ("base", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("head", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("head", HTTP_FUNC.file_path, HTTP_FUNC.blob_sha),
+            ("base", math_func.file_path, math_func.blob_sha),
+            ("head", math_func.file_path, math_func.blob_sha),
+            ("head", http_func.file_path, http_func.blob_sha),
         ],
-        expected_added=[HTTP_FUNC.id],
+        expected_added=[http_func.id],
     )
 
 
-def case_file_removed_at_head() -> DiffScenario:
-    """Base has a file head does not; chunk is removed."""
+def case_file_removed_at_head(
+    math_func: Chunk, http_func: Chunk
+) -> DiffScenario:
     return DiffScenario(
-        chunks=[MATH_FUNC, HTTP_FUNC],
+        chunks=[math_func, http_func],
         snapshots=[
-            ("base", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("base", HTTP_FUNC.file_path, HTTP_FUNC.blob_sha),
-            ("head", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
+            ("base", math_func.file_path, math_func.blob_sha),
+            ("base", http_func.file_path, http_func.blob_sha),
+            ("head", math_func.file_path, math_func.blob_sha),
         ],
-        expected_removed=[HTTP_FUNC.id],
+        expected_removed=[http_func.id],
     )
 
 
-def case_file_modified_between_base_and_head() -> DiffScenario:
-    """Same path, different blob; chunk at head appears in ``modified``."""
-    updated = MATH_FUNC.model_copy(
+def case_file_modified_between_base_and_head(math_func: Chunk) -> DiffScenario:
+    updated = math_func.model_copy(
         update={"id": "math_1_v2", "blob_sha": "blob_math_v2"}
     )
     return DiffScenario(
-        chunks=[MATH_FUNC, updated],
+        chunks=[math_func, updated],
         snapshots=[
-            ("base", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("head", MATH_FUNC.file_path, "blob_math_v2"),
+            ("base", math_func.file_path, math_func.blob_sha),
+            ("head", math_func.file_path, "blob_math_v2"),
         ],
         expected_modified=[updated.id],
     )
 
 
-def case_mixed_added_removed_modified() -> DiffScenario:
-    """One file added, one removed, one modified \u2014 all at once."""
-    updated = MATH_FUNC.model_copy(
+def case_mixed_added_removed_modified(
+    math_func: Chunk, http_func: Chunk
+) -> DiffScenario:
+    updated = math_func.model_copy(
         update={"id": "math_1_v2", "blob_sha": "blob_math_v2"}
     )
     return DiffScenario(
-        chunks=[MATH_FUNC, updated, HTTP_FUNC],
+        chunks=[math_func, updated, http_func],
         snapshots=[
-            # base: math v1, http
-            ("base", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("base", HTTP_FUNC.file_path, HTTP_FUNC.blob_sha),
-            # head: math v2, no http, adds new file
-            ("head", MATH_FUNC.file_path, "blob_math_v2"),
+            ("base", math_func.file_path, math_func.blob_sha),
+            ("base", http_func.file_path, http_func.blob_sha),
+            ("head", math_func.file_path, "blob_math_v2"),
             ("head", "src/new.py", "blob_new"),
         ],
         expected_modified=[updated.id],
-        expected_removed=[HTTP_FUNC.id],
-        # No chunk row exists for src/new.py, so no added chunk surfaces.
+        expected_removed=[http_func.id],
         expected_added=[],
     )

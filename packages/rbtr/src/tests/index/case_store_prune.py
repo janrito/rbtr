@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
-
-from tests.index.cases_common import HTTP_FUNC, MATH_FUNC, STRING_FUNC
+from rbtr.index.models import Chunk, Edge, EdgeKind
 
 
 @dataclass(frozen=True)
@@ -29,101 +27,81 @@ class PruneScenario:
     expected_prune_chunks: int = 0
     expected_prune_edges: int = 0
     expected_orphan_count_after: int = 0
-    # Ids that must remain after pruning.
     expected_surviving_chunk_ids: list[str] = field(default_factory=list)
 
 
-# ── Clean store ──────────────────────────────────────────────────────
-
-
-def case_all_chunks_referenced() -> PruneScenario:
+def case_all_chunks_referenced(
+    math_func: Chunk, http_func: Chunk
+) -> PruneScenario:
     return PruneScenario(
-        chunks=[MATH_FUNC, HTTP_FUNC],
+        chunks=[math_func, http_func],
         snapshots=[
-            ("sha1", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("sha1", HTTP_FUNC.file_path, HTTP_FUNC.blob_sha),
+            ("sha1", math_func.file_path, math_func.blob_sha),
+            ("sha1", http_func.file_path, http_func.blob_sha),
         ],
-        expected_orphan_count_before=0,
-        expected_orphan_count_after=0,
-        expected_surviving_chunk_ids=[MATH_FUNC.id, HTTP_FUNC.id],
+        expected_surviving_chunk_ids=[math_func.id, http_func.id],
     )
 
 
-def case_noop_when_clean() -> PruneScenario:
-    """Chunk + snapshot + edge all consistent \u2192 prune is a no-op."""
+def case_noop_when_clean(math_func: Chunk) -> PruneScenario:
+    """Chunk + snapshot + edge all consistent → prune is a no-op."""
     return PruneScenario(
-        chunks=[MATH_FUNC],
-        snapshots=[("sha1", MATH_FUNC.file_path, MATH_FUNC.blob_sha)],
+        chunks=[math_func],
+        snapshots=[("sha1", math_func.file_path, math_func.blob_sha)],
         edges=[
             (
                 "sha1",
-                Edge(source_id=MATH_FUNC.id, target_id=MATH_FUNC.id, kind=EdgeKind.IMPORTS),
+                Edge(source_id=math_func.id, target_id=math_func.id, kind=EdgeKind.IMPORTS),
             ),
         ],
-        expected_orphan_count_before=0,
-        expected_prune_chunks=0,
-        expected_prune_edges=0,
-        expected_surviving_chunk_ids=[MATH_FUNC.id],
+        expected_surviving_chunk_ids=[math_func.id],
     )
 
 
-# ── Unreferenced chunks ──────────────────────────────────────────────
-
-
-def case_chunks_without_snapshots_are_orphaned() -> PruneScenario:
+def case_chunks_without_snapshots_are_orphaned(
+    math_func: Chunk, http_func: Chunk, string_func: Chunk
+) -> PruneScenario:
     return PruneScenario(
-        chunks=[MATH_FUNC, HTTP_FUNC, STRING_FUNC],
-        snapshots=[("sha1", MATH_FUNC.file_path, MATH_FUNC.blob_sha)],
+        chunks=[math_func, http_func, string_func],
+        snapshots=[("sha1", math_func.file_path, math_func.blob_sha)],
         expected_orphan_count_before=2,
         expected_prune_chunks=2,
-        expected_orphan_count_after=0,
-        expected_surviving_chunk_ids=[MATH_FUNC.id],
+        expected_surviving_chunk_ids=[math_func.id],
     )
 
 
-# ── Unreferenced edges ───────────────────────────────────────────────
-
-
-def case_edges_on_commit_without_snapshots_are_pruned() -> PruneScenario:
+def case_edges_on_commit_without_snapshots_are_pruned(
+    math_func: Chunk, http_func: Chunk
+) -> PruneScenario:
     return PruneScenario(
-        chunks=[MATH_FUNC, HTTP_FUNC],
+        chunks=[math_func, http_func],
         snapshots=[
-            ("sha1", MATH_FUNC.file_path, MATH_FUNC.blob_sha),
-            ("sha1", HTTP_FUNC.file_path, HTTP_FUNC.blob_sha),
+            ("sha1", math_func.file_path, math_func.blob_sha),
+            ("sha1", http_func.file_path, http_func.blob_sha),
         ],
         edges=[
             (
                 "sha1",
-                Edge(source_id=MATH_FUNC.id, target_id=HTTP_FUNC.id, kind=EdgeKind.IMPORTS),
+                Edge(source_id=math_func.id, target_id=http_func.id, kind=EdgeKind.IMPORTS),
             ),
             (
                 "stale_sha",
-                Edge(source_id=MATH_FUNC.id, target_id=HTTP_FUNC.id, kind=EdgeKind.IMPORTS),
+                Edge(source_id=math_func.id, target_id=http_func.id, kind=EdgeKind.IMPORTS),
             ),
         ],
-        expected_prune_chunks=0,
         expected_prune_edges=1,
-        expected_surviving_chunk_ids=[MATH_FUNC.id, HTTP_FUNC.id],
+        expected_surviving_chunk_ids=[math_func.id, http_func.id],
     )
 
 
-# ── Path rename: same blob, different path ──────────────────────────
-
-
-def case_file_renamed_old_chunk_pruned() -> PruneScenario:
-    """Old chunk's (blob, path) no longer referenced: pruned.
-
-    prune_orphans uses ``(blob_sha, file_path)``, so a chunk whose
-    blob is reused at a *different* path does not protect the old
-    record.
-    """
-    renamed = MATH_FUNC.model_copy(
+def case_file_renamed_old_chunk_pruned(math_func: Chunk) -> PruneScenario:
+    """Blob reused at a different path; old chunk record is pruned."""
+    renamed = math_func.model_copy(
         update={"id": "math_renamed", "file_path": "src/renamed.py"}
     )
     return PruneScenario(
-        chunks=[MATH_FUNC, renamed],
-        # Only the renamed path is snapshotted.
-        snapshots=[("sha1", renamed.file_path, MATH_FUNC.blob_sha)],
+        chunks=[math_func, renamed],
+        snapshots=[("sha1", renamed.file_path, math_func.blob_sha)],
         expected_orphan_count_before=1,
         expected_prune_chunks=1,
         expected_surviving_chunk_ids=[renamed.id],
