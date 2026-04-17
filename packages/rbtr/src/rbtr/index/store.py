@@ -607,12 +607,18 @@ class IndexStore:
     def prune_orphans(self, repo_id: int = 1) -> tuple[int, int]:
         """Delete chunks and edges not referenced by any file snapshot.
 
+        Runs both deletes in one transaction so a crash between them
+        cannot leave edges alive for chunks that were already deleted
+        (or vice versa).
+
         Returns `(chunks_deleted, edges_deleted)`.
         """
-        cur = self._cur()
-        edge_row = cur.execute(_PRUNE_EDGES_SQL, [repo_id, repo_id]).fetchone()
+        with self.transaction() as cur:
+            edge_row = cur.execute(
+                _PRUNE_EDGES_SQL, [repo_id, repo_id]
+            ).fetchone()
+            chunk_row = cur.execute(_PRUNE_CHUNKS_SQL, [repo_id]).fetchone()
         edges_deleted = int(edge_row[0]) if edge_row else 0
-        chunk_row = cur.execute(_PRUNE_CHUNKS_SQL, [repo_id]).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
