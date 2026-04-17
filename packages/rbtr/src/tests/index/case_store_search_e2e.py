@@ -12,21 +12,7 @@ from dataclasses import dataclass, field
 
 from rbtr.index.models import ChunkKind, Edge, EdgeKind
 
-
-@dataclass(frozen=True)
-class ChunkSpec:
-    """Chunk description the test care about.
-
-    The fixture fills in ``blob_sha='blob_{id}'``, ``line_start=1``,
-    ``line_end=1``, and tokenises content / name.
-    """
-
-    id: str
-    name: str
-    content: str
-    kind: ChunkKind = ChunkKind.FUNCTION
-    file_path: str = "src/lib.py"
-
+from tests.index.cases_common import ChunkSpec
 
 @dataclass(frozen=True)
 class StoreSearchCase:

@@ -16,20 +16,8 @@ from dataclasses import dataclass, field
 
 from rbtr.index.models import ChunkKind
 
+from tests.index.cases_common import ChunkSpec
 
-# ── ChunkSpec ────────────────────────────────────────────────────────
-#
-# A ChunkSpec is what a case says about each chunk: the minimum set
-# of fields that matter for ranking.  The fixture fills in the rest
-# with obvious values (blob_sha='blob', content='', line 1..1).
-
-
-@dataclass(frozen=True)
-class ChunkSpec:
-    id: str
-    kind: ChunkKind = ChunkKind.FUNCTION
-    name: str = "fn"
-    file_path: str = "src/lib.py"
 
 
 @dataclass(frozen=True)

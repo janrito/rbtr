@@ -17,26 +17,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from rbtr.index.models import ChunkKind, ImportMeta
+from rbtr.index.models import ChunkKind
+
+from tests.index.cases_common import ChunkSpec
 
 
 class InferFn(StrEnum):
     IMPORT = "import"
     TEST = "test"
     DOC = "doc"
-
-
-@dataclass(frozen=True)
-class ChunkSpec:
-    """The fields of ``Chunk`` that matter for edge inference."""
-
-    id: str
-    kind: ChunkKind
-    name: str
-    file_path: str = "src/foo.py"
-    content: str = ""
-    metadata: ImportMeta = field(default_factory=dict)
-
 
 @dataclass(frozen=True)
 class EdgeCase:

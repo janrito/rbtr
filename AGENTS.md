@@ -140,6 +140,16 @@
      *production code* also uses (e.g. `SCHEMA_VERSION`
      imported for an assertion).  These are not test data —
      they are the production surface under test.
+  6. **Parametrize-time values.**  Everything pytest needs at
+     collection time (before any fixture runs) may be module
+     level: `pytest.mark.skipif` markers passed via
+     `pytest.param(..., marks=...)`, and the argument lists /
+     dicts consumed by `@pytest.mark.parametrize(...)`.
+     Fixtures cannot supply these values.  Prefer inline
+     literals inside the decorator when practical; when the
+     data is large enough that inlining hurts readability, a
+     module-level `_NAME = [...]` is acceptable.  This is
+     pytest architecture, not a style choice.
 
   "It would add ceremony" is not a justification; one
   `@fixture` line per value is not ceremony.  If a rewrite

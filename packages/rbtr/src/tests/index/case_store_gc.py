@@ -14,7 +14,7 @@ from rbtr.index.models import Chunk, Edge, EdgeKind
 
 
 @dataclass(frozen=True)
-class RepoData:
+class RepoGcData:
     chunks: list[Chunk] = field(default_factory=list)
     snapshots: list[tuple[str, str, str]] = field(default_factory=list)
     edges: list[tuple[str, Edge]] = field(default_factory=list)
@@ -24,7 +24,7 @@ class RepoData:
 @dataclass(frozen=True)
 class GcScenario:
     repo_paths: list[str] = field(default_factory=lambda: ["/default"])
-    per_repo: list[RepoData] = field(default_factory=list)
+    per_repo: list[RepoGcData] = field(default_factory=list)
 
     drop: list[
         tuple[int, str, dict[str, int | list[str]]]
@@ -42,7 +42,7 @@ def case_two_commits_sharing_one_blob(
     return GcScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoGcData(
                 chunks=[gc_chunk_x, gc_chunk_y, gc_chunk_z],
                 snapshots=[
                     ("commit_a", "x.py", "blob_x"),
@@ -87,7 +87,7 @@ def case_drop_same_commit_twice(gc_chunk_x: Chunk) -> GcScenario:
     return GcScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoGcData(
                 chunks=[gc_chunk_x],
                 snapshots=[("commit_a", "x.py", "blob_x")],
                 marked=["commit_a"],
@@ -105,8 +105,8 @@ def case_drop_scoped_to_target_repo() -> GcScenario:
     return GcScenario(
         repo_paths=["/r1", "/r2"],
         per_repo=[
-            RepoData(marked=["shared_sha"]),
-            RepoData(marked=["shared_sha"]),
+            RepoGcData(marked=["shared_sha"]),
+            RepoGcData(marked=["shared_sha"]),
         ],
         drop=[
             (
@@ -128,7 +128,7 @@ def case_orphan_chunk_without_snapshot(
     return GcScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoGcData(
                 chunks=[gc_chunk_x, gc_chunk_y],
                 snapshots=[("head", "y.py", "blob_y")],
             )
@@ -142,7 +142,7 @@ def case_crashed_build_leaves_residue(gc_chunk_x: Chunk) -> GcScenario:
     return GcScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoGcData(
                 chunks=[gc_chunk_x],
                 snapshots=[("crashed_sha", "x.py", "blob_x")],
                 edges=[
@@ -167,7 +167,7 @@ def case_mixed_completed_and_crashed(
     return GcScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoGcData(
                 chunks=[gc_chunk_x, gc_chunk_y],
                 snapshots=[
                     ("good_sha", "x.py", "blob_x"),

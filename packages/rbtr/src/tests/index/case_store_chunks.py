@@ -13,7 +13,7 @@ from rbtr.index.models import Chunk, ChunkKind
 
 
 @dataclass(frozen=True)
-class RepoData:
+class RepoChunks:
     """Chunks and snapshots to load into one repo.
 
     ``inserts`` is a list of chunk batches — each batch becomes
@@ -32,7 +32,7 @@ class ChunkScenario:
     """Declarative store state for a chunk-family test."""
 
     repo_paths: list[str] = field(default_factory=lambda: ["/default"])
-    per_repo: list[RepoData] = field(default_factory=list)
+    per_repo: list[RepoChunks] = field(default_factory=list)
 
     expected_chunk_ids: dict[tuple[int, str], list[str]] = field(
         default_factory=dict
@@ -67,7 +67,7 @@ def case_empty_store() -> ChunkScenario:
 def case_single_repo_no_data() -> ChunkScenario:
     return ChunkScenario(
         repo_paths=["/r"],
-        per_repo=[RepoData()],
+        per_repo=[RepoChunks()],
         expected_chunk_ids={(1, "head"): []},
         expected_has_blob={(1, "blob_math"): False},
         expected_counts={(1, "head"): 0},
@@ -93,7 +93,7 @@ def case_full_dataset_on_one_commit(
     return ChunkScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(inserts=[list(all_store_chunks)], snapshots=snapshots)
+            RepoChunks(inserts=[list(all_store_chunks)], snapshots=snapshots)
         ],
         expected_chunk_ids={
             (1, "head"): sorted(c.id for c in all_store_chunks),
@@ -136,7 +136,7 @@ def case_blob_reused_across_commits(math_func: Chunk) -> ChunkScenario:
     return ChunkScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoChunks(
                 inserts=[[math_func]],
                 snapshots=[
                     ("commit_a", math_func.file_path, math_func.blob_sha),
@@ -166,7 +166,7 @@ def case_upsert_replaces_content(math_func: Chunk) -> ChunkScenario:
     return ChunkScenario(
         repo_paths=["/r"],
         per_repo=[
-            RepoData(
+            RepoChunks(
                 inserts=[[math_func], [updated]],
                 snapshots=[("head", math_func.file_path, math_func.blob_sha)],
             )
@@ -187,8 +187,8 @@ def case_two_repos_same_blob_sha_isolated(math_func: Chunk) -> ChunkScenario:
     return ChunkScenario(
         repo_paths=["/repo_a", "/repo_b"],
         per_repo=[
-            RepoData(inserts=[[math_func]], snapshots=snapshots_a),
-            RepoData(),
+            RepoChunks(inserts=[[math_func]], snapshots=snapshots_a),
+            RepoChunks(),
         ],
         expected_chunk_ids={
             (1, "head"): [math_func.id],

@@ -6,13 +6,13 @@ import pytest
 from tree_sitter import Language, Node, Parser
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages import get_manager
 from rbtr.languages.hookspec import (
     DEFAULT_SCOPE_TYPES,
     LanguageRegistration,
     collect_scoped_path,
     parse_path_relative,
 )
+from tests.languages.conftest import skip_unless_grammar
 
 # ── parse_path_relative ──────────────────────────────────────────────
 
@@ -52,9 +52,7 @@ def test_parse_path_relative(path: str, expected_dots: int, expected_cleaned: st
 
 # ── collect_scoped_path (via Rust grammar) ───────────────────────────
 
-_mgr = get_manager()
-_has_rust = _mgr.load_grammar("rust") is not None
-skip_no_rust = pytest.mark.skipif(not _has_rust, reason="tree-sitter-rust not installed")
+skip_no_rust = skip_unless_grammar("rust")
 
 
 def _collect_from_use(code: str) -> list[str]:

@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.languages import get_manager
+from rbtr.languages import LanguageManager
 
-_mgr = get_manager()
 
 
 @pytest.mark.parametrize(
@@ -148,9 +147,10 @@ def test_registration_properties(
     has_extractor: bool,
     scope_types: frozenset[str],
     filenames: frozenset[str],
+    language_manager: LanguageManager,
 ) -> None:
     """Every language plugin registers with the expected properties."""
-    reg = _mgr.get_registration(lang)
+    reg = language_manager.get_registration(lang)
     assert reg is not None, f"no registration for {lang}"
     assert reg.id == lang
     assert reg.extensions == extensions

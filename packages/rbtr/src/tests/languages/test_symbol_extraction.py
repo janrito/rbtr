@@ -10,7 +10,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.index.models import ChunkKind
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import get_manager
+from rbtr.languages import LanguageManager
 from tests.plugins.conftest import extract_chunks, skip_unless_grammar
 
 # ── Symbol extraction ────────────────────────────────────────────────
@@ -98,13 +98,14 @@ source ./env.sh
 # ── Coverage gap tests ───────────────────────────────────────────────
 
 
-def test_anonymous_chunk_when_name_capture_missing() -> None:
+def test_anonymous_chunk_when_name_capture_missing(
+    language_manager: LanguageManager,
+) -> None:
     """Chunks get name='<anonymous>' when the query omits the name capture.
 
     Covers `treesitter.py` line 151.
     """
-    mgr = get_manager()
-    grammar = mgr.load_grammar("python")
+    grammar = language_manager.load_grammar("python")
     assert grammar is not None
     # Query captures function_definition as @function but has no @_fn_name.
     query_no_name = "(function_definition) @function\n"
@@ -117,13 +118,14 @@ def hello():
     assert chunks[0].name == "<anonymous>"
 
 
-def test_unknown_capture_name_ignored() -> None:
+def test_unknown_capture_name_ignored(
+    language_manager: LanguageManager,
+) -> None:
     """Captures not in _CAPTURE_KIND are silently skipped.
 
     Covers `treesitter.py` line 132.
     """
-    mgr = get_manager()
-    grammar = mgr.load_grammar("python")
+    grammar = language_manager.load_grammar("python")
     assert grammar is not None
     # @unknown_thing is not in _CAPTURE_KIND — should be skipped.
     query_unknown = """\

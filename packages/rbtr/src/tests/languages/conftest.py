@@ -1,4 +1,10 @@
-"""Shared fixtures for plugin extraction tests."""
+"""Shared fixtures and grammar helpers for language tests.
+
+Exposes ``language_manager`` as a session-scoped fixture over
+the production ``LanguageManager`` singleton.  Tests take it as
+a parameter wherever they need grammar / query / extraction
+lookup.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +12,13 @@ import pytest
 
 from rbtr.index.models import Chunk
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import get_manager
+from rbtr.languages import LanguageManager, get_manager
 
-_manager = get_manager()
+
+@pytest.fixture(scope="session")
+def language_manager() -> LanguageManager:
+    """The production ``LanguageManager`` singleton."""
+    return get_manager()
 
 
 def extract_chunks(
@@ -16,14 +26,20 @@ def extract_chunks(
     source: str,
     file_path: str = "",
 ) -> list[Chunk]:
-    """Extract chunks for *lang* from *source* via the plugin system.
+    """Run the real extraction pipeline for *lang* on *source*.
 
-    Uses `get_manager()` to load grammar, query, extractor, and
-    scope types — the same path the production code takes.
+    Invokes the system under test — same class of helper as
+    ``_run`` (subprocess invocation) and ``_lf`` (``list_files``
+    wrapper) elsewhere: not setup, but a one-liner shorthand over
+    caller-supplied arguments.  Calls ``get_manager()`` inline
+    because ``pytest.param(..., marks=...)`` evaluates markers at
+    collection time, and cases invoking this from inside
+    ``@parametrize_with_cases`` cannot consume a fixture.
     """
-    grammar = _manager.load_grammar(lang)
+    manager = get_manager()
+    grammar = manager.load_grammar(lang)
     assert grammar is not None, f"grammar for {lang} not installed"
-    reg = _manager.get_registration(lang)
+    reg = manager.get_registration(lang)
     assert reg is not None
     assert reg.query is not None, f"no query for {lang}"
 
@@ -41,8 +57,12 @@ def extract_chunks(
 
 
 def skip_unless_grammar(lang: str) -> pytest.MarkDecorator:
-    """Return a `skipif` marker when the grammar for *lang* is missing."""
+    """Return a ``skipif`` marker when the grammar for *lang* is missing.
+
+    Called at parametrize collection time, so it cannot depend on
+    a fixture.  ``get_manager()`` is idempotent.
+    """
     return pytest.mark.skipif(
-        _manager.load_grammar(lang) is None,
+        get_manager().load_grammar(lang) is None,
         reason=f"tree-sitter-{lang} not installed",
     )
