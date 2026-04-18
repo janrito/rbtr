@@ -23,6 +23,18 @@ Primary (drives the assertion direction):
 * `undocumented` - the chunk's `content` must *not* contain
   `snippet`.
 
+Mechanism (partitions `documented` cases by the engine feature
+responsible for extraction; lets two tests assert opposite
+outcomes over disjoint case slices instead of branching inside
+one test):
+
+* `interior_doc` - the docstring is inside the symbol node,
+  extracted via the plugin's `@_docstring` query capture.  Python
+  is the only language using this mechanism.
+* `exterior_doc` - the documentation is a leading sibling
+  comment block, attached via the engine's sibling walk.  Every
+  non-Python plugin uses this.
+
 Secondary (classifies the scenario for debugging slices):
 
 * `canonical`              - the language's idiomatic,
@@ -65,7 +77,7 @@ from pytest_cases import case
 # ═════════════════════════════════════════════════════════════════════
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "interior_doc"])
 def case_py_function_docstring():
     """PEP 257 single-line function docstring."""
     src = '''\
@@ -76,7 +88,7 @@ def greet(name):
     return "python", src, "greet", "Return a friendly greeting"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "interior_doc"])
 def case_py_class_docstring():
     """Class-level docstring as first statement of the body."""
     src = '''\
@@ -89,7 +101,7 @@ class Greeter:
     return "python", src, "Greeter", "Produce friendly greetings"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "interior_doc"])
 def case_py_method_docstring():
     """Method docstring inside a class."""
     src = '''\
@@ -101,7 +113,7 @@ class Svc:
     return "python", src, "run", "Execute the main loop"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "interior_doc"])
 def case_py_multiline_docstring():
     """Multi-line docstring with summary + body."""
     src = '''\
@@ -116,7 +128,7 @@ def compute(x, y):
     return "python", src, "compute", "The summary is one line"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "interior_doc"])
 def case_py_raw_string_docstring():
     """`r\"\"\"...\"\"\"` raw string is a valid docstring."""
     src = '''\
@@ -127,7 +139,7 @@ def regex():
     return "python", src, "regex", "Match DIGIT sequences"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "interior_doc"])
 def case_py_single_quoted_docstring():
     """Single-quoted triple-string is equally valid."""
     src = """\
@@ -138,7 +150,7 @@ def foo():
     return "python", src, "foo", "Single-quoted docstring content"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "interior_doc"])
 def case_py_decorated_function_docstring():
     """Decorators precede `def`; docstring is still interior."""
     src = '''\
@@ -151,7 +163,7 @@ def memoized(x):
     return "python", src, "memoized", "Memoise calls"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "interior_doc"])
 def case_py_docstring_with_code_block():
     """Docstring embedding example code - common in libraries."""
     src = '''\
@@ -168,7 +180,7 @@ def parse(s):
     return "python", src, "parse", ">>> parse"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "interior_doc"])
 def case_py_class_and_method_both_documented():
     """Method chunk carries its own docstring, not the class's."""
     src = '''\
@@ -238,21 +250,21 @@ def case_py_trailing_string_not_a_docstring():
 # ══════════════════════════════════════════════════════════════════
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_js_jsdoc_on_function():
     """Canonical JSDoc above a function declaration."""
     src = "/** Return a friendly greeting. */\nfunction greet() {}\n"
     return "javascript", src, "greet", "Return a friendly greeting"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_js_jsdoc_on_class():
     """Canonical JSDoc above a class declaration."""
     src = "/** A widget. */\nclass Widget {}\n"
     return "javascript", src, "Widget", "A widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_js_jsdoc_on_arrow_function():
     """Arrow-function assignment — the `@function` capture
     lands on the `lexical_declaration`, so JSDoc attaches via
@@ -262,7 +274,7 @@ def case_js_jsdoc_on_arrow_function():
     return "javascript", src, "inc", "Increment"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_js_multiline_jsdoc():
     """Multi-line JSDoc with leading `*` gutter."""
     src = (
@@ -276,7 +288,7 @@ def case_js_multiline_jsdoc():
     return "javascript", src, "checksum", "The algorithm is CRC32"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_js_banner_comment():
     """`/*! ... */` banner comments are common in bundled UMD
     libs; the grammar lands them as `comment` nodes and we
@@ -286,7 +298,7 @@ def case_js_banner_comment():
     return "javascript", src, "publicApi", "(c) 2024 Acme"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_js_line_comment_run():
     """`//` comment runs used as docs — common in TS-first
     code where JSDoc is syntactically less convenient.
@@ -343,14 +355,14 @@ def case_js_jsdoc_above_import_does_not_attach_to_class():
 # the TS plugin — tracked separately; not covered here.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ts_jsdoc_on_function():
     """Canonical JSDoc above a typed function declaration."""
     src = "/** Return the length of *s*. */\nfunction len(s: string): number { return s.length; }\n"
     return "typescript", src, "len", "Return the length"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ts_jsdoc_on_class():
     """JSDoc above a TypeScript class — grammar uses
     `type_identifier` for the class name.
@@ -359,21 +371,21 @@ def case_ts_jsdoc_on_class():
     return "typescript", src, "Widget", "A widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ts_jsdoc_on_arrow_function():
     """Arrow-function assignment with a type annotation."""
     src = "/** Increment. */\nconst inc: (x: number) => number = (x) => x + 1;\n"
     return "typescript", src, "inc", "Increment"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_ts_jsdoc_on_generic_function():
     """Generic type parameters between name and arguments."""
     src = "/** Identity. */\nfunction identity<T>(x: T): T { return x; }\n"
     return "typescript", src, "identity", "Identity"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_ts_multiline_jsdoc_with_tags():
     """Multi-line JSDoc with `@param` / `@returns` tags."""
     src = (
@@ -388,7 +400,7 @@ def case_ts_multiline_jsdoc_with_tags():
     return "typescript", src, "hash", "@returns hex digest"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_ts_line_comment_run():
     """`//` comment runs used as docs, common in TS-heavy
     codebases that avoid JSDoc because types are already in
@@ -435,28 +447,28 @@ def case_ts_jsdoc_above_import():
 # blocks all attach.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_fn():
     """Canonical `///` doc comment above a function."""
     src = "/// Greet the user.\nfn greet() {}\n"
     return "rust", src, "greet", "Greet the user"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_struct():
     """`///` above a struct declaration."""
     src = "/// A widget.\nstruct Widget;\n"
     return "rust", src, "Widget", "A widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_enum():
     """`///` above an enum declaration."""
     src = "/// Colours.\nenum Colour { Red, Green }\n"
     return "rust", src, "Colour", "Colours"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_multi_line_triple_slash():
     """Multi-line `///` run — each line is its own
     `line_comment` node; all attach.
@@ -465,7 +477,7 @@ def case_rust_multi_line_triple_slash():
     return "rust", src, "checksum", "The algorithm is CRC32"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_rust_block_doc_comment():
     """`/** */` block doc comment — parsed as `block_comment`
     in the grammar.
@@ -474,7 +486,7 @@ def case_rust_block_doc_comment():
     return "rust", src, "foo", "Block doc"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_rust_impl_block_doc():
     """`///` above an `impl` block (rbtr treats impls as
     classes and attaches leading docs).  The impl here is for
@@ -485,7 +497,7 @@ def case_rust_impl_block_doc():
     return "rust", src, "Other", "Methods for Other"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_rust_plain_line_comment():
     """Plain `//` comments are also attached — rbtr leans
     toward flexibility rather than requiring strict `///`.
@@ -535,28 +547,28 @@ def case_rust_inner_doc_not_attached():
 # attach.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_function():
     """Canonical Go doc comment above `func`."""
     src = "package main\n\n// Greet says hello.\nfunc Greet() {}\n"
     return "go", src, "Greet", "Greet says hello"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_type():
     """Doc comment above a `type` declaration."""
     src = "package main\n\n// Widget is a UI element.\ntype Widget struct {\n    name string\n}\n"
     return "go", src, "Widget", "Widget is a UI element"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_method():
     """Doc comment above a method receiver."""
     src = "package main\n\ntype T struct{}\n\n// Do performs the action.\nfunc (t *T) Do() {}\n"
     return "go", src, "Do", "Do performs the action"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_multi_line_doc_comment():
     """Multi-line `//` doc-comment run."""
     src = (
@@ -569,7 +581,7 @@ def case_go_multi_line_doc_comment():
     return "go", src, "Compute", "It returns an error if the inputs"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_go_block_comment():
     """`/* ... */` block comment as Go-doc.  Supported by
     `go doc` but rare.
@@ -578,7 +590,7 @@ def case_go_block_comment():
     return "go", src, "Foo", "Block doc above foo"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_go_non_godoc_style_comment():
     """Comment that does *not* begin with the symbol's name.
     `go doc` would warn, but rbtr leans toward flexibility and
@@ -629,21 +641,21 @@ def case_go_doc_comment_above_previous_function_not_attached():
 # works even when annotations sit between.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_javadoc_on_class():
     """Canonical Javadoc above a class declaration."""
     src = "/** A widget. */\npublic class Widget {}\n"
     return "java", src, "Widget", "A widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_javadoc_on_method():
     """Canonical Javadoc above a method declaration."""
     src = "public class Widget {\n    /** Render the widget. */\n    public void render() {}\n}\n"
     return "java", src, "render", "Render the widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_multi_line_javadoc_with_tags():
     """Multi-line Javadoc with `@param` / `@return`."""
     src = (
@@ -659,7 +671,7 @@ def case_java_multi_line_javadoc_with_tags():
     return "java", src, "hash", "@return hex string"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_java_javadoc_above_annotated_method():
     """Annotations parse as part of the method node's
     `modifiers` child, so the Javadoc remains the method's
@@ -675,7 +687,7 @@ def case_java_javadoc_above_annotated_method():
     return "java", src, "old", "Deprecated API"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_java_line_comment_run_on_method():
     """Plain `//` comment run attaches too."""
     src = (
@@ -728,35 +740,35 @@ def case_java_javadoc_on_previous_method_does_not_attach_to_later():
 # where attachment works cleanly.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_def():
     """Canonical `#` comment above a top-level def."""
     src = "# Greet the user.\ndef greet\n  'hi'\nend\n"
     return "ruby", src, "greet", "Greet the user"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_class():
     """`#` comment above a class declaration."""
     src = "# Service facade.\nclass Svc\nend\n"
     return "ruby", src, "Svc", "Service facade"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_module():
     """`#` comment above a module declaration."""
     src = "# Utilities.\nmodule Utils\nend\n"
     return "ruby", src, "Utils", "Utilities"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_multi_line_hash_doc():
     """Multi-line `#` doc comment."""
     src = "# Compute a checksum.\n#\n# Returns a hex digest string.\ndef checksum\n  ''\nend\n"
     return "ruby", src, "checksum", "Returns a hex digest"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_ruby_block_comment_begin_end():
     """`=begin` / `=end` block comment.  The grammar treats it
     as a single `comment` node; attachment works when it
@@ -766,7 +778,7 @@ def case_ruby_block_comment_begin_end():
     return "ruby", src, "foo", "Block-style doc"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_ruby_shebang_like_comment_above_def():
     """Unconventional but valid: a `#` run whose first line
     starts with `#!`-style emphasis still attaches.
@@ -807,21 +819,21 @@ def case_ruby_doc_does_not_steal_from_next():
 # and needs no special handling.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_c_doxygen_on_function():
     """Canonical Doxygen `/** */` above a function."""
     src = "/** Compute the sum. */\nint add(int a, int b) { return a + b; }\n"
     return "c", src, "add", "Compute the sum"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_c_doxygen_on_struct():
     """Doxygen above a struct."""
     src = "/** Point in 2D space. */\nstruct Point { int x; int y; };\n"
     return "c", src, "Point", "Point in 2D space"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_c_multi_line_doxygen():
     """Multi-line Doxygen with `\\param` / `\\return` tags."""
     src = (
@@ -835,7 +847,7 @@ def case_c_multi_line_doxygen():
     return "c", src, "hash", "\\return the hash"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_c_line_comment_run():
     """Plain `//` comment run — common in embedded code where
     Doxygen style is heavier than needed.
@@ -875,21 +887,21 @@ def case_c_doc_between_two_functions():
 # (classes, methods).
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_cpp_doxygen_on_class():
     """Doxygen above a C++ class."""
     src = "/** A widget. */\nclass Widget { public: int x; };\n"
     return "cpp", src, "Widget", "A widget"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_cpp_doxygen_on_function():
     """Doxygen above a C++ function."""
     src = "/** Get the answer. */\nint answer() { return 42; }\n"
     return "cpp", src, "answer", "Get the answer"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_cpp_triple_slash_style():
     """Doxygen `///` style (single-line convention)."""
     src = "/// Triple-slash style.\nint foo() { return 0; }\n"
@@ -921,21 +933,21 @@ def case_cpp_doc_detached_by_blank_line():
 # tell us if this hurts.
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_bash_hash_doc_on_function():
     """Canonical `#` comment above a shell function."""
     src = "# Greet the user.\ngreet() {\n  echo hello\n}\n"
     return "bash", src, "greet", "Greet the user"
 
 
-@case(tags=["documented", "canonical"])
+@case(tags=["documented", "canonical", "exterior_doc"])
 def case_bash_multi_line_hash_doc():
     """Multi-line `#` comment run."""
     src = "# Greet the user.\n#\n# Reads the name from $1.\ngreet() {\n  echo hi $1\n}\n"
     return "bash", src, "greet", "Reads the name from"
 
 
-@case(tags=["documented", "edge_case"])
+@case(tags=["documented", "edge_case", "exterior_doc"])
 def case_bash_shebang_attached_to_first_function():
     """When a function follows the shebang with no blank line,
     the shebang attaches — an honest consequence of the
@@ -946,7 +958,7 @@ def case_bash_shebang_attached_to_first_function():
     return "bash", src, "main", "#!/bin/bash"
 
 
-@case(tags=["documented", "unconventional"])
+@case(tags=["documented", "unconventional", "exterior_doc"])
 def case_bash_comment_with_script_style_heading():
     """Heading-like comment above a function attaches."""
     src = '# ==== helpers ====\n# Trim whitespace from $1.\ntrim() {\n  echo "$1"\n}\n'

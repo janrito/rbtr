@@ -25,6 +25,9 @@ def extract_chunks(
     lang: str,
     source: str,
     file_path: str = "",
+    *,
+    strip_docstrings: bool = False,
+    no_leading_attachment: bool = False,
 ) -> list[Chunk]:
     """Run the real extraction pipeline for *lang* on *source*.
 
@@ -35,6 +38,16 @@ def extract_chunks(
     because ``pytest.param(..., marks=...)`` evaluates markers at
     collection time, and cases invoking this from inside
     ``@parametrize_with_cases`` cannot consume a fixture.
+
+    By default uses the plugin's registered
+    ``doc_comment_node_types`` so callers see the same
+    leading-comment attachment as production.  Two behavioural
+    flags map to user-visible rbtr modes:
+
+    * ``strip_docstrings`` — enable ``--strip-docstrings``.
+    * ``no_leading_attachment`` — force an empty
+      ``doc_comment_node_types`` to probe engine fall-back
+      behaviour (interior ``@_docstring`` capture still fires).
     """
     manager = get_manager()
     grammar = manager.load_grammar(lang)
@@ -45,6 +58,7 @@ def extract_chunks(
 
     ext = next(iter(reg.extensions), ".txt").lstrip(".")
     path = file_path or f"test.{ext}"
+    doc_types = frozenset() if no_leading_attachment else reg.doc_comment_node_types
     return extract_symbols(
         path,
         "sha1",
@@ -53,6 +67,8 @@ def extract_chunks(
         reg.query,
         import_extractor=reg.import_extractor,
         scope_types=reg.scope_types,
+        doc_comment_node_types=doc_types,
+        strip_docstrings=strip_docstrings,
     )
 
 

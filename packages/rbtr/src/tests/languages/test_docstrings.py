@@ -4,105 +4,30 @@ Policy: rbtr extracts symbol-adjacent documentation into chunk
 content by default for every supported language.  These tests
 pin that policy down.
 
-Observable behaviours exercised:
-
-* `test_documented_chunk_includes_doc_text` — for every
-  `documented` case, the snippet is present in the chunk's
-  content after a default extraction.
-* `test_stripping_removes_doc_text` — with
-  `--strip-docstrings`, the same snippet is absent.
-* `test_stripping_preserves_chunk_id` and
-  `test_stripping_preserves_line_count` — stripping does not
-  shift line numbers or chunk identity.
-* `test_no_phantom_documentation` — for every `undocumented`
-  case, the probe snippet does not appear.
-* `test_empty_doc_types_suppresses_leading_attachment` and
-  `test_attachment_shifts_line_start_for_exterior_plugins`
-  — engine contract: forcing `doc_comment_node_types=frozenset()`
-  disables sibling-walk attachment for exterior plugins and
-  leaves interior (Python) extraction unaffected.
-
-All test data lives in `case_docstrings.py`.
+All test data lives in `case_docstrings.py`; each test is a
+thin behavioural assertion over cases filtered by tag.  The
+engine mechanism being probed is implicit in the tag slice, not
+a branch inside any test function.
 """
 
 from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.index.models import Chunk
-from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import get_manager
-
-_CASES = "tests.languages.case_docstrings"
-
-
-def _chunk_for(
-    lang: str,
-    source: str,
-    symbol_name: str,
-    *,
-    strip: bool = False,
-    override_doc_comment_node_types: frozenset[str] | None = None,
-) -> Chunk:
-    """Run production plugin config on *source* and return the
-    chunk named *symbol_name*.
-
-    Uses whatever the plugin actually registers — including
-    `doc_comment_node_types` — so these tests exercise
-    default-on behaviour.  Tests that probe the engine's
-    fall-back behaviour can force `doc_comment_node_types` to an
-    explicit value (typically `frozenset()` to suppress
-    leading-comment attachment).
-    """
-    mgr = get_manager()
-    grammar = mgr.load_grammar(lang)
-    assert grammar is not None, f"grammar for {lang} not installed"
-    reg = mgr.get_registration(lang)
-    assert reg is not None
-    assert reg.query is not None
-    ext = next(iter(reg.extensions), ".txt")
-
-    doc_types = (
-        reg.doc_comment_node_types
-        if override_doc_comment_node_types is None
-        else override_doc_comment_node_types
-    )
-
-    chunks = extract_symbols(
-        f"test{ext}",
-        "sha1",
-        source.encode(),
-        grammar,
-        reg.query,
-        import_extractor=reg.import_extractor,
-        scope_types=reg.scope_types,
-        doc_comment_node_types=doc_types,
-        strip_docstrings=strip,
-    )
-    matches = [c for c in chunks if c.name == symbol_name]
-    assert matches, (
-        f"no chunk named {symbol_name!r} in {lang} source; extracted: {[c.name for c in chunks]}"
-    )
-    assert len(matches) == 1, (
-        f"multiple chunks named {symbol_name!r} in {lang} source; "
-        f"cases must keep names unique: {matches}"
-    )
-    return matches[0]
-
-
-# ── Documented symbols ──────────────────────────────────────────────
+from tests.languages.conftest import extract_chunks
 
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
+    cases="tests.languages.case_docstrings",
     has_tag="documented",
 )
 def test_documented_chunk_includes_doc_text(
     lang: str, source: str, name: str, snippet: str
 ) -> None:
     """By default the chunk content carries the symbol's docs."""
-    chunk = _chunk_for(lang, source, name)
+    chunks = extract_chunks(lang, source)
+    chunk = next(c for c in chunks if c.name == name)
     assert snippet in chunk.content, (
         f"expected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
     )
@@ -110,12 +35,13 @@ def test_documented_chunk_includes_doc_text(
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
+    cases="tests.languages.case_docstrings",
     has_tag="documented",
 )
 def test_stripping_removes_doc_text(lang: str, source: str, name: str, snippet: str) -> None:
     """`--strip-docstrings` blanks the documentation text."""
-    chunk = _chunk_for(lang, source, name, strip=True)
+    chunks = extract_chunks(lang, source, strip_docstrings=True)
+    chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"expected {snippet!r} to be absent from stripped "
         f"{lang}.{name} content; got:\n{chunk.content!r}"
@@ -124,7 +50,7 @@ def test_stripping_removes_doc_text(lang: str, source: str, name: str, snippet: 
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
+    cases="tests.languages.case_docstrings",
     has_tag="documented",
 )
 def test_stripping_preserves_chunk_id(lang: str, source: str, name: str, snippet: str) -> None:
@@ -134,33 +60,34 @@ def test_stripping_preserves_chunk_id(lang: str, source: str, name: str, snippet
     preserves `line_start` (docstring bytes are replaced with
     whitespace, not removed), so the ID must not shift.
     """
-    kept = _chunk_for(lang, source, name, strip=False)
-    stripped = _chunk_for(lang, source, name, strip=True)
+    kept = next(c for c in extract_chunks(lang, source) if c.name == name)
+    stripped = next(
+        c for c in extract_chunks(lang, source, strip_docstrings=True) if c.name == name
+    )
     assert kept.id == stripped.id
 
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
+    cases="tests.languages.case_docstrings",
     has_tag="documented",
 )
 def test_stripping_preserves_line_count(lang: str, source: str, name: str, snippet: str) -> None:
     """Stripping preserves line_start, line_end, and the newline
     count in chunk content.
     """
-    kept = _chunk_for(lang, source, name, strip=False)
-    stripped = _chunk_for(lang, source, name, strip=True)
+    kept = next(c for c in extract_chunks(lang, source) if c.name == name)
+    stripped = next(
+        c for c in extract_chunks(lang, source, strip_docstrings=True) if c.name == name
+    )
     assert kept.line_start == stripped.line_start
     assert kept.line_end == stripped.line_end
     assert kept.content.count("\n") == stripped.content.count("\n")
 
 
-# ── Undocumented symbols ────────────────────────────────────────────
-
-
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
+    cases="tests.languages.case_docstrings",
     has_tag="undocumented",
 )
 def test_no_phantom_documentation(lang: str, source: str, name: str, snippet: str) -> None:
@@ -169,76 +96,96 @@ def test_no_phantom_documentation(lang: str, source: str, name: str, snippet: st
     For `invalid` cases, the snippet marks text that *looks*
     like documentation but must not be swept into the chunk.
     """
-    chunk = _chunk_for(lang, source, name)
+    chunks = extract_chunks(lang, source)
+    chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"unexpected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
     )
 
 
-# ── Engine contract expressed over the case set ─────────────────────
+# ── Engine-contract invariants over case slices ─────────────────────
+#
+# These two tests assert opposite outcomes about "what happens
+# when leading-comment attachment is disabled".  The case set is
+# partitioned by the `interior_doc` / `exterior_doc` tags so
+# each test runs against only the language family it applies to
+# — no `if/else` branching inside the test function.
 
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
-    has_tag="documented",
+    cases="tests.languages.case_docstrings",
+    has_tag="exterior_doc",
 )
-def test_empty_doc_types_suppresses_leading_attachment(
+def test_no_leading_attachment_drops_exterior_docs(
     lang: str, source: str, name: str, snippet: str
 ) -> None:
-    """Forcing `doc_comment_node_types=frozenset()` disables
-    sibling-walk attachment.
-
-    * Exterior plugins (Go, Rust, JS, …) rely on the walk —
-      with the override the documentation snippet must disappear.
-    * Interior plugins (Python) capture docstrings via
-      `@_docstring` and are unaffected — the snippet remains.
-
-    Replaces the hand-rolled Go-only plain test that previously
-    asserted this invariant.
+    """Forcing `doc_comment_node_types=frozenset()` disables the
+    sibling walk.  For exterior-doc plugins the snippet comes
+    from a leading comment, which is now absent.
     """
-    mgr = get_manager()
-    reg = mgr.get_registration(lang)
-    assert reg is not None
-
-    chunk = _chunk_for(lang, source, name, override_doc_comment_node_types=frozenset())
-    if reg.doc_comment_node_types:
-        assert snippet not in chunk.content, (
-            f"expected {snippet!r} to be absent from {lang}.{name} "
-            f"when doc_comment_node_types is forced empty; "
-            f"got:\n{chunk.content!r}"
-        )
-    else:
-        assert snippet in chunk.content
+    chunks = extract_chunks(lang, source, no_leading_attachment=True)
+    chunk = next(c for c in chunks if c.name == name)
+    assert snippet not in chunk.content, (
+        f"expected {snippet!r} to be absent from {lang}.{name} "
+        f"when leading-comment attachment is suppressed; "
+        f"got:\n{chunk.content!r}"
+    )
 
 
 @parametrize_with_cases(
     "lang, source, name, snippet",
-    cases=_CASES,
-    has_tag="documented",
+    cases="tests.languages.case_docstrings",
+    has_tag="interior_doc",
 )
-def test_attachment_shifts_line_start_for_exterior_plugins(
+def test_no_leading_attachment_preserves_interior_docs(
     lang: str, source: str, name: str, snippet: str
 ) -> None:
-    """When sibling-walk attachment fires, `line_start` moves up
-    to cover the earliest attached comment and `chunk.id`
-    recomputes accordingly.
-
-    * Exterior plugins (default `doc_comment_node_types` set)
-      → default `line_start` is earlier than the forced-empty
-      extraction; ids differ.
-    * Interior plugins (Python) → no sibling walk, `line_start`
-      and id are identical to the forced-empty extraction.
+    """Interior-doc plugins (Python) use the `@_docstring` query
+    capture, which is orthogonal to leading-comment attachment.
+    Forcing the override has no effect.
     """
-    mgr = get_manager()
-    reg = mgr.get_registration(lang)
-    assert reg is not None
+    chunks = extract_chunks(lang, source, no_leading_attachment=True)
+    chunk = next(c for c in chunks if c.name == name)
+    assert snippet in chunk.content
 
-    default = _chunk_for(lang, source, name)
-    no_attach = _chunk_for(lang, source, name, override_doc_comment_node_types=frozenset())
-    if reg.doc_comment_node_types:
-        assert default.line_start < no_attach.line_start
-        assert default.id != no_attach.id
-    else:
-        assert default.line_start == no_attach.line_start
-        assert default.id == no_attach.id
+
+@parametrize_with_cases(
+    "lang, source, name, snippet",
+    cases="tests.languages.case_docstrings",
+    has_tag="exterior_doc",
+)
+def test_attachment_shifts_line_start_for_exterior_docs(
+    lang: str, source: str, name: str, snippet: str
+) -> None:
+    """When sibling-walk attachment fires, `line_start` moves
+    up to cover the earliest attached comment.  Compared
+    against the override-empty extraction: exterior plugins
+    shift, interior plugins do not.
+    """
+    default = next(c for c in extract_chunks(lang, source) if c.name == name)
+    no_attach = next(
+        c for c in extract_chunks(lang, source, no_leading_attachment=True) if c.name == name
+    )
+    assert default.line_start < no_attach.line_start
+    assert default.id != no_attach.id
+
+
+@parametrize_with_cases(
+    "lang, source, name, snippet",
+    cases="tests.languages.case_docstrings",
+    has_tag="interior_doc",
+)
+def test_attachment_does_not_shift_line_start_for_interior_docs(
+    lang: str, source: str, name: str, snippet: str
+) -> None:
+    """Interior-doc plugins (Python) do not run the sibling
+    walk; `line_start` is identical with or without the
+    override.
+    """
+    default = next(c for c in extract_chunks(lang, source) if c.name == name)
+    no_attach = next(
+        c for c in extract_chunks(lang, source, no_leading_attachment=True) if c.name == name
+    )
+    assert default.line_start == no_attach.line_start
+    assert default.id == no_attach.id
