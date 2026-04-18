@@ -198,13 +198,14 @@ class Index(BaseModel):
             BuildIndexRequest(repo=resolved_repo, refs=resolved_refs)
         )
         if resp is not None:
-            if isinstance(resp, BuildIndexResponse):
-                emit(resp)
-            elif isinstance(resp, OkResponse):
-                print_err("[yellow]Index job queued.[/]")
-                print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
-            else:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
+            match resp:
+                case BuildIndexResponse():
+                    emit(resp)
+                case OkResponse():
+                    print_err("[yellow]Index job queued.[/]")
+                    print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
+                case _:
+                    print_err(f"[red]error:[/] unexpected response: {resp}")
             return
 
         # Daemon not running: auto-start and retry
