@@ -500,7 +500,7 @@ class IndexStore:
         (before starting a long-running update phase like embedding)
         to ensure reads from the main/UI thread see the data.
         """
-        self._con.execute("CHECKPOINT")
+        self._con.execute("FORCE CHECKPOINT")
 
     def close(self) -> None:
         """Close the database connection."""

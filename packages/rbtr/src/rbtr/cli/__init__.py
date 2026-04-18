@@ -200,6 +200,9 @@ class Index(BaseModel):
         if resp is not None:
             if isinstance(resp, BuildIndexResponse):
                 emit(resp)
+            elif isinstance(resp, OkResponse):
+                print_err("[yellow]Index job queued.[/]")
+                print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
             else:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
             return
@@ -216,11 +219,11 @@ class Index(BaseModel):
         resp = try_daemon(
             BuildIndexRequest(repo=resolved_repo, refs=resolved_refs)
         )
-        if resp is not None and isinstance(resp, BuildIndexResponse):
-            emit(resp)
-        else:
+        if resp is not None and isinstance(resp, (BuildIndexResponse, OkResponse)):
             print_err("[yellow]Index job queued (daemon started).[/]")
             print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
+        else:
+            print_err("[red]error:[/] daemon started but failed to queue index job")
 
     def _run_inline(self, resolved_repo: str, resolved_refs: list[str]) -> None:
         """Run indexing inline (blocking)."""
@@ -590,5 +593,10 @@ class Rbtr(
 
 def main() -> None:
     """Entry point for the rbtr CLI."""
+    logging.basicConfig(
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+        level=logging.INFO,
+    )
     cli_source: CliSettingsSource[Rbtr] = CliSettingsSource(Rbtr, formatter_class=RichHelpFormatter)
     CliApp.run(Rbtr, cli_settings_source=cli_source)
