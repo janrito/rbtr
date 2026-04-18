@@ -1627,22 +1627,29 @@ def case_c_multiple_includes():
 @case(tags=["mixed"])
 @_skip_c
 def case_c_full_file():
-    """Realistic C file."""
+    """Realistic C file with Doxygen comments on every symbol.
+
+    Expected-kinds tuple unchanged.
+    """
     src = """\
 #include <stdio.h>
 #include "utils.h"
 
+/** Runtime configuration for the parser. */
 struct Config {
     int timeout;
     int retries;
 };
 
+/** Return status for parse operations. */
 enum Status { OK, ERR };
 
+/** Parse a config file from disk. */
 int parse_config(const char *path) {
     return 0;
 }
 
+/** Release parser-owned resources. */
 static void cleanup(void) {
 }
 """
@@ -1788,23 +1795,30 @@ def case_cpp_include_nested():
 @case(tags=["mixed"])
 @_skip_cpp
 def case_cpp_full_file():
-    """Realistic C++ file."""
+    """Realistic C++ file with Doxygen comments.
+
+    Expected tuple unchanged.
+    """
     src = """\
 #include <vector>
 #include "config.h"
 
+/** Execution engine for the pipeline. */
 class Engine {
 public:
     void start() { }
     void stop() { }
 };
 
+/** Options passed to `Engine::start`. */
 struct Options {
     int timeout;
 };
 
+/** Execution mode — `Fast` skips integrity checks. */
 enum class Mode { Fast, Safe };
 
+/** Drive the engine through a single cycle. */
 void run(Engine& e) {
     e.start();
 }

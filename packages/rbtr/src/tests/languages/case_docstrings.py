@@ -796,3 +796,113 @@ def case_ruby_doc_does_not_steal_from_next():
     """
     src = "def first\nend\n\n# Doc for second.\ndef second\nend\n"
     return "ruby", src, "first", "Doc for second"
+
+
+# ══════════════════════════════════════════════════════════════════
+# C
+# ══════════════════════════════════════════════════════════════════
+#
+# tree-sitter-c uses a single `comment` node for both `//`
+# and `/* */` (including `/** */`).  Doxygen style is common
+# and needs no special handling.
+
+
+@case(tags=["documented", "canonical"])
+def case_c_doxygen_on_function():
+    """Canonical Doxygen `/** */` above a function."""
+    src = "/** Compute the sum. */\nint add(int a, int b) { return a + b; }\n"
+    return "c", src, "add", "Compute the sum"
+
+
+@case(tags=["documented", "canonical"])
+def case_c_doxygen_on_struct():
+    """Doxygen above a struct."""
+    src = "/** Point in 2D space. */\nstruct Point { int x; int y; };\n"
+    return "c", src, "Point", "Point in 2D space"
+
+
+@case(tags=["documented", "edge_case"])
+def case_c_multi_line_doxygen():
+    """Multi-line Doxygen with `\\param` / `\\return` tags."""
+    src = (
+        "/**\n"
+        " * Hash a buffer.\n"
+        " * \\param data the buffer\n"
+        " * \\return the hash\n"
+        " */\n"
+        "int hash(const char *data) { return 0; }\n"
+    )
+    return "c", src, "hash", "\\return the hash"
+
+
+@case(tags=["documented", "unconventional"])
+def case_c_line_comment_run():
+    """Plain `//` comment run — common in embedded code where
+    Doxygen style is heavier than needed.
+    """
+    src = "// Simple comment.\n// Second line.\nint foo(void) { return 0; }\n"
+    return "c", src, "foo", "Simple comment"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_c_fn_without_doc():
+    src = "int bare(void) { return 0; }\n"
+    return "c", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_c_doc_detached_by_blank_line():
+    """Blank line breaks attachment."""
+    src = "/** Orphan. */\n\nint later(void) { return 0; }\n"
+    return "c", src, "later", "Orphan"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_c_doc_between_two_functions():
+    """Comment between two functions belongs to the later one."""
+    src = (
+        "int first(void) { return 0; }\n\n/** Doc for second. */\nint second(void) { return 0; }\n"
+    )
+    return "c", src, "first", "Doc for second"
+
+
+# ══════════════════════════════════════════════════════════════════
+# C++
+# ══════════════════════════════════════════════════════════════════
+#
+# tree-sitter-cpp behaves like tree-sitter-c for comments.
+# Cases mirror the C ones but exercise C++-specific constructs
+# (classes, methods).
+
+
+@case(tags=["documented", "canonical"])
+def case_cpp_doxygen_on_class():
+    """Doxygen above a C++ class."""
+    src = "/** A widget. */\nclass Widget { public: int x; };\n"
+    return "cpp", src, "Widget", "A widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_cpp_doxygen_on_function():
+    """Doxygen above a C++ function."""
+    src = "/** Get the answer. */\nint answer() { return 42; }\n"
+    return "cpp", src, "answer", "Get the answer"
+
+
+@case(tags=["documented", "edge_case"])
+def case_cpp_triple_slash_style():
+    """Doxygen `///` style (single-line convention)."""
+    src = "/// Triple-slash style.\nint foo() { return 0; }\n"
+    return "cpp", src, "foo", "Triple-slash style"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_cpp_fn_without_doc():
+    src = "int bare() { return 0; }\n"
+    return "cpp", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_cpp_doc_detached_by_blank_line():
+    src = "/** Orphan. */\n\nint later() { return 0; }\n"
+    return "cpp", src, "later", "Orphan"
