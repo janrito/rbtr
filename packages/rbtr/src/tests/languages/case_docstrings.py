@@ -330,3 +330,94 @@ def case_js_jsdoc_above_import_does_not_attach_to_class():
     """
     src = "/** Nonsense JSDoc above import. */\nimport { x } from './x';\n\nclass Real {}\n"
     return "javascript", src, "Real", "Nonsense JSDoc"
+
+
+# ══════════════════════════════════════════════════════════════════
+# TypeScript
+# ══════════════════════════════════════════════════════════════════
+#
+# TypeScript reuses the JS grammar family with extra
+# annotations; docstring semantics are identical so cases
+# mirror JS while exercising annotation-bearing signatures.
+# interface / type declarations are currently not captured by
+# the TS plugin — tracked separately; not covered here.
+
+
+@case(tags=["documented", "canonical"])
+def case_ts_jsdoc_on_function():
+    """Canonical JSDoc above a typed function declaration."""
+    src = "/** Return the length of *s*. */\nfunction len(s: string): number { return s.length; }\n"
+    return "typescript", src, "len", "Return the length"
+
+
+@case(tags=["documented", "canonical"])
+def case_ts_jsdoc_on_class():
+    """JSDoc above a TypeScript class — grammar uses
+    `type_identifier` for the class name.
+    """
+    src = "/** A widget. */\nclass Widget {}\n"
+    return "typescript", src, "Widget", "A widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_ts_jsdoc_on_arrow_function():
+    """Arrow-function assignment with a type annotation."""
+    src = "/** Increment. */\nconst inc: (x: number) => number = (x) => x + 1;\n"
+    return "typescript", src, "inc", "Increment"
+
+
+@case(tags=["documented", "edge_case"])
+def case_ts_jsdoc_on_generic_function():
+    """Generic type parameters between name and arguments."""
+    src = "/** Identity. */\nfunction identity<T>(x: T): T { return x; }\n"
+    return "typescript", src, "identity", "Identity"
+
+
+@case(tags=["documented", "edge_case"])
+def case_ts_multiline_jsdoc_with_tags():
+    """Multi-line JSDoc with `@param` / `@returns` tags."""
+    src = (
+        "/**\n"
+        " * Compute a hash.\n"
+        " *\n"
+        " * @param data bytes to hash\n"
+        " * @returns hex digest\n"
+        " */\n"
+        "function hash(data: Uint8Array): string { return ''; }\n"
+    )
+    return "typescript", src, "hash", "@returns hex digest"
+
+
+@case(tags=["documented", "unconventional"])
+def case_ts_line_comment_run():
+    """`//` comment runs used as docs, common in TS-heavy
+    codebases that avoid JSDoc because types are already in
+    the signature.
+    """
+    src = (
+        "// Describe the value.\n"
+        "// Useful in calling code.\n"
+        "function describe(x: number): string { return String(x); }\n"
+    )
+    return "typescript", src, "describe", "Describe the value"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_ts_function_without_doc():
+    """Plain TS function."""
+    src = "function bare(x: number): number { return x; }\n"
+    return "typescript", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_ts_jsdoc_detached_by_blank_line():
+    """Blank line breaks attachment for TS too."""
+    src = "/** Stale JSDoc. */\n\nfunction stale(): void {}\n"
+    return "typescript", src, "stale", "Stale JSDoc"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_ts_jsdoc_above_import():
+    """JSDoc above `import` does not attach to a later class."""
+    src = "/** Nonsense JSDoc. */\nimport { x } from './x';\n\nclass Real {}\n"
+    return "typescript", src, "Real", "Nonsense JSDoc"

@@ -687,13 +687,20 @@ def case_ts_import_side_effect():
 @case(tags=["mixed"])
 @_skip_ts
 def case_ts_full_module():
-    """Realistic TS module."""
+    """Realistic TS module with JSDoc on every symbol.
+
+    Mirrors the JS variant; expected-kinds tuple unchanged.
+    Content assertions for docstring presence are in
+    `test_docstrings.py`.
+    """
     src = """\
 import { Model } from './model';
 
+/** Repository over `Model` records. */
 class Repository {
 }
 
+/** Run a query and return the first row. */
 function query(): void {
 }
 """
