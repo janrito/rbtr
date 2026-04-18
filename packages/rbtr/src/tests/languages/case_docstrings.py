@@ -522,3 +522,96 @@ def case_rust_inner_doc_not_attached():
     """
     src = "//! Crate-level doc.\n//! More crate doc.\n\n/// Item doc.\nfn item() {}\n"
     return "rust", src, "item", "Crate-level doc"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Go
+# ══════════════════════════════════════════════════════════════════
+#
+# Go convention (enforced by `gofmt` / `go doc`): every
+# exported symbol begins its comment with the symbol's name.
+# tree-sitter-go emits a single `comment` node type for both
+# `//` and `/* */`; the plugin lists `{comment}` so both
+# attach.
+
+
+@case(tags=["documented", "canonical"])
+def case_go_doc_comment_on_function():
+    """Canonical Go doc comment above `func`."""
+    src = "package main\n\n// Greet says hello.\nfunc Greet() {}\n"
+    return "go", src, "Greet", "Greet says hello"
+
+
+@case(tags=["documented", "canonical"])
+def case_go_doc_comment_on_type():
+    """Doc comment above a `type` declaration."""
+    src = "package main\n\n// Widget is a UI element.\ntype Widget struct {\n    name string\n}\n"
+    return "go", src, "Widget", "Widget is a UI element"
+
+
+@case(tags=["documented", "canonical"])
+def case_go_doc_comment_on_method():
+    """Doc comment above a method receiver."""
+    src = "package main\n\ntype T struct{}\n\n// Do performs the action.\nfunc (t *T) Do() {}\n"
+    return "go", src, "Do", "Do performs the action"
+
+
+@case(tags=["documented", "canonical"])
+def case_go_multi_line_doc_comment():
+    """Multi-line `//` doc-comment run."""
+    src = (
+        "package main\n\n"
+        "// Compute executes the pipeline.\n"
+        "//\n"
+        "// It returns an error if the inputs do not validate.\n"
+        "func Compute() error { return nil }\n"
+    )
+    return "go", src, "Compute", "It returns an error if the inputs"
+
+
+@case(tags=["documented", "edge_case"])
+def case_go_block_comment():
+    """`/* ... */` block comment as Go-doc.  Supported by
+    `go doc` but rare.
+    """
+    src = "package main\n\n/* Block doc above foo.\n   Continues here. */\nfunc Foo() {}\n"
+    return "go", src, "Foo", "Block doc above foo"
+
+
+@case(tags=["documented", "unconventional"])
+def case_go_non_godoc_style_comment():
+    """Comment that does *not* begin with the symbol's name.
+    `go doc` would warn, but rbtr leans toward flexibility and
+    attaches it.
+    """
+    src = "package main\n\n// Deliberately unconventional opening.\nfunc Work() {}\n"
+    return "go", src, "Work", "Deliberately unconventional opening"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_go_fn_without_doc():
+    """Undocumented function."""
+    src = "package main\n\nfunc bare() {}\n"
+    return "go", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_go_doc_detached_by_blank_line():
+    """Blank line breaks attachment — the Go style guide
+    explicitly forbids a blank line between a doc comment and
+    its symbol.
+    """
+    src = "package main\n\n// Orphan.\n\nfunc Later() {}\n"
+    return "go", src, "Later", "Orphan"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_go_doc_comment_above_previous_function_not_attached():
+    """Comment between two `func`s belongs to the second one,
+    not the first.  The walk starts from the symbol and goes
+    *backwards*, so the comment correctly attaches to `Second`.
+    We probe the chunk for the *first* function to confirm it
+    does not steal the comment.
+    """
+    src = "package main\n\nfunc First() {}\n\n// Doc for Second.\nfunc Second() {}\n"
+    return "go", src, "First", "Doc for Second"

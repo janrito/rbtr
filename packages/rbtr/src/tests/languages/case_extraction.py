@@ -936,7 +936,11 @@ import (
 @case(tags=["mixed"])
 @_skip_go
 def case_go_full_module():
-    """Realistic Go module."""
+    """Realistic Go module with godoc-style comments.
+
+    Expected-kinds tuple unchanged; content assertions are in
+    `test_docstrings.py`.
+    """
     src = """\
 package main
 
@@ -945,12 +949,15 @@ import (
     "os"
 )
 
+// Config is the runtime configuration for the service.
 type Config struct {
     Name string
 }
 
+// String returns a human-readable summary of the Config.
 func (c Config) String() string { return c.Name }
 
+// main is the entry point for the service.
 func main() {
     fmt.Println("hello")
 }
