@@ -283,12 +283,21 @@ def extract_symbols(
                 text = chunk_bytes.decode("utf-8", errors="replace")
 
                 if strip_docstrings and chunk_bytes:
-                    # Merge interior `@_docstring` captures (from
-                    # this match only) with attached leading
-                    # comments into a single redaction set.
+                    # Merge interior `@_docstring` captures with
+                    # attached leading comments into a single
+                    # redaction set.  Interior docstrings are
+                    # filtered to those lying inside *this*
+                    # symbol's byte span — a single match can in
+                    # principle carry multiple `@function`
+                    # captures, and we must not apply one
+                    # function's `@_docstring` range to another.
                     doc_nodes = capture_dict.get(_DOCSTRING_CAPTURE, [])
                     ranges = list(attached_ranges)
-                    ranges.extend((d.start_byte, d.end_byte) for d in doc_nodes)
+                    ranges.extend(
+                        (d.start_byte, d.end_byte)
+                        for d in doc_nodes
+                        if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte
+                    )
                     if ranges:
                         text = _redact_ranges(chunk_bytes, chunk_start, node.end_byte, ranges)
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from rbtr.index.models import ChunkKind
-from tests.plugins.conftest import extract_chunks, skip_unless_grammar
+from tests.languages.conftest import extract_chunks, skip_unless_grammar
 
 
 @pytest.fixture(

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-from tests.plugins.conftest import skip_unless_grammar
+from tests.languages.conftest import skip_unless_grammar
 
 # ── Skip markers for optional grammars ───────────────────────────────
 
@@ -320,20 +320,37 @@ import sys
 
 @case(tags=["mixed"])
 def case_py_full_module():
-    """Realistic module with all symbol types."""
-    src = """\
+    """Realistic module with all symbol types and docstrings.
+
+    Docstrings are PEP-257 style on every symbol.  The
+    expected-tuple pins symbol extraction invariants; content
+    invariants are covered separately by `test_docstrings.py`.
+    Adding docs here exercises the realistic shape that
+    production Python code has.
+    """
+    src = '''\
+"""Module-level docstring for the Config helper."""
+
 import os
 from pathlib import Path
 
+
 class Config:
+    """Runtime configuration."""
+
     def __init__(self):
-        pass
-    def load(self):
+        """Initialise with defaults."""
         pass
 
+    def load(self):
+        """Load from disk."""
+        pass
+
+
 def main():
+    """Entry point."""
     pass
-"""
+'''
     return (
         "python",
         src,

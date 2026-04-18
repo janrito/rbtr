@@ -11,14 +11,14 @@ from pytest_cases import parametrize_with_cases
 from rbtr.index.models import ChunkKind
 from rbtr.index.treesitter import extract_symbols
 from rbtr.languages import LanguageManager
-from tests.plugins.conftest import extract_chunks, skip_unless_grammar
+from tests.languages.conftest import extract_chunks, skip_unless_grammar
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
 
 @parametrize_with_cases(
     "lang, source, expected",
-    cases="tests.plugins.case_extraction",
+    cases="tests.languages.case_extraction",
     has_tag="symbol",
 )
 def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
@@ -34,7 +34,7 @@ def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> No
 
 @parametrize_with_cases(
     "lang, source, expected_kinds, expected_methods",
-    cases="tests.plugins.case_extraction",
+    cases="tests.languages.case_extraction",
     has_tag="mixed",
 )
 def test_extracts_all_expected_kinds(

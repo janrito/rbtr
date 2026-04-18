@@ -9,14 +9,14 @@ from __future__ import annotations
 from pytest_cases import parametrize_with_cases
 
 from rbtr.index.models import ChunkKind
-from tests.plugins.conftest import extract_chunks
+from tests.languages.conftest import extract_chunks
 
 # ── Single-import metadata ───────────────────────────────────────────
 
 
 @parametrize_with_cases(
     "lang, source, expected",
-    cases="tests.plugins.case_extraction",
+    cases="tests.languages.case_extraction",
     has_tag="import",
 )
 def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> None:
@@ -32,7 +32,7 @@ def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> Non
 
 @parametrize_with_cases(
     "lang, source, count, metadata_list",
-    cases="tests.plugins.case_extraction",
+    cases="tests.languages.case_extraction",
     has_tag="multi_import",
 )
 def test_extracts_multi_import(
