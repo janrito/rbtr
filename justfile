@@ -82,6 +82,15 @@ bench *ARGS:
 bench-search *ARGS:
     uv run packages/rbtr/scripts/bench_search.py {{ ARGS }}
 
+# Measure the contribution of docstrings to code search quality.
+# Clones four repos (rbtr, django, pi-mono, uv), indexes each
+# twice (default and --strip-docstrings), replays docstring-
+# derived queries, and writes BENCHMARKS.md.
+
+# Usage: just bench-docstrings [--dry-run] [--cache-dir DIR]
+bench-docstrings *ARGS:
+    uv run packages/rbtr/scripts/bench_docstrings.py {{ ARGS }}
+
 # Evaluate search quality against curated queries (rbtr repo only).
 
 # Usage: just eval-search [ref]
