@@ -75,7 +75,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
-from rbtr.git import changed_files, open_repo, resolve_commit
+from rbtr.git import changed_files, names_for_commits, open_repo, resolve_commit
 from rbtr.index.gc import run_gc
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
@@ -437,6 +437,7 @@ class Status(BaseModel):
                 db_path=str(db),
                 total_chunks=count,
                 indexed_refs=indexed_refs,
+                indexed_ref_names=names_for_commits(repo, indexed_refs),
             )
         )
 

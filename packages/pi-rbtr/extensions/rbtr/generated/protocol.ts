@@ -224,6 +224,9 @@ export interface StatusResponse {
 	db_path?: string | null;
 	total_chunks?: number | null;
 	indexed_refs?: string[];
+	indexed_ref_names?: {
+		[k: string]: string[];
+	};
 	active_job?: ActiveJob | null;
 	pending?: QueueItem[];
 }

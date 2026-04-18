@@ -223,6 +223,10 @@ class StatusResponse(BaseModel):
     db_path: str | None = None
     total_chunks: int | None = None
     indexed_refs: list[str] = []
+    # Map sha → symbolic names (HEAD, branch, tag) pointing at it.
+    # Indexed SHAs with no matching symbolic ref appear with an
+    # empty list so callers can key in unconditionally.
+    indexed_ref_names: dict[str, list[str]] = {}
     active_job: ActiveJob | None = None
     pending: list[QueueItem] = []
 

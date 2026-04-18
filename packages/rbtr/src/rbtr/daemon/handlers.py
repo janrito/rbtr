@@ -37,7 +37,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.repos import RepoManager
 from rbtr.errors import RbtrError
-from rbtr.git import changed_files, open_repo, resolve_commit
+from rbtr.git import changed_files, names_for_commits, open_repo, resolve_commit
 from rbtr.index.gc import run_gc
 
 if TYPE_CHECKING:
@@ -120,6 +120,7 @@ def handle_status(
     head = str(resolve_commit(repo, "HEAD").id)
     count = mgr.store.count_chunks(head, repo_id=repo_id)
     indexed_refs = [sha for sha, _ in mgr.store.list_indexed_commits(repo_id)]
+    indexed_ref_names = names_for_commits(repo, indexed_refs)
     active_job = None
     pending: list[QueueItem] = []
     if build_queue is not None:
@@ -129,6 +130,7 @@ def handle_status(
         db_path=mgr.store.db_path,
         total_chunks=count,
         indexed_refs=indexed_refs,
+        indexed_ref_names=indexed_ref_names,
         active_job=active_job,
         pending=pending,
     )

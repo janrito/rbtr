@@ -279,8 +279,11 @@ def _render_status_response(m: StatusResponse) -> None:
     else:
         _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
         if m.indexed_refs:
-            short = ", ".join(sha[:12] for sha in m.indexed_refs)
-            _out.print(f"  [dim]indexed:[/] {short}")
+            parts = [
+                _fmt_indexed_ref(sha, m.indexed_ref_names.get(sha, []))
+                for sha in m.indexed_refs
+            ]
+            _out.print(f"  [dim]indexed:[/] {', '.join(parts)}")
         else:
             _out.print("  [dim]indexed:[/] [yellow]none[/]")
     if m.active_job is not None:
@@ -296,6 +299,14 @@ def _render_status_response(m: StatusResponse) -> None:
         for item in m.pending:
             refs = ", ".join(item.refs)
             _out.print(f"    [dim]• {item.repo} ({refs})[/]")
+
+
+def _fmt_indexed_ref(sha: str, names: list[str]) -> str:
+    """Render a short SHA plus its symbolic names (``abc12345 (HEAD, main)``)."""
+    short = sha[:12]
+    if not names:
+        return short
+    return f"{short} ({', '.join(names)})"
 
 
 def _format_elapsed(seconds: float) -> str:

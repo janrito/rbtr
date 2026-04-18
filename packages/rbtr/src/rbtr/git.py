@@ -103,6 +103,59 @@ def read_head(repo_path: str) -> str | None:
         return None
 
 
+def names_for_commits(
+    repo: pygit2.Repository, shas: list[str]
+) -> dict[str, list[str]]:
+    """Return a map from commit SHA to the symbolic names that point to it.
+
+    Names include ``"HEAD"`` when HEAD resolves to the commit, plus short
+    forms of every matching local branch (``refs/heads/<n>`` → ``<n>``) and
+    tag (``refs/tags/<n>`` → ``<n>``). Remote-tracking branches are kept
+    as ``origin/<n>`` so they don't collide with local branches of the
+    same name. SHAs with no matching ref appear with an empty list so the
+    caller can key into the map unconditionally.
+    """
+    names: dict[str, list[str]] = {sha: [] for sha in shas}
+    wanted = set(names)
+    if not wanted:
+        return names
+
+    try:
+        if not repo.head_is_unborn:
+            head_sha = str(repo.head.target)
+            if head_sha in wanted:
+                names[head_sha].append("HEAD")
+    except pygit2.GitError:
+        pass
+
+    for ref_name in repo.references:
+        try:
+            target = repo.references[ref_name].peel(pygit2.Commit)
+        except (KeyError, pygit2.GitError):
+            continue
+        sha = str(target.id)
+        if sha not in wanted:
+            continue
+        short = _short_ref_name(ref_name)
+        if short not in names[sha]:
+            names[sha].append(short)
+    return names
+
+
+def _short_ref_name(ref_name: str) -> str:
+    """Strip ``refs/heads/`` and ``refs/tags/`` from a full ref name.
+
+    ``refs/remotes/<n>`` keeps the ``<remote>/<branch>`` portion so it
+    stays unambiguous against local branches.
+    """
+    for prefix in ("refs/heads/", "refs/tags/"):
+        if ref_name.startswith(prefix):
+            return ref_name[len(prefix):]
+    if ref_name.startswith("refs/remotes/"):
+        return ref_name[len("refs/remotes/"):]
+    return ref_name
+
+
 def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
     """Resolve *ref* to a `pygit2.Commit`.
 
