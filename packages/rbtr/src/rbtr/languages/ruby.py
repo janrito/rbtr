@@ -91,5 +91,9 @@ class RubyPlugin:
                 query=_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset({"class", "module"}),
+                # Ruby convention: `#` runs above a `def` or
+                # `class` document it.  Single `comment` node
+                # type.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]

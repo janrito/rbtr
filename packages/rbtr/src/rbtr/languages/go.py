@@ -130,5 +130,10 @@ class GoPlugin:
                 query=_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset({"type_spec"}),
+                # Go convention: `//` runs directly above a
+                # declaration document it (gofmt preserves this
+                # link).  The grammar uses a single `comment`
+                # type for both line and block forms.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]

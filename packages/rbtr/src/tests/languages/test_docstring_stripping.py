@@ -294,6 +294,117 @@ def test_leading_comments_rust_line_comment_type() -> None:
     assert fn.line_start == 1
 
 
+# ── Plugin defaults (production behaviour) ──────────────────────────
+
+
+def _plugin_extract(lang: str, src: str, *, strip: bool = False):
+    """Extract using the plugin's **production** configuration.
+
+    Unlike `_extract_with_doc_types`, this uses whatever the
+    plugin actually registers — so it verifies default-on
+    behaviour for exterior-comment languages.
+    """
+    mgr = get_manager()
+    grammar = mgr.load_grammar(lang)
+    assert grammar is not None, f"grammar for {lang} not installed"
+    reg = mgr.get_registration(lang)
+    assert reg is not None
+    assert reg.query is not None
+    ext = next(iter(reg.extensions), ".txt")
+    return extract_symbols(
+        f"test{ext}",
+        "sha1",
+        src.encode(),
+        grammar,
+        reg.query,
+        import_extractor=reg.import_extractor,
+        scope_types=reg.scope_types,
+        doc_comment_node_types=reg.doc_comment_node_types,
+        strip_docstrings=strip,
+    )
+
+
+def test_plugin_defaults_go_attaches_leading_comments() -> None:
+    chunks = _plugin_extract("go", "// Foo docs.\nfunc Foo() {}\n")
+    fn = next(c for c in chunks if c.name == "Foo")
+    assert "Foo docs" in fn.content
+    assert fn.line_start == 1
+
+
+def test_plugin_defaults_rust_attaches_doc_comments() -> None:
+    chunks = _plugin_extract("rust", "/// Foo docs.\nfn foo() {}\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Foo docs" in fn.content
+
+
+def test_plugin_defaults_js_attaches_jsdoc() -> None:
+    chunks = _plugin_extract("javascript", "/** JSDoc for foo. */\nfunction foo() {}\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "JSDoc for foo" in fn.content
+
+
+def test_plugin_defaults_typescript_attaches_jsdoc() -> None:
+    chunks = _plugin_extract("typescript", "/** JSDoc for foo. */\nfunction foo() {}\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "JSDoc for foo" in fn.content
+
+
+def test_plugin_defaults_java_attaches_javadoc() -> None:
+    src = "class A {\n    /** Javadoc for m. */\n    void m() {}\n}\n"
+    chunks = _plugin_extract("java", src)
+    m = next(c for c in chunks if c.name == "m")
+    assert "Javadoc for m" in m.content
+
+
+def test_plugin_defaults_ruby_attaches_hash_comments() -> None:
+    chunks = _plugin_extract("ruby", "# Doc for foo.\ndef foo\nend\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" in fn.content
+
+
+def test_plugin_defaults_c_attaches_leading_comments() -> None:
+    chunks = _plugin_extract("c", "/** Doc for foo. */\nint foo(void) { return 0; }\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" in fn.content
+
+
+def test_plugin_defaults_cpp_attaches_leading_comments() -> None:
+    chunks = _plugin_extract("cpp", "/** Doc for foo. */\nint foo() { return 0; }\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" in fn.content
+
+
+def test_plugin_defaults_bash_attaches_hash_comments() -> None:
+    chunks = _plugin_extract("bash", "# Doc for foo.\nfoo() {\n  echo hi\n}\n")
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" in fn.content
+
+
+def test_plugin_defaults_strip_removes_attached_comments() -> None:
+    """End-to-end: with production plugin config, --strip-docstrings
+    blanks leading comments across languages.
+    """
+    src = "// Foo docs.\nfunc Foo() {}\n"
+    kept = _plugin_extract("go", src)
+    stripped = _plugin_extract("go", src, strip=True)
+    foo_kept = next(c for c in kept if c.name == "Foo")
+    foo_stripped = next(c for c in stripped if c.name == "Foo")
+    assert "Foo docs" in foo_kept.content
+    assert "Foo docs" not in foo_stripped.content
+    assert foo_kept.line_start == foo_stripped.line_start
+    assert foo_kept.line_end == foo_stripped.line_end
+
+
+def test_plugin_defaults_python_unchanged_no_leading_attachment() -> None:
+    """Python deliberately doesn't attach leading `#` comments —
+    the interior `@_docstring` capture is the canonical form.
+    """
+    chunks = _plugin_extract("python", "# leading note\ndef add(a, b):\n    return a + b\n")
+    fn = next(c for c in chunks if c.name == "add")
+    assert "leading note" not in fn.content
+    assert fn.line_start == 2
+
+
 def test_leading_comments_python_unaffected() -> None:
     """Python doesn't set `doc_comment_node_types`; interior docstring wins."""
     src = '''\

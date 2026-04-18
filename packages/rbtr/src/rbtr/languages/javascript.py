@@ -179,6 +179,9 @@ class JavaScriptPlugin:
                 query=_JS_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset({"class_declaration"}),
+                # Both `/** */` JSDoc and `//` comments land in
+                # the grammar as a single `comment` node type.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
             LanguageRegistration(
                 id="typescript",
@@ -188,5 +191,6 @@ class JavaScriptPlugin:
                 query=_TS_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset({"class_declaration"}),
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]

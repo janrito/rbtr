@@ -54,5 +54,7 @@ class BashPlugin:
                 grammar_module="tree_sitter_bash",
                 query=_QUERY,
                 scope_types=frozenset(),
+                # Bash: `#` comments above a function attach.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]

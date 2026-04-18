@@ -76,5 +76,9 @@ class CPlugin:
                 query=_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset(),
+                # C grammar uses a single `comment` node for
+                # both `//` and `/* */` (and `/** */`).  Attach
+                # any leading run.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]

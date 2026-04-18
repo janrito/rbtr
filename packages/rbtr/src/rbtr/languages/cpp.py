@@ -75,5 +75,7 @@ class CppPlugin:
                 query=_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset({"class_specifier", "struct_specifier"}),
+                # Same grammar as C — single `comment` node.
+                doc_comment_node_types=frozenset({"comment"}),
             ),
         ]
