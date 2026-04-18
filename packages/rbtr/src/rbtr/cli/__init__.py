@@ -177,6 +177,15 @@ class Index(BaseModel):
     refs: CliPositionalArg[list[str]] = Field(["HEAD"], description="Refs to index")
     repo_path: str = Field(".", description="Repository path")
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
+    strip_docstrings: bool = Field(
+        False,
+        description=(
+            "Blank out docstrings from chunk content before storing. "
+            "Requires --no-daemon (the daemon shares one index home and "
+            "mixing stripped/unstripped content would pollute it). Intended "
+            "for benchmarking — use a distinct --home for each mode."
+        ),
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
@@ -184,6 +193,13 @@ class Index(BaseModel):
 
         # Resolve refs to SHAs
         resolved_refs = [str(resolve_commit(repo, r).id) for r in self.refs]
+
+        if self.strip_docstrings and self.daemon:
+            print_err(
+                "[red]error:[/] --strip-docstrings requires --no-daemon "
+                "(use a distinct --home per mode)."
+            )
+            sys.exit(2)
 
         if not self.daemon:
             self._run_inline(resolved_repo, resolved_refs)
@@ -222,6 +238,7 @@ class Index(BaseModel):
         """Run indexing inline (blocking)."""
         repo = open_repo(resolved_repo)
         store = IndexStore.from_config()
+        strip = self.strip_docstrings
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
             if len(resolved_refs) == 2:
@@ -231,6 +248,7 @@ class Index(BaseModel):
                     store,
                     on_progress=on_parse,
                     on_embed_progress=on_embed,
+                    strip_docstrings=strip,
                 )
                 result = update_index(
                     repo,
@@ -239,6 +257,7 @@ class Index(BaseModel):
                     store,
                     on_progress=on_parse,
                     on_embed_progress=on_embed,
+                    strip_docstrings=strip,
                 )
             else:
                 result = build_index(
@@ -247,6 +266,7 @@ class Index(BaseModel):
                     store,
                     on_progress=on_parse,
                     on_embed_progress=on_embed,
+                    strip_docstrings=strip,
                 )
 
         emit(

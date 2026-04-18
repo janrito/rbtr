@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-# Capture name → ChunkKind mapping (excludes _ prefixed name captures).
+# Capture name → ChunkKind mapping (excludes _ prefixed helper captures).
 _CAPTURE_KIND: dict[str, ChunkKind] = {
     "function": ChunkKind.FUNCTION,
     "method": ChunkKind.METHOD,
@@ -40,6 +40,12 @@ _NAME_CAPTURE_KEY: dict[str, str] = {
     "method": "_method_name",
     "class": "_cls_name",
 }
+
+# Helper-capture key: byte ranges to redact from chunk content when
+# `strip_docstrings=True`.  Plugins opt in by adding a `@_docstring`
+# sub-capture to their query.  Optional — languages without the
+# capture are simply unaffected by the flag.
+_DOCSTRING_CAPTURE = "_docstring"
 
 # Node types whose child identifiers name a scope.
 _SCOPE_NAME_TYPES: frozenset[str] = frozenset(
@@ -68,6 +74,33 @@ def _chunk_id(file_path: str, name: str, line_start: int) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _redact_ranges(
+    node_bytes: bytes,
+    node_start: int,
+    node_end: int,
+    ranges: list[tuple[int, int]],
+) -> str:
+    """Blank out *ranges* inside *node_bytes*.
+
+    *ranges* are absolute `(start_byte, end_byte)` pairs in the
+    source file; each is clipped to `[node_start, node_end)` and
+    applied to a mutable copy of *node_bytes*.  Newline bytes
+    inside the redacted region are preserved so `line_start` and
+    `line_end` on the resulting chunk stay valid; every other
+    byte is overwritten with an ASCII space.
+    """
+    buf = bytearray(node_bytes)
+    for start, stop in ranges:
+        s = max(start, node_start) - node_start
+        e = min(stop, node_end) - node_start
+        if s >= e:
+            continue
+        for i in range(s, e):
+            if buf[i] != 0x0A:  # newline
+                buf[i] = 0x20  # space
+    return buf.decode("utf-8", errors="replace")
+
+
 def _find_scope(node: Node, scope_types: frozenset[str]) -> str:
     """Walk up the tree to find the enclosing scope name."""
     current = node.parent
@@ -92,6 +125,7 @@ def extract_symbols(
     *,
     import_extractor: Callable[[Node], ImportMeta] | None = None,
     scope_types: frozenset[str] = DEFAULT_SCOPE_TYPES,
+    strip_docstrings: bool = False,
 ) -> list[Chunk]:
     """Parse *content* and extract structural chunks.
 
@@ -104,11 +138,18 @@ def extract_symbols(
                           `@function`/`@_fn_name`,
                           `@class`/`@_cls_name`,
                           `@method`/`@_method_name`,
-                          `@import`).
+                          `@import`, `@_docstring`).
         import_extractor: Optional callable to extract structured
                           `ImportMeta` from import AST nodes.
         scope_types:      Node types that define naming scopes
                           (e.g. `class_definition`).
+        strip_docstrings: When true, blank out bytes covered by
+                          any `@_docstring` sub-capture from the
+                          chunk content (replaced with whitespace
+                          that preserves newlines, so `line_start`
+                          and `line_end` stay valid).  Plugins
+                          without a `@_docstring` capture are
+                          unaffected.
     """
     if not content:
         return []
@@ -158,6 +199,11 @@ def extract_symbols(
                     actual_kind = ChunkKind.METHOD
 
                 text = node.text.decode() if node.text else ""
+                if strip_docstrings and node.text:
+                    doc_nodes = capture_dict.get(_DOCSTRING_CAPTURE, [])
+                    if doc_nodes:
+                        ranges = [(d.start_byte, d.end_byte) for d in doc_nodes]
+                        text = _redact_ranges(node.text, node.start_byte, node.end_byte, ranges)
                 chunks.append(
                     Chunk(
                         id=_chunk_id(file_path, name, node.start_point[0]),

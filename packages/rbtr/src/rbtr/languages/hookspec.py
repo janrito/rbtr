@@ -242,6 +242,17 @@ class LanguageRegistration:
                           languages.  Override when the language ID
                           doesn't match the Pygments name (e.g.
                           `c_sharp` → `"csharp"`).
+
+    Docstring stripping
+    ~~~~~~~~~~~~~~~~~~~
+
+    Plugins opt into `--strip-docstrings` support by adding a
+    `@_docstring` sub-capture to their query — same convention
+    as the existing `@_fn_name` / `@_cls_name` helpers.  When
+    stripping is enabled, `extract_symbols` blanks the byte
+    ranges covered by `@_docstring` (preserving newlines so
+    line numbers stay valid).  Plugins without a `@_docstring`
+    capture are unaffected by the flag.
     """
 
     id: str

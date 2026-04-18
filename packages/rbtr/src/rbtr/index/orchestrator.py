@@ -42,12 +42,17 @@ ProgressCallback = Callable[[int, int], None]
 # ── File routing ─────────────────────────────────────────────────────
 
 
-def _extract_file(entry: FileEntry) -> list[Chunk]:
+def _extract_file(entry: FileEntry, *, strip_docstrings: bool = False) -> list[Chunk]:
     """Route a single file to the appropriate extraction strategy.
 
     1. Plugin with custom chunker → delegate to it.
     2. Language with grammar + query → tree-sitter symbol extraction.
     3. Everything else → plaintext line-based fallback.
+
+    When *strip_docstrings* is true, tree-sitter extraction blanks
+    out docstring bytes from chunk content for languages whose
+    query exposes a `@_docstring` sub-capture.  The plaintext
+    fallback and plugin-provided chunkers are unaffected.
     """
     path = entry.path
     text = entry.content.decode(errors="replace")
@@ -78,6 +83,7 @@ def _extract_file(entry: FileEntry) -> list[Chunk]:
                 query_str,
                 import_extractor=reg.import_extractor if reg else None,
                 scope_types=reg.scope_types if reg else frozenset(),
+                strip_docstrings=strip_docstrings,
             )
 
     # Fallback: plaintext line-based chunks.
@@ -106,6 +112,7 @@ def build_index(
     repo_id: int = 1,
     on_progress: ProgressCallback | None = None,
     on_embed_progress: ProgressCallback | None = None,
+    strip_docstrings: bool = False,
 ) -> IndexResult:
     """Build a full index for *commit_sha*.
 
@@ -122,6 +129,12 @@ def build_index(
                            extraction progress.
         on_embed_progress: Optional callback `(done, total)` for
                            embedding progress.
+        strip_docstrings:  When true, blank out docstrings from chunk
+                           content before storing.  Used to measure
+                           the search-quality contribution of docstrings
+                           (benchmarking only).  The caller is
+                           responsible for using a separate index dir
+                           — the flag is not recorded in the DB.
     """
     from rbtr.rbtrignore import load_ignore
 
@@ -155,7 +168,7 @@ def build_index(
             result.stats.skipped_files += 1
         else:
             try:
-                chunks = _extract_file(entry)
+                chunks = _extract_file(entry, strip_docstrings=strip_docstrings)
                 if chunks:
                     all_chunks.extend(chunks)
                     result.stats.parsed_files += 1
@@ -247,6 +260,7 @@ def update_index(
     repo_id: int = 1,
     on_progress: ProgressCallback | None = None,
     on_embed_progress: ProgressCallback | None = None,
+    strip_docstrings: bool = False,
 ) -> IndexResult:
     """Incrementally index *head_sha* given an existing index at *base_sha*.
 
@@ -310,7 +324,7 @@ def update_index(
             result.stats.skipped_files += 1
         else:
             try:
-                chunks = _extract_file(entry)
+                chunks = _extract_file(entry, strip_docstrings=strip_docstrings)
                 if chunks:
                     new_chunks.extend(chunks)
                     result.stats.parsed_files += 1

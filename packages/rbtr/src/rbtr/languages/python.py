@@ -27,12 +27,20 @@ if TYPE_CHECKING:
 
 # ── Query ────────────────────────────────────────────────────────────
 
+# The `@_docstring` sub-capture marks the first-statement body
+# docstring so `--strip-docstrings` can blank its bytes.  It is
+# optional in the match (`?`), so functions/classes without a
+# docstring still match.
 _QUERY = """\
 (function_definition
-  name: (identifier) @_fn_name) @function
+  name: (identifier) @_fn_name
+  body: (block
+    . (expression_statement (string) @_docstring)?)) @function
 
 (class_definition
-  name: (identifier) @_cls_name) @class
+  name: (identifier) @_cls_name
+  body: (block
+    . (expression_statement (string) @_docstring)?)) @class
 
 (import_statement) @import
 (import_from_statement) @import
