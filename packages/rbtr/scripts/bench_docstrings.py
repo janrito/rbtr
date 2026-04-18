@@ -19,17 +19,21 @@ The benchmark samples docstrings (deterministically, seeded) and
 replays them as natural-language queries against both indexes.
 Metrics per repo and aggregate are written to ``BENCHMARKS.md``.
 
-This file is the harness only.  Phase 4 delivers:
+This file is the harness only.  Phases 4-5 deliver:
 
   * repo-spec dataclass and four production specs.
   * repo provisioning: shallow-clone into a cache dir, checkout
     the configured ref, record the resolved SHA.
   * per-(repo, mode) ``RBTR_HOME`` layout so the benchmark
     DuckDB never collides with the user's real ``~/.rbtr/``.
+  * docstring-to-query sampling (see ``bench_doc_extract``):
+    first sentence of every symbol docstring, filtered by
+    length and boilerplate markers, capped and seeded for
+    determinism.
   * dry-run mode that prints the plan and exits without cloning.
 
-Query extraction, indexing, search replay, and metric / report
-rendering are separate phases.
+Indexing, search replay, and metric / report rendering are
+separate phases.
 """
 
 from __future__ import annotations
@@ -38,10 +42,15 @@ import argparse
 import dataclasses
 import enum
 import os
+import random
+import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
+
+from bench_doc_extract import DocSymbol, iter_doc_symbols
 
 
 class BenchMode(enum.StrEnum):
@@ -241,6 +250,159 @@ def home_for(home_root: Path, spec: RepoSpec, mode: BenchMode) -> Path:
     return home
 
 
+# ── Query extraction ────────────────────────────────────────────────────────────
+
+# A sentence ends at `.`, `!`, or `?` followed by whitespace
+# or end-of-string, and a docstring worth benchmarking sits in
+# a fairly tight length band — anything shorter than a dozen
+# characters is usually a stub comment ("TODO", "stub", a
+# single word), anything longer than a full paragraph makes a
+# bad query.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
+_QUERY_MIN_LEN = 15
+_QUERY_MAX_LEN = 200
+
+# Leading non-prose noise that the boilerplate check skips over
+# before comparing the candidate sentence against reject
+# prefixes.  Includes the universal comment markers
+# (`//`, `///`, `#`, `--`, triple-quotes, `*` gutters) plus
+# surrounding whitespace.  Doing this in a single class rather
+# than per-language keeps the bench language-agnostic — the
+# indexer already told us where the docstring starts; we just
+# need to look past any character that obviously isn't prose.
+_REJECT_LOOKAHEAD_RE = re.compile(r"^[\s/#*\-!\"\'`]+")
+
+# Block-comment line gutters (`/** `, ` * `, ` */`) and
+# triple-quote openers/closers; removed from query text so the
+# sampled first-sentence is pure prose.  These tokens are
+# universal across block-comment-style languages (C / C++ /
+# Java / JS / Rust `/** */`; Python / Ruby / shell triple-quote
+# and `#`).  The indexer still sees them in chunk content; this
+# projection only runs on the query text the bench replays.
+_QUERY_NOISE_RE = re.compile(
+    r"""
+    (?:^|(?<=\n))[\ \t]*/\*+[\ \t]*           # block-comment opener `/**`
+  | [\ \t]*\*+/[\ \t]*(?=$|\n)              # block-comment closer ` */`
+  | (?:^|(?<=\n))[\ \t]*\*+[\ \t]?           # block-comment gutter ` * `
+  | (?:^|(?<=\n))[\ \t]*///?!?[\ \t]?        # line-comment `//` / `///` / `//!`
+  | (?:^|(?<=\n))[\ \t]*\#+!?[\ \t]?         # line-comment `#` / `#!`
+  | (?:^|(?<=\n))[\ \t]*--[\ \t]?            # line-comment `--` (SQL / Lua)
+  | [rRbBuU]{0,2}\"{3}                       # triple-quote `\"\"\"`
+  | [rRbBuU]{0,2}\'{3}                       # triple-quote `'''`
+  """,
+    re.VERBOSE,
+)
+
+# Markers that indicate the docstring is boilerplate /
+# scaffolding rather than a real description of the symbol.
+# Queries starting with these are skipped.
+_REJECT_PREFIXES = (
+    "todo",
+    "fixme",
+    "xxx",
+    "hack",
+    "deprecated",
+    "@param",
+    "@return",
+    "@returns",
+    "@throws",
+    "@type",
+    "@see",
+    "@link",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class Query:
+    """One `(symbol, first-sentence-query)` sampling point.
+
+    `file_path`, `name`, and `line_start` together identify the
+    chunk the search must retrieve for this query to count as a
+    hit.
+    """
+
+    repo_slug: str
+    language: str
+    file_path: str
+    name: str
+    line_start: int
+    text: str
+
+
+def first_sentence(doc_text: str) -> str | None:
+    """Return the first sentence of *doc_text*, or None if nothing usable.
+
+    Splits on a sentence terminator followed by whitespace or on
+    a blank line (paragraph break).  Truncates at
+    `_QUERY_MAX_LEN` when no terminator appears within the first
+    paragraph.  Returns None when the result is shorter than
+    `_QUERY_MIN_LEN` or starts with a boilerplate marker.
+    """
+    # Strip universal comment markers (block-comment gutters,
+    # triple-quote delimiters, line-comment openers) from the raw
+    # docstring before sentence-splitting.  The indexer's span
+    # told us where the docstring is; this projection only
+    # normalises fixed tokens that every block-comment language
+    # uses the same way, so the first sentence comes out as pure
+    # prose rather than `/**\n *  Foo bar`.
+    pruned = _QUERY_NOISE_RE.sub(" ", doc_text)
+    pruned = re.sub(r"\s+", " ", pruned).strip()
+    if not pruned:
+        return None
+    parts = _SENTENCE_SPLIT_RE.split(pruned, maxsplit=1)
+    candidate = parts[0].strip() if parts else pruned
+    if len(candidate) > _QUERY_MAX_LEN:
+        candidate = candidate[:_QUERY_MAX_LEN].rstrip()
+    if len(candidate) < _QUERY_MIN_LEN:
+        return None
+    post_noise = _REJECT_LOOKAHEAD_RE.sub("", candidate).lower()
+    if any(post_noise.startswith(p) for p in _REJECT_PREFIXES):
+        return None
+    return candidate
+
+
+def sample_queries(
+    symbols: Iterable[DocSymbol],
+    *,
+    seed: int,
+    cap: int,
+) -> list[Query]:
+    """Turn documented symbols into a deterministic query sample.
+
+    Each input symbol yields at most one `Query` (its first
+    sentence).  Symbols whose doc text does not pass the
+    `first_sentence` filter are dropped silently.  The remaining
+    list is sorted by `(file_path, line_start, name)` for
+    determinism and then sampled down to `cap` via
+    `random.Random(seed).sample`.
+    """
+    candidates: list[Query] = []
+    for sym in symbols:
+        text = first_sentence(sym.doc_text)
+        if text is None:
+            continue
+        candidates.append(
+            Query(
+                repo_slug=sym.repo_slug,
+                language=sym.language,
+                file_path=sym.file_path,
+                name=sym.name,
+                line_start=sym.line_start,
+                text=text,
+            )
+        )
+    candidates.sort(key=lambda q: (q.file_path, q.line_start, q.name))
+    if len(candidates) <= cap:
+        return candidates
+    # S311: we want deterministic sampling, not cryptographic.
+    rng = random.Random(seed)  # noqa: S311
+    sampled = rng.sample(candidates, cap)
+    # Re-sort so the output is deterministic and readable regardless
+    # of sampling order.
+    sampled.sort(key=lambda q: (q.file_path, q.line_start, q.name))
+    return sampled
+
+
 def _guard_home_root(home_root: Path) -> None:
     """Refuse to run if ``home_root`` overlaps the user's real rbtr home.
 
@@ -307,6 +469,21 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="RNG seed for deterministic query sampling (default: 0).",
+    )
+    parser.add_argument(
+        "--sample-cap",
+        type=int,
+        default=300,
+        help=(
+            "Maximum number of queries per repo (default: 300).  "
+            "Smaller repos contribute all of their eligible queries."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the plan and exit without cloning, indexing, or searching.",
@@ -340,7 +517,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"      RBTR_HOME[{mode.value:8s}] = {home}")
 
     print()
-    print("phases 5-8 not yet implemented — exiting after provisioning.")
+    print("sampling queries …")
+    queries_by_repo: dict[str, list[Query]] = {}
+    for pr in provisioned:
+        symbols = list(iter_doc_symbols(pr.path, pr.spec.slug))
+        queries = sample_queries(symbols, seed=args.seed, cap=args.sample_cap)
+        queries_by_repo[pr.spec.slug] = queries
+        print(
+            f"  {pr.spec.slug:30s} documented_symbols={len(symbols):5d}  queries={len(queries):4d}"
+        )
+
+    print()
+    print("phases 6-8 not yet implemented — exiting after query sampling.")
     return 0
 
 

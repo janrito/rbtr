@@ -10,6 +10,7 @@ This module contains only language-agnostic extraction logic.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from collections.abc import Callable
 from functools import lru_cache
@@ -111,6 +112,40 @@ def _find_scope(node: Node, scope_types: frozenset[str]) -> str:
                     return child.text.decode()
         current = current.parent
     return ""
+
+
+def _doc_ranges_for_symbol(
+    node: Node,
+    content: bytes,
+    capture_dict: dict[str, list[Node]],
+    doc_comment_node_types: frozenset[str],
+) -> list[tuple[int, int]]:
+    """Collect absolute byte ranges covering a symbol's documentation.
+
+    Merges two sources, exactly matching the behaviour used by
+    ``extract_symbols`` when redacting docstrings:
+
+    1. Interior ``@_docstring`` captures from the same match,
+       clipped to *node*'s own byte span (a single match can in
+       principle carry more than one ``@function`` capture; each
+       symbol owns only the docstring captures that fall inside
+       its own bytes).
+    2. Leading-comment siblings attached by the sibling walk
+       (exterior-comment languages — Rust, Go, JS, …).  Skipped
+       when ``doc_comment_node_types`` is empty.
+
+    Returns sorted, possibly-empty ranges suitable for feeding to
+    ``_redact_ranges`` or for decoding into query text.
+    """
+    ranges: list[tuple[int, int]] = []
+    for d in capture_dict.get(_DOCSTRING_CAPTURE, []):
+        if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte:
+            ranges.append((d.start_byte, d.end_byte))
+    if doc_comment_node_types:
+        for c in _collect_leading_doc_comments(node, doc_comment_node_types, content):
+            ranges.append((c.start_byte, c.end_byte))
+    ranges.sort()
+    return ranges
 
 
 def _collect_leading_doc_comments(
@@ -284,32 +319,18 @@ def extract_symbols(
                 # surface.
                 chunk_start = node.start_byte
                 chunk_line = node.start_point[0] + 1
-                attached_ranges: list[tuple[int, int]] = []
                 if capture_name != "import" and doc_comment_node_types:
                     attached = _collect_leading_doc_comments(node, doc_comment_node_types, content)
                     if attached:
                         chunk_start = attached[0].start_byte
                         chunk_line = attached[0].start_point[0] + 1
-                        attached_ranges = [(c.start_byte, c.end_byte) for c in attached]
 
                 chunk_bytes = content[chunk_start : node.end_byte]
                 text = chunk_bytes.decode("utf-8", errors="replace")
 
                 if strip_docstrings and chunk_bytes:
-                    # Merge interior `@_docstring` captures with
-                    # attached leading comments into a single
-                    # redaction set.  Interior docstrings are
-                    # filtered to those lying inside *this*
-                    # symbol's byte span — a single match can in
-                    # principle carry multiple `@function`
-                    # captures, and we must not apply one
-                    # function's `@_docstring` range to another.
-                    doc_nodes = capture_dict.get(_DOCSTRING_CAPTURE, [])
-                    ranges = list(attached_ranges)
-                    ranges.extend(
-                        (d.start_byte, d.end_byte)
-                        for d in doc_nodes
-                        if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte
+                    ranges = _doc_ranges_for_symbol(
+                        node, content, capture_dict, doc_comment_node_types
                     )
                     if ranges:
                         text = _redact_ranges(chunk_bytes, chunk_start, node.end_byte, ranges)
@@ -330,3 +351,80 @@ def extract_symbols(
                 )
 
     return chunks
+
+
+@dataclasses.dataclass(frozen=True)
+class DocSpan:
+    """Absolute byte ranges of one symbol's documentation.
+
+    Returned by `extract_doc_spans`.  Consumers that need the raw
+    docstring text decode `source[start:end]` for each range in
+    `ranges` and join them; the engine itself uses these ranges
+    to blank docstrings when `strip_docstrings=True`.
+    """
+
+    name: str
+    kind: ChunkKind
+    scope: str
+    line_start: int
+    line_end: int
+    ranges: list[tuple[int, int]]
+
+
+def extract_doc_spans(
+    content: bytes,
+    grammar: Language,
+    query_str: str,
+    *,
+    scope_types: frozenset[str] = DEFAULT_SCOPE_TYPES,
+    doc_comment_node_types: frozenset[str] = frozenset(),
+) -> list[DocSpan]:
+    """Yield `DocSpan` records for every documented symbol.
+
+    Parses *content* once and uses the exact same mechanism
+    `extract_symbols` uses when redacting docstrings:
+    interior ``@_docstring`` captures (clipped to the enclosing
+    symbol) plus any leading-comment siblings attached by the
+    language plugin.  Symbols without any doc bytes are omitted.
+
+    Meant for tooling — the benchmark's query sampler decodes
+    the returned ranges to recover each symbol's raw docstring.
+    Not used by the indexer itself.
+    """
+    if not content:
+        return []
+
+    parser = Parser(grammar)
+    tree = parser.parse(content)
+    query = _get_query(grammar, query_str)
+    matches = QueryCursor(query).matches(tree.root_node)
+
+    spans: list[DocSpan] = []
+    for _pattern_idx, capture_dict in matches:
+        for capture_name, nodes in capture_dict.items():
+            if capture_name not in _NAME_CAPTURE_KEY:
+                continue
+            name_key = _NAME_CAPTURE_KEY[capture_name]
+            for node in nodes:
+                ranges = _doc_ranges_for_symbol(node, content, capture_dict, doc_comment_node_types)
+                if not ranges:
+                    continue
+                name_nodes = capture_dict.get(name_key, [])
+                if not name_nodes or not name_nodes[0].text:
+                    continue
+                name = name_nodes[0].text.decode()
+                scope = _find_scope(node, scope_types)
+                kind = _CAPTURE_KIND[capture_name]
+                if kind is ChunkKind.FUNCTION and scope:
+                    kind = ChunkKind.METHOD
+                spans.append(
+                    DocSpan(
+                        name=name,
+                        kind=kind,
+                        scope=scope,
+                        line_start=node.start_point[0] + 1,
+                        line_end=node.end_point[0] + 1,
+                        ranges=ranges,
+                    )
+                )
+    return spans
