@@ -709,3 +709,90 @@ def case_java_javadoc_on_previous_method_does_not_attach_to_later():
         "}\n"
     )
     return "java", src, "second", "Doc for first"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Ruby
+# ══════════════════════════════════════════════════════════════════
+#
+# Ruby convention: `#` comment runs above top-level `def`,
+# `class`, and `module` declarations.  The tree-sitter-ruby
+# grammar nests methods inside `body_statement` under their
+# enclosing class, so comments inside a class body sit at a
+# different level than the method node — attachment does not
+# cross the `body_statement` boundary.  This mirrors the JS
+# limitation noted in D14: method-level documentation inside
+# a class is carried inside the class chunk's bytes but does
+# not attach to the per-method chunk and cannot be stripped.
+# Cases here focus on top-level `def` / `class` / `module`
+# where attachment works cleanly.
+
+
+@case(tags=["documented", "canonical"])
+def case_ruby_hash_doc_on_def():
+    """Canonical `#` comment above a top-level def."""
+    src = "# Greet the user.\ndef greet\n  'hi'\nend\n"
+    return "ruby", src, "greet", "Greet the user"
+
+
+@case(tags=["documented", "canonical"])
+def case_ruby_hash_doc_on_class():
+    """`#` comment above a class declaration."""
+    src = "# Service facade.\nclass Svc\nend\n"
+    return "ruby", src, "Svc", "Service facade"
+
+
+@case(tags=["documented", "canonical"])
+def case_ruby_hash_doc_on_module():
+    """`#` comment above a module declaration."""
+    src = "# Utilities.\nmodule Utils\nend\n"
+    return "ruby", src, "Utils", "Utilities"
+
+
+@case(tags=["documented", "canonical"])
+def case_ruby_multi_line_hash_doc():
+    """Multi-line `#` doc comment."""
+    src = "# Compute a checksum.\n#\n# Returns a hex digest string.\ndef checksum\n  ''\nend\n"
+    return "ruby", src, "checksum", "Returns a hex digest"
+
+
+@case(tags=["documented", "edge_case"])
+def case_ruby_block_comment_begin_end():
+    """`=begin` / `=end` block comment.  The grammar treats it
+    as a single `comment` node; attachment works when it
+    immediately precedes the `def`.
+    """
+    src = "=begin\nBlock-style doc.\n=end\ndef foo\nend\n"
+    return "ruby", src, "foo", "Block-style doc"
+
+
+@case(tags=["documented", "unconventional"])
+def case_ruby_shebang_like_comment_above_def():
+    """Unconventional but valid: a `#` run whose first line
+    starts with `#!`-style emphasis still attaches.
+    """
+    src = "#! IMPORTANT: use Foo instead of Bar.\n# Prefer modern API.\ndef legacy\nend\n"
+    return "ruby", src, "legacy", "IMPORTANT: use Foo"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_ruby_def_without_doc():
+    """Undocumented top-level def."""
+    src = "def bare\nend\n"
+    return "ruby", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_ruby_doc_detached_by_blank_line():
+    """Blank line between comment and def breaks attachment."""
+    src = "# Orphan.\n\ndef later\nend\n"
+    return "ruby", src, "later", "Orphan"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_ruby_doc_does_not_steal_from_next():
+    """A `#` comment between two top-level defs belongs to the
+    later def, not the earlier one.
+    """
+    src = "def first\nend\n\n# Doc for second.\ndef second\nend\n"
+    return "ruby", src, "first", "Doc for second"

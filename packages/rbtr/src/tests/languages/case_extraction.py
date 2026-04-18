@@ -2023,12 +2023,20 @@ require_relative "helpers"
 @case(tags=["mixed"])
 @_skip_ruby
 def case_ruby_full_file():
-    """Realistic Ruby file."""
+    """Realistic Ruby file with doc comments on top-level
+    declarations.  Comments inside the class body are not
+    attached to their methods by the current Ruby grammar (see
+    note in `case_docstrings.py`), so only the top-level
+    module, class, and `main` carry docs here.  Expected tuple
+    unchanged.
+    """
     src = """\
 require "json"
 require_relative "config"
 
+# Application namespace for the service.
 module App
+  # Server runs the request loop.
   class Server
     def start
       puts "starting"
@@ -2044,6 +2052,7 @@ module App
   end
 end
 
+# Entry point used by bin/app.
 def main
   server = App::Server.new
   server.start
