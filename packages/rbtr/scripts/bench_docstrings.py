@@ -24,6 +24,8 @@ This file is the harness only.  Phase 4 delivers:
   * repo-spec dataclass and four production specs.
   * repo provisioning: shallow-clone into a cache dir, checkout
     the configured ref, record the resolved SHA.
+  * per-(repo, mode) ``RBTR_HOME`` layout so the benchmark
+    DuckDB never collides with the user's real ``~/.rbtr/``.
   * dry-run mode that prints the plan and exits without cloning.
 
 Query extraction, indexing, search replay, and metric / report
@@ -34,10 +36,33 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import enum
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+
+class BenchMode(enum.StrEnum):
+    """Which variant of the index the benchmark is building.
+
+    The `value` doubles as the directory name under
+    ``--home-root``: ``<home-root>/<repo-slug>/<mode>/`` is the
+    ``RBTR_HOME`` for that `(repo, mode)` pair, so every
+    `(repo, mode)` gets its own fully-isolated rbtr home —
+    separate DuckDB, separate models/ symlink, separate
+    daemon sockets — and can never touch the user's real
+    ``~/.rbtr/``.
+    """
+
+    DEFAULT = "default"
+    """Index built with rbtr's production defaults: interior
+    docstrings captured, leading comments attached."""
+
+    STRIPPED = "stripped"
+    """Index built with ``rbtr index --strip-docstrings``: all
+    docstring bytes redacted from chunk content."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -189,9 +214,64 @@ def _default_cache_dir() -> Path:
     return Path(tempfile.gettempdir()) / "rbtr-bench-cache"
 
 
-def _print_plan(specs: list[RepoSpec], cache_dir: Path) -> None:
+def _default_home_root() -> Path:
+    """Default `RBTR_HOME` root: ``$TMPDIR/rbtr-bench-home/``.
+
+    Separate subtree from the repo cache so a ``rm -rf`` of the
+    home root does not drop cloned repos (and vice versa).  Each
+    `(repo, mode)` gets its own subdirectory and that path is
+    fed into the ``RBTR_HOME`` env var when invoking
+    ``rbtr index`` and ``rbtr search``.  The user's real
+    ``~/.rbtr/`` is never touched.
+    """
+    return Path(tempfile.gettempdir()) / "rbtr-bench-home"
+
+
+def home_for(home_root: Path, spec: RepoSpec, mode: BenchMode) -> Path:
+    """Resolve the isolated ``RBTR_HOME`` for one `(repo, mode)`.
+
+    Layout: ``<home_root>/<spec.slug>/<mode.value>/``.  Creating
+    the directory here guarantees rbtr can immediately write its
+    DuckDB, daemon sockets, and model cache.  Callers should pass
+    the returned path through ``os.environ | {"RBTR_HOME": str(...)}``
+    when they run ``rbtr``.
+    """
+    home = home_root / spec.slug / mode.value
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+def _guard_home_root(home_root: Path) -> None:
+    """Refuse to run if ``home_root`` overlaps the user's real rbtr home.
+
+    Running the benchmark with ``--home-root=~/.rbtr`` would
+    silently overwrite the user's production index.  A cheap
+    startup check catches the obvious slip:
+
+    * resolve the provided path,
+    * resolve whatever ``RBTR_HOME`` (or the rbtr default) points
+      at,
+    * refuse if they are identical or one contains the other.
+    """
+    resolved = home_root.expanduser().resolve()
+    real_home_env = os.environ.get("RBTR_HOME")
+    real_home = (
+        Path(real_home_env).expanduser().resolve()
+        if real_home_env
+        else (Path.home() / ".rbtr").resolve()
+    )
+    if resolved == real_home or resolved in real_home.parents or real_home in resolved.parents:
+        msg = (
+            f"refusing to use --home-root={resolved}: overlaps user's rbtr home "
+            f"({real_home}). Pick a disjoint path."
+        )
+        raise SystemExit(msg)
+
+
+def _print_plan(specs: list[RepoSpec], cache_dir: Path, home_root: Path) -> None:
     """Print the harness plan without doing any work."""
     print(f"cache dir:       {cache_dir}")
+    print(f"home root:       {home_root}")
     print(f"repos to bench:  {len(specs)}")
     for spec in specs:
         target = cache_dir / spec.slug
@@ -199,6 +279,9 @@ def _print_plan(specs: list[RepoSpec], cache_dir: Path) -> None:
         print(
             f"  {exists} {spec.slug:30s} lang={spec.language:10s} ref={spec.ref:20s} url={spec.url}"
         )
+        for mode in BenchMode:
+            home = home_root / spec.slug / mode.value
+            print(f"      RBTR_HOME[{mode.value:8s}] = {home}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -212,6 +295,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Directory where repos are cloned (default: $TMPDIR/rbtr-bench-cache/).",
     )
     parser.add_argument(
+        "--home-root",
+        type=Path,
+        default=_default_home_root(),
+        help=(
+            "Root for per-(repo, mode) RBTR_HOME directories (default: "
+            "$TMPDIR/rbtr-bench-home/).  Each subdir is passed to rbtr "
+            "via the RBTR_HOME env var so benchmark DuckDBs, daemon "
+            "sockets, and model caches stay fully isolated from the "
+            "user's real ~/.rbtr/ home."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the plan and exit without cloning, indexing, or searching.",
@@ -220,13 +315,16 @@ def main(argv: list[str] | None = None) -> int:
 
     specs = production_specs()
     cache_dir: Path = args.cache_dir
+    home_root: Path = args.home_root
+    _guard_home_root(home_root)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    home_root.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
-        _print_plan(specs, cache_dir)
+        _print_plan(specs, cache_dir, home_root)
         return 0
 
-    _print_plan(specs, cache_dir)
+    _print_plan(specs, cache_dir, home_root)
     print()
     print("provisioning repos …")
     provisioned: list[ProvisionedRepo] = []
@@ -237,6 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     print("provisioned:")
     for pr in provisioned:
         print(f"  {pr.spec.slug:30s} sha={pr.sha[:12]}  path={pr.path}")
+        for mode in BenchMode:
+            home = home_for(home_root, pr.spec, mode)
+            print(f"      RBTR_HOME[{mode.value:8s}] = {home}")
 
     print()
     print("phases 5-8 not yet implemented — exiting after provisioning.")
