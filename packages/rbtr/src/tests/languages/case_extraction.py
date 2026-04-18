@@ -1505,6 +1505,32 @@ check() {
     return "bash", src, [("function", "check", "")]
 
 
+# ── Mixed ───────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_bash_full_script():
+    """Realistic shell script with doc comments on every
+    function.  Expected-kinds tuple pins symbol extraction;
+    content invariants are in `test_docstrings.py`.
+    """
+    src = """\
+#!/bin/bash
+
+# Deploy the current build to the given environment.
+deploy() {
+    local env="$1"
+    echo "deploying to $env"
+}
+
+# Roll back the last deploy.
+rollback() {
+    echo "rolling back"
+}
+"""
+    return "bash", src, {"function"}, []
+
+
 # ═════════════════════════════════════════════════════════════════════
 # C
 # ═════════════════════════════════════════════════════════════════════

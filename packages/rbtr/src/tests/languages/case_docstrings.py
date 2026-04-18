@@ -906,3 +906,72 @@ def case_cpp_fn_without_doc():
 def case_cpp_doc_detached_by_blank_line():
     src = "/** Orphan. */\n\nint later() { return 0; }\n"
     return "cpp", src, "later", "Orphan"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Bash
+# ══════════════════════════════════════════════════════════════════
+#
+# tree-sitter-bash uses a single `comment` node for any `#`
+# line.  Function-level documentation in shell scripts is
+# typically a `#` comment run directly above the definition.
+# Shebangs (`#!/bin/bash`) are also comments; when a function
+# sits immediately below the shebang with no blank line, the
+# shebang attaches — rbtr leans flexible, the benchmark will
+# tell us if this hurts.
+
+
+@case(tags=["documented", "canonical"])
+def case_bash_hash_doc_on_function():
+    """Canonical `#` comment above a shell function."""
+    src = "# Greet the user.\ngreet() {\n  echo hello\n}\n"
+    return "bash", src, "greet", "Greet the user"
+
+
+@case(tags=["documented", "canonical"])
+def case_bash_multi_line_hash_doc():
+    """Multi-line `#` comment run."""
+    src = "# Greet the user.\n#\n# Reads the name from $1.\ngreet() {\n  echo hi $1\n}\n"
+    return "bash", src, "greet", "Reads the name from"
+
+
+@case(tags=["documented", "edge_case"])
+def case_bash_shebang_attached_to_first_function():
+    """When a function follows the shebang with no blank line,
+    the shebang attaches — an honest consequence of the
+    flexible attachment policy.  Recording this as a case so
+    any future tightening does not regress silently.
+    """
+    src = "#!/bin/bash\n# Entry point.\nmain() {\n  echo hi\n}\n"
+    return "bash", src, "main", "#!/bin/bash"
+
+
+@case(tags=["documented", "unconventional"])
+def case_bash_comment_with_script_style_heading():
+    """Heading-like comment above a function attaches."""
+    src = '# ==== helpers ====\n# Trim whitespace from $1.\ntrim() {\n  echo "$1"\n}\n'
+    return "bash", src, "trim", "Trim whitespace"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_bash_fn_without_doc():
+    """Undocumented shell function."""
+    src = "bare() {\n  echo hi\n}\n"
+    return "bash", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_bash_doc_detached_by_blank_line():
+    """Blank line breaks attachment."""
+    src = "# Orphan.\n\nlater() {\n  echo hi\n}\n"
+    return "bash", src, "later", "Orphan"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_bash_shebang_separated_by_blank_line():
+    """When a blank line separates the shebang from the first
+    function, the shebang stays detached — the same
+    blank-line rule applies uniformly to all comment kinds.
+    """
+    src = "#!/bin/bash\n\nmain() {\n  echo hi\n}\n"
+    return "bash", src, "main", "#!/bin/bash"
