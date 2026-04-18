@@ -33,7 +33,10 @@ def daemon_commit() -> str:
 
 @pytest.fixture
 def daemon_func_chunk() -> Chunk:
-    content = "def load_config(path):\n    return open(path).read()\n"
+    content = """\
+def load_config(path):
+    return open(path).read()
+"""
     name = "load_config"
     return Chunk(
         id="fn_config",
@@ -51,7 +54,10 @@ def daemon_func_chunk() -> Chunk:
 
 @pytest.fixture
 def daemon_class_chunk() -> Chunk:
-    content = "class Application:\n    pass\n"
+    content = """\
+class Application:
+    pass
+"""
     name = "Application"
     return Chunk(
         id="cls_app",

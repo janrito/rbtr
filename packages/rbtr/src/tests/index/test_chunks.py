@@ -5,7 +5,19 @@ from rbtr.index.models import ChunkKind
 
 
 def test_markdown_splits_by_heading() -> None:
-    content = "# Title\n\nIntro text.\n\n## Section A\n\nBody A.\n\n## Section B\n\nBody B.\n"
+    content = """\
+# Title
+
+Intro text.
+
+## Section A
+
+Body A.
+
+## Section B
+
+Body B.
+"""
     chunks = chunk_markdown("doc.md", "sha1", content)
     names = [c.name for c in chunks]
     assert "Title" in names
@@ -14,20 +26,40 @@ def test_markdown_splits_by_heading() -> None:
 
 
 def test_markdown_preserves_scope_chain() -> None:
-    content = "# Top\n\n## Mid\n\n### Deep\n\nContent here.\n"
+    content = """\
+# Top
+
+## Mid
+
+### Deep
+
+Content here.
+"""
     chunks = chunk_markdown("doc.md", "sha1", content)
     deep = next(c for c in chunks if c.name == "Deep")
     assert deep.scope == "Top > Mid"
 
 
 def test_markdown_all_doc_section_kind() -> None:
-    content = "# Heading\n\nSome text.\n"
+    content = """\
+# Heading
+
+Some text.
+"""
     chunks = chunk_markdown("doc.md", "sha1", content)
     assert all(c.kind == ChunkKind.DOC_SECTION for c in chunks)
 
 
 def test_markdown_sets_line_numbers() -> None:
-    content = "# First\n\nText.\n\n## Second\n\nMore text.\n"
+    content = """\
+# First
+
+Text.
+
+## Second
+
+More text.
+"""
     chunks = chunk_markdown("doc.md", "sha1", content)
     first = next(c for c in chunks if c.name == "First")
     second = next(c for c in chunks if c.name == "Second")
@@ -36,7 +68,10 @@ def test_markdown_sets_line_numbers() -> None:
 
 
 def test_markdown_no_headings_falls_back_to_raw() -> None:
-    content = "Just some plain text\nwithout any headings.\n"
+    content = """\
+Just some plain text
+without any headings.
+"""
     chunks = chunk_markdown("doc.md", "sha1", content)
     assert len(chunks) >= 1
     assert all(c.kind == ChunkKind.RAW_CHUNK for c in chunks)
@@ -57,7 +92,11 @@ def test_plaintext_chunks_large_file() -> None:
 
 
 def test_markdown_sets_blob_sha() -> None:
-    content = "# Heading\n\nBody.\n"
+    content = """\
+# Heading
+
+Body.
+"""
     chunks = chunk_markdown("doc.md", "abc123", content)
     assert all(c.blob_sha == "abc123" for c in chunks)
 

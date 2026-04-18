@@ -36,19 +36,31 @@ _skip_ruby = skip_unless_grammar("ruby")
 @case(tags=["symbol"])
 def case_py_simple_function():
     """Top-level function."""
-    return "python", "def hello():\n    pass\n", [("function", "hello", "")]
+    src = """\
+def hello():
+    pass
+"""
+    return "python", src, [("function", "hello", "")]
 
 
 @case(tags=["symbol"])
 def case_py_function_with_args():
     """Function with parameters."""
-    return "python", "def add(a, b):\n    return a + b\n", [("function", "add", "")]
+    src = """\
+def add(a, b):
+    return a + b
+"""
+    return "python", src, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
 def case_py_async_function():
     """Async function."""
-    return "python", "async def fetch():\n    pass\n", [("function", "fetch", "")]
+    src = """\
+async def fetch():
+    pass
+"""
+    return "python", src, [("function", "fetch", "")]
 
 
 @case(tags=["symbol"])
@@ -89,13 +101,21 @@ def wrapped():
 @case(tags=["symbol"])
 def case_py_simple_class():
     """Top-level class."""
-    return "python", "class Foo:\n    pass\n", [("class", "Foo", "")]
+    src = """\
+class Foo:
+    pass
+"""
+    return "python", src, [("class", "Foo", "")]
 
 
 @case(tags=["symbol"])
 def case_py_class_with_bases():
     """Class with inheritance."""
-    return "python", "class Bar(Foo, Mixin):\n    pass\n", [("class", "Bar", "")]
+    src = """\
+class Bar(Foo, Mixin):
+    pass
+"""
+    return "python", src, [("class", "Bar", "")]
 
 
 @case(tags=["symbol"])
@@ -1908,21 +1928,33 @@ end
 @_skip_ruby
 def case_ruby_class():
     """class Shape."""
-    return "ruby", "class Shape\nend\n", [("class", "Shape", "")]
+    src = """\
+class Shape
+end
+"""
+    return "ruby", src, [("class", "Shape", "")]
 
 
 @case(tags=["symbol"])
 @_skip_ruby
 def case_ruby_module():
     """module Utils."""
-    return "ruby", "module Utils\nend\n", [("class", "Utils", "")]
+    src = """\
+module Utils
+end
+"""
+    return "ruby", src, [("class", "Utils", "")]
 
 
 @case(tags=["symbol"])
 @_skip_ruby
 def case_ruby_class_superclass():
     """class Circle < Shape."""
-    return "ruby", "class Circle < Shape\nend\n", [("class", "Circle", "")]
+    src = """\
+class Circle < Shape
+end
+"""
+    return "ruby", src, [("class", "Circle", "")]
 
 
 @case(tags=["symbol"])

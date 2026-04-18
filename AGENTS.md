@@ -162,6 +162,27 @@
   parametrisation are tools; they are not goals. Prefer
   explicit, data-first scenarios even when they repeat a few
   lines.
+- **No escaped newlines in multi-line source fixtures.**
+  Test fixtures that represent multi-line source code (input
+  for a parser, lexer, tree-sitter query, language plugin,
+  templating engine, etc.) must use triple-quoted strings so
+  the fixture reads like the file it is modelling. A single
+  `\n` inside a one-line fixture is fine; two or more inside
+  the same string is a smell; strings that span a whole
+  function body or top-level declaration must be triple-quoted.
+  The canonical form is the line-continuation pattern used
+  across the test suite:
+
+  ```python
+  src = """\
+  def f():
+      return 1
+  """
+  ```
+
+  Implicit concatenation of multiple escaped-newline strings
+  (`src = ("a\n" "b\n")`) is banned for the same reason and
+  by the existing "no implicit string concatenation" rule.
 - **No test classes.** Plain test functions only.
 
 ## Git

@@ -201,14 +201,20 @@ def case_py_function_without_docstring():
     The probe is a unique marker string that would only be
     present if some other source polluted this chunk.
     """
-    src = "def add(a, b):\n    return a + b\n"
+    src = """\
+def add(a, b):
+    return a + b
+"""
     return "python", src, "add", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_py_class_without_docstring():
     """Plain class with no documentation."""
-    src = "class Bare:\n    pass\n"
+    src = """\
+class Bare:
+    pass
+"""
     return "python", src, "Bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
@@ -220,7 +226,11 @@ def case_py_leading_hash_comment_not_attached():
     headers or type-ignore markers — attaching them would
     double-count noise.
     """
-    src = "# HASH_COMMENT_ABOVE_DEF_MARKER\ndef work():\n    return 1\n"
+    src = """\
+# HASH_COMMENT_ABOVE_DEF_MARKER
+def work():
+    return 1
+"""
     return "python", src, "work", "HASH_COMMENT_ABOVE_DEF_MARKER"
 
 
@@ -241,7 +251,12 @@ def case_py_trailing_string_not_a_docstring():
     would only appear if the extractor invented content gives
     the right signal.
     """
-    src = 'def late():\n    x = 1\n    """PSEUDO_DOC"""\n    return x\n'
+    src = '''\
+def late():
+    x = 1
+    """PSEUDO_DOC"""
+    return x
+'''
     return "python", src, "late", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
@@ -253,14 +268,20 @@ def case_py_trailing_string_not_a_docstring():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_js_jsdoc_on_function():
     """Canonical JSDoc above a function declaration."""
-    src = "/** Return a friendly greeting. */\nfunction greet() {}\n"
+    src = """\
+/** Return a friendly greeting. */
+function greet() {}
+"""
     return "javascript", src, "greet", "Return a friendly greeting"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_js_jsdoc_on_class():
     """Canonical JSDoc above a class declaration."""
-    src = "/** A widget. */\nclass Widget {}\n"
+    src = """\
+/** A widget. */
+class Widget {}
+"""
     return "javascript", src, "Widget", "A widget"
 
 
@@ -270,21 +291,24 @@ def case_js_jsdoc_on_arrow_function():
     lands on the `lexical_declaration`, so JSDoc attaches via
     the walk on that node's prev_named_sibling.
     """
-    src = "/** Increment. */\nconst inc = (x) => x + 1;\n"
+    src = """\
+/** Increment. */
+const inc = (x) => x + 1;
+"""
     return "javascript", src, "inc", "Increment"
 
 
 @case(tags=["documented", "edge_case", "exterior_doc"])
 def case_js_multiline_jsdoc():
     """Multi-line JSDoc with leading `*` gutter."""
-    src = (
-        "/**\n"
-        " * Compute a checksum over *data*.\n"
-        " *\n"
-        " * The algorithm is CRC32 — explained below.\n"
-        " */\n"
-        "function checksum(data) { return 0; }\n"
-    )
+    src = """\
+/**
+ * Compute a checksum over *data*.
+ *
+ * The algorithm is CRC32 — explained below.
+ */
+function checksum(data) { return 0; }
+"""
     return "javascript", src, "checksum", "The algorithm is CRC32"
 
 
@@ -294,7 +318,10 @@ def case_js_banner_comment():
     libs; the grammar lands them as `comment` nodes and we
     attach them — the benchmark will say whether that hurts.
     """
-    src = "/*! (c) 2024 Acme. */\nfunction publicApi() {}\n"
+    src = """\
+/*! (c) 2024 Acme. */
+function publicApi() {}
+"""
     return "javascript", src, "publicApi", "(c) 2024 Acme"
 
 
@@ -303,7 +330,11 @@ def case_js_line_comment_run():
     """`//` comment runs used as docs — common in TS-first
     code where JSDoc is syntactically less convenient.
     """
-    src = "// First description line.\n// Second description line.\nfunction documented() {}\n"
+    src = """\
+// First description line.
+// Second description line.
+function documented() {}
+"""
     return "javascript", src, "documented", "First description line"
 
 
@@ -320,7 +351,9 @@ def case_js_line_comment_run():
 @case(tags=["undocumented", "no_docs"])
 def case_js_function_without_doc():
     """Plain function, no comments."""
-    src = "function bare() {}\n"
+    src = """\
+function bare() {}
+"""
     return "javascript", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
@@ -329,7 +362,11 @@ def case_js_jsdoc_detached_by_blank_line():
     """A blank line between the JSDoc block and the function
     breaks attachment.
     """
-    src = "/** Stale JSDoc — not attached. */\n\nfunction stale() {}\n"
+    src = """\
+/** Stale JSDoc — not attached. */
+
+function stale() {}
+"""
     return "javascript", src, "stale", "Stale JSDoc"
 
 
@@ -340,7 +377,12 @@ def case_js_jsdoc_above_import_does_not_attach_to_class():
     Imports are excluded from attachment by design (see
     `treesitter.extract_symbols`).
     """
-    src = "/** Nonsense JSDoc above import. */\nimport { x } from './x';\n\nclass Real {}\n"
+    src = """\
+/** Nonsense JSDoc above import. */
+import { x } from './x';
+
+class Real {}
+"""
     return "javascript", src, "Real", "Nonsense JSDoc"
 
 
@@ -358,7 +400,10 @@ def case_js_jsdoc_above_import_does_not_attach_to_class():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ts_jsdoc_on_function():
     """Canonical JSDoc above a typed function declaration."""
-    src = "/** Return the length of *s*. */\nfunction len(s: string): number { return s.length; }\n"
+    src = """\
+/** Return the length of *s*. */
+function len(s: string): number { return s.length; }
+"""
     return "typescript", src, "len", "Return the length"
 
 
@@ -367,36 +412,45 @@ def case_ts_jsdoc_on_class():
     """JSDoc above a TypeScript class — grammar uses
     `type_identifier` for the class name.
     """
-    src = "/** A widget. */\nclass Widget {}\n"
+    src = """\
+/** A widget. */
+class Widget {}
+"""
     return "typescript", src, "Widget", "A widget"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ts_jsdoc_on_arrow_function():
     """Arrow-function assignment with a type annotation."""
-    src = "/** Increment. */\nconst inc: (x: number) => number = (x) => x + 1;\n"
+    src = """\
+/** Increment. */
+const inc: (x: number) => number = (x) => x + 1;
+"""
     return "typescript", src, "inc", "Increment"
 
 
 @case(tags=["documented", "edge_case", "exterior_doc"])
 def case_ts_jsdoc_on_generic_function():
     """Generic type parameters between name and arguments."""
-    src = "/** Identity. */\nfunction identity<T>(x: T): T { return x; }\n"
+    src = """\
+/** Identity. */
+function identity<T>(x: T): T { return x; }
+"""
     return "typescript", src, "identity", "Identity"
 
 
 @case(tags=["documented", "edge_case", "exterior_doc"])
 def case_ts_multiline_jsdoc_with_tags():
     """Multi-line JSDoc with `@param` / `@returns` tags."""
-    src = (
-        "/**\n"
-        " * Compute a hash.\n"
-        " *\n"
-        " * @param data bytes to hash\n"
-        " * @returns hex digest\n"
-        " */\n"
-        "function hash(data: Uint8Array): string { return ''; }\n"
-    )
+    src = """\
+/**
+ * Compute a hash.
+ *
+ * @param data bytes to hash
+ * @returns hex digest
+ */
+function hash(data: Uint8Array): string { return ''; }
+"""
     return "typescript", src, "hash", "@returns hex digest"
 
 
@@ -406,32 +460,43 @@ def case_ts_line_comment_run():
     codebases that avoid JSDoc because types are already in
     the signature.
     """
-    src = (
-        "// Describe the value.\n"
-        "// Useful in calling code.\n"
-        "function describe(x: number): string { return String(x); }\n"
-    )
+    src = """\
+// Describe the value.
+// Useful in calling code.
+function describe(x: number): string { return String(x); }
+"""
     return "typescript", src, "describe", "Describe the value"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_ts_function_without_doc():
     """Plain TS function."""
-    src = "function bare(x: number): number { return x; }\n"
+    src = """\
+function bare(x: number): number { return x; }
+"""
     return "typescript", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_ts_jsdoc_detached_by_blank_line():
     """Blank line breaks attachment for TS too."""
-    src = "/** Stale JSDoc. */\n\nfunction stale(): void {}\n"
+    src = """\
+/** Stale JSDoc. */
+
+function stale(): void {}
+"""
     return "typescript", src, "stale", "Stale JSDoc"
 
 
 @case(tags=["undocumented", "invalid"])
 def case_ts_jsdoc_above_import():
     """JSDoc above `import` does not attach to a later class."""
-    src = "/** Nonsense JSDoc. */\nimport { x } from './x';\n\nclass Real {}\n"
+    src = """\
+/** Nonsense JSDoc. */
+import { x } from './x';
+
+class Real {}
+"""
     return "typescript", src, "Real", "Nonsense JSDoc"
 
 
@@ -450,21 +515,30 @@ def case_ts_jsdoc_above_import():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_fn():
     """Canonical `///` doc comment above a function."""
-    src = "/// Greet the user.\nfn greet() {}\n"
+    src = """\
+/// Greet the user.
+fn greet() {}
+"""
     return "rust", src, "greet", "Greet the user"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_struct():
     """`///` above a struct declaration."""
-    src = "/// A widget.\nstruct Widget;\n"
+    src = """\
+/// A widget.
+struct Widget;
+"""
     return "rust", src, "Widget", "A widget"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_rust_triple_slash_on_enum():
     """`///` above an enum declaration."""
-    src = "/// Colours.\nenum Colour { Red, Green }\n"
+    src = """\
+/// Colours.
+enum Colour { Red, Green }
+"""
     return "rust", src, "Colour", "Colours"
 
 
@@ -473,7 +547,12 @@ def case_rust_multi_line_triple_slash():
     """Multi-line `///` run — each line is its own
     `line_comment` node; all attach.
     """
-    src = "/// Compute a checksum.\n///\n/// The algorithm is CRC32.\nfn checksum() {}\n"
+    src = """\
+/// Compute a checksum.
+///
+/// The algorithm is CRC32.
+fn checksum() {}
+"""
     return "rust", src, "checksum", "The algorithm is CRC32"
 
 
@@ -482,7 +561,10 @@ def case_rust_block_doc_comment():
     """`/** */` block doc comment — parsed as `block_comment`
     in the grammar.
     """
-    src = "/** Block doc. */\nfn foo() {}\n"
+    src = """\
+/** Block doc. */
+fn foo() {}
+"""
     return "rust", src, "foo", "Block doc"
 
 
@@ -493,7 +575,10 @@ def case_rust_impl_block_doc():
     a type declared in another module so only one chunk named
     after the type appears in this snippet.
     """
-    src = "/// Methods for Other.\nimpl Other {}\n"
+    src = """\
+/// Methods for Other.
+impl Other {}
+"""
     return "rust", src, "Other", "Methods for Other"
 
 
@@ -502,14 +587,20 @@ def case_rust_plain_line_comment():
     """Plain `//` comments are also attached — rbtr leans
     toward flexibility rather than requiring strict `///`.
     """
-    src = "// Plain line comment.\n// Second line.\nfn foo() {}\n"
+    src = """\
+// Plain line comment.
+// Second line.
+fn foo() {}
+"""
     return "rust", src, "foo", "Plain line comment"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_rust_fn_without_docs():
     """Undocumented function."""
-    src = "fn bare() {}\n"
+    src = """\
+fn bare() {}
+"""
     return "rust", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
@@ -521,7 +612,11 @@ def case_rust_doc_detached_by_blank_line():
     `\\n`, so "blank line" is detected via a ``>= 2`` newline
     count over `[content_end_without_nl, next_start)`.
     """
-    src = "/// Orphaned comment.\n\nfn later() {}\n"
+    src = """\
+/// Orphaned comment.
+
+fn later() {}
+"""
     return "rust", src, "later", "Orphaned comment"
 
 
@@ -532,7 +627,13 @@ def case_rust_inner_doc_not_attached():
     This guards against the tree-sitter-rust trailing-newline
     bug that would otherwise greedily walk past the blank line.
     """
-    src = "//! Crate-level doc.\n//! More crate doc.\n\n/// Item doc.\nfn item() {}\n"
+    src = """\
+//! Crate-level doc.
+//! More crate doc.
+
+/// Item doc.
+fn item() {}
+"""
     return "rust", src, "item", "Crate-level doc"
 
 
@@ -550,34 +651,54 @@ def case_rust_inner_doc_not_attached():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_function():
     """Canonical Go doc comment above `func`."""
-    src = "package main\n\n// Greet says hello.\nfunc Greet() {}\n"
+    src = """\
+package main
+
+// Greet says hello.
+func Greet() {}
+"""
     return "go", src, "Greet", "Greet says hello"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_type():
     """Doc comment above a `type` declaration."""
-    src = "package main\n\n// Widget is a UI element.\ntype Widget struct {\n    name string\n}\n"
+    src = """\
+package main
+
+// Widget is a UI element.
+type Widget struct {
+    name string
+}
+"""
     return "go", src, "Widget", "Widget is a UI element"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_doc_comment_on_method():
     """Doc comment above a method receiver."""
-    src = "package main\n\ntype T struct{}\n\n// Do performs the action.\nfunc (t *T) Do() {}\n"
+    src = """\
+package main
+
+type T struct{}
+
+// Do performs the action.
+func (t *T) Do() {}
+"""
     return "go", src, "Do", "Do performs the action"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_go_multi_line_doc_comment():
     """Multi-line `//` doc-comment run."""
-    src = (
-        "package main\n\n"
-        "// Compute executes the pipeline.\n"
-        "//\n"
-        "// It returns an error if the inputs do not validate.\n"
-        "func Compute() error { return nil }\n"
-    )
+    src = """\
+package main
+
+// Compute executes the pipeline.
+//
+// It returns an error if the inputs do not validate.
+func Compute() error { return nil }
+"""
     return "go", src, "Compute", "It returns an error if the inputs"
 
 
@@ -586,7 +707,13 @@ def case_go_block_comment():
     """`/* ... */` block comment as Go-doc.  Supported by
     `go doc` but rare.
     """
-    src = "package main\n\n/* Block doc above foo.\n   Continues here. */\nfunc Foo() {}\n"
+    src = """\
+package main
+
+/* Block doc above foo.
+   Continues here. */
+func Foo() {}
+"""
     return "go", src, "Foo", "Block doc above foo"
 
 
@@ -596,14 +723,23 @@ def case_go_non_godoc_style_comment():
     `go doc` would warn, but rbtr leans toward flexibility and
     attaches it.
     """
-    src = "package main\n\n// Deliberately unconventional opening.\nfunc Work() {}\n"
+    src = """\
+package main
+
+// Deliberately unconventional opening.
+func Work() {}
+"""
     return "go", src, "Work", "Deliberately unconventional opening"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_go_fn_without_doc():
     """Undocumented function."""
-    src = "package main\n\nfunc bare() {}\n"
+    src = """\
+package main
+
+func bare() {}
+"""
     return "go", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
@@ -613,7 +749,13 @@ def case_go_doc_detached_by_blank_line():
     explicitly forbids a blank line between a doc comment and
     its symbol.
     """
-    src = "package main\n\n// Orphan.\n\nfunc Later() {}\n"
+    src = """\
+package main
+
+// Orphan.
+
+func Later() {}
+"""
     return "go", src, "Later", "Orphan"
 
 
@@ -625,7 +767,14 @@ def case_go_doc_comment_above_previous_function_not_attached():
     We probe the chunk for the *first* function to confirm it
     does not steal the comment.
     """
-    src = "package main\n\nfunc First() {}\n\n// Doc for Second.\nfunc Second() {}\n"
+    src = """\
+package main
+
+func First() {}
+
+// Doc for Second.
+func Second() {}
+"""
     return "go", src, "First", "Doc for Second"
 
 
@@ -644,30 +793,38 @@ def case_go_doc_comment_above_previous_function_not_attached():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_javadoc_on_class():
     """Canonical Javadoc above a class declaration."""
-    src = "/** A widget. */\npublic class Widget {}\n"
+    src = """\
+/** A widget. */
+public class Widget {}
+"""
     return "java", src, "Widget", "A widget"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_javadoc_on_method():
     """Canonical Javadoc above a method declaration."""
-    src = "public class Widget {\n    /** Render the widget. */\n    public void render() {}\n}\n"
+    src = """\
+public class Widget {
+    /** Render the widget. */
+    public void render() {}
+}
+"""
     return "java", src, "render", "Render the widget"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_java_multi_line_javadoc_with_tags():
     """Multi-line Javadoc with `@param` / `@return`."""
-    src = (
-        "public class Widget {\n"
-        "    /**\n"
-        "     * Compute a hash.\n"
-        "     * @param data input\n"
-        "     * @return hex string\n"
-        "     */\n"
-        '    public String hash(byte[] data) { return ""; }\n'
-        "}\n"
-    )
+    src = """\
+public class Widget {
+    /**
+     * Compute a hash.
+     * @param data input
+     * @return hex string
+     */
+    public String hash(byte[] data) { return ""; }
+}
+"""
     return "java", src, "hash", "@return hex string"
 
 
@@ -677,49 +834,62 @@ def case_java_javadoc_above_annotated_method():
     `modifiers` child, so the Javadoc remains the method's
     `prev_named_sibling` and attaches correctly.
     """
-    src = (
-        "public class Widget {\n"
-        "    /** Deprecated API. */\n"
-        "    @Deprecated\n"
-        "    public void old() {}\n"
-        "}\n"
-    )
+    src = """\
+public class Widget {
+    /** Deprecated API. */
+    @Deprecated
+    public void old() {}
+}
+"""
     return "java", src, "old", "Deprecated API"
 
 
 @case(tags=["documented", "unconventional", "exterior_doc"])
 def case_java_line_comment_run_on_method():
     """Plain `//` comment run attaches too."""
-    src = (
-        "public class C {\n    // A line comment.\n    // Second line.\n    public void m() {}\n}\n"
-    )
+    src = """\
+public class C {
+    // A line comment.
+    // Second line.
+    public void m() {}
+}
+"""
     return "java", src, "m", "A line comment"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_java_method_without_doc():
     """Undocumented method."""
-    src = "public class C { public void bare() {} }\n"
+    src = """\
+public class C { public void bare() {} }
+"""
     return "java", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_java_javadoc_detached_by_blank_line():
     """Blank line between Javadoc and method breaks attachment."""
-    src = "public class C {\n    /** Orphan. */\n\n    public void later() {}\n}\n"
+    src = """\
+public class C {
+    /** Orphan. */
+
+    public void later() {}
+}
+"""
     return "java", src, "later", "Orphan"
 
 
 @case(tags=["undocumented", "invalid"])
 def case_java_javadoc_on_previous_method_does_not_attach_to_later():
     """A Javadoc above method A is not attached to later method B."""
-    src = (
-        "public class C {\n"
-        "    /** Doc for first. */\n"
-        "    public void first() {}\n\n"
-        "    public void second() {}\n"
-        "}\n"
-    )
+    src = """\
+public class C {
+    /** Doc for first. */
+    public void first() {}
+
+    public void second() {}
+}
+"""
     return "java", src, "second", "Doc for first"
 
 
@@ -743,28 +913,48 @@ def case_java_javadoc_on_previous_method_does_not_attach_to_later():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_def():
     """Canonical `#` comment above a top-level def."""
-    src = "# Greet the user.\ndef greet\n  'hi'\nend\n"
+    src = """\
+# Greet the user.
+def greet
+  'hi'
+end
+"""
     return "ruby", src, "greet", "Greet the user"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_class():
     """`#` comment above a class declaration."""
-    src = "# Service facade.\nclass Svc\nend\n"
+    src = """\
+# Service facade.
+class Svc
+end
+"""
     return "ruby", src, "Svc", "Service facade"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_hash_doc_on_module():
     """`#` comment above a module declaration."""
-    src = "# Utilities.\nmodule Utils\nend\n"
+    src = """\
+# Utilities.
+module Utils
+end
+"""
     return "ruby", src, "Utils", "Utilities"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_ruby_multi_line_hash_doc():
     """Multi-line `#` doc comment."""
-    src = "# Compute a checksum.\n#\n# Returns a hex digest string.\ndef checksum\n  ''\nend\n"
+    src = """\
+# Compute a checksum.
+#
+# Returns a hex digest string.
+def checksum
+  ''
+end
+"""
     return "ruby", src, "checksum", "Returns a hex digest"
 
 
@@ -774,7 +964,13 @@ def case_ruby_block_comment_begin_end():
     as a single `comment` node; attachment works when it
     immediately precedes the `def`.
     """
-    src = "=begin\nBlock-style doc.\n=end\ndef foo\nend\n"
+    src = """\
+=begin
+Block-style doc.
+=end
+def foo
+end
+"""
     return "ruby", src, "foo", "Block-style doc"
 
 
@@ -783,21 +979,34 @@ def case_ruby_shebang_like_comment_above_def():
     """Unconventional but valid: a `#` run whose first line
     starts with `#!`-style emphasis still attaches.
     """
-    src = "#! IMPORTANT: use Foo instead of Bar.\n# Prefer modern API.\ndef legacy\nend\n"
+    src = """\
+#! IMPORTANT: use Foo instead of Bar.
+# Prefer modern API.
+def legacy
+end
+"""
     return "ruby", src, "legacy", "IMPORTANT: use Foo"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_ruby_def_without_doc():
     """Undocumented top-level def."""
-    src = "def bare\nend\n"
+    src = """\
+def bare
+end
+"""
     return "ruby", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_ruby_doc_detached_by_blank_line():
     """Blank line between comment and def breaks attachment."""
-    src = "# Orphan.\n\ndef later\nend\n"
+    src = """\
+# Orphan.
+
+def later
+end
+"""
     return "ruby", src, "later", "Orphan"
 
 
@@ -806,7 +1015,14 @@ def case_ruby_doc_does_not_steal_from_next():
     """A `#` comment between two top-level defs belongs to the
     later def, not the earlier one.
     """
-    src = "def first\nend\n\n# Doc for second.\ndef second\nend\n"
+    src = """\
+def first
+end
+
+# Doc for second.
+def second
+end
+"""
     return "ruby", src, "first", "Doc for second"
 
 
@@ -822,29 +1038,35 @@ def case_ruby_doc_does_not_steal_from_next():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_c_doxygen_on_function():
     """Canonical Doxygen `/** */` above a function."""
-    src = "/** Compute the sum. */\nint add(int a, int b) { return a + b; }\n"
+    src = """\
+/** Compute the sum. */
+int add(int a, int b) { return a + b; }
+"""
     return "c", src, "add", "Compute the sum"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_c_doxygen_on_struct():
     """Doxygen above a struct."""
-    src = "/** Point in 2D space. */\nstruct Point { int x; int y; };\n"
+    src = """\
+/** Point in 2D space. */
+struct Point { int x; int y; };
+"""
     return "c", src, "Point", "Point in 2D space"
 
 
 @case(tags=["documented", "edge_case", "exterior_doc"])
 def case_c_multi_line_doxygen():
-    """Multi-line Doxygen with `\\param` / `\\return` tags."""
-    src = (
-        "/**\n"
-        " * Hash a buffer.\n"
-        " * \\param data the buffer\n"
-        " * \\return the hash\n"
-        " */\n"
-        "int hash(const char *data) { return 0; }\n"
-    )
-    return "c", src, "hash", "\\return the hash"
+    r"""Multi-line Doxygen with `\param` / `\return` tags."""
+    src = """\
+/**
+ * Hash a buffer.
+ * \\param data the buffer
+ * \\return the hash
+ */
+int hash(const char *data) { return 0; }
+"""
+    return "c", src, "hash", r"\return the hash"
 
 
 @case(tags=["documented", "unconventional", "exterior_doc"])
@@ -852,29 +1074,42 @@ def case_c_line_comment_run():
     """Plain `//` comment run — common in embedded code where
     Doxygen style is heavier than needed.
     """
-    src = "// Simple comment.\n// Second line.\nint foo(void) { return 0; }\n"
+    src = """\
+// Simple comment.
+// Second line.
+int foo(void) { return 0; }
+"""
     return "c", src, "foo", "Simple comment"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_c_fn_without_doc():
-    src = "int bare(void) { return 0; }\n"
+    src = """\
+int bare(void) { return 0; }
+"""
     return "c", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_c_doc_detached_by_blank_line():
     """Blank line breaks attachment."""
-    src = "/** Orphan. */\n\nint later(void) { return 0; }\n"
+    src = """\
+/** Orphan. */
+
+int later(void) { return 0; }
+"""
     return "c", src, "later", "Orphan"
 
 
 @case(tags=["undocumented", "invalid"])
 def case_c_doc_between_two_functions():
     """Comment between two functions belongs to the later one."""
-    src = (
-        "int first(void) { return 0; }\n\n/** Doc for second. */\nint second(void) { return 0; }\n"
-    )
+    src = """\
+int first(void) { return 0; }
+
+/** Doc for second. */
+int second(void) { return 0; }
+"""
     return "c", src, "first", "Doc for second"
 
 
@@ -890,33 +1125,48 @@ def case_c_doc_between_two_functions():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_cpp_doxygen_on_class():
     """Doxygen above a C++ class."""
-    src = "/** A widget. */\nclass Widget { public: int x; };\n"
+    src = """\
+/** A widget. */
+class Widget { public: int x; };
+"""
     return "cpp", src, "Widget", "A widget"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_cpp_doxygen_on_function():
     """Doxygen above a C++ function."""
-    src = "/** Get the answer. */\nint answer() { return 42; }\n"
+    src = """\
+/** Get the answer. */
+int answer() { return 42; }
+"""
     return "cpp", src, "answer", "Get the answer"
 
 
 @case(tags=["documented", "edge_case", "exterior_doc"])
 def case_cpp_triple_slash_style():
     """Doxygen `///` style (single-line convention)."""
-    src = "/// Triple-slash style.\nint foo() { return 0; }\n"
+    src = """\
+/// Triple-slash style.
+int foo() { return 0; }
+"""
     return "cpp", src, "foo", "Triple-slash style"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_cpp_fn_without_doc():
-    src = "int bare() { return 0; }\n"
+    src = """\
+int bare() { return 0; }
+"""
     return "cpp", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_cpp_doc_detached_by_blank_line():
-    src = "/** Orphan. */\n\nint later() { return 0; }\n"
+    src = """\
+/** Orphan. */
+
+int later() { return 0; }
+"""
     return "cpp", src, "later", "Orphan"
 
 
@@ -936,14 +1186,26 @@ def case_cpp_doc_detached_by_blank_line():
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_bash_hash_doc_on_function():
     """Canonical `#` comment above a shell function."""
-    src = "# Greet the user.\ngreet() {\n  echo hello\n}\n"
+    src = """\
+# Greet the user.
+greet() {
+  echo hello
+}
+"""
     return "bash", src, "greet", "Greet the user"
 
 
 @case(tags=["documented", "canonical", "exterior_doc"])
 def case_bash_multi_line_hash_doc():
     """Multi-line `#` comment run."""
-    src = "# Greet the user.\n#\n# Reads the name from $1.\ngreet() {\n  echo hi $1\n}\n"
+    src = """\
+# Greet the user.
+#
+# Reads the name from $1.
+greet() {
+  echo hi $1
+}
+"""
     return "bash", src, "greet", "Reads the name from"
 
 
@@ -954,28 +1216,50 @@ def case_bash_shebang_attached_to_first_function():
     flexible attachment policy.  Recording this as a case so
     any future tightening does not regress silently.
     """
-    src = "#!/bin/bash\n# Entry point.\nmain() {\n  echo hi\n}\n"
+    src = """\
+#!/bin/bash
+# Entry point.
+main() {
+  echo hi
+}
+"""
     return "bash", src, "main", "#!/bin/bash"
 
 
 @case(tags=["documented", "unconventional", "exterior_doc"])
 def case_bash_comment_with_script_style_heading():
     """Heading-like comment above a function attaches."""
-    src = '# ==== helpers ====\n# Trim whitespace from $1.\ntrim() {\n  echo "$1"\n}\n'
+    src = """\
+# ==== helpers ====
+# Trim whitespace from $1.
+trim() {
+  echo "$1"
+}
+"""
     return "bash", src, "trim", "Trim whitespace"
 
 
 @case(tags=["undocumented", "no_docs"])
 def case_bash_fn_without_doc():
     """Undocumented shell function."""
-    src = "bare() {\n  echo hi\n}\n"
+    src = """\
+bare() {
+  echo hi
+}
+"""
     return "bash", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
 @case(tags=["undocumented", "boundary_not_attached"])
 def case_bash_doc_detached_by_blank_line():
     """Blank line breaks attachment."""
-    src = "# Orphan.\n\nlater() {\n  echo hi\n}\n"
+    src = """\
+# Orphan.
+
+later() {
+  echo hi
+}
+"""
     return "bash", src, "later", "Orphan"
 
 
@@ -985,5 +1269,11 @@ def case_bash_shebang_separated_by_blank_line():
     function, the shebang stays detached — the same
     blank-line rule applies uniformly to all comment kinds.
     """
-    src = "#!/bin/bash\n\nmain() {\n  echo hi\n}\n"
+    src = """\
+#!/bin/bash
+
+main() {
+  echo hi
+}
+"""
     return "bash", src, "main", "#!/bin/bash"
