@@ -39,6 +39,7 @@ import zmq
 import zmq.asyncio
 
 from rbtr import get_version
+from rbtr.config import config
 from rbtr.daemon.build_queue import BuildQueue
 from rbtr.daemon.handlers import (
     handle_build_index,
@@ -80,9 +81,18 @@ class DaemonServer:
         sock_dir: Path,
         store: IndexStore | None = None,
         *,
-        idle_poll_interval: float = 5.0,
-        busy_poll_interval: float = 30.0,
+        idle_poll_interval: float | None = None,
+        busy_poll_interval: float | None = None,
     ) -> None:
+        # Defaults come from the central pydantic Config so there is
+        # exactly one source of truth per knob. Callers (currently
+        # only tests) may override either interval explicitly.
+        idle_poll_interval = (
+            idle_poll_interval if idle_poll_interval is not None else config.idle_poll_interval
+        )
+        busy_poll_interval = (
+            busy_poll_interval if busy_poll_interval is not None else config.busy_poll_interval
+        )
         self.sock_dir = sock_dir
         self.rpc_addr = f"ipc://{sock_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{sock_dir / 'daemon.pub'}"
@@ -158,7 +168,6 @@ class DaemonServer:
         # (store init loads the model, so we track from here).
         if self._build_queue is not None:
             # deferred: embeddings is a heavy import
-            from rbtr.config import config
             from rbtr.index import embeddings  # noqa: PLC0415
 
             embeddings.start_idle_monitor(config.embed_idle_timeout)

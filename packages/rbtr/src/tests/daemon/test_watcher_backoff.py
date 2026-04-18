@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from rbtr.config import config
 from rbtr.daemon.build_queue import BuildQueue
 from rbtr.daemon.repos import RepoManager
 from rbtr.daemon.server import DaemonServer
@@ -49,3 +50,10 @@ def test_busy_interval_when_queue_active(server: DaemonServer, build_queue: Buil
     server._build_queue = build_queue
     build_queue.active_repo = "/repo-a"
     assert server._next_poll_interval() == 30.0
+
+
+def test_intervals_default_to_config_values(sock_dir: Path) -> None:
+    """With no kwargs, the server pulls both intervals from `config`."""
+    server = DaemonServer(sock_dir, store=None)
+    assert server._idle_poll_interval == config.idle_poll_interval
+    assert server._busy_poll_interval == config.busy_poll_interval

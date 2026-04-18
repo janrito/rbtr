@@ -100,6 +100,25 @@ class Config(BaseSettings):
             ),
         ),
     ] = 300
+    idle_poll_interval: Annotated[
+        float,
+        Field(
+            description=(
+                "Seconds between watcher polls while the build queue is idle. "
+                "Only used by the daemon."
+            ),
+        ),
+    ] = 5.0
+    busy_poll_interval: Annotated[
+        float,
+        Field(
+            description=(
+                "Seconds between watcher polls while a build is in progress. "
+                "Slowed down to avoid flooding the queue with duplicates. "
+                "Only used by the daemon."
+            ),
+        ),
+    ] = 30.0
 
     @classmethod
     def settings_customise_sources(
