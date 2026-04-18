@@ -1381,18 +1381,25 @@ import java.util.Map;
 @case(tags=["mixed"])
 @_skip_java
 def case_java_full_class():
-    """Realistic Java class."""
+    """Realistic Java class with Javadoc on every member.
+
+    Expected tuple unchanged; content assertions in
+    `test_docstrings.py`.
+    """
     src = """\
 import java.util.List;
 import java.util.ArrayList;
 
+/** Tracks registered user names. */
 public class UserService {
     private List<String> names;
 
+    /** Append a new name to the registry. */
     public void addName(String name) {
         names.add(name);
     }
 
+    /** Return the current list of names. */
     public List<String> getNames() {
         return names;
     }

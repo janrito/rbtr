@@ -615,3 +615,97 @@ def case_go_doc_comment_above_previous_function_not_attached():
     """
     src = "package main\n\nfunc First() {}\n\n// Doc for Second.\nfunc Second() {}\n"
     return "go", src, "First", "Doc for Second"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Java
+# ══════════════════════════════════════════════════════════════════
+#
+# Java uses `block_comment` for `/** */` Javadoc and
+# `line_comment` for `//` — both listed in the plugin.
+# Annotations (`@Deprecated` etc.) parse as part of the
+# method's `modifiers` child, so the method's
+# `prev_named_sibling` is the Javadoc directly — attachment
+# works even when annotations sit between.
+
+
+@case(tags=["documented", "canonical"])
+def case_java_javadoc_on_class():
+    """Canonical Javadoc above a class declaration."""
+    src = "/** A widget. */\npublic class Widget {}\n"
+    return "java", src, "Widget", "A widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_java_javadoc_on_method():
+    """Canonical Javadoc above a method declaration."""
+    src = "public class Widget {\n    /** Render the widget. */\n    public void render() {}\n}\n"
+    return "java", src, "render", "Render the widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_java_multi_line_javadoc_with_tags():
+    """Multi-line Javadoc with `@param` / `@return`."""
+    src = (
+        "public class Widget {\n"
+        "    /**\n"
+        "     * Compute a hash.\n"
+        "     * @param data input\n"
+        "     * @return hex string\n"
+        "     */\n"
+        '    public String hash(byte[] data) { return ""; }\n'
+        "}\n"
+    )
+    return "java", src, "hash", "@return hex string"
+
+
+@case(tags=["documented", "edge_case"])
+def case_java_javadoc_above_annotated_method():
+    """Annotations parse as part of the method node's
+    `modifiers` child, so the Javadoc remains the method's
+    `prev_named_sibling` and attaches correctly.
+    """
+    src = (
+        "public class Widget {\n"
+        "    /** Deprecated API. */\n"
+        "    @Deprecated\n"
+        "    public void old() {}\n"
+        "}\n"
+    )
+    return "java", src, "old", "Deprecated API"
+
+
+@case(tags=["documented", "unconventional"])
+def case_java_line_comment_run_on_method():
+    """Plain `//` comment run attaches too."""
+    src = (
+        "public class C {\n    // A line comment.\n    // Second line.\n    public void m() {}\n}\n"
+    )
+    return "java", src, "m", "A line comment"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_java_method_without_doc():
+    """Undocumented method."""
+    src = "public class C { public void bare() {} }\n"
+    return "java", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_java_javadoc_detached_by_blank_line():
+    """Blank line between Javadoc and method breaks attachment."""
+    src = "public class C {\n    /** Orphan. */\n\n    public void later() {}\n}\n"
+    return "java", src, "later", "Orphan"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_java_javadoc_on_previous_method_does_not_attach_to_later():
+    """A Javadoc above method A is not attached to later method B."""
+    src = (
+        "public class C {\n"
+        "    /** Doc for first. */\n"
+        "    public void first() {}\n\n"
+        "    public void second() {}\n"
+        "}\n"
+    )
+    return "java", src, "second", "Doc for first"
