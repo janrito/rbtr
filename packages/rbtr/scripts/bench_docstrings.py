@@ -89,19 +89,19 @@ def production_specs() -> list[RepoSpec]:
         ),
         RepoSpec(
             slug="django__django",
-            url="https://github.com/django/django.git",
+            url="git@github.com:django/django.git",
             ref="main",
             language="python",
         ),
         RepoSpec(
-            slug="mariozechner__pi-mono",
-            url="https://github.com/mariozechner/pi-mono.git",
+            slug="badlogic__pi-mono",
+            url="git@github.com:badlogic/pi-mono.git",
             ref="main",
             language="typescript",
         ),
         RepoSpec(
             slug="astral-sh__uv",
-            url="https://github.com/astral-sh/uv.git",
+            url="git@github.com:astral-sh/uv.git",
             ref="main",
             language="rust",
         ),
