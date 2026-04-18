@@ -33,7 +33,8 @@ def _result(results: list[ScoredResult], chunk_id: str) -> ScoredResult | None:
 
 
 def test_importance_boosts_highly_imported_symbol(
-    ranking_store: IndexStore, ranking_commit: str,
+    ranking_store: IndexStore,
+    ranking_commit: str,
 ) -> None:
     """config_class (3 inbound edges) has higher importance than start_server (0).
 
@@ -78,7 +79,8 @@ def test_zero_inbound_importance_is_neutral(ranking_store: IndexStore, ranking_c
 
 
 def test_proximity_boosts_chunks_in_changed_file(
-    ranking_store: IndexStore, ranking_commit: str,
+    ranking_store: IndexStore,
+    ranking_commit: str,
 ) -> None:
     """Chunks in src/server.py rank higher when it's in the diff.
 
@@ -138,7 +140,8 @@ def test_no_diff_means_neutral_proximity(ranking_store: IndexStore, ranking_comm
 
 
 def test_distant_file_gets_no_proximity_boost(
-    ranking_store: IndexStore, ranking_commit: str,
+    ranking_store: IndexStore,
+    ranking_commit: str,
 ) -> None:
     """Chunks in a different directory with no edges get proximity=1.0.
 

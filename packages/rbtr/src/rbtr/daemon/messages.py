@@ -102,11 +102,11 @@ class StatusRequest(BaseModel):
 class GcMode(StrEnum):
     """What a ``rbtr gc`` invocation is allowed to delete."""
 
-    HEAD_ONLY = "head_only"       # keep current HEAD, drop the rest
-    KEEP_REFS = "keep_refs"       # keep all local refs (branches/tags/notes/HEAD)
-    KEEP = "keep"                 # keep only listed refs
-    DROP = "drop"                 # drop only listed refs
-    ORPHANS = "orphans"           # sweep residue only, drop no commits
+    HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
+    KEEP_REFS = "keep_refs"  # keep all local refs (branches/tags/notes/HEAD)
+    KEEP = "keep"  # keep only listed refs
+    DROP = "drop"  # drop only listed refs
+    ORPHANS = "orphans"  # sweep residue only, drop no commits
 
 
 class GcRequest(BaseModel):

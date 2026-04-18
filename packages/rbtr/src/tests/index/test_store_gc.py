@@ -77,9 +77,7 @@ def test_drop_commit_state_after(
             for c in store.get_chunks("commit_b", repo_id=other_repo_id)
         }
         for sid in surviving:
-            assert sid in remaining_ids, (
-                f"expected chunk {sid!r} to survive"
-            )
+            assert sid in remaining_ids, f"expected chunk {sid!r} to survive"
 
 
 def test_drop_commit_leaves_other_repos_alone(
@@ -134,10 +132,6 @@ def test_sweep_orphan_commits_counts_and_survivors(
         counts = store.sweep_orphan_commits(repo_id)
         for key, value in expected_counts.items():
             got = getattr(counts, key)
-            assert got == value, (
-                f"{key}: repo_id={repo_id}, expected {value}, got {got}"
-            )
+            assert got == value, f"{key}: repo_id={repo_id}, expected {value}, got {got}"
         remaining = [sha for sha, _at in store.list_indexed_commits(repo_id)]
-        assert sorted(remaining) == sorted(survivors), (
-            f"repo_id={repo_id} survivors"
-        )
+        assert sorted(remaining) == sorted(survivors), f"repo_id={repo_id} survivors"

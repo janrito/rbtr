@@ -14,11 +14,10 @@ boilerplate (``blob_sha``, ``line_start``, ``line_end``, empty
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from rbtr.index.models import ChunkKind
-
 from tests.index.cases_common import ChunkSpec
 
 
@@ -26,6 +25,7 @@ class InferFn(StrEnum):
     IMPORT = "import"
     TEST = "test"
     DOC = "doc"
+
 
 @dataclass(frozen=True)
 class EdgeCase:
@@ -107,9 +107,7 @@ def case_import_relative() -> EdgeCase:
                 file_path="src/rbtr/index/models.py",
             ),
         ],
-        repo_files=frozenset(
-            {"src/rbtr/index/store.py", "src/rbtr/index/models.py"}
-        ),
+        repo_files=frozenset({"src/rbtr/index/store.py", "src/rbtr/index/models.py"}),
         expected=frozenset({("imp1", "chunk1")}),
     )
 
@@ -133,9 +131,7 @@ def case_import_relative_dot_only_unresolved() -> EdgeCase:
                 file_path="src/rbtr/index/utils.py",
             ),
         ],
-        repo_files=frozenset(
-            {"src/rbtr/index/store.py", "src/rbtr/index/utils.py"}
-        ),
+        repo_files=frozenset({"src/rbtr/index/store.py", "src/rbtr/index/utils.py"}),
         expected=frozenset(),  # no package file resolves
     )
 

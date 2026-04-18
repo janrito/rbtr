@@ -86,10 +86,7 @@ def test_response_status() -> None:
 
 
 def test_response_status_with_indexed_refs() -> None:
-    raw = (
-        b'{"kind":"status","exists":true,"total_chunks":100,'
-        b'"indexed_refs":["abc123","def456"]}'
-    )
+    raw = b'{"kind":"status","exists":true,"total_chunks":100,"indexed_refs":["abc123","def456"]}'
     resp = response_adapter.validate_json(raw)
     assert isinstance(resp, StatusResponse)
     assert resp.indexed_refs == ["abc123", "def456"]
@@ -114,9 +111,7 @@ def test_notification_ready() -> None:
 
 
 def test_notification_auto_rebuild() -> None:
-    n = notification_adapter.validate_json(
-        b'{"kind":"auto_rebuild","repo":"/r","new_ref":"b"}'
-    )
+    n = notification_adapter.validate_json(b'{"kind":"auto_rebuild","repo":"/r","new_ref":"b"}')
     assert isinstance(n, AutoRebuildNotification)
     assert n.new_ref == "b"
 

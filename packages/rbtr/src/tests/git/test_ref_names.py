@@ -41,9 +41,7 @@ def test_empty_input_returns_empty_dict(sample_repo: SampleRepo) -> None:
 
 
 def test_tag_resolves_to_short_name(sample_repo: SampleRepo) -> None:
-    sample_repo.repo.references.create(
-        "refs/tags/v1.0", sample_repo.mid
-    )
+    sample_repo.repo.references.create("refs/tags/v1.0", sample_repo.mid)
     mid_sha = str(sample_repo.mid)
     result = names_for_commits(sample_repo.repo, [mid_sha])
     assert result[mid_sha] == ["v1.0"]
@@ -58,9 +56,7 @@ def test_multiple_shas_in_one_call(sample_repo: SampleRepo) -> None:
 
 
 def test_remote_tracking_branch_keeps_remote_prefix(sample_repo: SampleRepo) -> None:
-    sample_repo.repo.references.create(
-        "refs/remotes/origin/main", sample_repo.head
-    )
+    sample_repo.repo.references.create("refs/remotes/origin/main", sample_repo.head)
     head_sha = str(sample_repo.head)
     result = names_for_commits(sample_repo.repo, [head_sha])
     # Local branch and remote-tracking branch both surface; remote

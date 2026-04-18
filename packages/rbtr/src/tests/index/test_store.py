@@ -45,9 +45,7 @@ def tokenised_chunks(all_store_chunks: list[Chunk]) -> list[Chunk]:
 
 
 @pytest.fixture
-def seeded_basic_store(
-    store: IndexStore, tokenised_chunks: list[Chunk]
-) -> IndexStore:
+def seeded_basic_store(store: IndexStore, tokenised_chunks: list[Chunk]) -> IndexStore:
     """Populated with every ``all_store_chunks`` chunk on commit 'head'."""
     store.insert_chunks(tokenised_chunks)
     for c in tokenised_chunks:
@@ -58,9 +56,7 @@ def seeded_basic_store(
 # ── Batch snapshots ─────────────────────────────────────────────────
 
 
-def test_insert_snapshots_batch(
-    store: IndexStore, math_func: Chunk, http_func: Chunk
-) -> None:
+def test_insert_snapshots_batch(store: IndexStore, math_func: Chunk, http_func: Chunk) -> None:
     store.insert_chunks([math_func, http_func])
     store.insert_snapshots(
         [
@@ -94,9 +90,7 @@ def test_delete_snapshots_removes_ref_visibility(
 # ── Thread safety ────────────────────────────────────────────────────
 
 
-def test_concurrent_write_then_read(
-    math_func: Chunk, http_func: Chunk, string_func: Chunk
-) -> None:
+def test_concurrent_write_then_read(math_func: Chunk, http_func: Chunk, string_func: Chunk) -> None:
     """Writes from a background thread are visible after join."""
     store = IndexStore()
     store.insert_chunks([math_func, http_func, string_func])
@@ -167,9 +161,7 @@ def test_idf_neutralised_after_fts_rebuild(
     """After ``rebuild_fts_index()``, every term has df=1."""
     seeded_basic_store.rebuild_fts_index()
     rows = (
-        seeded_basic_store._cur()
-        .execute("SELECT DISTINCT df FROM fts_main_chunks.dict")
-        .fetchall()
+        seeded_basic_store._cur().execute("SELECT DISTINCT df FROM fts_main_chunks.dict").fetchall()
     )
     assert rows == [(1,)]
 
@@ -223,15 +215,9 @@ def test_fts_finds_snake_case_by_parts(store: IndexStore) -> None:
     assert results[0][0].id == "snake_1"
 
 
-def test_fts_content_tokens_roundtrip(
-    seeded_basic_store: IndexStore, math_func: Chunk
-) -> None:
+def test_fts_content_tokens_roundtrip(seeded_basic_store: IndexStore, math_func: Chunk) -> None:
     """``content_tokens`` set on insert is retrievable on read."""
-    math = next(
-        c
-        for c in seeded_basic_store.get_chunks("head")
-        if c.id == math_func.id
-    )
+    math = next(c for c in seeded_basic_store.get_chunks("head") if c.id == math_func.id)
     assert "calculate" in math.content_tokens
     assert "standard" in math.content_tokens
     assert "deviation" in math.content_tokens

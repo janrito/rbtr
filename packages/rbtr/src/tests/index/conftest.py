@@ -23,10 +23,6 @@ from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 
-
-
-
-
 # ═════════════════════════════════════════════════════════════════════
 # Ranking dataset (for test_search_ranking.py, test_search_structural.py)
 # ═════════════════════════════════════════════════════════════════════
@@ -413,9 +409,7 @@ def gc_chunk_z() -> Chunk:
 
 @pytest.fixture
 def edge_math_calls_class() -> Edge:
-    return Edge(
-        source_id="math_1", target_id="math_class_1", kind=EdgeKind.CALLS
-    )
+    return Edge(source_id="math_1", target_id="math_class_1", kind=EdgeKind.CALLS)
 
 
 @pytest.fixture

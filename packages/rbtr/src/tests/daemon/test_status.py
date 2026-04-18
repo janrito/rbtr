@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import time
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -67,7 +67,7 @@ class TestStatusFile:
 
     def test_write_is_atomic(self, status_dir: Path) -> None:
         # Verify the file is not half-written during write
-        from rbtr.daemon.status import read_status, write_status
+        from rbtr.daemon.status import write_status
 
         write_status(
             status_dir,
@@ -115,14 +115,12 @@ def test_daemon_status_report_running_true_populated() -> None:
 
 
 def test_uptime_seconds_from_started_at() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from rbtr.daemon.status import uptime_seconds
 
     # 60 s ago
-    started = (
-        datetime.now(tz=timezone.utc).replace(microsecond=0).timestamp() - 60
-    )
+    started = datetime.now(tz=UTC).replace(microsecond=0).timestamp() - 60
     import time as _time
 
     iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(started))

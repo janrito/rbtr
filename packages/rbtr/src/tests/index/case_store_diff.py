@@ -34,9 +34,7 @@ def case_no_changes(math_func: Chunk) -> DiffScenario:
     )
 
 
-def case_file_added_at_head(
-    math_func: Chunk, http_func: Chunk
-) -> DiffScenario:
+def case_file_added_at_head(math_func: Chunk, http_func: Chunk) -> DiffScenario:
     return DiffScenario(
         chunks=[math_func, http_func],
         snapshots=[
@@ -48,9 +46,7 @@ def case_file_added_at_head(
     )
 
 
-def case_file_removed_at_head(
-    math_func: Chunk, http_func: Chunk
-) -> DiffScenario:
+def case_file_removed_at_head(math_func: Chunk, http_func: Chunk) -> DiffScenario:
     return DiffScenario(
         chunks=[math_func, http_func],
         snapshots=[
@@ -63,9 +59,7 @@ def case_file_removed_at_head(
 
 
 def case_file_modified_between_base_and_head(math_func: Chunk) -> DiffScenario:
-    updated = math_func.model_copy(
-        update={"id": "math_1_v2", "blob_sha": "blob_math_v2"}
-    )
+    updated = math_func.model_copy(update={"id": "math_1_v2", "blob_sha": "blob_math_v2"})
     return DiffScenario(
         chunks=[math_func, updated],
         snapshots=[
@@ -76,12 +70,8 @@ def case_file_modified_between_base_and_head(math_func: Chunk) -> DiffScenario:
     )
 
 
-def case_mixed_added_removed_modified(
-    math_func: Chunk, http_func: Chunk
-) -> DiffScenario:
-    updated = math_func.model_copy(
-        update={"id": "math_1_v2", "blob_sha": "blob_math_v2"}
-    )
+def case_mixed_added_removed_modified(math_func: Chunk, http_func: Chunk) -> DiffScenario:
+    updated = math_func.model_copy(update={"id": "math_1_v2", "blob_sha": "blob_math_v2"})
     return DiffScenario(
         chunks=[math_func, updated, http_func],
         snapshots=[

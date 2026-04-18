@@ -15,9 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rbtr.index.models import ChunkKind
-
 from tests.index.cases_common import ChunkSpec
-
 
 
 @dataclass(frozen=True)
@@ -92,9 +90,7 @@ def case_exact_name_match_beats_higher_lexical() -> FuseCase:
     return FuseCase(
         chunks=[
             ChunkSpec(id="def", name="IndexStore"),
-            ChunkSpec(
-                id="test", name="test_search", file_path="tests/test_store.py"
-            ),
+            ChunkSpec(id="test", name="test_search", file_path="tests/test_store.py"),
         ],
         lexical={"def": 1.0, "test": 10.0},
         name={"def": 1.0, "test": 0.0},
@@ -110,9 +106,7 @@ def case_class_outranks_import_via_kind_boost() -> FuseCase:
     return FuseCase(
         chunks=[
             ChunkSpec(id="cls", kind=ChunkKind.CLASS, name="Engine"),
-            ChunkSpec(
-                id="imp", kind=ChunkKind.IMPORT, name="from .core import Engine"
-            ),
+            ChunkSpec(id="imp", kind=ChunkKind.IMPORT, name="from .core import Engine"),
         ],
         lexical={"cls": 1.0, "imp": 1.0},
         name={"cls": 0.5, "imp": 0.5},
@@ -127,9 +121,7 @@ def case_source_outranks_test_via_file_penalty() -> FuseCase:
     """Source beats test despite 44x more mentions."""
     return FuseCase(
         chunks=[
-            ChunkSpec(
-                id="src", name="build_index", file_path="src/orchestrator.py"
-            ),
+            ChunkSpec(id="src", name="build_index", file_path="src/orchestrator.py"),
             ChunkSpec(
                 id="tst",
                 name="test_build_index",

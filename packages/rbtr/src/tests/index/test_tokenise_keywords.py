@@ -170,6 +170,5 @@ def test_keyword_searchable_via_fts(
     results = store.search_fulltext("head", case.keyword, top_k=10)
     ids = [c.id for c, _ in results]
     assert case.chunk_id in ids, (
-        f"searching for {case.keyword!r} did not find {case.chunk_id!r}, "
-        f"got {ids}"
+        f"searching for {case.keyword!r} did not find {case.chunk_id!r}, got {ids}"
     )

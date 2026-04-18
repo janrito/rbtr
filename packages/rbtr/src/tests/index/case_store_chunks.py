@@ -34,24 +34,12 @@ class ChunkScenario:
     repo_paths: list[str] = field(default_factory=lambda: ["/default"])
     per_repo: list[RepoChunks] = field(default_factory=list)
 
-    expected_chunk_ids: dict[tuple[int, str], list[str]] = field(
-        default_factory=dict
-    )
-    expected_by_path: dict[tuple[int, str, str], list[str]] = field(
-        default_factory=dict
-    )
-    expected_by_kind: dict[tuple[int, str, ChunkKind], list[str]] = field(
-        default_factory=dict
-    )
-    expected_by_name: dict[tuple[int, str, str], list[str]] = field(
-        default_factory=dict
-    )
-    expected_has_blob: dict[tuple[int, str], bool] = field(
-        default_factory=dict
-    )
-    expected_counts: dict[tuple[int, str], int] = field(
-        default_factory=dict
-    )
+    expected_chunk_ids: dict[tuple[int, str], list[str]] = field(default_factory=dict)
+    expected_by_path: dict[tuple[int, str, str], list[str]] = field(default_factory=dict)
+    expected_by_kind: dict[tuple[int, str, ChunkKind], list[str]] = field(default_factory=dict)
+    expected_by_name: dict[tuple[int, str, str], list[str]] = field(default_factory=dict)
+    expected_has_blob: dict[tuple[int, str], bool] = field(default_factory=dict)
+    expected_counts: dict[tuple[int, str], int] = field(default_factory=dict)
 
 
 # ── Empty ────────────────────────────────────────────────────────────
@@ -92,25 +80,19 @@ def case_full_dataset_on_one_commit(
     snapshots = [("head", c.file_path, c.blob_sha) for c in all_store_chunks]
     return ChunkScenario(
         repo_paths=["/r"],
-        per_repo=[
-            RepoChunks(inserts=[list(all_store_chunks)], snapshots=snapshots)
-        ],
+        per_repo=[RepoChunks(inserts=[list(all_store_chunks)], snapshots=snapshots)],
         expected_chunk_ids={
             (1, "head"): sorted(c.id for c in all_store_chunks),
             (1, "does_not_exist"): [],
         },
         expected_by_path={
             (1, "head", "src/api/client.py"): [http_func.id],
-            (1, "head", "src/math_utils.py"): sorted(
-                [math_func.id, math_class.id]
-            ),
+            (1, "head", "src/math_utils.py"): sorted([math_func.id, math_class.id]),
             (1, "head", "no/such/path.py"): [],
         },
         expected_by_kind={
             (1, "head", ChunkKind.CLASS): [math_class.id],
-            (1, "head", ChunkKind.FUNCTION): sorted(
-                [math_func.id, http_func.id, string_func.id]
-            ),
+            (1, "head", ChunkKind.FUNCTION): sorted([math_func.id, http_func.id, string_func.id]),
         },
         expected_by_name={
             (1, "head", "normalize_whitespace"): [string_func.id],
@@ -160,9 +142,7 @@ def case_blob_reused_across_commits(math_func: Chunk) -> ChunkScenario:
 
 def case_upsert_replaces_content(math_func: Chunk) -> ChunkScenario:
     """Two batches with the same id so the second overwrites the first."""
-    updated = math_func.model_copy(
-        update={"content": "def calculate(): return 42"}
-    )
+    updated = math_func.model_copy(update={"content": "def calculate(): return 42"})
     return ChunkScenario(
         repo_paths=["/r"],
         per_repo=[

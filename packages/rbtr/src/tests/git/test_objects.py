@@ -140,17 +140,13 @@ def test_resolve_unknown_ref_raises(sample_repo: SampleRepo) -> None:
 # ── read_blob ────────────────────────────────────────────────────────
 
 
-def test_read_blob_existing_file(
-    sample_repo: SampleRepo, handler_v1: bytes
-) -> None:
+def test_read_blob_existing_file(sample_repo: SampleRepo, handler_v1: bytes) -> None:
     blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/handler.py")
     assert blob is not None
     assert blob.data == handler_v1
 
 
-def test_read_blob_nested_path(
-    sample_repo: SampleRepo, utils_content: bytes
-) -> None:
+def test_read_blob_nested_path(sample_repo: SampleRepo, utils_content: bytes) -> None:
     blob = read_blob(sample_repo.repo, str(sample_repo.base), "src/utils.py")
     assert blob is not None
     assert blob.data == utils_content
@@ -166,9 +162,7 @@ def test_read_blob_missing_ref(sample_repo: SampleRepo) -> None:
     assert blob is None
 
 
-def test_read_blob_binary_file(
-    sample_repo: SampleRepo, binary_png_content: bytes
-) -> None:
+def test_read_blob_binary_file(sample_repo: SampleRepo, binary_png_content: bytes) -> None:
     blob = read_blob(sample_repo.repo, "feature", "binary.png")
     assert blob is not None
     assert blob.data == binary_png_content
@@ -180,9 +174,7 @@ def test_read_blob_deleted_file(sample_repo: SampleRepo) -> None:
     assert read_blob(sample_repo.repo, "feature", "readme.md") is None
 
 
-def test_read_blob_by_branch_name(
-    sample_repo: SampleRepo, readme_content: bytes
-) -> None:
+def test_read_blob_by_branch_name(sample_repo: SampleRepo, readme_content: bytes) -> None:
     blob = read_blob(sample_repo.repo, "main", "readme.md")
     assert blob is not None
     assert blob.data == readme_content

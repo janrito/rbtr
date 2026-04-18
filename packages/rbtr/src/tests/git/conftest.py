@@ -70,7 +70,6 @@ from pathlib import Path
 import pygit2
 import pytest
 
-
 # ── File-content fixtures ───────────────────────────────────────────
 
 

@@ -87,8 +87,7 @@ def progress_reporter(*labels: str) -> Iterator[list[ProgressCallback]]:
 
     with Progress(console=_err) as progress:
         task_ids = [
-            progress.add_task(f"[cyan]{label}[/]", total=None, visible=False)
-            for label in labels
+            progress.add_task(f"[cyan]{label}[/]", total=None, visible=False) for label in labels
         ]
         yield [_make_progress_callback(progress, tid) for tid in task_ids]
 
@@ -280,8 +279,7 @@ def _render_status_response(m: StatusResponse) -> None:
         _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
         if m.indexed_refs:
             parts = [
-                _fmt_indexed_ref(sha, m.indexed_ref_names.get(sha, []))
-                for sha in m.indexed_refs
+                _fmt_indexed_ref(sha, m.indexed_ref_names.get(sha, [])) for sha in m.indexed_refs
             ]
             _out.print(f"  [dim]indexed:[/] {', '.join(parts)}")
         else:

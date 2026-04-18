@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import time
-from unittest.mock import patch
-
-import pytest
-
 
 class TestIdleMonitor:
     def test_start_with_zero_timeout_does_nothing(self) -> None:

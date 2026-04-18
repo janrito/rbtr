@@ -30,9 +30,7 @@ class PruneScenario:
     expected_surviving_chunk_ids: list[str] = field(default_factory=list)
 
 
-def case_all_chunks_referenced(
-    math_func: Chunk, http_func: Chunk
-) -> PruneScenario:
+def case_all_chunks_referenced(math_func: Chunk, http_func: Chunk) -> PruneScenario:
     return PruneScenario(
         chunks=[math_func, http_func],
         snapshots=[
@@ -96,9 +94,7 @@ def case_edges_on_commit_without_snapshots_are_pruned(
 
 def case_file_renamed_old_chunk_pruned(math_func: Chunk) -> PruneScenario:
     """Blob reused at a different path; old chunk record is pruned."""
-    renamed = math_func.model_copy(
-        update={"id": "math_renamed", "file_path": "src/renamed.py"}
-    )
+    renamed = math_func.model_copy(update={"id": "math_renamed", "file_path": "src/renamed.py"})
     return PruneScenario(
         chunks=[math_func, renamed],
         snapshots=[("sha1", renamed.file_path, math_func.blob_sha)],

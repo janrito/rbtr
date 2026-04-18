@@ -29,9 +29,7 @@ def test_has_indexed_matches_scenario(
 ) -> None:
     store, scenario = seeded
     for (repo_id, sha), expected in scenario.has_indexed.items():
-        assert store.has_indexed(repo_id, sha) is expected, (
-            f"repo_id={repo_id}, sha={sha!r}"
-        )
+        assert store.has_indexed(repo_id, sha) is expected, f"repo_id={repo_id}, sha={sha!r}"
 
 
 def test_list_indexed_commits_order_matches_scenario(

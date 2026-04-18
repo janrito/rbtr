@@ -47,9 +47,7 @@ def test_get_edges_filter_by_source(
     store, scenario = seeded
     for (repo_id, commit, source), expected in scenario.expected_by_source.items():
         actual = store.get_edges(commit, source_id=source, repo_id=repo_id)
-        assert actual == expected, (
-            f"repo_id={repo_id}, commit={commit!r}, source_id={source!r}"
-        )
+        assert actual == expected, f"repo_id={repo_id}, commit={commit!r}, source_id={source!r}"
 
 
 def test_get_edges_filter_by_kind(
@@ -58,6 +56,4 @@ def test_get_edges_filter_by_kind(
     store, scenario = seeded
     for (repo_id, commit, kind), expected in scenario.expected_by_kind.items():
         actual = store.get_edges(commit, kind=kind, repo_id=repo_id)
-        assert actual == expected, (
-            f"repo_id={repo_id}, commit={commit!r}, kind={kind!r}"
-        )
+        assert actual == expected, f"repo_id={repo_id}, commit={commit!r}, kind={kind!r}"

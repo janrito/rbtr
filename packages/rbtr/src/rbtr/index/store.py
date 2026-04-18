@@ -18,9 +18,9 @@ import importlib.resources
 import json
 import logging
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Iterator
 from typing import Any
 
 import duckdb
@@ -68,6 +68,7 @@ class GcCounts:
             edges=self.edges + other.edges,
             chunks=self.chunks + other.chunks,
         )
+
 
 # Import and doc_section chunks have short, keyword-dense content
 # that produces misleadingly high cosine scores.  Filtering them
@@ -317,18 +318,10 @@ class IndexStore:
         the pre-drop or post-drop state, never a partial one.
         """
         with self.transaction() as cur:
-            commit_row = cur.execute(
-                _DROP_COMMIT_SQL, [repo_id, commit_sha]
-            ).fetchone()
-            snap_row = cur.execute(
-                _DELETE_SNAPSHOTS_SQL, [repo_id, commit_sha]
-            ).fetchone()
-            edge_row = cur.execute(
-                _DELETE_EDGES_SQL, [repo_id, commit_sha]
-            ).fetchone()
-            chunk_row = cur.execute(
-                _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
-            ).fetchone()
+            commit_row = cur.execute(_DROP_COMMIT_SQL, [repo_id, commit_sha]).fetchone()
+            snap_row = cur.execute(_DELETE_SNAPSHOTS_SQL, [repo_id, commit_sha]).fetchone()
+            edge_row = cur.execute(_DELETE_EDGES_SQL, [repo_id, commit_sha]).fetchone()
+            chunk_row = cur.execute(_SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
@@ -344,11 +337,7 @@ class IndexStore:
 
         Read-only. Used by dry-run GC reporting.
         """
-        row = (
-            self._cur()
-            .execute(_COUNT_SNAPSHOTS_FOR_COMMIT_SQL, [repo_id, commit_sha])
-            .fetchone()
-        )
+        row = self._cur().execute(_COUNT_SNAPSHOTS_FOR_COMMIT_SQL, [repo_id, commit_sha]).fetchone()
         return int(row[0]) if row else 0
 
     def count_edges_for_commit(self, repo_id: int, commit_sha: str) -> int:
@@ -356,11 +345,7 @@ class IndexStore:
 
         Read-only. Used by dry-run GC reporting.
         """
-        row = (
-            self._cur()
-            .execute(_COUNT_EDGES_FOR_COMMIT_SQL, [repo_id, commit_sha])
-            .fetchone()
-        )
+        row = self._cur().execute(_COUNT_EDGES_FOR_COMMIT_SQL, [repo_id, commit_sha]).fetchone()
         return int(row[0]) if row else 0
 
     def sweep_orphan_chunks(self, repo_id: int) -> int:
@@ -384,15 +369,9 @@ class IndexStore:
         surviving snapshot. Runs in a single transaction.
         """
         with self.transaction() as cur:
-            snap_row = cur.execute(
-                _SWEEP_ORPHAN_SNAPSHOTS_SQL, [repo_id]
-            ).fetchone()
-            edge_row = cur.execute(
-                _SWEEP_ORPHAN_EDGES_SQL, [repo_id]
-            ).fetchone()
-            chunk_row = cur.execute(
-                _SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]
-            ).fetchone()
+            snap_row = cur.execute(_SWEEP_ORPHAN_SNAPSHOTS_SQL, [repo_id]).fetchone()
+            edge_row = cur.execute(_SWEEP_ORPHAN_EDGES_SQL, [repo_id]).fetchone()
+            chunk_row = cur.execute(_SWEEP_ORPHAN_CHUNKS_SQL, [repo_id]).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._fts_dirty = True
@@ -613,9 +592,7 @@ class IndexStore:
         Returns `(chunks_deleted, edges_deleted)`.
         """
         with self.transaction() as cur:
-            edge_row = cur.execute(
-                _PRUNE_EDGES_SQL, [repo_id, repo_id]
-            ).fetchone()
+            edge_row = cur.execute(_PRUNE_EDGES_SQL, [repo_id, repo_id]).fetchone()
             chunk_row = cur.execute(_PRUNE_CHUNKS_SQL, [repo_id]).fetchone()
         edges_deleted = int(edge_row[0]) if edge_row else 0
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0

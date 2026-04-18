@@ -38,7 +38,9 @@ def gc_signature() -> pygit2.Signature:
 
 
 @pytest.fixture
-def gc_repo(tmp_path: Path, gc_signature: pygit2.Signature) -> tuple[pygit2.Repository, str, str, str]:
+def gc_repo(
+    tmp_path: Path, gc_signature: pygit2.Signature
+) -> tuple[pygit2.Repository, str, str, str]:
     """Three-commit repo.  Tags ``v1`` at the first commit so KEEP_REFS has
     a non-HEAD ref to preserve; leaves the middle commit unreachable so
     HEAD_ONLY has something to drop."""
@@ -94,9 +96,7 @@ def gc(
 
 
 def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.commits == 2  # c1 and c2 dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
@@ -107,9 +107,7 @@ def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
 
 
 def test_keep_refs_preserves_tag_and_head(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP_REFS, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP_REFS, refs=[], dry_run=False)
     assert counts.commits == 1  # only c2 (unreachable) dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # tag v1
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD
@@ -121,9 +119,7 @@ def test_keep_refs_preserves_tag_and_head(gc: GcFixture) -> None:
 
 def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
     # Keep v1 (c1). HEAD (c3) is kept implicitly.
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP, refs=["v1"], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP, refs=["v1"], dry_run=False)
     assert counts.commits == 1
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
@@ -131,9 +127,7 @@ def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
 
 
 def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
-    run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP, refs=[], dry_run=False
-    )
+    run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.KEEP, refs=[], dry_run=False)
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -143,9 +137,7 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
 
 
 def test_drop_removes_only_listed_refs(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.DROP, refs=["v1"], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.DROP, refs=["v1"], dry_run=False)
     assert counts.commits == 1
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
@@ -162,9 +154,7 @@ def test_drop_head_is_allowed(gc: GcFixture) -> None:
 
 
 def test_orphans_never_drops_indexed_commits(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     assert counts.commits == 0
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True
@@ -174,9 +164,7 @@ def test_orphans_never_drops_indexed_commits(gc: GcFixture) -> None:
 def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
     # Simulate a crashed build: snapshot without mark_indexed.
     gc.store.insert_snapshot("crashed", "x.py", "bx", repo_id=gc.repo_id)
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     assert counts.snapshots == 1
     # Completed commits untouched.
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
@@ -186,9 +174,7 @@ def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
 
 
 def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True
-    )
+    counts = run_gc(gc.store, gc.repo, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True)
     assert counts.commits == 2
     # Nothing actually dropped.
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True

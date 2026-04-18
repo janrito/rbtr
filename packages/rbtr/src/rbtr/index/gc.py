@@ -28,12 +28,16 @@ ORPHANS
 
 from __future__ import annotations
 
+import logging
+
 import pygit2
 
 from rbtr.daemon.messages import GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import resolve_commit
 from rbtr.index.store import GcCounts, IndexStore
+
+log = logging.getLogger(__name__)
 
 # Reference namespaces that contribute to ``KEEP_REFS``.
 _KEPT_REF_PREFIXES: tuple[str, ...] = (
@@ -83,9 +87,7 @@ def run_gc(
     return total
 
 
-def _run_orphans_only(
-    store: IndexStore, repo_id: int, *, dry_run: bool
-) -> GcCounts:
+def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCounts:
     if dry_run:
         # ORPHANS dry-run is conservative: report zero rather than
         # adding a read-only counterpart to sweep_orphan_commits.
@@ -128,9 +130,7 @@ def _resolve_drop_set(
     return indexed - keep_set
 
 
-def _dry_run_counts(
-    store: IndexStore, repo_id: int, *, drop_set: set[str]
-) -> GcCounts:
+def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> GcCounts:
     """Compute counts without writing.
 
     Accurate for commits / snapshots / edges.  The ``chunks`` field
@@ -168,7 +168,8 @@ def _local_ref_shas(repo: pygit2.Repository) -> set[str]:
         try:
             out.add(str(repo.references[name].peel(pygit2.Commit).id))
         except Exception:
-            # Malformed refs are silently ignored.
+            # Malformed refs are ignored; GC should still complete.
+            log.debug("Skipping malformed ref %s", name, exc_info=True)
             continue
     return out
 

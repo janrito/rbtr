@@ -20,8 +20,7 @@ from rbtr.index.edges import (
     infer_test_edges,
 )
 from rbtr.index.models import Chunk, Edge
-from tests.index.case_edges import ChunkSpec, EdgeCase, InferFn
-
+from tests.index.case_edges import EdgeCase, InferFn
 
 # ── _resolve_module_to_file ──────────────────────────────────────────
 
@@ -39,9 +38,7 @@ from tests.index.case_edges import ChunkSpec, EdgeCase, InferFn
     ],
     ids=["direct_py", "init_py", "not_found"],
 )
-def test_resolve_module_to_file(
-    module: str, files: set[str], expected: str | None
-) -> None:
+def test_resolve_module_to_file(module: str, files: set[str], expected: str | None) -> None:
     assert _resolve_module_to_file(module, files) == expected
 
 

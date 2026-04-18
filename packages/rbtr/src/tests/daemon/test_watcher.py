@@ -62,12 +62,8 @@ def built_repos(
                     repo.create_blob(f"# commit {i}\n".encode()),
                     pygit2.GIT_FILEMODE_BLOB,
                 )
-                parents = (
-                    [repo.head.target] if not repo.head_is_unborn else []
-                )
-                new = repo.create_commit(
-                    "refs/heads/main", sig, sig, f"c{i}", tb.write(), parents
-                )
+                parents = [repo.head.target] if not repo.head_is_unborn else []
+                new = repo.create_commit("refs/heads/main", sig, sig, f"c{i}", tb.write(), parents)
                 shas.append(str(new))
         out[spec.name] = BuiltRepo(path=str(repo_dir), shas=shas)
     return out

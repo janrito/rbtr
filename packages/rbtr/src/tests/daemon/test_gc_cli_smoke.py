@@ -62,19 +62,13 @@ def tiny_repo(tmp_path: Path) -> TinyRepo:
             tb.insert(name, repo.create_blob(content), pygit2.GIT_FILEMODE_BLOB)
         parents = [repo.head.target] if not repo.head_is_unborn else []
         shas.append(
-            str(
-                repo.create_commit(
-                    "refs/heads/main", sig, sig, f"c{i}", tb.write(), parents
-                )
-            )
+            str(repo.create_commit("refs/heads/main", sig, sig, f"c{i}", tb.write(), parents))
         )
     return TinyRepo(path=path, c1=shas[0], c2=shas[1])
 
 
 @pytest.fixture
-def seeded_repo_id_both_commits(
-    isolated_home: Path, tiny_repo: TinyRepo
-) -> int:
+def seeded_repo_id_both_commits(isolated_home: Path, tiny_repo: TinyRepo) -> int:
     """Seed both commits and close the store so subprocesses can open it."""
     config.reload()
     store = IndexStore.from_config()
@@ -98,9 +92,7 @@ def seeded_repo_id_both_commits(
 
 
 @pytest.fixture
-def seeded_repo_id_first_commit(
-    isolated_home: Path, tiny_repo: TinyRepo
-) -> int:
+def seeded_repo_id_first_commit(isolated_home: Path, tiny_repo: TinyRepo) -> int:
     """Seed only the first commit and close the store."""
     config.reload()
     store = IndexStore.from_config()
@@ -139,7 +131,7 @@ def test_gc_drop_removes_commit(
 ) -> None:
     repo_id = seeded_repo_id_both_commits
 
-    r = subprocess.run(
+    r = subprocess.run(  # noqa: S603  # trusted: args built from literals + sys.executable
         [
             sys.executable,
             "-m",
@@ -173,7 +165,7 @@ def test_gc_dry_run_changes_nothing(
 ) -> None:
     repo_id = seeded_repo_id_first_commit
 
-    r = subprocess.run(
+    r = subprocess.run(  # noqa: S603  # trusted: args built from literals + sys.executable
         [
             sys.executable,
             "-m",
@@ -197,10 +189,8 @@ def test_gc_dry_run_changes_nothing(
     assert store.has_indexed(repo_id, tiny_repo.c1) is True
 
 
-def test_gc_keep_and_drop_are_mutually_exclusive(
-    isolated_home: Path, tiny_repo: TinyRepo
-) -> None:
-    r = subprocess.run(
+def test_gc_keep_and_drop_are_mutually_exclusive(isolated_home: Path, tiny_repo: TinyRepo) -> None:
+    r = subprocess.run(  # noqa: S603  # trusted: args built from literals + sys.executable
         [
             sys.executable,
             "-m",

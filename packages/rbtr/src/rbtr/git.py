@@ -103,9 +103,7 @@ def read_head(repo_path: str) -> str | None:
         return None
 
 
-def names_for_commits(
-    repo: pygit2.Repository, shas: list[str]
-) -> dict[str, list[str]]:
+def names_for_commits(repo: pygit2.Repository, shas: list[str]) -> dict[str, list[str]]:
     """Return a map from commit SHA to the symbolic names that point to it.
 
     Names include ``"HEAD"`` when HEAD resolves to the commit, plus short
@@ -150,9 +148,9 @@ def _short_ref_name(ref_name: str) -> str:
     """
     for prefix in ("refs/heads/", "refs/tags/"):
         if ref_name.startswith(prefix):
-            return ref_name[len(prefix):]
+            return ref_name[len(prefix) :]
     if ref_name.startswith("refs/remotes/"):
-        return ref_name[len("refs/remotes/"):]
+        return ref_name[len("refs/remotes/") :]
     return ref_name
 
 

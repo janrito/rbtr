@@ -16,6 +16,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -36,6 +37,8 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.pidfile import is_pid_alive
 from rbtr.daemon.status import DaemonStatus, read_status, remove_status
 from rbtr.errors import RbtrError
+
+log = logging.getLogger(__name__)
 
 
 def _sock_dir() -> Path:
@@ -83,10 +86,7 @@ def start_daemon() -> DaemonStatus:
             return status
 
     proc.terminate()
-    raise RuntimeError(
-        f"Daemon failed to start within 5 s. "
-        f"Check {log_path} for details."
-    )
+    raise RuntimeError(f"Daemon failed to start within 5 s. Check {log_path} for details.")
 
 
 def stop_daemon(*, timeout: float = 10.0) -> None:
@@ -101,14 +101,16 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
 
     pid = status.pid
 
-    # Try graceful ZMQ shutdown first
+    # Try graceful ZMQ shutdown first. Best-effort — the SIGTERM
+    # path below is the real stop. Log at debug so failures are
+    # visible without noise on the happy path.
     try:
         with DaemonClient(_sock_dir()) as client:
             from rbtr.daemon.messages import ShutdownRequest
 
             client.send_or_raise(ShutdownRequest())
     except Exception:
-        pass  # best-effort
+        log.debug("Graceful ZMQ shutdown failed, falling back to signals", exc_info=True)
 
     # Wait for the process to exit
     for _ in range(int(timeout / 0.5)):
@@ -131,8 +133,7 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
             return
 
     raise RuntimeError(
-        f"Daemon (PID {pid}) did not stop cleanly. "
-        f"Check {_sock_dir() / 'daemon.log'} for details."
+        f"Daemon (PID {pid}) did not stop cleanly. Check {_sock_dir() / 'daemon.log'} for details."
     )
 
 

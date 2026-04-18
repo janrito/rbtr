@@ -26,13 +26,9 @@ class GcScenario:
     repo_paths: list[str] = field(default_factory=lambda: ["/default"])
     per_repo: list[RepoGcData] = field(default_factory=list)
 
-    drop: list[
-        tuple[int, str, dict[str, int | list[str]]]
-    ] = field(default_factory=list)
+    drop: list[tuple[int, str, dict[str, int | list[str]]]] = field(default_factory=list)
     sweep_chunks: list[tuple[int, int]] = field(default_factory=list)
-    sweep_commits: list[
-        tuple[int, dict[str, int], list[str]]
-    ] = field(default_factory=list)
+    sweep_commits: list[tuple[int, dict[str, int], list[str]]] = field(default_factory=list)
 
 
 def case_two_commits_sharing_one_blob(
@@ -121,9 +117,7 @@ def case_drop_scoped_to_target_repo() -> GcScenario:
     )
 
 
-def case_orphan_chunk_without_snapshot(
-    gc_chunk_x: Chunk, gc_chunk_y: Chunk
-) -> GcScenario:
+def case_orphan_chunk_without_snapshot(gc_chunk_x: Chunk, gc_chunk_y: Chunk) -> GcScenario:
     """Chunk inserted but never snapshotted → sweep_orphan_chunks = 1."""
     return GcScenario(
         repo_paths=["/r"],
@@ -160,9 +154,7 @@ def case_crashed_build_leaves_residue(gc_chunk_x: Chunk) -> GcScenario:
     )
 
 
-def case_mixed_completed_and_crashed(
-    gc_chunk_x: Chunk, gc_chunk_y: Chunk
-) -> GcScenario:
+def case_mixed_completed_and_crashed(gc_chunk_x: Chunk, gc_chunk_y: Chunk) -> GcScenario:
     """One good commit + one crashed residue: sweep only removes the crashed one."""
     return GcScenario(
         repo_paths=["/r"],

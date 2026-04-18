@@ -16,9 +16,8 @@ from __future__ import annotations
 
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.store import IndexStore
 from rbtr.index.models import Chunk
-
+from rbtr.index.store import IndexStore
 from tests.index.case_store_chunks import ChunkScenario
 
 
@@ -46,9 +45,7 @@ def test_get_chunks_returns_expected_ids_per_commit(
     store, scenario = seeded
     for (repo_id, commit), expected_ids in scenario.expected_chunk_ids.items():
         actual = sorted(c.id for c in store.get_chunks(commit, repo_id=repo_id))
-        assert actual == expected_ids, (
-            f"repo_id={repo_id}, commit={commit!r}"
-        )
+        assert actual == expected_ids, f"repo_id={repo_id}, commit={commit!r}"
 
 
 def test_get_chunks_filter_by_file_path(
@@ -56,13 +53,8 @@ def test_get_chunks_filter_by_file_path(
 ) -> None:
     store, scenario = seeded
     for (repo_id, commit, path), expected_ids in scenario.expected_by_path.items():
-        actual = sorted(
-            c.id
-            for c in store.get_chunks(commit, file_path=path, repo_id=repo_id)
-        )
-        assert actual == expected_ids, (
-            f"repo_id={repo_id}, commit={commit!r}, file_path={path!r}"
-        )
+        actual = sorted(c.id for c in store.get_chunks(commit, file_path=path, repo_id=repo_id))
+        assert actual == expected_ids, f"repo_id={repo_id}, commit={commit!r}, file_path={path!r}"
 
 
 def test_get_chunks_filter_by_kind(
@@ -70,13 +62,8 @@ def test_get_chunks_filter_by_kind(
 ) -> None:
     store, scenario = seeded
     for (repo_id, commit, kind), expected_ids in scenario.expected_by_kind.items():
-        actual = sorted(
-            c.id
-            for c in store.get_chunks(commit, kind=kind, repo_id=repo_id)
-        )
-        assert actual == expected_ids, (
-            f"repo_id={repo_id}, commit={commit!r}, kind={kind!r}"
-        )
+        actual = sorted(c.id for c in store.get_chunks(commit, kind=kind, repo_id=repo_id))
+        assert actual == expected_ids, f"repo_id={repo_id}, commit={commit!r}, kind={kind!r}"
 
 
 def test_get_chunks_filter_by_name(
@@ -84,13 +71,8 @@ def test_get_chunks_filter_by_name(
 ) -> None:
     store, scenario = seeded
     for (repo_id, commit, name), expected_ids in scenario.expected_by_name.items():
-        actual = sorted(
-            c.id
-            for c in store.get_chunks(commit, name=name, repo_id=repo_id)
-        )
-        assert actual == expected_ids, (
-            f"repo_id={repo_id}, commit={commit!r}, name={name!r}"
-        )
+        actual = sorted(c.id for c in store.get_chunks(commit, name=name, repo_id=repo_id))
+        assert actual == expected_ids, f"repo_id={repo_id}, commit={commit!r}, name={name!r}"
 
 
 def test_has_blob_matches_scenario(
@@ -167,9 +149,7 @@ def test_upsert_replaces_chunk_content(
             final_by_id[chunk.id] = chunk
 
     for chunk_id, final in final_by_id.items():
-        if chunk_id not in (
-            cid for cids in scenario.expected_chunk_ids.values() for cid in cids
-        ):
+        if chunk_id not in (cid for cids in scenario.expected_chunk_ids.values() for cid in cids):
             continue
         actual = store.get_chunks("head", name=final.name, repo_id=1)
         assert len(actual) == 1

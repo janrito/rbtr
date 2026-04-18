@@ -13,7 +13,7 @@ from rbtr.index.models import Chunk
 from rbtr.index.search import ScoredResult
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
-from tests.index.case_store_search_e2e import ChunkSpec, StoreSearchCase
+from tests.index.case_store_search_e2e import StoreSearchCase
 
 
 @fixture

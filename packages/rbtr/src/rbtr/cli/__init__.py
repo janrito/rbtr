@@ -20,14 +20,11 @@ the daemon unless `--no-daemon` is given.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
-
-import json
 
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_settings import (
@@ -68,7 +65,6 @@ from rbtr.daemon.messages import (
     Response,
     SearchRequest,
     SearchResponse,
-    ShutdownRequest,
     StatusRequest,
     StatusResponse,
 )
@@ -194,9 +190,7 @@ class Index(BaseModel):
             return
 
         # Try daemon first
-        resp = try_daemon(
-            BuildIndexRequest(repo=resolved_repo, refs=resolved_refs)
-        )
+        resp = try_daemon(BuildIndexRequest(repo=resolved_repo, refs=resolved_refs))
         if resp is not None:
             match resp:
                 case BuildIndexResponse():
@@ -217,9 +211,7 @@ class Index(BaseModel):
             self._run_inline(resolved_repo, resolved_refs)
             return
 
-        resp = try_daemon(
-            BuildIndexRequest(repo=resolved_repo, refs=resolved_refs)
-        )
+        resp = try_daemon(BuildIndexRequest(repo=resolved_repo, refs=resolved_refs))
         if resp is not None and isinstance(resp, (BuildIndexResponse, OkResponse)):
             print_err("[yellow]Index job queued (daemon started).[/]")
             print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
@@ -305,9 +297,7 @@ class ReadSymbol(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(
-            ReadSymbolRequest(repo=resolved_repo, name=self.symbol, ref=self.ref)
-        )
+        resp = try_daemon(ReadSymbolRequest(repo=resolved_repo, name=self.symbol, ref=self.ref))
         if isinstance(resp, ReadSymbolResponse):
             for c in resp.chunks:
                 emit(c)
@@ -335,9 +325,7 @@ class ListSymbols(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(
-            ListSymbolsRequest(repo=resolved_repo, file_path=self.file, ref=self.ref)
-        )
+        resp = try_daemon(ListSymbolsRequest(repo=resolved_repo, file_path=self.file, ref=self.ref))
         if isinstance(resp, ListSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -361,9 +349,7 @@ class FindRefs(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(
-            FindRefsRequest(repo=resolved_repo, symbol=self.symbol, ref=self.ref)
-        )
+        resp = try_daemon(FindRefsRequest(repo=resolved_repo, symbol=self.symbol, ref=self.ref))
         if isinstance(resp, FindRefsResponse):
             for e in resp.edges:
                 emit(e)
@@ -387,9 +373,7 @@ class ChangedSymbols(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(
-            ChangedSymbolsRequest(repo=resolved_repo, base=self.base, head=self.head)
-        )
+        resp = try_daemon(ChangedSymbolsRequest(repo=resolved_repo, base=self.base, head=self.head))
         if isinstance(resp, ChangedSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -451,9 +435,7 @@ class Gc(BaseModel):
     """
 
     repo_path: str = Field(".", description="Repository path")
-    keep_head_only: bool = Field(
-        False, description="Keep only HEAD; default behaviour"
-    )
+    keep_head_only: bool = Field(False, description="Keep only HEAD; default behaviour")
     keep_refs: bool = Field(
         False,
         description="Keep HEAD, local branches, tags, and notes",
@@ -470,9 +452,7 @@ class Gc(BaseModel):
         False,
         description="Sweep crashed-build residue only; no commits dropped",
     )
-    dry_run: bool = Field(
-        False, description="Report what would be removed without writing"
-    )
+    dry_run: bool = Field(False, description="Report what would be removed without writing")
 
     def cli_cmd(self) -> None:
         mode, refs = self._resolve_mode()

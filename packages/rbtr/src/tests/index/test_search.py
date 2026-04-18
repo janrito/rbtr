@@ -8,18 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
+from rbtr.index.models import ChunkKind
 from rbtr.index.search import (
-    DEFAULT_ALPHA,
-    DEFAULT_BETA,
-    DEFAULT_GAMMA,
     FileCategory,
     QueryKind,
-    ScoredResult,
     classify_query,
     file_category,
     file_category_penalty,
-    fuse_scores,
     importance_score,
     kind_boost,
     name_score,
@@ -27,8 +22,6 @@ from rbtr.index.search import (
     proximity_score,
     weights_for_query,
 )
-from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 
 # ── normalise_scores ─────────────────────────────────────────────────
 

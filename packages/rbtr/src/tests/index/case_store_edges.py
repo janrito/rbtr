@@ -44,9 +44,7 @@ def case_single_edge_single_commit(edge_math_calls_class: Edge) -> EdgeScenario:
     )
 
 
-def case_two_edges_mixed_kinds(
-    edge_a_calls_b: Edge, edge_c_imports_d: Edge
-) -> EdgeScenario:
+def case_two_edges_mixed_kinds(edge_a_calls_b: Edge, edge_c_imports_d: Edge) -> EdgeScenario:
     edges = [edge_a_calls_b, edge_c_imports_d]
     return EdgeScenario(
         repo_paths=["/r"],
@@ -82,9 +80,7 @@ def case_same_edge_on_two_commits(edge_a_calls_b: Edge) -> EdgeScenario:
     )
 
 
-def case_two_repos_isolated(
-    edge_a_calls_b: Edge, edge_c_imports_d: Edge
-) -> EdgeScenario:
+def case_two_repos_isolated(edge_a_calls_b: Edge, edge_c_imports_d: Edge) -> EdgeScenario:
     return EdgeScenario(
         repo_paths=["/r1", "/r2"],
         per_repo=[

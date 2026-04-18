@@ -11,7 +11,6 @@ import pytest
 from rbtr.languages import LanguageManager
 
 
-
 @pytest.mark.parametrize(
     (
         "lang",

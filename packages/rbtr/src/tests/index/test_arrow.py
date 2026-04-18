@@ -9,7 +9,6 @@ import pytest
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 
-
 # ── Input fixtures ──────────────────────────────────────────────────
 
 
@@ -175,18 +174,14 @@ def test_edges_to_table_values(call_edge: Edge) -> None:
     assert table.column("commit_sha")[0].as_py() == "sha_abc"
 
 
-def test_edges_to_table_commit_sha_broadcast(
-    call_edge: Edge, import_edge: Edge
-) -> None:
+def test_edges_to_table_commit_sha_broadcast(call_edge: Edge, import_edge: Edge) -> None:
     """Every row gets the same commit_sha."""
     table = edges_to_table([call_edge, import_edge], "head")
     shas = [v.as_py() for v in table.column("commit_sha")]
     assert shas == ["head", "head"]
 
 
-def test_edges_to_table_multiple_rows(
-    call_edge: Edge, import_edge: Edge
-) -> None:
+def test_edges_to_table_multiple_rows(call_edge: Edge, import_edge: Edge) -> None:
     """Multiple edges produce correct row count and order."""
     table = edges_to_table([call_edge, import_edge], "c1")
     assert table.num_rows == 2

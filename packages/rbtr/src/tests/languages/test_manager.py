@@ -12,7 +12,6 @@ import pytest
 from rbtr.languages import LanguageManager
 from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
 
-
 # ── detect_language ──────────────────────────────────────────────────
 
 
@@ -198,7 +197,9 @@ def test_get_language_bash(language_manager: LanguageManager) -> None:
     ],
     ids=["unknown", "detection-only"],
 )
-def test_get_language_returns_none(path: str, reason: str, language_manager: LanguageManager) -> None:
+def test_get_language_returns_none(
+    path: str, reason: str, language_manager: LanguageManager
+) -> None:
     assert language_manager.get_language(path) is None
 
 

@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rbtr.index.models import ChunkKind, Edge, EdgeKind
-
 from tests.index.cases_common import ChunkSpec
+
 
 @dataclass(frozen=True)
 class StoreSearchCase:
@@ -103,10 +103,7 @@ def case_exact_name_ranks_first() -> StoreSearchCase:
                 id="partial",
                 name="embed_text",
                 file_path="src/embeddings.py",
-                content=(
-                    "def embed_text(text): "
-                    "return embed(text) if not missing else None"
-                ),
+                content=("def embed_text(text): return embed(text) if not missing else None"),
             ),
         ],
         query="_embed_missing",
@@ -202,8 +199,7 @@ def case_importance_boost_central_above_peripheral() -> StoreSearchCase:
             *importers,
         ],
         edges=[
-            Edge(source_id=f"imp{i}", target_id="central", kind=EdgeKind.IMPORTS)
-            for i in range(5)
+            Edge(source_id=f"imp{i}", target_id="central", kind=EdgeKind.IMPORTS) for i in range(5)
         ],
         query="Config",
         expected_first_of_kind=("central", ChunkKind.CLASS),

@@ -20,7 +20,7 @@ from rbtr.index.search import (
     ScoredResult,
     fuse_scores,
 )
-from tests.index.case_fuse import ChunkSpec, FuseCase
+from tests.index.case_fuse import FuseCase
 
 
 @fixture
@@ -94,9 +94,7 @@ def test_first_score_approx_matches(
     if scenario.expected_first_score_approx is None:
         return
     assert results
-    assert results[0].score == pytest.approx(
-        scenario.expected_first_score_approx
-    )
+    assert results[0].score == pytest.approx(scenario.expected_first_score_approx)
 
 
 def test_every_result_has_populated_breakdown(

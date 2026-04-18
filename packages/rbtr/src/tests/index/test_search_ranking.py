@@ -34,7 +34,9 @@ def _rank(results: list[ScoredResult], chunk_id: str) -> int | None:
 # ── Kind boost ───────────────────────────────────────────────────────
 
 
-def test_class_definition_outranks_its_import(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_class_definition_outranks_its_import(
+    ranking_store: IndexStore, ranking_commit: str
+) -> None:
     """CLASS (1.5) outranks IMPORT (0.3) for 'AppConfig'."""
     results = ranking_store.search(ranking_commit, "AppConfig", top_k=10)
 
@@ -46,7 +48,8 @@ def test_class_definition_outranks_its_import(ranking_store: IndexStore, ranking
 
 
 def test_import_chunk_ranks_below_class_definition(
-    ranking_store: IndexStore, ranking_commit: str,
+    ranking_store: IndexStore,
+    ranking_commit: str,
 ) -> None:
     """Import chunk ranks below class definition for 'AppConfig'.
 
@@ -71,7 +74,8 @@ def test_import_chunk_ranks_below_class_definition(
 
 
 def test_source_function_outranks_test_with_higher_tf(
-    ranking_store: IndexStore, ranking_commit: str,
+    ranking_store: IndexStore,
+    ranking_commit: str,
 ) -> None:
     """Source function outranks test despite test having 3x more mentions.
 
@@ -125,7 +129,9 @@ def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_co
 # ── High-df terms ────────────────────────────────────────────────────
 
 
-def test_high_df_term_still_finds_definition(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_high_df_term_still_finds_definition(
+    ranking_store: IndexStore, ranking_commit: str
+) -> None:
     """'config' appears in 5/6 chunks; class definition is in top 2.
 
     IDF neutralisation prevents rare-term bias, and kind boost

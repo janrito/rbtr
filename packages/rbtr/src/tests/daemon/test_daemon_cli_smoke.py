@@ -35,14 +35,12 @@ def isolated_home(monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
         shutil.rmtree(home, ignore_errors=True)
 
 
-def _run(
-    args: list[str], home: Path, *, timeout: float = 15.0
-) -> subprocess.CompletedProcess[str]:
+def _run(args: list[str], home: Path, *, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
     # Invokes the system under test (the ``rbtr`` CLI).  Not setup
     # — this is the test action, expressed once instead of repeating
     # the same subprocess.run boilerplate at every call site.
     env = {**os.environ, "RBTR_HOME": str(home)}
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603  # trusted: args built from literals + sys.executable
         [sys.executable, "-m", "rbtr", *args],
         env=env,
         capture_output=True,

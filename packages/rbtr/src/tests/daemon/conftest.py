@@ -23,7 +23,6 @@ from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 
-
 # ── Data fixtures ────────────────────────────────────────────────────
 
 
@@ -131,9 +130,7 @@ def seeded_store(
     repo_id = store.register_repo("/test/repo")
     store.insert_chunks(daemon_chunks, repo_id=repo_id)
     for c in daemon_chunks:
-        store.insert_snapshot(
-            daemon_commit, c.file_path, c.blob_sha, repo_id=repo_id
-        )
+        store.insert_snapshot(daemon_commit, c.file_path, c.blob_sha, repo_id=repo_id)
     store.insert_edges(daemon_edges, daemon_commit, repo_id=repo_id)
     store.mark_indexed(repo_id, daemon_commit)
     store.rebuild_fts_index()
@@ -157,11 +154,11 @@ def running_server(sock_dir: Path) -> Generator[DaemonServer]:
 
 
 @pytest.fixture
-def running_server_with_index(
-    sock_dir: Path, seeded_store: IndexStore
-) -> Generator[DaemonServer]:
+def running_server_with_index(sock_dir: Path, seeded_store: IndexStore) -> Generator[DaemonServer]:
     """Server with a seeded index — for handler tests."""
-    server = DaemonServer(sock_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    server = DaemonServer(
+        sock_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
     rpc_path = sock_dir / "daemon.rpc"

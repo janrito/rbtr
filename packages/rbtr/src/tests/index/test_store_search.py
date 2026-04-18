@@ -47,9 +47,7 @@ def test_search_by_name_returns_expected(
     store, scenario = seeded
     for pattern, expected_ids in scenario.by_name:
         actual = [c.id for c in store.search_by_name(scenario.commit, pattern)]
-        assert sorted(actual) == sorted(expected_ids), (
-            f"pattern={pattern!r}"
-        )
+        assert sorted(actual) == sorted(expected_ids), f"pattern={pattern!r}"
 
 
 def test_search_by_name_result_carries_embedding_when_present(
@@ -79,9 +77,7 @@ def test_search_similar_ranking(
             continue
         # Every id in ``ordered`` must appear in ``ids`` in that order.
         actual_positions = [ids.index(sid) for sid in ordered if sid in ids]
-        assert actual_positions == sorted(actual_positions), (
-            f"expected order {ordered}, got {ids}"
-        )
+        assert actual_positions == sorted(actual_positions), f"expected order {ordered}, got {ids}"
 
 
 def test_search_similar_exact_match_scores_near_one(
@@ -151,9 +147,7 @@ def test_seeded_embeddings_are_truthy_on_retrieved_chunks(
         for chunk_id in scenario.embeddings:
             if chunk_id not in chunks:
                 continue
-            assert chunks[chunk_id].embedding, (
-                f"expected embedding truthy for {chunk_id!r}"
-            )
+            assert chunks[chunk_id].embedding, f"expected embedding truthy for {chunk_id!r}"
 
 
 def test_unseeded_chunks_have_no_embedding(
@@ -165,9 +159,7 @@ def test_unseeded_chunks_have_no_embedding(
         for chunk_id, chunk in chunks.items():
             if chunk_id in scenario.embeddings:
                 continue
-            assert not chunk.embedding, (
-                f"unexpected embedding on {chunk_id!r}"
-            )
+            assert not chunk.embedding, f"unexpected embedding on {chunk_id!r}"
 
 
 def test_clear_embeddings_returns_seed_count(

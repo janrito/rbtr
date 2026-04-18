@@ -16,7 +16,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.index.store import IndexStore
-from tests.index.case_store_versioning import DbState, VersioningScenario
+from tests.index.case_store_versioning import VersioningScenario
 
 
 @fixture
@@ -50,17 +50,13 @@ def reopened(
         if before.schema_version != "":
             updates.append(("schema_version", str(before.schema_version)))
         if before.embedding_version is not None:
-            updates.append(
-                ("embedding_version", str(before.embedding_version))
-            )
+            updates.append(("embedding_version", str(before.embedding_version)))
         if before.embedding_model is not None:
             updates.append(("embedding_model", before.embedding_model))
         if updates:
             con = duckdb.connect(str(path))
             for key, value in updates:
-                con.execute(
-                    "UPDATE meta SET value = ? WHERE key = ?", [value, key]
-                )
+                con.execute("UPDATE meta SET value = ? WHERE key = ?", [value, key])
             con.close()
 
     if scenario.config_embedding_model is not None:
@@ -113,9 +109,6 @@ def test_expected_model_stamp_matches_scenario(
     store, scenario = reopened
     if scenario.expected_model_stamp is None:
         return
-    rows = (
-        store._cur()
-        .execute("SELECT value FROM meta WHERE key = 'embedding_model'")
-        .fetchall()
-    )
-    assert rows and rows[0][0] == scenario.expected_model_stamp
+    rows = store._cur().execute("SELECT value FROM meta WHERE key = 'embedding_model'").fetchall()
+    assert rows
+    assert rows[0][0] == scenario.expected_model_stamp

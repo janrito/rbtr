@@ -11,7 +11,6 @@ import pytest
 from rbtr.languages import LanguageManager
 from rbtr.languages.hookspec import DEFAULT_SCOPE_TYPES
 
-
 # ── Expected registrations ───────────────────────────────────────────
 
 # Languages with grammar modules (may or may not be installed).
@@ -69,14 +68,18 @@ def test_grammar_language_no_query(lang_id: str, language_manager: LanguageManag
 
 
 @pytest.mark.parametrize("lang_id", sorted(_GRAMMAR_LANGUAGES))
-def test_grammar_language_no_import_extractor(lang_id: str, language_manager: LanguageManager) -> None:
+def test_grammar_language_no_import_extractor(
+    lang_id: str, language_manager: LanguageManager
+) -> None:
     reg = language_manager.get_registration(lang_id)
     assert reg is not None
     assert reg.import_extractor is None
 
 
 @pytest.mark.parametrize("lang_id", sorted(_GRAMMAR_LANGUAGES))
-def test_grammar_language_default_scope_types(lang_id: str, language_manager: LanguageManager) -> None:
+def test_grammar_language_default_scope_types(
+    lang_id: str, language_manager: LanguageManager
+) -> None:
     reg = language_manager.get_registration(lang_id)
     assert reg is not None
     assert reg.scope_types == DEFAULT_SCOPE_TYPES
@@ -133,7 +136,9 @@ _EXTENSION_SAMPLES: list[tuple[str, str]] = [
 
 
 @pytest.mark.parametrize(("filename", "expected_id"), _EXTENSION_SAMPLES)
-def test_detect_language(filename: str, expected_id: str, language_manager: LanguageManager) -> None:
+def test_detect_language(
+    filename: str, expected_id: str, language_manager: LanguageManager
+) -> None:
     assert language_manager.detect_language(filename) == expected_id
 
 

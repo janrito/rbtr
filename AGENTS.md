@@ -109,8 +109,8 @@
   fixture B) are fine — they still expose the graph. Factories
   are a smell; reach for one only when the test truly needs many
   instances parametrised by caller-supplied arguments.
-- **Test data and setup live in fixtures.**  Setup is setup —
-  whether it is an action or a value.  Module-level constants
+- **Test data and setup live in fixtures.** Setup is setup —
+  whether it is an action or a value. Module-level constants
   (including private `_FOO`) and module-level setup helpers
   are both bad: they hide dependencies (no fixture parameter
   makes them explicit), cannot be parametrised, and encourage
@@ -121,45 +121,45 @@
   1. No module-level constants used by tests or cases.
      Even pure frozen values belong in fixtures.
   2. No module-level *setup* functions used by tests or
-     cases.  Setup = anything that constructs something the
+     cases. Setup = anything that constructs something the
      test didn't already have: chunks, stores, repos, mocks,
-     fake services.  Long fixture bodies decompose into
+     fake services. Long fixture bodies decompose into
      *smaller fixtures*, never into setup helpers.
   3. **Pure projections over test-visible data are allowed.**
      Small module-level functions that transform values the
      test *already has* (e.g. `rank(results, chunk_id) ->
-     int` or `ids(results) -> list[str]`) are fine.  Heuristic:
+     int` or `ids(results) -> list[str]`) are fine. Heuristic:
      does it construct anything the test didn't ask for?
-     If yes, fixture.  If no, inline it or keep it as a
-     plain helper.  These helpers do not hide dependencies,
+     If yes, fixture. If no, inline it or keep it as a
+     plain helper. These helpers do not hide dependencies,
      because the data they operate on arrived via fixture
      parameters of the test itself.
   4. Shared values go into `conftest.py` fixtures so pytest
      resolves them positionally.
   5. The single exception for constants is values the
      *production code* also uses (e.g. `SCHEMA_VERSION`
-     imported for an assertion).  These are not test data —
+     imported for an assertion). These are not test data —
      they are the production surface under test.
-  6. **Parametrize-time values.**  Everything pytest needs at
+  6. **Parametrize-time values.** Everything pytest needs at
      collection time (before any fixture runs) may be module
      level: `pytest.mark.skipif` markers passed via
      `pytest.param(..., marks=...)`, and the argument lists /
      dicts consumed by `@pytest.mark.parametrize(...)`.
-     Fixtures cannot supply these values.  Prefer inline
+     Fixtures cannot supply these values. Prefer inline
      literals inside the decorator when practical; when the
      data is large enough that inlining hurts readability, a
-     module-level `_NAME = [...]` is acceptable.  This is
+     module-level `_NAME = [...]` is acceptable. This is
      pytest architecture, not a style choice.
 
   "It would add ceremony" is not a justification; one
-  `@fixture` line per value is not ceremony.  If a rewrite
+  `@fixture` line per value is not ceremony. If a rewrite
   touches many files, do the rewrite — file count is not a
   design argument.
 
-- **Bias against abstraction in tests.**  The point of a test
+- **Bias against abstraction in tests.** The point of a test
   is to exercise the widest sensible slice of production code
-  against concrete data.  Helpers, abstractions, and
-  parametrisation are tools; they are not goals.  Prefer
+  against concrete data. Helpers, abstractions, and
+  parametrisation are tools; they are not goals. Prefer
   explicit, data-first scenarios even when they repeat a few
   lines.
 - **No test classes.** Plain test functions only.

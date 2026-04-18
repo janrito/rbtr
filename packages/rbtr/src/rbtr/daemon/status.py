@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -124,6 +124,6 @@ def _iso_now() -> str:
 def uptime_seconds(started_at: str) -> float:
     """Seconds elapsed since *started_at* (ISO 8601 UTC, Z-suffixed)."""
     started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
-    return (datetime.now(tz=timezone.utc) - started).total_seconds()
+    return (datetime.now(tz=UTC) - started).total_seconds()
