@@ -80,7 +80,8 @@ class DaemonServer:
         sock_dir: Path,
         store: IndexStore | None = None,
         *,
-        poll_interval: float = 5.0,
+        idle_poll_interval: float = 5.0,
+        busy_poll_interval: float = 30.0,
     ) -> None:
         self.sock_dir = sock_dir
         self.rpc_addr = f"ipc://{sock_dir / 'daemon.rpc'}"
@@ -92,7 +93,8 @@ class DaemonServer:
             "shutdown": self._handle_shutdown,
         }
         self._build_queue: BuildQueue | None = None
-        self._poll_interval = poll_interval
+        self._idle_poll_interval = idle_poll_interval
+        self._busy_poll_interval = busy_poll_interval
         self._store = store
         if store is not None:
             self._register_index_handlers(store)
@@ -217,9 +219,21 @@ class DaemonServer:
                 break
             pub.send(notification.model_dump_json().encode(), zmq.NOBLOCK)
 
+    def _next_poll_interval(self) -> float:
+        """Pick the watcher poll interval based on build-queue state.
+
+        While a build is active, slow the watcher down so a long
+        embed phase doesn't flood the queue with duplicates for
+        the same stale SHA. Other repos are still detected on the
+        busy cadence — no repo is starved.
+        """
+        if self._build_queue is not None and self._build_queue.active_repo is not None:
+            return self._busy_poll_interval
+        return self._idle_poll_interval
+
     def _watcher_loop(self) -> None:
         while not self._shutdown:
-            time.sleep(self._poll_interval)
+            time.sleep(self._next_poll_interval())
             if self._shutdown:
                 break
             if self._store is None:

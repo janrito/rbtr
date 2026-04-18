@@ -143,7 +143,7 @@ def seeded_store(
 @pytest.fixture
 def running_server(sock_dir: Path) -> Generator[DaemonServer]:
     """Server with no index — for ping/shutdown tests."""
-    server = DaemonServer(sock_dir, store=None, poll_interval=60.0)
+    server = DaemonServer(sock_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
     rpc_path = sock_dir / "daemon.rpc"
@@ -161,7 +161,7 @@ def running_server_with_index(
     sock_dir: Path, seeded_store: IndexStore
 ) -> Generator[DaemonServer]:
     """Server with a seeded index — for handler tests."""
-    server = DaemonServer(sock_dir, store=seeded_store, poll_interval=60.0)
+    server = DaemonServer(sock_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0)
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
     rpc_path = sock_dir / "daemon.rpc"

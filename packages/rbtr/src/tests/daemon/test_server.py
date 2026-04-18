@@ -32,7 +32,7 @@ from rbtr.errors import RbtrError
 
 def test_shutdown(sock_dir: Path) -> None:
     """Shutdown test runs its own server so it can assert the thread exits."""
-    server = DaemonServer(sock_dir, store=None, poll_interval=60.0)
+    server = DaemonServer(sock_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
     rpc_path = sock_dir / "daemon.rpc"
