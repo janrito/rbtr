@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
+
 from rbtr.daemon.build_queue import BuildQueue
-from rbtr.daemon.messages import Notification
+from rbtr.daemon.messages import ActiveJob, Notification
 from rbtr.daemon.repos import RepoManager
 from rbtr.index.store import IndexStore
 
@@ -71,3 +73,70 @@ def test_submit_rejects_when_active() -> None:
     q._active_ref_key = ("/repo-a", ("HEAD",))
     q.submit("/repo-a", ["HEAD"])
     assert len(q._queue) == 0
+
+
+def test_snapshot_status_empty() -> None:
+    store = IndexStore()
+    mgr = RepoManager(store)
+    q = BuildQueue(mgr, notify=lambda _: None)
+    active, pending = q.snapshot_status()
+    assert active is None
+    assert pending == []
+
+
+def test_snapshot_status_pending_only() -> None:
+    store = IndexStore()
+    mgr = RepoManager(store)
+    q = BuildQueue(mgr, notify=lambda _: None)
+    q.submit("/repo-a", ["HEAD"])
+    q.submit("/repo-b", ["main", "dev"])
+    active, pending = q.snapshot_status()
+    assert active is None
+    assert [(p.repo, p.refs) for p in pending] == [
+        ("/repo-a", ["HEAD"]),
+        ("/repo-b", ["main", "dev"]),
+    ]
+
+
+def test_snapshot_status_with_active_job() -> None:
+    """When a build is running, ``active_job`` is populated with the
+    current phase and progress; ``pending`` reflects whatever else
+    is queued behind it."""
+    store = IndexStore()
+    mgr = RepoManager(store)
+    q = BuildQueue(mgr, notify=lambda _: None)
+    # Simulate the worker having popped a job and updated progress.
+    q._active_job = ActiveJob(
+        repo="/repo-a",
+        ref="abc123",
+        phase="embedding",
+        current=2048,
+        total=7522,
+        elapsed_seconds=0.0,
+    )
+    q._started_at = time.monotonic() - 5.0  # job "started" 5s ago
+    q.submit("/repo-b", ["HEAD"])
+    active, pending = q.snapshot_status()
+    assert active is not None
+    assert active.repo == "/repo-a"
+    assert active.ref == "abc123"
+    assert active.phase == "embedding"
+    assert active.current == 2048
+    assert active.total == 7522
+    assert active.elapsed_seconds >= 5.0
+    assert [(p.repo, p.refs) for p in pending] == [("/repo-b", ["HEAD"])]
+
+
+def test_snapshot_status_is_isolated_from_further_mutation() -> None:
+    """The snapshot is a copy; later submissions don't retroactively
+    appear in it."""
+    store = IndexStore()
+    mgr = RepoManager(store)
+    q = BuildQueue(mgr, notify=lambda _: None)
+    q.submit("/repo-a", ["HEAD"])
+    _active, pending = q.snapshot_status()
+    q.submit("/repo-b", ["HEAD"])
+    assert len(pending) == 1
+    # Second snapshot sees both.
+    _active2, pending2 = q.snapshot_status()
+    assert len(pending2) == 2

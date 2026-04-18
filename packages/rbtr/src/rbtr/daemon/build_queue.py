@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 
 from rbtr.daemon.messages import (
+    ActiveJob,
     IndexErrorNotification,
     Notification,
     ProgressNotification,
+    QueueItem,
     ReadyNotification,
 )
 from rbtr.daemon.repos import RepoManager
@@ -54,6 +57,26 @@ class BuildQueue:
         self._shutdown = False
         self.active_repo: str | None = None
         self._active_ref_key: _QueueKey | None = None
+        self._active_job: ActiveJob | None = None
+        self._started_at: float | None = None
+
+    def snapshot_status(self) -> tuple[ActiveJob | None, list[QueueItem]]:
+        """Return (active_job, pending) for status reporting.
+
+        The snapshot is a fresh copy — the caller may serialise it
+        freely without racing the worker. ``elapsed_seconds`` is
+        computed at snapshot time from the monotonic ``_started_at``
+        recorded when the worker popped the job; the daemon never
+        exposes its monotonic clock to clients.
+        """
+        with self._cond:
+            active: ActiveJob | None = None
+            if self._active_job is not None and self._started_at is not None:
+                active = self._active_job.model_copy(
+                    update={"elapsed_seconds": time.monotonic() - self._started_at}
+                )
+            pending = [QueueItem(repo=r, refs=list(refs)) for r, refs in self._queue]
+            return active, pending
 
     def submit(self, repo: str, refs: list[str]) -> None:
         """Enqueue a build, deduped against the queue and active job.
@@ -101,6 +124,8 @@ class BuildQueue:
                 with self._cond:
                     self.active_repo = None
                     self._active_ref_key = None
+                    self._active_job = None
+                    self._started_at = None
 
     def _build(self, repo_path: str, refs: list[str]) -> None:
         repo = open_repo(repo_path)
@@ -117,26 +142,22 @@ class BuildQueue:
             return
 
         for sha in resolved:
+            with self._cond:
+                self._started_at = time.monotonic()
+                self._active_job = ActiveJob(
+                    repo=repo_path,
+                    ref=sha,
+                    phase="parsing",
+                    current=0,
+                    total=0,
+                    elapsed_seconds=0.0,
+                )
 
             def on_progress(done: int, total: int) -> None:
-                self._notify(
-                    ProgressNotification(
-                        repo=repo_path,
-                        phase="parsing",
-                        current=done,
-                        total=total,
-                    )
-                )
+                self._update_progress(repo_path, "parsing", done, total)
 
             def on_embed_progress(done: int, total: int) -> None:
-                self._notify(
-                    ProgressNotification(
-                        repo=repo_path,
-                        phase="embedding",
-                        current=done,
-                        total=total,
-                    )
-                )
+                self._update_progress(repo_path, "embedding", done, total)
 
             result = build_index(
                 repo,
@@ -156,3 +177,24 @@ class BuildQueue:
                     elapsed=round(result.stats.elapsed_seconds, 2),
                 )
             )
+
+    def _update_progress(self, repo_path: str, phase: str, current: int, total: int) -> None:
+        """Update ``_active_job`` and emit a ``ProgressNotification``.
+
+        Two sinks for one event: the in-memory snapshot used by
+        `rbtr status`, and the ZMQ PUB channel used by live
+        subscribers.
+        """
+        with self._cond:
+            if self._active_job is not None:
+                self._active_job = self._active_job.model_copy(
+                    update={"phase": phase, "current": current, "total": total}
+                )
+        self._notify(
+            ProgressNotification(
+                repo=repo_path,
+                phase=phase,
+                current=current,
+                total=total,
+            )
+        )

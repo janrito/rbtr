@@ -276,13 +276,34 @@ def _render_daemon_status_report(m: DaemonStatusReport) -> None:
 def _render_status_response(m: StatusResponse) -> None:
     if not m.exists:
         _out.print("[red]✗[/] No index found")
-        return
-    _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
-    if m.indexed_refs:
-        short = ", ".join(sha[:12] for sha in m.indexed_refs)
-        _out.print(f"  [dim]indexed:[/] {short}")
     else:
-        _out.print("  [dim]indexed:[/] [yellow]none[/]")
+        _out.print(f"[green]✓[/] {m.total_chunks} chunks  [dim]{m.db_path}[/]")
+        if m.indexed_refs:
+            short = ", ".join(sha[:12] for sha in m.indexed_refs)
+            _out.print(f"  [dim]indexed:[/] {short}")
+        else:
+            _out.print("  [dim]indexed:[/] [yellow]none[/]")
+    if m.active_job is not None:
+        job = m.active_job
+        pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
+        elapsed = _format_elapsed(job.elapsed_seconds)
+        _out.print(
+            f"[cyan]⟳[/] Building: {job.ref[:12]} — "
+            f"{job.phase} {job.current}/{job.total}{pct} — {elapsed}"
+        )
+    if m.pending:
+        _out.print(f"  [dim]queue:[/] {len(m.pending)} pending")
+        for item in m.pending:
+            refs = ", ".join(item.refs)
+            _out.print(f"    [dim]• {item.repo} ({refs})[/]")
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format a monotonic-seconds delta as ``1m23s`` / ``45s``."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}m{s:02d}s"
 
 
 def _render_gc_response(m: GcResponse) -> None:

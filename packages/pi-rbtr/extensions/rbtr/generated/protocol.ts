@@ -224,6 +224,34 @@ export interface StatusResponse {
 	db_path?: string | null;
 	total_chunks?: number | null;
 	indexed_refs?: string[];
+	active_job?: ActiveJob | null;
+	pending?: QueueItem[];
+}
+/**
+ * The build currently running in the daemon's worker thread.
+ *
+ * ``ref`` is the resolved SHA under build. ``phase`` is the
+ * orchestrator stage (``"parsing"`` or ``"embedding"``; other
+ * stages are short enough that they don't surface here).
+ * ``current`` / ``total`` come from the orchestrator's progress
+ * callbacks; both are 0 until the first callback fires.
+ * ``elapsed_seconds`` is computed by the daemon at snapshot time
+ * so the CLI doesn't need to reason about clock boundaries.
+ */
+export interface ActiveJob {
+	repo: string;
+	ref: string;
+	phase: string;
+	current: number;
+	total: number;
+	elapsed_seconds: number;
+}
+/**
+ * A (repo, refs) pair currently sitting in the build queue.
+ */
+export interface QueueItem {
+	repo: string;
+	refs: string[];
 }
 export interface GcResponse {
 	kind: "gc";

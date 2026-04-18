@@ -187,6 +187,35 @@ class ChangedSymbolsResponse(BaseModel):
     chunks: list[Chunk]
 
 
+class QueueItem(BaseModel):
+    """A (repo, refs) pair currently sitting in the build queue."""
+
+    model_config = _STRICT
+    repo: str
+    refs: list[str]
+
+
+class ActiveJob(BaseModel):
+    """The build currently running in the daemon's worker thread.
+
+    ``ref`` is the resolved SHA under build. ``phase`` is the
+    orchestrator stage (``"parsing"`` or ``"embedding"``; other
+    stages are short enough that they don't surface here).
+    ``current`` / ``total`` come from the orchestrator's progress
+    callbacks; both are 0 until the first callback fires.
+    ``elapsed_seconds`` is computed by the daemon at snapshot time
+    so the CLI doesn't need to reason about clock boundaries.
+    """
+
+    model_config = _STRICT
+    repo: str
+    ref: str
+    phase: str
+    current: int
+    total: int
+    elapsed_seconds: float
+
+
 class StatusResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["status"] = "status"
@@ -194,6 +223,8 @@ class StatusResponse(BaseModel):
     db_path: str | None = None
     total_chunks: int | None = None
     indexed_refs: list[str] = []
+    active_job: ActiveJob | None = None
+    pending: list[QueueItem] = []
 
 
 class GcResponse(BaseModel):

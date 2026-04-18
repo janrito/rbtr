@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 import pygit2
 
@@ -25,6 +26,7 @@ from rbtr.daemon.messages import (
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
+    QueueItem,
     ReadSymbolRequest,
     ReadSymbolResponse,
     Response,
@@ -37,6 +39,9 @@ from rbtr.daemon.repos import RepoManager
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, open_repo, resolve_commit
 from rbtr.index.gc import run_gc
+
+if TYPE_CHECKING:
+    from rbtr.daemon.build_queue import BuildQueue
 
 log = logging.getLogger(__name__)
 
@@ -105,17 +110,27 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, mgr: RepoManager) -> 
     return ChangedSymbolsResponse(chunks=chunks)
 
 
-def handle_status(request: StatusRequest, mgr: RepoManager) -> Response:
+def handle_status(
+    request: StatusRequest,
+    mgr: RepoManager,
+    build_queue: BuildQueue | None,
+) -> Response:
     repo_id = mgr.resolve(request.repo)
     repo = open_repo(request.repo)
     head = str(resolve_commit(repo, "HEAD").id)
     count = mgr.store.count_chunks(head, repo_id=repo_id)
     indexed_refs = [sha for sha, _ in mgr.store.list_indexed_commits(repo_id)]
+    active_job = None
+    pending: list[QueueItem] = []
+    if build_queue is not None:
+        active_job, pending = build_queue.snapshot_status()
     return StatusResponse(
         exists=count > 0,
         db_path=mgr.store.db_path,
         total_chunks=count,
         indexed_refs=indexed_refs,
+        active_job=active_job,
+        pending=pending,
     )
 
 

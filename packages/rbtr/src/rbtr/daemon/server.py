@@ -118,7 +118,7 @@ class DaemonServer:
                 "list_symbols": lambda req: handle_list_symbols(req, mgr),
                 "find_refs": lambda req: handle_find_refs(req, mgr),
                 "changed_symbols": lambda req: handle_changed_symbols(req, mgr),
-                "status": lambda req: handle_status(req, mgr),
+                "status": lambda req: handle_status(req, mgr, bq),
                 "gc": lambda req: handle_gc(req, mgr),
                 "index": lambda req: handle_build_index(req, bq),
             }
