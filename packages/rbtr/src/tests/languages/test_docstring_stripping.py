@@ -34,6 +34,38 @@ def _py_extract(src: str, *, strip: bool) -> list:
     )
 
 
+def _extract_with_doc_types(
+    lang: str,
+    src: str,
+    doc_types: frozenset[str],
+    *,
+    strip: bool = False,
+):
+    """Run extraction for *lang* with an explicit leading-comment set.
+
+    Lets the tests exercise the engine-side sibling-walk without
+    touching the production plugin config.
+    """
+    mgr = get_manager()
+    grammar = mgr.load_grammar(lang)
+    assert grammar is not None, f"grammar for {lang} not installed"
+    reg = mgr.get_registration(lang)
+    assert reg is not None
+    assert reg.query is not None
+    ext = next(iter(reg.extensions), ".txt")
+    return extract_symbols(
+        f"test{ext}",
+        "sha1",
+        src.encode(),
+        grammar,
+        reg.query,
+        import_extractor=reg.import_extractor,
+        scope_types=reg.scope_types,
+        doc_comment_node_types=doc_types,
+        strip_docstrings=strip,
+    )
+
+
 def test_strip_removes_function_docstring_text() -> None:
     src = '''\
 def greet(name):
@@ -172,3 +204,107 @@ def test_query_no_docstring_capture_when_absent() -> None:
         for node in nodes
     ]
     assert doc_captures == []
+
+
+# ── Leading-comment attachment (engine sibling walk) ──────────────────
+
+
+def test_leading_comments_disabled_by_empty_doc_types() -> None:
+    """Empty `doc_comment_node_types` → chunks unchanged."""
+    src = "// Doc for foo.\nfunc foo() {}\n"
+    chunks = _extract_with_doc_types("go", src, frozenset())
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" not in fn.content
+    assert fn.line_start == 2
+
+
+def test_leading_comments_attached_when_opted_in() -> None:
+    """Opted-in plugin gets the leading comment in chunk content."""
+    src = "// Doc for foo.\nfunc foo() {}\n"
+    chunks = _extract_with_doc_types("go", src, frozenset({"comment"}))
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" in fn.content
+    assert fn.line_start == 1
+    assert fn.line_end == 2
+
+
+def test_leading_comments_span_multiple_lines() -> None:
+    """Consecutive comments attach as a block."""
+    src = "// Line one.\n// Line two.\n// Line three.\nfunc foo() {}\n"
+    chunks = _extract_with_doc_types("go", src, frozenset({"comment"}))
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Line one" in fn.content
+    assert "Line two" in fn.content
+    assert "Line three" in fn.content
+    assert fn.line_start == 1
+
+
+def test_leading_comments_stop_at_blank_line() -> None:
+    """A blank line between a comment and the symbol breaks attachment."""
+    src = "// Not attached.\n\n// Attached.\nfunc foo() {}\n"
+    chunks = _extract_with_doc_types("go", src, frozenset({"comment"}))
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Attached" in fn.content
+    assert "Not attached" not in fn.content
+    assert fn.line_start == 3
+
+
+def test_leading_comments_only_count_if_last_sibling() -> None:
+    """Non-comment sibling between comment and symbol breaks attachment."""
+    src = (
+        "// Header comment.\n"
+        "func other() {}\n"  # comment belongs to `other`, not `foo`
+        "func foo() {}\n"
+    )
+    chunks = _extract_with_doc_types("go", src, frozenset({"comment"}))
+    foo = next(c for c in chunks if c.name == "foo")
+    other = next(c for c in chunks if c.name == "other")
+    assert "Header comment" in other.content
+    assert "Header comment" not in foo.content
+
+
+def test_leading_comments_chunk_id_uses_extended_line_start() -> None:
+    """Chunk ID hashes the *attached* line_start, not the symbol's own."""
+    src = "// Attached.\nfunc foo() {}\n"
+    with_doc = _extract_with_doc_types("go", src, frozenset({"comment"}))
+    without_doc = _extract_with_doc_types("go", src, frozenset())
+    with_id = next(c.id for c in with_doc if c.name == "foo")
+    without_id = next(c.id for c in without_doc if c.name == "foo")
+    assert with_id != without_id
+
+
+def test_leading_comments_stripped_with_flag() -> None:
+    """`--strip-docstrings` blanks attached comments too."""
+    src = "// Doc for foo.\nfunc foo() {}\n"
+    chunks = _extract_with_doc_types("go", src, frozenset({"comment"}), strip=True)
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "Doc for foo" not in fn.content
+    assert "func foo()" in fn.content
+    # Newlines preserved → two-line content still spans two lines.
+    assert fn.line_start == 1
+    assert fn.line_end == 2
+
+
+def test_leading_comments_rust_line_comment_type() -> None:
+    """Rust uses `line_comment`, not `comment`."""
+    src = "/// Doc.\nfn foo() {}\n"
+    chunks = _extract_with_doc_types("rust", src, frozenset({"line_comment", "block_comment"}))
+    fn = next(c for c in chunks if c.name == "foo")
+    assert "/// Doc." in fn.content
+    assert fn.line_start == 1
+
+
+def test_leading_comments_python_unaffected() -> None:
+    """Python doesn't set `doc_comment_node_types`; interior docstring wins."""
+    src = '''\
+# leading comment
+def greet():
+    """interior docstring"""
+    return 1
+'''
+    # Explicit empty set to mirror Python's production config.
+    chunks = _extract_with_doc_types("python", src, frozenset())
+    fn = next(c for c in chunks if c.name == "greet")
+    assert "leading comment" not in fn.content
+    assert "interior docstring" in fn.content
+    assert fn.line_start == 2

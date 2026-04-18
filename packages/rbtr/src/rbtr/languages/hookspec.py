@@ -39,6 +39,7 @@ Field                                          Capability
 `query`                                      Structural symbol extraction
 `import_extractor`                           Structural import metadata
 `scope_types`                                Correct method-in-class scoping
+`doc_comment_node_types`                     Leading doc-comment attachment
 ============================================= ===================================
 
 Here is a complete example showing every field:
@@ -242,17 +243,64 @@ class LanguageRegistration:
                           languages.  Override when the language ID
                           doesn't match the Pygments name (e.g.
                           `c_sharp` → `"csharp"`).
+        doc_comment_node_types:
+                          AST node types that count as comments
+                          when attaching leading documentation to
+                          a captured symbol.  Default empty means
+                          *no leading-comment attachment* — the
+                          chunk covers exactly the symbol node's
+                          byte span, as it always has.  When
+                          non-empty, `extract_symbols` walks each
+                          symbol's `prev_named_sibling` chain,
+                          collecting consecutive nodes of these
+                          types up to a blank-line boundary, and
+                          extends the chunk's byte span to cover
+                          them.  See *Leading doc comments* below.
 
     Docstring stripping
     ~~~~~~~~~~~~~~~~~~~
 
-    Plugins opt into `--strip-docstrings` support by adding a
-    `@_docstring` sub-capture to their query — same convention
-    as the existing `@_fn_name` / `@_cls_name` helpers.  When
-    stripping is enabled, `extract_symbols` blanks the byte
-    ranges covered by `@_docstring` (preserving newlines so
-    line numbers stay valid).  Plugins without a `@_docstring`
-    capture are unaffected by the flag.
+    Plugins opt into `--strip-docstrings` support in two ways,
+    both using the same capture convention:
+
+    - **Interior docstrings** (Python-style body strings): add a
+      `@_docstring` sub-capture inside the symbol pattern — same
+      idiom as the existing `@_fn_name` / `@_cls_name` helpers.
+    - **Exterior doc comments** (JSDoc, Rustdoc, `//` runs above
+      a `func` declaration, …): set `doc_comment_node_types`;
+      the engine attaches leading comments and adds their byte
+      ranges to the implicit redaction set automatically.
+
+    When `strip_docstrings=True`, bytes covered by either
+    mechanism are replaced with whitespace (preserving newlines
+    so line numbers stay valid).  Plugins that do neither are
+    unaffected by the flag.
+
+    Leading doc comments
+    ~~~~~~~~~~~~~~~~~~~~
+
+    Most languages put documentation *before* the declaration
+    they describe (`///` above `fn` in Rust, `//` above `func`
+    in Go, `/** */` above `function` in JS, `#` above `def` in
+    Ruby, …).  Tree-sitter queries cannot cleanly express
+    "one-or-more leading sibling comments attached to this
+    symbol" — patterns with `+`/`*` and sibling anchors either
+    miss matches or produce duplicates, and cannot honour a
+    blank-line boundary.
+
+    Instead, plugins declare which AST node types are comments
+    via `doc_comment_node_types`, and the engine walks each
+    symbol's previous named siblings to attach them.  The walk
+    stops at the first non-comment sibling or at a gap
+    containing a blank line (two or more newlines between the
+    previous comment's end and the next node's start), so
+    license headers, TODO notes, and comments belonging to
+    *other* symbols are not swept in.
+
+    When comments are attached, the chunk's content is read
+    from source bytes spanning `[earliest_comment.start_byte,
+    symbol.end_byte)`, and `line_start` moves up to the earliest
+    comment line.  `line_end` is unchanged.
     """
 
     id: str
@@ -265,6 +313,7 @@ class LanguageRegistration:
     scope_types: frozenset[str] = field(default=DEFAULT_SCOPE_TYPES)
     chunker: Callable[[str, str, str], list[Chunk]] | None = None
     pygments_lexer: str | None = None
+    doc_comment_node_types: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if not _VALID_ID.fullmatch(self.id):

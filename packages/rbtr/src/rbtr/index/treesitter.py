@@ -113,6 +113,54 @@ def _find_scope(node: Node, scope_types: frozenset[str]) -> str:
     return ""
 
 
+def _collect_leading_doc_comments(
+    node: Node,
+    comment_types: frozenset[str],
+    source: bytes,
+) -> list[Node]:
+    """Walk back over *node*'s previous named siblings, collecting comments.
+
+    Tree-sitter queries can't cleanly express "leading doc comment
+    block" with blank-line separation, so this post-extraction walk
+    is how rbtr attaches doc comments to their symbol.  The walk
+    stops at the first non-comment sibling, or when the gap between
+    a comment and the next node spans a blank line (two or more
+    newlines) — that boundary is what distinguishes a symbol's
+    own doc block from an unrelated preceding comment such as a
+    license header or a comment that belongs to the *previous*
+    symbol.
+
+    Parameters:
+        node:          The captured symbol node.
+        comment_types: AST node types that count as comments for
+                       this language (plugin-provided via
+                       `LanguageRegistration.doc_comment_node_types`).
+                       Empty → empty result.
+        source:        The full file bytes, for blank-line detection
+                       in the inter-node gap.
+
+    Returns:
+        Comment nodes in source order (earliest first).  Empty list
+        when *comment_types* is empty or no attached comments exist.
+    """
+    if not comment_types:
+        return []
+    collected: list[Node] = []
+    prev = node.prev_named_sibling
+    next_start = node.start_byte
+    while prev is not None and prev.type in comment_types:
+        gap = source[prev.end_byte : next_start]
+        if gap.count(b"\n") >= 2:
+            # Blank line between this comment and the next node —
+            # attachment stops here.
+            break
+        collected.append(prev)
+        next_start = prev.start_byte
+        prev = prev.prev_named_sibling
+    collected.reverse()
+    return collected
+
+
 # ── Public API ───────────────────────────────────────────────────────
 
 
@@ -125,31 +173,49 @@ def extract_symbols(
     *,
     import_extractor: Callable[[Node], ImportMeta] | None = None,
     scope_types: frozenset[str] = DEFAULT_SCOPE_TYPES,
+    doc_comment_node_types: frozenset[str] = frozenset(),
     strip_docstrings: bool = False,
 ) -> list[Chunk]:
     """Parse *content* and extract structural chunks.
 
     Parameters:
-        file_path:        Repo-relative path for the chunk IDs.
-        blob_sha:         Git blob SHA for dedup.
-        content:          Raw file bytes.
-        grammar:          Tree-sitter `Language` for the parser.
-        query_str:        S-expression query (capture conventions:
-                          `@function`/`@_fn_name`,
-                          `@class`/`@_cls_name`,
-                          `@method`/`@_method_name`,
-                          `@import`, `@_docstring`).
-        import_extractor: Optional callable to extract structured
-                          `ImportMeta` from import AST nodes.
-        scope_types:      Node types that define naming scopes
-                          (e.g. `class_definition`).
-        strip_docstrings: When true, blank out bytes covered by
-                          any `@_docstring` sub-capture from the
-                          chunk content (replaced with whitespace
-                          that preserves newlines, so `line_start`
-                          and `line_end` stay valid).  Plugins
-                          without a `@_docstring` capture are
-                          unaffected.
+        file_path:              Repo-relative path for chunk IDs.
+        blob_sha:               Git blob SHA for dedup.
+        content:                Raw file bytes.
+        grammar:                Tree-sitter `Language`.
+        query_str:              S-expression query.  Capture
+                                conventions:
+                                `@function` / `@_fn_name`,
+                                `@class` / `@_cls_name`,
+                                `@method` / `@_method_name`,
+                                `@import`, `@_docstring`.
+        import_extractor:       Optional callable for structured
+                                `ImportMeta`.
+        scope_types:            Node types that define naming
+                                scopes (e.g. `class_definition`).
+        doc_comment_node_types: Plugin-declared comment node
+                                types for leading-doc attachment.
+                                Non-empty means `extract_symbols`
+                                walks each function/class/method
+                                node's previous named siblings
+                                (stopping at a blank line) and
+                                extends the chunk span to cover
+                                any attached comments.  The
+                                attached comments' byte ranges are
+                                implicitly added to the redaction
+                                set used by *strip_docstrings*, so
+                                no `@_docstring` capture is needed
+                                for exterior languages.
+        strip_docstrings:       When true, blank out bytes covered
+                                by `@_docstring` captures **and**
+                                by attached leading comments.
+                                Newlines are preserved so line
+                                numbers stay valid.
+
+    Imports (`@import` captures) are always chunked at the
+    statement's own bytes — leading-comment attachment applies
+    only to symbol-kind captures (`@function`, `@class`,
+    `@method`).
     """
     if not content:
         return []
@@ -198,22 +264,44 @@ def extract_symbols(
                 if kind == ChunkKind.FUNCTION and scope:
                     actual_kind = ChunkKind.METHOD
 
-                text = node.text.decode() if node.text else ""
-                if strip_docstrings and node.text:
+                # Determine the chunk's byte span and starting
+                # line, extending backward over attached leading
+                # comments for non-import symbols.  Imports keep
+                # their own span — they're not a documented
+                # surface.
+                chunk_start = node.start_byte
+                chunk_line = node.start_point[0] + 1
+                attached_ranges: list[tuple[int, int]] = []
+                if capture_name != "import" and doc_comment_node_types:
+                    attached = _collect_leading_doc_comments(node, doc_comment_node_types, content)
+                    if attached:
+                        chunk_start = attached[0].start_byte
+                        chunk_line = attached[0].start_point[0] + 1
+                        attached_ranges = [(c.start_byte, c.end_byte) for c in attached]
+
+                chunk_bytes = content[chunk_start : node.end_byte]
+                text = chunk_bytes.decode("utf-8", errors="replace")
+
+                if strip_docstrings and chunk_bytes:
+                    # Merge interior `@_docstring` captures (from
+                    # this match only) with attached leading
+                    # comments into a single redaction set.
                     doc_nodes = capture_dict.get(_DOCSTRING_CAPTURE, [])
-                    if doc_nodes:
-                        ranges = [(d.start_byte, d.end_byte) for d in doc_nodes]
-                        text = _redact_ranges(node.text, node.start_byte, node.end_byte, ranges)
+                    ranges = list(attached_ranges)
+                    ranges.extend((d.start_byte, d.end_byte) for d in doc_nodes)
+                    if ranges:
+                        text = _redact_ranges(chunk_bytes, chunk_start, node.end_byte, ranges)
+
                 chunks.append(
                     Chunk(
-                        id=_chunk_id(file_path, name, node.start_point[0]),
+                        id=_chunk_id(file_path, name, chunk_line - 1),
                         blob_sha=blob_sha,
                         file_path=file_path,
                         kind=actual_kind,
                         name=name,
                         scope=scope,
                         content=text,
-                        line_start=node.start_point[0] + 1,
+                        line_start=chunk_line,
                         line_end=node.end_point[0] + 1,
                         metadata=metadata,
                     )

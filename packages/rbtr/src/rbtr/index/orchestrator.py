@@ -83,6 +83,7 @@ def _extract_file(entry: FileEntry, *, strip_docstrings: bool = False) -> list[C
                 query_str,
                 import_extractor=reg.import_extractor if reg else None,
                 scope_types=reg.scope_types if reg else frozenset(),
+                doc_comment_node_types=(reg.doc_comment_node_types if reg else frozenset()),
                 strip_docstrings=strip_docstrings,
             )
 
