@@ -123,12 +123,22 @@ def _collect_leading_doc_comments(
     Tree-sitter queries can't cleanly express "leading doc comment
     block" with blank-line separation, so this post-extraction walk
     is how rbtr attaches doc comments to their symbol.  The walk
-    stops at the first non-comment sibling, or when the gap between
-    a comment and the next node spans a blank line (two or more
-    newlines) — that boundary is what distinguishes a symbol's
-    own doc block from an unrelated preceding comment such as a
-    license header or a comment that belongs to the *previous*
-    symbol.
+    stops at the first non-comment sibling, or when a blank line
+    separates a comment from the next node — that boundary is what
+    distinguishes a symbol's own doc block from an unrelated
+    preceding comment such as a license header or a comment that
+    belongs to the *previous* symbol.
+
+    **Blank-line detection.**  Different grammars disagree on
+    whether a line-comment node includes its trailing newline:
+    tree-sitter-go does not (``// A`` ends at byte 4, the `\n`
+    follows at 4..5) but tree-sitter-rust does (``// A\n`` is
+    part of the ``line_comment`` span).  To treat both
+    consistently we count newlines over
+    ``[content_end, next_start)`` — where ``content_end`` is
+    ``prev.end_byte`` with a trailing `\n` excluded if present.
+    A blank line corresponds to exactly 2 newlines in that window
+    (one ends ``prev``, one is the empty line).
 
     Parameters:
         node:          The captured symbol node.
@@ -149,8 +159,11 @@ def _collect_leading_doc_comments(
     prev = node.prev_named_sibling
     next_start = node.start_byte
     while prev is not None and prev.type in comment_types:
-        gap = source[prev.end_byte : next_start]
-        if gap.count(b"\n") >= 2:
+        content_end = prev.end_byte
+        if content_end > prev.start_byte and source[content_end - 1 : content_end] == b"\n":
+            content_end -= 1
+        separator = source[content_end:next_start]
+        if separator.count(b"\n") >= 2:
             # Blank line between this comment and the next node —
             # attachment stops here.
             break

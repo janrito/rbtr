@@ -1154,27 +1154,37 @@ def case_rust_import_bare():
 @case(tags=["mixed"])
 @_skip_rust
 def case_rust_full_module():
-    """Realistic Rust module."""
+    """Realistic Rust module with `///` doc comments.
+
+    Expected-kinds tuple unchanged; content assertions are in
+    `test_docstrings.py`.
+    """
     src = """\
 use std::collections::HashMap;
 use crate::models::Config;
 
+/// Application state.
 struct App {
     config: Config,
 }
 
+/// Lifecycle status.
 enum Status {
     Running,
     Stopped,
 }
 
+/// Methods for the `App` type.
 impl App {
+    /// Construct a new instance from a loaded `Config`.
     fn new(config: Config) -> Self {
         App { config }
     }
+    /// Run the main loop.
     fn run(&self) {}
 }
 
+/// Entry point.
 fn main() {}
 """
     return "rust", src, {"import", "class", "method", "function"}, [("new", "App"), ("run", "App")]

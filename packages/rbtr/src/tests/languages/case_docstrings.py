@@ -421,3 +421,104 @@ def case_ts_jsdoc_above_import():
     """JSDoc above `import` does not attach to a later class."""
     src = "/** Nonsense JSDoc. */\nimport { x } from './x';\n\nclass Real {}\n"
     return "typescript", src, "Real", "Nonsense JSDoc"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Rust
+# ══════════════════════════════════════════════════════════════════
+#
+# Rust uses `line_comment` for both `//` and `///` (the
+# `outer_doc_comment_marker` distinction lives *inside* the
+# line_comment node) and `block_comment` for `/* */` and
+# `/** */`.  The plugin lists both so canonical `///` runs,
+# unconventional `//` runs, block doc comments, and banner
+# blocks all attach.
+
+
+@case(tags=["documented", "canonical"])
+def case_rust_triple_slash_on_fn():
+    """Canonical `///` doc comment above a function."""
+    src = "/// Greet the user.\nfn greet() {}\n"
+    return "rust", src, "greet", "Greet the user"
+
+
+@case(tags=["documented", "canonical"])
+def case_rust_triple_slash_on_struct():
+    """`///` above a struct declaration."""
+    src = "/// A widget.\nstruct Widget;\n"
+    return "rust", src, "Widget", "A widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_rust_triple_slash_on_enum():
+    """`///` above an enum declaration."""
+    src = "/// Colours.\nenum Colour { Red, Green }\n"
+    return "rust", src, "Colour", "Colours"
+
+
+@case(tags=["documented", "canonical"])
+def case_rust_multi_line_triple_slash():
+    """Multi-line `///` run — each line is its own
+    `line_comment` node; all attach.
+    """
+    src = "/// Compute a checksum.\n///\n/// The algorithm is CRC32.\nfn checksum() {}\n"
+    return "rust", src, "checksum", "The algorithm is CRC32"
+
+
+@case(tags=["documented", "edge_case"])
+def case_rust_block_doc_comment():
+    """`/** */` block doc comment — parsed as `block_comment`
+    in the grammar.
+    """
+    src = "/** Block doc. */\nfn foo() {}\n"
+    return "rust", src, "foo", "Block doc"
+
+
+@case(tags=["documented", "edge_case"])
+def case_rust_impl_block_doc():
+    """`///` above an `impl` block (rbtr treats impls as
+    classes and attaches leading docs).  The impl here is for
+    a type declared in another module so only one chunk named
+    after the type appears in this snippet.
+    """
+    src = "/// Methods for Other.\nimpl Other {}\n"
+    return "rust", src, "Other", "Methods for Other"
+
+
+@case(tags=["documented", "unconventional"])
+def case_rust_plain_line_comment():
+    """Plain `//` comments are also attached — rbtr leans
+    toward flexibility rather than requiring strict `///`.
+    """
+    src = "// Plain line comment.\n// Second line.\nfn foo() {}\n"
+    return "rust", src, "foo", "Plain line comment"
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_rust_fn_without_docs():
+    """Undocumented function."""
+    src = "fn bare() {}\n"
+    return "rust", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_rust_doc_detached_by_blank_line():
+    """A blank line between the doc comment and the function
+    breaks attachment.  This is the tree-sitter-rust trailing-
+    newline edge case: the line_comment span includes its own
+    `\\n`, so "blank line" is detected via a ``>= 2`` newline
+    count over `[content_end_without_nl, next_start)`.
+    """
+    src = "/// Orphaned comment.\n\nfn later() {}\n"
+    return "rust", src, "later", "Orphaned comment"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_rust_inner_doc_not_attached():
+    """File-level `//!` inner doc is not attached to the first
+    `fn` when a blank line separates them (the common idiom).
+    This guards against the tree-sitter-rust trailing-newline
+    bug that would otherwise greedily walk past the blank line.
+    """
+    src = "//! Crate-level doc.\n//! More crate doc.\n\n/// Item doc.\nfn item() {}\n"
+    return "rust", src, "item", "Crate-level doc"
