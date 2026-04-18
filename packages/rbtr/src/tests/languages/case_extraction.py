@@ -566,16 +566,27 @@ import { useState } from 'react';
 @case(tags=["mixed"])
 @_skip_js
 def case_js_full_module():
-    """Realistic JS module."""
+    """Realistic JS module with JSDoc on every symbol.
+
+    Adding JSDoc here exercises the production-plugin default
+    (leading-comment attachment on) against the conventional
+    JS documentation style.  The expected-kinds tuple is
+    unchanged — this confirms documentation does not disturb
+    symbol extraction.  Content assertions for docstring
+    presence are covered by `test_docstrings.py`.
+    """
     src = """\
 import { Model } from './model';
 
+/** Service facade over `Model`. */
 class Service {
 }
 
+/** Create a new service instance. */
 function create() {
 }
 
+/** Tear it down. */
 const destroy = () => {};
 """
     return "javascript", src, {"import", "class", "function"}, []

@@ -231,3 +231,102 @@ def case_py_trailing_string_not_a_docstring():
     """
     src = 'def late():\n    x = 1\n    """PSEUDO_DOC"""\n    return x\n'
     return "python", src, "late", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+# ══════════════════════════════════════════════════════════════════
+# JavaScript
+# ══════════════════════════════════════════════════════════════════
+
+
+@case(tags=["documented", "canonical"])
+def case_js_jsdoc_on_function():
+    """Canonical JSDoc above a function declaration."""
+    src = "/** Return a friendly greeting. */\nfunction greet() {}\n"
+    return "javascript", src, "greet", "Return a friendly greeting"
+
+
+@case(tags=["documented", "canonical"])
+def case_js_jsdoc_on_class():
+    """Canonical JSDoc above a class declaration."""
+    src = "/** A widget. */\nclass Widget {}\n"
+    return "javascript", src, "Widget", "A widget"
+
+
+@case(tags=["documented", "canonical"])
+def case_js_jsdoc_on_arrow_function():
+    """Arrow-function assignment — the `@function` capture
+    lands on the `lexical_declaration`, so JSDoc attaches via
+    the walk on that node's prev_named_sibling.
+    """
+    src = "/** Increment. */\nconst inc = (x) => x + 1;\n"
+    return "javascript", src, "inc", "Increment"
+
+
+@case(tags=["documented", "edge_case"])
+def case_js_multiline_jsdoc():
+    """Multi-line JSDoc with leading `*` gutter."""
+    src = (
+        "/**\n"
+        " * Compute a checksum over *data*.\n"
+        " *\n"
+        " * The algorithm is CRC32 — explained below.\n"
+        " */\n"
+        "function checksum(data) { return 0; }\n"
+    )
+    return "javascript", src, "checksum", "The algorithm is CRC32"
+
+
+@case(tags=["documented", "edge_case"])
+def case_js_banner_comment():
+    """`/*! ... */` banner comments are common in bundled UMD
+    libs; the grammar lands them as `comment` nodes and we
+    attach them — the benchmark will say whether that hurts.
+    """
+    src = "/*! (c) 2024 Acme. */\nfunction publicApi() {}\n"
+    return "javascript", src, "publicApi", "(c) 2024 Acme"
+
+
+@case(tags=["documented", "unconventional"])
+def case_js_line_comment_run():
+    """`//` comment runs used as docs — common in TS-first
+    code where JSDoc is syntactically less convenient.
+    """
+    src = "// First description line.\n// Second description line.\nfunction documented() {}\n"
+    return "javascript", src, "documented", "First description line"
+
+
+# Known limitation: JavaScript/TypeScript plugins do not emit
+# `@method` chunks, so method-level JSDoc lives inside the
+# class chunk's bytes but is not tied to any `@_docstring`
+# capture or leading-comment walk.  `--strip-docstrings`
+# therefore cannot remove it.  The limitation is tracked in
+# TODO-benchmark-docstring-ablation.md (D14).  No case here
+# — writing one would either lie about strip behaviour or
+# force a skip.
+
+
+@case(tags=["undocumented", "no_docs"])
+def case_js_function_without_doc():
+    """Plain function, no comments."""
+    src = "function bare() {}\n"
+    return "javascript", src, "bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+
+
+@case(tags=["undocumented", "boundary_not_attached"])
+def case_js_jsdoc_detached_by_blank_line():
+    """A blank line between the JSDoc block and the function
+    breaks attachment.
+    """
+    src = "/** Stale JSDoc — not attached. */\n\nfunction stale() {}\n"
+    return "javascript", src, "stale", "Stale JSDoc"
+
+
+@case(tags=["undocumented", "invalid"])
+def case_js_jsdoc_above_import_does_not_attach_to_class():
+    """JSDoc above an `import` stays on the import line.  A
+    class several statements later must *not* inherit it.
+    Imports are excluded from attachment by design (see
+    `treesitter.extract_symbols`).
+    """
+    src = "/** Nonsense JSDoc above import. */\nimport { x } from './x';\n\nclass Real {}\n"
+    return "javascript", src, "Real", "Nonsense JSDoc"
