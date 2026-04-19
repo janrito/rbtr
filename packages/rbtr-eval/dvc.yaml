@@ -42,9 +42,6 @@ stages:
       deps:
         - src/rbtr_eval/extract.py
         - ${repos_dir}/${item.slug}
-      params:
-        - seed
-        - sample_cap
       outs:
         - ${per_repo_dir}/${item.slug}.jsonl
 
@@ -73,6 +70,7 @@ stages:
       - ${homes_dir}:
           cache: false
           push: false
+          persist: true
     metrics:
       - ${metrics}:
           cache: false
@@ -88,8 +86,6 @@ stages:
     deps:
       - src/rbtr_eval/tune.py
       - ${dataset}
-    params:
-      - grid_step
     outs:
       - ${tuned}:
           cache: false

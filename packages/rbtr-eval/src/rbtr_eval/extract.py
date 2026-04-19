@@ -5,21 +5,30 @@ writes a per-repo JSONL.  `merge-dataset` concatenates per-repo
 JSONLs into one dataset.
 
 This module is the *only* place rbtr-eval imports from `rbtr` —
-it uses `rbtr.index.treesitter.extract_doc_spans` for docstring
-identification because reimplementing it would mean rolling our
-own per-language comment parsing (the same smell we exorcised
-during Phase 5).  Measurement-side tooling reusing the indexer's
-own docstring view is the cleanest available answer.
-
-Stubbed for Phase P1 — implementation lands in P2 / P3.
+it uses several rbtr APIs (see the imports below) to identify
+documented symbols using exactly the indexer's view.  Re-
+implementing any of that would mean rolling our own per-language
+comment / symbol parsing, which is the smell rbtr-eval is
+built to avoid.
 """
 
 from __future__ import annotations
 
+import random
 import re
+import subprocess
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
+import pygit2
 from pydantic import BaseModel, Field
+
+from rbtr.config import config
+from rbtr.git import FileEntry, list_files
+from rbtr.index.treesitter import extract_doc_spans
+from rbtr.languages import get_manager
+from rbtr.rbtrignore import load_ignore
 
 # ── Query projection ───────────────────────────────────────────────────────────
 #
@@ -97,7 +106,188 @@ def first_sentence(doc_text: str) -> str | None:
     return candidate
 
 
-# ── CLI subcommand stubs (P1) ──────────────────────────────────────────────
+# ── Dataset record types ───────────────────────────────────────────────────────
+
+
+SymbolKind = Literal["function", "class", "method"]
+
+
+class Header(BaseModel, frozen=True):
+    """First line of a per-repo JSONL dataset."""
+
+    kind: Literal["header"] = "header"
+    slug: str
+    sha: str
+    seed: int
+    sample_cap: int
+    n_documented: int
+    n_sampled: int
+
+
+class Query(BaseModel, frozen=True):
+    """One sampled query, one per line after the header.
+
+    `scope` is the parent-symbol path (empty string for
+    top-level symbols).  Required in the match key because
+    `(file_path, name)` alone collides on overloaded methods,
+    multiple `__init__`, and same-named test methods across
+    classes.
+    """
+
+    kind: Literal["query"] = "query"
+    file_path: str
+    scope: str
+    name: str
+    symbol_kind: SymbolKind
+    line_start: int
+    language: str
+    text: str
+
+
+# ── Symbol walk ────────────────────────────────────────────────────────────────
+
+
+class _DocumentedSymbol(BaseModel, frozen=True):
+    """One (symbol, docstring) pair found by the walk.
+
+    Pre-filter record; `first_sentence` may still reject it.
+    """
+
+    file_path: str
+    scope: str
+    name: str
+    symbol_kind: SymbolKind
+    line_start: int
+    language: str
+    doc_text: str
+
+
+_KIND_TO_SYMBOL: dict[str, SymbolKind] = {
+    "function": "function",
+    "class": "class",
+    "method": "method",
+}
+
+
+def _iter_file_entries(repo: pygit2.Repository, ref: str) -> Iterator[FileEntry]:
+    repo_root = Path(repo.workdir).resolve() if repo.workdir else Path.cwd()
+    ignore = load_ignore(repo_root)
+    yield from list_files(
+        repo,
+        ref,
+        max_file_size=config.max_file_size,
+        ignore=ignore,
+    )
+
+
+def iter_documented_symbols(repo_path: Path) -> Iterator[_DocumentedSymbol]:
+    """Walk *repo_path*, yielding documented function / class / method symbols.
+
+    Delegates docstring identification to `extract_doc_spans`
+    so it matches the indexer exactly.  Non-(function, class,
+    method) kinds are skipped (we don't benchmark variables or
+    imports).  Symbols without any doc bytes are skipped.
+    """
+    repo = pygit2.Repository(str(repo_path))
+    mgr = get_manager()
+
+    for entry in _iter_file_entries(repo, "HEAD"):
+        lang_id = mgr.detect_language(entry.path)
+        if lang_id is None:
+            continue
+        reg = mgr.get_registration(lang_id)
+        if reg is None or reg.query is None:
+            continue
+        grammar = mgr.load_grammar(lang_id)
+        if grammar is None:
+            continue
+
+        for span in extract_doc_spans(
+            entry.content,
+            grammar,
+            reg.query,
+            scope_types=reg.scope_types,
+            doc_comment_node_types=reg.doc_comment_node_types,
+        ):
+            symbol_kind = _KIND_TO_SYMBOL.get(str(span.kind))
+            if symbol_kind is None:
+                continue
+            if not span.name or span.name == "<anonymous>":
+                continue
+            doc_bytes = b"\n".join(entry.content[s:e] for s, e in span.ranges)
+            yield _DocumentedSymbol(
+                file_path=entry.path,
+                scope=span.scope,
+                name=span.name,
+                symbol_kind=symbol_kind,
+                line_start=span.line_start,
+                language=lang_id,
+                doc_text=doc_bytes.decode("utf-8", errors="replace"),
+            )
+
+
+def _sort_key(item: _DocumentedSymbol | Query) -> tuple[str, int, str, str]:
+    return (item.file_path, item.line_start, item.scope, item.name)
+
+
+def sample_queries(
+    symbols: list[_DocumentedSymbol],
+    *,
+    seed: int,
+    sample_cap: int,
+) -> list[Query]:
+    """Project to `Query`s, filter, and deterministically sample.
+
+    Steps:
+
+    1. Sort candidates by `(file_path, line_start, scope, name)`
+       so the input to `random.Random.sample` is stable.
+    2. Drop any whose `first_sentence` returns None.
+    3. Sample up to *sample_cap* via `random.Random(seed).sample`.
+    4. Re-sort the sample the same way so the JSONL is
+       byte-stable across runs.
+    """
+    sorted_symbols = sorted(symbols, key=_sort_key)
+    queries: list[Query] = []
+    for sym in sorted_symbols:
+        text = first_sentence(sym.doc_text)
+        if text is None:
+            continue
+        queries.append(
+            Query(
+                file_path=sym.file_path,
+                scope=sym.scope,
+                name=sym.name,
+                symbol_kind=sym.symbol_kind,
+                line_start=sym.line_start,
+                language=sym.language,
+                text=text,
+            )
+        )
+
+    if len(queries) > sample_cap:
+        rng = random.Random(seed)  # noqa: S311 — deterministic sampling, not crypto
+        queries = rng.sample(queries, sample_cap)
+
+    return sorted(queries, key=_sort_key)
+
+
+def _resolve_head_sha(repo_path: Path) -> str:
+    """Return the resolved HEAD SHA for *repo_path*.
+
+    Pure subprocess; no pygit2.  Matches the plan's "no pygit2
+    in our own code" rule (rbtr.git is a carve-out).
+    """
+    result = subprocess.run(  # noqa: S603 — trusted args
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],  # noqa: S607 — `git` on PATH
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+# ── CLI subcommands ────────────────────────────────────────────────────────────
 
 
 class ExtractCmd(BaseModel):
@@ -114,8 +304,24 @@ class ExtractCmd(BaseModel):
     sample_cap: int = Field(300, description="Maximum number of queries to keep per repo.")
 
     def cli_cmd(self) -> None:
-        msg = f"rbtr-eval extract: not implemented yet (slug={self.slug})"
-        raise SystemExit(msg)
+        sha = _resolve_head_sha(self.repo_path)
+        symbols = list(iter_documented_symbols(self.repo_path))
+        queries = sample_queries(symbols, seed=self.seed, sample_cap=self.sample_cap)
+
+        header = Header(
+            slug=self.slug,
+            sha=sha,
+            seed=self.seed,
+            sample_cap=self.sample_cap,
+            n_documented=len(symbols),
+            n_sampled=len(queries),
+        )
+
+        self.output.parent.mkdir(parents=True, exist_ok=True)
+        with self.output.open("w", encoding="utf-8") as fh:
+            fh.write(header.model_dump_json() + "\n")
+            for q in queries:
+                fh.write(q.model_dump_json() + "\n")
 
 
 class MergeDatasetCmd(BaseModel):
