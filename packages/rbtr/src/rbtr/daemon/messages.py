@@ -50,6 +50,7 @@ class BuildIndexRequest(BaseModel):
     kind: Literal["index"] = "index"
     repo: str
     refs: list[str] = ["HEAD"]
+    strip_docstrings: bool = False
 
 
 class SearchRequest(BaseModel):

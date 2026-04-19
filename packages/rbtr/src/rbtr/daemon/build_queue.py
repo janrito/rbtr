@@ -37,7 +37,7 @@ from .handlers import resolve_refs
 log = logging.getLogger(__name__)
 
 type NotifyFn = Callable[[Notification], None]
-type _QueueKey = tuple[str, tuple[str, ...]]
+type _QueueKey = tuple[str, tuple[str, ...], bool]
 
 
 class BuildQueue:
@@ -75,16 +75,21 @@ class BuildQueue:
                 active = self._active_job.model_copy(
                     update={"elapsed_seconds": time.monotonic() - self._started_at}
                 )
-            pending = [QueueItem(repo=r, refs=list(refs)) for r, refs in self._queue]
+            pending = [QueueItem(repo=r, refs=list(refs)) for r, refs, _strip in self._queue]
             return active, pending
 
-    def submit(self, repo: str, refs: list[str]) -> None:
+    def submit(self, repo: str, refs: list[str], *, strip_docstrings: bool = False) -> None:
         """Enqueue a build, deduped against the queue and active job.
 
-        No-op (logged at DEBUG) if an identical ``(repo, refs)``
-        entry is already queued or currently building.
+        No-op (logged at DEBUG) if an identical
+        ``(repo, refs, strip_docstrings)`` entry is already queued
+        or currently building.  Two calls for the same repo
+        differing only in *strip_docstrings* are still distinct
+        intents and both will run — the home pin (see
+        `rbtr.home_state`) is the safety net that keeps a single
+        home from holding mixed-mode chunks.
         """
-        key: _QueueKey = (repo, tuple(refs))
+        key: _QueueKey = (repo, tuple(refs), strip_docstrings)
         with self._cond:
             if self._active_ref_key == key or key in self._queue:
                 log.debug("Dedupe: skipping duplicate submit for %s", key)
@@ -113,11 +118,11 @@ class BuildQueue:
                 if not self._queue:
                     continue  # timeout — loop to re-check shutdown flag
                 key = self._queue.popleft()
-                repo, refs_tuple = key
+                repo, refs_tuple, strip_docstrings = key
                 self.active_repo = repo
                 self._active_ref_key = key
             try:
-                self._build(repo, list(refs_tuple))
+                self._build(repo, list(refs_tuple), strip_docstrings=strip_docstrings)
             except Exception:
                 log.exception("Build failed for %s", repo)
             finally:
@@ -127,7 +132,7 @@ class BuildQueue:
                     self._active_job = None
                     self._started_at = None
 
-    def _build(self, repo_path: str, refs: list[str]) -> None:
+    def _build(self, repo_path: str, refs: list[str], *, strip_docstrings: bool) -> None:
         repo = open_repo(repo_path)
         repo_id = self._mgr.resolve(repo_path)
 
@@ -166,6 +171,7 @@ class BuildQueue:
                 repo_id=repo_id,
                 on_progress=on_progress,
                 on_embed_progress=on_embed_progress,
+                strip_docstrings=strip_docstrings,
             )
 
             self._notify(

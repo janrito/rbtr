@@ -180,5 +180,9 @@ def handle_build_index(
     if not isinstance(build_queue, BuildQueue):
         return ErrorResponse(code=ErrorCode.INTERNAL, message="No build queue")
 
-    build_queue.submit(request.repo, request.refs)
+    build_queue.submit(
+        request.repo,
+        request.refs,
+        strip_docstrings=request.strip_docstrings,
+    )
     return OkResponse()

@@ -72,6 +72,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, names_for_commits, open_repo, resolve_commit
+from rbtr.home_state import StripModeMismatch, ensure_or_pin
 from rbtr.index.gc import run_gc
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
@@ -181,9 +182,9 @@ class Index(BaseModel):
         False,
         description=(
             "Blank out docstrings from chunk content before storing. "
-            "Requires --no-daemon (the daemon shares one index home and "
-            "mixing stripped/unstripped content would pollute it). Intended "
-            "for benchmarking — use a distinct --home for each mode."
+            "The chosen mode is pinned at first index of a home; mixing "
+            "stripped/unstripped content in one home would poison search. "
+            "Use a distinct --home per mode — intended for benchmarking."
         ),
     )
 
@@ -194,19 +195,26 @@ class Index(BaseModel):
         # Resolve refs to SHAs
         resolved_refs = [str(resolve_commit(repo, r).id) for r in self.refs]
 
-        if self.strip_docstrings and self.daemon:
-            print_err(
-                "[red]error:[/] --strip-docstrings requires --no-daemon "
-                "(use a distinct --home per mode)."
-            )
+        # Pin (or check) the home's strip-docstrings mode before either the
+        # inline or daemon path touches the index.  Mismatch is fatal.
+        try:
+            ensure_or_pin(config.home, self.strip_docstrings)
+        except StripModeMismatch as exc:
+            print_err(f"[red]error:[/] {exc}")
             sys.exit(2)
 
         if not self.daemon:
             self._run_inline(resolved_repo, resolved_refs)
             return
 
+        request = BuildIndexRequest(
+            repo=resolved_repo,
+            refs=resolved_refs,
+            strip_docstrings=self.strip_docstrings,
+        )
+
         # Try daemon first
-        resp = try_daemon(BuildIndexRequest(repo=resolved_repo, refs=resolved_refs))
+        resp = try_daemon(request)
         if resp is not None:
             match resp:
                 case BuildIndexResponse():
@@ -227,7 +235,7 @@ class Index(BaseModel):
             self._run_inline(resolved_repo, resolved_refs)
             return
 
-        resp = try_daemon(BuildIndexRequest(repo=resolved_repo, refs=resolved_refs))
+        resp = try_daemon(request)
         if resp is not None and isinstance(resp, (BuildIndexResponse, OkResponse)):
             print_err("[yellow]Index job queued (daemon started).[/]")
             print_err("[dim]Run `rbtr daemon status` to track progress.[/]")

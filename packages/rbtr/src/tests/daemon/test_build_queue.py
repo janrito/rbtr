@@ -70,7 +70,7 @@ def test_submit_rejects_when_active() -> None:
     q = BuildQueue(mgr, notify=lambda _: None)
     # Simulate a build in progress — the worker normally sets these.
     q.active_repo = "/repo-a"
-    q._active_ref_key = ("/repo-a", ("HEAD",))
+    q._active_ref_key = ("/repo-a", ("HEAD",), False)
     q.submit("/repo-a", ["HEAD"])
     assert len(q._queue) == 0
 

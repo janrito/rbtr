@@ -29,6 +29,7 @@ export interface BuildIndexRequest {
 	kind: "index";
 	repo: string;
 	refs?: string[];
+	strip_docstrings?: boolean;
 }
 export interface SearchRequest {
 	kind: "search";
