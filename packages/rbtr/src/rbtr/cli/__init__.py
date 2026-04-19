@@ -80,6 +80,25 @@ from rbtr.index.store import IndexStore
 log = logging.getLogger(__name__)
 
 
+def _try_daemon_or_die(request: object) -> object:
+    """Wrap `try_daemon`: print + exit on a busy/unreachable live daemon.
+
+    `try_daemon` returns None when there is no daemon at all (caller
+    decides whether to fall back inline) and raises ConnectionError
+    when the daemon's PID is alive but the request failed.  Inline
+    fallback against a live but busy daemon causes DuckDB WAL-lock
+    contention, so we surface the error rather than falling back.
+    """
+    try:
+        return try_daemon(request)  # type: ignore[arg-type]  # Request is a union
+    except ConnectionError as exc:
+        print_err(f"[red]error:[/] daemon is running but unresponsive: {exc}")
+        print_err(
+            "[dim]The daemon may be busy indexing.  Try `rbtr daemon status`, or wait and retry.[/]"
+        )
+        sys.exit(2)
+
+
 # ── Internal server entry point ───────────────────────────────────────
 
 
@@ -326,7 +345,7 @@ class Search(BaseModel):
                 msg = err["msg"].removeprefix("Value error, ")
                 print_err(f"[red]error:[/] {msg}")
             sys.exit(2)
-        resp = try_daemon(request)
+        resp = _try_daemon_or_die(request)
         if isinstance(resp, SearchResponse):
             for r in resp.results:
                 emit(r)
@@ -358,7 +377,9 @@ class ReadSymbol(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ReadSymbolRequest(repo=resolved_repo, name=self.symbol, ref=self.ref))
+        resp = _try_daemon_or_die(
+            ReadSymbolRequest(repo=resolved_repo, name=self.symbol, ref=self.ref)
+        )
         if isinstance(resp, ReadSymbolResponse):
             for c in resp.chunks:
                 emit(c)
@@ -386,7 +407,9 @@ class ListSymbols(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ListSymbolsRequest(repo=resolved_repo, file_path=self.file, ref=self.ref))
+        resp = _try_daemon_or_die(
+            ListSymbolsRequest(repo=resolved_repo, file_path=self.file, ref=self.ref)
+        )
         if isinstance(resp, ListSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -410,7 +433,9 @@ class FindRefs(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(FindRefsRequest(repo=resolved_repo, symbol=self.symbol, ref=self.ref))
+        resp = _try_daemon_or_die(
+            FindRefsRequest(repo=resolved_repo, symbol=self.symbol, ref=self.ref)
+        )
         if isinstance(resp, FindRefsResponse):
             for e in resp.edges:
                 emit(e)
@@ -434,7 +459,9 @@ class ChangedSymbols(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ChangedSymbolsRequest(repo=resolved_repo, base=self.base, head=self.head))
+        resp = _try_daemon_or_die(
+            ChangedSymbolsRequest(repo=resolved_repo, base=self.base, head=self.head)
+        )
         if isinstance(resp, ChangedSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -459,7 +486,7 @@ class Status(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(StatusRequest(repo=resolved_repo))
+        resp = _try_daemon_or_die(StatusRequest(repo=resolved_repo))
         if isinstance(resp, StatusResponse):
             emit(resp)
             return
@@ -519,7 +546,7 @@ class Gc(BaseModel):
         mode, refs = self._resolve_mode()
         resolved_repo = str(Path(self.repo_path).resolve())
 
-        resp = try_daemon(
+        resp = _try_daemon_or_die(
             GcRequest(
                 repo=resolved_repo,
                 mode=mode,

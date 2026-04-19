@@ -184,12 +184,33 @@ def _row_to_chunk(row: _Row) -> Chunk:
 # ── Schema versioning ────────────────────────────────────────────────
 
 
+class _SchemaCheckLocked(Exception):
+    """Raised when the schema check can't read the DB because it's locked.
+
+    Distinct from "corrupt" — a locked DB belongs to a healthy
+    process (typically the rbtr daemon mid-write), so destroying
+    it would be catastrophic.
+    """
+
+
 def _check_schema_version(db_path: Path) -> None:
-    """Delete *db_path* if its schema version doesn't match.
+    """Delete *db_path* if its schema version is stale.
 
     Opens a temporary connection to read the `meta` table.  If the
-    stored version is stale (or the table doesn't exist), the file is
-    removed so the next `IndexStore.__init__` creates a fresh DB.
+    stored version is missing or stale, the file is removed so the
+    next `IndexStore.__init__` creates a fresh DB.
+
+    Carefully distinguishes three error cases so we never destroy
+    a healthy index:
+
+    - `ConnectionException`: already open in this process with a
+      different config.  Skip — the existing connection validated
+      the schema on creation.
+    - `IOException` containing "lock": held by another process
+      (e.g. the daemon).  Re-raise as `_SchemaCheckLocked` so the
+      caller can decide what to do; do NOT delete the file.
+    - `IOException` otherwise: genuinely corrupt; treat as stale
+      schema and rebuild.
     """
     if not db_path.exists():
         return
@@ -202,12 +223,11 @@ def _check_schema_version(db_path: Path) -> None:
             rows = []
         con.close()
     except duckdb.ConnectionException:
-        # Already open in this process with a different config
-        # (e.g. read-write).  The existing connection validated
-        # the schema on creation — safe to skip.
         return
-    except duckdb.IOException:
-        # Corrupt or locked — nuke it.
+    except duckdb.IOException as exc:
+        if "lock" in str(exc).lower() or "conflict" in str(exc).lower():
+            raise _SchemaCheckLocked(str(exc)) from exc
+        # Genuinely corrupt or unreadable.
         rows = []
 
     stored = str(rows[0][0]) if rows else ""

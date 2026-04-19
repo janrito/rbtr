@@ -210,8 +210,16 @@ class DaemonClient:
 def try_daemon(request: Request) -> Response | None:
     """Try to send a request to the daemon. Return None if not running.
 
-    Only catches `ConnectionError` — daemon protocol errors
-    (e.g. `ErrorResponse`) are returned normally.
+    Returns None *only* when there is no live daemon process
+    (no status file, or the recorded PID isn't alive).  When the
+    daemon's PID is alive but the request fails (busy worker,
+    timeout, etc.), this propagates `ConnectionError` rather
+    than silently falling back to inline mode — inline fallback
+    against a healthy daemon causes WAL-lock contention on the
+    shared DuckDB file.
+
+    Daemon protocol errors (e.g. `ErrorResponse`) are returned
+    normally.
     """
     sock_dir = _sock_dir()
     status = read_status(sock_dir)
@@ -219,8 +227,4 @@ def try_daemon(request: Request) -> Response | None:
         remove_status(sock_dir)
         return None
     with DaemonClient(sock_dir) as client:
-        try:
-            return client.send(request)
-        except ConnectionError:
-            remove_status(sock_dir)
-            return None
+        return client.send(request)
