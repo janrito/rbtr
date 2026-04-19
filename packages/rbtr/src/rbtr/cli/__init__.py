@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from pydantic_settings import (
     CliApp,
     CliPositionalArg,
@@ -78,6 +78,7 @@ from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
 
 log = logging.getLogger(__name__)
+
 
 # ── Internal server entry point ───────────────────────────────────────
 
@@ -290,18 +291,42 @@ class Index(BaseModel):
 
 
 class Search(BaseModel):
-    """Search the code index."""
+    """Search the code index.
+
+    `--alpha` / `--beta` / `--gamma` override per-`QueryKind`
+    fusion weights uniformly for the call.  All three must be
+    supplied together, each in `[0, 1]`, summing to `1.0`.
+    Validation lives on the underlying `SearchRequest` model.
+    """
 
     query: CliPositionalArg[str] = Field(description="Search query")
     limit: int = Field(10, description="Maximum results to return")
     ref: str = Field("HEAD", description="Git ref (for diff proximity scoring)")
     repo_path: str = Field(".", description="Repository path")
+    alpha: float | None = Field(
+        None, description="Override fusion weight for the semantic channel."
+    )
+    beta: float | None = Field(None, description="Override fusion weight for the lexical channel.")
+    gamma: float | None = Field(None, description="Override fusion weight for the name channel.")
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(
-            SearchRequest(repo=resolved_repo, query=self.query, limit=self.limit, ref=self.ref)
-        )
+        try:
+            request = SearchRequest(
+                repo=resolved_repo,
+                query=self.query,
+                limit=self.limit,
+                ref=self.ref,
+                alpha=self.alpha,
+                beta=self.beta,
+                gamma=self.gamma,
+            )
+        except ValidationError as exc:
+            for err in exc.errors():
+                msg = err["msg"].removeprefix("Value error, ")
+                print_err(f"[red]error:[/] {msg}")
+            sys.exit(2)
+        resp = try_daemon(request)
         if isinstance(resp, SearchResponse):
             for r in resp.results:
                 emit(r)
@@ -309,10 +334,18 @@ class Search(BaseModel):
 
         # Fallback: direct execution
         repo = open_repo(resolved_repo)
-        ref = str(resolve_commit(repo, self.ref).id)
+        ref = str(resolve_commit(repo, request.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        for r in store.search(ref, self.query, top_k=self.limit, repo_id=repo_id):
+        for r in store.search(
+            ref,
+            request.query,
+            top_k=request.limit,
+            alpha=request.alpha,
+            beta=request.beta,
+            gamma=request.gamma,
+            repo_id=repo_id,
+        ):
             emit(r)
 
 

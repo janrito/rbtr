@@ -31,12 +31,25 @@ export interface BuildIndexRequest {
 	refs?: string[];
 	strip_docstrings?: boolean;
 }
+/**
+ * Search the code index.
+ *
+ * `alpha` / `beta` / `gamma` override the per-`QueryKind` fusion
+ * weights for the duration of the call.  All-or-nothing: either
+ * all three are supplied (override applies uniformly across
+ * query kinds) or none are (per-kind defaults apply).  When
+ * supplied they must each be in `[0.0, 1.0]` and sum to `1.0`
+ * within `1e-6`.
+ */
 export interface SearchRequest {
 	kind: "search";
 	repo: string;
 	query: string;
 	limit?: number;
 	ref?: string;
+	alpha?: number | null;
+	beta?: number | null;
+	gamma?: number | null;
 }
 export interface ReadSymbolRequest {
 	kind: "read_symbol";

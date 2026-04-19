@@ -69,6 +69,9 @@ def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
         ref,
         request.query,
         top_k=request.limit,
+        alpha=request.alpha,
+        beta=request.beta,
+        gamma=request.gamma,
         repo_id=repo_id,
     )
     return SearchResponse(results=results)

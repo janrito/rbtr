@@ -12,9 +12,9 @@ Serialisation uses `model_dump_json()` / `TypeAdapter.validate_json()`.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from rbtr.index.models import Chunk, Edge, IndexStats
 from rbtr.index.search import ScoredResult
@@ -54,12 +54,39 @@ class BuildIndexRequest(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    """Search the code index.
+
+    `alpha` / `beta` / `gamma` override the per-`QueryKind` fusion
+    weights for the duration of the call.  All-or-nothing: either
+    all three are supplied (override applies uniformly across
+    query kinds) or none are (per-kind defaults apply).  When
+    supplied they must each be in `[0.0, 1.0]` and sum to `1.0`
+    within `1e-6`.
+    """
+
     model_config = _STRICT
     kind: Literal["search"] = "search"
     repo: str
     query: str
     limit: int = 10
     ref: str = "HEAD"
+    alpha: float | None = Field(default=None, ge=0.0, le=1.0)
+    beta: float | None = Field(default=None, ge=0.0, le=1.0)
+    gamma: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check_weights(self) -> Self:
+        supplied = [w for w in (self.alpha, self.beta, self.gamma) if w is not None]
+        if not supplied:
+            return self
+        if len(supplied) != 3:
+            msg = "alpha, beta, gamma must all be supplied together (or none)"
+            raise ValueError(msg)
+        total = supplied[0] + supplied[1] + supplied[2]
+        if abs(total - 1.0) > 1e-6:
+            msg = f"alpha + beta + gamma must sum to 1.0; got {total:.6f}"
+            raise ValueError(msg)
+        return self
 
 
 class ReadSymbolRequest(BaseModel):
