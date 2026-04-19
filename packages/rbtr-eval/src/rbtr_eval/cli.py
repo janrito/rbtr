@@ -1,13 +1,14 @@
 """CLI entry point for `rbtr-eval`.
 
-Three subcommands `extract`, `merge-dataset`, `measure`, `tune`
-plus the implicit `--help`.  Pydantic-settings drives the
-parser, matching the shape used by `rbtr.cli`.
+Three subcommands `extract`, `measure`, `tune` plus the
+implicit `--help`.  Pydantic-settings drives the parser,
+matching the shape used by `rbtr.cli`.
 
 Subcommand bodies live in their own modules — `extract.py`,
-`measure.py`, `tune.py`.  The `merge-dataset` subcommand is a
-small piece of `extract.py` (same I/O domain).  This module
-only wires the parser to those modules' `cli_cmd` methods.
+`measure.py`, `tune.py`.  This module only wires the parser to
+those modules' `cli_cmd` methods.  Per-repo JSONL files are
+consumed directly by `measure` and `tune`; there is no merge
+stage.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from pydantic_settings import (
     get_subcommand,
 )
 
-from rbtr_eval.extract import ExtractCmd, MergeDatasetCmd
+from rbtr_eval.extract import ExtractCmd
 from rbtr_eval.measure import MeasureCmd
 from rbtr_eval.tune import TuneCmd
 
@@ -34,7 +35,6 @@ class RbtrEval(
     """rbtr-eval — search-quality evaluation harness."""
 
     extract: CliSubCommand[ExtractCmd]
-    merge_dataset: CliSubCommand[MergeDatasetCmd]
     measure: CliSubCommand[MeasureCmd]
     tune: CliSubCommand[TuneCmd]
 

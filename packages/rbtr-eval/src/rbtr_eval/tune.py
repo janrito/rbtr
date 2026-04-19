@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 class TuneCmd(BaseModel):
     """Grid-search rbtr's search fusion weights."""
 
-    dataset: Path = Field(description="Path to the merged dataset JSONL.")
+    per_repo_dir: Path = Field(description="Directory holding per-repo JSONL files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
     homes_dir: Path = Field(description="Root for per-repo RBTR_HOME directories.")
     grid_step: float = Field(0.2, description="Step size for the (alpha, beta, gamma) grid.")

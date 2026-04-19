@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import random
 import re
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
@@ -133,15 +132,12 @@ class Query(BaseModel, frozen=True):
     multiple `__init__`, and same-named test methods across
     classes.
 
-    `slug` is empty in per-repo JSONLs (implicit from the file
-    name) and populated by `merge-dataset` in the combined
-    dataset.  Downstream consumers can therefore read either
-    format through the same model, dispatching on `slug`
-    presence if needed.
+    No `slug` field; the slug is implicit in the file name
+    (`<slug>.jsonl`).  Consumers that need it carry it
+    alongside the loaded queries.
     """
 
     kind: Literal["query"] = "query"
-    slug: str = ""
     file_path: str
     scope: str
     name: str
@@ -280,18 +276,14 @@ def sample_queries(
 
 
 def _resolve_head_sha(repo_path: Path) -> str:
-    """Return the resolved HEAD SHA for *repo_path*.
+    """Return the resolved HEAD SHA for *repo_path* via pygit2.
 
-    Pure subprocess; no pygit2.  Matches the plan's "no pygit2
-    in our own code" rule (rbtr.git is a carve-out).
+    pygit2 is already a transitive dep through rbtr; using it
+    here keeps git interaction in one library and avoids
+    spawning a `git` subprocess.
     """
-    result = subprocess.run(  # noqa: S603 — trusted args
-        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],  # noqa: S607 — `git` on PATH
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
+    repo = pygit2.Repository(str(repo_path))
+    return str(repo.head.target)
 
 
 # ── CLI subcommands ────────────────────────────────────────────────────────────
@@ -331,82 +323,24 @@ class ExtractCmd(BaseModel):
                 fh.write(q.model_dump_json() + "\n")
 
 
-class MergedHeader(BaseModel, frozen=True):
-    """First line of a merged dataset JSONL.
+def load_per_repo(path: Path) -> tuple[Header, list[Query]]:
+    """Read one per-repo JSONL: the header line and all queries.
 
-    Carries every per-repo `Header` so `measure` and `tune`
-    can attribute queries back to their source repo after the
-    merge (SHAs, per-repo sampling parameters, counts).
+    Used by `measure` and `tune` to consume per-repo files
+    directly — there is no merged dataset.
     """
-
-    kind: Literal["merged_header"] = "merged_header"
-    seed: int
-    sample_cap: int
-    per_repo: list[Header]
-
-
-class MergeDatasetCmd(BaseModel):
-    """Concatenate per-repo JSONL files into one dataset.
-
-    Validates each per-repo file round-trips through `Header` /
-    `Query`, emits one `MergedHeader` carrying every per-repo
-    header, then emits each query with `slug` injected from
-    the owning header.  Input files are processed in alphabetical
-    order to make the output byte-stable.
-
-    Refuses to run if per-repo `seed` or `sample_cap` disagree;
-    those are global knobs and a mismatch means the inputs came
-    from inconsistent pipeline runs.
-    """
-
-    inputs: Path = Field(description="Directory holding per-repo JSONL files.")
-    output: Path = Field(description="Combined dataset output path.")
-
-    def cli_cmd(self) -> None:
-        files = sorted(self.inputs.glob("*.jsonl"))
-        if not files:
-            msg = f"no JSONL files under {self.inputs}"
-            raise SystemExit(msg)
-
-        per_repo_headers: list[Header] = []
-        queries_by_slug: list[tuple[str, list[Query]]] = []
-
-        for path in files:
-            header: Header | None = None
-            queries: list[Query] = []
-            with path.open(encoding="utf-8") as fh:
-                for raw in fh:
-                    line = raw.strip()
-                    if not line:
-                        continue
-                    if header is None:
-                        header = Header.model_validate_json(line)
-                        continue
-                    queries.append(Query.model_validate_json(line))
+    header: Header | None = None
+    queries: list[Query] = []
+    with path.open(encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
             if header is None:
-                msg = f"{path}: no header line"
-                raise SystemExit(msg)
-            per_repo_headers.append(header)
-            queries_by_slug.append((header.slug, queries))
-
-        seeds = {h.seed for h in per_repo_headers}
-        caps = {h.sample_cap for h in per_repo_headers}
-        if len(seeds) != 1 or len(caps) != 1:
-            msg = (
-                "per-repo headers disagree on seed / sample_cap; "
-                f"seeds={sorted(seeds)} caps={sorted(caps)}"
-            )
-            raise SystemExit(msg)
-
-        merged = MergedHeader(
-            seed=per_repo_headers[0].seed,
-            sample_cap=per_repo_headers[0].sample_cap,
-            per_repo=per_repo_headers,
-        )
-
-        self.output.parent.mkdir(parents=True, exist_ok=True)
-        with self.output.open("w", encoding="utf-8") as fh:
-            fh.write(merged.model_dump_json() + "\n")
-            for slug, queries in queries_by_slug:
-                for q in queries:
-                    fh.write(q.model_copy(update={"slug": slug}).model_dump_json() + "\n")
+                header = Header.model_validate_json(line)
+                continue
+            queries.append(Query.model_validate_json(line))
+    if header is None:
+        msg = f"{path}: no header line"
+        raise SystemExit(msg)
+    return header, queries

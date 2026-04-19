@@ -2,13 +2,16 @@ vars:
   - repos_dir: data/repos
   - homes_dir: data/homes
   - per_repo_dir: data/per-repo
-  - dataset: data/dataset.jsonl
   - report: data/BENCHMARKS.md
   - metrics: data/metrics.json
   - tuned: data/tuned-params.json
   - seed: 0
   - sample_cap: 300
   - grid_step: 0.2
+  # Local clone (`../..`) gets HEAD via `git clone`; remotes get the
+  # default branch.  Resolved SHAs are recorded by `extract`.  Local
+  # clone only sees committed state; uncommitted dev changes are
+  # silently ignored — desirable for reproducibility.
   - repos:
       - slug: rbtr__rbtr
         url: ../..
@@ -45,25 +48,17 @@ stages:
       outs:
         - ${per_repo_dir}/${item.slug}.jsonl
 
-  merge-dataset:
-    cmd: python -m rbtr_eval merge-dataset --inputs ${per_repo_dir} --output ${dataset}
-    deps:
-      - src/rbtr_eval/extract.py
-      - ${per_repo_dir}
-    outs:
-      - ${dataset}
-
   measure:
     cmd: >-
       python -m rbtr_eval measure
-      --dataset ${dataset}
+      --per-repo-dir ${per_repo_dir}
       --repos-dir ${repos_dir}
       --homes-dir ${homes_dir}
       --report ${report}
       --metrics ${metrics}
     deps:
       - src/rbtr_eval/measure.py
-      - ${dataset}
+      - ${per_repo_dir}
     outs:
       - ${report}:
           cache: false
@@ -78,14 +73,14 @@ stages:
   tune:
     cmd: >-
       python -m rbtr_eval tune
-      --dataset ${dataset}
+      --per-repo-dir ${per_repo_dir}
       --repos-dir ${repos_dir}
       --homes-dir ${homes_dir}
       --grid-step ${grid_step}
       --output ${tuned}
     deps:
       - src/rbtr_eval/tune.py
-      - ${dataset}
+      - ${per_repo_dir}
     outs:
       - ${tuned}:
           cache: false
