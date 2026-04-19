@@ -345,14 +345,6 @@ packages/rbtr/
 └── src/tests/            # 740+ tests
 ```
 
-### Search quality
-
-```bash
-just eval-search                    # curated query evaluation
-just tune-search                    # grid-search fusion weights
-just bench-search                   # replay real queries from sessions
-```
-
 ### Architecture reference
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for internals —

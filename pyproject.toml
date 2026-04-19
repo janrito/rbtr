@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["packages/rbtr", "packages/rbtr-legacy"]
+members = ["packages/rbtr", "packages/rbtr-legacy", "packages/rbtr-eval"]
 
 # -- ruff --
 
@@ -7,7 +7,7 @@ members = ["packages/rbtr", "packages/rbtr-legacy"]
 target-version = "py313"
 line-length = 100
 # TODO: remove once tests/ moves out of src/ in rbtr-legacy
-src = ["packages/rbtr/src", "packages/rbtr-legacy/src"]
+src = ["packages/rbtr/src", "packages/rbtr-legacy/src", "packages/rbtr-eval/src"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -86,8 +86,8 @@ param_style = "question_mark"
 
 [tool.mypy]
 python_version = "3.13"
-mypy_path = "packages/rbtr/src:packages/rbtr-legacy/src"
-packages = ["rbtr", "rbtr_legacy"]
+mypy_path = "packages/rbtr/src:packages/rbtr-legacy/src:packages/rbtr-eval/src"
+packages = ["rbtr", "rbtr_legacy", "rbtr_eval"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true

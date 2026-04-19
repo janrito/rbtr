@@ -1,4 +1,4 @@
-"""Behaviour tests for the bench query-sampler's `first_sentence`.
+"""Behaviour tests for `first_sentence`.
 
 Thin assertions over case data: accepted docstrings project to
 a known string; rejected ones project to `None`.
@@ -6,15 +6,14 @@ a known string; rejected ones project to `None`.
 
 from __future__ import annotations
 
-from bench_docstrings import (
-    first_sentence,  # type: ignore[import-not-found]  # sys.path set by conftest
-)
 from pytest_cases import parametrize_with_cases
+
+from rbtr_eval.extract import first_sentence
 
 
 @parametrize_with_cases(
     "raw, expected",
-    cases="tests.scripts.case_first_sentence",
+    cases="tests.cases_first_sentence",
     has_tag="accepted",
 )
 def test_first_sentence_extracts_expected_text(raw: str, expected: str) -> None:
@@ -24,7 +23,7 @@ def test_first_sentence_extracts_expected_text(raw: str, expected: str) -> None:
 
 @parametrize_with_cases(
     "raw",
-    cases="tests.scripts.case_first_sentence",
+    cases="tests.cases_first_sentence",
     has_tag="rejected",
 )
 def test_first_sentence_rejects_docstring(raw: str) -> None:

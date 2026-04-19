@@ -1,0 +1,95 @@
+vars:
+  - repos_dir: data/repos
+  - homes_dir: data/homes
+  - per_repo_dir: data/per-repo
+  - dataset: data/dataset.jsonl
+  - report: data/BENCHMARKS.md
+  - metrics: data/metrics.json
+  - tuned: data/tuned-params.json
+  - seed: 0
+  - sample_cap: 300
+  - grid_step: 0.2
+  - repos:
+      - slug: rbtr__rbtr
+        url: ../..
+      - slug: django__django
+        url: git@github.com:django/django.git
+      - slug: badlogic__pi-mono
+        url: git@github.com:badlogic/pi-mono.git
+      - slug: astral-sh__uv
+        url: git@github.com:astral-sh/uv.git
+
+stages:
+  clone:
+    foreach: ${repos}
+    do:
+      cmd: git clone --depth 1 ${item.url} ${repos_dir}/${item.slug}
+      outs:
+        - ${repos_dir}/${item.slug}:
+            cache: false
+            push: false
+
+  extract:
+    foreach: ${repos}
+    do:
+      cmd: >-
+        python -m rbtr_eval extract
+        --slug ${item.slug}
+        --repo-path ${repos_dir}/${item.slug}
+        --output ${per_repo_dir}/${item.slug}.jsonl
+        --seed ${seed}
+        --sample-cap ${sample_cap}
+      deps:
+        - src/rbtr_eval/extract.py
+        - ${repos_dir}/${item.slug}
+      params:
+        - seed
+        - sample_cap
+      outs:
+        - ${per_repo_dir}/${item.slug}.jsonl
+
+  merge-dataset:
+    cmd: python -m rbtr_eval merge-dataset --inputs ${per_repo_dir} --output ${dataset}
+    deps:
+      - src/rbtr_eval/extract.py
+      - ${per_repo_dir}
+    outs:
+      - ${dataset}
+
+  measure:
+    cmd: >-
+      python -m rbtr_eval measure
+      --dataset ${dataset}
+      --repos-dir ${repos_dir}
+      --homes-dir ${homes_dir}
+      --report ${report}
+      --metrics ${metrics}
+    deps:
+      - src/rbtr_eval/measure.py
+      - ${dataset}
+    outs:
+      - ${report}:
+          cache: false
+      - ${homes_dir}:
+          cache: false
+          push: false
+    metrics:
+      - ${metrics}:
+          cache: false
+
+  tune:
+    cmd: >-
+      python -m rbtr_eval tune
+      --dataset ${dataset}
+      --repos-dir ${repos_dir}
+      --homes-dir ${homes_dir}
+      --grid-step ${grid_step}
+      --output ${tuned}
+    deps:
+      - src/rbtr_eval/tune.py
+      - ${dataset}
+    params:
+      - grid_step
+    outs:
+      - ${tuned}:
+          cache: false

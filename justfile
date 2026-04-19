@@ -48,13 +48,16 @@ schema-check:
     cd packages/pi-rbtr && bun run scripts/gen-types.ts
     git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
 
-test: test-rbtr test-legacy test-ts
+test: test-rbtr test-eval test-legacy test-ts
 
 test-legacy:
     uv run pytest packages/rbtr-legacy/src/tests
 
 test-rbtr:
     uv run pytest packages/rbtr/src/tests
+
+test-eval:
+    uv run pytest packages/rbtr-eval/src/tests
 
 test-ts:
     cd packages/pi-rbtr && bunx vitest run
@@ -70,50 +73,10 @@ build:
 dead-code:
     uv run --group debug vulture
 
-# ── profiling (requires `uv sync --group debug`) ──
-# Benchmark indexing + query latency (no embedding).
-
-# Usage: just bench [repo-path] [base-ref] [head-ref]
-bench *ARGS:
-    uv run packages/rbtr/scripts/bench_index.py {{ ARGS }}
-
-# Mine real search queries from session history and replay them.
-# Usage: just bench-search [path/to/sessions.db]
-bench-search *ARGS:
-    uv run packages/rbtr/scripts/bench_search.py {{ ARGS }}
-
-# Measure the contribution of docstrings to code search quality.
-# Clones four repos (rbtr, django, pi-mono, uv), indexes each
-# twice (default and --strip-docstrings), replays docstring-
-# derived queries, and writes BENCHMARKS.md.
-
-# Usage: just bench-docstrings [--dry-run] [--cache-dir DIR]
-bench-docstrings *ARGS:
-    uv run packages/rbtr/scripts/bench_docstrings.py {{ ARGS }}
-
-# Evaluate search quality against curated queries (rbtr repo only).
-
-# Usage: just eval-search [ref]
-eval-search *ARGS:
-    uv run packages/rbtr/scripts/eval_search.py {{ ARGS }}
-
-# Tune search fusion weights via grid search (rbtr repo only).
-
-# Usage: just tune-search [--step 0.05]
-tune-search *ARGS:
-    uv run packages/rbtr/scripts/tune_search.py {{ ARGS }}
-
-# Run bench_index.py under scalene (line-level CPU + memory).
-
-# Usage: just bench-scalene [repo-path] [base-ref] [head-ref]
-bench-scalene *ARGS:
-    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json packages/rbtr/scripts/bench_index.py {{ ARGS }}
-
-# View a scalene profile in browser (defaults to bench profile).
-
-# Usage: just scalene-view [path-to-json]
-scalene-view *ARGS:
-    uv run --group debug python -m scalene view {{ ARGS }}
+# Run the rbtr-eval pipeline (clone -> extract -> merge -> measure).
+# Run a single stage with `cd packages/rbtr-eval && uv run dvc repro <stage>`.
+eval:
+    cd packages/rbtr-eval && uv run dvc repro
 
 # ── release ──
 
