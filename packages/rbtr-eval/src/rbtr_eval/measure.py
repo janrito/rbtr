@@ -110,14 +110,20 @@ class _PerQueryRecord(BaseModel, frozen=True):
 # ── Subprocess wrappers ────────────────────────────────────────────────────────
 
 
-def _du_bytes(path: Path) -> int:
-    """Total bytes under *path* (recursive sum of file sizes).
+def _index_db_bytes(home: Path, db_name: str = "index.duckdb") -> int:
+    """Return the size of the DuckDB index files under *home*.
 
-    Pure Python (`du -sb` is GNU-only and breaks on macOS).
+    Sums the main DB plus its `.wal` and any `.tmp` siblings.
+    Pointedly *not* `du -sb home` because `home` also contains
+    the downloaded embedding model (hundreds of MiB) which has
+    nothing to do with the search index size we're measuring.
     """
-    if not path.exists():
-        return 0
-    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+    total = 0
+    for sibling in (db_name, db_name + ".wal", db_name + ".tmp"):
+        path = home / sibling
+        if path.exists():
+            total += path.stat().st_size
+    return total
 
 
 def _rbtr_env(home: Path) -> dict[str, str]:
@@ -189,7 +195,7 @@ def rbtr_index(home: Path, repo_path: Path, *, strip: bool) -> _IndexResult:
     _run_rbtr(args, env=_rbtr_env(home))
     _wait_for_index(home, repo_path)
     elapsed = time.monotonic() - t0
-    return _IndexResult(elapsed_seconds=elapsed, db_size_bytes=_du_bytes(home))
+    return _IndexResult(elapsed_seconds=elapsed, db_size_bytes=_index_db_bytes(home))
 
 
 def rbtr_search(
@@ -277,11 +283,11 @@ def _aggregate(
 
 
 def _pct(x: float) -> str:
-    return f"{x * 100:5.1f}%"
+    return f"{x * 100:.1f}%"
 
 
 def _ms(x: float) -> str:
-    return f"{x:6.0f} ms"
+    return f"{x:.0f} ms"
 
 
 def _bytes_human(n: int) -> str:
@@ -295,7 +301,26 @@ def _bytes_human(n: int) -> str:
 
 
 def _seconds(x: float) -> str:
-    return f"{x:6.1f} s"
+    return f"{x:.1f} s"
+
+
+def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Render a markdown table with column widths aligned to content.
+
+    Output is one line per row.  Satisfies `rumdl`'s MD060
+    (column alignment) without us hand-padding format strings.
+    """
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    def fmt(cells: list[str]) -> str:
+        padded = [cell.ljust(widths[i]) for i, cell in enumerate(cells)]
+        return "| " + " | ".join(padded) + " |"
+
+    sep = "| " + " | ".join("-" * w for w in widths) + " |"
+    return [fmt(headers), sep, *[fmt(row) for row in rows]]
 
 
 def _render_report(
@@ -311,74 +336,108 @@ def _render_report(
     sample_cap = per_repo_headers[0].sample_cap
     lines: list[str] = []
     lines.append("# rbtr search-quality benchmark\n")
-    lines.append(
-        "Hit@k / MRR for docstring-derived queries against rbtr's "
-        "default and `--strip-docstrings` indexes.  See "
-        "`packages/rbtr-eval/README.md` for methodology.\n"
-    )
+    lines.append("Hit@k / MRR for docstring-derived queries against rbtr's default")
+    lines.append("and `--strip-docstrings` indexes. See `packages/rbtr-eval/README.md`")
+    lines.append("for methodology.\n")
     lines.append("## Run\n")
     lines.append("Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.\n")
-    lines.append("| field | value |")
-    lines.append("|---|---|")
-    lines.append(f"| rbtr commit | `{rbtr_sha}` |")
-    lines.append(f"| seed | {seed} |")
-    lines.append(f"| sample cap | {sample_cap} |")
     total_q = sum(m["default"].n_queries for m in per_repo.values())
-    lines.append(f"| total queries | {total_q} |")
-    lines.append(f"| elapsed | {elapsed_seconds:.0f} s |")
+    lines.extend(
+        _render_table(
+            ["field", "value"],
+            [
+                ["rbtr commit", f"`{rbtr_sha}`"],
+                ["seed", str(seed)],
+                ["sample cap", str(sample_cap)],
+                ["total queries", str(total_q)],
+                ["elapsed", f"{elapsed_seconds:.0f} s"],
+            ],
+        )
+    )
     lines.append("")
 
     lines.append("## Repos\n")
-    lines.append("| slug | sha | n queries |")
-    lines.append("|---|---|---|")
-    for h in per_repo_headers:
-        lines.append(f"| `{h.slug}` | `{h.sha[:12]}` | {h.n_sampled} |")
+    lines.extend(
+        _render_table(
+            ["slug", "sha", "n queries"],
+            [[f"`{h.slug}`", f"`{h.sha[:12]}`", str(h.n_sampled)] for h in per_repo_headers],
+        )
+    )
     lines.append("")
 
     lines.append("## Headline metrics\n")
-    lines.append("| repo | mode | n | Hit@1 | Hit@3 | Hit@10 | MRR | median rank | not found |")
-    lines.append("|---|---|---|---|---|---|---|---|---|")
+    metric_headers = [
+        "repo",
+        "mode",
+        "n",
+        "Hit@1",
+        "Hit@3",
+        "Hit@10",
+        "MRR",
+        "median rank",
+        "not found",
+    ]
+    metric_rows: list[list[str]] = []
     for slug in sorted(per_repo):
         for mode in _MODES:
             m = per_repo[slug][mode]
-            median = "-" if m.median_rank is None else str(m.median_rank)
-            lines.append(
-                f"| `{slug}` | {mode} | {m.n_queries} | {_pct(m.hit_at_1)} | "
-                f"{_pct(m.hit_at_3)} | {_pct(m.hit_at_10)} | {m.mrr:.3f} | "
-                f"{median} | {_pct(m.not_found_pct)} |"
+            metric_rows.append(
+                [
+                    f"`{slug}`",
+                    mode,
+                    str(m.n_queries),
+                    _pct(m.hit_at_1),
+                    _pct(m.hit_at_3),
+                    _pct(m.hit_at_10),
+                    f"{m.mrr:.3f}",
+                    "-" if m.median_rank is None else str(m.median_rank),
+                    _pct(m.not_found_pct),
+                ]
             )
     for mode in _MODES:
         roll = rollups[mode]
-        median = "-" if roll.median_rank is None else str(roll.median_rank)
-        lines.append(
-            f"| **all repos** | {mode} | {roll.n_queries} | {_pct(roll.hit_at_1)} | "
-            f"{_pct(roll.hit_at_3)} | {_pct(roll.hit_at_10)} | {roll.mrr:.3f} | "
-            f"{median} | {_pct(roll.not_found_pct)} |"
+        metric_rows.append(
+            [
+                "**all repos**",
+                mode,
+                str(roll.n_queries),
+                _pct(roll.hit_at_1),
+                _pct(roll.hit_at_3),
+                _pct(roll.hit_at_10),
+                f"{roll.mrr:.3f}",
+                "-" if roll.median_rank is None else str(roll.median_rank),
+                _pct(roll.not_found_pct),
+            ]
         )
+    lines.extend(_render_table(metric_headers, metric_rows))
     lines.append("")
 
     lines.append("## Cost of docstrings\n")
-    lines.append("| repo | mode | index size | index time | search P50 | search P95 |")
-    lines.append("|---|---|---|---|---|---|")
+    cost_headers = ["repo", "mode", "index size", "index time", "search P50", "search P95"]
+    cost_rows: list[list[str]] = []
     for slug in sorted(per_repo):
         for mode in _MODES:
             m = per_repo[slug][mode]
-            lines.append(
-                f"| `{slug}` | {mode} | {_bytes_human(m.index_size_bytes)} | "
-                f"{_seconds(m.index_seconds)} | {_ms(m.search_p50_ms)} | "
-                f"{_ms(m.search_p95_ms)} |"
+            cost_rows.append(
+                [
+                    f"`{slug}`",
+                    mode,
+                    _bytes_human(m.index_size_bytes),
+                    _seconds(m.index_seconds),
+                    _ms(m.search_p50_ms),
+                    _ms(m.search_p95_ms),
+                ]
             )
+    lines.extend(_render_table(cost_headers, cost_rows))
     lines.append("")
 
     lines.append("## Notable misses\n")
     if not misses:
         lines.append("_No queries differ between modes._\n")
     else:
-        lines.append(
-            "Queries where the default-mode rank is much better than "
-            "stripped-mode rank.  Sorted by (default_rank - stripped_rank) "
-            "descending; rank `-` means no top-10 match.\n"
-        )
+        lines.append("Queries where the default-mode rank is much better than")
+        lines.append("stripped-mode rank. Sorted by (default_rank - stripped_rank)")
+        lines.append("descending; rank `-` means no top-10 match.\n")
         for miss in misses:
             d = "-" if miss.default_rank is None else str(miss.default_rank)
             s = "-" if miss.stripped_rank is None else str(miss.stripped_rank)
