@@ -25,6 +25,7 @@ from rbtr.index.models import (
     Edge,
     EdgeKind,
     IndexResult,
+    IndexVariant,
     SemanticDiff,
 )
 from rbtr.index.store import IndexStore
@@ -141,6 +142,7 @@ def build_index(
 
     t0 = time.monotonic()
     result = IndexResult()
+    variant = IndexVariant.from_strip_docstrings(strip_docstrings)
 
     repo_root = Path(repo.workdir).resolve() if repo.workdir else Path.cwd()
     ignore = load_ignore(repo_root)
@@ -165,7 +167,7 @@ def build_index(
     for i, entry in enumerate(files):
         snapshot_rows.append((commit_sha, entry.path, entry.blob_sha))
 
-        if store.has_blob(entry.blob_sha, repo_id=repo_id):
+        if store.has_blob(entry.blob_sha, variant=variant, repo_id=repo_id):
             result.stats.skipped_files += 1
         else:
             try:
@@ -193,7 +195,7 @@ def build_index(
 
     # We also need chunks from skipped (already stored) files for edge inference.
     if result.stats.skipped_files > 0:
-        all_chunks = store.get_chunks(commit_sha, repo_id=repo_id)
+        all_chunks = store.get_chunks(commit_sha, variant=variant, repo_id=repo_id)
 
     # 3. Cross-file edges (clear stale edges first for idempotency).
     store.delete_edges(commit_sha, repo_id=repo_id)
@@ -283,6 +285,7 @@ def update_index(
 
     t0 = time.monotonic()
     result = IndexResult()
+    variant = IndexVariant.from_strip_docstrings(strip_docstrings)
 
     changed = changed_files(repo, base_sha, head_sha)
     log.info("Incremental index: %d changed files", len(changed))
@@ -321,7 +324,7 @@ def update_index(
     new_chunks: list[Chunk] = []
     total = len(changed_entries)
     for i, entry in enumerate(changed_entries):
-        if store.has_blob(entry.blob_sha, repo_id=repo_id):
+        if store.has_blob(entry.blob_sha, variant=variant, repo_id=repo_id):
             result.stats.skipped_files += 1
         else:
             try:
@@ -344,7 +347,7 @@ def update_index(
     store.insert_chunks(new_chunks, repo_id=repo_id)
 
     # Fetch all chunks at head for edge inference.
-    all_chunks = store.get_chunks(head_sha, repo_id=repo_id)
+    all_chunks = store.get_chunks(head_sha, variant=variant, repo_id=repo_id)
 
     # Re-infer edges for the head commit (clear stale edges first).
     store.delete_edges(head_sha, repo_id=repo_id)
@@ -402,6 +405,8 @@ def compute_diff(
     base_sha: str,
     head_sha: str,
     store: IndexStore,
+    *,
+    variant: IndexVariant = IndexVariant.FULL,
     repo_id: int = 1,
 ) -> SemanticDiff:
     """Compute structural differences between two indexed commits.
@@ -429,7 +434,7 @@ def compute_diff(
     #    modified_raw contains head-side chunks of files that changed.
     #    We need base-side chunks too to compare.
     modified_files = {c.file_path for c in modified_raw}
-    base_chunks = store.get_chunks(base_sha, repo_id=repo_id)
+    base_chunks = store.get_chunks(base_sha, variant=variant, repo_id=repo_id)
     base_by_key: dict[tuple[str, str, str], Chunk] = {}
     for c in base_chunks:
         if c.file_path in modified_files and c.kind in symbol_kinds:
@@ -457,7 +462,7 @@ def compute_diff(
     #    the doc chunk itself is unchanged.
     head_edges = store.get_edges(head_sha, repo_id=repo_id)
     head_chunks_by_id: dict[str, Chunk] = {}
-    for c in store.get_chunks(head_sha, repo_id=repo_id):
+    for c in store.get_chunks(head_sha, variant=variant, repo_id=repo_id):
         head_chunks_by_id[c.id] = c
 
     modified_code_files = {c.file_path for c in diff.modified}

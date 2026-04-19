@@ -121,6 +121,7 @@ def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
         ref,
         request.query,
         top_k=request.limit,
+        variant=request.variant,
         alpha=request.alpha,
         beta=request.beta,
         gamma=request.gamma,
@@ -134,7 +135,7 @@ def handle_read_symbol(request: ReadSymbolRequest, mgr: RepoManager) -> Response
     ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
     if isinstance(ref, ErrorResponse):
         return ref
-    chunks = mgr.store.search_by_name(ref, request.name, repo_id=repo_id)
+    chunks = mgr.store.search_by_name(ref, request.name, variant=request.variant, repo_id=repo_id)
     return ReadSymbolResponse(chunks=chunks)
 
 
@@ -143,7 +144,12 @@ def handle_list_symbols(request: ListSymbolsRequest, mgr: RepoManager) -> Respon
     ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
     if isinstance(ref, ErrorResponse):
         return ref
-    chunks = mgr.store.get_chunks(ref, file_path=request.file_path, repo_id=repo_id)
+    chunks = mgr.store.get_chunks(
+        ref,
+        file_path=request.file_path,
+        variant=request.variant,
+        repo_id=repo_id,
+    )
     return ListSymbolsResponse(chunks=chunks)
 
 
@@ -164,7 +170,9 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, mgr: RepoManager) -> 
     changed = changed_files(repo, base, head)
     chunks = []
     for path in sorted(changed):
-        chunks.extend(mgr.store.get_chunks(head, file_path=path, repo_id=repo_id))
+        chunks.extend(
+            mgr.store.get_chunks(head, file_path=path, variant=request.variant, repo_id=repo_id)
+        )
     return ChangedSymbolsResponse(chunks=chunks)
 
 

@@ -11,6 +11,7 @@ SELECT
   c.line_start,
   c.line_end,
   c.metadata,
+  c.strip_docstrings,
   c.embedding IS NOT NULL AS has_embedding
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
@@ -21,5 +22,6 @@ INNER JOIN file_snapshots AS fs
 WHERE
   fs.repo_id = ?
   AND fs.commit_sha = ?
+  AND c.strip_docstrings = ?
   AND c.name ILIKE ?
 ORDER BY c.file_path, c.line_start

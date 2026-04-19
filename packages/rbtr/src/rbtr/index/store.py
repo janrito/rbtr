@@ -28,7 +28,7 @@ import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 
 from rbtr.config import config
 from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
+from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta, IndexVariant
 from rbtr.index.search import (
     ScoredResult,
     fuse_scores,
@@ -623,9 +623,24 @@ class IndexStore:
 
     # ── Reads ────────────────────────────────────────────────────────
 
-    def has_blob(self, blob_sha: str, repo_id: int = 1) -> bool:
-        """Check whether any chunks exist for *blob_sha*."""
-        result = self._cur().execute(_HAS_BLOB_SQL, [repo_id, blob_sha]).fetchone()
+    def has_blob(
+        self,
+        blob_sha: str,
+        *,
+        variant: IndexVariant = IndexVariant.FULL,
+        repo_id: int = 1,
+    ) -> bool:
+        """Check whether any chunks exist for *blob_sha* in *variant*.
+
+        Variant is part of the dedup key: a blob already indexed in
+        `full` may still need indexing in `stripped`, since the two
+        produce different chunk content.
+        """
+        result = (
+            self._cur()
+            .execute(_HAS_BLOB_SQL, [repo_id, blob_sha, variant.strip_docstrings])
+            .fetchone()
+        )
         return result is not None
 
     def count_chunks(self, commit_sha: str, repo_id: int = 1) -> int:
@@ -640,13 +655,15 @@ class IndexStore:
         file_path: str | None = None,
         kind: ChunkKind | None = None,
         name: str | None = None,
+        variant: IndexVariant = IndexVariant.FULL,
         repo_id: int = 1,
     ) -> list[Chunk]:
         """Query chunks visible at *commit_sha* with optional filters."""
         kind_val = kind.value if kind is not None else None
-        params: list[str | int | None] = [
+        params: list[str | int | bool | None] = [
             repo_id,
             commit_sha,
+            variant.strip_docstrings,
             file_path,
             file_path,
             kind_val,
@@ -728,10 +745,20 @@ class IndexStore:
             [_row_to_chunk(r) for r in modified],
         )
 
-    def search_by_name(self, commit_sha: str, pattern: str, repo_id: int = 1) -> list[Chunk]:
+    def search_by_name(
+        self,
+        commit_sha: str,
+        pattern: str,
+        *,
+        variant: IndexVariant = IndexVariant.FULL,
+        repo_id: int = 1,
+    ) -> list[Chunk]:
         """Find chunks whose name contains *pattern* (case-insensitive)."""
         rows = _fetch_dicts(
-            self._cur().execute(_SEARCH_BY_NAME_SQL, [repo_id, commit_sha, f"%{pattern}%"])
+            self._cur().execute(
+                _SEARCH_BY_NAME_SQL,
+                [repo_id, commit_sha, variant.strip_docstrings, f"%{pattern}%"],
+            )
         )
         return [_row_to_chunk(r) for r in rows]
 
@@ -740,6 +767,8 @@ class IndexStore:
         commit_sha: str,
         query_embedding: list[float],
         top_k: int = 10,
+        *,
+        variant: IndexVariant = IndexVariant.FULL,
         repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """Find the *top_k* chunks most similar to *query_embedding*.
@@ -747,7 +776,10 @@ class IndexStore:
         Uses DuckDB built-in `list_cosine_similarity()`.
         """
         rows = _fetch_dicts(
-            self._cur().execute(_SEARCH_SIMILAR_SQL, [query_embedding, repo_id, commit_sha, top_k])
+            self._cur().execute(
+                _SEARCH_SIMILAR_SQL,
+                [query_embedding, repo_id, commit_sha, variant.strip_docstrings, top_k],
+            )
         )
         return [(_row_to_chunk(r), float(r["score"])) for r in rows]
 
@@ -756,6 +788,8 @@ class IndexStore:
         commit_sha: str,
         query: str,
         top_k: int = 10,
+        *,
+        variant: IndexVariant = IndexVariant.FULL,
         repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """Semantic search: embed *query* then find similar chunks.
@@ -766,7 +800,9 @@ class IndexStore:
         from rbtr.index.embeddings import embed_text  # deferred: heavy native lib
 
         query_embedding = embed_text(query)
-        return self.search_similar(commit_sha, query_embedding, top_k, repo_id=repo_id)
+        return self.search_similar(
+            commit_sha, query_embedding, top_k, variant=variant, repo_id=repo_id
+        )
 
     # ── FTS ──────────────────────────────────────────────────────────
 
@@ -824,12 +860,14 @@ class IndexStore:
         commit_sha: str,
         query: str,
         top_k: int = 10,
+        *,
+        variant: IndexVariant = IndexVariant.FULL,
         repo_id: int = 1,
     ) -> list[tuple[Chunk, float]]:
         """BM25 keyword search across chunk name and content.
 
         The *query* is pre-tokenised with `tokenise_code` so
-        that identifier queries (`AgentDeps` → `agentdeps agent
+        that identifier queries (`AgentDeps` -> `agentdeps agent
         deps`) match the code-aware tokens stored in the index.
 
         Automatically rebuilds the FTS index if it is stale or was
@@ -840,7 +878,10 @@ class IndexStore:
         if not tokenised_query:
             return []
         rows = _fetch_dicts(
-            self._cur().execute(_SEARCH_FULLTEXT_SQL, [tokenised_query, repo_id, commit_sha, top_k])
+            self._cur().execute(
+                _SEARCH_FULLTEXT_SQL,
+                [tokenised_query, repo_id, commit_sha, variant.strip_docstrings, top_k],
+            )
         )
         return [(_row_to_chunk(r), float(r["score"])) for r in rows]
 
@@ -852,6 +893,7 @@ class IndexStore:
         query: str,
         *,
         top_k: int = 10,
+        variant: IndexVariant = IndexVariant.FULL,
         alpha: float | None = None,
         beta: float | None = None,
         gamma: float | None = None,
@@ -883,7 +925,9 @@ class IndexStore:
         # ── Channel 1: BM25 lexical ─────────────────────────────
         # Fetch more than top_k so fusion has a good candidate pool.
         pool_size = top_k * 5
-        lexical_results = self.search_fulltext(commit_sha, query, top_k=pool_size, repo_id=repo_id)
+        lexical_results = self.search_fulltext(
+            commit_sha, query, top_k=pool_size, variant=variant, repo_id=repo_id
+        )
         lexical_scores: dict[str, float] = {}
         candidates: dict[str, Chunk] = {}
         for chunk, score in lexical_results:
@@ -895,7 +939,7 @@ class IndexStore:
         try:
             sem_fetch = pool_size * 2  # over-fetch to compensate
             semantic_results = self.search_by_text(
-                commit_sha, query, top_k=sem_fetch, repo_id=repo_id
+                commit_sha, query, top_k=sem_fetch, variant=variant, repo_id=repo_id
             )
             for chunk, score in semantic_results:
                 if chunk.kind in _SEMANTIC_EXCLUDE:
@@ -917,7 +961,7 @@ class IndexStore:
         # For multi-word queries, also search individual tokens
         # so that token-level matches enter the candidate pool
         # (e.g. "import edge" → "infer_import_edges").
-        name_matches = self.search_by_name(commit_sha, query, repo_id=repo_id)
+        name_matches = self.search_by_name(commit_sha, query, variant=variant, repo_id=repo_id)
         for chunk in name_matches:
             if chunk.id not in candidates:
                 candidates[chunk.id] = chunk
@@ -926,7 +970,9 @@ class IndexStore:
         if len(tokens) > 1:
             for token in tokens:
                 if len(token) >= 3:
-                    for chunk in self.search_by_name(commit_sha, token, repo_id=repo_id):
+                    for chunk in self.search_by_name(
+                        commit_sha, token, variant=variant, repo_id=repo_id
+                    ):
                         if chunk.id not in candidates:
                             candidates[chunk.id] = chunk
 

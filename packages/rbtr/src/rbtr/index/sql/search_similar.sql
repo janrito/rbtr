@@ -23,6 +23,7 @@ INNER JOIN file_snapshots AS fs
 WHERE
   c.repo_id = ?
   AND fs.commit_sha = ?
+  AND c.strip_docstrings = ?
   AND c.embedding IS NOT NULL
 ORDER BY score DESC
 LIMIT ?

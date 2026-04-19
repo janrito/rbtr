@@ -18,6 +18,54 @@ export type Request =
 	| StatusRequest
 	| GcRequest;
 /**
+ * Which variant of an index a chunk belongs to / a query targets.
+ *
+ * `full`: chunks built with docstrings preserved (default).
+ * `stripped`: chunks built with docstrings blanked out
+ * (`rbtr index --variant stripped`).
+ *
+ * The two variants coexist in a single store; the public flag
+ * names the variant rather than the action so the same word
+ * works on both `index` (build it) and `search` (query it).
+ */
+export type IndexVariant = "full" | "stripped";
+/**
+ * Which variant of an index a chunk belongs to / a query targets.
+ *
+ * `full`: chunks built with docstrings preserved (default).
+ * `stripped`: chunks built with docstrings blanked out
+ * (`rbtr index --variant stripped`).
+ *
+ * The two variants coexist in a single store; the public flag
+ * names the variant rather than the action so the same word
+ * works on both `index` (build it) and `search` (query it).
+ */
+export type IndexVariant1 = "full" | "stripped";
+/**
+ * Which variant of an index a chunk belongs to / a query targets.
+ *
+ * `full`: chunks built with docstrings preserved (default).
+ * `stripped`: chunks built with docstrings blanked out
+ * (`rbtr index --variant stripped`).
+ *
+ * The two variants coexist in a single store; the public flag
+ * names the variant rather than the action so the same word
+ * works on both `index` (build it) and `search` (query it).
+ */
+export type IndexVariant2 = "full" | "stripped";
+/**
+ * Which variant of an index a chunk belongs to / a query targets.
+ *
+ * `full`: chunks built with docstrings preserved (default).
+ * `stripped`: chunks built with docstrings blanked out
+ * (`rbtr index --variant stripped`).
+ *
+ * The two variants coexist in a single store; the public flag
+ * names the variant rather than the action so the same word
+ * works on both `index` (build it) and `search` (query it).
+ */
+export type IndexVariant3 = "full" | "stripped";
+/**
  * What a ``rbtr gc`` invocation is allowed to delete.
  */
 export type GcMode = "head_only" | "keep_refs" | "keep" | "drop" | "orphans";
@@ -34,12 +82,13 @@ export interface BuildIndexRequest {
 /**
  * Search the code index.
  *
- * `alpha` / `beta` / `gamma` override the per-`QueryKind` fusion
- * weights for the duration of the call.  All-or-nothing: either
- * all three are supplied (override applies uniformly across
- * query kinds) or none are (per-kind defaults apply).  When
- * supplied they must each be in `[0.0, 1.0]` and sum to `1.0`
- * within `1e-6`.
+ * `variant` selects which index variant to query (default
+ * `full`).  `alpha` / `beta` / `gamma` override the per-
+ * `QueryKind` fusion weights for the duration of the call.
+ * All-or-nothing: either all three are supplied (override applies
+ * uniformly across query kinds) or none are (per-kind defaults
+ * apply).  When supplied they must each be in `[0.0, 1.0]` and
+ * sum to `1.0` within `1e-6`.
  */
 export interface SearchRequest {
 	kind: "search";
@@ -47,6 +96,7 @@ export interface SearchRequest {
 	query: string;
 	limit?: number;
 	ref?: string;
+	variant?: IndexVariant;
 	alpha?: number | null;
 	beta?: number | null;
 	gamma?: number | null;
@@ -56,12 +106,14 @@ export interface ReadSymbolRequest {
 	repo: string;
 	name: string;
 	ref?: string;
+	variant?: IndexVariant1;
 }
 export interface ListSymbolsRequest {
 	kind: "list_symbols";
 	repo: string;
 	file_path: string;
 	ref?: string;
+	variant?: IndexVariant2;
 }
 export interface FindRefsRequest {
 	kind: "find_refs";
@@ -74,6 +126,7 @@ export interface ChangedSymbolsRequest {
 	repo: string;
 	base: string;
 	head: string;
+	variant?: IndexVariant3;
 }
 export interface StatusRequest {
 	kind: "status";

@@ -11,6 +11,31 @@ from pydantic import BaseModel, Field
 # ── Enums ────────────────────────────────────────────────────────────
 
 
+class IndexVariant(StrEnum):
+    """Which variant of an index a chunk belongs to / a query targets.
+
+    `full`: chunks built with docstrings preserved (default).
+    `stripped`: chunks built with docstrings blanked out
+    (`rbtr index --variant stripped`).
+
+    The two variants coexist in a single store; the public flag
+    names the variant rather than the action so the same word
+    works on both `index` (build it) and `search` (query it).
+    """
+
+    FULL = "full"
+    STRIPPED = "stripped"
+
+    @classmethod
+    def from_strip_docstrings(cls, strip: bool) -> IndexVariant:
+        return cls.STRIPPED if strip else cls.FULL
+
+    @property
+    def strip_docstrings(self) -> bool:
+        """Internal storage flag for this variant."""
+        return self is IndexVariant.STRIPPED
+
+
 class ChunkKind(StrEnum):
     """Kind of indexed chunk."""
 

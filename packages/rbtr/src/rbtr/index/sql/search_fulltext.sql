@@ -30,6 +30,7 @@ INNER JOIN file_snapshots AS fs
     AND c.file_path = fs.file_path
 WHERE
   fs.commit_sha = ?
+  AND c.strip_docstrings = ?
   AND fts.score IS NOT NULL
 ORDER BY fts.score DESC
 LIMIT ?

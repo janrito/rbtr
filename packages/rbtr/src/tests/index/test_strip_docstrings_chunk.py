@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rbtr.index.models import Chunk, ChunkKind
+from rbtr.index.models import Chunk, ChunkKind, IndexVariant
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import _chunk_id
@@ -35,9 +35,14 @@ def test_chunk_id_differs_by_variant() -> None:
 
 
 def test_both_variants_coexist_in_same_store() -> None:
-    """Same `(repo, file, name, line)` indexed in both variants survives."""
+    """Same logical symbol indexed in both variants survives.
+
+    `get_chunks(variant=...)` filters to one variant; both rows
+    are retrievable by querying each variant in turn.
+    """
     full = _make_chunk(
-        content='def load_config():\n    """Load."""\n    pass\n', strip_docstrings=False
+        content='def load_config():\n    """Load."""\n    pass\n',
+        strip_docstrings=False,
     )
     stripped = _make_chunk(content="def load_config():\n    \n    pass\n", strip_docstrings=True)
     store = IndexStore()
@@ -45,15 +50,19 @@ def test_both_variants_coexist_in_same_store() -> None:
     store.insert_chunks([full, stripped], repo_id=repo_id)
     store.insert_snapshot("HEAD", full.file_path, full.blob_sha, repo_id=repo_id)
 
-    rows = store.get_chunks("HEAD", repo_id=repo_id)
+    full_rows = store.get_chunks("HEAD", variant=IndexVariant.FULL, repo_id=repo_id)
+    stripped_rows = store.get_chunks("HEAD", variant=IndexVariant.STRIPPED, repo_id=repo_id)
 
-    by_id = {c.id: c for c in rows}
-    assert full.id in by_id
-    assert stripped.id in by_id
-    assert by_id[full.id].strip_docstrings is False
-    assert by_id[stripped.id].strip_docstrings is True
-    assert "Load" in by_id[full.id].content
-    assert "Load" not in by_id[stripped.id].content
+    full_by_id = {c.id: c for c in full_rows}
+    stripped_by_id = {c.id: c for c in stripped_rows}
+    assert full.id in full_by_id
+    assert full.id not in stripped_by_id
+    assert stripped.id in stripped_by_id
+    assert stripped.id not in full_by_id
+    assert full_by_id[full.id].strip_docstrings is False
+    assert stripped_by_id[stripped.id].strip_docstrings is True
+    assert "Load" in full_by_id[full.id].content
+    assert "Load" not in stripped_by_id[stripped.id].content
 
 
 def test_default_is_false() -> None:

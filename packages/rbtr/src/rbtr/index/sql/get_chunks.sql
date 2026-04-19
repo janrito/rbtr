@@ -22,6 +22,7 @@ INNER JOIN file_snapshots AS fs
 WHERE
   fs.repo_id = ?
   AND fs.commit_sha = ?
+  AND c.strip_docstrings = ?
   AND (? IS NULL OR fs.file_path = ?)
   AND (? IS NULL OR c.kind = ?)
   AND (? IS NULL OR c.name = ?)

@@ -73,6 +73,7 @@ from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_sec
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, names_for_commits, open_repo, resolve_commit
 from rbtr.index.gc import run_gc
+from rbtr.index.models import IndexVariant
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
 
@@ -173,36 +174,65 @@ class Daemon(BaseModel):
 
 
 class Index(BaseModel):
-    """Index a repository (one ref or base + head)."""
+    """Index a repository (one ref or base + head).
+
+    `--variant {full,stripped}` selects which variant of the index
+    to build.  `stripped` blanks docstrings before chunking and
+    embedding; useful for benchmarking.  Both variants coexist in
+    one index home -- chunks are tagged with their variant on
+    insert.
+    """
 
     refs: CliPositionalArg[list[str]] = Field(["HEAD"], description="Refs to index")
     repo_path: str = Field(".", description="Repository path")
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
+    variant: IndexVariant = Field(
+        IndexVariant.FULL,
+        description=(
+            "Index variant to build: `full` (default) keeps docstrings; "
+            "`stripped` blanks them out.  Both variants coexist in one home."
+        ),
+    )
     strip_docstrings: bool = Field(
         False,
         description=(
-            "Blank out docstrings from chunk content before storing. "
-            "The chosen mode is pinned at first index of a home; mixing "
-            "stripped/unstripped content in one home would poison search. "
-            "Use a distinct --home per mode — intended for benchmarking."
+            "Deprecated alias for `--variant stripped`.  Will be removed in a future release."
         ),
     )
+
+    def _resolved_variant(self) -> IndexVariant:
+        """Combine `--variant` and the deprecated `--strip-docstrings`.
+
+        If `--strip-docstrings` is supplied, it must agree with
+        `--variant` (or `--variant` must be unset).
+        """
+        if self.strip_docstrings:
+            print_err(
+                "[yellow]warning:[/] --strip-docstrings is deprecated; use --variant stripped."
+            )
+            if self.variant is IndexVariant.FULL:
+                return IndexVariant.STRIPPED
+            if self.variant is not IndexVariant.STRIPPED:
+                msg = f"--strip-docstrings conflicts with --variant {self.variant.value}"
+                raise RbtrError(msg)
+        return self.variant
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
         repo = open_repo(resolved_repo)
+        variant = self._resolved_variant()
 
         # Resolve refs to SHAs
         resolved_refs = [str(resolve_commit(repo, r).id) for r in self.refs]
 
         if not self.daemon:
-            self._run_inline(resolved_repo, resolved_refs)
+            self._run_inline(resolved_repo, resolved_refs, variant=variant)
             return
 
         request = BuildIndexRequest(
             repo=resolved_repo,
             refs=resolved_refs,
-            strip_docstrings=self.strip_docstrings,
+            strip_docstrings=variant.strip_docstrings,
         )
 
         # Try daemon first
@@ -224,7 +254,7 @@ class Index(BaseModel):
         except RuntimeError as exc:
             print_err(f"[red]error:[/] failed to start daemon: {exc}")
             print_err("[dim]Falling back to inline execution.[/]")
-            self._run_inline(resolved_repo, resolved_refs)
+            self._run_inline(resolved_repo, resolved_refs, variant=variant)
             return
 
         resp = try_daemon(request)
@@ -234,11 +264,17 @@ class Index(BaseModel):
         else:
             print_err("[red]error:[/] daemon started but failed to queue index job")
 
-    def _run_inline(self, resolved_repo: str, resolved_refs: list[str]) -> None:
+    def _run_inline(
+        self,
+        resolved_repo: str,
+        resolved_refs: list[str],
+        *,
+        variant: IndexVariant,
+    ) -> None:
         """Run indexing inline (blocking)."""
         repo = open_repo(resolved_repo)
         store = IndexStore.from_config()
-        strip = self.strip_docstrings
+        strip = variant.strip_docstrings
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
             if len(resolved_refs) == 2:
@@ -284,16 +320,22 @@ class Index(BaseModel):
 class Search(BaseModel):
     """Search the code index.
 
-    `--alpha` / `--beta` / `--gamma` override per-`QueryKind`
-    fusion weights uniformly for the call.  All three must be
-    supplied together, each in `[0, 1]`, summing to `1.0`.
-    Validation lives on the underlying `SearchRequest` model.
+    `--variant` selects which index variant to query (default
+    `full`).  `--alpha` / `--beta` / `--gamma` override per-
+    `QueryKind` fusion weights uniformly for the call.  All three
+    must be supplied together, each in `[0, 1]`, summing to
+    `1.0`.  Validation lives on the underlying `SearchRequest`
+    model.
     """
 
     query: CliPositionalArg[str] = Field(description="Search query")
     limit: int = Field(10, description="Maximum results to return")
     ref: str = Field("HEAD", description="Git ref (for diff proximity scoring)")
     repo_path: str = Field(".", description="Repository path")
+    variant: IndexVariant = Field(
+        IndexVariant.FULL,
+        description="Index variant to query: `full` or `stripped`.",
+    )
     alpha: float | None = Field(
         None, description="Override fusion weight for the semantic channel."
     )
@@ -308,6 +350,7 @@ class Search(BaseModel):
                 query=self.query,
                 limit=self.limit,
                 ref=self.ref,
+                variant=self.variant,
                 alpha=self.alpha,
                 beta=self.beta,
                 gamma=self.gamma,
@@ -332,6 +375,7 @@ class Search(BaseModel):
             ref,
             request.query,
             top_k=request.limit,
+            variant=request.variant,
             alpha=request.alpha,
             beta=request.beta,
             gamma=request.gamma,
@@ -346,10 +390,18 @@ class ReadSymbol(BaseModel):
     symbol: CliPositionalArg[str] = Field(description="Symbol name (e.g. HttpClient.retry)")
     ref: str = Field("HEAD", description="Git ref")
     repo_path: str = Field(".", description="Repository path")
+    variant: IndexVariant = Field(
+        IndexVariant.FULL,
+        description="Index variant to query: `full` or `stripped`.",
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ReadSymbolRequest(repo=resolved_repo, name=self.symbol, ref=self.ref))
+        resp = try_daemon(
+            ReadSymbolRequest(
+                repo=resolved_repo, name=self.symbol, ref=self.ref, variant=self.variant
+            )
+        )
         if isinstance(resp, ReadSymbolResponse):
             for c in resp.chunks:
                 emit(c)
@@ -360,7 +412,7 @@ class ReadSymbol(BaseModel):
         ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        chunks = store.search_by_name(ref, self.symbol, repo_id=repo_id)
+        chunks = store.search_by_name(ref, self.symbol, variant=self.variant, repo_id=repo_id)
         if not chunks:
             print_err(f"[red]error:[/] symbol not found: {self.symbol}")
             sys.exit(1)
@@ -374,10 +426,18 @@ class ListSymbols(BaseModel):
     file: CliPositionalArg[str] = Field(description="File path")
     ref: str = Field("HEAD", description="Git ref")
     repo_path: str = Field(".", description="Repository path")
+    variant: IndexVariant = Field(
+        IndexVariant.FULL,
+        description="Index variant to query: `full` or `stripped`.",
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ListSymbolsRequest(repo=resolved_repo, file_path=self.file, ref=self.ref))
+        resp = try_daemon(
+            ListSymbolsRequest(
+                repo=resolved_repo, file_path=self.file, ref=self.ref, variant=self.variant
+            )
+        )
         if isinstance(resp, ListSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -388,7 +448,7 @@ class ListSymbols(BaseModel):
         ref = str(resolve_commit(repo, self.ref).id)
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
-        for c in store.get_chunks(ref, file_path=self.file, repo_id=repo_id):
+        for c in store.get_chunks(ref, file_path=self.file, variant=self.variant, repo_id=repo_id):
             emit(c, compact=True)
 
 
@@ -422,10 +482,18 @@ class ChangedSymbols(BaseModel):
     base: str = Field(description="Base ref")
     head: str = Field(description="Head ref")
     repo_path: str = Field(".", description="Repository path")
+    variant: IndexVariant = Field(
+        IndexVariant.FULL,
+        description="Index variant to query: `full` or `stripped`.",
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = str(Path(self.repo_path).resolve())
-        resp = try_daemon(ChangedSymbolsRequest(repo=resolved_repo, base=self.base, head=self.head))
+        resp = try_daemon(
+            ChangedSymbolsRequest(
+                repo=resolved_repo, base=self.base, head=self.head, variant=self.variant
+            )
+        )
         if isinstance(resp, ChangedSymbolsResponse):
             for c in resp.chunks:
                 emit(c, compact=True)
@@ -439,7 +507,7 @@ class ChangedSymbols(BaseModel):
         store = IndexStore.from_config()
         repo_id = store.register_repo(resolved_repo)
         for path in sorted(changed):
-            for c in store.get_chunks(head, file_path=path, repo_id=repo_id):
+            for c in store.get_chunks(head, file_path=path, variant=self.variant, repo_id=repo_id):
                 emit(c, compact=True)
 
 

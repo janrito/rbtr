@@ -16,7 +16,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
-from rbtr.index.models import Chunk, Edge, IndexStats
+from rbtr.index.models import Chunk, Edge, IndexStats, IndexVariant
 from rbtr.index.search import ScoredResult
 
 # ── Error codes ──────────────────────────────────────────────────────
@@ -56,12 +56,13 @@ class BuildIndexRequest(BaseModel):
 class SearchRequest(BaseModel):
     """Search the code index.
 
-    `alpha` / `beta` / `gamma` override the per-`QueryKind` fusion
-    weights for the duration of the call.  All-or-nothing: either
-    all three are supplied (override applies uniformly across
-    query kinds) or none are (per-kind defaults apply).  When
-    supplied they must each be in `[0.0, 1.0]` and sum to `1.0`
-    within `1e-6`.
+    `variant` selects which index variant to query (default
+    `full`).  `alpha` / `beta` / `gamma` override the per-
+    `QueryKind` fusion weights for the duration of the call.
+    All-or-nothing: either all three are supplied (override applies
+    uniformly across query kinds) or none are (per-kind defaults
+    apply).  When supplied they must each be in `[0.0, 1.0]` and
+    sum to `1.0` within `1e-6`.
     """
 
     model_config = _STRICT
@@ -70,6 +71,7 @@ class SearchRequest(BaseModel):
     query: str
     limit: int = 10
     ref: str = "HEAD"
+    variant: IndexVariant = IndexVariant.FULL
     alpha: float | None = Field(default=None, ge=0.0, le=1.0)
     beta: float | None = Field(default=None, ge=0.0, le=1.0)
     gamma: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -95,6 +97,7 @@ class ReadSymbolRequest(BaseModel):
     repo: str
     name: str
     ref: str = "HEAD"
+    variant: IndexVariant = IndexVariant.FULL
 
 
 class ListSymbolsRequest(BaseModel):
@@ -103,6 +106,7 @@ class ListSymbolsRequest(BaseModel):
     repo: str
     file_path: str
     ref: str = "HEAD"
+    variant: IndexVariant = IndexVariant.FULL
 
 
 class FindRefsRequest(BaseModel):
@@ -119,6 +123,7 @@ class ChangedSymbolsRequest(BaseModel):
     repo: str
     base: str
     head: str
+    variant: IndexVariant = IndexVariant.FULL
 
 
 class StatusRequest(BaseModel):
