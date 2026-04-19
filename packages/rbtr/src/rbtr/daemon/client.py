@@ -36,7 +36,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.pidfile import is_pid_alive
 from rbtr.daemon.status import DaemonStatus, read_status, remove_status
-from rbtr.errors import RbtrError
+from rbtr.errors import DaemonBusyError, RbtrError
 
 log = logging.getLogger(__name__)
 
@@ -213,10 +213,10 @@ def try_daemon(request: Request) -> Response | None:
     Returns None *only* when there is no live daemon process
     (no status file, or the recorded PID isn't alive).  When the
     daemon's PID is alive but the request fails (busy worker,
-    timeout, etc.), this propagates `ConnectionError` rather
-    than silently falling back to inline mode — inline fallback
-    against a healthy daemon causes WAL-lock contention on the
-    shared DuckDB file.
+    timeout, etc.), raises `DaemonBusyError` rather than silently
+    falling back to inline mode -- inline fallback against a
+    healthy daemon causes WAL-lock contention on the shared
+    DuckDB file (DuckDB takes a process-level lock).
 
     Daemon protocol errors (e.g. `ErrorResponse`) are returned
     normally.
@@ -226,5 +226,12 @@ def try_daemon(request: Request) -> Response | None:
     if status is None or not is_pid_alive(status.pid):
         remove_status(sock_dir)
         return None
-    with DaemonClient(sock_dir) as client:
-        return client.send(request)
+    try:
+        with DaemonClient(sock_dir) as client:
+            return client.send(request)
+    except ConnectionError as exc:
+        msg = (
+            f"daemon is running (pid {status.pid}) but did not respond: {exc}. "
+            "It may be busy indexing; try `rbtr daemon status` or wait and retry."
+        )
+        raise DaemonBusyError(msg) from exc
