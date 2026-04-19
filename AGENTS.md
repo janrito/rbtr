@@ -191,6 +191,14 @@
   no `git rebase`, no `git push --force`. Every commit
   is final. If a commit is wrong, fix it in a new commit.
   Amending destroys context and makes the log a lie.
+- **Commit messages are short.** One summary sentence;
+  optional body of at most two paragraphs (≤ 5 sentences
+  total). Describe *what* changed and *why*, not how it was
+  built up step-by-step. Never reference TODO files, phase
+  numbers, finding numbers, or other plan content (see also
+  the "TODO plans are ephemeral" rule below). If the change
+  is large enough to need a long explanation, the change is
+  too large — split it.
 
 ## Dependencies & tooling
 
