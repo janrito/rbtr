@@ -69,9 +69,14 @@ def _get_query(grammar: Language, query_str: str) -> Query:
     return Query(grammar, query_str)
 
 
-def _chunk_id(file_path: str, name: str, line_start: int) -> str:
-    """Deterministic chunk ID from file path, symbol name, and line."""
-    raw = f"{file_path}:{name}:{line_start}"
+def _chunk_id(file_path: str, name: str, line_start: int, strip_docstrings: bool) -> str:
+    """Deterministic chunk ID from file path, symbol name, line, and variant.
+
+    `strip_docstrings` is part of the natural key: the same
+    symbol indexed in both variants produces two distinct chunks
+    (PK is `(repo_id, id)`).
+    """
+    raw = f"{file_path}:{name}:{line_start}:{int(strip_docstrings)}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -337,7 +342,7 @@ def extract_symbols(
 
                 chunks.append(
                     Chunk(
-                        id=_chunk_id(file_path, name, chunk_line - 1),
+                        id=_chunk_id(file_path, name, chunk_line - 1, strip_docstrings),
                         blob_sha=blob_sha,
                         file_path=file_path,
                         kind=actual_kind,
@@ -347,6 +352,7 @@ def extract_symbols(
                         line_start=chunk_line,
                         line_end=node.end_point[0] + 1,
                         metadata=metadata,
+                        strip_docstrings=strip_docstrings,
                     )
                 )
 

@@ -167,6 +167,13 @@ export interface ScoredResult {
 }
 /**
  * A single indexed unit of code, documentation, or configuration.
+ *
+ * `strip_docstrings` records whether the chunk's `content` was
+ * built with docstrings blanked out.  Two chunks for the same
+ * `(repo, file, name, line)` may legitimately coexist with
+ * different `strip_docstrings` values; readers select the
+ * variant they want at query time.  Part of the chunk's
+ * natural key, not metadata.
  */
 export interface Chunk {
 	id: string;
@@ -181,6 +188,7 @@ export interface Chunk {
 	line_start: number;
 	line_end: number;
 	metadata?: ImportMeta;
+	strip_docstrings?: boolean;
 	embedding?: number[];
 }
 /**

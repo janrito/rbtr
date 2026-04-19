@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 # Bump this when the schema changes.  On open, if the stored version
 # doesn't match, the DB file is deleted and rebuilt from scratch.
 # Uses calver (YYYY.M.NUM) matching the project version format.
-SCHEMA_VERSION = "2026.4.2"
+SCHEMA_VERSION = "2026.4.3"
 
 # Bump this when the embedding text format changes.  On open, if the
 # stored version doesn't match, all embeddings are cleared so
@@ -177,6 +177,7 @@ def _row_to_chunk(row: _Row) -> Chunk:
         line_start=int(row["line_start"]),
         line_end=int(row["line_end"]),
         metadata=meta,
+        strip_docstrings=bool(row.get("strip_docstrings", False)),
         embedding=_EMBEDDING_SENTINEL if has_emb else [],
     )
 

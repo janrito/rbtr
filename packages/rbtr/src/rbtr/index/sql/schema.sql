@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
   metadata TEXT NOT NULL DEFAULT '{}',
+  strip_docstrings BOOLEAN NOT NULL DEFAULT FALSE,
   embedding FLOAT [] DEFAULT NULL,
   PRIMARY KEY (repo_id, id)
 );

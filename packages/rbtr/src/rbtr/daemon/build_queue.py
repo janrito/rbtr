@@ -85,9 +85,8 @@ class BuildQueue:
         ``(repo, refs, strip_docstrings)`` entry is already queued
         or currently building.  Two calls for the same repo
         differing only in *strip_docstrings* are still distinct
-        intents and both will run — the home pin (see
-        `rbtr.home_state`) is the safety net that keeps a single
-        home from holding mixed-mode chunks.
+        intents and both will run; chunks are tagged with the
+        variant on insert, so the two builds coexist in one home.
         """
         key: _QueueKey = (repo, tuple(refs), strip_docstrings)
         with self._cond:

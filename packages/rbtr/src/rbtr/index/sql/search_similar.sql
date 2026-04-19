@@ -11,6 +11,7 @@ SELECT
   c.line_start,
   c.line_end,
   c.metadata,
+  c.strip_docstrings,
   c.embedding IS NOT NULL AS has_embedding,
   list_cosine_similarity(c.embedding, ?::FLOAT []) AS score
 FROM chunks AS c

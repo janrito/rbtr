@@ -44,6 +44,7 @@ def chunks_to_table(chunks: list[Chunk], repo_id: int = 1) -> pa.Table:
     line_starts: list[int] = []
     line_ends: list[int] = []
     metadatas: list[str] = []
+    strip_docstrings_col: list[bool] = []
 
     for c in chunks:
         repo_ids.append(repo_id)
@@ -59,6 +60,7 @@ def chunks_to_table(chunks: list[Chunk], repo_id: int = 1) -> pa.Table:
         line_starts.append(c.line_start)
         line_ends.append(c.line_end)
         metadatas.append(json.dumps(c.metadata))
+        strip_docstrings_col.append(c.strip_docstrings)
 
     return pa.table(
         {
@@ -75,6 +77,7 @@ def chunks_to_table(chunks: list[Chunk], repo_id: int = 1) -> pa.Table:
             "line_start": pa.array(line_starts, type=pa.int32()),
             "line_end": pa.array(line_ends, type=pa.int32()),
             "metadata": pa.array(metadatas, type=pa.string()),
+            "strip_docstrings": pa.array(strip_docstrings_col, type=pa.bool_()),
         }
     )
 

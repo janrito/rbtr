@@ -91,6 +91,7 @@ def test_chunks_to_table_schema(func_chunk: Chunk) -> None:
         "line_start",
         "line_end",
         "metadata",
+        "strip_docstrings",
     ]
     assert table.schema.field("id").type == pa.string()
     assert table.schema.field("line_start").type == pa.int32()

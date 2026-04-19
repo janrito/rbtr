@@ -13,6 +13,7 @@ SELECT
   line_start,
   line_end,
   metadata,
+  strip_docstrings,
   NULL AS embedding
 FROM _stg
 ON CONFLICT (repo_id, id) DO UPDATE SET
@@ -26,4 +27,5 @@ ON CONFLICT (repo_id, id) DO UPDATE SET
   name_tokens = excluded.name_tokens,
   line_start = excluded.line_start,
   line_end = excluded.line_end,
-  metadata = excluded.metadata
+  metadata = excluded.metadata,
+  strip_docstrings = excluded.strip_docstrings

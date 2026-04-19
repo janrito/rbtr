@@ -72,7 +72,6 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
 from rbtr.git import changed_files, names_for_commits, open_repo, resolve_commit
-from rbtr.home_state import StripModeMismatch, ensure_or_pin
 from rbtr.index.gc import run_gc
 from rbtr.index.orchestrator import build_index, update_index
 from rbtr.index.store import IndexStore
@@ -195,14 +194,6 @@ class Index(BaseModel):
 
         # Resolve refs to SHAs
         resolved_refs = [str(resolve_commit(repo, r).id) for r in self.refs]
-
-        # Pin (or check) the home's strip-docstrings mode before either the
-        # inline or daemon path touches the index.  Mismatch is fatal.
-        try:
-            ensure_or_pin(config.home, self.strip_docstrings)
-        except StripModeMismatch as exc:
-            print_err(f"[red]error:[/] {exc}")
-            sys.exit(2)
 
         if not self.daemon:
             self._run_inline(resolved_repo, resolved_refs)

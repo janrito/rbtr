@@ -11,6 +11,7 @@ SELECT
   c.line_start,
   c.line_end,
   c.metadata,
+  c.strip_docstrings,
   c.embedding IS NOT NULL AS has_embedding
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs

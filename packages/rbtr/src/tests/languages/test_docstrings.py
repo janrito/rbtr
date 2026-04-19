@@ -53,18 +53,27 @@ def test_stripping_removes_doc_text(lang: str, source: str, name: str, snippet: 
     cases="tests.languages.case_docstrings",
     has_tag="documented",
 )
-def test_stripping_preserves_chunk_id(lang: str, source: str, name: str, snippet: str) -> None:
-    """Stripping does not change `chunk.id`.
+def test_stripping_changes_chunk_id_and_flag(
+    lang: str, source: str, name: str, snippet: str
+) -> None:
+    """Stripping yields a distinct chunk: different ID, `strip_docstrings=True`.
 
-    `chunk_id` hashes `(file_path, name, line_start)`.  Stripping
-    preserves `line_start` (docstring bytes are replaced with
-    whitespace, not removed), so the ID must not shift.
+    `_chunk_id` hashes `(file_path, name, line_start, strip_docstrings)`,
+    so the two variants have different IDs and can coexist in the
+    same store under the same `(repo_id, ...)` natural key.  The
+    `strip_docstrings` field on each chunk records its variant.
     """
     kept = next(c for c in extract_chunks(lang, source) if c.name == name)
     stripped = next(
         c for c in extract_chunks(lang, source, strip_docstrings=True) if c.name == name
     )
-    assert kept.id == stripped.id
+    assert kept.id != stripped.id
+    assert kept.strip_docstrings is False
+    assert stripped.strip_docstrings is True
+    # Other identity fields stay the same so callers can still match
+    # variants by `(file_path, name, line_start)`.
+    assert kept.file_path == stripped.file_path
+    assert kept.line_start == stripped.line_start
 
 
 @parametrize_with_cases(

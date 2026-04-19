@@ -80,7 +80,15 @@ class ImportMeta(TypedDict, total=False):
 
 
 class Chunk(BaseModel):
-    """A single indexed unit of code, documentation, or configuration."""
+    """A single indexed unit of code, documentation, or configuration.
+
+    `strip_docstrings` records whether the chunk's `content` was
+    built with docstrings blanked out.  Two chunks for the same
+    `(repo, file, name, line)` may legitimately coexist with
+    different `strip_docstrings` values; readers select the
+    variant they want at query time.  Part of the chunk's
+    natural key, not metadata.
+    """
 
     id: str
     blob_sha: str
@@ -94,6 +102,7 @@ class Chunk(BaseModel):
     line_start: int
     line_end: int
     metadata: ImportMeta = {}
+    strip_docstrings: bool = False
     embedding: Annotated[list[float], Field(exclude=True)] = []
 
 
