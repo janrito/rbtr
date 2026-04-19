@@ -93,6 +93,17 @@ def _isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generato
     monkeypatch.setenv("RBTR_USER_DIR", str(user_dir))
     monkeypatch.setattr("rbtr_legacy.workspace.workspace_dir", mock_ws)
 
+    # `Creds` reads `*_API_KEY` env vars via pydantic-settings; delete
+    # them so a developer's real keys can't leak into tests and make
+    # "no key" assertions silently pass or fail depending on shell.
+    for var in (
+        "OPENAI_API_KEY",
+        "FIREWORKS_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GITHUB_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
     config.reload()
     monkeypatch.setattr(config, "skills", SkillsConfig(project_dirs=[], user_dirs=[]))
     creds.reload()

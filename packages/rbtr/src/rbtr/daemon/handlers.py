@@ -58,13 +58,65 @@ def resolve_refs(repo: pygit2.Repository, refs: list[str]) -> list[str] | ErrorR
     return resolved
 
 
+_HEX_SHA_LEN = 40
+
+
+def _looks_like_sha(ref: str) -> bool:
+    """Return True if *ref* is a full 40-char hex SHA.
+
+    Used by the read-side handlers to skip git resolution when the
+    caller already supplied a resolved commit ID.
+    """
+    return len(ref) == _HEX_SHA_LEN and all(c in "0123456789abcdef" for c in ref.lower())
+
+
+def _resolve_read_ref(
+    mgr: RepoManager,
+    repo_path: str,
+    repo_id: int,
+    requested_ref: str,
+) -> str | ErrorResponse:
+    """Resolve *requested_ref* for a read-side handler.
+
+    The read path doesn't need to walk the working tree; it only
+    needs a commit SHA to scope the query.  Try, in order:
+
+    1. If *requested_ref* is already a full SHA, use it as-is.
+    2. Open the repo with `pygit2` and resolve the symbolic ref.
+    3. If `open_repo` fails AND *requested_ref* is "HEAD"
+       AND the store knows at least one indexed commit, use the
+       most recently indexed one.  This makes the daemon serve
+       the latest index even when the caller's checkout has
+       moved or is missing -- desirable for read-only queries.
+
+    Step 3 is *only* taken when the repo cannot be opened; an
+    open repo with no resolvable HEAD still propagates the error
+    so callers see real git problems.
+    """
+    if _looks_like_sha(requested_ref):
+        return requested_ref
+    try:
+        repo = open_repo(repo_path)
+    except RbtrError as exc:
+        if requested_ref == "HEAD":
+            indexed = mgr.store.list_indexed_commits(repo_id)
+            if indexed:
+                return indexed[0][0]
+        return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
+    try:
+        return str(resolve_commit(repo, requested_ref).id)
+    except KeyError as exc:
+        return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
+
+
 # ── Read-only handlers ───────────────────────────────────────────────
 
 
 def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    repo = open_repo(request.repo)
-    ref = str(resolve_commit(repo, request.ref).id)
+    ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
+    if isinstance(ref, ErrorResponse):
+        return ref
     results = mgr.store.search(
         ref,
         request.query,
@@ -79,24 +131,27 @@ def handle_search(request: SearchRequest, mgr: RepoManager) -> Response:
 
 def handle_read_symbol(request: ReadSymbolRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    repo = open_repo(request.repo)
-    ref = str(resolve_commit(repo, request.ref).id)
+    ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
+    if isinstance(ref, ErrorResponse):
+        return ref
     chunks = mgr.store.search_by_name(ref, request.name, repo_id=repo_id)
     return ReadSymbolResponse(chunks=chunks)
 
 
 def handle_list_symbols(request: ListSymbolsRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    repo = open_repo(request.repo)
-    ref = str(resolve_commit(repo, request.ref).id)
+    ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
+    if isinstance(ref, ErrorResponse):
+        return ref
     chunks = mgr.store.get_chunks(ref, file_path=request.file_path, repo_id=repo_id)
     return ListSymbolsResponse(chunks=chunks)
 
 
 def handle_find_refs(request: FindRefsRequest, mgr: RepoManager) -> Response:
     repo_id = mgr.resolve(request.repo)
-    repo = open_repo(request.repo)
-    ref = str(resolve_commit(repo, request.ref).id)
+    ref = _resolve_read_ref(mgr, request.repo, repo_id, request.ref)
+    if isinstance(ref, ErrorResponse):
+        return ref
     edges = mgr.store.get_edges(ref, target_id=request.symbol, repo_id=repo_id)
     return FindRefsResponse(edges=edges)
 
@@ -119,11 +174,23 @@ def handle_status(
     build_queue: BuildQueue | None,
 ) -> Response:
     repo_id = mgr.resolve(request.repo)
-    repo = open_repo(request.repo)
-    head = str(resolve_commit(repo, "HEAD").id)
-    count = mgr.store.count_chunks(head, repo_id=repo_id)
     indexed_refs = [sha for sha, _ in mgr.store.list_indexed_commits(repo_id)]
-    indexed_ref_names = names_for_commits(repo, indexed_refs)
+    # Resolve HEAD via git when possible; degrade gracefully to the
+    # latest indexed commit when the repo is missing (same policy as
+    # the read-side handlers above — status is a read).
+    head: str | None
+    indexed_ref_names: dict[str, list[str]] = {}
+    try:
+        repo = open_repo(request.repo)
+    except RbtrError:
+        head = indexed_refs[0] if indexed_refs else None
+    else:
+        try:
+            head = str(resolve_commit(repo, "HEAD").id)
+        except KeyError:
+            head = indexed_refs[0] if indexed_refs else None
+        indexed_ref_names = names_for_commits(repo, indexed_refs)
+    count = mgr.store.count_chunks(head, repo_id=repo_id) if head is not None else 0
     active_job = None
     pending: list[QueueItem] = []
     if build_queue is not None:

@@ -214,23 +214,47 @@ def test_load_model_orchestrates_download_and_init(
 # ── Thin wrappers ────────────────────────────────────────────────────
 
 
-def test_download_delegates_to_hf_hub(mocker: MockerFixture) -> None:
-    """_download passes through to hf_hub_download."""
-    mock_dl = mocker.MagicMock(return_value="/cached/model.gguf")
+def test_download_returns_cached_path_when_available(mocker: MockerFixture) -> None:
+    """`_download` returns the cached path without touching the network."""
+    mock_cache = mocker.MagicMock(return_value="/cached/model.gguf")
+    mock_dl = mocker.MagicMock()
     mocker.patch.dict(
         "sys.modules",
-        {"huggingface_hub": mocker.MagicMock(hf_hub_download=mock_dl)},
+        {
+            "huggingface_hub": mocker.MagicMock(
+                hf_hub_download=mock_dl,
+                try_to_load_from_cache=mock_cache,
+            )
+        },
     )
-    # Force reimport to pick up the mock
     result = embeddings._download("org/repo", "model.gguf", "/cache")
     assert result == "/cached/model.gguf"
+    mock_cache.assert_called_once_with("org/repo", "model.gguf", cache_dir="/cache")
+    mock_dl.assert_not_called()
+
+
+def test_download_falls_back_to_hf_hub(mocker: MockerFixture) -> None:
+    """`_download` calls hf_hub_download with token=False on cache miss."""
+    mock_cache = mocker.MagicMock(return_value=None)
+    mock_dl = mocker.MagicMock(return_value="/downloaded/model.gguf")
+    mocker.patch.dict(
+        "sys.modules",
+        {
+            "huggingface_hub": mocker.MagicMock(
+                hf_hub_download=mock_dl,
+                try_to_load_from_cache=mock_cache,
+            )
+        },
+    )
+    result = embeddings._download("org/repo", "model.gguf", "/cache")
+    assert result == "/downloaded/model.gguf"
     mock_dl.assert_called_once_with(
         repo_id="org/repo", filename="model.gguf", cache_dir="/cache", token=False
     )
 
 
 def test_list_repo_delegates_to_hf_hub(mocker: MockerFixture) -> None:
-    """_list_repo passes through to list_repo_files."""
+    """_list_repo passes through to list_repo_files with token=False."""
     mock_list = mocker.MagicMock(return_value=["a.gguf", "b.txt"])
     mocker.patch.dict(
         "sys.modules",
@@ -238,7 +262,7 @@ def test_list_repo_delegates_to_hf_hub(mocker: MockerFixture) -> None:
     )
     result = embeddings._list_repo("org/repo")
     assert result == ["a.gguf", "b.txt"]
-    mock_list.assert_called_once_with("org/repo")
+    mock_list.assert_called_once_with("org/repo", token=False)
 
 
 # ── store.search_by_text integration ────────────────────────────────
