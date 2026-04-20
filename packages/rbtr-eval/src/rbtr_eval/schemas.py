@@ -11,8 +11,24 @@ schema is the one source of truth for the shape.
 from __future__ import annotations
 
 import dataframely as dy
+import polars as pl
 
 from rbtr.index.models import ChunkKind, IndexVariant
+
+# Hit struct used in `_run_*` raw frames.  One entry per
+# `ScoredResult` returned by the daemon; the ranking pipelines
+# in `measure` and `tune` explode this list into per-hit rows
+# and compute `rank` / `top_*` declaratively.  `line_start` is
+# only consumed by `measure`'s misses appendix; tune ignores
+# it.
+HitStruct = pl.Struct(
+    {
+        "file_path": pl.String(),
+        "scope": pl.String(),
+        "name": pl.String(),
+        "line_start": pl.UInt32(),
+    }
+)
 
 
 class QueryRow(dy.Schema):

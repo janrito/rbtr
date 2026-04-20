@@ -28,11 +28,12 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
+from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
+    HitStruct,
     Metrics,
     MetricsFile,
     MissCandidate,
@@ -40,20 +41,6 @@ from rbtr_eval.schemas import (
     RepoHeader,
     SearchOutcome,
 )
-
-# Schema for the raw output of `_run_searches` before ranking
-# happens.  `hits` is a list-of-struct with the top-10 results
-# in rbtr's fused order; `_score_outcomes` expands this into
-# `SearchOutcome`'s scalar `rank` / `top_*` columns.
-_HIT_STRUCT = pl.Struct(
-    {
-        "file_path": pl.String(),
-        "scope": pl.String(),
-        "name": pl.String(),
-        "line_start": pl.UInt32(),
-    }
-)
-
 
 # ── Typed search ─────────────────────────────────────────────────────────────
 
@@ -72,14 +59,8 @@ def _search(
         limit=10,
     )
     t0 = time.monotonic()
-    response = client.send(request)
+    response = client.send_or_raise_as(SearchResponse, request)
     elapsed_ms = (time.monotonic() - t0) * 1000.0
-    if isinstance(response, ErrorResponse):
-        msg = f"daemon search failed: {response.message}"
-        raise SystemExit(msg)
-    if not isinstance(response, SearchResponse):
-        msg = f"unexpected daemon response: {type(response).__name__}"
-        raise SystemExit(msg)
     return [
         {
             "file_path": hit.chunk.file_path,
@@ -134,7 +115,7 @@ def _run_searches(
             "query_name": pl.String(),
             "query_text": pl.String(),
             "latency_ms": pl.Float64(),
-            "hits": pl.List(_HIT_STRUCT),
+            "hits": pl.List(HitStruct),
         },
     )
 

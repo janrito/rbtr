@@ -24,11 +24,11 @@ from pydantic import BaseModel, Field
 
 from rbtr.config import config as rbtr_config
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
+from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import QueryRow, TuneReport, WeightedSearchOutcome
+from rbtr_eval.schemas import HitStruct, QueryRow, TuneReport, WeightedSearchOutcome
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -49,15 +49,6 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
     ]
 
 
-_HIT_STRUCT = pl.Struct(
-    {
-        "file_path": pl.String(),
-        "scope": pl.String(),
-        "name": pl.String(),
-    }
-)
-
-
 # ── Typed search ─────────────────────────────────────────────────────────────
 
 
@@ -66,7 +57,7 @@ def _search(
     repo_path: Path,
     query: str,
     weights: tuple[float, float, float] | None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, str | int]]:
     """One search via the daemon; None *weights* uses config defaults."""
     a = b = g = None
     if weights is not None:
@@ -80,15 +71,14 @@ def _search(
         beta=b,
         gamma=g,
     )
-    response = client.send(request)
-    if isinstance(response, ErrorResponse):
-        msg = f"daemon search failed: {response.message}"
-        raise SystemExit(msg)
-    if not isinstance(response, SearchResponse):
-        msg = f"unexpected daemon response: {type(response).__name__}"
-        raise SystemExit(msg)
+    response = client.send_or_raise_as(SearchResponse, request)
     return [
-        {"file_path": h.chunk.file_path, "scope": h.chunk.scope, "name": h.chunk.name}
+        {
+            "file_path": h.chunk.file_path,
+            "scope": h.chunk.scope,
+            "name": h.chunk.name,
+            "line_start": h.chunk.line_start,
+        }
         for h in response.results
     ]
 
@@ -104,41 +94,33 @@ def _run_weight_trials(
 ) -> pl.DataFrame:
     """Run one baseline + every grid-triple search for every query.
 
-    Returns a raw frame (unranked) with `hits: list[struct]`.
-    `_score_trials` expands that into
-    `WeightedSearchOutcome`-shaped rows with declarative
-    ranking.
+    The weight configurations are a flat sequence: one
+    `(label, weights)` for baseline plus one per grid triple.
+    The inner loop treats every config the same way; baseline
+    is just `weights=None`.  Returns a raw frame with
+    `hits: list[struct]`; `_score_trials` expands that into
+    `WeightedSearchOutcome` rows with declarative ranking.
     """
-    rows: list[dict[str, str | float | None | list[dict[str, str]]]] = []
+    configs: list[tuple[str, tuple[float, float, float] | None]] = [
+        ("baseline", None),
+        *(("grid", triple) for triple in triples),
+    ]
+    rows: list[dict[str, str | float | None | list[dict[str, str | int]]]] = []
     for query in queries.iter_rows(named=True):
         repo_path = (repos_dir / query["slug"]).resolve()
-        hits = _search(client, repo_path, query["text"], None)
-        rows.append(
-            {
-                "slug": query["slug"],
-                "label": "baseline",
-                "query_file": query["file_path"],
-                "query_scope": query["scope"],
-                "query_name": query["name"],
-                "alpha": None,
-                "beta": None,
-                "gamma": None,
-                "hits": hits,
-            }
-        )
-        for triple in triples:
-            hits = _search(client, repo_path, query["text"], triple)
+        for label, weights in configs:
+            alpha, beta, gamma = (None, None, None) if weights is None else weights
             rows.append(
                 {
                     "slug": query["slug"],
-                    "label": "grid",
+                    "label": label,
                     "query_file": query["file_path"],
                     "query_scope": query["scope"],
                     "query_name": query["name"],
-                    "alpha": triple[0],
-                    "beta": triple[1],
-                    "gamma": triple[2],
-                    "hits": hits,
+                    "alpha": alpha,
+                    "beta": beta,
+                    "gamma": gamma,
+                    "hits": _search(client, repo_path, query["text"], weights),
                 }
             )
     return pl.DataFrame(
@@ -152,7 +134,7 @@ def _run_weight_trials(
             "alpha": pl.Float64(),
             "beta": pl.Float64(),
             "gamma": pl.Float64(),
-            "hits": pl.List(_HIT_STRUCT),
+            "hits": pl.List(HitStruct),
         },
     )
 
