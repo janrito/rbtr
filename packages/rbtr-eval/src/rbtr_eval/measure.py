@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import subprocess
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 
@@ -33,6 +31,7 @@ from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
+from rbtr_eval.rbtr_cli import daemon_session
 
 # Columns produced by the replay loop.  Declared once so both
 # the accumulator (dict of lists) and the polars DataFrame call
@@ -53,33 +52,7 @@ _REPLAY_SCHEMA: dict[str, pl.DataType] = {
 }
 
 
-# ── Daemon lifecycle + typed search ──────────────────────────────────────────
-
-
-@contextmanager
-def _daemon(home: Path) -> Iterator[DaemonClient]:
-    """Start one daemon for *home*; yield a client; stop on exit.
-
-    The measure stage runs one daemon for the entire pass:
-    every repo, every variant, every query uses the same warm
-    process and shares its loaded embedding model.  The client
-    is bound explicitly to *home* (`DaemonClient(sock_dir=home)`),
-    so it never picks up the caller's `RBTR_HOME`.
-    """
-    home.mkdir(parents=True, exist_ok=True)
-    subprocess.run(  # noqa: S603 - trusted args
-        ["rbtr", "--home", str(home), "daemon", "start"],  # noqa: S607
-        check=True,
-    )
-    try:
-        with DaemonClient(sock_dir=home) as client:
-            yield client
-    finally:
-        subprocess.run(  # noqa: S603 - trusted args
-            ["rbtr", "--home", str(home), "daemon", "stop"],  # noqa: S607
-            check=False,
-            capture_output=True,
-        )
+# ── Typed search ─────────────────────────────────────────────────────────────────────
 
 
 def _search(
@@ -411,7 +384,7 @@ class MeasureCmd(BaseModel):
         )
 
         t0 = time.monotonic()
-        with _daemon(self.home) as client:
+        with daemon_session(self.home) as client:
             replay_df = _replay_all(client, per_repo_headers, queries_by_slug, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
         shared_home_bytes = _index_db_bytes(self.home)

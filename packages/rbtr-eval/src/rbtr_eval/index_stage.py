@@ -13,13 +13,13 @@ command so the serialisation is visible to the operator.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from rbtr.index.models import IndexVariant
 from rbtr_eval.extract import load_per_repo
+from rbtr_eval.rbtr_cli import run_rbtr
 
 
 class IndexCmd(BaseModel):
@@ -41,9 +41,8 @@ class IndexCmd(BaseModel):
                 msg = f"repo not cloned: {repo_path}"
                 raise SystemExit(msg)
             for variant in IndexVariant:
-                subprocess.run(  # noqa: S603 - trusted args
-                    [  # noqa: S607 - rbtr on PATH
-                        "rbtr",
+                run_rbtr(
+                    [
                         "--home",
                         str(self.home),
                         "index",
@@ -52,6 +51,5 @@ class IndexCmd(BaseModel):
                         variant.value,
                         "--repo-path",
                         str(repo_path),
-                    ],
-                    check=True,
+                    ]
                 )

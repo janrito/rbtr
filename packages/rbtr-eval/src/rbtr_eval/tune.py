@@ -13,10 +13,7 @@ gamma]).agg(mrr)`, pick the top row.
 
 from __future__ import annotations
 
-import subprocess
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import polars as pl
@@ -29,6 +26,7 @@ from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Query, load_per_repo
+from rbtr_eval.rbtr_cli import daemon_session
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -62,26 +60,7 @@ _TUNE_SCHEMA: dict[str, pl.DataType] = {
 }
 
 
-# ── Daemon lifecycle + typed search ──────────────────────────────────────────
-
-
-@contextmanager
-def _daemon(home: Path) -> Iterator[DaemonClient]:
-    """Start one daemon for *home*; yield a client; stop on exit."""
-    home.mkdir(parents=True, exist_ok=True)
-    subprocess.run(  # noqa: S603 - trusted args
-        ["rbtr", "--home", str(home), "daemon", "start"],  # noqa: S607
-        check=True,
-    )
-    try:
-        with DaemonClient(sock_dir=home) as client:
-            yield client
-    finally:
-        subprocess.run(  # noqa: S603 - trusted args
-            ["rbtr", "--home", str(home), "daemon", "stop"],  # noqa: S607
-            check=False,
-            capture_output=True,
-        )
+# ── Typed search ─────────────────────────────────────────────────────────────────────
 
 
 def _search(
@@ -172,7 +151,7 @@ class TuneCmd(BaseModel):
         t0 = time.monotonic()
 
         cols: dict[str, list[object]] = {name: [] for name in _TUNE_SCHEMA}
-        with _daemon(self.home) as client:
+        with daemon_session(self.home) as client:
             for slug, queries in queries_by_slug.items():
                 repo_path = (self.repos_dir / slug).resolve()
                 # Baseline: no override, rbtr's configured defaults apply.
