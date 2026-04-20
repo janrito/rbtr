@@ -23,7 +23,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
-from typing import Literal
 
 import duckdb
 import minijinja
@@ -35,15 +34,12 @@ from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
 
-Variant = Literal["full", "stripped"]
-_VARIANTS: tuple[Variant, ...] = ("full", "stripped")
-
 
 class _MetricsRow(BaseModel, frozen=True):
     """Per-(repo, variant) metrics; rolls up into the aggregate too."""
 
     slug: str
-    variant: Variant
+    variant: IndexVariant
     n_queries: int
     hit_at_1: float
     hit_at_3: float
@@ -72,21 +68,6 @@ class _PerQueryRecord(BaseModel, frozen=True):
     stripped_top_file: str | None
     stripped_top_line: int | None
     stripped_top_name: str | None
-
-
-# ── Isolation guard ────────────────────────────────────────────────────────────
-
-
-def _guard_home(home: Path) -> None:
-    """Refuse to run if *home* overlaps the user's real RBTR_HOME."""
-    real = Path(os.environ.get("RBTR_HOME") or (Path.home() / ".rbtr")).expanduser().resolve()
-    requested = home.resolve()
-    if requested == real or real.is_relative_to(requested) or requested.is_relative_to(real):
-        msg = (
-            f"refusing to use --home={requested}: overlaps the user's real "
-            f"RBTR_HOME ({real}). Pick a path under data/."
-        )
-        raise SystemExit(msg)
 
 
 # ── Subprocess wrappers ────────────────────────────────────────────────────────
@@ -131,7 +112,7 @@ def _search(
     env: dict[str, str],
     repo_path: Path,
     query: str,
-    variant: Variant,
+    variant: IndexVariant,
 ) -> tuple[list[ScoredResult], float]:
     """One search call; returns (hits, wall_ms)."""
     args = [
@@ -139,7 +120,7 @@ def _search(
         "search",
         query,
         "--variant",
-        variant,
+        variant.value,
         "--limit",
         "10",
         "--repo-path",
@@ -216,7 +197,7 @@ def _replay_all(
         slug = h.slug
         repo_path = (repos_dir / slug).resolve()
         queries = queries_by_slug.get(slug, [])
-        for variant in _VARIANTS:
+        for variant in IndexVariant:
             latencies: list[float] = []
             for q in queries:
                 hits, ms = _search(env, repo_path, q.text, variant)
@@ -226,7 +207,7 @@ def _replay_all(
                 rows.append(
                     {
                         "slug": slug,
-                        "variant": variant,
+                        "variant": variant.value,
                         "query_file": q.file_path,
                         "query_scope": q.scope,
                         "query_name": q.name,
@@ -237,7 +218,7 @@ def _replay_all(
                         "top_name": top.chunk.name if top is not None else None,
                     }
                 )
-            key = f"{slug}/{variant}"
+            key = f"{slug}/{variant.value}"
             latencies_by_pair[key] = latencies
             sizes[key] = _index_db_bytes(Path(env["RBTR_HOME"]))
 
@@ -350,7 +331,7 @@ def _aggregate(
         metrics.append(
             _MetricsRow(
                 slug=slug,
-                variant=variant,  # type: ignore[arg-type]  # DuckDB returns str
+                variant=IndexVariant(variant),
                 n_queries=int(row["n_queries"]),
                 hit_at_1=float(row["hit_at_1"]),
                 hit_at_3=float(row["hit_at_3"]),
@@ -480,7 +461,7 @@ def _render_report(
     headline_rows = [
         {
             "slug": "**all repos**" if m.slug == "__all__" else f"`{m.slug}`",
-            "variant": m.variant,
+            "variant": m.variant.value,
             "n_queries": m.n_queries,
             "hit_at_1": m.hit_at_1,
             "hit_at_3": m.hit_at_3,
@@ -494,7 +475,7 @@ def _render_report(
     latency_rows = [
         {
             "slug": "**all repos**" if m.slug == "__all__" else f"`{m.slug}`",
-            "variant": m.variant,
+            "variant": m.variant.value,
             "search_p50_ms": m.search_p50_ms,
             "search_p95_ms": m.search_p95_ms,
         }
@@ -570,9 +551,9 @@ def _render_metrics(
     for m in metrics:
         payload = m.model_dump()
         if m.slug == "__all__":
-            aggregate[m.variant] = payload
+            aggregate[m.variant.value] = payload
         else:
-            per_repo.setdefault(m.slug, {"sha": sha_for[m.slug]})[m.variant] = payload
+            per_repo.setdefault(m.slug, {"sha": sha_for[m.slug]})[m.variant.value] = payload
     return {
         "run": {
             "rbtr_sha": rbtr_sha,
@@ -606,13 +587,6 @@ class MeasureCmd(BaseModel):
     metrics: Path = Field(description="Output path for metrics JSON.")
 
     def cli_cmd(self) -> None:
-        _guard_home(self.home)
-        # `IndexVariant` import is a liveness check that the rbtr
-        # types the report / search path depends on are importable
-        # at this rbtr-eval version.  Removing it if ever the import
-        # is dropped will catch the surface drift immediately.
-        _ = IndexVariant.FULL
-
         rbtr_sha = _resolve_rbtr_sha()
         per_repo_headers, queries_by_slug = _load_dataset(self.per_repo_dir)
 

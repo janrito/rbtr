@@ -50,20 +50,6 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
     ]
 
 
-# ── Isolation guard ────────────────────────────────────────────────────────────
-
-
-def _guard_home(home: Path) -> None:
-    real = Path(os.environ.get("RBTR_HOME") or (Path.home() / ".rbtr")).expanduser().resolve()
-    requested = home.resolve()
-    if requested == real or real.is_relative_to(requested) or requested.is_relative_to(real):
-        msg = (
-            f"refusing to use --home={requested}: overlaps the user's real "
-            f"RBTR_HOME ({real}). Pick a path under data/."
-        )
-        raise SystemExit(msg)
-
-
 # ── Subprocess wrappers ────────────────────────────────────────────────────────
 
 
@@ -109,7 +95,7 @@ def _search(
         "search",
         query,
         "--variant",
-        "full",
+        IndexVariant.FULL.value,
         "--limit",
         "10",
         "--repo-path",
@@ -179,9 +165,6 @@ class TuneCmd(BaseModel):
     output: Path = Field(description="Output path for the tuning suggestion JSON.")
 
     def cli_cmd(self) -> None:
-        _guard_home(self.home)
-        _ = IndexVariant.FULL  # liveness check on the rbtr type surface
-
         rbtr_sha = _resolve_rbtr_sha()
         queries_by_slug = _load_dataset(self.per_repo_dir)
         triples = grid_triples(self.grid_step)
