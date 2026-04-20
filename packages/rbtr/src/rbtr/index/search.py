@@ -109,29 +109,23 @@ def classify_query(query: str) -> QueryKind:
     return QueryKind.CONCEPT
 
 
-# Per-kind fusion weights: (alpha=semantic, beta=lexical, gamma=name).
-# Tuned via scripts/tune_search.py against the eval set.
-_KIND_WEIGHTS: dict[QueryKind, tuple[float, float, float]] = {
-    # Identifiers: name match dominates.  BM25 adds noise because
-    # import chunks inflate TF for identifier terms.  Semantic
-    # weight reserved for when embeddings are available.
-    QueryKind.IDENTIFIER: (0.1, 0.0, 0.9),
-    # Concepts: multi-word keyword queries.  Semantic favoured
-    # to bridge vocabulary gaps (e.g. "shorten conversation" →
-    # compact_history).  Small lexical weight for BM25 fallback
-    # when embeddings are unavailable.  Name channel valuable
-    # for token-level matching (e.g. "import edge" →
-    # infer_import_edges).
-    QueryKind.CONCEPT: (0.4, 0.1, 0.5),
-    # Pattern queries: routed to grep in practice.  When they
-    # reach search, semantic is the best available signal.
-    QueryKind.PATTERN: (0.5, 0.3, 0.2),
-}
+def default_weights() -> tuple[float, float, float]:
+    """Return the configured default fusion weights `(alpha, beta, gamma)`.
 
+    Reads `search_alpha`, `search_beta`, `search_gamma` from
+    `rbtr.config.config` so a TOML file or `RBTR_SEARCH_*` env vars
+    can override the defaults without touching code.  The Config
+    model already validates that the three sum to 1.
 
-def weights_for_query(query: str) -> tuple[float, float, float]:
-    """Return `(alpha, beta, gamma)` fusion weights for *query*."""
-    return _KIND_WEIGHTS[classify_query(query)]
+    Per-kind weighting (`QueryKind`-specific triples) used to live
+    here.  Collapsed to a single triple: tuning produces one
+    `(alpha, beta, gamma)` and querying the same store with
+    different weights per kind is hard to reason about.  Per-kind
+    tuning is an explicit follow-up if data warrants it.
+    """
+    from rbtr.config import config  # deferred: avoid circular import
+
+    return (config.search_alpha, config.search_beta, config.search_gamma)
 
 
 # ── Kind boost ───────────────────────────────────────────────────────
@@ -282,11 +276,6 @@ def proximity_score(
 
 # ── Score fusion ─────────────────────────────────────────────────────
 
-# Starting fusion weights.  Tuned against the eval set.
-DEFAULT_ALPHA = 0.3  # semantic
-DEFAULT_BETA = 0.3  # lexical (BM25)
-DEFAULT_GAMMA = 0.4  # name match
-
 
 class ScoredResult(BaseModel, frozen=True):
     """A search result with full signal breakdown."""
@@ -308,9 +297,9 @@ def fuse_scores(
     semantic_scores: dict[str, float],
     name_scores: dict[str, float],
     *,
-    alpha: float = DEFAULT_ALPHA,
-    beta: float = DEFAULT_BETA,
-    gamma: float = DEFAULT_GAMMA,
+    alpha: float,
+    beta: float,
+    gamma: float,
     top_k: int = 10,
     importance_scores: dict[str, float] | None = None,
     proximity_scores: dict[str, float] | None = None,

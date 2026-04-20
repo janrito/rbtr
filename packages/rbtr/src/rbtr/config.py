@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import AfterValidator, Field, computed_field
+from pydantic import AfterValidator, Field, computed_field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -119,6 +119,33 @@ class Config(BaseSettings):
             ),
         ),
     ] = 30.0
+    search_alpha: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            description=(
+                "Default fusion weight for the semantic (embedding) channel. "
+                "alpha + beta + gamma must sum to 1."
+            ),
+        ),
+    ] = 0.4
+    search_beta: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            description="Default fusion weight for the lexical (BM25) channel.",
+        ),
+    ] = 0.1
+    search_gamma: Annotated[
+        float,
+        Field(
+            ge=0.0,
+            le=1.0,
+            description="Default fusion weight for the name-match channel.",
+        ),
+    ] = 0.5
 
     @classmethod
     def settings_customise_sources(
@@ -138,6 +165,14 @@ class Config(BaseSettings):
             ),
             env_settings,
         )
+
+    @model_validator(mode="after")
+    def _check_search_weights_sum(self) -> Self:
+        total = self.search_alpha + self.search_beta + self.search_gamma
+        if abs(total - 1.0) > 1e-6:
+            msg = f"search_alpha + search_beta + search_gamma must sum to 1.0; got {total:.6f}"
+            raise ValueError(msg)
+        return self
 
     def reload(self) -> None:
         """Re-read all sources (env vars, TOML file) in place."""

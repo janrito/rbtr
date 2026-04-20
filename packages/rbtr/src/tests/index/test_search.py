@@ -13,6 +13,7 @@ from rbtr.index.search import (
     FileCategory,
     QueryKind,
     classify_query,
+    default_weights,
     file_category,
     file_category_penalty,
     importance_score,
@@ -20,7 +21,6 @@ from rbtr.index.search import (
     name_score,
     normalise_scores,
     proximity_score,
-    weights_for_query,
 )
 
 # ── normalise_scores ─────────────────────────────────────────────────
@@ -122,25 +122,17 @@ def test_classify_query(query: str, expected: QueryKind) -> None:
     assert classify_query(query) == expected
 
 
-def test_weights_for_query_sum_to_one() -> None:
-    """All weight tuples are valid convex combinations."""
-    for q in ["IndexStore", "how does auth work", "raise.*Error"]:
-        a, b, g = weights_for_query(q)
-        assert pytest.approx(1.0) == a + b + g
+def test_default_weights_match_config() -> None:
+    """`default_weights` echoes the configured triple."""
+    from rbtr.config import config
+
+    a, b, g = default_weights()
+    assert (a, b, g) == (config.search_alpha, config.search_beta, config.search_gamma)
 
 
-def test_weights_identifier_favours_name() -> None:
-    """Identifier queries assign highest weight to name match."""
-    a, b, g = weights_for_query("IndexStore")
-    assert g > a
-    assert g > b
-
-
-def test_weights_concept_favours_name() -> None:
-    """Concept queries assign highest weight to name match."""
-    a, b, g = weights_for_query("how does auth work")
-    assert g >= a
-    assert g >= b
+def test_default_weights_sum_to_one() -> None:
+    a, b, g = default_weights()
+    assert pytest.approx(1.0) == a + b + g
 
 
 # ── kind_boost ───────────────────────────────────────────────────────

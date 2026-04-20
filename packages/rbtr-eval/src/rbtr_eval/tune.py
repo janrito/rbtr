@@ -32,6 +32,7 @@ from pathlib import Path
 import pygit2
 from pydantic import BaseModel, Field
 
+from rbtr.config import config as rbtr_config
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
 
@@ -215,22 +216,6 @@ def _resolve_rbtr_sha() -> str:
         return "unknown"
 
 
-# ── Current rbtr per-kind weights ──────────────────────────────────────────────
-#
-# Mirror of `_KIND_WEIGHTS` in `packages/rbtr/src/rbtr/index/search.py`.
-# Reported informationally so the operator can compare the tuned
-# uniform triple against the per-kind defaults it would replace.
-# Drifts from rbtr's source if rbtr's defaults change without
-# updating this; not a correctness concern for the tune itself
-# because the baseline `score_current` is *measured* (no override).
-
-_RBTR_CURRENT_WEIGHTS = {
-    "identifier": {"alpha": 0.1, "beta": 0.0, "gamma": 0.9},
-    "concept": {"alpha": 0.4, "beta": 0.1, "gamma": 0.5},
-    "pattern": {"alpha": 0.5, "beta": 0.3, "gamma": 0.2},
-}
-
-
 # ── CLI subcommand ─────────────────────────────────────────────────────────────
 
 
@@ -283,7 +268,11 @@ class TuneCmd(BaseModel):
         a, b, g = best_triple
 
         report = {
-            "current": _RBTR_CURRENT_WEIGHTS,
+            "current": {
+                "alpha": rbtr_config.search_alpha,
+                "beta": rbtr_config.search_beta,
+                "gamma": rbtr_config.search_gamma,
+            },
             "best": {"alpha": a, "beta": b, "gamma": g},
             "metric": "MRR",
             "score_current": baseline_mrr,

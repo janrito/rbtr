@@ -14,10 +14,8 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.index.models import Chunk
 from rbtr.index.search import (
-    DEFAULT_ALPHA,
-    DEFAULT_BETA,
-    DEFAULT_GAMMA,
     ScoredResult,
+    default_weights,
     fuse_scores,
 )
 from tests.index.case_fuse import FuseCase
@@ -39,14 +37,15 @@ def fused(scenario: FuseCase) -> tuple[FuseCase, list[ScoredResult]]:
         )
         for spec in scenario.chunks
     }
+    a, b, g = default_weights()
     results = fuse_scores(
         chunks,
         lexical_scores=scenario.lexical,
         semantic_scores=scenario.semantic,
         name_scores=scenario.name,
-        alpha=DEFAULT_ALPHA if scenario.alpha is None else scenario.alpha,
-        beta=DEFAULT_BETA if scenario.beta is None else scenario.beta,
-        gamma=DEFAULT_GAMMA if scenario.gamma is None else scenario.gamma,
+        alpha=a if scenario.alpha is None else scenario.alpha,
+        beta=b if scenario.beta is None else scenario.beta,
+        gamma=g if scenario.gamma is None else scenario.gamma,
         top_k=scenario.top_k,
     )
     return scenario, results

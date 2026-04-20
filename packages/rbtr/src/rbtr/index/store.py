@@ -31,11 +31,11 @@ from rbtr.index.arrow import chunks_to_table, edges_to_table, snapshots_to_table
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta, IndexVariant
 from rbtr.index.search import (
     ScoredResult,
+    default_weights,
     fuse_scores,
     importance_score,
     name_score,
     proximity_score,
-    weights_for_query,
 )
 from rbtr.index.tokenise import tokenise_code
 
@@ -920,7 +920,7 @@ class IndexStore:
         if alpha is not None and beta is not None and gamma is not None:
             a, b, g = alpha, beta, gamma
         else:
-            a, b, g = weights_for_query(query)
+            a, b, g = default_weights()
 
         # ── Channel 1: BM25 lexical ─────────────────────────────
         # Fetch more than top_k so fusion has a good candidate pool.
