@@ -18,7 +18,10 @@ import pygit2
 from rbtr.errors import RbtrError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+
+_HEX_SHA_LEN = 40
 
 
 # ── Data types ───────────────────────────────────────────────────────
@@ -171,6 +174,71 @@ def resolve_commit(repo: pygit2.Repository, ref: str) -> pygit2.Commit:
             continue
     msg = f"Cannot resolve ref '{ref}' (tried local and origin remote)"
     raise KeyError(msg)
+
+
+def _looks_like_sha(ref: str) -> bool:
+    """True if *ref* is a full 40-char hex SHA.
+
+    Lets read-side callers skip git resolution when the caller
+    already supplied a resolved commit ID.
+    """
+    return len(ref) == _HEX_SHA_LEN and all(c in "0123456789abcdef" for c in ref.lower())
+
+
+def resolve_build_ref(repo: pygit2.Repository, ref: str) -> str:
+    """Resolve *ref* to a SHA string for the indexer (strict).
+
+    Wraps `resolve_commit` and converts its `KeyError` into a typed
+    `RbtrError` with a clearer message.  Used by every code path
+    that writes to the index -- a build needs a concrete commit
+    and there's no sensible fallback.
+    """
+    try:
+        return str(resolve_commit(repo, ref).id)
+    except KeyError as exc:
+        msg = f"Cannot resolve ref '{ref}'"
+        raise RbtrError(msg) from exc
+
+
+def resolve_read_ref(
+    repo_path: str,
+    ref: str,
+    *,
+    latest_indexed: Callable[[], str | None] | None = None,
+) -> str | None:
+    """Resolve *ref* to a SHA for a read-side query (permissive).
+
+    Tries, in order:
+
+    1. SHA short-circuit: if *ref* is already a 40-char hex SHA,
+       return it as-is.
+    2. Open the repo with pygit2 and resolve the symbolic ref.
+    3. If the repo cannot be opened AND *ref* is `"HEAD"` AND
+       *latest_indexed* returns a commit, use that.  This makes
+       read queries resilient to a moved or missing checkout --
+       the caller has the index, so the working tree is
+       optional.
+
+    Returns None if none of those work; the caller wraps this in
+    whatever typed error makes sense for its boundary (e.g.
+    `ErrorResponse` for the daemon).
+
+    *latest_indexed* is a callable so this module stays free of
+    `IndexStore`; pass `lambda: store.list_indexed_commits(repo_id)[0][0]`
+    or similar at the call site.
+    """
+    if _looks_like_sha(ref):
+        return ref
+    try:
+        repo = open_repo(repo_path)
+    except RbtrError:
+        if ref == "HEAD" and latest_indexed is not None:
+            return latest_indexed()
+        return None
+    try:
+        return str(resolve_commit(repo, ref).id)
+    except KeyError:
+        return None
 
 
 # ── Tree walking ─────────────────────────────────────────────────────
