@@ -38,6 +38,17 @@
   Do not batch multiple changes before checking.
 - No hacks. Match existing style.
 - Never transliterate JS/TS patterns. Rewrite idiomatically.
+- **Before writing a utility, check the library.** When you
+  need the current git HEAD SHA, the size of a DuckDB file,
+  a symbol table walk, or any other fact the library is
+  already exposing, use the library's function. Never roll
+  `pygit2.Repository('.').head.target` when `rbtr.git.read_head`
+  exists. Never `os.stat(x.duckdb)` / glob over `.wal` /
+  `.tmp` when `PRAGMA database_size` does the same thing
+  correctly. Private helpers are a cost: every one you
+  didn't need is a maintenance surface and a place for bugs
+  to hide. Check `rbtr` (and the stdlib, and the libs you
+  already import) before writing a 5-line util.
 - **Data handling: use the library, don't DIY.** Never
   hand-write serialisation, deserialisation, or schema
   construction that a library already provides:
