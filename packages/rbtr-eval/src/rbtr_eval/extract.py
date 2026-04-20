@@ -150,21 +150,6 @@ class Query(BaseModel, frozen=True):
 # ── Symbol walk ────────────────────────────────────────────────────────────────
 
 
-class _DocumentedSymbol(BaseModel, frozen=True):
-    """One (symbol, docstring) pair found by the walk.
-
-    Pre-filter record; `first_sentence` may still reject it.
-    """
-
-    file_path: str
-    scope: str
-    name: str
-    symbol_kind: SymbolKind
-    line_start: int
-    language: str
-    doc_text: str
-
-
 _KIND_TO_SYMBOL: dict[str, SymbolKind] = {
     "function": "function",
     "class": "class",
@@ -183,13 +168,13 @@ def _iter_file_entries(repo: pygit2.Repository, ref: str) -> Iterator[FileEntry]
     )
 
 
-def iter_documented_symbols(repo_path: Path) -> Iterator[_DocumentedSymbol]:
-    """Walk *repo_path*, yielding documented function / class / method symbols.
+def iter_queries(repo_path: Path) -> Iterator[Query]:
+    """Walk *repo_path*, yielding one `Query` per documented symbol.
 
     Delegates docstring identification to `extract_doc_spans`
     so it matches the indexer exactly.  Non-(function, class,
-    method) kinds are skipped (we don't benchmark variables or
-    imports).  Symbols without any doc bytes are skipped.
+    method) kinds are skipped.  Symbols without a usable
+    first-sentence (empty / trivia-only comments) are skipped.
     """
     repo = pygit2.Repository(str(repo_path))
     mgr = get_manager()
@@ -218,61 +203,43 @@ def iter_documented_symbols(repo_path: Path) -> Iterator[_DocumentedSymbol]:
             if not span.name or span.name == "<anonymous>":
                 continue
             doc_bytes = b"\n".join(entry.content[s:e] for s, e in span.ranges)
-            yield _DocumentedSymbol(
+            text = first_sentence(doc_bytes.decode("utf-8", errors="replace"))
+            if text is None:
+                continue
+            yield Query(
                 file_path=entry.path,
                 scope=span.scope,
                 name=span.name,
                 symbol_kind=symbol_kind,
                 line_start=span.line_start,
                 language=lang_id,
-                doc_text=doc_bytes.decode("utf-8", errors="replace"),
+                text=text,
             )
 
 
-def _sort_key(item: _DocumentedSymbol | Query) -> tuple[str, int, str, str]:
-    return (item.file_path, item.line_start, item.scope, item.name)
+def _sort_key(q: Query) -> tuple[str, int, str, str]:
+    return (q.file_path, q.line_start, q.scope, q.name)
 
 
 def sample_queries(
-    symbols: list[_DocumentedSymbol],
+    queries: list[Query],
     *,
     seed: int,
     sample_cap: int,
 ) -> list[Query]:
-    """Project to `Query`s, filter, and deterministically sample.
+    """Deterministically sample up to *sample_cap* queries.
 
-    Steps:
-
-    1. Sort candidates by `(file_path, line_start, scope, name)`
-       so the input to `random.Random.sample` is stable.
-    2. Drop any whose `first_sentence` returns None.
-    3. Sample up to *sample_cap* via `random.Random(seed).sample`.
-    4. Re-sort the sample the same way so the JSONL is
-       byte-stable across runs.
+    Sorts on `(file_path, line_start, scope, name)` before the
+    RNG draw so the input to `random.Random.sample` is stable,
+    then re-sorts the sample so the JSONL is byte-stable
+    across runs.
     """
-    sorted_symbols = sorted(symbols, key=_sort_key)
-    queries: list[Query] = []
-    for sym in sorted_symbols:
-        text = first_sentence(sym.doc_text)
-        if text is None:
-            continue
-        queries.append(
-            Query(
-                file_path=sym.file_path,
-                scope=sym.scope,
-                name=sym.name,
-                symbol_kind=sym.symbol_kind,
-                line_start=sym.line_start,
-                language=sym.language,
-                text=text,
-            )
+    sorted_queries = sorted(queries, key=_sort_key)
+    if len(sorted_queries) > sample_cap:
+        sorted_queries = random.Random(seed).sample(  # noqa: S311 — deterministic, not crypto
+            sorted_queries, sample_cap
         )
-
-    if len(queries) > sample_cap:
-        rng = random.Random(seed)  # noqa: S311 — deterministic sampling, not crypto
-        queries = rng.sample(queries, sample_cap)
-
-    return sorted(queries, key=_sort_key)
+    return sorted(sorted_queries, key=_sort_key)
 
 
 def _resolve_head_sha(repo_path: Path) -> str:
@@ -304,22 +271,22 @@ class ExtractCmd(BaseModel):
 
     def cli_cmd(self) -> None:
         sha = _resolve_head_sha(self.repo_path)
-        symbols = list(iter_documented_symbols(self.repo_path))
-        queries = sample_queries(symbols, seed=self.seed, sample_cap=self.sample_cap)
+        candidates = list(iter_queries(self.repo_path))
+        sampled = sample_queries(candidates, seed=self.seed, sample_cap=self.sample_cap)
 
         header = Header(
             slug=self.slug,
             sha=sha,
             seed=self.seed,
             sample_cap=self.sample_cap,
-            n_documented=len(symbols),
-            n_sampled=len(queries),
+            n_documented=len(candidates),
+            n_sampled=len(sampled),
         )
 
         self.output.parent.mkdir(parents=True, exist_ok=True)
         with self.output.open("w", encoding="utf-8") as fh:
             fh.write(header.model_dump_json() + "\n")
-            for q in queries:
+            for q in sampled:
                 fh.write(q.model_dump_json() + "\n")
 
 
