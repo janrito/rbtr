@@ -14,7 +14,6 @@ at `--grid-step` resolution.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from collections.abc import Iterator
@@ -27,6 +26,8 @@ import pygit2
 from pydantic import BaseModel, Field
 
 from rbtr.config import config as rbtr_config
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Query, load_per_repo
@@ -50,64 +51,55 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
     ]
 
 
-# ── Subprocess wrappers ────────────────────────────────────────────────────────
-
-
-def _run_rbtr(
-    args: list[str], *, env: dict[str, str], capture: bool = False
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - trusted args
-        ["rbtr", *args],  # noqa: S607 - rbtr on PATH
-        env=env,
-        check=True,
-        capture_output=capture,
-        text=capture,
-    )
+# ── Daemon lifecycle + typed search ──────────────────────────────────────────
 
 
 @contextmanager
-def _daemon(home: Path) -> Iterator[dict[str, str]]:
-    """Start one daemon for *home*; stop it on exit."""
-    env = os.environ.copy()
-    env["RBTR_HOME"] = str(home)
+def _daemon(home: Path) -> Iterator[DaemonClient]:
+    """Start one daemon for *home*; yield a client; stop on exit."""
     home.mkdir(parents=True, exist_ok=True)
-    _run_rbtr(["daemon", "start"], env=env)
+    subprocess.run(  # noqa: S603 - trusted args
+        ["rbtr", "--home", str(home), "daemon", "start"],  # noqa: S607
+        check=True,
+    )
     try:
-        yield env
+        with DaemonClient(sock_dir=home) as client:
+            yield client
     finally:
-        subprocess.run(
-            ["rbtr", "daemon", "stop"],  # noqa: S607
-            env=env,
+        subprocess.run(  # noqa: S603 - trusted args
+            ["rbtr", "--home", str(home), "daemon", "stop"],  # noqa: S607
             check=False,
             capture_output=True,
         )
 
 
 def _search(
-    env: dict[str, str],
+    client: DaemonClient,
     repo_path: Path,
     query: str,
     weights: tuple[float, float, float] | None,
 ) -> list[ScoredResult]:
-    """One search against the daemon; None *weights* uses config defaults."""
-    args = [
-        "--json",
-        "search",
-        query,
-        "--variant",
-        IndexVariant.FULL.value,
-        "--limit",
-        "10",
-        "--repo-path",
-        str(repo_path),
-    ]
+    """One search via the daemon; None *weights* uses config defaults."""
+    a = beta = gamma = None
     if weights is not None:
-        a, b, g = weights
-        args.extend(["--alpha", str(a), "--beta", str(b), "--gamma", str(g)])
-    proc = _run_rbtr(args, env=env, capture=True)
-    return [
-        ScoredResult.model_validate_json(line) for line in proc.stdout.splitlines() if line.strip()
-    ]
+        a, beta, gamma = weights
+    request = SearchRequest(
+        repo=str(repo_path),
+        query=query,
+        variant=IndexVariant.FULL,
+        limit=10,
+        alpha=a,
+        beta=beta,
+        gamma=gamma,
+    )
+    response = client.send(request)
+    if isinstance(response, ErrorResponse):
+        msg = f"daemon search failed: {response.message}"
+        raise SystemExit(msg)
+    if not isinstance(response, SearchResponse):
+        msg = f"unexpected daemon response: {type(response).__name__}"
+        raise SystemExit(msg)
+    return response.results
 
 
 def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
@@ -171,7 +163,7 @@ class TuneCmd(BaseModel):
         t0 = time.monotonic()
 
         rows: list[dict[str, object]] = []
-        with _daemon(self.home) as env:
+        with _daemon(self.home) as client:
             for slug, queries in queries_by_slug.items():
                 repo_path = (self.repos_dir / slug).resolve()
                 # Baseline: no override, rbtr's configured defaults apply.
@@ -183,7 +175,7 @@ class TuneCmd(BaseModel):
                             "alpha": None,
                             "beta": None,
                             "gamma": None,
-                            "rank": _rank_for(q, _search(env, repo_path, q.text, None)),
+                            "rank": _rank_for(q, _search(client, repo_path, q.text, None)),
                         }
                     )
                 # Grid pass.
@@ -196,7 +188,7 @@ class TuneCmd(BaseModel):
                                 "alpha": t[0],
                                 "beta": t[1],
                                 "gamma": t[2],
-                                "rank": _rank_for(q, _search(env, repo_path, q.text, t)),
+                                "rank": _rank_for(q, _search(client, repo_path, q.text, t)),
                             }
                         )
 

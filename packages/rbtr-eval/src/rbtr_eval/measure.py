@@ -16,7 +16,6 @@ rule.  Aggregation uses DuckDB (already a transitive dep).
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from collections.abc import Iterator
@@ -30,6 +29,8 @@ import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 import pygit2
 from pydantic import BaseModel, Field
 
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
@@ -70,69 +71,58 @@ class _PerQueryRecord(BaseModel, frozen=True):
     stripped_top_name: str | None
 
 
-# ── Subprocess wrappers ────────────────────────────────────────────────────────
-
-
-def _run_rbtr(
-    args: list[str], *, env: dict[str, str], capture: bool = False
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - trusted args
-        ["rbtr", *args],  # noqa: S607 - rbtr on PATH (uv-managed)
-        env=env,
-        check=True,
-        capture_output=capture,
-        text=capture,
-    )
+# ── Daemon lifecycle + typed search ──────────────────────────────────────────
 
 
 @contextmanager
-def _daemon(home: Path) -> Iterator[dict[str, str]]:
-    """Start one daemon for *home*; stop it on exit.
+def _daemon(home: Path) -> Iterator[DaemonClient]:
+    """Start one daemon for *home*; yield a client; stop on exit.
 
     The measure stage runs one daemon for the entire pass:
     every repo, every variant, every query uses the same warm
-    process and shares its loaded embedding model.
+    process and shares its loaded embedding model.  The client
+    is bound explicitly to *home* (`DaemonClient(sock_dir=home)`),
+    so it never picks up the caller's `RBTR_HOME`.
     """
-    env = os.environ.copy()
-    env["RBTR_HOME"] = str(home)
     home.mkdir(parents=True, exist_ok=True)
-    _run_rbtr(["daemon", "start"], env=env)
+    subprocess.run(  # noqa: S603 - trusted args
+        ["rbtr", "--home", str(home), "daemon", "start"],  # noqa: S607
+        check=True,
+    )
     try:
-        yield env
+        with DaemonClient(sock_dir=home) as client:
+            yield client
     finally:
-        subprocess.run(
-            ["rbtr", "daemon", "stop"],  # noqa: S607 - rbtr on PATH
-            env=env,
+        subprocess.run(  # noqa: S603 - trusted args
+            ["rbtr", "--home", str(home), "daemon", "stop"],  # noqa: S607
             check=False,
             capture_output=True,
         )
 
 
 def _search(
-    env: dict[str, str],
+    client: DaemonClient,
     repo_path: Path,
     query: str,
     variant: IndexVariant,
 ) -> tuple[list[ScoredResult], float]:
-    """One search call; returns (hits, wall_ms)."""
-    args = [
-        "--json",
-        "search",
-        query,
-        "--variant",
-        variant.value,
-        "--limit",
-        "10",
-        "--repo-path",
-        str(repo_path),
-    ]
+    """One search call via the daemon client; returns (hits, wall_ms)."""
+    request = SearchRequest(
+        repo=str(repo_path),
+        query=query,
+        variant=variant,
+        limit=10,
+    )
     t0 = time.monotonic()
-    proc = _run_rbtr(args, env=env, capture=True)
+    response = client.send(request)
     elapsed_ms = (time.monotonic() - t0) * 1000.0
-    hits = [
-        ScoredResult.model_validate_json(line) for line in proc.stdout.splitlines() if line.strip()
-    ]
-    return hits, elapsed_ms
+    if isinstance(response, ErrorResponse):
+        msg = f"daemon search failed: {response.message}"
+        raise SystemExit(msg)
+    if not isinstance(response, SearchResponse):
+        msg = f"unexpected daemon response: {type(response).__name__}"
+        raise SystemExit(msg)
+    return response.results, elapsed_ms
 
 
 # ── Dataset load ───────────────────────────────────────────────────────────────
@@ -178,7 +168,8 @@ def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
 
 
 def _replay_all(
-    env: dict[str, str],
+    client: DaemonClient,
+    home: Path,
     per_repo_headers: list[Header],
     queries_by_slug: dict[str, list[Query]],
     repos_dir: Path,
@@ -200,7 +191,7 @@ def _replay_all(
         for variant in IndexVariant:
             latencies: list[float] = []
             for q in queries:
-                hits, ms = _search(env, repo_path, q.text, variant)
+                hits, ms = _search(client, repo_path, q.text, variant)
                 latencies.append(ms)
                 top = hits[0] if hits else None
                 rank = _rank_for(q, hits)
@@ -220,7 +211,7 @@ def _replay_all(
                 )
             key = f"{slug}/{variant.value}"
             latencies_by_pair[key] = latencies
-            sizes[key] = _index_db_bytes(Path(env["RBTR_HOME"]))
+            sizes[key] = _index_db_bytes(home)
 
     return rows, sizes, latencies_by_pair
 
@@ -591,9 +582,9 @@ class MeasureCmd(BaseModel):
         per_repo_headers, queries_by_slug = _load_dataset(self.per_repo_dir)
 
         t0 = time.monotonic()
-        with _daemon(self.home) as env:
+        with _daemon(self.home) as client:
             rows, sizes, latencies = _replay_all(
-                env, per_repo_headers, queries_by_slug, self.repos_dir
+                client, self.home, per_repo_headers, queries_by_slug, self.repos_dir
             )
         elapsed_seconds = time.monotonic() - t0
 

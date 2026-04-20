@@ -71,7 +71,11 @@ def start_daemon() -> DaemonStatus:
     log_path = home / "daemon.log"
     with open(log_path, "a") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "rbtr", "daemon", "serve"],
+            # Explicit `--home`: otherwise the spawned child re-parses
+            # CLI without the parent's flag and falls back to the
+            # default `~/.rbtr`, while the parent watches the wrong
+            # status file.
+            [sys.executable, "-m", "rbtr", "--home", str(home), "daemon", "serve"],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
