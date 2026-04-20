@@ -62,6 +62,32 @@
   by hand, or `dict[str, object]` / `dict[str, Any]` as the
   annotation for structured data, stop; the library has a
   one-liner for that.
+- **No hand-rolled statistics.** `mean`, `median`, `quantile`,
+  `count`, `sum`, `std`, percentiles, reciprocal-rank
+  aggregates — all of these are native polars or SQL
+  expressions. Never write `sum(...) / len(...)`,
+  `sorted(vs)[k]`, or a manual nearest-rank percentile in
+  Python. If the data is in a frame, `.quantile(0.95)` is
+  the answer. If it's in SQL, `quantile_cont(col, 0.95)` is
+  the answer. Rolling your own is wrong every time — slower,
+  buggier, and a maintenance burden.
+- **No manual JSON serialisation of structured data.** Use
+  `df.write_json(path)` (polars), `model.model_dump_json()`
+  (pydantic), or the library's writer. Never build nested
+  `dict[str, Any]` trees by hand and pass them to
+  `json.dumps`. The shape of the output is the shape of the
+  frame or the model; make that your source of truth.
+- **No scratch pydantic models for intermediate data.** A
+  private `_FooRow(BaseModel)` that exists only to shape
+  data between two functions in the same file is gunk — and
+  it spreads: other modules copy the pattern, and suddenly
+  every file has its own half-typed row dialect. If the
+  data is tabular, the polars schema is the shape; return
+  frames. If it's a function return with two or three
+  values, return a tuple. Pydantic models earn their keep
+  only at real boundaries — persisted files, CLI config,
+  network protocols, daemon messages. Not in-module
+  scratch.
 - `type` aliases for complex annotations.
 - `TypedDict` or `BaseModel` for fixed-key dicts.
   No `NamedTuple`.
