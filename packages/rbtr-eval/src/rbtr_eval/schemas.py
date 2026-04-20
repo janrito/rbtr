@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import dataframely as dy
 
-from rbtr.index.models import IndexVariant
-
-_SYMBOL_KINDS = ["function", "class", "method"]
+from rbtr.index.models import ChunkKind, IndexVariant
 
 
 class QueryRow(dy.Schema):
@@ -23,13 +21,16 @@ class QueryRow(dy.Schema):
     The per-repo `<slug>.queries.parquet` file is the
     persisted form of this schema.  `measure` and `tune`
     read those files via `pl.read_parquet` + `QueryRow.validate`.
+    `symbol_kind` is narrowed to the three `ChunkKind` values
+    rbtr-eval samples; the filter on the extract side must
+    stay in sync with this whitelist.
     """
 
     slug = dy.String(primary_key=True)
     file_path = dy.String(primary_key=True)
     scope = dy.String(primary_key=True)
     name = dy.String(primary_key=True)
-    symbol_kind = dy.Enum(_SYMBOL_KINDS)
+    symbol_kind = dy.Enum(k.value for k in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD))
     line_start = dy.UInt32()
     language = dy.String()
     text = dy.String()

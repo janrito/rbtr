@@ -8,10 +8,10 @@ deterministically samples up to `sample_cap`, and writes:
 * `<out_dir>/<slug>.header.parquet`  - one-row repo header
   (validated against `RepoHeader`).
 
-This module is the only place rbtr-eval touches
-`tree-sitter` / rbtr's language plugins; re-implementing per-
-language docstring recognition would mean rolling our own
-comment parsing — the exact smell rbtr-eval is built to avoid.
+This module is the only place rbtr-eval touches `tree-sitter`
+/ rbtr's language plugins; re-implementing per-language
+docstring recognition would mean rolling our own comment
+parsing -- the smell rbtr-eval is built to avoid.
 """
 
 from __future__ import annotations
@@ -27,36 +27,16 @@ from pydantic import BaseModel, Field
 
 from rbtr.config import config
 from rbtr.git import list_files, read_head
+from rbtr.index.models import ChunkKind
 from rbtr.index.treesitter import extract_doc_spans
 from rbtr.languages import get_manager
 from rbtr.rbtrignore import load_ignore
 from rbtr_eval.schemas import QueryRow, RepoHeader
 
-# ── first_sentence ────────────────────────────────────────────────────────────
-#
-# `first_sentence` turns a raw docstring (comment markers and
-# all) into a search-friendly query string.  We deliberately do
-# *not* strip comment markers — doing so means re-implementing
-# per-language comment syntax, which is the smell rbtr-eval is
-# built to avoid.  The indexer already saw `///` / `"""` / `#`
-# inside chunk content; the bench treats them the same way.
-
-# Sentence terminator followed by whitespace, or blank-line
-# paragraph break.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
-
-# Length band for usable queries.  Shorter = stub comment
-# (`hi`, `wip`); longer = makes a poor query.
 _QUERY_MIN_LEN = 15
 _QUERY_MAX_LEN = 200
-
-# Leading-character noise skipped before comparing against
-# `_REJECT_PREFIXES`.  Used only for the rejection decision —
-# not applied to the returned text.
 _REJECT_LOOKAHEAD_RE = re.compile(r"^[\s/#*\-!\"'`]+")
-
-# Boilerplate / scaffolding markers; queries starting with any
-# of these (after skipping marker noise) are dropped.
 _REJECT_PREFIXES = (
     "todo",
     "fixme",
@@ -76,16 +56,23 @@ _REJECT_PREFIXES = (
 def first_sentence(doc_text: str) -> str | None:
     """Return the first sentence of *doc_text*, or None if unusable.
 
-    Splits on a sentence terminator followed by whitespace, or
-    on a blank line.  Truncates at `_QUERY_MAX_LEN` if no
-    terminator appears in the first paragraph.  Returns `None`
-    when the candidate is shorter than `_QUERY_MIN_LEN` or
-    starts with a boilerplate prefix (after skipping leading
-    comment-marker noise).
+    Turns a raw docstring (comment markers and all) into a
+    search-friendly query string.  Comment markers -- line
+    comments, triple-quotes, block-comment delimiters, `*`
+    gutters -- are kept in the returned text: stripping them
+    means re-implementing per-language comment syntax, which
+    is the smell rbtr-eval is built to avoid.  The indexer
+    already saw `///` / `\"\"\"` / `#` inside chunk content;
+    the bench treats them the same way.
 
-    Comment markers (line comments, triple-quotes, block-
-    comment delimiters, `*` gutters) are *kept* in the
-    returned text — see the module-level note.
+    Splits on a sentence terminator followed by whitespace,
+    or on a blank-line paragraph break.  Truncates at
+    `_QUERY_MAX_LEN` (too long makes a poor query) if no
+    terminator appears in the first paragraph.  Returns
+    `None` when the candidate is shorter than `_QUERY_MIN_LEN`
+    (stub comments like `hi`, `wip`) or starts with a
+    boilerplate / scaffolding prefix (`todo`, `@param`, etc.)
+    after skipping leading comment-marker noise.
     """
     cleaned = doc_text.strip()
     if not cleaned:
@@ -105,23 +92,15 @@ def first_sentence(doc_text: str) -> str | None:
 # ── Symbol walk ──────────────────────────────────────────────────────────────
 
 
-_KIND_TO_SYMBOL: dict[str, str] = {
-    "function": "function",
-    "class": "class",
-    "method": "method",
-}
-
-
 def iter_queries(repo_path: Path, slug: str) -> Iterator[dict[str, str | int]]:
     """Walk *repo_path*, yielding one query-row dict per documented symbol.
 
     Delegates docstring identification to `extract_doc_spans`
-    so it matches the indexer exactly.  Non-(function, class,
-    method) kinds are skipped.  Symbols without a usable
-    first-sentence (empty / trivia-only comments) are skipped.
-
-    Row dicts match `QueryRow`; validation happens once the
-    caller builds the frame.
+    so it matches the indexer exactly.  Only function / class /
+    method kinds are kept; anonymous names are dropped; symbols
+    whose docstring produces no usable first sentence are
+    skipped.  Row dicts match `QueryRow`; validation happens
+    when the caller builds the frame.
     """
     repo = pygit2.Repository(str(repo_path))
     mgr = get_manager()
@@ -146,8 +125,7 @@ def iter_queries(repo_path: Path, slug: str) -> Iterator[dict[str, str | int]]:
             scope_types=reg.scope_types,
             doc_comment_node_types=reg.doc_comment_node_types,
         ):
-            symbol_kind = _KIND_TO_SYMBOL.get(str(span.kind))
-            if symbol_kind is None:
+            if span.kind not in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD):
                 continue
             if not span.name or span.name == "<anonymous>":
                 continue
@@ -160,7 +138,7 @@ def iter_queries(repo_path: Path, slug: str) -> Iterator[dict[str, str | int]]:
                 "file_path": entry.path,
                 "scope": span.scope,
                 "name": span.name,
-                "symbol_kind": symbol_kind,
+                "symbol_kind": span.kind.value,
                 "line_start": span.line_start,
                 "language": lang_id,
                 "text": text,
@@ -178,18 +156,12 @@ def sample_queries(
     sorted on the primary-key columns so the parquet file is
     byte-stable across runs.
     """
-    sampled = candidates.group_by(QueryRow.slug.name).map_groups(
+    sampled = candidates.group_by("slug").map_groups(
         lambda g: g.sample(n=min(len(g), sample_cap), seed=seed, shuffle=False)
     )
-    return sampled.sort(
-        [
-            QueryRow.slug.name,
-            QueryRow.file_path.name,
-            QueryRow.line_start.name,
-            QueryRow.scope.name,
-            QueryRow.name.name,
-        ]
-    ).pipe(QueryRow.validate, cast=True)
+    return sampled.sort(["slug", "file_path", "line_start", "scope", "name"]).pipe(
+        QueryRow.validate, cast=True
+    )
 
 
 # ── CLI subcommand ───────────────────────────────────────────────────────────
@@ -221,12 +193,12 @@ class ExtractCmd(BaseModel):
 
         header = pl.DataFrame(
             {
-                RepoHeader.slug.name: [self.slug],
-                RepoHeader.sha.name: [sha],
-                RepoHeader.seed.name: [self.seed],
-                RepoHeader.sample_cap.name: [self.sample_cap],
-                RepoHeader.n_documented.name: [candidates.height],
-                RepoHeader.n_sampled.name: [sampled.height],
+                "slug": [self.slug],
+                "sha": [sha],
+                "seed": [self.seed],
+                "sample_cap": [self.sample_cap],
+                "n_documented": [candidates.height],
+                "n_sampled": [sampled.height],
             },
         ).pipe(RepoHeader.validate, cast=True)
 
