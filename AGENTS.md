@@ -88,6 +88,30 @@
   only at real boundaries — persisted files, CLI config,
   network protocols, daemon messages. Not in-module
   scratch.
+- **Typed data frames.** Every function that takes or
+  returns a polars data frame must declare the shape with a
+  `dataframely` schema and annotate the parameter / return
+  as `dy.DataFrame[Schema]` (or `dy.LazyFrame[Schema]`).
+  Validate at boundaries via
+  `frame.pipe(Schema.validate, cast=True)` so the runtime
+  check matches the annotation. Module-level
+  `_FOO_SCHEMA: dict[str, pl.DataType]` blocks next to a
+  schema class are banned; the schema is the one source of
+  shape. Scratch `dict[str, object]` / `dict[str, Any]` as
+  a row annotation is the same mistake — use the honest
+  union of what you actually append, or a `TypedDict` when
+  the shape is fixed and the dict is reused.
+- **Declarative polars aggregations.** Never accumulate
+  rows via parallel `dict[str, list]` + `.append(...)`
+  plumbing that builds each column separately. Iterate
+  native Python inputs, collect `list[dict]` of row
+  fields, and build one frame at the end via
+  `pl.DataFrame(rows).pipe(Schema.validate, cast=True)`.
+  Aggregations run through polars contexts (`select` /
+  `with_columns` / `group_by().agg(*aggs)` / `pipe` /
+  `concat`) over typed frames. Never iterate with
+  `iter_rows` over a frame to produce another frame —
+  factor that through a transformation context.
 - `type` aliases for complex annotations.
 - `TypedDict` or `BaseModel` for fixed-key dicts.
   No `NamedTuple`.
