@@ -14,6 +14,42 @@ import dataframely as dy
 
 from rbtr.index.models import IndexVariant
 
+_SYMBOL_KINDS = ["function", "class", "method"]
+
+
+class QueryRow(dy.Schema):
+    """One row per sampled query, emitted by `extract`.
+
+    The per-repo `<slug>.queries.parquet` file is the
+    persisted form of this schema.  `measure` and `tune`
+    read those files via `pl.read_parquet` + `QueryRow.validate`.
+    """
+
+    slug = dy.String(primary_key=True)
+    file_path = dy.String(primary_key=True)
+    scope = dy.String(primary_key=True)
+    name = dy.String(primary_key=True)
+    symbol_kind = dy.Enum(_SYMBOL_KINDS)
+    line_start = dy.UInt32()
+    language = dy.String()
+    text = dy.String()
+
+
+class RepoHeader(dy.Schema):
+    """One row per indexed repo.  Persisted as `<slug>.header.parquet`.
+
+    `sha` is the resolved HEAD SHA at extract time.  `seed` /
+    `sample_cap` are stage parameters; `n_documented` /
+    `n_sampled` are the outcome of sampling.
+    """
+
+    slug = dy.String(primary_key=True)
+    sha = dy.String()
+    seed = dy.UInt32()
+    sample_cap = dy.UInt32(min=1)
+    n_documented = dy.UInt32(min=0)
+    n_sampled = dy.UInt32(min=0)
+
 
 class SearchOutcome(dy.Schema):
     """One row per `(slug, variant, query)` search executed by `measure`.

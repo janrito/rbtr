@@ -39,14 +39,15 @@ stages:
         python -m rbtr_eval extract
         --slug ${item.slug}
         --repo-path ${repos_dir}/${item.slug}
-        --output ${per_repo_dir}/${item.slug}.jsonl
+        --out-dir ${per_repo_dir}
         --seed ${seed}
         --sample-cap ${sample_cap}
       deps:
         - src/rbtr_eval/extract.py
         - ${repos_dir}/${item.slug}
       outs:
-        - ${per_repo_dir}/${item.slug}.jsonl
+        - ${per_repo_dir}/${item.slug}.queries.parquet
+        - ${per_repo_dir}/${item.slug}.header.parquet
 
   # Single stage that runs every (repo, variant) job sequentially
   # into the shared `${home}`.  Can't be `foreach` because DVC

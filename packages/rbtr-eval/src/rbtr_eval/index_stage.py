@@ -1,9 +1,9 @@
 """`rbtr-eval index` subcommand.
 
-Sequential indexer: for every `<slug>.jsonl` under the per-repo
-dir, build the `full` and `stripped` variants of that repo into
-the shared `RBTR_HOME`.  `rbtr index --no-daemon` blocks until
-each build is done; no polling, no daemon here.
+Sequential indexer: for every `<slug>.header.parquet` under
+the per-repo dir, build the `full` and `stripped` variants of
+that repo into the shared `RBTR_HOME`.  `rbtr index --no-daemon`
+blocks until each build is done; no polling, no daemon here.
 
 The sequential loop is what makes it safe to share one home:
 only one embedding model ever loads, and DuckDB only sees one
@@ -18,7 +18,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from rbtr.index.models import IndexVariant
-from rbtr_eval.extract import load_per_repo
 from rbtr_eval.rbtr_cli import run_rbtr
 
 
@@ -28,15 +27,17 @@ class IndexCmd(BaseModel):
     home: Path = Field(description="Shared RBTR_HOME for every variant.")
     repos_dir: Path = Field(description="Directory of cloned repos.")
     per_repo_dir: Path = Field(
-        description="Directory of per-repo JSONL files; drives which repos to index.",
+        description="Directory of per-repo parquet files; drives which repos to index.",
     )
 
     def cli_cmd(self) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
 
-        for jsonl in sorted(self.per_repo_dir.glob("*.jsonl")):
-            header, _ = load_per_repo(jsonl)
-            repo_path = (self.repos_dir / header.slug).resolve()
+        # Slug is the filename stem of the header file:
+        # `<slug>.header.parquet` → `<slug>`.
+        for header_path in sorted(self.per_repo_dir.glob("*.header.parquet")):
+            slug = header_path.name.removesuffix(".header.parquet")
+            repo_path = (self.repos_dir / slug).resolve()
             if not repo_path.exists():
                 msg = f"repo not cloned: {repo_path}"
                 raise SystemExit(msg)

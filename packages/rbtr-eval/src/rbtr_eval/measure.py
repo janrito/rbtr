@@ -1,18 +1,17 @@
 """`rbtr-eval measure` subcommand.
 
-Reads per-repo JSONL query files, runs every query through
+Reads per-repo parquet query files, runs every query through
 the already-built rbtr index home (one shared home across all
 repos and variants), and writes:
 
-* `data/BENCHMARKS.md` — human-readable report.
-* `data/metrics.json`  — DVC metrics (polars-written array).
+* `data/BENCHMARKS.md` - human-readable report.
+* `data/metrics.json`  - DVC metrics (polars-written array).
 
 Indexing is a separate DVC stage; this command only queries.
 Searches go through `DaemonClient` against a daemon bound to
-the shared home.  Aggregation is declarative polars: Hit@k,
-MRR, median rank, not-found %, and latency quantiles all come
-from `group_by(...).agg(*aggs)` over the `SearchOutcome`
-frame.
+the shared home.  Ranking is declarative polars (explode +
+`int_range().over()` + filter + join); aggregation is one
+`group_by(...).agg(*aggs)` call per grouping level.
 """
 
 from __future__ import annotations
@@ -23,18 +22,38 @@ from importlib import resources
 from pathlib import Path
 
 import dataframely as dy
+import duckdb
 import minijinja
 import polars as pl
-import pygit2
 from pydantic import BaseModel, Field
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
+from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
-from rbtr.index.search import ScoredResult
-from rbtr_eval.extract import Header, Query, load_per_repo
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import Metrics, MetricsFile, MissCandidate, SearchOutcome
+from rbtr_eval.schemas import (
+    Metrics,
+    MetricsFile,
+    MissCandidate,
+    QueryRow,
+    RepoHeader,
+    SearchOutcome,
+)
+
+# Schema for the raw output of `_run_searches` before ranking
+# happens.  `hits` is a list-of-struct with the top-10 results
+# in rbtr's fused order; `_score_outcomes` expands this into
+# `SearchOutcome`'s scalar `rank` / `top_*` columns.
+_HIT_STRUCT = pl.Struct(
+    {
+        "file_path": pl.String(),
+        "scope": pl.String(),
+        "name": pl.String(),
+        "line_start": pl.UInt32(),
+    }
+)
+
 
 # ── Typed search ─────────────────────────────────────────────────────────────
 
@@ -44,8 +63,8 @@ def _search(
     repo_path: Path,
     query: str,
     variant: IndexVariant,
-) -> tuple[list[ScoredResult], float]:
-    """One search call via the daemon client; returns (hits, wall_ms)."""
+) -> tuple[list[dict[str, str | int]], float]:
+    """One search call via the daemon client; returns (hit-dicts, wall_ms)."""
     request = SearchRequest(
         repo=str(repo_path),
         query=query,
@@ -61,46 +80,15 @@ def _search(
     if not isinstance(response, SearchResponse):
         msg = f"unexpected daemon response: {type(response).__name__}"
         raise SystemExit(msg)
-    return response.results, elapsed_ms
-
-
-def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
-    for i, hit in enumerate(hits, start=1):
-        c = hit.chunk
-        if c.file_path == query.file_path and c.scope == query.scope and c.name == query.name:
-            return i
-    return None
-
-
-# ── Dataset load ─────────────────────────────────────────────────────────────
-
-
-def _load_dataset(per_repo_dir: Path) -> tuple[list[Header], dict[str, list[Query]]]:
-    """Read every `<slug>.jsonl` under *per_repo_dir*.
-
-    Returns the per-repo headers (alphabetical by slug) and
-    queries grouped by slug.  Refuses to run if any header
-    disagrees on seed / sample_cap.
-    """
-    files = sorted(per_repo_dir.glob("*.jsonl"))
-    if not files:
-        msg = f"no JSONL files under {per_repo_dir}"
-        raise SystemExit(msg)
-    headers: list[Header] = []
-    by_slug: dict[str, list[Query]] = {}
-    for path in files:
-        header, queries = load_per_repo(path)
-        headers.append(header)
-        by_slug[header.slug] = queries
-    seeds = {h.seed for h in headers}
-    caps = {h.sample_cap for h in headers}
-    if len(seeds) != 1 or len(caps) != 1:
-        msg = (
-            "per-repo headers disagree on seed / sample_cap; "
-            f"seeds={sorted(seeds)} caps={sorted(caps)}"
-        )
-        raise SystemExit(msg)
-    return headers, by_slug
+    return [
+        {
+            "file_path": hit.chunk.file_path,
+            "scope": hit.chunk.scope,
+            "name": hit.chunk.name,
+            "line_start": hit.chunk.line_start,
+        }
+        for hit in response.results
+    ], elapsed_ms
 
 
 # ── Search execution ─────────────────────────────────────────────────────────
@@ -108,55 +96,97 @@ def _load_dataset(per_repo_dir: Path) -> tuple[list[Header], dict[str, list[Quer
 
 def _run_searches(
     client: DaemonClient,
-    per_repo_headers: list[Header],
-    queries_by_slug: dict[str, list[Query]],
+    queries: dy.DataFrame[QueryRow],
     repos_dir: Path,
-) -> dy.DataFrame[SearchOutcome]:
-    """Run every `(repo, variant, query)` search and capture its outcome.
+) -> pl.DataFrame:
+    """Run every `(query, variant)` search; capture hits + latency.
 
-    Iterates the native Python inputs; the query space is
-    `header x variant x query`, the natural shape of a
-    nested loop.  Each row dict mirrors `SearchOutcome`;
-    validation on the next line enforces the shape at runtime.
+    Returns an un-scored outcome frame with a `hits: list[struct]`
+    column.  `_score_outcomes` expands that into typed
+    `SearchOutcome` rows with declarative ranking.  The loop
+    is over Python inputs (query rows from parquet, enum
+    variants); each row dict is one call's outcome.
     """
-    rows: list[dict[str, str | int | float | None]] = []
-    for header in per_repo_headers:
-        repo_path = (repos_dir / header.slug).resolve()
+    rows: list[dict[str, str | float | list[dict[str, str | int]]]] = []
+    for query in queries.iter_rows(named=True):
+        repo_path = (repos_dir / query["slug"]).resolve()
         for variant in IndexVariant:
-            for query in queries_by_slug.get(header.slug, []):
-                hits, latency_ms = _search(client, repo_path, query.text, variant)
-                top = hits[0] if hits else None
-                rows.append(
-                    {
-                        "slug": header.slug,
-                        "variant": variant.value,
-                        "query_file": query.file_path,
-                        "query_scope": query.scope,
-                        "query_name": query.name,
-                        "query_text": query.text,
-                        "rank": _rank_for(query, hits),
-                        "latency_ms": latency_ms,
-                        "top_file": top.chunk.file_path if top is not None else None,
-                        "top_line": top.chunk.line_start if top is not None else None,
-                        "top_name": top.chunk.name if top is not None else None,
-                    }
-                )
-    return pl.DataFrame(rows).pipe(SearchOutcome.validate, cast=True)
+            hits, latency_ms = _search(client, repo_path, query["text"], variant)
+            rows.append(
+                {
+                    "slug": query["slug"],
+                    "variant": variant.value,
+                    "query_file": query["file_path"],
+                    "query_scope": query["scope"],
+                    "query_name": query["name"],
+                    "query_text": query["text"],
+                    "latency_ms": latency_ms,
+                    "hits": hits,
+                }
+            )
+    return pl.DataFrame(
+        rows,
+        schema={
+            "slug": pl.String(),
+            "variant": pl.String(),
+            "query_file": pl.String(),
+            "query_scope": pl.String(),
+            "query_name": pl.String(),
+            "query_text": pl.String(),
+            "latency_ms": pl.Float64(),
+            "hits": pl.List(_HIT_STRUCT),
+        },
+    )
 
 
-def _index_db_bytes(home: Path, db_name: str = "index.duckdb") -> int:
-    """Size of the rbtr DuckDB index files under *home*.
+def _score_outcomes(raw: pl.DataFrame) -> dy.DataFrame[SearchOutcome]:
+    """Expand raw hits into ranked + top-hit columns.
 
-    Sums `index.duckdb` + `.wal` + `.tmp`; absent files count
-    as zero.  Reported once per run since the on-disk file is
-    shared across every (slug, variant).
+    Explodes `hits`, numbers rows within each outcome via
+    `int_range().over(...)`, picks the rank of the matching
+    target (if any), and the top-1 hit for the misses
+    appendix.  Left-joins back so queries whose target never
+    appeared keep a null rank.
     """
-    total = 0
-    for sibling in (db_name, db_name + ".wal", db_name + ".tmp"):
-        path = home / sibling
-        if path.exists():
-            total += path.stat().st_size
-    return total
+    outcome_keys = ["slug", "variant", "query_file", "query_scope", "query_name"]
+    exploded = (
+        raw.select(
+            *outcome_keys,
+            pl.col("hits"),
+        )
+        .explode("hits")
+        .with_columns(
+            pl.col("hits").struct.field("file_path").alias("hit_file_path"),
+            pl.col("hits").struct.field("scope").alias("hit_scope"),
+            pl.col("hits").struct.field("name").alias("hit_name"),
+            pl.col("hits").struct.field("line_start").alias("hit_line_start"),
+            pl.int_range(1, pl.len() + 1, dtype=pl.UInt8).over(outcome_keys).alias("hit_rank"),
+        )
+    )
+
+    ranks = (
+        exploded.filter(
+            (pl.col("hit_file_path") == pl.col("query_file"))
+            & (pl.col("hit_scope") == pl.col("query_scope"))
+            & (pl.col("hit_name") == pl.col("query_name"))
+        )
+        .group_by(outcome_keys)
+        .agg(pl.col("hit_rank").min().alias("rank"))
+    )
+
+    tops = exploded.filter(pl.col("hit_rank") == 1).select(
+        *outcome_keys,
+        pl.col("hit_file_path").alias("top_file"),
+        pl.col("hit_line_start").alias("top_line"),
+        pl.col("hit_name").alias("top_name"),
+    )
+
+    return (
+        raw.drop("hits")
+        .join(ranks, on=outcome_keys, how="left")
+        .join(tops, on=outcome_keys, how="left")
+        .pipe(SearchOutcome.validate, cast=True)
+    )
 
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
@@ -232,12 +262,38 @@ def _select_misses(
     )
 
 
+# ── Home size via DuckDB ─────────────────────────────────────────────────────
+
+
+def _home_size_bytes(home: Path, db_name: str = "index.duckdb") -> int:
+    """Bytes occupied by the rbtr DuckDB index at *home*.
+
+    Opens read-only and asks `PRAGMA database_size` — DuckDB
+    reports block size, total blocks, and WAL size directly.
+    Safe to call only after the daemon has stopped (DuckDB
+    takes a process-level lock).
+    """
+    db_path = home / db_name
+    if not db_path.exists():
+        return 0
+    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        row = con.execute("PRAGMA database_size").fetchone()
+    finally:
+        con.close()
+    if row is None:
+        return 0
+    cols = ["database_name", "database_size", "block_size", "total_blocks"]
+    data = dict(zip(cols, row[: len(cols)], strict=False))
+    return int(data["block_size"]) * int(data["total_blocks"])
+
+
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 
 def _render_report(
     *,
-    per_repo_headers: list[Header],
+    headers: dy.DataFrame[RepoHeader],
     rbtr_sha: str,
     elapsed_seconds: float,
     metrics_df: dy.DataFrame[Metrics],
@@ -319,15 +375,16 @@ def _render_report(
         for r in misses_df.iter_rows(named=True)
     ]
 
-    total_queries = sum(h.n_sampled for h in per_repo_headers)
+    headers_list = headers.sort("slug").to_dicts()
+    total_queries = int(headers["n_sampled"].sum())
     rendered = env.render_str(
         template,
         rbtr_sha=rbtr_sha,
-        seed=per_repo_headers[0].seed,
-        sample_cap=per_repo_headers[0].sample_cap,
+        seed=int(headers["seed"][0]),
+        sample_cap=int(headers["sample_cap"][0]),
         total_queries=total_queries,
         elapsed_seconds=elapsed_seconds,
-        per_repo_headers=[h.model_dump() for h in per_repo_headers],
+        per_repo_headers=headers_list,
         headline_rows=headline_rows,
         latency_rows=latency_rows,
         shared_home_bytes=shared_home_bytes,
@@ -346,86 +403,59 @@ def _render_report(
     return result.stdout if result.returncode == 0 else rendered
 
 
-def _build_metrics_file(
-    *,
-    metrics_df: dy.DataFrame[Metrics],
-    per_repo_headers: list[Header],
-    rbtr_sha: str,
-    elapsed_seconds: float,
-    shared_home_bytes: int,
-) -> dy.DataFrame[MetricsFile]:
-    """Attach per-slug SHAs and run metadata for on-disk serialisation.
-
-    `__all__` rollup rows stay null on `sha` after the left
-    join; every other row gets its repo's SHA.  Run metadata
-    (seed, sample_cap, elapsed_seconds, index_size_bytes,
-    rbtr_sha) repeats as literal columns so the JSON file
-    carries everything DVC's metrics parser might want.
-    """
-    shas = pl.DataFrame(
-        {"slug": [h.slug for h in per_repo_headers], "sha": [h.sha for h in per_repo_headers]},
-        schema={"slug": pl.String(), "sha": pl.String()},
-    )
-    return (
-        metrics_df.join(shas, on="slug", how="left")
-        .with_columns(
-            pl.lit(rbtr_sha).alias("rbtr_sha"),
-            pl.lit(per_repo_headers[0].seed).cast(pl.UInt32).alias("seed"),
-            pl.lit(per_repo_headers[0].sample_cap).cast(pl.UInt32).alias("sample_cap"),
-            pl.lit(elapsed_seconds).alias("elapsed_seconds"),
-            pl.lit(shared_home_bytes).cast(pl.UInt64).alias("index_size_bytes"),
-        )
-        .pipe(MetricsFile.validate, cast=True)
-    )
-
-
 # ── Entry point ──────────────────────────────────────────────────────────────
-
-
-def _resolve_rbtr_sha() -> str:
-    try:
-        repo = pygit2.Repository(".")
-        return str(repo.head.target)
-    except (pygit2.GitError, KeyError):
-        return "unknown"
 
 
 class MeasureCmd(BaseModel):
     """Replay queries against an already-built shared index home."""
 
-    per_repo_dir: Path = Field(description="Directory holding per-repo JSONL files.")
+    per_repo_dir: Path = Field(description="Directory holding per-repo parquet files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
     home: Path = Field(description="Single RBTR_HOME holding both index variants.")
     report: Path = Field(description="Output path for BENCHMARKS.md.")
     metrics: Path = Field(description="Output path for metrics JSON.")
 
     def cli_cmd(self) -> None:
-        rbtr_sha = _resolve_rbtr_sha()
-        per_repo_headers, queries_by_slug = _load_dataset(self.per_repo_dir)
+        rbtr_sha = read_head(".") or "unknown"
+        queries = pl.read_parquet(self.per_repo_dir / "*.queries.parquet").pipe(
+            QueryRow.validate, cast=True
+        )
+        headers = pl.read_parquet(self.per_repo_dir / "*.header.parquet").pipe(
+            RepoHeader.validate, cast=True
+        )
 
         t0 = time.monotonic()
         with daemon_session(self.home) as client:
-            outcomes = _run_searches(client, per_repo_headers, queries_by_slug, self.repos_dir)
+            raw = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
-        shared_home_bytes = _index_db_bytes(self.home)
+        shared_home_bytes = _home_size_bytes(self.home)
 
+        outcomes = _score_outcomes(raw)
         metrics_df = _aggregate(outcomes)
         misses_df = _select_misses(outcomes)
 
         report_text = _render_report(
-            per_repo_headers=per_repo_headers,
+            headers=headers,
             rbtr_sha=rbtr_sha,
             elapsed_seconds=elapsed_seconds,
             metrics_df=metrics_df,
             misses_df=misses_df,
             shared_home_bytes=shared_home_bytes,
         )
-        metrics_file = _build_metrics_file(
-            metrics_df=metrics_df,
-            per_repo_headers=per_repo_headers,
-            rbtr_sha=rbtr_sha,
-            elapsed_seconds=elapsed_seconds,
-            shared_home_bytes=shared_home_bytes,
+
+        # metrics.json: metrics frame + per-slug SHA (joined) + run
+        # metadata as literal columns.  `__all__` rollup rows stay
+        # null on sha.
+        metrics_file = (
+            metrics_df.join(headers.select("slug", "sha"), on="slug", how="left")
+            .with_columns(
+                pl.lit(rbtr_sha).alias("rbtr_sha"),
+                pl.lit(int(headers["seed"][0])).cast(pl.UInt32).alias("seed"),
+                pl.lit(int(headers["sample_cap"][0])).cast(pl.UInt32).alias("sample_cap"),
+                pl.lit(elapsed_seconds).alias("elapsed_seconds"),
+                pl.lit(shared_home_bytes).cast(pl.UInt64).alias("index_size_bytes"),
+            )
+            .pipe(MetricsFile.validate, cast=True)
         )
 
         self.report.parent.mkdir(parents=True, exist_ok=True)

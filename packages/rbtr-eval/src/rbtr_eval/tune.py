@@ -8,8 +8,9 @@ source.
 
 Indexing is a separate DVC stage; this command only queries.
 One warm daemon serves every grid point for every query.
-Aggregation is declarative polars: one
-`group_by([alpha, beta, gamma]).agg(mrr)`, pick the top row.
+Ranking uses the same declarative polars explode + `int_range`
+pattern as `measure`; aggregation is one
+`group_by([alpha, beta, gamma]).agg(mrr)` + `head(1)`.
 """
 
 from __future__ import annotations
@@ -19,17 +20,15 @@ from pathlib import Path
 
 import dataframely as dy
 import polars as pl
-import pygit2
 from pydantic import BaseModel, Field
 
 from rbtr.config import config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
+from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
-from rbtr.index.search import ScoredResult
-from rbtr_eval.extract import Query, load_per_repo
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import TuneReport, WeightedSearchOutcome
+from rbtr_eval.schemas import QueryRow, TuneReport, WeightedSearchOutcome
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -50,6 +49,15 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
     ]
 
 
+_HIT_STRUCT = pl.Struct(
+    {
+        "file_path": pl.String(),
+        "scope": pl.String(),
+        "name": pl.String(),
+    }
+)
+
+
 # ── Typed search ─────────────────────────────────────────────────────────────
 
 
@@ -58,7 +66,7 @@ def _search(
     repo_path: Path,
     query: str,
     weights: tuple[float, float, float] | None,
-) -> list[ScoredResult]:
+) -> list[dict[str, str]]:
     """One search via the daemon; None *weights* uses config defaults."""
     a = b = g = None
     if weights is not None:
@@ -79,31 +87,10 @@ def _search(
     if not isinstance(response, SearchResponse):
         msg = f"unexpected daemon response: {type(response).__name__}"
         raise SystemExit(msg)
-    return response.results
-
-
-def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
-    for i, hit in enumerate(hits, start=1):
-        c = hit.chunk
-        if c.file_path == query.file_path and c.scope == query.scope and c.name == query.name:
-            return i
-    return None
-
-
-# ── Dataset load ─────────────────────────────────────────────────────────────
-
-
-def _load_dataset(per_repo_dir: Path) -> dict[str, list[Query]]:
-    """Read per-repo JSONLs; return queries grouped by slug."""
-    files = sorted(per_repo_dir.glob("*.jsonl"))
-    if not files:
-        msg = f"no JSONL files under {per_repo_dir}"
-        raise SystemExit(msg)
-    by_slug: dict[str, list[Query]] = {}
-    for path in files:
-        header, queries = load_per_repo(path)
-        by_slug[header.slug] = queries
-    return by_slug
+    return [
+        {"file_path": h.chunk.file_path, "scope": h.chunk.scope, "name": h.chunk.name}
+        for h in response.results
+    ]
 
 
 # ── Search execution ─────────────────────────────────────────────────────────
@@ -111,53 +98,106 @@ def _load_dataset(per_repo_dir: Path) -> dict[str, list[Query]]:
 
 def _run_weight_trials(
     client: DaemonClient,
-    queries_by_slug: dict[str, list[Query]],
+    queries: dy.DataFrame[QueryRow],
     repos_dir: Path,
     triples: list[tuple[float, float, float]],
-) -> dy.DataFrame[WeightedSearchOutcome]:
+) -> pl.DataFrame:
     """Run one baseline + every grid-triple search for every query.
 
-    Baseline rows carry null weights (rbtr's configured
-    defaults are in effect).  Grid rows carry the triple
-    supplied to that call.  Each row dict mirrors
-    `WeightedSearchOutcome`; validation on the next line
-    enforces the shape at runtime.
+    Returns a raw frame (unranked) with `hits: list[struct]`.
+    `_score_trials` expands that into
+    `WeightedSearchOutcome`-shaped rows with declarative
+    ranking.
     """
-    rows: list[dict[str, str | int | float | None]] = []
-    for slug, queries in queries_by_slug.items():
-        repo_path = (repos_dir / slug).resolve()
-        for query in queries:
-            rank = _rank_for(query, _search(client, repo_path, query.text, None))
+    rows: list[dict[str, str | float | None | list[dict[str, str]]]] = []
+    for query in queries.iter_rows(named=True):
+        repo_path = (repos_dir / query["slug"]).resolve()
+        hits = _search(client, repo_path, query["text"], None)
+        rows.append(
+            {
+                "slug": query["slug"],
+                "label": "baseline",
+                "query_file": query["file_path"],
+                "query_scope": query["scope"],
+                "query_name": query["name"],
+                "alpha": None,
+                "beta": None,
+                "gamma": None,
+                "hits": hits,
+            }
+        )
+        for triple in triples:
+            hits = _search(client, repo_path, query["text"], triple)
             rows.append(
                 {
-                    "slug": slug,
-                    "label": "baseline",
-                    "query_file": query.file_path,
-                    "query_scope": query.scope,
-                    "query_name": query.name,
-                    "alpha": None,
-                    "beta": None,
-                    "gamma": None,
-                    "rank": rank,
+                    "slug": query["slug"],
+                    "label": "grid",
+                    "query_file": query["file_path"],
+                    "query_scope": query["scope"],
+                    "query_name": query["name"],
+                    "alpha": triple[0],
+                    "beta": triple[1],
+                    "gamma": triple[2],
+                    "hits": hits,
                 }
             )
-        for triple in triples:
-            for query in queries:
-                rank = _rank_for(query, _search(client, repo_path, query.text, triple))
-                rows.append(
-                    {
-                        "slug": slug,
-                        "label": "grid",
-                        "query_file": query.file_path,
-                        "query_scope": query.scope,
-                        "query_name": query.name,
-                        "alpha": triple[0],
-                        "beta": triple[1],
-                        "gamma": triple[2],
-                        "rank": rank,
-                    }
-                )
-    return pl.DataFrame(rows).pipe(WeightedSearchOutcome.validate, cast=True)
+    return pl.DataFrame(
+        rows,
+        schema={
+            "slug": pl.String(),
+            "label": pl.String(),
+            "query_file": pl.String(),
+            "query_scope": pl.String(),
+            "query_name": pl.String(),
+            "alpha": pl.Float64(),
+            "beta": pl.Float64(),
+            "gamma": pl.Float64(),
+            "hits": pl.List(_HIT_STRUCT),
+        },
+    )
+
+
+def _score_trials(raw: pl.DataFrame) -> dy.DataFrame[WeightedSearchOutcome]:
+    """Expand raw hits into ranked rows for every (label, triple, query).
+
+    Same explode + `int_range().over()` + filter + join
+    pattern as `measure._score_outcomes`, but keyed on the
+    weight-trial identity columns.
+    """
+    trial_keys = [
+        "slug",
+        "label",
+        "alpha",
+        "beta",
+        "gamma",
+        "query_file",
+        "query_scope",
+        "query_name",
+    ]
+    exploded = (
+        raw.select(*trial_keys, "hits")
+        .explode("hits")
+        .with_columns(
+            pl.col("hits").struct.field("file_path").alias("hit_file_path"),
+            pl.col("hits").struct.field("scope").alias("hit_scope"),
+            pl.col("hits").struct.field("name").alias("hit_name"),
+            pl.int_range(1, pl.len() + 1, dtype=pl.UInt8).over(trial_keys).alias("hit_rank"),
+        )
+    )
+    ranks = (
+        exploded.filter(
+            (pl.col("hit_file_path") == pl.col("query_file"))
+            & (pl.col("hit_scope") == pl.col("query_scope"))
+            & (pl.col("hit_name") == pl.col("query_name"))
+        )
+        .group_by(trial_keys)
+        .agg(pl.col("hit_rank").min().alias("rank"))
+    )
+    return (
+        raw.drop("hits")
+        .join(ranks, on=trial_keys, how="left")
+        .pipe(WeightedSearchOutcome.validate, cast=True)
+    )
 
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
@@ -175,62 +215,44 @@ def _mrr_expr() -> pl.Expr:
     )
 
 
-def _best_grid_triple(trials: dy.DataFrame[WeightedSearchOutcome]) -> pl.DataFrame:
-    """Return a one-row frame with the best `(alpha, beta, gamma)` and its MRR."""
-    return (
-        trials.filter(pl.col("label") == "grid")
-        .group_by(["alpha", "beta", "gamma"])
-        .agg(_mrr_expr())
-        .sort("mrr", descending=True)
-        .head(1)
-    )
-
-
-def _baseline_stats(trials: dy.DataFrame[WeightedSearchOutcome]) -> pl.DataFrame:
-    """Return a one-row frame with baseline MRR and the query count."""
-    return trials.filter(pl.col("label") == "baseline").select(
-        _mrr_expr(),
-        pl.len().cast(pl.UInt32).alias("n_queries"),
-    )
-
-
 # ── Entry point ──────────────────────────────────────────────────────────────
-
-
-def _resolve_rbtr_sha() -> str:
-    try:
-        repo = pygit2.Repository(".")
-        return str(repo.head.target)
-    except (pygit2.GitError, KeyError):
-        return "unknown"
 
 
 class TuneCmd(BaseModel):
     """Grid-search rbtr's fusion weights against the query set."""
 
-    per_repo_dir: Path = Field(description="Directory holding per-repo JSONL files.")
+    per_repo_dir: Path = Field(description="Directory holding per-repo parquet files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
     home: Path = Field(description="Single RBTR_HOME with the `full` index built.")
     grid_step: float = Field(0.2, description="Step size for the (alpha, beta, gamma) grid.")
     output: Path = Field(description="Output path for the tuning suggestion JSON.")
 
     def cli_cmd(self) -> None:
-        rbtr_sha = _resolve_rbtr_sha()
-        queries_by_slug = _load_dataset(self.per_repo_dir)
+        rbtr_sha = read_head(".") or "unknown"
+        queries = pl.read_parquet(self.per_repo_dir / "*.queries.parquet").pipe(
+            QueryRow.validate, cast=True
+        )
         triples = grid_triples(self.grid_step)
         t0 = time.monotonic()
 
         with daemon_session(self.home) as client:
-            trials = _run_weight_trials(client, queries_by_slug, self.repos_dir, triples)
+            raw = _run_weight_trials(client, queries, self.repos_dir, triples)
 
-        grid_best = _best_grid_triple(trials)
-        baseline = _baseline_stats(trials)
+        trials = _score_trials(raw)
+        grid_best = (
+            trials.filter(pl.col("label") == "grid")
+            .group_by(["alpha", "beta", "gamma"])
+            .agg(_mrr_expr())
+            .sort("mrr", descending=True)
+            .head(1)
+        )
+        baseline = trials.filter(pl.col("label") == "baseline").select(
+            _mrr_expr(), pl.len().cast(pl.UInt32).alias("n_queries")
+        )
         if grid_best.is_empty() or baseline.is_empty():
             msg = "no rows produced; dataset empty?"
             raise SystemExit(msg)
 
-        # Assemble the one-row report with literal metadata columns;
-        # `TuneReport.write_json` serialises the typed frame.
         report = (
             grid_best.rename(
                 {
