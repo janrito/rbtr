@@ -3558,6 +3558,7 @@ version = "0.1.0"
 source = { editable = "packages/rbtr-eval" }
 dependencies = [
     { name = "dvc" },
+    { name = "minijinja" },
     { name = "pydantic" },
     { name = "pydantic-settings", extra = ["toml"] },
     { name = "rbtr" },
@@ -3573,6 +3574,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dvc" },
+    { name = "minijinja", specifier = ">=2.0" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.12" },
     { name = "rbtr", editable = "packages/rbtr" },

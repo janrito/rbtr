@@ -684,7 +684,13 @@ class Rbtr(
     schema_dump: CliSubCommand[SchemaDump]
 
     def cli_cmd(self) -> None:
-        config.json_output = self.json_output
+        # Top-level flags declared on `Config` are parsed into the
+        # `Rbtr` CLI instance; propagate them to the module-global
+        # `config` so code paths that read `from rbtr.config import
+        # config` see the overrides.  Without this, CLI flags
+        # silently fell back to defaults.
+        for field in Config.model_fields:
+            setattr(config, field, getattr(self, field))
 
         sub = get_subcommand(self, is_required=False)
         if sub is None:

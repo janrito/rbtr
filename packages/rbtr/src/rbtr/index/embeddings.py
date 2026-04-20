@@ -7,6 +7,7 @@ via `huggingface_hub` and stored at `~/.rbtr/models/`.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import ctypes
 import functools
@@ -162,8 +163,19 @@ def _load_model() -> Llama:
 
 @functools.lru_cache(maxsize=1)
 def _get_model_cached() -> Llama:
-    """Return the cached model instance, loading on first call."""
-    return _load_model()
+    """Return the cached model instance, loading on first call.
+
+    Also registers `reset_model` as an atexit hook the first time
+    a model is loaded.  Letting `Llama.__del__` run during Python's
+    atexit chain triggers a Metal-backend SIGABRT on macOS because
+    the ggml module's own finaliser runs after llama-cpp has torn
+    down the references `__del__` needs.  Closing our reference
+    explicitly, before the interpreter tears down native modules,
+    avoids the abort without any caller-side bookkeeping.
+    """
+    model = _load_model()
+    atexit.register(reset_model)
+    return model
 
 
 def get_model() -> Llama:

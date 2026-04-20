@@ -1,0 +1,66 @@
+# rbtr search-quality benchmark
+
+Hit@k / MRR for docstring-derived queries against rbtr's `full`
+and `stripped` index variants. See
+`packages/rbtr-eval/README.md` for methodology.
+
+## Run
+
+Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.
+
+| field         | value             |
+| ------------- | ----------------- |
+| rbtr commit   | `{{ rbtr_sha }}`  |
+| seed          | {{ seed }}        |
+| sample cap    | {{ sample_cap }}  |
+| total queries | {{ total_queries }} |
+| elapsed       | {{ elapsed_seconds | round(0) | int }} s |
+
+## Repos
+
+| slug | sha | n queries |
+| ---- | --- | --------- |
+{%- for header in per_repo_headers %}
+| `{{ header.slug }}` | `{{ header.sha[:12] }}` | {{ header.n_sampled }} |
+{%- endfor %}
+
+## Headline metrics
+
+| repo | variant | n | Hit@1 | Hit@3 | Hit@10 | MRR | median rank | not found |
+| ---- | ------- | - | ----- | ----- | ------ | --- | ----------- | --------- |
+{%- for row in headline_rows %}
+| {{ row.slug }} | {{ row.variant }} | {{ row.n_queries }} | {{ row.hit_at_1 | pct }} | {{ row.hit_at_3 | pct }} | {{ row.hit_at_10 | pct }} | {{ "%.3f" | format(row.mrr) }} | {{ row.median_rank_str }} | {{ row.not_found_pct | pct }} |
+{%- endfor %}
+
+## Search latency
+
+Shared index home size: **{{ shared_home_bytes | bytes_human }}**
+(holds both variants; each occupies roughly half).
+
+| repo | variant | search P50 | search P95 |
+| ---- | ------- | ---------- | ---------- |
+{%- for row in latency_rows %}
+| {{ row.slug }} | {{ row.variant }} | {{ row.search_p50_ms | round(0) | int }} ms | {{ row.search_p95_ms | round(0) | int }} ms |
+{%- endfor %}
+
+## Notable misses
+
+{% if misses %}
+Queries where the `full`-variant rank is much better than the
+`stripped`-variant rank. Sorted by `(full_rank - stripped_rank)`
+descending; rank `-` means no top-10 match.
+
+{% for miss in misses %}
+```text
+{{ miss.slug }} / {{ miss.file_path }} {{ miss.scope_name }}
+  query: "{{ miss.text }}"
+  full rank:     {{ miss.full_rank_str }}
+  stripped rank: {{ miss.stripped_rank_str }}
+  full top:      {{ miss.full_top_str }}
+  stripped top:  {{ miss.stripped_top_str }}
+```
+
+{% endfor %}
+{% else %}
+_No queries differ between variants._
+{% endif %}

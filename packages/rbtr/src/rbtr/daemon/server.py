@@ -114,20 +114,16 @@ class DaemonServer:
         remove_status(self.sock_dir)
         (self.sock_dir / "daemon.rpc").unlink(missing_ok=True)
         (self.sock_dir / "daemon.pub").unlink(missing_ok=True)
-        # Close the embedding model explicitly before Python's atexit
-        # chain unwinds.  Letting `Llama.__del__` run during interpreter
-        # shutdown triggers a Metal-backend abort on macOS
-        # (`ggml_metal_device_free` from `__cxa_finalize_ranges`), which
-        # surfaces as SIGABRT in the daemon log.  Closing here uses our
-        # own try/except so any remaining issue is logged, not raised.
+        # Stop the idle-unload monitor thread so it doesn't fight
+        # atexit.  The embedding model itself is released by
+        # `embeddings.reset_model`, registered as an atexit hook
+        # the first time the model loads.
         try:
             from rbtr.index import embeddings  # deferred: heavy import
 
             embeddings.stop_idle_monitor()
-            embeddings.reset_model()
         except Exception:
-            # Cleanup must not raise; the daemon is exiting anyway.
-            log.exception("Embedding model cleanup failed during daemon shutdown")
+            log.exception("Idle-monitor cleanup failed during daemon shutdown")
 
     def _register_index_handlers(self, store: IndexStore) -> None:
         mgr = RepoManager(store)

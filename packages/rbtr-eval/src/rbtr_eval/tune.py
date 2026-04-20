@@ -1,22 +1,14 @@
 """`rbtr-eval tune` subcommand.
 
 Grid-search the rbtr search fusion weights `(alpha, beta,
-gamma)` against per-repo query labels.  Writes
-`data/tuned-params.json` reporting the best triple alongside
-the rbtr current per-`QueryKind` defaults.  Never edits source.
+gamma)` against every per-repo query set, using the
+full-variant index in the shared home.  Reports best vs current
+weights in `data/tuned-params.json`; never edits source.
 
-Requires `rbtr search --alpha/--beta/--gamma` (P5 product
-change).
-
-Subprocess only \u2014 no `rbtr.*` imports.  pygit2 is used
-directly for the workspace HEAD SHA (transitive dep).
-
-Architecture mirrors `measure.py`: one rbtr daemon per repo,
-sequential across repos to avoid GPU contention during
-indexing (D16).  Within one repo, the baseline pass (no
-override) and the grid pass (every triple) all hit the warm
-daemon so search overhead is bounded by daemon RPC latency,
-not Python startup.
+Indexing is a separate DVC stage; this command only queries.
+One warm daemon serves every grid point for every query.  The
+grid: `(alpha, beta, gamma)` triples in `[0, 1]^3` summing to 1
+at `--grid-step` resolution.
 """
 
 from __future__ import annotations
@@ -29,30 +21,57 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import duckdb
+import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
 import pygit2
 from pydantic import BaseModel, Field
 
 from rbtr.config import config as rbtr_config
+from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
-from rbtr_eval.extract import Header, Query, load_per_repo
-
-# ── Subprocess wrappers (duplicated from measure to keep modules independent) ──
+from rbtr_eval.extract import Query, load_per_repo
 
 
-def _rbtr_env(home: Path) -> dict[str, str]:
-    env = os.environ.copy()
-    env["RBTR_HOME"] = str(home)
-    return env
+def grid_triples(step: float) -> list[tuple[float, float, float]]:
+    """Enumerate `(alpha, beta, gamma)` in `[0, 1]^3` summing to 1 at *step*.
+
+    Pure function; exposed for tests.  At step 0.2 yields 21
+    points; 0.1 yields 66; 0.5 yields 6.  Values are rounded
+    to 6 decimals so equality compares cleanly.
+    """
+    if not 0.0 < step <= 1.0:
+        msg = f"grid_step must be in (0, 1]; got {step}"
+        raise ValueError(msg)
+    n = round(1.0 / step)
+    return [
+        (round(i * step, 6), round(j * step, 6), round((n - i - j) * step, 6))
+        for i in range(n + 1)
+        for j in range(n + 1 - i)
+    ]
+
+
+# ── Isolation guard ────────────────────────────────────────────────────────────
+
+
+def _guard_home(home: Path) -> None:
+    real = Path(os.environ.get("RBTR_HOME") or (Path.home() / ".rbtr")).expanduser().resolve()
+    requested = home.resolve()
+    if requested == real or real.is_relative_to(requested) or requested.is_relative_to(real):
+        msg = (
+            f"refusing to use --home={requested}: overlaps the user's real "
+            f"RBTR_HOME ({real}). Pick a path under data/."
+        )
+        raise SystemExit(msg)
+
+
+# ── Subprocess wrappers ────────────────────────────────────────────────────────
 
 
 def _run_rbtr(
-    args: list[str],
-    *,
-    env: dict[str, str],
-    capture: bool = False,
+    args: list[str], *, env: dict[str, str], capture: bool = False
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - trusted args
-        ["rbtr", *args],  # noqa: S607 - rbtr on PATH (uv-managed)
+        ["rbtr", *args],  # noqa: S607 - rbtr on PATH
         env=env,
         check=True,
         capture_output=capture,
@@ -61,74 +80,48 @@ def _run_rbtr(
 
 
 @contextmanager
-def daemon_session(home: Path) -> Iterator[None]:
-    env = _rbtr_env(home)
+def _daemon(home: Path) -> Iterator[dict[str, str]]:
+    """Start one daemon for *home*; stop it on exit."""
+    env = os.environ.copy()
+    env["RBTR_HOME"] = str(home)
     home.mkdir(parents=True, exist_ok=True)
     _run_rbtr(["daemon", "start"], env=env)
     try:
-        yield
+        yield env
     finally:
         subprocess.run(
-            ["rbtr", "daemon", "stop"],  # noqa: S607 - rbtr on PATH
+            ["rbtr", "daemon", "stop"],  # noqa: S607
             env=env,
             check=False,
             capture_output=True,
         )
 
 
-def _wait_for_index(home: Path, repo_path: Path, *, poll_seconds: float = 1.0) -> None:
-    args = ["--json", "status", "--repo-path", str(repo_path)]
-    while True:
-        proc = _run_rbtr(args, env=_rbtr_env(home), capture=True)
-        body = proc.stdout.strip().splitlines()[-1]
-        report = json.loads(body)
-        if report.get("active_job") is None and not report.get("pending"):
-            return
-        time.sleep(poll_seconds)
-
-
-def rbtr_index(home: Path, repo_path: Path) -> None:
-    """Build / update the index for *repo_path* under *home* (default mode).
-
-    Tune is orthogonal to docstring stripping (D11), so always
-    indexes in default mode.
-    """
-    args = ["index", "--repo-path", str(repo_path)]
-    _run_rbtr(args, env=_rbtr_env(home))
-    _wait_for_index(home, repo_path)
-
-
-def rbtr_search(
-    home: Path,
+def _search(
+    env: dict[str, str],
     repo_path: Path,
     query: str,
-    *,
     weights: tuple[float, float, float] | None,
-    limit: int = 10,
 ) -> list[ScoredResult]:
+    """One search against the daemon; None *weights* uses config defaults."""
     args = [
         "--json",
         "search",
         query,
+        "--variant",
+        "full",
         "--limit",
-        str(limit),
+        "10",
         "--repo-path",
         str(repo_path),
     ]
     if weights is not None:
         a, b, g = weights
         args.extend(["--alpha", str(a), "--beta", str(b), "--gamma", str(g)])
-    proc = _run_rbtr(args, env=_rbtr_env(home), capture=True)
-    hits: list[ScoredResult] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        hits.append(ScoredResult.model_validate_json(line))
-    return hits
-
-
-# ── Match logic (duplicated from measure, on purpose) ──────────────────────────
+    proc = _run_rbtr(args, env=env, capture=True)
+    return [
+        ScoredResult.model_validate_json(line) for line in proc.stdout.splitlines() if line.strip()
+    ]
 
 
 def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
@@ -139,73 +132,33 @@ def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
     return None
 
 
-# ── Grid generation (pure projection; testable per D13) ────────────────────────
+# ── Dataset load ───────────────────────────────────────────────────────────────
 
 
-def grid_triples(step: float) -> list[tuple[float, float, float]]:
-    """Enumerate `(alpha, beta, gamma)` in `[0, 1]^3` summing to 1 at *step*.
-
-    Pure function; exposed for tests.  At step 0.2 yields 21
-    points; at 0.1, 66; at 0.5, 6.  Floats are rounded to a
-    reasonable precision so equality compares cleanly.
-    """
-    if not 0.0 < step <= 1.0:
-        msg = f"grid_step must be in (0, 1]; got {step}"
-        raise ValueError(msg)
-    n = round(1.0 / step)
-    triples: list[tuple[float, float, float]] = []
-    for i in range(n + 1):
-        for j in range(n + 1 - i):
-            k = n - i - j
-            triples.append((round(i * step, 6), round(j * step, 6), round(k * step, 6)))
-    return triples
+def _load_dataset(per_repo_dir: Path) -> dict[str, list[Query]]:
+    """Read per-repo JSONLs; return queries grouped by slug."""
+    files = sorted(per_repo_dir.glob("*.jsonl"))
+    if not files:
+        msg = f"no JSONL files under {per_repo_dir}"
+        raise SystemExit(msg)
+    by_slug: dict[str, list[Query]] = {}
+    for path in files:
+        header, queries = load_per_repo(path)
+        by_slug[header.slug] = queries
+    return by_slug
 
 
-# ── MRR aggregation ────────────────────────────────────────────────────────────
+# ── MRR ────────────────────────────────────────────────────────────────────────
 
 
 def _mrr(ranks: list[int | None]) -> float:
+    """Mean reciprocal rank, treating None as 0."""
     if not ranks:
         return 0.0
     return sum(1.0 / r for r in ranks if r is not None) / len(ranks)
 
 
-# ── Isolation guard ────────────────────────────────────────────────────────────
-
-
-def _resolve_real_home() -> Path:
-    env = os.environ.get("RBTR_HOME")
-    if env:
-        return Path(env).expanduser().resolve()
-    return (Path.home() / ".rbtr").resolve()
-
-
-def _guard_homes_dir(homes_dir: Path) -> None:
-    real = _resolve_real_home()
-    requested = homes_dir.resolve()
-    if requested == real or real.is_relative_to(requested) or requested.is_relative_to(real):
-        msg = (
-            f"refusing to use --homes-dir={requested}: overlaps the user's "
-            f"real RBTR_HOME ({real}). Pick a path under data/."
-        )
-        raise SystemExit(msg)
-
-
-# ── Loader (re-uses extract.load_per_repo) ─────────────────────────────────────
-
-
-def _load_dataset(per_repo_dir: Path) -> tuple[list[Header], dict[str, list[Query]]]:
-    files = sorted(per_repo_dir.glob("*.jsonl"))
-    if not files:
-        msg = f"no JSONL files under {per_repo_dir}"
-        raise SystemExit(msg)
-    headers: list[Header] = []
-    by_slug: dict[str, list[Query]] = {}
-    for path in files:
-        header, queries = load_per_repo(path)
-        headers.append(header)
-        by_slug[header.slug] = queries
-    return headers, by_slug
+# ── Entry point ────────────────────────────────────────────────────────────────
 
 
 def _resolve_rbtr_sha() -> str:
@@ -216,56 +169,98 @@ def _resolve_rbtr_sha() -> str:
         return "unknown"
 
 
-# ── CLI subcommand ─────────────────────────────────────────────────────────────
-
-
 class TuneCmd(BaseModel):
-    """Grid-search rbtr's search fusion weights against the dataset."""
+    """Grid-search rbtr's fusion weights against the query set."""
 
     per_repo_dir: Path = Field(description="Directory holding per-repo JSONL files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
-    homes_dir: Path = Field(description="Root for per-repo RBTR_HOME directories.")
+    home: Path = Field(description="Single RBTR_HOME with the `full` index built.")
     grid_step: float = Field(0.2, description="Step size for the (alpha, beta, gamma) grid.")
     output: Path = Field(description="Output path for the tuning suggestion JSON.")
 
     def cli_cmd(self) -> None:
-        _guard_homes_dir(self.homes_dir)
+        _guard_home(self.home)
+        _ = IndexVariant.FULL  # liveness check on the rbtr type surface
+
         rbtr_sha = _resolve_rbtr_sha()
-        per_repo_headers, queries_by_slug = _load_dataset(self.per_repo_dir)
+        queries_by_slug = _load_dataset(self.per_repo_dir)
         triples = grid_triples(self.grid_step)
+        t0 = time.monotonic()
 
-        # Per-(triple, query) ranks aggregated across repos.
-        # Index `triples` includes the (0, 0, 0) origin if step
-        # divides 1 cleanly; the validator on rbtr SearchRequest
-        # rejects sums != 1, so the grid generator already only
-        # emits triples summing to 1.
-        all_ranks_per_triple: dict[tuple[float, float, float], list[int | None]] = {
-            t: [] for t in triples
-        }
-        baseline_ranks: list[int | None] = []
-
-        # Sequential daemon per repo (D16).
-        for h in per_repo_headers:
-            slug = h.slug
-            queries = queries_by_slug.get(slug, [])
-            repo_path = (self.repos_dir / slug).resolve()
-            home = self.homes_dir / slug / "default"
-            with daemon_session(home):
-                rbtr_index(home, repo_path)
-                # Baseline: no override (rbtr's actual per-kind weights apply).
+        rows: list[dict[str, object]] = []
+        with _daemon(self.home) as env:
+            for slug, queries in queries_by_slug.items():
+                repo_path = (self.repos_dir / slug).resolve()
+                # Baseline: no override, rbtr's configured defaults apply.
                 for q in queries:
-                    hits = rbtr_search(home, repo_path, q.text, weights=None)
-                    baseline_ranks.append(_rank_for(q, hits))
+                    rows.append(
+                        {
+                            "slug": slug,
+                            "label": "baseline",
+                            "alpha": None,
+                            "beta": None,
+                            "gamma": None,
+                            "rank": _rank_for(q, _search(env, repo_path, q.text, None)),
+                        }
+                    )
                 # Grid pass.
                 for t in triples:
                     for q in queries:
-                        hits = rbtr_search(home, repo_path, q.text, weights=t)
-                        all_ranks_per_triple[t].append(_rank_for(q, hits))
+                        rows.append(
+                            {
+                                "slug": slug,
+                                "label": "grid",
+                                "alpha": t[0],
+                                "beta": t[1],
+                                "gamma": t[2],
+                                "rank": _rank_for(q, _search(env, repo_path, q.text, t)),
+                            }
+                        )
 
-        baseline_mrr = _mrr(baseline_ranks)
-        scored = [(t, _mrr(ranks)) for t, ranks in all_ranks_per_triple.items()]
-        best_triple, best_mrr = max(scored, key=lambda pair: pair[1])
-        a, b, g = best_triple
+        # Aggregate with duckdb: one MRR per (alpha, beta, gamma), plus the baseline.
+        schema = pa.schema(
+            [
+                pa.field("slug", pa.string()),
+                pa.field("label", pa.string()),
+                pa.field("alpha", pa.float64()),
+                pa.field("beta", pa.float64()),
+                pa.field("gamma", pa.float64()),
+                pa.field("rank", pa.int32()),
+            ]
+        )
+        con = duckdb.connect(":memory:")
+        con.register("ranks", pa.Table.from_pylist(rows, schema=schema))
+        grid_mrr_rows = con.execute(
+            """
+            SELECT
+                alpha,
+                beta,
+                gamma,
+                avg(CASE WHEN rank IS NULL THEN 0.0 ELSE 1.0 / rank END) AS mrr,
+                count(*) AS n
+            FROM ranks
+            WHERE label = 'grid'
+            GROUP BY alpha, beta, gamma
+            ORDER BY mrr DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        baseline_row = con.execute(
+            """
+            SELECT
+                avg(CASE WHEN rank IS NULL THEN 0.0 ELSE 1.0 / rank END) AS mrr,
+                count(*) AS n
+            FROM ranks
+            WHERE label = 'baseline'
+            """
+        ).fetchone()
+
+        if grid_mrr_rows is None or baseline_row is None:
+            msg = "no rows produced; dataset empty?"
+            raise SystemExit(msg)
+
+        best_a, best_b, best_g, best_mrr, _n_grid = grid_mrr_rows
+        baseline_mrr, n_queries = baseline_row
 
         report = {
             "current": {
@@ -273,15 +268,16 @@ class TuneCmd(BaseModel):
                 "beta": rbtr_config.search_beta,
                 "gamma": rbtr_config.search_gamma,
             },
-            "best": {"alpha": a, "beta": b, "gamma": g},
+            "best": {"alpha": float(best_a), "beta": float(best_b), "gamma": float(best_g)},
             "metric": "MRR",
-            "score_current": baseline_mrr,
-            "score_best": best_mrr,
-            "delta": best_mrr - baseline_mrr,
+            "score_current": float(baseline_mrr),
+            "score_best": float(best_mrr),
+            "delta": float(best_mrr) - float(baseline_mrr),
             "grid_step": self.grid_step,
-            "n_queries": len(baseline_ranks),
+            "n_queries": int(n_queries),
             "n_grid_points": len(triples),
             "rbtr_sha": rbtr_sha,
+            "elapsed_seconds": time.monotonic() - t0,
         }
 
         self.output.parent.mkdir(parents=True, exist_ok=True)

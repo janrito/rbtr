@@ -1,6 +1,6 @@
 vars:
   - repos_dir: data/repos
-  - homes_dir: data/homes
+  - home: data/home
   - per_repo_dir: data/per-repo
   - report: data/BENCHMARKS.md
   - metrics: data/metrics.json
@@ -8,10 +8,10 @@ vars:
   - seed: 0
   - sample_cap: 300
   - grid_step: 0.2
-  # Local clone (`../..`) gets HEAD via `git clone`; remotes get the
-  # default branch.  Resolved SHAs are recorded by `extract`.  Local
-  # clone only sees committed state; uncommitted dev changes are
-  # silently ignored — desirable for reproducibility.
+  # Local clone (`../..`) gets HEAD via `git clone`; remotes get
+  # the default branch.  Resolved SHAs are recorded by `extract`.
+  # Local clone only sees committed state; uncommitted dev
+  # changes are silently ignored — desirable for reproducibility.
   - repos:
       - slug: rbtr__rbtr
         url: ../..
@@ -48,24 +48,43 @@ stages:
       outs:
         - ${per_repo_dir}/${item.slug}.jsonl
 
+  # Single stage that runs every (repo, variant) job sequentially
+  # into the shared `${home}`.  Can't be `foreach` because DVC
+  # refuses multiple stages targeting the same output path; keeping
+  # it serial in one shell invocation also respects the GPU-
+  # contention constraint (one embedding model loaded at a time).
+  index:
+    cmd: >-
+      python -m rbtr_eval index
+      --home ${home}
+      --repos-dir ${repos_dir}
+      --per-repo-dir ${per_repo_dir}
+    deps:
+      - src/rbtr_eval/index_stage.py
+      - ${repos_dir}
+      - ${per_repo_dir}
+    outs:
+      - ${home}:
+          cache: false
+          push: false
+          persist: true
+
   measure:
     cmd: >-
       python -m rbtr_eval measure
       --per-repo-dir ${per_repo_dir}
       --repos-dir ${repos_dir}
-      --homes-dir ${homes_dir}
+      --home ${home}
       --report ${report}
       --metrics ${metrics}
     deps:
       - src/rbtr_eval/measure.py
+      - src/rbtr_eval/templates/benchmarks.md.j2
       - ${per_repo_dir}
+      - ${home}
     outs:
       - ${report}:
           cache: false
-      - ${homes_dir}:
-          cache: false
-          push: false
-          persist: true
     metrics:
       - ${metrics}:
           cache: false
@@ -75,12 +94,13 @@ stages:
       python -m rbtr_eval tune
       --per-repo-dir ${per_repo_dir}
       --repos-dir ${repos_dir}
-      --homes-dir ${homes_dir}
+      --home ${home}
       --grid-step ${grid_step}
       --output ${tuned}
     deps:
       - src/rbtr_eval/tune.py
       - ${per_repo_dir}
+      - ${home}
     outs:
       - ${tuned}:
           cache: false
