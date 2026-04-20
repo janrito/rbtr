@@ -2,13 +2,14 @@
 
 Grid-search the rbtr search fusion weights `(alpha, beta,
 gamma)` against every per-repo query set, using the
-full-variant index in the shared home.  Reports best vs current
-weights in `data/tuned-params.json`; never edits source.
+full-variant index in the shared home.  Reports best vs
+current weights in `data/tuned-params.json`; never edits
+source.
 
 Indexing is a separate DVC stage; this command only queries.
 One warm daemon serves every grid point for every query.
-Aggregation is pure polars: one `group_by([alpha, beta,
-gamma]).agg(mrr)`, pick the top row.
+Aggregation is declarative polars: one
+`group_by([alpha, beta, gamma]).agg(mrr)`, pick the top row.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import dataframely as dy
 import polars as pl
 import pygit2
 from pydantic import BaseModel, Field
@@ -27,6 +29,7 @@ from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Query, load_per_repo
 from rbtr_eval.rbtr_cli import daemon_session
+from rbtr_eval.schemas import TuneReport, WeightedSearchOutcome
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -47,20 +50,7 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
     ]
 
 
-# Columns for the grid replay frame.  `label` = "baseline" uses
-# rbtr's configured defaults; `label` = "grid" uses the supplied
-# triple.  For baseline rows, alpha/beta/gamma are all null.
-_TUNE_SCHEMA: dict[str, pl.DataType] = {
-    "slug": pl.String(),
-    "label": pl.String(),
-    "alpha": pl.Float64(),
-    "beta": pl.Float64(),
-    "gamma": pl.Float64(),
-    "rank": pl.Int32(),
-}
-
-
-# ── Typed search ─────────────────────────────────────────────────────────────────────
+# ── Typed search ─────────────────────────────────────────────────────────────
 
 
 def _search(
@@ -100,7 +90,7 @@ def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
     return None
 
 
-# ── Dataset load ───────────────────────────────────────────────────────────────
+# ── Dataset load ─────────────────────────────────────────────────────────────
 
 
 def _load_dataset(per_repo_dir: Path) -> dict[str, list[Query]]:
@@ -116,7 +106,95 @@ def _load_dataset(per_repo_dir: Path) -> dict[str, list[Query]]:
     return by_slug
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+# ── Search execution ─────────────────────────────────────────────────────────
+
+
+def _run_weight_trials(
+    client: DaemonClient,
+    queries_by_slug: dict[str, list[Query]],
+    repos_dir: Path,
+    triples: list[tuple[float, float, float]],
+) -> dy.DataFrame[WeightedSearchOutcome]:
+    """Run one baseline + every grid-triple search for every query.
+
+    Baseline rows carry null weights (rbtr's configured
+    defaults are in effect).  Grid rows carry the triple
+    supplied to that call.  Each row dict mirrors
+    `WeightedSearchOutcome`; validation on the next line
+    enforces the shape at runtime.
+    """
+    rows: list[dict[str, str | int | float | None]] = []
+    for slug, queries in queries_by_slug.items():
+        repo_path = (repos_dir / slug).resolve()
+        for query in queries:
+            rank = _rank_for(query, _search(client, repo_path, query.text, None))
+            rows.append(
+                {
+                    "slug": slug,
+                    "label": "baseline",
+                    "query_file": query.file_path,
+                    "query_scope": query.scope,
+                    "query_name": query.name,
+                    "alpha": None,
+                    "beta": None,
+                    "gamma": None,
+                    "rank": rank,
+                }
+            )
+        for triple in triples:
+            for query in queries:
+                rank = _rank_for(query, _search(client, repo_path, query.text, triple))
+                rows.append(
+                    {
+                        "slug": slug,
+                        "label": "grid",
+                        "query_file": query.file_path,
+                        "query_scope": query.scope,
+                        "query_name": query.name,
+                        "alpha": triple[0],
+                        "beta": triple[1],
+                        "gamma": triple[2],
+                        "rank": rank,
+                    }
+                )
+    return pl.DataFrame(rows).pipe(WeightedSearchOutcome.validate, cast=True)
+
+
+# ── Aggregation ──────────────────────────────────────────────────────────────
+
+
+def _mrr_expr() -> pl.Expr:
+    """MRR expression treating null ranks as reciprocal 0.
+
+    Shared between the baseline and grid-best queries so both
+    compute MRR the same way.
+    """
+    rank = pl.col("rank")
+    return (
+        pl.when(rank.is_null()).then(0.0).otherwise(1.0 / rank.cast(pl.Float64)).mean().alias("mrr")
+    )
+
+
+def _best_grid_triple(trials: dy.DataFrame[WeightedSearchOutcome]) -> pl.DataFrame:
+    """Return a one-row frame with the best `(alpha, beta, gamma)` and its MRR."""
+    return (
+        trials.filter(pl.col("label") == "grid")
+        .group_by(["alpha", "beta", "gamma"])
+        .agg(_mrr_expr())
+        .sort("mrr", descending=True)
+        .head(1)
+    )
+
+
+def _baseline_stats(trials: dy.DataFrame[WeightedSearchOutcome]) -> pl.DataFrame:
+    """Return a one-row frame with baseline MRR and the query count."""
+    return trials.filter(pl.col("label") == "baseline").select(
+        _mrr_expr(),
+        pl.len().cast(pl.UInt32).alias("n_queries"),
+    )
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
 
 
 def _resolve_rbtr_sha() -> str:
@@ -125,14 +203,6 @@ def _resolve_rbtr_sha() -> str:
         return str(repo.head.target)
     except (pygit2.GitError, KeyError):
         return "unknown"
-
-
-def _mrr_expr() -> pl.Expr:
-    """MRR expression treating null ranks as reciprocal 0."""
-    rank = pl.col("rank")
-    return (
-        pl.when(rank.is_null()).then(0.0).otherwise(1.0 / rank.cast(pl.Float64)).mean().alias("mrr")
-    )
 
 
 class TuneCmd(BaseModel):
@@ -150,65 +220,41 @@ class TuneCmd(BaseModel):
         triples = grid_triples(self.grid_step)
         t0 = time.monotonic()
 
-        cols: dict[str, list[object]] = {name: [] for name in _TUNE_SCHEMA}
         with daemon_session(self.home) as client:
-            for slug, queries in queries_by_slug.items():
-                repo_path = (self.repos_dir / slug).resolve()
-                # Baseline: no override, rbtr's configured defaults apply.
-                for q in queries:
-                    rank = _rank_for(q, _search(client, repo_path, q.text, None))
-                    cols["slug"].append(slug)
-                    cols["label"].append("baseline")
-                    cols["alpha"].append(None)
-                    cols["beta"].append(None)
-                    cols["gamma"].append(None)
-                    cols["rank"].append(rank)
-                # Grid pass.
-                for t in triples:
-                    for q in queries:
-                        rank = _rank_for(q, _search(client, repo_path, q.text, t))
-                        cols["slug"].append(slug)
-                        cols["label"].append("grid")
-                        cols["alpha"].append(t[0])
-                        cols["beta"].append(t[1])
-                        cols["gamma"].append(t[2])
-                        cols["rank"].append(rank)
+            trials = _run_weight_trials(client, queries_by_slug, self.repos_dir, triples)
 
-        ranks_df = pl.DataFrame(cols, schema=_TUNE_SCHEMA)
-        grid_best = (
-            ranks_df.filter(pl.col("label") == "grid")
-            .group_by(["alpha", "beta", "gamma"])
-            .agg(_mrr_expr())
-            .sort("mrr", descending=True)
-            .head(1)
-        )
-        baseline = ranks_df.filter(pl.col("label") == "baseline").select(
-            _mrr_expr(),
-            pl.len().alias("n_queries"),
-        )
-
+        grid_best = _best_grid_triple(trials)
+        baseline = _baseline_stats(trials)
         if grid_best.is_empty() or baseline.is_empty():
             msg = "no rows produced; dataset empty?"
             raise SystemExit(msg)
 
-        # Assemble the output as a one-row frame with literal
-        # metadata columns; `write_json` serialises it.  DVC's
-        # metrics parser reads the resulting JSON array fine.
-        report_df = grid_best.rename(
-            {"alpha": "best_alpha", "beta": "best_beta", "gamma": "best_gamma", "mrr": "score_best"}
-        ).with_columns(
-            pl.lit(rbtr_config.search_alpha).alias("current_alpha"),
-            pl.lit(rbtr_config.search_beta).alias("current_beta"),
-            pl.lit(rbtr_config.search_gamma).alias("current_gamma"),
-            pl.lit(baseline["mrr"][0]).alias("score_current"),
-            (pl.lit(grid_best["mrr"][0]) - pl.lit(baseline["mrr"][0])).alias("delta"),
-            pl.lit("MRR").alias("metric"),
-            pl.lit(self.grid_step).alias("grid_step"),
-            pl.lit(baseline["n_queries"][0]).alias("n_queries"),
-            pl.lit(len(triples)).alias("n_grid_points"),
-            pl.lit(rbtr_sha).alias("rbtr_sha"),
-            pl.lit(time.monotonic() - t0).alias("elapsed_seconds"),
+        # Assemble the one-row report with literal metadata columns;
+        # `TuneReport.write_json` serialises the typed frame.
+        report = (
+            grid_best.rename(
+                {
+                    "alpha": "best_alpha",
+                    "beta": "best_beta",
+                    "gamma": "best_gamma",
+                    "mrr": "score_best",
+                }
+            )
+            .with_columns(
+                pl.lit(rbtr_config.search_alpha).alias("current_alpha"),
+                pl.lit(rbtr_config.search_beta).alias("current_beta"),
+                pl.lit(rbtr_config.search_gamma).alias("current_gamma"),
+                pl.lit(baseline["mrr"][0]).alias("score_current"),
+                (pl.lit(grid_best["mrr"][0]) - pl.lit(baseline["mrr"][0])).alias("delta"),
+                pl.lit("MRR").alias("metric"),
+                pl.lit(self.grid_step).alias("grid_step"),
+                pl.lit(baseline["n_queries"][0]).cast(pl.UInt32).alias("n_queries"),
+                pl.lit(len(triples)).cast(pl.UInt32).alias("n_grid_points"),
+                pl.lit(rbtr_sha).alias("rbtr_sha"),
+                pl.lit(time.monotonic() - t0).alias("elapsed_seconds"),
+            )
+            .pipe(TuneReport.validate, cast=True)
         )
 
         self.output.parent.mkdir(parents=True, exist_ok=True)
-        report_df.write_json(self.output)
+        report.write_json(self.output)

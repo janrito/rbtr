@@ -1,6 +1,6 @@
 """`rbtr-eval measure` subcommand.
 
-Reads per-repo JSONL query files, replays every query through
+Reads per-repo JSONL query files, runs every query through
 the already-built rbtr index home (one shared home across all
 repos and variants), and writes:
 
@@ -9,9 +9,10 @@ repos and variants), and writes:
 
 Indexing is a separate DVC stage; this command only queries.
 Searches go through `DaemonClient` against a daemon bound to
-the shared home.  Aggregation is pure polars: Hit@k, MRR,
-median rank, not-found %, and latency quantiles all come from
-one `group_by().agg()` call.
+the shared home.  Aggregation is declarative polars: Hit@k,
+MRR, median rank, not-found %, and latency quantiles all come
+from `group_by(...).agg(*aggs)` over the `SearchOutcome`
+frame.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import time
 from importlib import resources
 from pathlib import Path
 
+import dataframely as dy
 import minijinja
 import polars as pl
 import pygit2
@@ -32,27 +34,9 @@ from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
 from rbtr_eval.rbtr_cli import daemon_session
+from rbtr_eval.schemas import Metrics, MetricsFile, MissCandidate, SearchOutcome
 
-# Columns produced by the replay loop.  Declared once so both
-# the accumulator (dict of lists) and the polars DataFrame call
-# reference the same shape.  `latency_ms` lives on the same
-# frame so aggregation and quantiles run in one pass.
-_REPLAY_SCHEMA: dict[str, pl.DataType] = {
-    "slug": pl.String(),
-    "variant": pl.String(),
-    "query_file": pl.String(),
-    "query_scope": pl.String(),
-    "query_name": pl.String(),
-    "query_text": pl.String(),
-    "rank": pl.Int32(),
-    "latency_ms": pl.Float64(),
-    "top_file": pl.String(),
-    "top_line": pl.Int32(),
-    "top_name": pl.String(),
-}
-
-
-# ── Typed search ─────────────────────────────────────────────────────────────────────
+# ── Typed search ─────────────────────────────────────────────────────────────
 
 
 def _search(
@@ -80,7 +64,15 @@ def _search(
     return response.results, elapsed_ms
 
 
-# ── Dataset load ───────────────────────────────────────────────────────────────
+def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
+    for i, hit in enumerate(hits, start=1):
+        c = hit.chunk
+        if c.file_path == query.file_path and c.scope == query.scope and c.name == query.name:
+            return i
+    return None
+
+
+# ── Dataset load ─────────────────────────────────────────────────────────────
 
 
 def _load_dataset(per_repo_dir: Path) -> tuple[list[Header], dict[str, list[Query]]]:
@@ -111,49 +103,45 @@ def _load_dataset(per_repo_dir: Path) -> tuple[list[Header], dict[str, list[Quer
     return headers, by_slug
 
 
-# ── Query replay ───────────────────────────────────────────────────────────────
+# ── Search execution ─────────────────────────────────────────────────────────
 
 
-def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
-    for i, hit in enumerate(hits, start=1):
-        c = hit.chunk
-        if c.file_path == query.file_path and c.scope == query.scope and c.name == query.name:
-            return i
-    return None
-
-
-def _replay_all(
+def _run_searches(
     client: DaemonClient,
     per_repo_headers: list[Header],
     queries_by_slug: dict[str, list[Query]],
     repos_dir: Path,
-) -> pl.DataFrame:
-    """Replay every query in every variant into a single polars frame.
+) -> dy.DataFrame[SearchOutcome]:
+    """Run every `(repo, variant, query)` search and capture its outcome.
 
-    One row per (slug, variant, query) with the rank the query
-    scored, the call's latency, and the top-1 hit's location
-    for the misses appendix.  Columns match `_REPLAY_SCHEMA`.
+    Iterates the native Python inputs; the query space is
+    `header x variant x query`, the natural shape of a
+    nested loop.  Each row dict mirrors `SearchOutcome`;
+    validation on the next line enforces the shape at runtime.
     """
-    cols: dict[str, list[object]] = {name: [] for name in _REPLAY_SCHEMA}
-    for h in per_repo_headers:
-        repo_path = (repos_dir / h.slug).resolve()
-        queries = queries_by_slug.get(h.slug, [])
+    rows: list[dict[str, str | int | float | None]] = []
+    for header in per_repo_headers:
+        repo_path = (repos_dir / header.slug).resolve()
         for variant in IndexVariant:
-            for q in queries:
-                hits, ms = _search(client, repo_path, q.text, variant)
+            for query in queries_by_slug.get(header.slug, []):
+                hits, latency_ms = _search(client, repo_path, query.text, variant)
                 top = hits[0] if hits else None
-                cols["slug"].append(h.slug)
-                cols["variant"].append(variant.value)
-                cols["query_file"].append(q.file_path)
-                cols["query_scope"].append(q.scope)
-                cols["query_name"].append(q.name)
-                cols["query_text"].append(q.text)
-                cols["rank"].append(_rank_for(q, hits))
-                cols["latency_ms"].append(ms)
-                cols["top_file"].append(top.chunk.file_path if top is not None else None)
-                cols["top_line"].append(top.chunk.line_start if top is not None else None)
-                cols["top_name"].append(top.chunk.name if top is not None else None)
-    return pl.DataFrame(cols, schema=_REPLAY_SCHEMA)
+                rows.append(
+                    {
+                        "slug": header.slug,
+                        "variant": variant.value,
+                        "query_file": query.file_path,
+                        "query_scope": query.scope,
+                        "query_name": query.name,
+                        "query_text": query.text,
+                        "rank": _rank_for(query, hits),
+                        "latency_ms": latency_ms,
+                        "top_file": top.chunk.file_path if top is not None else None,
+                        "top_line": top.chunk.line_start if top is not None else None,
+                        "top_name": top.chunk.name if top is not None else None,
+                    }
+                )
+    return pl.DataFrame(rows).pipe(SearchOutcome.validate, cast=True)
 
 
 def _index_db_bytes(home: Path, db_name: str = "index.duckdb") -> int:
@@ -171,77 +159,80 @@ def _index_db_bytes(home: Path, db_name: str = "index.duckdb") -> int:
     return total
 
 
-# ── Aggregation ────────────────────────────────────────────────────────────────
+# ── Aggregation ──────────────────────────────────────────────────────────────
 
 
-def _metric_aggs() -> list[pl.Expr]:
-    """Polars expressions that compute every headline metric.
+def _aggregate(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Metrics]:
+    """Per-(slug, variant) metrics plus an `__all__` rollup per variant.
 
     Hit@k counts null ranks as misses (`fill_null(False)`).
-    MRR treats null ranks as a reciprocal of 0 (custom
-    when/then so `1 / null = null` doesn't flip to null-skip).
+    MRR treats null ranks as reciprocal 0 via an explicit
+    `when / then / otherwise` (so `1 / null = null` doesn't
+    trigger polars' default null-skipping in `mean`).
     `median_rank` drops nulls before medianing; a variant
     where every query missed returns null, which the renderer
     prints as "-".
     """
     rank = pl.col("rank")
+    latency = pl.col("latency_ms")
     reciprocal = pl.when(rank.is_null()).then(0.0).otherwise(1.0 / rank.cast(pl.Float64))
-    return [
-        pl.len().alias("n_queries"),
+    aggs = [
+        pl.len().cast(pl.UInt32).alias("n_queries"),
         (rank <= 1).fill_null(False).mean().alias("hit_at_1"),
         (rank <= 3).fill_null(False).mean().alias("hit_at_3"),
         (rank <= 10).fill_null(False).mean().alias("hit_at_10"),
         reciprocal.mean().alias("mrr"),
-        rank.drop_nulls().median().alias("median_rank"),
+        rank.drop_nulls().cast(pl.Float64).median().alias("median_rank"),
         rank.is_null().mean().alias("not_found_pct"),
-        pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
-        pl.col("latency_ms").quantile(0.95).alias("search_p95_ms"),
+        latency.quantile(0.5).alias("search_p50_ms"),
+        latency.quantile(0.95).alias("search_p95_ms"),
     ]
-
-
-def _aggregate(replay_df: pl.DataFrame) -> pl.DataFrame:
-    """Per-(slug, variant) metrics plus an `__all__` rollup per variant."""
-    aggs = _metric_aggs()
-    per_pair = replay_df.group_by(["slug", "variant"]).agg(*aggs)
+    per_pair = outcomes.group_by(["slug", "variant"]).agg(*aggs)
     rollup = (
-        replay_df.group_by("variant")
+        outcomes.group_by("variant")
         .agg(*aggs)
         .with_columns(pl.lit("__all__").alias("slug"))
         .select(per_pair.columns)
     )
-    return pl.concat([per_pair, rollup], how="vertical").sort(["slug", "variant"])
+    return (
+        pl.concat([per_pair, rollup], how="vertical")
+        .sort(["slug", "variant"])
+        .pipe(Metrics.validate, cast=True)
+    )
 
 
-# ── Notable misses ─────────────────────────────────────────────────────────────
+# ── Notable misses ───────────────────────────────────────────────────────────
 
 
-def _select_misses(replay_df: pl.DataFrame, limit: int = 20) -> pl.DataFrame:
+def _select_misses(
+    outcomes: dy.DataFrame[SearchOutcome], limit: int = 20
+) -> dy.DataFrame[MissCandidate]:
     """Top *limit* queries by largest stripped-vs-full rank gap.
 
     `fill_null(11)` converts "no top-10 hit" into a sentinel
     worse than any real rank, so the subtraction is always
-    meaningful.  Queries where stripped did the same or
-    better than full are filtered out (`gap > 0`).
+    defined.  Queries where stripped did the same or better
+    than full are filtered out (`gap > 0`).
     """
-    pivoted = replay_df.pivot(
-        on="variant",
-        index=["slug", "query_file", "query_scope", "query_name", "query_text"],
-        values=["rank", "top_file", "top_line", "top_name"],
-    )
     return (
-        pivoted.with_columns(
-            (pl.col("rank_stripped").fill_null(11) - pl.col("rank_full").fill_null(11)).alias("gap")
+        outcomes.pivot(
+            on="variant",
+            index=["slug", "query_file", "query_scope", "query_name", "query_text"],
+            values=["rank", "top_file", "top_line", "top_name"],
+        )
+        .with_columns(
+            (pl.col("rank_stripped").fill_null(11) - pl.col("rank_full").fill_null(11))
+            .cast(pl.Int16)
+            .alias("gap")
         )
         .filter(pl.col("gap") > 0)
-        .sort(
-            ["gap", "slug", "query_file"],
-            descending=[True, False, False],
-        )
+        .sort(["gap", "slug", "query_file"], descending=[True, False, False])
         .head(limit)
+        .pipe(MissCandidate.validate, cast=True)
     )
 
 
-# ── Rendering ──────────────────────────────────────────────────────────────────
+# ── Rendering ────────────────────────────────────────────────────────────────
 
 
 def _render_report(
@@ -249,8 +240,8 @@ def _render_report(
     per_repo_headers: list[Header],
     rbtr_sha: str,
     elapsed_seconds: float,
-    metrics_df: pl.DataFrame,
-    misses_df: pl.DataFrame,
+    metrics_df: dy.DataFrame[Metrics],
+    misses_df: dy.DataFrame[MissCandidate],
     shared_home_bytes: int,
 ) -> str:
     """Render `BENCHMARKS.md` via the jinja template + rumdl fmt.
@@ -355,7 +346,40 @@ def _render_report(
     return result.stdout if result.returncode == 0 else rendered
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+def _build_metrics_file(
+    *,
+    metrics_df: dy.DataFrame[Metrics],
+    per_repo_headers: list[Header],
+    rbtr_sha: str,
+    elapsed_seconds: float,
+    shared_home_bytes: int,
+) -> dy.DataFrame[MetricsFile]:
+    """Attach per-slug SHAs and run metadata for on-disk serialisation.
+
+    `__all__` rollup rows stay null on `sha` after the left
+    join; every other row gets its repo's SHA.  Run metadata
+    (seed, sample_cap, elapsed_seconds, index_size_bytes,
+    rbtr_sha) repeats as literal columns so the JSON file
+    carries everything DVC's metrics parser might want.
+    """
+    shas = pl.DataFrame(
+        {"slug": [h.slug for h in per_repo_headers], "sha": [h.sha for h in per_repo_headers]},
+        schema={"slug": pl.String(), "sha": pl.String()},
+    )
+    return (
+        metrics_df.join(shas, on="slug", how="left")
+        .with_columns(
+            pl.lit(rbtr_sha).alias("rbtr_sha"),
+            pl.lit(per_repo_headers[0].seed).cast(pl.UInt32).alias("seed"),
+            pl.lit(per_repo_headers[0].sample_cap).cast(pl.UInt32).alias("sample_cap"),
+            pl.lit(elapsed_seconds).alias("elapsed_seconds"),
+            pl.lit(shared_home_bytes).cast(pl.UInt64).alias("index_size_bytes"),
+        )
+        .pipe(MetricsFile.validate, cast=True)
+    )
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
 
 
 def _resolve_rbtr_sha() -> str:
@@ -378,19 +402,15 @@ class MeasureCmd(BaseModel):
     def cli_cmd(self) -> None:
         rbtr_sha = _resolve_rbtr_sha()
         per_repo_headers, queries_by_slug = _load_dataset(self.per_repo_dir)
-        sha_per_slug = pl.DataFrame(
-            {"slug": [h.slug for h in per_repo_headers], "sha": [h.sha for h in per_repo_headers]},
-            schema={"slug": pl.String(), "sha": pl.String()},
-        )
 
         t0 = time.monotonic()
         with daemon_session(self.home) as client:
-            replay_df = _replay_all(client, per_repo_headers, queries_by_slug, self.repos_dir)
+            outcomes = _run_searches(client, per_repo_headers, queries_by_slug, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
         shared_home_bytes = _index_db_bytes(self.home)
 
-        metrics_df = _aggregate(replay_df)
-        misses_df = _select_misses(replay_df)
+        metrics_df = _aggregate(outcomes)
+        misses_df = _select_misses(outcomes)
 
         report_text = _render_report(
             per_repo_headers=per_repo_headers,
@@ -400,19 +420,15 @@ class MeasureCmd(BaseModel):
             misses_df=misses_df,
             shared_home_bytes=shared_home_bytes,
         )
-
-        # Metrics file: metrics frame + run metadata + per-repo
-        # SHAs joined in on `slug` (`__all__` rows stay null).
-        # `write_json` handles the serialisation; no json.dumps.
-        output_df = metrics_df.join(sha_per_slug, on="slug", how="left").with_columns(
-            pl.lit(rbtr_sha).alias("rbtr_sha"),
-            pl.lit(per_repo_headers[0].seed).alias("seed"),
-            pl.lit(per_repo_headers[0].sample_cap).alias("sample_cap"),
-            pl.lit(elapsed_seconds).alias("elapsed_seconds"),
-            pl.lit(shared_home_bytes).alias("index_size_bytes"),
+        metrics_file = _build_metrics_file(
+            metrics_df=metrics_df,
+            per_repo_headers=per_repo_headers,
+            rbtr_sha=rbtr_sha,
+            elapsed_seconds=elapsed_seconds,
+            shared_home_bytes=shared_home_bytes,
         )
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(report_text, encoding="utf-8")
         self.metrics.parent.mkdir(parents=True, exist_ok=True)
-        output_df.write_json(self.metrics)
+        metrics_file.write_json(self.metrics)

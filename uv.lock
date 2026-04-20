@@ -736,6 +736,24 @@ wheels = [
 ]
 
 [[package]]
+name = "dataframely"
+version = "2.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fsspec" },
+    { name = "numpy" },
+    { name = "polars" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e1/8e/e58ad5c3ab3d3f09a4d3cc49ba066c6f41b716b8a2d88b35ec7bc7d2e0f8/dataframely-2.9.1.tar.gz", hash = "sha256:450dc40f9c7d442e5493db45ece18861c0609ff12b0df4ac32c05b47f543978c", size = 422790, upload-time = "2026-04-14T23:14:48.733Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/e0/0f432cf872dbeeb5e2b3f24aff0b9f4120367e33f575f35491e9cb4d7d72/dataframely-2.9.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:37c365860eb7bf3e10c24f9f04af6c217c0b91e7611070334152f23487c79708", size = 5361724, upload-time = "2026-04-14T23:14:39.857Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/c4/445984e535e6f9e7ae9be0557d91b0a60af8a4d13d04fdf0b5938845d351/dataframely-2.9.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:5dfa28f36151aabe4f42683766660741e8824cd5d29d4c061284681aa796ec43", size = 4998978, upload-time = "2026-04-14T23:14:42.115Z" },
+    { url = "https://files.pythonhosted.org/packages/62/ca/2632f806f430adc8af37a6fa7c809c6e20487a5d480d01e8a6dca2c28744/dataframely-2.9.1-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fb73dc25bc288ef177a0499d9a9bb34e9538238681b6351d926d7c1df49470c9", size = 5275728, upload-time = "2026-04-14T23:14:43.755Z" },
+    { url = "https://files.pythonhosted.org/packages/59/0d/bd6ac8608749658e4f46ee2af31ba18717eb38a5815c5e594caf8d51335f/dataframely-2.9.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d040e432944632e3ebdbb97710ec54f2abac4cc0fb8c4ca1e0eaa9612426a114", size = 5600592, upload-time = "2026-04-14T23:14:45.702Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/ac/495db153170034549ffbb4b4edbb264309f21c7078afa42d37ddb96881fd/dataframely-2.9.1-cp310-abi3-win_amd64.whl", hash = "sha256:4c6f79012a3f1388f6c53c2b991e03f26b4c58bbc0d6055a585342c4bbc093bf", size = 5617432, upload-time = "2026-04-14T23:14:47.279Z" },
+]
+
+[[package]]
 name = "decopatch"
 version = "1.4.10"
 source = { registry = "https://pypi.org/simple" }
@@ -3585,6 +3603,7 @@ name = "rbtr-eval"
 version = "0.1.0"
 source = { editable = "packages/rbtr-eval" }
 dependencies = [
+    { name = "dataframely" },
     { name = "dvc" },
     { name = "minijinja" },
     { name = "polars" },
@@ -3602,6 +3621,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dataframely", specifier = ">=2.9.1" },
     { name = "dvc" },
     { name = "minijinja", specifier = ">=2.0" },
     { name = "polars", specifier = ">=1.0" },
