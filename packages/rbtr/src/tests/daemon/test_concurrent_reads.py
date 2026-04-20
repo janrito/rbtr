@@ -1,68 +1,109 @@
 """Regression tests for daemon concurrency.
 
-Read-side handlers must serve responses promptly even while the
-build worker is mid-write.  Uses a disk-backed store so the
-MVCC / WAL behaviour matches production; the build is simulated
-directly on the store from a thread so the test doesn't have to
-drive a full build pipeline.
+Drives a real `BuildIndexRequest` through ZMQ, waits for the
+build worker to start, then fires `SearchRequest`s against the
+same live daemon.  Exercises the full stack: socket dispatch,
+build queue, worker thread, tree-sitter extraction, DuckDB
+inserts, and the read-side handlers.  The narrower previous
+version (writer thread bypassing the build pipeline) let a
+regression in the real build-vs-search contention slip through
+because it never exercised that code.
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Generator, Iterator
+from collections.abc import Generator
 from pathlib import Path
 
 import anyio
+import pygit2
 import pytest
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import SearchRequest, SearchResponse
+from rbtr.daemon.messages import (
+    BuildIndexRequest,
+    OkResponse,
+    SearchRequest,
+    SearchResponse,
+    StatusRequest,
+    StatusResponse,
+)
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.models import Chunk, ChunkKind, Edge
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 
 
 @pytest.fixture
 def search_budget_s() -> float:
-    """Per-call search latency budget while writes are in flight.
+    """Per-call search latency budget during a live build.
 
     Generous so xdist parallelism doesn't false-fail on a busy
-    machine; the assertion is `reads aren't blocked behind
-    writes`, not `reads are zero-cost`.
+    machine.  The assertion is `reads aren't blocked behind the
+    build`, not `reads are zero-cost`.  A true serialisation
+    would show latencies on the order of the full build (tens
+    of seconds for 100 files with embeddings); 10s comfortably
+    rules that out while leaving room for first-run model loads
+    and GIL contention under xdist.
     """
-    return 3.0
+    return 10.0
 
 
 @pytest.fixture
-def disk_store(
-    tmp_path: Path,
-    daemon_commit: str,
-    daemon_chunks: list[Chunk],
-    daemon_edges: list[Edge],
-) -> IndexStore:
-    """Disk-backed store seeded with the same fixtures as `seeded_store`.
+def large_repo(tmp_path: Path) -> tuple[Path, str]:
+    """Git repo with enough files that indexing takes seconds.
 
-    Real DuckDB file so MVCC / WAL contention matches production.
+    Returns `(repo_path, head_sha)`.  One commit; ~100 Python
+    files each carrying a class, a method, and a top-level
+    function with docstrings so every standard chunk kind is
+    exercised by the subsequent indexing run.
     """
-    store = IndexStore(tmp_path / "index.duckdb")
-    repo_id = store.register_repo("/test/repo")
-    store.insert_chunks(daemon_chunks, repo_id=repo_id)
-    for c in daemon_chunks:
-        store.insert_snapshot(daemon_commit, c.file_path, c.blob_sha, repo_id=repo_id)
-    store.insert_edges(daemon_edges, daemon_commit, repo_id=repo_id)
-    store.mark_indexed(repo_id, daemon_commit)
-    store.rebuild_fts_index()
-    return store
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    repo = pygit2.init_repository(str(repo_path), bare=False)
+    index = repo.index
+    for i in range(100):
+        content = (
+            f'"""module {i}."""\n\n'
+            f"class Thing{i}:\n"
+            f'    """Docstring {i}."""\n'
+            f"    def method_{i}(self, x):\n"
+            f"        return x + {i}\n\n"
+            f"def helper_{i}(a, b):\n"
+            f'    """Top-level helper {i}."""\n'
+            f"    return a + b + {i}\n"
+        )
+        rel = f"src/mod_{i}.py"
+        full = repo_path / rel
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content)
+        index.add(rel)
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    sha = str(repo.create_commit("HEAD", sig, sig, "init", tree_oid, []))
+    return repo_path, sha
 
 
 @pytest.fixture
-def running_server_disk(sock_dir: Path, disk_store: IndexStore) -> Generator[DaemonServer]:
-    """Daemon backed by *disk_store*."""
+def daemon_store(tmp_path: Path) -> IndexStore:
+    """Disk-backed, empty store for the daemon."""
+    return IndexStore(tmp_path / "index.duckdb")
+
+
+@pytest.fixture
+def running_daemon(sock_dir: Path, daemon_store: IndexStore) -> Generator[DaemonServer]:
+    """A real daemon serving *daemon_store*.
+
+    `sock_dir` comes from `tests/daemon/conftest.py` and lives
+    under a short `/tmp/rbtr*` path (macOS AF_UNIX has a
+    103-char limit; `tmp_path` under xdist would exceed it).
+    """
     server = DaemonServer(
-        sock_dir, store=disk_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        sock_dir,
+        store=daemon_store,
+        idle_poll_interval=60.0,
+        busy_poll_interval=60.0,
     )
     t = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
     t.start()
@@ -76,98 +117,85 @@ def running_server_disk(sock_dir: Path, disk_store: IndexStore) -> Generator[Dae
     t.join(timeout=3)
 
 
-@pytest.fixture
-def background_writer(disk_store: IndexStore) -> Iterator[None]:
-    """Hammer *disk_store* with chunk inserts for the duration of the test.
+def _wait_for_build_start(client: DaemonClient, repo_path: Path, deadline_s: float) -> None:
+    """Poll `rbtr status` until the build worker has a repo active.
 
-    Runs synthetic 20-chunk batches in a tight loop with a brief
-    pause to leave room for the daemon's REP loop, the asyncio
-    event loop, and other xdist workers on the same machine.
-    Yields after a short warm-up so the contention window is open
-    when the test fires its first request; stops the writer thread
-    on exit.
+    Returns when `active_job` is set *or* the index exists;
+    raises `TimeoutError` if neither happens within *deadline_s*.
     """
-    stop = threading.Event()
-
-    def make_chunk(i: int) -> Chunk:
-        name = f"slow_fn_{i}"
-        content = f"def {name}():\n    return {i}\n"
-        return Chunk(
-            id=f"slow_{i:08d}",
-            blob_sha=f"slowblob_{i:08d}",
-            file_path=f"src/slow_{i}.py",
-            kind=ChunkKind.FUNCTION,
-            name=name,
-            content=content,
-            content_tokens=tokenise_code(content),
-            name_tokens=tokenise_code(name),
-            line_start=1,
-            line_end=2,
-        )
-
-    def hammer() -> None:
-        # Register the repo from inside the worker thread so the
-        # cursor stays thread-local; sharing a cursor across threads
-        # races with the daemon's FTS rebuild path.
-        repo_id = disk_store.register_repo("/test/concurrent_writer")
-        i = 0
-        batch_size = 20
-        while not stop.is_set():
-            disk_store.insert_chunks(
-                [make_chunk(i + n) for n in range(batch_size)], repo_id=repo_id
-            )
-            i += batch_size
-            time.sleep(0.01)
-
-    thread = threading.Thread(target=hammer, daemon=True)
-    thread.start()
-    try:
-        time.sleep(0.2)
-        yield
-    finally:
-        stop.set()
-        thread.join(timeout=5)
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        resp = client.send(StatusRequest(repo=str(repo_path)))
+        if isinstance(resp, StatusResponse) and resp.active_job is not None:
+            return
+        time.sleep(0.05)
+    msg = "build worker never became active"
+    raise TimeoutError(msg)
 
 
-def test_search_returns_within_budget_during_writes(
-    running_server_disk: DaemonServer,
-    background_writer: None,
+def test_search_returns_promptly_during_live_build(
+    running_daemon: DaemonServer,
+    large_repo: tuple[Path, str],
     search_budget_s: float,
 ) -> None:
-    """One search returns promptly while writes hammer the store.
+    """Drive a full BuildIndexRequest; fire SearchRequests during the build.
 
-    Reproduces the production symptom: rbtr-eval saw `rbtr search`
-    fall back to inline mode while the daemon was indexing because
-    the daemon's read handler was thought to be blocked behind the
-    write cursor.  Closes that hypothesis.
+    The daemon must keep serving read RPCs while the build worker
+    parses, inserts, and writes to DuckDB on its own thread.
+    Regression guard: if anything (ZMQ dispatch, cursor sharing,
+    DuckDB locking) ever serialises reads behind the build, this
+    fails.
     """
-    with DaemonClient(running_server_disk.sock_dir) as client:
-        t0 = time.monotonic()
-        resp = client.send(SearchRequest(repo="/test/repo", query="load_config"))
-        elapsed = time.monotonic() - t0
+    repo_path, _sha = large_repo
 
-    assert isinstance(resp, SearchResponse)
-    assert elapsed < search_budget_s, (
-        f"search took {elapsed * 1000:.0f} ms while writes were in flight; "
-        f"expected < {search_budget_s * 1000:.0f} ms.  A long write is "
-        "blocking the read handler."
+    with DaemonClient(running_daemon.sock_dir) as client:
+        build_resp = client.send(BuildIndexRequest(repo=str(repo_path)))
+        assert isinstance(build_resp, OkResponse)
+
+        _wait_for_build_start(client, repo_path, deadline_s=5.0)
+
+        latencies: list[float] = []
+        for _ in range(10):
+            t0 = time.monotonic()
+            search_resp = client.send(
+                SearchRequest(repo=str(repo_path), query="helper_42", limit=5)
+            )
+            elapsed = time.monotonic() - t0
+            assert isinstance(search_resp, SearchResponse)
+            latencies.append(elapsed)
+            time.sleep(0.05)
+
+    assert max(latencies) < search_budget_s, (
+        f"slowest search during build took {max(latencies) * 1000:.0f} ms; "
+        f"expected < {search_budget_s * 1000:.0f} ms.  Reads are being "
+        f"blocked behind the build.  All latencies (ms): "
+        f"{[int(x * 1000) for x in latencies]}"
     )
 
 
-@pytest.mark.parametrize("query", ["load_config", "config", "Application"])
-def test_searches_serve_throughout_long_write(
-    running_server_disk: DaemonServer,
-    background_writer: None,
+def test_status_returns_promptly_during_live_build(
+    running_daemon: DaemonServer,
+    large_repo: tuple[Path, str],
     search_budget_s: float,
-    query: str,
 ) -> None:
-    """Five sequential searches all return promptly during writes."""
-    with DaemonClient(running_server_disk.sock_dir) as client:
-        for _ in range(5):
+    """Status must also serve while the build is in flight.
+
+    Covers the same concurrency property for the status path
+    (which has its own code path through `handle_status` ->
+    `_build_queue.snapshot_status()`).
+    """
+    repo_path, _sha = large_repo
+
+    with DaemonClient(running_daemon.sock_dir) as client:
+        build_resp = client.send(BuildIndexRequest(repo=str(repo_path)))
+        assert isinstance(build_resp, OkResponse)
+
+        _wait_for_build_start(client, repo_path, deadline_s=5.0)
+
+        for _ in range(10):
             t0 = time.monotonic()
-            resp = client.send(SearchRequest(repo="/test/repo", query=query))
+            resp = client.send(StatusRequest(repo=str(repo_path)))
             elapsed = time.monotonic() - t0
-            assert isinstance(resp, SearchResponse)
-            assert elapsed < search_budget_s, (
-                f"search took {elapsed * 1000:.0f} ms while writes were in flight"
-            )
+            assert isinstance(resp, StatusResponse)
+            assert elapsed < search_budget_s, f"status took {elapsed * 1000:.0f} ms during build"
+            time.sleep(0.05)
