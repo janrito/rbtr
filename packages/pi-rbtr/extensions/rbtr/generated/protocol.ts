@@ -30,45 +30,44 @@ export type Request =
  */
 export type IndexVariant = "full" | "stripped";
 /**
- * Which variant of an index a chunk belongs to / a query targets.
- *
- * `full`: chunks built with docstrings preserved (default).
- * `stripped`: chunks built with docstrings blanked out
- * (`rbtr index --variant stripped`).
- *
- * The two variants coexist in a single store; the public flag
- * names the variant rather than the action so the same word
- * works on both `index` (build it) and `search` (query it).
- */
-export type IndexVariant1 = "full" | "stripped";
-/**
- * Which variant of an index a chunk belongs to / a query targets.
- *
- * `full`: chunks built with docstrings preserved (default).
- * `stripped`: chunks built with docstrings blanked out
- * (`rbtr index --variant stripped`).
- *
- * The two variants coexist in a single store; the public flag
- * names the variant rather than the action so the same word
- * works on both `index` (build it) and `search` (query it).
- */
-export type IndexVariant2 = "full" | "stripped";
-/**
- * Which variant of an index a chunk belongs to / a query targets.
- *
- * `full`: chunks built with docstrings preserved (default).
- * `stripped`: chunks built with docstrings blanked out
- * (`rbtr index --variant stripped`).
- *
- * The two variants coexist in a single store; the public flag
- * names the variant rather than the action so the same word
- * works on both `index` (build it) and `search` (query it).
- */
-export type IndexVariant3 = "full" | "stripped";
-/**
  * What a ``rbtr gc`` invocation is allowed to delete.
  */
 export type GcMode = "head_only" | "keep_refs" | "keep" | "drop" | "orphans";
+export type Response =
+	| ErrorResponse
+	| OkResponse
+	| BuildIndexResponse
+	| SearchResponse
+	| ReadSymbolResponse
+	| ListSymbolsResponse
+	| FindRefsResponse
+	| ChangedSymbolsResponse
+	| StatusResponse
+	| GcResponse;
+/**
+ * Error codes for the daemon protocol.
+ */
+export type ErrorCode = "invalid_request" | "index_not_built" | "index_in_progress" | "repo_not_found" | "internal";
+/**
+ * Kind of indexed chunk.
+ */
+export type ChunkKind =
+	| "function"
+	| "class"
+	| "method"
+	| "variable"
+	| "import"
+	| "doc_section"
+	| "config_key"
+	| "migration"
+	| "test_function"
+	| "api_endpoint"
+	| "raw_chunk";
+/**
+ * Kind of relationship between chunks.
+ */
+export type EdgeKind = "calls" | "imports" | "inherits" | "tests" | "documents" | "configures";
+export type Notification = ProgressNotification | ReadyNotification | AutoRebuildNotification | IndexErrorNotification;
 
 export interface ShutdownRequest {
 	kind: "shutdown";
@@ -106,14 +105,14 @@ export interface ReadSymbolRequest {
 	repo: string;
 	name: string;
 	ref?: string;
-	variant?: IndexVariant1;
+	variant?: IndexVariant;
 }
 export interface ListSymbolsRequest {
 	kind: "list_symbols";
 	repo: string;
 	file_path: string;
 	ref?: string;
-	variant?: IndexVariant2;
+	variant?: IndexVariant;
 }
 export interface FindRefsRequest {
 	kind: "find_refs";
@@ -126,7 +125,7 @@ export interface ChangedSymbolsRequest {
 	repo: string;
 	base: string;
 	head: string;
-	variant?: IndexVariant3;
+	variant?: IndexVariant;
 }
 export interface StatusRequest {
 	kind: "status";
@@ -139,42 +138,6 @@ export interface GcRequest {
 	refs?: string[];
 	dry_run?: boolean;
 }
-
-export type Response =
-	| ErrorResponse
-	| OkResponse
-	| BuildIndexResponse
-	| SearchResponse
-	| ReadSymbolResponse
-	| ListSymbolsResponse
-	| FindRefsResponse
-	| ChangedSymbolsResponse
-	| StatusResponse
-	| GcResponse;
-/**
- * Error codes for the daemon protocol.
- */
-export type ErrorCode = "invalid_request" | "index_not_built" | "index_in_progress" | "repo_not_found" | "internal";
-/**
- * Kind of indexed chunk.
- */
-export type ChunkKind =
-	| "function"
-	| "class"
-	| "method"
-	| "variable"
-	| "import"
-	| "doc_section"
-	| "config_key"
-	| "migration"
-	| "test_function"
-	| "api_endpoint"
-	| "raw_chunk";
-/**
- * Kind of relationship between chunks.
- */
-export type EdgeKind = "calls" | "imports" | "inherits" | "tests" | "documents" | "configures";
-
 export interface ErrorResponse {
 	kind: "error";
 	code: ErrorCode;
@@ -340,9 +303,6 @@ export interface GcResponse {
 	elapsed_seconds: number;
 	dry_run?: boolean;
 }
-
-export type Notification = ProgressNotification | ReadyNotification | AutoRebuildNotification | IndexErrorNotification;
-
 export interface ProgressNotification {
 	kind: "progress";
 	repo: string;
@@ -368,7 +328,6 @@ export interface IndexErrorNotification {
 	repo: string;
 	message: string;
 }
-
 /**
  * CLI output for ``rbtr daemon status``.
  *

@@ -1,9 +1,9 @@
 /**
  * Generate TypeScript protocol types from the rbtr Python models.
  *
- * Shells out to `rbtr schema-dump`, feeds the three top-level
- * groups (`request`, `response`, `notification`) through
- * `json-schema-to-typescript`, and writes one combined file.
+ * Shells out to `rbtr schema-dump`, merges every group's `$defs`
+ * into one shared definitions map, and compiles a single combined
+ * schema so each definition is emitted exactly once.
  *
  * Python is the source of truth.  Do not edit the generated file
  * by hand.  Re-run via `just schema-check`.
@@ -37,8 +37,6 @@ interface Schemas {
 }
 
 function runSchemaDump(): Schemas {
-	// Uses `uv run --package rbtr` so the repo's workspace rbtr
-	// is invoked regardless of what's on PATH.
 	const result = spawnSync("uv", ["run", "--package", "rbtr", "rbtr", "schema-dump"], {
 		encoding: "utf8",
 		cwd: join(HERE, "..", "..", ".."),
@@ -49,56 +47,81 @@ function runSchemaDump(): Schemas {
 		throw new Error(`rbtr schema-dump exited with code ${result.status}`);
 	}
 
-	const parsed = JSON.parse(result.stdout) as Schemas;
-	return parsed;
+	return JSON.parse(result.stdout) as Schemas;
+}
+
+/**
+ * Pop a group's `$defs` into the shared map and return a top-level
+ * `$ref` shape that points at the same definitions.
+ *
+ * The compiler emits one named type per `$defs` entry, so merging
+ * everything into one map ensures shared definitions (`Chunk`,
+ * `IndexVariant`, etc.) are emitted exactly once.  Without this,
+ * the compiler renames duplicates as `IndexVariant1`,
+ * `IndexVariant2`, ...
+ */
+function moveDefs(group: JSONSchema, sharedDefs: Record<string, JSONSchema>): JSONSchema {
+	const groupDefs = (group.$defs ?? {}) as Record<string, JSONSchema>;
+	for (const [name, def] of Object.entries(groupDefs)) {
+		if (sharedDefs[name] === undefined) {
+			sharedDefs[name] = def;
+		}
+	}
+	const { $defs: _, ...rest } = group as Record<string, unknown>;
+	return rest as JSONSchema;
 }
 
 async function main(): Promise<void> {
 	const schemas = runSchemaDump();
 
-	// Strip pydantic's property-level `title` fields before
-	// compilation.  Without this, json-schema-to-typescript emits
-	// a named alias for every titled property (`Kind`, `Kind1`,
-	// `Repo`, `Repo1`, ...), which clutters the output.
-	const cliSchemas = Object.values(schemas.cli);
-	for (const schema of [schemas.request, schemas.response, schemas.notification, ...cliSchemas]) {
-		stripPropertyTitles(schema);
-		requireKind(schema);
+	const sharedDefs: Record<string, JSONSchema> = {};
+	const requestRoot = moveDefs(schemas.request, sharedDefs);
+	const responseRoot = moveDefs(schemas.response, sharedDefs);
+	const notificationRoot = moveDefs(schemas.notification, sharedDefs);
+	const cliRoots: Record<string, JSONSchema> = {};
+	for (const [name, schema] of Object.entries(schemas.cli)) {
+		cliRoots[name] = moveDefs(schema, sharedDefs);
 	}
 
-	const cliCompiled = await Promise.all(
-		Object.entries(schemas.cli).map(([name, schema]) =>
-			compile(schema, name, { bannerComment: "", additionalProperties: false }),
-		),
-	);
+	// Combined root schema: every top-level alias plus every CLI
+	// type lives as a `$defs` entry.  json-schema-to-typescript
+	// then walks the whole graph once and emits each definition
+	// exactly once.
+	const combined: JSONSchema = {
+		$defs: {
+			...sharedDefs,
+			Request: requestRoot,
+			Response: responseRoot,
+			Notification: notificationRoot,
+			...cliRoots,
+		},
+		type: "object",
+		properties: {
+			request: { $ref: "#/$defs/Request" },
+			response: { $ref: "#/$defs/Response" },
+			notification: { $ref: "#/$defs/Notification" },
+			...Object.fromEntries(Object.keys(cliRoots).map((name) => [name.toLowerCase(), { $ref: `#/$defs/${name}` }])),
+		},
+		title: "RbtrProtocol",
+	};
 
-	const compiled = [
-		await compile(schemas.request as JSONSchema, "Request", {
-			bannerComment: "",
-			additionalProperties: false,
-		}),
-		await compile(schemas.response as JSONSchema, "Response", {
-			bannerComment: "",
-			additionalProperties: false,
-		}),
-		await compile(schemas.notification as JSONSchema, "Notification", {
-			bannerComment: "",
-			additionalProperties: false,
-		}),
-		...cliCompiled,
-	];
+	stripPropertyTitles(combined);
+	stripRefSiblings(combined);
+	requireKind(combined);
 
-	// Dedupe shared $defs that reappear across groups
-	// (ChunkKind, ImportMeta, etc.).
-	const seen = new Set<string>();
-	const deduped = compiled.map((block) => dedupeBlock(block, seen));
+	const compiled = await compile(combined, "RbtrProtocol", {
+		bannerComment: "",
+		additionalProperties: false,
+	});
 
-	const output = HEADER + deduped.join("\n");
+	// Drop the synthetic root wrapper -- callers consume Request /
+	// Response / Notification / CLI types directly.
+	const withoutRoot = stripWrapper(compiled, "RbtrProtocol");
+
+	const output = HEADER + withoutRoot;
 	mkdirSync(dirname(OUT_PATH), { recursive: true });
 	writeFileSync(OUT_PATH, output);
 
-	// Run biome's formatter + import organiser so the file is
-	// idempotent under `just lint-ts`.
 	const fmt = spawnSync("bunx", ["@biomejs/biome", "check", "--write", OUT_PATH], {
 		stdio: ["ignore", "ignore", "inherit"],
 	});
@@ -110,12 +133,42 @@ async function main(): Promise<void> {
 }
 
 /**
+ * Strip sibling keywords from `$ref` nodes.
+ *
+ * Pydantic emits `{"$ref": "#/$defs/IndexVariant", "default": "full"}`
+ * for fields that have a default.  json-schema-to-typescript treats
+ * each such node as a distinct schema (because the sibling differs)
+ * and emits `IndexVariant`, `IndexVariant1`, `IndexVariant2`, ... .
+ * The `default` carries no type information for our purposes, so
+ * dropping it merges every occurrence back to the single named type.
+ */
+function stripRefSiblings(schema: unknown): void {
+	if (!schema || typeof schema !== "object") return;
+	const node = schema as Record<string, unknown>;
+
+	if ("$ref" in node) {
+		for (const key of Object.keys(node)) {
+			if (key !== "$ref") delete node[key];
+		}
+		return;
+	}
+
+	for (const value of Object.values(node)) {
+		if (Array.isArray(value)) {
+			for (const item of value) stripRefSiblings(item);
+		} else if (value && typeof value === "object") {
+			stripRefSiblings(value);
+		}
+	}
+}
+
+/**
  * Mark `kind` required on every object that has it as a property.
  *
  * Pydantic gives each message kind a default value, which makes
  * the field non-required in JSON Schema and therefore optional
  * in TypeScript.  But every real message on the wire has the
- * discriminator — it has to, that's how the union works.
+ * discriminator -- it has to, that's how the union works.
  * Without this fix `Request["kind"]` is `string | undefined`
  * and `Extract<Response, { kind: K }>` never narrows.
  */
@@ -146,7 +199,7 @@ function requireKind(schema: unknown): void {
  * Pydantic labels each field with a title like `"Kind"` or
  * `"Repo"`; json-schema-to-typescript turns those into named
  * aliases.  Root-level titles (on `$defs` entries themselves)
- * are kept — those become the real interface names.
+ * are kept -- those become the real interface names.
  */
 function stripPropertyTitles(schema: unknown): void {
 	if (!schema || typeof schema !== "object") return;
@@ -162,7 +215,6 @@ function stripPropertyTitles(schema: unknown): void {
 		}
 	}
 
-	// Recurse into common schema container keys.
 	for (const key of ["$defs", "definitions", "oneOf", "anyOf", "allOf", "items"]) {
 		const child = node[key];
 		if (Array.isArray(child)) {
@@ -174,38 +226,24 @@ function stripPropertyTitles(schema: unknown): void {
 }
 
 /**
- * Remove exported types whose name already appeared in an earlier
- * block.  Mutates *seen* with every name kept.
+ * Drop the synthetic wrapper interface that the combined-schema
+ * trick generates as a side effect.
  *
- * Relies on json-schema-to-typescript's output shape: each type
- * starts at column 0 with `export (interface|type) <Name>`, and
- * ends at a line that is just `}` or `;` at column 0.
+ * The wrapper is a single `export interface RbtrProtocol { ... }`
+ * block that lists every group as a property.  We don't need it
+ * downstream -- consumers import `Request`, `Response`, etc.
+ * directly -- so strip it off the front.
  */
-function dedupeBlock(block: string, seen: Set<string>): string {
-	const lines = block.split("\n");
-	const out: string[] = [];
-	let skip = false;
-	for (const line of lines) {
-		const match = line.match(/^export (?:interface|type) (\w+)/);
-		if (match) {
-			const name = match[1];
-			if (seen.has(name)) {
-				skip = true;
-				continue;
-			}
-			seen.add(name);
-			skip = false;
-		}
-		if (skip) {
-			if (line === "}" || line === ";" || line.trim() === "") {
-				skip = false;
-				continue;
-			}
-			continue;
-		}
-		out.push(line);
-	}
-	return out.join("\n");
+function stripWrapper(source: string, wrapperName: string): string {
+	const lines = source.split("\n");
+	const start = lines.findIndex((l) => l.startsWith(`export interface ${wrapperName}`));
+	if (start < 0) return source;
+	let end = start;
+	while (end < lines.length && lines[end] !== "}") end++;
+	// Skip the closing brace and any blank line after.
+	let cut = end + 1;
+	while (cut < lines.length && lines[cut].trim() === "") cut++;
+	return [...lines.slice(0, start), ...lines.slice(cut)].join("\n");
 }
 
 main().catch((err: unknown) => {
