@@ -15,7 +15,6 @@ rule.  Aggregation uses DuckDB (already a transitive dep).
 
 from __future__ import annotations
 
-import json
 import subprocess
 import time
 from collections.abc import Iterator
@@ -25,7 +24,7 @@ from pathlib import Path
 
 import duckdb
 import minijinja
-import pyarrow as pa  # type: ignore[import-untyped]  # no stubs available
+import polars as pl
 import pygit2
 from pydantic import BaseModel, Field
 
@@ -34,6 +33,29 @@ from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
+
+
+class _SearchRow(BaseModel, frozen=True):
+    """One row per (slug, variant, query): the rank the query scored and the top hit."""
+
+    slug: str
+    variant: IndexVariant
+    query_file: str
+    query_scope: str
+    query_name: str
+    query_text: str
+    rank: int | None
+    top_file: str | None
+    top_line: int | None
+    top_name: str | None
+
+
+class _ReplayResult(BaseModel, frozen=True):
+    """Output of `_replay_all`: typed rows plus latency / size maps."""
+
+    rows: list[_SearchRow]
+    latencies_ms: dict[str, list[float]]  # key: f"{slug}/{variant.value}"
+    index_size_bytes: int  # shared on-disk DB; one value for the whole run
 
 
 class _MetricsRow(BaseModel, frozen=True):
@@ -69,6 +91,31 @@ class _PerQueryRecord(BaseModel, frozen=True):
     stripped_top_file: str | None
     stripped_top_line: int | None
     stripped_top_name: str | None
+
+
+class _RunInfo(BaseModel, frozen=True):
+    """Run-level fields emitted in `metrics.json`."""
+
+    rbtr_sha: str
+    seed: int
+    sample_cap: int
+    elapsed_seconds: float
+
+
+class _RepoMetrics(BaseModel, frozen=True):
+    """Per-repo metrics envelope: sha + one `_MetricsRow` per variant."""
+
+    sha: str
+    full: _MetricsRow
+    stripped: _MetricsRow
+
+
+class _MetricsReport(BaseModel, frozen=True):
+    """Full shape of `metrics.json`."""
+
+    run: _RunInfo
+    per_repo: dict[str, _RepoMetrics]
+    aggregate: dict[str, _MetricsRow]  # key is variant value (`full` / `stripped`)
 
 
 # ── Daemon lifecycle + typed search ──────────────────────────────────────────
@@ -173,15 +220,9 @@ def _replay_all(
     per_repo_headers: list[Header],
     queries_by_slug: dict[str, list[Query]],
     repos_dir: Path,
-) -> tuple[list[dict[str, object]], dict[str, float], dict[str, list[float]]]:
-    """Replay every query in every variant.
-
-    Returns a flat list of dicts (one per (slug, variant, query))
-    for DuckDB aggregation, plus a `(slug, variant) -> index_size`
-    map and a `(slug, variant) -> [latencies_ms]` map.
-    """
-    rows: list[dict[str, object]] = []
-    sizes: dict[str, float] = {}
+) -> _ReplayResult:
+    """Replay every query in every variant."""
+    rows: list[_SearchRow] = []
     latencies_by_pair: dict[str, list[float]] = {}
 
     for h in per_repo_headers:
@@ -194,26 +235,27 @@ def _replay_all(
                 hits, ms = _search(client, repo_path, q.text, variant)
                 latencies.append(ms)
                 top = hits[0] if hits else None
-                rank = _rank_for(q, hits)
                 rows.append(
-                    {
-                        "slug": slug,
-                        "variant": variant.value,
-                        "query_file": q.file_path,
-                        "query_scope": q.scope,
-                        "query_name": q.name,
-                        "query_text": q.text,
-                        "rank": rank,
-                        "top_file": top.chunk.file_path if top is not None else None,
-                        "top_line": top.chunk.line_start if top is not None else None,
-                        "top_name": top.chunk.name if top is not None else None,
-                    }
+                    _SearchRow(
+                        slug=slug,
+                        variant=variant,
+                        query_file=q.file_path,
+                        query_scope=q.scope,
+                        query_name=q.name,
+                        query_text=q.text,
+                        rank=_rank_for(q, hits),
+                        top_file=top.chunk.file_path if top is not None else None,
+                        top_line=top.chunk.line_start if top is not None else None,
+                        top_name=top.chunk.name if top is not None else None,
+                    )
                 )
-            key = f"{slug}/{variant.value}"
-            latencies_by_pair[key] = latencies
-            sizes[key] = _index_db_bytes(home)
+            latencies_by_pair[f"{slug}/{variant.value}"] = latencies
 
-    return rows, sizes, latencies_by_pair
+    return _ReplayResult(
+        rows=rows,
+        latencies_ms=latencies_by_pair,
+        index_size_bytes=_index_db_bytes(home),
+    )
 
 
 def _index_db_bytes(home: Path, db_name: str = "index.duckdb") -> int:
@@ -259,78 +301,69 @@ ORDER BY slug, variant
 """
 
 
-def _rows_to_arrow(rows: list[dict[str, object]]) -> pa.Table:
-    """Build the Arrow table DuckDB registers as `ranks`.
+def _rows_to_frame(rows: list[_SearchRow]) -> pl.DataFrame:
+    """Build the polars frame DuckDB registers as `ranks`.
 
-    Extracted so the schema is explicit (rank / top_line are
-    nullable int32, the rest are strings) rather than inferred
-    from a list of dicts.  DuckDB's replacement-scan only
-    accepts Arrow / pandas / polars / ndarrays.
+    Schema is declared up front so nullable integer columns
+    (`rank`, `top_line`) stay typed even when every value is
+    None.  Polars matches dict keys to column names; enum
+    values are serialised via `.model_dump()`.
     """
-    schema = pa.schema(
-        [
-            pa.field("slug", pa.string()),
-            pa.field("variant", pa.string()),
-            pa.field("query_file", pa.string()),
-            pa.field("query_scope", pa.string()),
-            pa.field("query_name", pa.string()),
-            pa.field("query_text", pa.string()),
-            pa.field("rank", pa.int32()),
-            pa.field("top_file", pa.string()),
-            pa.field("top_line", pa.int32()),
-            pa.field("top_name", pa.string()),
-        ]
+    return pl.DataFrame(
+        [r.model_dump(mode="json") for r in rows],
+        schema={
+            "slug": pl.String,
+            "variant": pl.String,
+            "query_file": pl.String,
+            "query_scope": pl.String,
+            "query_name": pl.String,
+            "query_text": pl.String,
+            "rank": pl.Int32,
+            "top_file": pl.String,
+            "top_line": pl.Int32,
+            "top_name": pl.String,
+        },
     )
-    return pa.Table.from_pylist(rows, schema=schema)
 
 
-def _aggregate(
-    rows: list[dict[str, object]],
-    sizes: dict[str, float],
-    latencies_by_pair: dict[str, list[float]],
-) -> list[_MetricsRow]:
+def _aggregate(replay: _ReplayResult) -> list[_MetricsRow]:
     """Aggregate per (slug, variant), plus an `__all__` rollup per variant.
 
     Hit@k, MRR, median rank, and not-found % come from DuckDB.
-    Cost metrics (index size, latency percentiles) come from the
-    Python-collected maps -- DuckDB would need a `quantile_cont`
-    UDF for percentiles, which is more setup than it saves.
+    Latency percentiles come from polars -- DuckDB has
+    `quantile_cont` but the inputs are small and polars reads
+    the Python-held latency lists directly.
     """
     con = duckdb.connect(":memory:")
-    con.register("ranks", _rows_to_arrow(rows))
-    results = con.execute(_AGG_SQL).fetchall()
-    columns = [desc[0] for desc in con.description]
-
-    # Shared home: one on-disk DB holds every variant, so the
-    # size is per-file, not per-(slug, variant).  Every row
-    # gets the same shared size; the `__all__` rollup does
-    # not double-count.
-    shared_bytes = next(iter(sizes.values()), 0) if sizes else 0
+    con.register("ranks", _rows_to_frame(replay.rows))
+    metric_frame = con.execute(_AGG_SQL).pl()
 
     metrics: list[_MetricsRow] = []
-    for r in results:
-        row = dict(zip(columns, r, strict=True))
-        slug = str(row["slug"])
-        variant = str(row["variant"])
-        key = f"{slug}/{variant}"
+    for row in metric_frame.iter_rows(named=True):
+        slug = row["slug"]
+        variant = IndexVariant(row["variant"])
+        key = f"{slug}/{variant.value}"
         if slug == "__all__":
-            lat: list[float] = [
-                x for k, lst in latencies_by_pair.items() if k.endswith(f"/{variant}") for x in lst
+            lat = [
+                x
+                for k, lst in replay.latencies_ms.items()
+                if k.endswith(f"/{variant.value}")
+                for x in lst
             ]
         else:
-            lat = latencies_by_pair.get(key, [])
+            lat = replay.latencies_ms.get(key, [])
         metrics.append(
             _MetricsRow(
                 slug=slug,
-                variant=IndexVariant(variant),
-                n_queries=int(row["n_queries"]),
-                hit_at_1=float(row["hit_at_1"]),
-                hit_at_3=float(row["hit_at_3"]),
-                hit_at_10=float(row["hit_at_10"]),
-                mrr=float(row["mrr"]),
+                variant=variant,
+                n_queries=row["n_queries"],
+                hit_at_1=row["hit_at_1"],
+                hit_at_3=row["hit_at_3"],
+                hit_at_10=row["hit_at_10"],
+                mrr=row["mrr"],
                 median_rank=None if row["median_rank"] is None else int(row["median_rank"]),
-                not_found_pct=float(row["not_found_pct"]),
-                index_size_bytes=int(shared_bytes),
+                not_found_pct=row["not_found_pct"],
+                index_size_bytes=replay.index_size_bytes,
                 search_p50_ms=_percentile(lat, 50),
                 search_p95_ms=_percentile(lat, 95),
             )
@@ -380,35 +413,28 @@ LIMIT ?
 """
 
 
-def _select_misses(rows: list[dict[str, object]], limit: int = 20) -> list[_PerQueryRecord]:
+def _select_misses(rows: list[_SearchRow], limit: int = 20) -> list[_PerQueryRecord]:
     """Top *limit* queries by largest stripped-vs-full rank gap."""
     con = duckdb.connect(":memory:")
-    con.register("ranks", _rows_to_arrow(rows))
-    fetched = con.execute(_MISSES_SQL, [limit]).fetchall()
-    cols = [desc[0] for desc in con.description]
+    con.register("ranks", _rows_to_frame(rows))
+    miss_frame = con.execute(_MISSES_SQL, [limit]).pl()
     return [
         _PerQueryRecord(
-            slug=str(row["slug"]),
-            file_path=str(row["query_file"]),
-            scope=str(row["query_scope"]),
-            name=str(row["query_name"]),
-            text=str(row["query_text"]),
-            full_rank=None if row["full_rank"] is None else int(row["full_rank"]),
-            stripped_rank=(None if row["stripped_rank"] is None else int(row["stripped_rank"])),
-            full_top_file=None if row["full_top_file"] is None else str(row["full_top_file"]),
-            full_top_line=None if row["full_top_line"] is None else int(row["full_top_line"]),
-            full_top_name=None if row["full_top_name"] is None else str(row["full_top_name"]),
-            stripped_top_file=(
-                None if row["stripped_top_file"] is None else str(row["stripped_top_file"])
-            ),
-            stripped_top_line=(
-                None if row["stripped_top_line"] is None else int(row["stripped_top_line"])
-            ),
-            stripped_top_name=(
-                None if row["stripped_top_name"] is None else str(row["stripped_top_name"])
-            ),
+            slug=row["slug"],
+            file_path=row["query_file"],
+            scope=row["query_scope"],
+            name=row["query_name"],
+            text=row["query_text"],
+            full_rank=row["full_rank"],
+            stripped_rank=row["stripped_rank"],
+            full_top_file=row["full_top_file"],
+            full_top_line=row["full_top_line"],
+            full_top_name=row["full_top_name"],
+            stripped_top_file=row["stripped_top_file"],
+            stripped_top_line=row["stripped_top_line"],
+            stripped_top_name=row["stripped_top_name"],
         )
-        for row in (dict(zip(cols, r, strict=True)) for r in fetched)
+        for row in miss_frame.iter_rows(named=True)
     ]
 
 
@@ -534,27 +560,36 @@ def _render_metrics(
     rbtr_sha: str,
     elapsed_seconds: float,
     metrics: list[_MetricsRow],
-) -> dict[str, object]:
-    """Full-precision metrics.json payload."""
+) -> _MetricsReport:
+    """Full-precision metrics.json payload as a typed model."""
     sha_for = {h.slug: h.sha for h in per_repo_headers}
-    per_repo: dict[str, dict[str, object]] = {}
-    aggregate: dict[str, dict[str, object]] = {}
+    # Split rows into per-repo buckets and the aggregate rollup.
+    per_variant_agg: dict[IndexVariant, _MetricsRow] = {}
+    per_repo_rows: dict[str, dict[IndexVariant, _MetricsRow]] = {}
     for m in metrics:
-        payload = m.model_dump()
         if m.slug == "__all__":
-            aggregate[m.variant.value] = payload
+            per_variant_agg[m.variant] = m
         else:
-            per_repo.setdefault(m.slug, {"sha": sha_for[m.slug]})[m.variant.value] = payload
-    return {
-        "run": {
-            "rbtr_sha": rbtr_sha,
-            "seed": per_repo_headers[0].seed,
-            "sample_cap": per_repo_headers[0].sample_cap,
-            "elapsed_seconds": elapsed_seconds,
-        },
-        "per_repo": per_repo,
-        "aggregate": aggregate,
+            per_repo_rows.setdefault(m.slug, {})[m.variant] = m
+    per_repo = {
+        slug: _RepoMetrics(
+            sha=sha_for[slug],
+            full=by_variant[IndexVariant.FULL],
+            stripped=by_variant[IndexVariant.STRIPPED],
+        )
+        for slug, by_variant in per_repo_rows.items()
     }
+    aggregate = {v.value: per_variant_agg[v] for v in per_variant_agg}
+    return _MetricsReport(
+        run=_RunInfo(
+            rbtr_sha=rbtr_sha,
+            seed=per_repo_headers[0].seed,
+            sample_cap=per_repo_headers[0].sample_cap,
+            elapsed_seconds=elapsed_seconds,
+        ),
+        per_repo=per_repo,
+        aggregate=aggregate,
+    )
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -583,13 +618,13 @@ class MeasureCmd(BaseModel):
 
         t0 = time.monotonic()
         with _daemon(self.home) as client:
-            rows, sizes, latencies = _replay_all(
+            replay = _replay_all(
                 client, self.home, per_repo_headers, queries_by_slug, self.repos_dir
             )
         elapsed_seconds = time.monotonic() - t0
 
-        metrics = _aggregate(rows, sizes, latencies)
-        misses = _select_misses(rows)
+        metrics = _aggregate(replay)
+        misses = _select_misses(replay.rows)
 
         report_text = _render_report(
             per_repo_headers=per_repo_headers,
@@ -598,7 +633,7 @@ class MeasureCmd(BaseModel):
             metrics=metrics,
             misses=misses,
         )
-        metrics_obj = _render_metrics(
+        report_model = _render_metrics(
             per_repo_headers=per_repo_headers,
             rbtr_sha=rbtr_sha,
             elapsed_seconds=elapsed_seconds,
@@ -608,4 +643,4 @@ class MeasureCmd(BaseModel):
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(report_text, encoding="utf-8")
         self.metrics.parent.mkdir(parents=True, exist_ok=True)
-        self.metrics.write_text(json.dumps(metrics_obj, indent=2) + "\n", encoding="utf-8")
+        self.metrics.write_text(report_model.model_dump_json(indent=2) + "\n", encoding="utf-8")

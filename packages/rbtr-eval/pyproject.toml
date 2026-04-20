@@ -17,6 +17,7 @@ dependencies = [
   "pydantic-settings[toml]>=2.12",
   "dvc",
   "minijinja>=2.0",
+  "polars>=1.0",
 ]
 
 [project.scripts]
