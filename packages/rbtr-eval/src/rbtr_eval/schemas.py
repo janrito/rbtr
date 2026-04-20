@@ -11,27 +11,16 @@ schema is the one source of truth for the shape.
 from __future__ import annotations
 
 import dataframely as dy
-import polars as pl
 
 from rbtr.index.models import ChunkKind, IndexVariant
 
-# Hit struct used in `_run_*` raw frames.  One entry per
-# `ScoredResult` returned by the daemon; the ranking pipelines
-# in `measure` and `tune` explode this list into per-hit rows
-# and compute `rank` / `top_*` declaratively.  `line_start` is
-# only consumed by `measure`'s misses appendix; tune ignores it.
-HitStruct = pl.Struct(
-    {
-        "file_path": pl.String(),
-        "scope": pl.String(),
-        "name": pl.String(),
-        "line_start": pl.UInt32(),
-    }
-)
-
-# Dataframely shape of the same struct; used by the `hits`
-# column in `SearchBatch` / `WeightedSearchBatch` so those
-# schemas validate the inner types (not just `list<struct>`).
+# Column shape of one hit inside the `hits: list[struct]`
+# column on `SearchBatch` / `WeightedSearchBatch`.  One entry
+# per `ScoredResult` returned by the daemon; the ranking
+# pipelines in `measure` and `tune` explode the list into
+# per-hit rows and compute `rank` / `top_*` declaratively.
+# `line_start` is only consumed by `measure`'s misses
+# appendix; tune ignores it.
 _HIT_COLUMNS: dict[str, dy.Column] = {
     "file_path": dy.String(),
     "scope": dy.String(),

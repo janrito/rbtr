@@ -33,7 +33,6 @@ from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
-    HitStruct,
     Metrics,
     MetricsFile,
     MissCandidate,
@@ -106,19 +105,7 @@ def _run_searches(
                     "hits": hits,
                 }
             )
-    return pl.DataFrame(
-        rows,
-        schema={
-            "slug": pl.String(),
-            "variant": pl.String(),
-            "query_file": pl.String(),
-            "query_scope": pl.String(),
-            "query_name": pl.String(),
-            "query_text": pl.String(),
-            "latency_ms": pl.Float64(),
-            "hits": pl.List(HitStruct),
-        },
-    ).pipe(SearchBatch.validate, cast=True)
+    return pl.DataFrame(rows).pipe(SearchBatch.validate, cast=True)
 
 
 def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutcome]:

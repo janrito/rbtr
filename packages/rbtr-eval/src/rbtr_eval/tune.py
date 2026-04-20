@@ -29,7 +29,6 @@ from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
-    HitStruct,
     QueryRow,
     TuneReport,
     WeightedSearchBatch,
@@ -129,20 +128,7 @@ def _run_weight_trials(
                     "hits": _search(client, repo_path, query["text"], weights),
                 }
             )
-    return pl.DataFrame(
-        rows,
-        schema={
-            "slug": pl.String(),
-            "label": pl.String(),
-            "query_file": pl.String(),
-            "query_scope": pl.String(),
-            "query_name": pl.String(),
-            "alpha": pl.Float64(),
-            "beta": pl.Float64(),
-            "gamma": pl.Float64(),
-            "hits": pl.List(HitStruct),
-        },
-    ).pipe(WeightedSearchBatch.validate, cast=True)
+    return pl.DataFrame(rows).pipe(WeightedSearchBatch.validate, cast=True)
 
 
 def _score_trials(batch: dy.DataFrame[WeightedSearchBatch]) -> dy.DataFrame[WeightedSearchOutcome]:
