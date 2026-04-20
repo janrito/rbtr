@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import pytest
+
 from rbtr.index.models import Chunk, ChunkKind, IndexVariant
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import _chunk_id
 
 
-def _make_chunk(*, content: str, strip_docstrings: bool) -> Chunk:
-    """Build a Chunk for the same logical symbol in either variant."""
+@pytest.fixture
+def full_chunk() -> Chunk:
     name = "load_config"
     file_path = "src/config.py"
     line_start = 1
+    content = 'def load_config():\n    """Load."""\n    pass\n'
     return Chunk(
-        id=_chunk_id(file_path, name, line_start, strip_docstrings),
+        id=_chunk_id(file_path, name, line_start, strip_docstrings=False),
         blob_sha="blob_test",
         file_path=file_path,
         kind=ChunkKind.FUNCTION,
@@ -24,49 +27,82 @@ def _make_chunk(*, content: str, strip_docstrings: bool) -> Chunk:
         name_tokens=tokenise_code(name),
         line_start=line_start,
         line_end=line_start + 2,
-        strip_docstrings=strip_docstrings,
-    )
-
-
-def test_chunk_id_differs_by_variant() -> None:
-    full_id = _chunk_id("src/foo.py", "f", 1, strip_docstrings=False)
-    stripped_id = _chunk_id("src/foo.py", "f", 1, strip_docstrings=True)
-    assert full_id != stripped_id
-
-
-def test_both_variants_coexist_in_same_store() -> None:
-    """Same logical symbol indexed in both variants survives.
-
-    `get_chunks(variant=...)` filters to one variant; both rows
-    are retrievable by querying each variant in turn.
-    """
-    full = _make_chunk(
-        content='def load_config():\n    """Load."""\n    pass\n',
         strip_docstrings=False,
     )
-    stripped = _make_chunk(content="def load_config():\n    \n    pass\n", strip_docstrings=True)
+
+
+@pytest.fixture
+def stripped_chunk() -> Chunk:
+    name = "load_config"
+    file_path = "src/config.py"
+    line_start = 1
+    content = "def load_config():\n    \n    pass\n"
+    return Chunk(
+        id=_chunk_id(file_path, name, line_start, strip_docstrings=True),
+        blob_sha="blob_test",
+        file_path=file_path,
+        kind=ChunkKind.FUNCTION,
+        name=name,
+        content=content,
+        content_tokens=tokenise_code(content),
+        name_tokens=tokenise_code(name),
+        line_start=line_start,
+        line_end=line_start + 2,
+        strip_docstrings=True,
+    )
+
+
+@pytest.fixture
+def populated_store(full_chunk: Chunk, stripped_chunk: Chunk) -> IndexStore:
+    """In-memory store with both chunk variants and one snapshot."""
     store = IndexStore()
     repo_id = store.register_repo("/test/repo")
-    store.insert_chunks([full, stripped], repo_id=repo_id)
-    store.insert_snapshot("HEAD", full.file_path, full.blob_sha, repo_id=repo_id)
-
-    full_rows = store.get_chunks("HEAD", variant=IndexVariant.FULL, repo_id=repo_id)
-    stripped_rows = store.get_chunks("HEAD", variant=IndexVariant.STRIPPED, repo_id=repo_id)
-
-    full_by_id = {c.id: c for c in full_rows}
-    stripped_by_id = {c.id: c for c in stripped_rows}
-    assert full.id in full_by_id
-    assert full.id not in stripped_by_id
-    assert stripped.id in stripped_by_id
-    assert stripped.id not in full_by_id
-    assert full_by_id[full.id].strip_docstrings is False
-    assert stripped_by_id[stripped.id].strip_docstrings is True
-    assert "Load" in full_by_id[full.id].content
-    assert "Load" not in stripped_by_id[stripped.id].content
+    store.insert_chunks([full_chunk, stripped_chunk], repo_id=repo_id)
+    store.insert_snapshot(
+        "HEAD", full_chunk.file_path, full_chunk.blob_sha, repo_id=repo_id
+    )
+    return store
 
 
-def test_default_is_false() -> None:
-    """Chunks without an explicit value default to strip_docstrings=False."""
+def test_chunk_id_differs_by_variant(full_chunk: Chunk, stripped_chunk: Chunk) -> None:
+    assert full_chunk.id != stripped_chunk.id
+
+
+def test_full_variant_returns_only_full_chunk(
+    populated_store: IndexStore, full_chunk: Chunk, stripped_chunk: Chunk
+) -> None:
+    rows = populated_store.get_chunks("HEAD", variant=IndexVariant.FULL)
+    ids = {c.id for c in rows}
+    assert full_chunk.id in ids
+    assert stripped_chunk.id not in ids
+
+
+def test_stripped_variant_returns_only_stripped_chunk(
+    populated_store: IndexStore, full_chunk: Chunk, stripped_chunk: Chunk
+) -> None:
+    rows = populated_store.get_chunks("HEAD", variant=IndexVariant.STRIPPED)
+    ids = {c.id for c in rows}
+    assert stripped_chunk.id in ids
+    assert full_chunk.id not in ids
+
+
+def test_full_chunk_preserves_docstring(
+    populated_store: IndexStore, full_chunk: Chunk
+) -> None:
+    [row] = populated_store.get_chunks("HEAD", variant=IndexVariant.FULL)
+    assert row.strip_docstrings is False
+    assert "Load" in row.content
+
+
+def test_stripped_chunk_blanks_docstring(
+    populated_store: IndexStore, stripped_chunk: Chunk
+) -> None:
+    [row] = populated_store.get_chunks("HEAD", variant=IndexVariant.STRIPPED)
+    assert row.strip_docstrings is True
+    assert "Load" not in row.content
+
+
+def test_strip_docstrings_defaults_to_false() -> None:
     chunk = Chunk(
         id="default_test",
         blob_sha="b",
