@@ -33,6 +33,8 @@ from typing import Literal
 import pygit2
 from pydantic import BaseModel, Field
 
+from rbtr.index.models import Chunk
+from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
 
 # ── Types ──────────────────────────────────────────────────────────────────────
@@ -40,28 +42,6 @@ from rbtr_eval.extract import Header, Query, load_per_repo
 
 Mode = Literal["default", "stripped"]
 _MODES: tuple[Mode, ...] = ("default", "stripped")
-
-
-class _Chunk(BaseModel, frozen=True):
-    """Subset of `rbtr.index.models.Chunk` that the matcher uses."""
-
-    file_path: str
-    name: str
-    scope: str
-    line_start: int
-
-
-class ScoredHit(BaseModel, frozen=True):
-    """Top-level shape of `rbtr --json search` output (one per line).
-
-    Hand-mirrors `rbtr.index.search.ScoredResult` to keep the
-    rbtr-eval dependency surface narrow.  Only fields the matcher
-    or report needs are validated; extra fields on the wire are
-    permitted (pydantic default).
-    """
-
-    chunk: _Chunk
-    score: float
 
 
 class _IndexResult(BaseModel, frozen=True):
@@ -103,8 +83,8 @@ class _PerQueryRecord(BaseModel, frozen=True):
     text: str
     default_rank: int | None
     stripped_rank: int | None
-    default_top: _Chunk | None
-    stripped_top: _Chunk | None
+    default_top: Chunk | None
+    stripped_top: Chunk | None
 
 
 # ── Subprocess wrappers ────────────────────────────────────────────────────────
@@ -204,7 +184,7 @@ def rbtr_search(
     query: str,
     *,
     limit: int = 10,
-) -> tuple[list[ScoredHit], float]:
+) -> tuple[list[ScoredResult], float]:
     """Run one search via the daemon; return (hits, wall_clock_ms).
 
     `--no-daemon` prevents the silent inline fallback that loads the
@@ -225,24 +205,19 @@ def rbtr_search(
     t0 = time.monotonic()
     proc = _run_rbtr(args, env=_rbtr_env(home), capture=True)
     elapsed_ms = (time.monotonic() - t0) * 1000.0
-    hits: list[ScoredHit] = []
+    hits: list[ScoredResult] = []
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
             continue
-        hits.append(ScoredHit.model_validate_json(line))
+        hits.append(ScoredResult.model_validate_json(line))
     return hits, elapsed_ms
 
 
 # ── Match logic ────────────────────────────────────────────────────────────────
 
 
-def _top_chunk(hit: ScoredHit | None) -> _Chunk | None:
-    """Return `hit.chunk` or None - tiny helper for type narrowing."""
-    return hit.chunk if hit is not None else None
-
-
-def _rank_for(query: Query, hits: list[ScoredHit]) -> int | None:
+def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
     """Return 1-based rank of *query*'s labelled chunk, or None."""
     for i, hit in enumerate(hits, start=1):
         c = hit.chunk
@@ -565,7 +540,7 @@ def _measure_one(
     repo_path: Path,
     queries: list[Query],
     strip: bool,
-) -> tuple[_IndexResult, list[int | None], list[float], list[ScoredHit | None]]:
+) -> tuple[_IndexResult, list[int | None], list[float], list[ScoredResult | None]]:
     """Index then replay; return (index result, ranks, latencies, top hits).
 
     `top_hits[i]` is the rank-1 result for query *i*, or None if
@@ -575,7 +550,7 @@ def _measure_one(
         index_result = rbtr_index(home, repo_path, strip=strip)
         ranks: list[int | None] = []
         latencies: list[float] = []
-        top_hits: list[ScoredHit | None] = []
+        top_hits: list[ScoredResult | None] = []
         for q in queries:
             hits, ms = rbtr_search(home, repo_path, q.text, limit=10)
             ranks.append(_rank_for(q, hits))
@@ -646,7 +621,7 @@ class MeasureCmd(BaseModel):
             repo_path = (self.repos_dir / slug).resolve()
             modes_for_repo: dict[Mode, _RepoMetrics] = {}
             ranks_per_mode: dict[Mode, list[int | None]] = {}
-            tops_per_mode: dict[Mode, list[ScoredHit | None]] = {}
+            tops_per_mode: dict[Mode, list[ScoredResult | None]] = {}
             for mode in _MODES:
                 home = self.homes_dir / slug / mode
                 strip = mode == "stripped"
@@ -674,6 +649,8 @@ class MeasureCmd(BaseModel):
                 )
             per_repo[slug] = modes_for_repo
             for i, q in enumerate(queries):
+                default_top = tops_per_mode["default"][i]
+                stripped_top = tops_per_mode["stripped"][i]
                 per_query_records.append(
                     _PerQueryRecord(
                         slug=slug,
@@ -683,8 +660,8 @@ class MeasureCmd(BaseModel):
                         text=q.text,
                         default_rank=ranks_per_mode["default"][i],
                         stripped_rank=ranks_per_mode["stripped"][i],
-                        default_top=_top_chunk(tops_per_mode["default"][i]),
-                        stripped_top=_top_chunk(tops_per_mode["stripped"][i]),
+                        default_top=default_top.chunk if default_top is not None else None,
+                        stripped_top=stripped_top.chunk if stripped_top is not None else None,
                     )
                 )
 

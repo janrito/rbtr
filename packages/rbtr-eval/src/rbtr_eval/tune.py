@@ -32,6 +32,7 @@ from pathlib import Path
 import pygit2
 from pydantic import BaseModel, Field
 
+from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Header, Query, load_per_repo
 
 # ── Subprocess wrappers (duplicated from measure to keep modules independent) ──
@@ -96,16 +97,6 @@ def rbtr_index(home: Path, repo_path: Path) -> None:
     _wait_for_index(home, repo_path)
 
 
-class _Chunk(BaseModel, frozen=True):
-    file_path: str
-    name: str
-    scope: str
-
-
-class _ScoredHit(BaseModel, frozen=True):
-    chunk: _Chunk
-
-
 def rbtr_search(
     home: Path,
     repo_path: Path,
@@ -113,7 +104,7 @@ def rbtr_search(
     *,
     weights: tuple[float, float, float] | None,
     limit: int = 10,
-) -> list[_ScoredHit]:
+) -> list[ScoredResult]:
     args = [
         "--json",
         "search",
@@ -127,19 +118,19 @@ def rbtr_search(
         a, b, g = weights
         args.extend(["--alpha", str(a), "--beta", str(b), "--gamma", str(g)])
     proc = _run_rbtr(args, env=_rbtr_env(home), capture=True)
-    hits: list[_ScoredHit] = []
+    hits: list[ScoredResult] = []
     for line in proc.stdout.splitlines():
         line = line.strip()
         if not line:
             continue
-        hits.append(_ScoredHit.model_validate_json(line))
+        hits.append(ScoredResult.model_validate_json(line))
     return hits
 
 
 # ── Match logic (duplicated from measure, on purpose) ──────────────────────────
 
 
-def _rank_for(query: Query, hits: list[_ScoredHit]) -> int | None:
+def _rank_for(query: Query, hits: list[ScoredResult]) -> int | None:
     for i, hit in enumerate(hits, start=1):
         c = hit.chunk
         if c.file_path == query.file_path and c.scope == query.scope and c.name == query.name:
