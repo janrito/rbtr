@@ -21,9 +21,7 @@ def test_count_matches_simplex_size(step: float, expected_count: int) -> None:
 
 
 def test_step_one_returns_only_corners() -> None:
-    assert sorted(grid_triples(1.0)) == sorted(
-        [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
-    )
+    assert sorted(grid_triples(1.0)) == sorted([(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)])
 
 
 @pytest.mark.parametrize("step", [1.0, 0.5, 0.2, 0.1])

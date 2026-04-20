@@ -58,9 +58,7 @@ def populated_store(full_chunk: Chunk, stripped_chunk: Chunk) -> IndexStore:
     store = IndexStore()
     repo_id = store.register_repo("/test/repo")
     store.insert_chunks([full_chunk, stripped_chunk], repo_id=repo_id)
-    store.insert_snapshot(
-        "HEAD", full_chunk.file_path, full_chunk.blob_sha, repo_id=repo_id
-    )
+    store.insert_snapshot("HEAD", full_chunk.file_path, full_chunk.blob_sha, repo_id=repo_id)
     return store
 
 
@@ -86,9 +84,7 @@ def test_stripped_variant_returns_only_stripped_chunk(
     assert full_chunk.id not in ids
 
 
-def test_full_chunk_preserves_docstring(
-    populated_store: IndexStore, full_chunk: Chunk
-) -> None:
+def test_full_chunk_preserves_docstring(populated_store: IndexStore, full_chunk: Chunk) -> None:
     [row] = populated_store.get_chunks("HEAD", variant=IndexVariant.FULL)
     assert row.strip_docstrings is False
     assert "Load" in row.content
