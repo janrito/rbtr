@@ -22,6 +22,7 @@ from rbtr.daemon.messages import (
     Response,
     ShutdownRequest,
     StatusRequest,
+    StatusResponse,
     response_adapter,
 )
 from rbtr.daemon.server import DaemonServer
@@ -109,3 +110,20 @@ def test_send_or_raise_on_error(running_server: DaemonServer) -> None:
 
     with DaemonClient(running_server.sock_dir) as client, pytest.raises(RbtrError, match="boom"):
         client.send_or_raise(ShutdownRequest())
+
+
+def test_send_or_raise_as_narrows_response(running_server: DaemonServer) -> None:
+    with DaemonClient(running_server.sock_dir) as client:
+        resp = client.send_or_raise_as(OkResponse, ShutdownRequest())
+    # mypy would reject a .foo on resp if narrowing didn't work.
+    assert resp.kind == "ok"
+
+
+def test_send_or_raise_as_rejects_mismatched_response(
+    running_server: DaemonServer,
+) -> None:
+    with (
+        DaemonClient(running_server.sock_dir) as client,
+        pytest.raises(RbtrError, match=r"expected StatusResponse.*got OkResponse"),
+    ):
+        client.send_or_raise_as(StatusResponse, ShutdownRequest())

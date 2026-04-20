@@ -26,6 +26,7 @@ from pathlib import Path
 from types import TracebackType
 
 import zmq
+from pydantic import BaseModel
 
 from rbtr.config import config
 from rbtr.daemon.messages import (
@@ -198,6 +199,20 @@ class DaemonClient:
         resp = self.send(request)
         if isinstance(resp, ErrorResponse):
             raise RbtrError(resp.message)
+        return resp
+
+    def send_or_raise_as[R: BaseModel](self, response_type: type[R], request: Request) -> R:
+        """Send *request*, return a response narrowed to *response_type*.
+
+        Raises `RbtrError` on `ErrorResponse` or on a daemon
+        response whose type is anything other than
+        *response_type*.  Saves callers from having to pattern-
+        match the `Response` union after every request.
+        """
+        resp = self.send_or_raise(request)
+        if not isinstance(resp, response_type):
+            msg = f"expected {response_type.__name__} from daemon; got {type(resp).__name__}"
+            raise RbtrError(msg)
         return resp
 
     def close(self) -> None:
