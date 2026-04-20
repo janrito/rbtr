@@ -49,6 +49,27 @@
   didn't need is a maintenance surface and a place for bugs
   to hide. Check `rbtr` (and the stdlib, and the libs you
   already import) before writing a 5-line util.
+- **Reuse the library's enum.** When a column has a finite
+  domain and the library you depend on already ships a
+  string enum for it (e.g. `rbtr.index.models.ChunkKind`),
+  use the enum directly. Don't hand-maintain a duplicate
+  list or an identity-mapped `dict[str, str]`. In a
+  dataframely `dy.Enum`, feed it the enum values via a
+  genexp: `dy.Enum(k.value for k in (ChunkKind.FOO,
+  ChunkKind.BAR))` for a narrow whitelist, or
+  `dy.Enum(k.value for k in ChunkKind)` when every value
+  is allowed.
+- **No block comments duplicating a docstring.** If a
+  constant's rationale belongs to the function that uses
+  it, put the rationale in that function's docstring once.
+  Don't also narrate each constant with a `#` comment above
+  its declaration. Name the constant well and trust it.
+- **Don't dot-access column names.** `pl.col("slug")` and
+  the plain string `"slug"` as a dict key are fine.
+  Writing `SchemaName.slug.name` to obtain the string
+  `"slug"` is noise; the validator on the next line catches
+  any drift. This overrides the dataframely skill's
+  `Schema.column.name` recommendation for this project.
 - **Data handling: use the library, don't DIY.** Never
   hand-write serialisation, deserialisation, or schema
   construction that a library already provides:
