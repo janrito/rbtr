@@ -38,6 +38,30 @@
   Do not batch multiple changes before checking.
 - No hacks. Match existing style.
 - Never transliterate JS/TS patterns. Rewrite idiomatically.
+- **Data handling: use the library, don't DIY.** Never
+  hand-write serialisation, deserialisation, or schema
+  construction that a library already provides:
+  - Parsing JSON into typed records: `pydantic.TypeAdapter`
+    or `Model.model_validate_json`. For NDJSON, loop the
+    adapter; for a JSON array, use
+    `TypeAdapter(list[T]).validate_json` in one call. Never
+    write a per-line parse loop that re-validates per item
+    when you could pass the whole payload in one go.
+  - Tabular data and aggregations: `polars` is the default.
+    `duckdb` when the operation is SQL-shaped;
+    `duckdb.register` accepts polars / pyarrow / pandas
+    frames natively. Never hand-build
+    `pyarrow.Table.from_pylist(..., schema=schema)` in
+    product code — if you're doing that, you want polars.
+  - Binary payloads: use the library that produced them.
+    Never roll your own length-prefixed or delimiter-based
+    format.
+
+  If you find yourself writing a loop to validate, a
+  `schema = pa.schema([pa.field(...) for _ in cols])` block
+  by hand, or `dict[str, object]` / `dict[str, Any]` as the
+  annotation for structured data, stop; the library has a
+  one-liner for that.
 - `type` aliases for complex annotations.
 - `TypedDict` or `BaseModel` for fixed-key dicts.
   No `NamedTuple`.
