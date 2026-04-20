@@ -39,6 +39,7 @@ from rbtr_eval.schemas import (
     MissCandidate,
     QueryRow,
     RepoHeader,
+    SearchBatch,
     SearchOutcome,
 )
 
@@ -79,7 +80,7 @@ def _run_searches(
     client: DaemonClient,
     queries: dy.DataFrame[QueryRow],
     repos_dir: Path,
-) -> pl.DataFrame:
+) -> dy.DataFrame[SearchBatch]:
     """Run every `(query, variant)` search; capture hits + latency.
 
     Returns an un-scored outcome frame with a `hits: list[struct]`
@@ -117,10 +118,10 @@ def _run_searches(
             "latency_ms": pl.Float64(),
             "hits": pl.List(HitStruct),
         },
-    )
+    ).pipe(SearchBatch.validate, cast=True)
 
 
-def _score_outcomes(raw: pl.DataFrame) -> dy.DataFrame[SearchOutcome]:
+def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutcome]:
     """Expand raw hits into ranked + top-hit columns.
 
     Explodes `hits`, numbers rows within each outcome via
@@ -131,7 +132,7 @@ def _score_outcomes(raw: pl.DataFrame) -> dy.DataFrame[SearchOutcome]:
     """
     outcome_keys = ["slug", "variant", "query_file", "query_scope", "query_name"]
     exploded = (
-        raw.select(
+        batch.select(
             *outcome_keys,
             pl.col("hits"),
         )
@@ -163,7 +164,7 @@ def _score_outcomes(raw: pl.DataFrame) -> dy.DataFrame[SearchOutcome]:
     )
 
     return (
-        raw.drop("hits")
+        batch.drop("hits")
         .join(ranks, on=outcome_keys, how="left")
         .join(tops, on=outcome_keys, how="left")
         .pipe(SearchOutcome.validate, cast=True)
@@ -407,11 +408,11 @@ class MeasureCmd(BaseModel):
 
         t0 = time.monotonic()
         with daemon_session(self.home) as client:
-            raw = _run_searches(client, queries, self.repos_dir)
+            batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
         shared_home_bytes = _home_size_bytes(self.home)
 
-        outcomes = _score_outcomes(raw)
+        outcomes = _score_outcomes(batch)
         metrics_df = _aggregate(outcomes)
         misses_df = _select_misses(outcomes)
 

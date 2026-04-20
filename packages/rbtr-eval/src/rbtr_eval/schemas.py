@@ -19,8 +19,7 @@ from rbtr.index.models import ChunkKind, IndexVariant
 # `ScoredResult` returned by the daemon; the ranking pipelines
 # in `measure` and `tune` explode this list into per-hit rows
 # and compute `rank` / `top_*` declaratively.  `line_start` is
-# only consumed by `measure`'s misses appendix; tune ignores
-# it.
+# only consumed by `measure`'s misses appendix; tune ignores it.
 HitStruct = pl.Struct(
     {
         "file_path": pl.String(),
@@ -29,6 +28,16 @@ HitStruct = pl.Struct(
         "line_start": pl.UInt32(),
     }
 )
+
+# Dataframely shape of the same struct; used by the `hits`
+# column in `SearchBatch` / `WeightedSearchBatch` so those
+# schemas validate the inner types (not just `list<struct>`).
+_HIT_COLUMNS: dict[str, dy.Column] = {
+    "file_path": dy.String(),
+    "scope": dy.String(),
+    "name": dy.String(),
+    "line_start": dy.UInt32(),
+}
 
 
 class QueryRow(dy.Schema):
@@ -90,6 +99,25 @@ class SearchOutcome(dy.Schema):
     top_name = dy.String(nullable=True)
 
 
+class SearchBatch(dy.Schema):
+    """Raw output of `_run_searches` before `_score_outcomes` runs.
+
+    One row per `(slug, variant, query)` search.  `hits`
+    carries the top-10 results from the daemon as a
+    list-of-struct; ranking turns this into `SearchOutcome`
+    with scalar `rank` / `top_*` columns.
+    """
+
+    slug = dy.String(primary_key=True)
+    variant = dy.Enum([v.value for v in IndexVariant], primary_key=True)
+    query_file = dy.String(primary_key=True)
+    query_scope = dy.String(primary_key=True)
+    query_name = dy.String(primary_key=True)
+    query_text = dy.String()
+    latency_ms = dy.Float64(min=0.0)
+    hits = dy.List(dy.Struct(_HIT_COLUMNS))
+
+
 class WeightedSearchOutcome(dy.Schema):
     """One row per `(slug, label, triple, query)` search executed by `tune`.
 
@@ -112,6 +140,26 @@ class WeightedSearchOutcome(dy.Schema):
     beta = dy.Float64(nullable=True, min=0.0, max=1.0)
     gamma = dy.Float64(nullable=True, min=0.0, max=1.0)
     rank = dy.UInt8(nullable=True, min=1, max=10)
+
+
+class WeightedSearchBatch(dy.Schema):
+    """Raw output of `_run_weight_trials` before `_score_trials` runs.
+
+    Same shape as `WeightedSearchOutcome` minus `rank`, plus
+    a `hits: list[struct]` column.  Like `WeightedSearchOutcome`,
+    no primary key — the baseline / grid labels have
+    divergent uniqueness contracts.
+    """
+
+    slug = dy.String()
+    label = dy.Enum(["baseline", "grid"])
+    query_file = dy.String()
+    query_scope = dy.String()
+    query_name = dy.String()
+    alpha = dy.Float64(nullable=True, min=0.0, max=1.0)
+    beta = dy.Float64(nullable=True, min=0.0, max=1.0)
+    gamma = dy.Float64(nullable=True, min=0.0, max=1.0)
+    hits = dy.List(dy.Struct(_HIT_COLUMNS))
 
 
 class Metrics(dy.Schema):

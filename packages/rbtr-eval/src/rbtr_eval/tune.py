@@ -28,7 +28,13 @@ from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.git import read_head
 from rbtr.index.models import IndexVariant
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import HitStruct, QueryRow, TuneReport, WeightedSearchOutcome
+from rbtr_eval.schemas import (
+    HitStruct,
+    QueryRow,
+    TuneReport,
+    WeightedSearchBatch,
+    WeightedSearchOutcome,
+)
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -91,7 +97,7 @@ def _run_weight_trials(
     queries: dy.DataFrame[QueryRow],
     repos_dir: Path,
     triples: list[tuple[float, float, float]],
-) -> pl.DataFrame:
+) -> dy.DataFrame[WeightedSearchBatch]:
     """Run one baseline + every grid-triple search for every query.
 
     The weight configurations are a flat sequence: one
@@ -136,10 +142,10 @@ def _run_weight_trials(
             "gamma": pl.Float64(),
             "hits": pl.List(HitStruct),
         },
-    )
+    ).pipe(WeightedSearchBatch.validate, cast=True)
 
 
-def _score_trials(raw: pl.DataFrame) -> dy.DataFrame[WeightedSearchOutcome]:
+def _score_trials(batch: dy.DataFrame[WeightedSearchBatch]) -> dy.DataFrame[WeightedSearchOutcome]:
     """Expand raw hits into ranked rows for every (label, triple, query).
 
     Same explode + `int_range().over()` + filter + join
@@ -157,7 +163,7 @@ def _score_trials(raw: pl.DataFrame) -> dy.DataFrame[WeightedSearchOutcome]:
         "query_name",
     ]
     exploded = (
-        raw.select(*trial_keys, "hits")
+        batch.select(*trial_keys, "hits")
         .explode("hits")
         .with_columns(
             pl.col("hits").struct.field("file_path").alias("hit_file_path"),
@@ -176,7 +182,7 @@ def _score_trials(raw: pl.DataFrame) -> dy.DataFrame[WeightedSearchOutcome]:
         .agg(pl.col("hit_rank").min().alias("rank"))
     )
     return (
-        raw.drop("hits")
+        batch.drop("hits")
         .join(ranks, on=trial_keys, how="left")
         .pipe(WeightedSearchOutcome.validate, cast=True)
     )
@@ -218,9 +224,9 @@ class TuneCmd(BaseModel):
         t0 = time.monotonic()
 
         with daemon_session(self.home) as client:
-            raw = _run_weight_trials(client, queries, self.repos_dir, triples)
+            batch = _run_weight_trials(client, queries, self.repos_dir, triples)
 
-        trials = _score_trials(raw)
+        trials = _score_trials(batch)
         grid_best = (
             trials.filter(pl.col("label") == "grid")
             .group_by(["alpha", "beta", "gamma"])
