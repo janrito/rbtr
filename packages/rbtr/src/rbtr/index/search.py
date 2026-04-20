@@ -18,6 +18,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from rbtr.config import config
 from rbtr.index.models import Chunk, ChunkKind
 
 # ── Score normalisation ──────────────────────────────────────────────
@@ -123,8 +124,6 @@ def default_weights() -> tuple[float, float, float]:
     different weights per kind is hard to reason about.  Per-kind
     tuning is an explicit follow-up if data warrants it.
     """
-    from rbtr.config import config  # deferred: avoid circular import
-
     return (config.search_alpha, config.search_beta, config.search_gamma)
 
 
