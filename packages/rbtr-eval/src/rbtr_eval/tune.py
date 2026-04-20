@@ -6,9 +6,9 @@ full-variant index in the shared home.  Reports best vs current
 weights in `data/tuned-params.json`; never edits source.
 
 Indexing is a separate DVC stage; this command only queries.
-One warm daemon serves every grid point for every query.  The
-grid: `(alpha, beta, gamma)` triples in `[0, 1]^3` summing to 1
-at `--grid-step` resolution.
+One warm daemon serves every grid point for every query.
+Aggregation is pure polars: one `group_by([alpha, beta,
+gamma]).agg(mrr)`, pick the top row.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-import duckdb
 import polars as pl
 import pygit2
 from pydantic import BaseModel, Field
@@ -30,44 +29,6 @@ from rbtr.daemon.messages import ErrorResponse, SearchRequest, SearchResponse
 from rbtr.index.models import IndexVariant
 from rbtr.index.search import ScoredResult
 from rbtr_eval.extract import Query, load_per_repo
-
-
-class _GridRow(BaseModel, frozen=True):
-    """One row per (slug, label, triple, query): the rank that run scored.
-
-    `label` is either `baseline` (uses rbtr's configured
-    weights) or `grid` (uses the supplied triple).  For
-    `baseline` rows, alpha/beta/gamma are all None.
-    """
-
-    slug: str
-    label: str
-    alpha: float | None
-    beta: float | None
-    gamma: float | None
-    rank: int | None
-
-
-class _WeightsTriple(BaseModel, frozen=True):
-    alpha: float
-    beta: float
-    gamma: float
-
-
-class _TuneReport(BaseModel, frozen=True):
-    """Full shape of `tuned-params.json`."""
-
-    current: _WeightsTriple
-    best: _WeightsTriple
-    metric: str
-    score_current: float
-    score_best: float
-    delta: float
-    grid_step: float
-    n_queries: int
-    n_grid_points: int
-    rbtr_sha: str
-    elapsed_seconds: float
 
 
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
@@ -86,6 +47,19 @@ def grid_triples(step: float) -> list[tuple[float, float, float]]:
         for i in range(n + 1)
         for j in range(n + 1 - i)
     ]
+
+
+# Columns for the grid replay frame.  `label` = "baseline" uses
+# rbtr's configured defaults; `label` = "grid" uses the supplied
+# triple.  For baseline rows, alpha/beta/gamma are all null.
+_TUNE_SCHEMA: dict[str, pl.DataType] = {
+    "slug": pl.String(),
+    "label": pl.String(),
+    "alpha": pl.Float64(),
+    "beta": pl.Float64(),
+    "gamma": pl.Float64(),
+    "rank": pl.Int32(),
+}
 
 
 # ── Daemon lifecycle + typed search ──────────────────────────────────────────
@@ -117,17 +91,17 @@ def _search(
     weights: tuple[float, float, float] | None,
 ) -> list[ScoredResult]:
     """One search via the daemon; None *weights* uses config defaults."""
-    a = beta = gamma = None
+    a = b = g = None
     if weights is not None:
-        a, beta, gamma = weights
+        a, b, g = weights
     request = SearchRequest(
         repo=str(repo_path),
         query=query,
         variant=IndexVariant.FULL,
         limit=10,
         alpha=a,
-        beta=beta,
-        gamma=gamma,
+        beta=b,
+        gamma=g,
     )
     response = client.send(request)
     if isinstance(response, ErrorResponse):
@@ -174,6 +148,14 @@ def _resolve_rbtr_sha() -> str:
         return "unknown"
 
 
+def _mrr_expr() -> pl.Expr:
+    """MRR expression treating null ranks as reciprocal 0."""
+    rank = pl.col("rank")
+    return (
+        pl.when(rank.is_null()).then(0.0).otherwise(1.0 / rank.cast(pl.Float64)).mean().alias("mrr")
+    )
+
+
 class TuneCmd(BaseModel):
     """Grid-search rbtr's fusion weights against the query set."""
 
@@ -189,98 +171,65 @@ class TuneCmd(BaseModel):
         triples = grid_triples(self.grid_step)
         t0 = time.monotonic()
 
-        rows: list[_GridRow] = []
+        cols: dict[str, list[object]] = {name: [] for name in _TUNE_SCHEMA}
         with _daemon(self.home) as client:
             for slug, queries in queries_by_slug.items():
                 repo_path = (self.repos_dir / slug).resolve()
                 # Baseline: no override, rbtr's configured defaults apply.
                 for q in queries:
-                    rows.append(
-                        _GridRow(
-                            slug=slug,
-                            label="baseline",
-                            alpha=None,
-                            beta=None,
-                            gamma=None,
-                            rank=_rank_for(q, _search(client, repo_path, q.text, None)),
-                        )
-                    )
+                    rank = _rank_for(q, _search(client, repo_path, q.text, None))
+                    cols["slug"].append(slug)
+                    cols["label"].append("baseline")
+                    cols["alpha"].append(None)
+                    cols["beta"].append(None)
+                    cols["gamma"].append(None)
+                    cols["rank"].append(rank)
                 # Grid pass.
                 for t in triples:
                     for q in queries:
-                        rows.append(
-                            _GridRow(
-                                slug=slug,
-                                label="grid",
-                                alpha=t[0],
-                                beta=t[1],
-                                gamma=t[2],
-                                rank=_rank_for(q, _search(client, repo_path, q.text, t)),
-                            )
-                        )
+                        rank = _rank_for(q, _search(client, repo_path, q.text, t))
+                        cols["slug"].append(slug)
+                        cols["label"].append("grid")
+                        cols["alpha"].append(t[0])
+                        cols["beta"].append(t[1])
+                        cols["gamma"].append(t[2])
+                        cols["rank"].append(rank)
 
-        # DuckDB over a polars frame: one MRR per (alpha, beta, gamma), plus the baseline.
-        frame = pl.DataFrame(
-            [r.model_dump() for r in rows],
-            schema={
-                "slug": pl.String,
-                "label": pl.String,
-                "alpha": pl.Float64,
-                "beta": pl.Float64,
-                "gamma": pl.Float64,
-                "rank": pl.Int32,
-            },
+        ranks_df = pl.DataFrame(cols, schema=_TUNE_SCHEMA)
+        grid_best = (
+            ranks_df.filter(pl.col("label") == "grid")
+            .group_by(["alpha", "beta", "gamma"])
+            .agg(_mrr_expr())
+            .sort("mrr", descending=True)
+            .head(1)
         )
-        con = duckdb.connect(":memory:")
-        con.register("ranks", frame)
-        grid_best = con.execute(
-            """
-            SELECT
-                alpha,
-                beta,
-                gamma,
-                avg(CASE WHEN rank IS NULL THEN 0.0 ELSE 1.0 / rank END) AS mrr
-            FROM ranks
-            WHERE label = 'grid'
-            GROUP BY alpha, beta, gamma
-            ORDER BY mrr DESC
-            LIMIT 1
-            """
-        ).pl()
-        baseline = con.execute(
-            """
-            SELECT
-                avg(CASE WHEN rank IS NULL THEN 0.0 ELSE 1.0 / rank END) AS mrr,
-                count(*) AS n
-            FROM ranks
-            WHERE label = 'baseline'
-            """
-        ).pl()
+        baseline = ranks_df.filter(pl.col("label") == "baseline").select(
+            _mrr_expr(),
+            pl.len().alias("n_queries"),
+        )
 
         if grid_best.is_empty() or baseline.is_empty():
             msg = "no rows produced; dataset empty?"
             raise SystemExit(msg)
 
-        best = grid_best.row(0, named=True)
-        base = baseline.row(0, named=True)
-
-        report = _TuneReport(
-            current=_WeightsTriple(
-                alpha=rbtr_config.search_alpha,
-                beta=rbtr_config.search_beta,
-                gamma=rbtr_config.search_gamma,
-            ),
-            best=_WeightsTriple(alpha=best["alpha"], beta=best["beta"], gamma=best["gamma"]),
-            metric="MRR",
-            score_current=base["mrr"],
-            score_best=best["mrr"],
-            delta=best["mrr"] - base["mrr"],
-            grid_step=self.grid_step,
-            n_queries=base["n"],
-            n_grid_points=len(triples),
-            rbtr_sha=rbtr_sha,
-            elapsed_seconds=time.monotonic() - t0,
+        # Assemble the output as a one-row frame with literal
+        # metadata columns; `write_json` serialises it.  DVC's
+        # metrics parser reads the resulting JSON array fine.
+        report_df = grid_best.rename(
+            {"alpha": "best_alpha", "beta": "best_beta", "gamma": "best_gamma", "mrr": "score_best"}
+        ).with_columns(
+            pl.lit(rbtr_config.search_alpha).alias("current_alpha"),
+            pl.lit(rbtr_config.search_beta).alias("current_beta"),
+            pl.lit(rbtr_config.search_gamma).alias("current_gamma"),
+            pl.lit(baseline["mrr"][0]).alias("score_current"),
+            (pl.lit(grid_best["mrr"][0]) - pl.lit(baseline["mrr"][0])).alias("delta"),
+            pl.lit("MRR").alias("metric"),
+            pl.lit(self.grid_step).alias("grid_step"),
+            pl.lit(baseline["n_queries"][0]).alias("n_queries"),
+            pl.lit(len(triples)).alias("n_grid_points"),
+            pl.lit(rbtr_sha).alias("rbtr_sha"),
+            pl.lit(time.monotonic() - t0).alias("elapsed_seconds"),
         )
 
         self.output.parent.mkdir(parents=True, exist_ok=True)
-        self.output.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        report_df.write_json(self.output)
