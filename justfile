@@ -57,6 +57,23 @@ test-ts:
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
+# ── build ──
+
+build: build-rbtr build-ext
+
+build-rbtr:
+    uv build --package rbtr --out-dir dist
+
+# Build every pi-* extension under packages/ into dist/ as an npm tarball.
+build-ext:
+    #!/usr/bin/env sh
+    set -e
+    mkdir -p dist
+    for dir in packages/pi-*; do
+      [ -d "$dir" ] || continue
+      (cd "$dir" && bunx tsc --noEmit && npm pack --pack-destination ../../dist)
+    done
+
 # ── dead code detection (requires `uv sync --group debug`) ──
 
 dead-code:

@@ -113,6 +113,43 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 
+# -- Versioning --
+
+[tool.bumpversion]
+current_version = "2026.4.0"
+parse = """(?x)                     # Verbose mode
+    (?P<release>                    # The release part
+        (?:[1-9][0-9]{3})\\.        # YYYY.
+        (?:1[0-2]|[1-9])            # MM.
+    )
+    \\.(?P<num>0|[1-9]\\d*)         # num version number
+    (?:
+         -(?P<pre_label>dev|stable)     # pre_release label
+        (?P<pre_release>0|[1-9]\\d*)    # pre_release version number
+    )?
+"""
+serialize = ["{release}.{num}-{pre_label}{pre_release}", "{release}.{num}"]
+search = "{current_version}"
+replace = "{new_version}"
+
+[tool.bumpversion.parts.release]
+calver_format = "{YYYY}.{MM}"
+
+[tool.bumpversion.parts.num]
+independent = false
+
+[tool.bumpversion.parts.pre_label]
+optional_value = "stable"
+values = ["dev", "stable"]
+
+[[tool.bumpversion.files]]
+glob = "packages/*/pyproject.toml"
+
+[[tool.bumpversion.files]]
+glob = "packages/*/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
 [tool.vulture]
 min_confidence = 80
 paths = ["packages/rbtr/src/rbtr", "packages/rbtr-legacy/src/rbtr_legacy"]

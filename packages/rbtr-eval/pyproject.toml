@@ -7,7 +7,7 @@ module-name = "rbtr_eval"
 
 [project]
 name = "rbtr-eval"
-version = "0.1.0"
+version = "2026.4.0"
 description = "rbtr — search-quality evaluation harness"
 license = "MIT"
 requires-python = ">=3.13"

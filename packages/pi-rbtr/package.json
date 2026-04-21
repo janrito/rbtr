@@ -1,9 +1,22 @@
 {
-  "name": "pi-rbtr",
-  "private": true,
-  "version": "0.1.0",
+  "name": "@rbtr/pi",
+  "version": "2026.4.0",
+  "description": "pi extension that surfaces rbtr's structural code index to the LLM — symbol search, source read, file outlines, dependency edges, and cross-ref diffs without raw shell commands.",
+  "license": "MIT",
+  "author": "Alejandro Giacometti",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/janrito/rbtr.git",
+    "directory": "packages/pi-rbtr"
+  },
+  "homepage": "https://github.com/janrito/rbtr/tree/main/packages/pi-rbtr#readme",
+  "bugs": "https://github.com/janrito/rbtr/issues",
   "type": "module",
   "keywords": ["pi-package"],
+  "files": ["extensions", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": ["./extensions"]
   },

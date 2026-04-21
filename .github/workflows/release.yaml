@@ -74,3 +74,21 @@ jobs:
 
       - name: Publish to PyPI
         run: uv publish
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish extensions to npm
+        env:
+          IS_DEV: ${{ steps.version.outputs.IS_DEV }}
+        run: |
+          TAG="latest"
+          if [ "$IS_DEV" = "true" ]; then
+            TAG="next"
+          fi
+          for tgz in dist/rbtr-pi-*.tgz; do
+            [ -e "$tgz" ] || continue
+            npm publish "$tgz" --provenance --access public --tag "$TAG"
+          done
