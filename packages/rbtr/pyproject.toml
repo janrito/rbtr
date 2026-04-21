@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "rbtr"
-version = "2026.4.0"
+version = "2026.4.1-dev0"
 description = "rbtr — structural code index"
 license = "MIT"
 requires-python = ">=3.13"

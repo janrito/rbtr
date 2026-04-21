@@ -9,7 +9,7 @@ module-name = "rbtr_legacy"
 
 [project]
 name = "rbtr-legacy"
-version = "2026.4.0"
+version = "2026.4.1-dev0"
 description = "rbtr — Interactive LLM-powered PR review workbench (legacy)"
 readme = "README.md"
 license = "MIT"

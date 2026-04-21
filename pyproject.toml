@@ -116,7 +116,7 @@ show_missing = true
 # -- Versioning --
 
 [tool.bumpversion]
-current_version = "2026.4.0"
+current_version = "2026.4.1-dev0"
 parse = """(?x)                     # Verbose mode
     (?P<release>                    # The release part
         (?:[1-9][0-9]{3})\\.        # YYYY.

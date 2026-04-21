@@ -1,6 +1,6 @@
 {
   "name": "@rbtr/pi",
-  "version": "2026.4.0",
+  "version": "2026.4.1-dev0",
   "description": "pi extension that surfaces rbtr's structural code index to the LLM — symbol search, source read, file outlines, dependency edges, and cross-ref diffs without raw shell commands.",
   "license": "MIT",
   "author": "Alejandro Giacometti",
