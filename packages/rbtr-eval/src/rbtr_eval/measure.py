@@ -16,7 +16,6 @@ the shared home.  Ranking is declarative polars (explode +
 
 from __future__ import annotations
 
-import subprocess
 import time
 from importlib import resources
 from pathlib import Path
@@ -260,6 +259,90 @@ def _home_size_bytes(home: Path, db_name: str = "index.duckdb") -> int:
 # ── Rendering ────────────────────────────────────────────────────────────────
 
 
+def _md(df: pl.DataFrame) -> str:
+    """Render *df* as a markdown table string via `pl.Config`."""
+    with pl.Config(
+        tbl_formatting="MARKDOWN",
+        tbl_hide_column_data_types=True,
+        tbl_hide_dataframe_shape=True,
+        fmt_str_lengths=200,
+        tbl_width_chars=10_000,
+        tbl_rows=-1,
+        tbl_cols=-1,
+    ):
+        return str(df)
+
+
+def _bytes_human(n: int) -> str:
+    """Human-readable byte count (B / KiB / MiB / GiB)."""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KiB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MiB"
+    return f"{n / (1024 * 1024 * 1024):.1f} GiB"
+
+
+# Display-frame projections.  Each turns a typed source frame
+# (Metrics, RepoHeader, MissCandidate) into a polars frame whose
+# string columns render directly as a markdown table.  No
+# Python-level row dicts.
+
+_repo_display_expr = (
+    pl.when(pl.col("slug") == "__all__")
+    .then(pl.lit("**all repos**"))
+    .otherwise(pl.format("`{}`", pl.col("slug")))
+    .alias("repo")
+)
+
+
+def _pct_str(col: str) -> pl.Expr:
+    """Polars expression: a `0..1` float column rendered as `30.0%`."""
+    return ((pl.col(col) * 100).round(1).cast(pl.String) + pl.lit("%")).alias(col)
+
+
+def _headline_table(metrics_df: dy.DataFrame[Metrics]) -> pl.DataFrame:
+    """`Metrics` -> display frame for the headline-metrics section."""
+    return metrics_df.select(
+        _repo_display_expr,
+        pl.col("variant"),
+        pl.col("n_queries").alias("n"),
+        _pct_str("hit_at_1").alias("Hit@1"),
+        _pct_str("hit_at_3").alias("Hit@3"),
+        _pct_str("hit_at_10").alias("Hit@10"),
+        pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
+        pl.when(pl.col("median_rank").is_null())
+        .then(pl.lit("-"))
+        .otherwise(pl.col("median_rank").cast(pl.Int64).cast(pl.String))
+        .alias("median rank"),
+        _pct_str("not_found_pct").alias("not found"),
+    )
+
+
+def _latency_table(metrics_df: dy.DataFrame[Metrics]) -> pl.DataFrame:
+    """`Metrics` -> display frame for the search-latency section."""
+    return metrics_df.select(
+        _repo_display_expr,
+        pl.col("variant"),
+        (pl.col("search_p50_ms").round(0).cast(pl.Int64).cast(pl.String) + pl.lit(" ms")).alias(
+            "search P50"
+        ),
+        (pl.col("search_p95_ms").round(0).cast(pl.Int64).cast(pl.String) + pl.lit(" ms")).alias(
+            "search P95"
+        ),
+    )
+
+
+def _repos_table(headers: dy.DataFrame[RepoHeader]) -> pl.DataFrame:
+    """`RepoHeader` -> display frame for the per-repo summary."""
+    return headers.sort("slug").select(
+        pl.format("`{}`", pl.col("slug")).alias("slug"),
+        pl.format("`{}`", pl.col("sha").str.slice(0, 12)).alias("sha"),
+        pl.col("n_sampled").alias("n queries"),
+    )
+
+
 def _render_report(
     *,
     headers: dy.DataFrame[RepoHeader],
@@ -269,55 +352,18 @@ def _render_report(
     misses_df: dy.DataFrame[MissCandidate],
     shared_home_bytes: int,
 ) -> str:
-    """Render `BENCHMARKS.md` via the jinja template + rumdl fmt.
+    """Render `BENCHMARKS.md` from the jinja template.
 
-    Each jinja row is a plain dict built from a polars row
-    (`iter_rows(named=True)`).  `dict[str, Any]` lives only
-    inside the template context — see the AGENTS data-handling
-    rule's boundary exception.
+    Tables come from polars (`pl.Config(tbl_formatting='MARKDOWN')`)
+    pre-rendered as strings.  The misses appendix is a list of
+    multi-line code blocks, not tabular, so it stays as a
+    Python loop in the template context.  Cosmetic markdown
+    formatting (column alignment, line wrapping) is left to
+    `just lint-md` / CI; this stage emits whatever polars and
+    jinja produce.
     """
     template = resources.files("rbtr_eval.templates").joinpath("benchmarks.md.j2").read_text()
 
-    def pct(x: float) -> str:
-        return f"{x * 100:.1f}%"
-
-    def bytes_human(n: int | float) -> str:
-        n = int(n)
-        if n < 1024:
-            return f"{n} B"
-        if n < 1024 * 1024:
-            return f"{n / 1024:.1f} KiB"
-        if n < 1024 * 1024 * 1024:
-            return f"{n / (1024 * 1024):.1f} MiB"
-        return f"{n / (1024 * 1024 * 1024):.1f} GiB"
-
-    env = minijinja.Environment()
-    env.add_filter("pct", pct)
-    env.add_filter("bytes_human", bytes_human)
-
-    headline_rows = [
-        {
-            "slug": "**all repos**" if r["slug"] == "__all__" else f"`{r['slug']}`",
-            "variant": r["variant"],
-            "n_queries": r["n_queries"],
-            "hit_at_1": r["hit_at_1"],
-            "hit_at_3": r["hit_at_3"],
-            "hit_at_10": r["hit_at_10"],
-            "mrr": r["mrr"],
-            "median_rank_str": "-" if r["median_rank"] is None else str(int(r["median_rank"])),
-            "not_found_pct": r["not_found_pct"],
-        }
-        for r in metrics_df.iter_rows(named=True)
-    ]
-    latency_rows = [
-        {
-            "slug": "**all repos**" if r["slug"] == "__all__" else f"`{r['slug']}`",
-            "variant": r["variant"],
-            "search_p50_ms": r["search_p50_ms"],
-            "search_p95_ms": r["search_p95_ms"],
-        }
-        for r in metrics_df.iter_rows(named=True)
-    ]
     misses_ctx = [
         {
             "slug": r["slug"],
@@ -344,32 +390,28 @@ def _render_report(
         for r in misses_df.iter_rows(named=True)
     ]
 
-    headers_list = headers.sort("slug").to_dicts()
-    total_queries = int(headers["n_sampled"].sum())
-    rendered = env.render_str(
-        template,
-        rbtr_sha=rbtr_sha,
-        seed=int(headers["seed"][0]),
-        sample_cap=int(headers["sample_cap"][0]),
-        total_queries=total_queries,
-        elapsed_seconds=elapsed_seconds,
-        per_repo_headers=headers_list,
-        headline_rows=headline_rows,
-        latency_rows=latency_rows,
-        shared_home_bytes=shared_home_bytes,
-        misses=misses_ctx,
+    run_table = pl.DataFrame(
+        {
+            "field": ["rbtr commit", "seed", "sample cap", "total queries", "elapsed"],
+            "value": [
+                f"`{rbtr_sha}`",
+                str(int(headers["seed"][0])),
+                str(int(headers["sample_cap"][0])),
+                str(int(headers["n_sampled"].sum())),
+                f"{round(elapsed_seconds)} s",
+            ],
+        }
     )
 
-    # rumdl formats the generated output: aligns tables, wraps long
-    # lines, normalises spacing.  Keeps the template simple.
-    result = subprocess.run(
-        ["rumdl", "fmt", "--stdin-filepath", "BENCHMARKS.md", "-"],  # noqa: S607
-        input=rendered,
-        capture_output=True,
-        text=True,
-        check=False,
+    return minijinja.Environment().render_str(
+        template,
+        shared_home_bytes_human=_bytes_human(shared_home_bytes),
+        run_table=_md(run_table),
+        repos_table=_md(_repos_table(headers)),
+        headline_table=_md(_headline_table(metrics_df)),
+        latency_table=_md(_latency_table(metrics_df)),
+        misses=misses_ctx,
     )
-    return result.stdout if result.returncode == 0 else rendered
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

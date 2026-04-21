@@ -8,40 +8,22 @@ and `stripped` index variants. See
 
 Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.
 
-| field         | value             |
-| ------------- | ----------------- |
-| rbtr commit   | `{{ rbtr_sha }}`  |
-| seed          | {{ seed }}        |
-| sample cap    | {{ sample_cap }}  |
-| total queries | {{ total_queries }} |
-| elapsed       | {{ elapsed_seconds | round(0) | int }} s |
+{{ run_table }}
 
 ## Repos
 
-| slug | sha | n queries |
-| ---- | --- | --------- |
-{%- for header in per_repo_headers %}
-| `{{ header.slug }}` | `{{ header.sha[:12] }}` | {{ header.n_sampled }} |
-{%- endfor %}
+{{ repos_table }}
 
 ## Headline metrics
 
-| repo | variant | n | Hit@1 | Hit@3 | Hit@10 | MRR | median rank | not found |
-| ---- | ------- | - | ----- | ----- | ------ | --- | ----------- | --------- |
-{%- for row in headline_rows %}
-| {{ row.slug }} | {{ row.variant }} | {{ row.n_queries }} | {{ row.hit_at_1 | pct }} | {{ row.hit_at_3 | pct }} | {{ row.hit_at_10 | pct }} | {{ "%.3f" | format(row.mrr) }} | {{ row.median_rank_str }} | {{ row.not_found_pct | pct }} |
-{%- endfor %}
+{{ headline_table }}
 
 ## Search latency
 
-Shared index home size: **{{ shared_home_bytes | bytes_human }}**
+Shared index home size: **{{ shared_home_bytes_human }}**
 (holds both variants; each occupies roughly half).
 
-| repo | variant | search P50 | search P95 |
-| ---- | ------- | ---------- | ---------- |
-{%- for row in latency_rows %}
-| {{ row.slug }} | {{ row.variant }} | {{ row.search_p50_ms | round(0) | int }} ms | {{ row.search_p95_ms | round(0) | int }} ms |
-{%- endfor %}
+{{ latency_table }}
 
 ## Notable misses
 
