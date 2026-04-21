@@ -169,7 +169,10 @@ def _score_trials(batch: dy.DataFrame[WeightedSearchBatch]) -> dy.DataFrame[Weig
     )
     return (
         batch.drop("hits")
-        .join(ranks, on=trial_keys, how="left")
+        # `nulls_equal=True`: baseline rows have null alpha/beta/
+        # gamma, and polars' default join treats null != null,
+        # which drops every baseline rank.
+        .join(ranks, on=trial_keys, how="left", nulls_equal=True)
         .pipe(WeightedSearchOutcome.validate, cast=True)
     )
 

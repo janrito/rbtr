@@ -219,9 +219,10 @@ def _select_misses(
             values=["rank", "top_file", "top_line", "top_name"],
         )
         .with_columns(
-            (pl.col("rank_stripped").fill_null(11) - pl.col("rank_full").fill_null(11))
-            .cast(pl.Int16)
-            .alias("gap")
+            (
+                pl.col("rank_stripped").fill_null(11).cast(pl.Int16)
+                - pl.col("rank_full").fill_null(11).cast(pl.Int16)
+            ).alias("gap")
         )
         .filter(pl.col("gap") > 0)
         .sort(["gap", "slug", "query_file"], descending=[True, False, False])
