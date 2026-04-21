@@ -103,7 +103,7 @@ ignore_missing_imports = true
 # -- Pytest & Coverage --
 
 [tool.pytest.ini_options]
-testpaths = ["packages/rbtr-legacy/src/tests"]
+testpaths = ["packages/rbtr/src/tests", "packages/rbtr-eval/src/tests"]
 minversion = "6.0"
 addopts = ["--strict-markers", "--import-mode=importlib", "-n", "auto"]
 

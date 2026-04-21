@@ -16,6 +16,7 @@ pattern as `measure`; aggregation is one
 from __future__ import annotations
 
 import time
+from itertools import combinations
 from pathlib import Path
 
 import dataframely as dy
@@ -39,18 +40,30 @@ from rbtr_eval.schemas import (
 def grid_triples(step: float) -> list[tuple[float, float, float]]:
     """Enumerate `(alpha, beta, gamma)` in `[0, 1]^3` summing to 1 at *step*.
 
-    Pure function; exposed for tests.  At step 0.2 yields 21
-    points; 0.1 yields 66; 0.5 yields 6.  Values are rounded
-    to 6 decimals so equality compares cleanly.
+    Uses the stars-and-bars bijection between 3-part
+    compositions of `n = 1/step` and 2-subsets of
+    `{0, ..., n + 1}`: picking two bar positions partitions
+    the `n` stars into three groups whose lengths `(a, b, g)`
+    are the composition.  `itertools.combinations` walks the
+    2-subsets in lexicographic order; multiplying by `step`
+    lands the triple on the unit simplex.  Values are
+    rounded to six decimals so equality compares cleanly.
+
+    Yields `C(n + 2, 2) = (n + 1)(n + 2) / 2` triples: 6 at
+    step 0.5, 21 at 0.2, 66 at 0.1, 231 at 0.05.  Pure
+    function; exposed for tests.
     """
     if not 0.0 < step <= 1.0:
         msg = f"grid_step must be in (0, 1]; got {step}"
         raise ValueError(msg)
     n = round(1.0 / step)
     return [
-        (round(i * step, 6), round(j * step, 6), round((n - i - j) * step, 6))
-        for i in range(n + 1)
-        for j in range(n + 1 - i)
+        (
+            round(first_bar * step, 6),
+            round((second_bar - first_bar - 1) * step, 6),
+            round((n + 1 - second_bar) * step, 6),
+        )
+        for first_bar, second_bar in combinations(range(n + 2), 2)
     ]
 
 

@@ -1,18 +1,18 @@
-check: schema-check lint typecheck test
+check: schema-check lint typecheck test test-ts
 
-ci: schema-check lint typecheck test-cov
+ci: schema-check lint typecheck test-cov test-ts
 
 fmt: fmt-py fmt-ts fmt-sql fmt-md
 
 lint: lint-py lint-ts lint-sql lint-md
 
 fmt-py:
-    uv run ruff check --fix .
-    uv run ruff format .
+    uv run ruff check --fix
+    uv run ruff format
 
 lint-py:
-    uv run ruff check .
-    uv run ruff format --check .
+    uv run ruff check
+    uv run ruff format --check
 
 fmt-sql:
     uv run sqlfluff fix packages/rbtr-legacy
@@ -48,25 +48,14 @@ schema-check:
     cd packages/pi-rbtr && bun run scripts/gen-types.ts
     git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
 
-test: test-rbtr test-eval test-legacy test-ts
-
-test-legacy:
-    uv run pytest packages/rbtr-legacy/src/tests
-
-test-rbtr:
-    uv run pytest packages/rbtr/src/tests
-
-test-eval:
-    uv run pytest packages/rbtr-eval/src/tests
+test:
+    uv run pytest
 
 test-ts:
     cd packages/pi-rbtr && bunx vitest run
 
 test-cov:
-    uv run pytest packages/rbtr-legacy/src/tests --cov --cov-report=term --cov-report=markdown-append:cov-append.md
-
-build:
-    uv build --package rbtr-legacy
+    uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
 # ── dead code detection (requires `uv sync --group debug`) ──
 
