@@ -22,7 +22,7 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install the project
-        run: uv sync --frozen --extra languages
+        run: uv sync --frozen --all-packages --all-extras
 
       - uses: oven-sh/setup-bun@v2
 
