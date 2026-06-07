@@ -93,7 +93,7 @@ jobs:
           if [ "$IS_DEV" = "true" ]; then
             TAG="next"
           fi
-          for tgz in dist/*.tgz; do
+          for tgz in ./dist/*.tgz; do
             [ -e "$tgz" ] || continue
             npm publish "$tgz" --provenance --access public --tag "$TAG"
           done
