@@ -80,10 +80,13 @@ jobs:
       - name: Publish to PyPI
         run: uv publish dist/*.whl dist/*.tar.gz
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Publish to npm
         env:
@@ -93,7 +96,7 @@ jobs:
           if [ "$IS_DEV" = "true" ]; then
             TAG="next"
           fi
-          for tgz in dist/*.tgz; do
+          for tgz in ./dist/*.tgz; do
             [ -e "$tgz" ] || continue
             npm publish "$tgz" --provenance --access public --tag "$TAG"
           done
