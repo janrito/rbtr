@@ -1,0 +1,41 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "description": "Optuna trial convergence: MRR per trial with running best",
+  "title": "Tune convergence",
+  "width": 500,
+  "height": 300,
+  "data": {"values": []},
+  "layer": [
+    {
+      "mark": {"type": "point", "filled": true, "size": 40, "opacity": 0.5},
+      "encoding": {
+        "x": {
+          "field": "trial",
+          "type": "quantitative",
+          "title": "Trial",
+          "axis": {"tickMinStep": 1}
+        },
+        "y": {
+          "field": "mrr",
+          "type": "quantitative",
+          "title": "MRR",
+          "scale": {"zero": false}
+        },
+        "tooltip": [
+          {"field": "trial", "type": "quantitative"},
+          {"field": "mrr", "type": "quantitative", "format": ".4f"},
+          {"field": "alpha", "type": "quantitative", "format": ".3f"},
+          {"field": "beta", "type": "quantitative", "format": ".3f"},
+          {"field": "gamma", "type": "quantitative", "format": ".3f"}
+        ]
+      }
+    },
+    {
+      "mark": {"type": "line", "interpolate": "step-after", "color": "#e45756", "strokeWidth": 2},
+      "encoding": {
+        "x": {"field": "trial", "type": "quantitative"},
+        "y": {"field": "best_so_far", "type": "quantitative"}
+      }
+    }
+  ]
+}

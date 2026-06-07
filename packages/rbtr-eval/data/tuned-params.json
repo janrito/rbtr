@@ -1,0 +1,19 @@
+[
+  {
+    "kind": null,
+    "best_alpha": 0.07630223837137494,
+    "best_beta": 0.26702717053950475,
+    "best_gamma": 0.6566705910891203,
+    "score_best": 0.41642531892082746,
+    "current_alpha": 0.15,
+    "current_beta": 0.35,
+    "current_gamma": 0.5,
+    "score_current": 0.3814262737945929,
+    "delta": 0.034999045126234585,
+    "metric": "MRR",
+    "n_trials": 50,
+    "n_queries": 506,
+    "rbtr_sha": "7a596dbe3dbedf9f474f7efe0ccf71dc49459978",
+    "elapsed_seconds": 10073.79907275
+  }
+]

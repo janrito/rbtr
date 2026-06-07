@@ -1,0 +1,56 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "description": "Explored weight configurations on the (alpha, beta) plane coloured by MRR",
+  "title": "Simplex exploration",
+  "width": 400,
+  "height": 400,
+  "layer": [
+    {
+      "data": {
+        "values": [
+          {"x": 0, "y": 0},
+          {"x": 1, "y": 0},
+          {"x": 0, "y": 1},
+          {"x": 0, "y": 0}
+        ]
+      },
+      "mark": {"type": "line", "color": "#ccc", "strokeWidth": 1, "strokeDash": [4, 4]},
+      "encoding": {
+        "x": {"field": "x", "type": "quantitative"},
+        "y": {"field": "y", "type": "quantitative"},
+        "order": {"field": "x", "type": "quantitative"}
+      }
+    },
+    {
+      "data": {"values": []},
+      "mark": {"type": "point", "filled": true, "size": 80},
+      "encoding": {
+        "x": {
+          "field": "alpha",
+          "type": "quantitative",
+          "title": "alpha",
+          "scale": {"domain": [0, 1]}
+        },
+        "y": {
+          "field": "beta",
+          "type": "quantitative",
+          "title": "beta",
+          "scale": {"domain": [0, 1]}
+        },
+        "color": {
+          "field": "mrr",
+          "type": "quantitative",
+          "title": "MRR",
+          "scale": {"scheme": "viridis"}
+        },
+        "tooltip": [
+          {"field": "trial", "type": "quantitative"},
+          {"field": "alpha", "type": "quantitative", "format": ".3f"},
+          {"field": "beta", "type": "quantitative", "format": ".3f"},
+          {"field": "gamma", "type": "quantitative", "format": ".3f"},
+          {"field": "mrr", "type": "quantitative", "format": ".4f"}
+        ]
+      }
+    }
+  ]
+}

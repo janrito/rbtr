@@ -1,0 +1,42 @@
+# Paraphrase report
+
+LLM-generated concept queries: natural-language descriptions
+of what each symbol does, without using identifier names.
+These test vocabulary mismatch — the failure mode where a
+developer searches with different words than the code uses.
+
+## Summary
+
+| metric | value |
+|--------|-------|
+| model | `{{ model }}` |
+| concept queries | {{ total }} |
+
+## Per repo
+
+{{ repo_table }}
+
+## Per language
+
+{{ lang_table }}
+
+## Examples
+
+Randomly sampled symbols showing the source code (LLM input)
+and the generated concept query (LLM output).
+{% for ex in examples %}
+
+### `{{ ex.heading }}` (`{{ ex.slug }}`)
+{% if ex.heading != ex.name %}
+**symbol:**
+
+```
+{{ ex.name }}
+```
+{% endif %}
+````{{ ex.language }}
+{{ ex.content }}
+````
+
+> **concept:** {{ ex.concept }}
+{%- endfor %}

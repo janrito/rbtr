@@ -1,0 +1,69 @@
+# rbtr search-quality benchmark
+
+Hit@k / MRR / NDCG@10 for queries against the rbtr index. See
+`packages/rbtr-eval/README.md` for methodology.
+
+## Run
+
+Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.
+
+{{ run_table }}
+
+## Repos
+
+{{ repos_table }}
+
+## Headline metrics
+
+No-expansion baseline (arm `none`) per repo. The expansion
+ablation is in the section below.
+
+{{ headline_table }}
+
+## Expansion ablation
+
+MRR / Hit@k for each expansion arm (`none`, `keywords`,
+`variants`, `both`) broken down by query kind, aggregated
+across all repos. Compare arms within a kind to read the
+effect of each channel.
+
+{{ arm_kind_table }}
+
+![MRR by repo](mrr_by_repo.png)
+
+## Search latency
+
+Shared index home size: **{{ shared_home_bytes_human }}**.
+
+{{ latency_table }}
+
+## Classification
+
+Cross-tabulation of query provenance (where the query was sampled
+from) against online `QueryKind` (how `classify_query` routes it
+for expansion).
+
+{{ classification_table }}
+
+## Per-language breakdown
+
+Aggregated across all repos for each language present in the sample.
+
+{{ language_table }}
+
+## Per-provenance breakdown
+
+Aggregated across all repos and languages for each provenance.
+
+{{ provenance_table }}
+
+![MRR by provenance](mrr_by_provenance.png)
+{% if truncation_table %}
+
+## Truncation impact
+
+MRR breakdown by whether the target chunk's embedding was truncated
+to fit the context window.
+
+{{ truncation_table }}
+{% endif %}

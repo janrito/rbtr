@@ -1,0 +1,49 @@
+# rbtr search-weight tuning report
+
+## Fusion weights
+
+The search score fuses three channels:
+
+- **alpha** — semantic (embedding cosine similarity)
+- **beta** — lexical (BM25 keyword search)
+- **gamma** — name-match (identifier matching)
+
+`score = alpha × semantic + beta × lexical + gamma × name`
+
+{{ weights_table }}
+
+## Result
+
+{{ result_table }}
+
+## Impact by dimension
+
+MRR comparison between current (baseline) and recommended
+(best) weights, broken down by repo, language, and query
+kind.
+
+{{ impact_table }}
+
+## Convergence
+
+![Convergence](convergence.png)
+
+## Simplex exploration
+
+![Simplex](simplex.png)
+
+## Recommended config
+
+```toml
+{{ toml_snippet }}
+```
+
+## Run metadata
+
+* Optuna trials: {{ n_trials }}
+* queries evaluated: {{ n_queries }}
+* elapsed: {{ elapsed_seconds }} s
+
+## Sample distribution
+
+{{ sample_table }}
