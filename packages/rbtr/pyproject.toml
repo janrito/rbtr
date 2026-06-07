@@ -7,7 +7,7 @@ source-exclude = ["**/tests"]
 
 [project]
 name = "rbtr"
-version = "2026.6.0-dev2"
+version = "2026.6.0-dev3"
 description = "rbtr — structural code index"
 license = "MIT"
 requires-python = ">=3.13"
