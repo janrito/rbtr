@@ -1,0 +1,9 @@
+mutation AddComment($pullRequestReviewId: ID!, $body: String!, $path: String!, $line: Int!, $side: DiffSide!) {
+  addPullRequestReviewThread(
+    input: { pullRequestReviewId: $pullRequestReviewId, body: $body, path: $path, line: $line, side: $side }
+  ) {
+    thread {
+      id
+    }
+  }
+}

@@ -1,0 +1,7 @@
+mutation DeleteComment($id: ID!) {
+  deletePullRequestReviewComment(input: { id: $id }) {
+    pullRequestReviewComment {
+      id
+    }
+  }
+}

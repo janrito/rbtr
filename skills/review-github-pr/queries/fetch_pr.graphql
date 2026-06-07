@@ -1,0 +1,47 @@
+query FetchPR($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      title
+      body
+      baseRefName
+      headRefName
+      headRefOid
+      author {
+        login
+      }
+      url
+      reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          diffSide
+          line
+          originalLine
+          startLine
+          originalStartLine
+          startDiffSide
+          path
+          isResolved
+          isOutdated
+          subjectType
+          comments(first: 50) {
+            nodes {
+              id
+              body
+              author {
+                login
+              }
+              state
+              createdAt
+              pullRequestReview {
+                state
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
