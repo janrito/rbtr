@@ -1,0 +1,400 @@
+/**
+ * Custom TUI renderers for rbtr tools.
+ *
+ * Each tool gets a compact renderCall (one-liner) and a
+ * renderResult (collapsed/expanded views).
+ *
+ * Two sources of payload:
+ *   - details.response        — typed response from the daemon
+ *                               (preferred path; no parsing).
+ *   - content[].text (NDJSON) — from the CLI fallback path.
+ */
+
+import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
+
+import type {
+  ChangedSymbol,
+  ChangedSymbolsResponse,
+  Chunk,
+  Edge,
+  FindRefsResponse,
+  ListSymbolsResponse,
+  ReadSymbolResponse,
+  Response,
+  ScoredChunk,
+  SearchResponse,
+  StatusResponse,
+} from "./generated/protocol.js";
+
+type ToolResult = AgentToolResult<unknown>;
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+function getContentText(result: ToolResult): string {
+  for (const part of result.content) {
+    if (part.type === "text" && "text" in part) return part.text;
+  }
+  return "";
+}
+
+function tryParseNdjson<T>(text: string): T[] {
+  try {
+    return text
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as T);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read the typed daemon response off ``result.details`` if it
+ * came from the daemon path; otherwise parse NDJSON stdout.
+ */
+function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
+  const details = result.details as { fromDaemon?: boolean; response?: Response } | undefined;
+  if (details?.fromDaemon && details.response?.kind === responseKind) {
+    const value = (details.response as unknown as Record<string, unknown>)[payloadKey];
+    return Array.isArray(value) ? (value as T[]) : [];
+  }
+  return tryParseNdjson<T>(getContentText(result));
+}
+
+function shortenPath(filePath: string): string {
+  // Remove common prefixes for readability
+  return filePath.replace(/^packages\/rbtr\/src\//, "");
+}
+
+// ── Search ──────────────────────────────────────────────────────
+
+function scoreStyle(theme: Theme, score: number): string {
+  if (score >= 1.0) return theme.fg("success", score.toFixed(2));
+  if (score >= 0.5) return theme.fg("warning", score.toFixed(2));
+  return theme.fg("dim", score.toFixed(2));
+}
+
+function str(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  return null;
+}
+
+function invalidArg(theme: Theme): string {
+  return theme.fg("error", "[invalid arg]");
+}
+
+export function renderSearchCall(args: Record<string, unknown>, theme: Theme): Text {
+  const query = str(args.query);
+  let text = theme.fg("toolTitle", theme.bold("rbtr_search "));
+  text += query === null ? invalidArg(theme) : query ? theme.fg("accent", `"${query}"`) : theme.fg("toolOutput", "...");
+  if (args.limit) text += theme.fg("dim", ` (limit: ${args.limit})`);
+  return new Text(text, 0, 0);
+}
+
+export function renderSearchResult(
+  result: ToolResult,
+  options: { expanded: boolean; isPartial: boolean },
+  theme: Theme,
+): Text {
+  if (options.isPartial) return new Text(theme.fg("warning", "Searching…"), 0, 0);
+
+  const results = extractPayload<ScoredChunk>(result, "search", "results") satisfies SearchResponse["results"];
+  if (results.length === 0) {
+    return new Text(theme.fg("dim", "No results found."), 0, 0);
+  }
+
+  const lines: string[] = [];
+  const show = options.expanded ? results : results.slice(0, 5);
+
+  for (const r of show) {
+    let path = shortenPath(r.file_path);
+    if (r.repo_path) {
+      const repoName = r.repo_path.replace(/\/+$/, "").split("/").pop() ?? r.repo_path;
+      path = `${repoName}/${path}`;
+    }
+    let line = `${scoreStyle(theme, r.score)}  ${theme.fg("accent", path)}`;
+    line += theme.fg("dim", `:${r.line_start}`);
+    line += `  ${theme.fg("muted", r.kind)}  ${r.name}`;
+    if (r.scope) line += theme.fg("dim", ` (${r.scope})`);
+    lines.push(line);
+
+    if (options.expanded) {
+      const preview = r.content.split("\n").slice(0, 4).join("\n");
+      for (const pl of preview.split("\n")) {
+        lines.push(`  ${theme.fg("dim", pl)}`);
+      }
+      lines.push("");
+    }
+  }
+
+  if (!options.expanded && results.length > 5) {
+    lines.push(theme.fg("muted", `… ${results.length - 5} more results`));
+  }
+
+  lines.push(theme.fg("dim", `${results.length} result(s)`));
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+// ── Read symbol ─────────────────────────────────────────────────
+
+export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme): Text {
+  const symbol = str(args.symbol);
+  const label =
+    symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + label, 0, 0);
+}
+
+export function renderReadSymbolResult(
+  result: ToolResult,
+  options: { expanded: boolean; isPartial: boolean },
+  theme: Theme,
+): Text {
+  if (options.isPartial) return new Text(theme.fg("warning", "Reading…"), 0, 0);
+
+  const chunks = extractPayload<Chunk>(result, "read_symbol", "chunks") satisfies ReadSymbolResponse["chunks"];
+  const symbol = (result.details as { symbol?: string } | undefined)?.symbol;
+  if (chunks.length === 0) {
+    return new Text(theme.fg("error", `Symbol not found${symbol ? `: ${symbol}` : ""}`), 0, 0);
+  }
+
+  const lines: string[] = [];
+  for (const c of chunks) {
+    const path = shortenPath(c.file_path);
+    lines.push(
+      `${theme.fg("accent", path)}${theme.fg("dim", `:${c.line_start}-${c.line_end}`)}  ${theme.fg("muted", c.kind)}  ${c.name}`,
+    );
+
+    if (options.expanded) {
+      for (const cl of c.content.split("\n")) {
+        lines.push(`  ${theme.fg("dim", cl)}`);
+      }
+      lines.push("");
+    }
+  }
+
+  if (!options.expanded && chunks.length > 0) {
+    const first = chunks[0];
+    const lineCount = first.content.split("\n").length;
+    lines.push(theme.fg("dim", `${lineCount} lines`));
+  }
+
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+// ── List symbols ────────────────────────────────────────────────
+
+export function renderListSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
+  const file = str(args.file);
+  const label = file === null ? invalidArg(theme) : file ? theme.fg("accent", file) : theme.fg("toolOutput", "...");
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_list_symbols ")) + label, 0, 0);
+}
+
+export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+  if (options.isPartial) return new Text(theme.fg("warning", "Listing…"), 0, 0);
+
+  const chunks = extractPayload<Chunk>(result, "list_symbols", "chunks") satisfies ListSymbolsResponse["chunks"];
+  if (chunks.length === 0) {
+    return new Text(theme.fg("dim", "No symbols found."), 0, 0);
+  }
+
+  const lines: string[] = [];
+  for (const c of chunks) {
+    const range = `${String(c.line_start).padStart(4)}-${String(c.line_end).padEnd(4)}`;
+    lines.push(`${theme.fg("dim", range)}  ${theme.fg("muted", c.kind.padEnd(15))}${c.name}`);
+  }
+  lines.push(theme.fg("dim", `${chunks.length} symbol(s)`));
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+// ── Find refs ───────────────────────────────────────────────────
+
+export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme): Text {
+  const symbol = str(args.symbol);
+  const label =
+    symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) + label, 0, 0);
+}
+
+export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+  if (options.isPartial) return new Text(theme.fg("warning", "Finding…"), 0, 0);
+
+  const edges = extractPayload<Edge>(result, "find_refs", "edges") satisfies FindRefsResponse["edges"];
+  if (edges.length === 0) {
+    return new Text(theme.fg("dim", "No references found."), 0, 0);
+  }
+
+  const lines: string[] = [];
+  for (const e of edges) {
+    lines.push(`${e.source_id} ${theme.fg("dim", "→")} ${e.target_id}  ${theme.fg("muted", `(${e.kind})`)}`);
+  }
+  lines.push(theme.fg("dim", `${edges.length} reference(s)`));
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+// ── Changed symbols ─────────────────────────────────────────────
+
+export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
+  const base = str(args.base);
+  const head = str(args.head);
+  const label = base && head ? theme.fg("accent", `${base}..${head}`) : invalidArg(theme);
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_changed_symbols ")) + label, 0, 0);
+}
+
+export function renderChangedSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+  if (options.isPartial) return new Text(theme.fg("warning", "Comparing…"), 0, 0);
+
+  const changes = extractPayload<ChangedSymbol>(
+    result,
+    "changed_symbols",
+    "changes",
+  ) satisfies ChangedSymbolsResponse["changes"];
+  if (changes.length === 0) {
+    return new Text(theme.fg("dim", "No changed symbols."), 0, 0);
+  }
+
+  // Shared vocabulary with the CLI: sigils + ordering + summary.
+  const sigil = { added: "+", modified: "~", removed: "\u2212" } as const;
+  const colour = { added: "toolDiffAdded", modified: "warning", removed: "toolDiffRemoved" } as const;
+  const order = { added: 0, modified: 1, removed: 2 } as const;
+
+  const counts = { added: 0, modified: 0, removed: 0 };
+  for (const ch of changes) counts[ch.change]++;
+
+  const sorted = [...changes].sort((a, b) => order[a.change] - order[b.change]);
+  const cap = 8;
+  const shown = sorted.slice(0, cap);
+
+  const lines: string[] = [];
+  for (const ch of shown) {
+    const c = ch.chunk;
+    const path = shortenPath(c.file_path);
+    lines.push(
+      `${theme.fg(colour[ch.change], sigil[ch.change])} ${theme.fg("muted", c.kind.padEnd(10))}${c.name}  ${theme.fg("dim", path)}`,
+    );
+  }
+  if (sorted.length > cap) {
+    lines.push(theme.fg("muted", `\u2026 ${sorted.length - cap} more`));
+  }
+  lines.push(
+    `${theme.fg("toolDiffAdded", `+${counts.added}`)}  ${theme.fg("warning", `~${counts.modified}`)}  ${theme.fg("toolDiffRemoved", `\u2212${counts.removed}`)}`,
+  );
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+// ── Index ───────────────────────────────────────────────────────
+
+export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
+  const refs = (args.refs as string[]) || ["HEAD"];
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_index ")) + theme.fg("accent", refs.join(", ")), 0, 0);
+}
+
+export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+  if (options.isPartial) return new Text(theme.fg("muted", "Indexing…"), 0, 0);
+
+  const details = result.details as { status?: string } | undefined;
+  switch (details?.status) {
+    case "started":
+      return new Text(theme.fg("success", "✓ Indexing queued"), 0, 0);
+    case "up_to_date":
+      return new Text(theme.fg("success", "✓ Index up to date"), 0, 0);
+    case "in_progress":
+      return new Text(theme.fg("muted", "⟳ Build already in progress"), 0, 0);
+  }
+
+  const text = getContentText(result);
+  return new Text(theme.fg("dim", text), 0, 0);
+}
+
+// ── Status ──────────────────────────────────────────────────────
+
+export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
+}
+
+// Output is derived solely from the response model — no external state.
+export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
+  if (options.isPartial) return new Text(theme.fg("muted", "Checking…"), 0, 0);
+
+  // Daemon path packs a StatusResponse on details.response.
+  const details = result.details as { fromDaemon?: boolean; response?: StatusResponse } | undefined;
+  const response = details?.fromDaemon ? details.response : undefined;
+
+  const lines: string[] = [];
+  const indexed = response?.indexed_refs ?? [];
+  const crossRepo = indexed.some((ref) => ref.repo_path != null);
+  if (indexed.length === 0) {
+    lines.push(theme.fg("error", "✗ No index found"));
+  } else if (crossRepo) {
+    lines.push(theme.fg("success", "✓ indexed repos"));
+    const byRepo = new Map<string, typeof indexed>();
+    for (const ref of indexed) {
+      const key = ref.repo_path ?? "?";
+      const group = byRepo.get(key) ?? [];
+      group.push(ref);
+      byRepo.set(key, group);
+    }
+    for (const [repoPath, refs] of byRepo) {
+      lines.push(theme.fg("accent", repoPath));
+      for (const ref of refs) {
+        lines.push(`  ${theme.fg("muted", fmtRefRender(ref))}`);
+      }
+    }
+  } else {
+    const total = indexed[0].total;
+    lines.push(theme.fg("success", `✓ ${humanCountRender(total)} symbols`));
+    for (const ref of indexed) {
+      lines.push(theme.fg("muted", fmtRefRender(ref)));
+    }
+  }
+
+  const job = response?.active_build;
+  if (job) {
+    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+    const elapsed = formatElapsedRender(job.elapsed_seconds);
+    lines.push(
+      theme.fg(
+        "muted",
+        `⟳ Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`,
+      ),
+    );
+  }
+  const ej = response?.active_embed;
+  if (ej) {
+    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
+    const elapsed = formatElapsedRender(ej.elapsed_seconds);
+    lines.push(
+      theme.fg(
+        "muted",
+        `\u21BB Embedding: ${ej.ref.slice(0, 12)} \u2014 ${ej.current}/${ej.total}${pct} \u2014 ${elapsed}`,
+      ),
+    );
+  }
+
+  return new Text(lines.join("\n"), 0, 0);
+}
+
+function formatElapsedRender(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m${String(s).padStart(2, "0")}s`;
+}
+
+function humanCountRender(n: number): string {
+  if (n < 1000) return String(n);
+  return `${(n / 1000).toFixed(1)}k`;
+}
+
+function fmtRefRender(ref: { sha: string; names?: string[]; total: number; embedded: number }): string {
+  const label =
+    (ref.names ?? []).length > 0 ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})` : ref.sha.slice(0, 12);
+  const embedPart =
+    ref.embedded >= ref.total
+      ? `${humanCountRender(ref.embedded)} embedded \u2713`
+      : ref.embedded > 0
+        ? `${humanCountRender(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
+        : "not embedded";
+  return `${label}  ${humanCountRender(ref.total)} indexed  ${embedPart}`;
+}
