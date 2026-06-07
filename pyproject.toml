@@ -198,9 +198,10 @@ debug = [
 ]
 dev = [
     "mypy>=2.1.0",
+    "pytest-cov>=6.2",
     "pytest-env>=1.6.0",
     "ruff>=0.15.13",
     "rumdl>=0.1.93",
     "rust-just>=1.51.0",
-    "sqlfluff>=4.2.1"
+    "sqlfluff>=4.2.1",
 ]
