@@ -34,7 +34,7 @@ class TwoRepos:
 
 def _init_repo(path: Path) -> tuple[str, str]:
     """Create a one-commit git repo; return `(workdir, head_sha)`."""
-    repo = pygit2.init_repository(str(path), bare=False)
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     head = repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
     return str(path), str(head)

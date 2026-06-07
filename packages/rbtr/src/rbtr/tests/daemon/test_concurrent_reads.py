@@ -61,7 +61,7 @@ def large_repo(tmp_path: Path) -> tuple[Path, str]:
     """
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo = pygit2.init_repository(str(repo_path), bare=False)
+    repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
     index = repo.index
     for i in range(100):
         content = (

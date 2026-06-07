@@ -221,7 +221,7 @@ def test_merge_changed_files_only_pr_changes(merge_repo: MergeRepo) -> None:
 @pytest.fixture
 def git_repo(tmp_path: Path) -> pygit2.Repository:
     """A bare repo for one-off edge case tests."""
-    return pygit2.init_repository(str(tmp_path / "edge"))
+    return pygit2.init_repository(str(tmp_path / "edge"), initial_head="main")
 
 
 def test_list_files_rbtrignore_still_skips_binary(git_repo: pygit2.Repository) -> None:
@@ -249,7 +249,7 @@ def test_read_head_unborn_returns_none(tmp_path: Path) -> None:
     """A freshly-init'd repo with no commits has no HEAD."""
     path = tmp_path / "empty"
     path.mkdir()
-    pygit2.init_repository(str(path))
+    pygit2.init_repository(str(path), initial_head="main")
     assert read_head(str(path)) is None
 
 
@@ -268,7 +268,7 @@ def worktree_repo(tmp_path: Path) -> pygit2.Repository:
     Commits two tracked files (`a.py`, `b.py`) so that
     tree SHA tests have a HEAD tree to compare against.
     """
-    repo = pygit2.init_repository(str(tmp_path / "wt"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "wt"), bare=False, initial_head="main")
     workdir = Path(repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
 
     (workdir / "a.py").write_text("def a(): pass\n")

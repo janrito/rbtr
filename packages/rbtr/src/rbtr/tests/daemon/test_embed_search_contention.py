@@ -84,7 +84,7 @@ def embedder(stub_model: ConcurrencyDetectingStubModel) -> Generator[Embedder]:
 def contention_repo(tmp_path: Path) -> str:
     """Minimal real git repo for contention tests."""
     path = tmp_path / "contention"
-    repo = pygit2.init_repository(str(path), bare=False)
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
     return str(path)

@@ -49,7 +49,7 @@ def daemon_edges() -> list[Edge]:
 def fake_repo(tmp_path: Path) -> str:
     """Minimal real git repo — one empty commit, returns workdir path."""
     path = tmp_path / "repo"
-    repo = pygit2.init_repository(str(path), bare=False)
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     tree = repo.TreeBuilder().write()
     repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
@@ -202,7 +202,7 @@ class TwoRepoServer:
 
 def _init_bare_commit_repo(path: Path) -> tuple[str, str]:
     """Create a one-commit git repo; return `(workdir, head_sha)`."""
-    repo = pygit2.init_repository(str(path), bare=False)
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     head = repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
     return str(path), str(head)

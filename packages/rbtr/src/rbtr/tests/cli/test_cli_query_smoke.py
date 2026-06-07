@@ -42,7 +42,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     Commit 2: src/config.py with `load_config` (modified body).
     """
     repo_path = tmp_path / "repo"
-    repo = pygit2.init_repository(str(repo_path), bare=False)
+    repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
 
     # ── Commit 1 ─────────────────────────────────────────────

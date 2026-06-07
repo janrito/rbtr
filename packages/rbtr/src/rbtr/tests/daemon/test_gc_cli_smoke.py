@@ -31,7 +31,7 @@ class TinyRepo:
 def tiny_repo(tmp_path: Path) -> TinyRepo:
     """A real git repo with two commits."""
     path = tmp_path / "repo"
-    repo = pygit2.init_repository(str(path), bare=False)
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
 
     shas: list[str] = []

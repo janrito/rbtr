@@ -66,7 +66,7 @@ def test_remote_tracking_branch_keeps_remote_prefix(sample_repo: SampleRepo) -> 
 
 
 def test_unborn_head_does_not_raise(tmp_path: Path) -> None:
-    repo = pygit2.init_repository(str(tmp_path / "empty_repo"))
+    repo = pygit2.init_repository(str(tmp_path / "empty_repo"), initial_head="main")
     assert repo.head_is_unborn
     result = names_for_commits(str(tmp_path / "empty_repo"), ["deadbeef" * 5])
     assert result == {"deadbeef" * 5: []}

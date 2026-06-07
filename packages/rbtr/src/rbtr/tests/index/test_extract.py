@@ -231,7 +231,7 @@ def test_build_index_extraction_error_is_nonfatal(
     The error is recorded in result.errors, and other files are
     still indexed.
     """
-    repo = pygit2.init_repository(str(tmp_path / "err"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "err"), bare=False, initial_head="main")
 
     (tmp_path / "err" / "good.py").write_text("def ok(): pass\n")
     (tmp_path / "err" / "bad.py").write_text("def boom(): pass\n")

@@ -44,7 +44,7 @@ def ref_repo(
     """
     repo_dir = tmp_path / "ref_repo"
     repo_dir.mkdir()
-    repo = pygit2.init_repository(str(repo_dir), bare=False)
+    repo = pygit2.init_repository(str(repo_dir), bare=False, initial_head="main")
     # Write a.py to disk and commit it properly.
     (repo_dir / "a.py").write_text("x = 1\n")
     repo.index.add("a.py")

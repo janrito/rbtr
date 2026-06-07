@@ -64,7 +64,7 @@ def test_sha_short_circuits_without_repo(tmp_path: Path) -> None:
 @pytest.fixture
 def worktree_repo(tmp_path: Path) -> pygit2.Repository:
     """Non-bare repo for worktree ref tests."""
-    repo = pygit2.init_repository(str(tmp_path / "wt"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "wt"), bare=False, initial_head="main")
     workdir = Path(repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("def a(): pass\n")
     idx = repo.index

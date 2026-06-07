@@ -46,7 +46,7 @@ def gc_repo(
     """Three-commit repo.  Tags `v1` at the first commit so KEEP_REFS has
     a non-HEAD ref to preserve; leaves the middle commit unreachable so
     HEAD_ONLY has something to drop."""
-    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
     shas: list[str] = []
     for i in range(3):
         tb = repo.TreeBuilder()
@@ -293,7 +293,7 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
 
 def test_gc_unborn_head_raises(tmp_path: Path) -> None:
     """GC on a repo with no commits (unborn HEAD) raises RbtrError."""
-    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
     store = IndexStore(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo("/empty")

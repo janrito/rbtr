@@ -213,7 +213,7 @@ def sample_repo(
     binary_png_content: bytes,
 ) -> SampleRepo:
     """A multi-commit repo with branches, adds, mods, and deletes."""
-    repo = pygit2.init_repository(str(tmp_path / "repo"))
+    repo = pygit2.init_repository(str(tmp_path / "repo"), initial_head="main")
 
     base = make_commit(
         repo,
@@ -271,7 +271,7 @@ def merge_repo(
     reachable from *both* branches.  Only D, E, F are exclusive to
     head.
     """
-    repo = pygit2.init_repository(str(tmp_path / "merge_repo"))
+    repo = pygit2.init_repository(str(tmp_path / "merge_repo"), initial_head="main")
 
     a = make_commit(
         repo,

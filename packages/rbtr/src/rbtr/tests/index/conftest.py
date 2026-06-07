@@ -126,7 +126,7 @@ def git_repo(tmp_path: Path) -> pygit2.Repository:
     Writes to working directory (needed by index tests that
     exercise tree-sitter extraction via `build_index`).
     """
-    repo = pygit2.init_repository(str(tmp_path), bare=False)
+    repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
 
     files = {
         "src/models.py": b"""\
@@ -269,7 +269,7 @@ def commit_file_set(repo: pygit2.Repository, files: dict[str, bytes], *, parents
 @pytest.fixture
 def diff_repo(tmp_path: Path) -> pygit2.Repository:
     """Empty git repo (no commits) for symbol-diff scenarios."""
-    return pygit2.init_repository(str(tmp_path), bare=False)
+    return pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
 
 
 # ═════════════════════════════════════════════════════════════════════

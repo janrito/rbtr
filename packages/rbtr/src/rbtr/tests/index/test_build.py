@@ -26,7 +26,7 @@ def built_index(
     assert on index structure.
     """
     tmp = tmp_path_factory.mktemp("built")
-    repo = pygit2.init_repository(str(tmp / "repo"), bare=False)
+    repo = pygit2.init_repository(str(tmp / "repo"), bare=False, initial_head="main")
     files = {
         "src/models.py": b'"""Data models."""\n\nclass User:\n    pass\n\nclass Order:\n    pass\n',
         "src/utils.py": b'"""Utility functions."""\n\ndef helper():\n    return 42\n\ndef format_name(name):\n    return name.strip()\n',
@@ -234,7 +234,7 @@ def test_build_index_sweeps_residue_from_crashed_builds(
 
 def test_build_index_empty_repo(tmp_path: Path, store: IndexStore) -> None:
     """Index an empty repo (no files)."""
-    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
 
     index = repo.index
     index.write()
@@ -257,7 +257,7 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     This test creates many same-language files, builds twice (cold cache
     vs warm cache), and asserts identical extraction results.
     """
-    repo = pygit2.init_repository(str(tmp_path / "cache_test"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "cache_test"), bare=False, initial_head="main")
 
     # Create 10 Python files — each with a uniquely named function.
     for i in range(10):
@@ -314,7 +314,7 @@ def test_build_rebuilds_fts_at_commit(
 
 def test_build_index_unknown_language(tmp_path: Path, store: IndexStore) -> None:
     """Files with unknown extensions should get plaintext chunking."""
-    repo = pygit2.init_repository(str(tmp_path / "unknown"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "unknown"), bare=False, initial_head="main")
 
     (tmp_path / "unknown" / "data.xyz").write_text("""\
 line1
@@ -339,7 +339,7 @@ line3
 
 def test_build_index_prose_txt_detected(tmp_path: Path, store: IndexStore) -> None:
     """A .txt file with Markdown/RST content gets DOC_SECTION chunks."""
-    repo = pygit2.init_repository(str(tmp_path / "prose"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "prose"), bare=False, initial_head="main")
 
     (tmp_path / "prose" / "CHANGES.txt").write_text("""\
 Changelog
@@ -368,7 +368,7 @@ Initial release.
 
 def test_build_index_prose_blob_dedup(tmp_path: Path, store: IndexStore) -> None:
     """Prose-detected blobs are deduped on rebuild (has_blob prose fallback)."""
-    repo = pygit2.init_repository(str(tmp_path / "prose_dedup"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "prose_dedup"), bare=False, initial_head="main")
 
     (tmp_path / "prose_dedup" / "README").write_text("""\
 # My Project
@@ -394,7 +394,7 @@ def test_build_index_version_gated_reextraction(
     tmp_path: Path, store: IndexStore, mocker: MockerFixture
 ) -> None:
     """Bumping `language_plugin_version` forces re-extraction."""
-    repo = pygit2.init_repository(str(tmp_path / "ver"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "ver"), bare=False, initial_head="main")
 
     (tmp_path / "ver" / "doc.md").write_text("# Hello\n\nWorld.\n")
     index = repo.index

@@ -39,7 +39,7 @@ def test_embed_batch_failure_skips_batch(
     embedder = mocker.MagicMock()
     embedder.embed = mocker.MagicMock(side_effect=_flaky_embed)
 
-    repo = pygit2.init_repository(str(tmp_path / "batch_fail"), bare=False)
+    repo = pygit2.init_repository(str(tmp_path / "batch_fail"), bare=False, initial_head="main")
     # Create enough symbols to span multiple batches (batch_size=32).
     lines = "\n".join(f"def func_{i}(): pass" for i in range(40))
     (tmp_path / "batch_fail" / "funcs.py").write_text(lines)

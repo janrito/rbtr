@@ -151,7 +151,7 @@ def test_status_unknown_repo(
     other = tmp_path / "other"
     import pygit2
 
-    r = pygit2.init_repository(str(other), bare=False)
+    r = pygit2.init_repository(str(other), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     r.create_commit("refs/heads/main", sig, sig, "init", r.TreeBuilder().write(), [])
     with DaemonClient(running_server_with_index.runtime_dir) as client:

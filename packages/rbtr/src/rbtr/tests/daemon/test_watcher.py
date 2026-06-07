@@ -59,7 +59,7 @@ def built_repos(
         repo_dir.mkdir()
         shas: list[str] = []
         if spec.commits > 0:
-            repo = pygit2.init_repository(str(repo_dir), bare=False)
+            repo = pygit2.init_repository(str(repo_dir), bare=False, initial_head="main")
             for i in range(spec.commits):
                 tb = repo.TreeBuilder()
                 tb.insert(
@@ -138,7 +138,7 @@ def wt_repo(
     if not wt_scenario.repo_exists:
         return str(repo_dir)
     repo_dir.mkdir()
-    repo = pygit2.init_repository(str(repo_dir), bare=False)
+    repo = pygit2.init_repository(str(repo_dir), bare=False, initial_head="main")
     # Initial commit with a tracked file.
     (repo_dir / "main.py").write_text("x = 1\n")
     repo.index.add("main.py")
