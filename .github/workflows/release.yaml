@@ -17,6 +17,7 @@ jobs:
   release:
     needs: checks
     runs-on: ubuntu-latest
+    environment: live
     steps:
       - uses: actions/checkout@v6
 
