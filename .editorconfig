@@ -15,12 +15,6 @@ indent_style = space
 indent_size = 2
 quote_type = double
 
-# Indentation style for justfile
-[.justfile,justfile]
-indent_style = space
-indent_size = 2
-quote_type = double
-
 # Indentation style for python
 [*.py]
 indent_style = space

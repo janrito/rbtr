@@ -24,5 +24,10 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --extra languages
 
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install node deps
+        run: bun install --frozen-lockfile
+
       - name: Run checks
         run: just ci

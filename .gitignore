@@ -1,3 +1,5 @@
+.DS_Store
+
 __pycache__/
 *.pyc
 *.egg-info/
@@ -11,11 +13,17 @@ build/
 .ruff_cache
 
 .coverage
+.coverage.*
 cov-append.md
 htmlcov/
 
 .rbtr/
+.pi/
+!.pi/settings.json
+.envrc
 
-TODO-*
-development_scripts/
+node_modules/
+bun.lock
+
+.todo/
 tmp/
