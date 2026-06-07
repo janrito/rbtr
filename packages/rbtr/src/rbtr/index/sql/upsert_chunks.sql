@@ -1,0 +1,34 @@
+INSERT INTO chunks
+SELECT
+  repo_id,
+  id,
+  blob_sha,
+  file_path,
+  kind,
+  name,
+  scope,
+  language,
+  language_plugin_version,
+  content,
+  content_tokens,
+  name_tokens,
+  line_start,
+  line_end,
+  metadata,
+  NULL AS embedding,
+  FALSE AS embedding_truncated
+FROM _stg
+ON CONFLICT (repo_id, id) DO UPDATE SET
+  blob_sha = excluded.blob_sha,
+  file_path = excluded.file_path,
+  kind = excluded.kind,
+  name = excluded.name,
+  scope = excluded.scope,
+  language = excluded.language,
+  language_plugin_version = excluded.language_plugin_version,
+  content = excluded.content,
+  content_tokens = excluded.content_tokens,
+  name_tokens = excluded.name_tokens,
+  line_start = excluded.line_start,
+  line_end = excluded.line_end,
+  metadata = excluded.metadata

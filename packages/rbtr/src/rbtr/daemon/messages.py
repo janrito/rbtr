@@ -1,0 +1,409 @@
+"""Daemon protocol — pydantic models with discriminated unions.
+
+Three message categories:
+- **Requests** (client → server via REQ/REP)
+- **Responses** (server → client via REQ/REP)
+- **Notifications** (server → clients via PUB)
+
+Each category is a discriminated union on the `kind` field.
+Serialisation uses `model_dump_json()` / `TypeAdapter.validate_json()`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Hashable
+from enum import StrEnum
+from typing import Annotated, Literal, Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+
+from rbtr.config import WeightTriple
+from rbtr.index.classify import Expansion, QueryKind
+from rbtr.index.models import ChangeKind, Chunk, Edge, IndexStats, ScoredChunk
+
+# ── Error codes ──────────────────────────────────────────────────────
+
+
+class ErrorCode(StrEnum):
+    """Error codes for the daemon protocol."""
+
+    INVALID_REQUEST = "invalid_request"
+    INDEX_NOT_BUILT = "index_not_built"
+    INDEX_IN_PROGRESS = "index_in_progress"
+    REPO_NOT_FOUND = "repo_not_found"
+    INTERNAL = "internal"
+
+
+class Scope(StrEnum):
+    """Breadth of a search or status request.
+
+    `WORKSPACE` is the single repo identified by `path`;
+    `ALL` is every indexed repo in the shared store.
+    """
+
+    WORKSPACE = "workspace"
+    ALL = "all"
+
+
+# ── Base ─────────────────────────────────────────────────────────────
+
+_STRICT = ConfigDict(extra="forbid")
+
+
+@runtime_checkable
+class HasPath(Protocol):
+    """Any message that carries a repository path."""
+
+    path: str
+
+
+# ── Job types (work queue) ───────────────────────────────────────────
+
+
+class BuildJob(BaseModel):
+    """A build-index job for the unified work queue."""
+
+    model_config = _STRICT
+    kind: Literal["build"] = "build"
+    path: str
+    refs: tuple[str, ...]
+    embed: bool = True
+
+    @property
+    def dedupe_key(self) -> Hashable:
+        return (self.path, self.refs)
+
+
+class EmbedJob(BaseModel):
+    """An embed-index job for the unified work queue."""
+
+    model_config = _STRICT
+    kind: Literal["embed"] = "embed"
+    path: str
+    repo_id: int
+    ref: str
+
+    @property
+    def dedupe_key(self) -> Hashable:
+        return (self.repo_id, self.ref)
+
+
+Job = Annotated[BuildJob | EmbedJob, Field(discriminator="kind")]
+
+
+# ── Requests (client → server) ──────────────────────────────────────
+
+
+class ShutdownRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["shutdown"] = "shutdown"
+
+
+class BuildIndexRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["index"] = "index"
+    path: str
+    refs: list[str] = ["HEAD"]
+    embed: bool = True
+
+
+class SearchRequest(BaseModel):
+    """Search the code index.
+
+    `weights` overrides the per-`QueryKind` fusion weights for
+    the duration of the call.  When `None`, per-kind defaults
+    apply.
+    """
+
+    model_config = _STRICT
+    kind: Literal["search"] = "search"
+    path: str
+    query: str
+    limit: int = 10
+    ref: str | None = None
+    weights: WeightTriple | None = None
+    reranker_pool: int | None = None
+    reranker_blend_weight: float | None = None
+    keywords: list[str] | None = None
+    variants: list[str] | None = None
+    scope: Scope = Scope.WORKSPACE
+    query_kind: str | None = Field(
+        default=None,
+        description=(
+            "Force expansion pipeline. One of concept|identifier|code. None means heuristic."
+        ),
+    )
+
+    @field_validator("query_kind")
+    @classmethod
+    def _check_query_kind(cls, v: str | None) -> str | None:
+        if v is not None and v not in QueryKind:
+            msg = f"query_kind must be one of {list(QueryKind)}; got {v!r}"
+            raise ValueError(msg)
+        return v
+
+
+class ReadSymbolRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["read_symbol"] = "read_symbol"
+    path: str
+    name: str
+    ref: str | None = None
+
+
+class ListSymbolsRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["list_symbols"] = "list_symbols"
+    path: str
+    file_path: str
+    ref: str | None = None
+
+
+class FindRefsRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["find_refs"] = "find_refs"
+    path: str
+    symbol: str
+    ref: str | None = None
+
+
+class ChangedSymbolsRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["changed_symbols"] = "changed_symbols"
+    path: str
+    base: str
+    head: str
+
+
+class StatusRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["status"] = "status"
+    path: str
+    scope: Scope = Scope.WORKSPACE
+
+
+class GcMode(StrEnum):
+    """What a `rbtr gc` invocation is allowed to delete."""
+
+    HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
+    KEEP_REFS = "keep_refs"  # keep all local refs (branches/tags/notes/HEAD)
+    KEEP = "keep"  # keep only listed refs
+    DROP = "drop"  # drop only listed refs
+    ORPHANS = "orphans"  # sweep residue only, drop no commits
+
+
+class GcRequest(BaseModel):
+    model_config = _STRICT
+    kind: Literal["gc"] = "gc"
+    path: str
+    mode: GcMode
+    refs: list[str] = []
+    dry_run: bool = False
+
+
+Request = Annotated[
+    ShutdownRequest
+    | BuildIndexRequest
+    | SearchRequest
+    | ReadSymbolRequest
+    | ListSymbolsRequest
+    | FindRefsRequest
+    | ChangedSymbolsRequest
+    | StatusRequest
+    | GcRequest,
+    Field(discriminator="kind"),
+]
+
+request_adapter: TypeAdapter[Request] = TypeAdapter(Request)
+
+
+# ── Responses (server → client) ─────────────────────────────────────
+
+
+class ErrorResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["error"] = "error"
+    code: ErrorCode
+    message: str
+
+
+class OkResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["ok"] = "ok"
+
+
+class BuildIndexResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["index"] = "index"
+    resolved_refs: list[str]
+    stats: IndexStats
+    errors: list[str]
+
+
+class SearchResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["search"] = "search"
+    results: list[ScoredChunk]
+    expansion: Expansion | None = None
+
+
+class ReadSymbolResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["read_symbol"] = "read_symbol"
+    chunks: list[Chunk]
+
+
+class ListSymbolsResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["list_symbols"] = "list_symbols"
+    chunks: list[Chunk]
+
+
+class FindRefsResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["find_refs"] = "find_refs"
+    edges: list[Edge]
+
+
+class ChangedSymbol(BaseModel):
+    """One changed symbol: its chunk plus how it changed."""
+
+    model_config = _STRICT
+    chunk: Chunk
+    change: ChangeKind
+
+
+class ChangedSymbolsResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["changed_symbols"] = "changed_symbols"
+    changes: list[ChangedSymbol]
+
+
+class ActiveJob(BaseModel):
+    """A build or embed job currently running in the daemon.
+
+    Used for both `active_build` and `active_embed` on
+    `StatusResponse` — the field name distinguishes them.
+
+    `ref` is the resolved SHA under build/embed.  `phase`
+    is the current stage (`"starting"`, `"parsing"`, or
+    `"embedding"`).  `current` / `total` come from the
+    orchestrator's progress callbacks; both are 0 until the
+    first callback fires.  `elapsed_seconds` is computed by
+    the daemon at snapshot time so the CLI doesn't need to
+    reason about clock boundaries.
+    """
+
+    model_config = _STRICT
+    path: str
+    ref: str
+    phase: str
+    current: int
+    total: int
+    elapsed_seconds: float
+
+
+class IndexedRef(BaseModel):
+    """Per-ref status: symbolic names, chunk count, embed completeness."""
+
+    model_config = _STRICT
+    sha: str
+    names: list[str] = []
+    total: int
+    embedded: int
+    repo_path: str | None = None
+
+
+class StatusResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["status"] = "status"
+    db_path: str | None = None
+    indexed_refs: list[IndexedRef] = []
+    active_build: ActiveJob | None = None
+    active_embed: ActiveJob | None = None
+
+
+class GcResponse(BaseModel):
+    model_config = _STRICT
+    kind: Literal["gc"] = "gc"
+    commits_dropped: int
+    snapshots_dropped: int
+    edges_dropped: int
+    chunks_dropped: int
+    elapsed_seconds: float
+    dry_run: bool = False
+
+
+Response = Annotated[
+    ErrorResponse
+    | OkResponse
+    | BuildIndexResponse
+    | SearchResponse
+    | ReadSymbolResponse
+    | ListSymbolsResponse
+    | FindRefsResponse
+    | ChangedSymbolsResponse
+    | StatusResponse
+    | GcResponse,
+    Field(discriminator="kind"),
+]
+
+response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
+
+
+# ── Notifications (server → PUB) ────────────────────────────────────
+
+
+class ProgressNotification(BaseModel):
+    model_config = _STRICT
+    kind: Literal["progress"] = "progress"
+    path: str
+    phase: str
+    current: int
+    total: int
+
+
+class ReadyNotification(BaseModel):
+    model_config = _STRICT
+    kind: Literal["ready"] = "ready"
+    path: str
+    ref: str
+    chunks: int
+    embedded: int
+    edges: int
+    elapsed: float
+
+
+class AutoRebuildNotification(BaseModel):
+    model_config = _STRICT
+    kind: Literal["auto_rebuild"] = "auto_rebuild"
+    path: str
+    new_ref: str
+
+
+class EmbedCompleteNotification(BaseModel):
+    model_config = _STRICT
+    kind: Literal["embed_complete"] = "embed_complete"
+    path: str
+    ref: str
+    chunks: int
+    embedded: int
+
+
+class IndexErrorNotification(BaseModel):
+    model_config = _STRICT
+    kind: Literal["index_error"] = "index_error"
+    path: str
+    message: str
+
+
+Notification = Annotated[
+    ProgressNotification
+    | ReadyNotification
+    | EmbedCompleteNotification
+    | AutoRebuildNotification
+    | IndexErrorNotification,
+    Field(discriminator="kind"),
+]
+
+notification_adapter: TypeAdapter[Notification] = TypeAdapter(Notification)
