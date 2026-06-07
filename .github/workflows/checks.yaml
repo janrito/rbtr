@@ -25,5 +25,5 @@ jobs:
 
       - name: Install and check
         run: |
-          just setup
+          just setup-ci
           just ci

@@ -2,11 +2,19 @@
 
 setup: setup-py setup-js
 
+setup-ci: setup-ci-py setup-ci-js
+
 setup-py:
     uv sync --all-groups --all-packages --all-extras
 
+setup-ci-py:
+    uv sync --frozen --all-packages --all-extras
+
 setup-js:
     bun install
+
+setup-ci-js:
+    bun install --frozen-lockfile
 
 # ── check ──
 
