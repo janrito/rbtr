@@ -1,6 +1,6 @@
 {
   "name": "@rbtr/skill-review-github-pr",
-  "version": "2026.6.0-dev3",
+  "version": "2026.6.0-dev4",
   "description": "pi skill — post GitHub PR reviews via gh and GraphQL",
   "license": "MIT",
   "keywords": ["pi-skill"],
