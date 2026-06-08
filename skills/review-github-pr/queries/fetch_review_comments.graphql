@@ -1,0 +1,26 @@
+query FetchReviewComments($reviewId: ID!) {
+  node(id: $reviewId) {
+    ... on PullRequestReview {
+      id
+      state
+      author {
+        login
+      }
+      comments(first: 100) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          fullDatabaseId
+          body
+          path
+          line
+          createdAt
+        }
+      }
+    }
+  }
+}

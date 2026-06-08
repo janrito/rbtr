@@ -1,0 +1,56 @@
+# Reranker tuning report
+
+## Parameters
+
+- **`reranker_pool`** — how many fusion candidates enter
+  the cross-encoder reranker. Larger pools give the
+  reranker more candidates to promote but cost more
+  latency.
+- **`reranker_blend_weight`** — blend between fusion and
+  reranker scores: `score = w * fusion + (1 - w) * reranker`.
+  `0.0` = pure reranker, `1.0` = pure fusion (no reranking
+  effect).
+
+## Grid results
+
+{{ grid_table }}
+
+## Per-provenance breakdown
+
+{{ provenance_table }}
+
+## Per-kind breakdown
+
+{{ kind_table }}
+
+## Per-kind recommendation
+
+{{ kind_rec_table }}
+
+```toml
+{{ kind_toml }}
+```
+
+## Per-slug breakdown (best config)
+
+{{ slug_table }}
+
+## Per-language breakdown (best config)
+
+{{ language_table }}
+
+## Recommended config (flat)
+
+```toml
+[reranker]
+pool = {{ best_pool }}
+blend_weight = {{ best_blend }}
+```
+
+## Run metadata
+
+{{ run_table }}
+
+## Sample distribution
+
+{{ sample_table }}

@@ -1,0 +1,18 @@
+diff --git a/src/client.py b/src/client.py
+index abc1234..def5678 100644
+--- a/src/client.py
++++ b/src/client.py
+@@ -40,3 +40,5 @@
+ existing line 40
+ existing line 41
++new line 42
++new line 43
+ existing line 44
+diff --git a/src/server.py b/src/server.py
+index 1111111..2222222 100644
+--- a/src/server.py
++++ b/src/server.py
+@@ -1,3 +1,2 @@
+ keep this
+-remove this
+ and this

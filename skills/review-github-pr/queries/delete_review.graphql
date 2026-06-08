@@ -1,0 +1,7 @@
+mutation DeleteReview($pullRequestReviewId: ID!) {
+  deletePullRequestReview(input: { pullRequestReviewId: $pullRequestReviewId }) {
+    pullRequestReview {
+      id
+    }
+  }
+}

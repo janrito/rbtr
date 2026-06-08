@@ -1,0 +1,16 @@
+# Paths that can't be covered by per-package .sqlfluffignore
+# files because they sit outside packages/.  Individual packages
+# ignore their own work dirs (e.g. packages/rbtr-eval/data/).
+
+.venv/
+node_modules/
+
+# Tool caches — none of these ship SQL today, but ignoring them
+# here costs nothing and guards against future false positives.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build artefacts.
+dist/
+build/

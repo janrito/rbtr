@@ -1,0 +1,7 @@
+mutation SubmitReview($pullRequestReviewId: ID!, $event: PullRequestReviewEvent!, $body: String) {
+  submitPullRequestReview(input: { pullRequestReviewId: $pullRequestReviewId, event: $event, body: $body }) {
+    pullRequestReview {
+      url
+    }
+  }
+}

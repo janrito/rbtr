@@ -1,0 +1,14 @@
+mutation AddReview(
+  $pullRequestId: ID!
+  $commitOID: GitObjectID!
+  $body: String!
+  $threads: [DraftPullRequestReviewThread!]!
+) {
+  addPullRequestReview(
+    input: { pullRequestId: $pullRequestId, commitOID: $commitOID, body: $body, threads: $threads }
+  ) {
+    pullRequestReview {
+      id
+    }
+  }
+}

@@ -1,0 +1,394 @@
+# rbtr
+
+A language-agnostic structural code index. rbtr decomposes
+source files into functions, classes, methods, and imports,
+connects them with a dependency graph, and makes them
+searchable through name matching, keyword search, and
+semantic similarity — fused into a single ranked result.
+
+## Quick start
+
+```bash
+uv tool install rbtr         # install the CLI
+
+cd /path/to/your/repo
+rbtr index                   # build the index
+rbtr search "retry logic"    # search it
+```
+
+A background daemon starts automatically and keeps the
+index current as HEAD changes. Subsequent builds are
+incremental — unchanged files (by blob SHA) are skipped.
+
+## Walkthrough
+
+Index a repository, then explore it:
+
+```text
+rbtr index
+⟳ parsing 177 files… done (1.2s)
+⟳ embedding 380 chunks… done (4.8s)
+
+rbtr search "search fusion"
+0.49  doc_section  Search fusion     ARCHITECTURE.md:447
+0.33  function     classify_query    index/search.py:96
+0.28  doc_section  Fusion weights    templates/tuning.md.j2:3
+```
+
+Read the top hit's source:
+
+```text
+rbtr read-symbol fuse_scores
+packages/rbtr/src/rbtr/index/search.py:298–380  (function)
+def fuse_scores(
+    scored: dy.DataFrame[FusionInputRow],
+    query: str,
+    ...
+```
+
+See what changed between two refs:
+
+```text
+rbtr changed-symbols HEAD~3 HEAD
+doc_section  Architecture           ARCHITECTURE.md:1
+doc_section  CLI integration         ARCHITECTURE.md:44
+function     resolveCommand          exec.ts:34
+```
+
+List symbols in a file:
+
+```text
+rbtr list-symbols src/rbtr/index/search.py
+function  _name_score_expr             44–86
+function  _kind_boost_expr             95–127
+function  fuse_scores                  298–380
+function  search                       381–494
+```
+
+## Commands
+
+### `rbtr index`
+
+Build or update the index for a repository.
+
+```bash
+rbtr index                         # index HEAD
+rbtr index HEAD~1 HEAD             # incremental: base + head
+```
+
+### `rbtr search <query>`
+
+Search the code index.
+
+```bash
+rbtr search "IndexStore"          # name match
+rbtr search "retry timeout"       # keyword search
+rbtr search "how does auth work"  # semantic search
+```
+
+Combines name, keyword, and semantic search into a
+single ranked result. See
+[ARCHITECTURE.md](ARCHITECTURE.md#search-fusion)
+for the fusion algorithm.
+
+Pass `--scope all` to search every indexed repo in the
+shared store, not just the current one. Results from all
+repos merge into one ranked list, each prefixed with its
+repo name:
+
+```bash
+$ rbtr search "connection pool" --scope all
+ukf/deploy/pgbouncer/settings.env:1-9  config
+  0.84  [a1b2c3d4]
+rbtr/packages/rbtr/src/rbtr/index/store.py  IndexStore.close
+  0.23  [e5f6a7b8]
+```
+
+Scope defaults to `workspace` (the current repo only).
+
+### `rbtr read-symbol <name>`
+
+Full source of a symbol by name.
+
+```bash
+rbtr read-symbol fuse_scores
+```
+
+### `rbtr list-symbols <file>`
+
+Table of contents for a file — one line per symbol.
+
+```bash
+rbtr list-symbols src/rbtr/index/search.py
+```
+
+### `rbtr find-refs <symbol>`
+
+Symbols that reference a given symbol via the dependency
+graph (imports, tests, docs).
+
+```bash
+rbtr find-refs IndexStore
+```
+
+### `rbtr changed-symbols <base> <head>`
+
+Symbols in files that changed between two refs.
+
+```bash
+rbtr changed-symbols HEAD~5 HEAD
+```
+
+### `rbtr status`
+
+Index status: indexed refs, chunk counts, active builds.
+
+```bash
+rbtr status
+```
+
+Pass `--scope all` to list every indexed repo in the
+shared store, grouped by repo:
+
+```bash
+$ rbtr status --scope all
+✓  indexed repos
+  /home/me/projects/ukf
+     a4aa7830ad87 (HEAD, main)  68.8k indexed  68.8k embedded ✓
+  /home/me/projects/rbtr
+     aa2ecc4bbefb (HEAD)  5.8k indexed  5.8k embedded ✓
+```
+
+### `rbtr config`
+
+Rendered configuration with all defaults, TOML overrides,
+and env vars merged.
+
+```bash
+rbtr config
+```
+
+### `rbtr daemon`
+
+```bash
+rbtr daemon start     # start the daemon
+rbtr daemon stop      # stop it
+rbtr daemon status    # show state and build progress
+```
+
+Starts automatically on first `rbtr index` or `rbtr search`.
+
+### `rbtr gc`
+
+Garbage-collect old index data.
+
+```bash
+rbtr gc --mode drop --refs HEAD~5
+rbtr gc --dry-run
+```
+
+Modes: `head_only` keeps only the current HEAD.
+`keep_refs` keeps HEAD plus local branches and tags.
+`keep` keeps HEAD plus the caller-supplied refs.
+`drop` removes only the supplied refs.
+`orphans` sweeps residue from crashed builds.
+
+## Output modes
+
+- **TTY**: rich-formatted text with syntax highlighting.
+- **Piped / `--json`**: NDJSON — one JSON object per line.
+
+Example NDJSON from `rbtr search --json`:
+
+```json
+{"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_path":"src/rbtr/index/search.py","score":0.49,...}]}
+```
+
+See [Daemon protocol](ARCHITECTURE.md#daemon-protocol)
+for the full response models.
+
+## Configuration
+
+`{config_dir}/config.toml`. Environment variables with
+`RBTR_` prefix override file values. Run `rbtr config` to
+see the full rendered config with all defaults.
+
+Notable settings:
+
+- `embedding_model` — HuggingFace GGUF model ID.
+- `search_weights` — per-query-kind fusion weights
+  `(alpha, beta, gamma)` for the semantic, lexical, and
+  name-match channels.
+- `reranker_model` — cross-encoder GGUF model ID. Set to
+  `""` to disable reranking.
+- `reranker_settings` — per-query-kind reranker pool size
+  and blend weight.
+
+Run `rbtr config` to see every field with its current
+value.
+
+Query expansion (keywords and variant rephrases) is
+client-supplied: the caller passes `keywords` and `variants`
+on `SearchRequest`. In pi sessions the LLM generates these
+automatically via tool-call parameters.
+
+Directories are resolved via [platformdirs]. Four are
+independently overridable (`--data-dir`, `--config-dir`,
+`--log-dir`, `--cache-dir`). `runtime_dir` is derived from
+`hash(data_dir)` — never overridable.
+
+[platformdirs]: https://platformdirs.readthedocs.io/
+
+## Supported languages
+
+Languages with tree-sitter grammars get structural
+extraction (symbol-level chunks, import metadata, scope
+detection). Everything else gets line-based chunking.
+
+Built-in: bash, c, cpp, css, go, hcl, html, java,
+javascript, json, markdown, python, rst, ruby, rust,
+toml, typescript, yaml.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
+for how the plugin system works.
+
+## Writing a language plugin
+
+Every plugin is a Python file under `rbtr/languages/`
+with a pluggy hook that returns `LanguageRegistration`
+instances. A plugin provides whatever fields its language
+needs.
+
+### Query-based plugin (preferred)
+
+Most languages need only a tree-sitter query. The generic
+`extract_symbols` pipeline handles parsing, capture
+matching, scope detection, and chunk construction.
+
+```python
+# rbtr/languages/swift.py
+from __future__ import annotations
+from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+
+_QUERY = """\
+(function_declaration
+  name: (identifier) @_fn_name) @function
+(class_declaration
+  name: (type_identifier) @_cls_name) @class
+(import_declaration
+  (identifier) @_import_module) @import
+"""
+
+class SwiftPlugin:
+    @hookimpl
+    def rbtr_register_languages(self) -> list[LanguageRegistration]:
+        return [
+            LanguageRegistration(
+                id="swift",
+                extensions=frozenset({".swift"}),
+                grammar_module="tree_sitter_swift",
+                query=_QUERY,
+                scope_types=frozenset({"class_declaration"}),
+                doc_comment_node_types=frozenset({"comment"}),
+            ),
+        ]
+```
+
+Capture conventions: `@function`/`@_fn_name`,
+`@class`/`@_cls_name`, `@method`/`@_method_name`,
+`@import`/`@_import_module`, `@doc_section`/`@_section_name`.
+
+Import captures: `@_import_module` populates
+`ImportMeta.module` directly from the query, with delimiter
+stripping for `<>` (system includes) and `"` (string literals).
+Each `@import` match is passed to the language's
+`import_extractor`, which reads captures first then walks
+the node for what the query can't express (e.g. multi-valued
+import names). Languages that don't need custom logic
+register `build_import_from_captures` as their extractor.
+
+Cross-language imports: `ImportMeta.language_hint` directs
+resolution when the target language differs from the source
+(e.g. HTML `<script src>` → `language_hint="javascript"`).
+
+### Chunker-based plugin
+
+When the language's structural units can't be expressed
+as query captures (heading hierarchies, composed names,
+content-minus-children), write a custom chunker. The
+chunker receives the grammar from the manager:
+
+```python
+# rbtr/languages/example.py
+from __future__ import annotations
+from typing import TYPE_CHECKING
+from tree_sitter import Parser
+from rbtr.index.chunks import make_chunk_id
+from rbtr.index.models import Chunk, ChunkKind
+from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+
+if TYPE_CHECKING:
+    from tree_sitter import Language
+
+def chunk_example(
+    file_path: str, blob_sha: str, content: str, grammar: Language,
+) -> list[Chunk]:
+    parser = Parser(grammar)
+    tree = parser.parse(content.encode())
+    # ... walk tree, build Chunk objects ...
+    return chunks
+
+class ExamplePlugin:
+    @hookimpl
+    def rbtr_register_languages(self) -> list[LanguageRegistration]:
+        return [
+            LanguageRegistration(
+                id="example",
+                extensions=frozenset({".ex"}),
+                grammar_module="tree_sitter_example",
+                chunker=chunk_example,
+            ),
+        ]
+```
+
+### Registration
+
+Built-in plugins: add the import and class to
+`rbtr/languages/__init__.py` in `_register_builtins`.
+
+External plugins: register via setuptools entry points:
+
+```toml
+[project.entry-points."rbtr.languages"]
+swift = "rbtr_swift:SwiftPlugin"
+```
+
+External registrations override built-in ones for the
+same language ID.
+
+## Graceful degradation
+
+- **No grammar** → line-based plaintext chunking.
+- **No embedding model** → structural index works, semantic
+  search skipped.
+- **No client-supplied expansion** → search runs on the
+  original query only (no keyword or variant widening).
+- **No reranker model** → search returns fusion-ranked
+  results without cross-encoder reranking.
+- **No FTS index** (first search before any build completes)
+  → error with guidance to run `rbtr index`.
+
+## Development
+
+```bash
+git clone <repo-url>
+cd rbtr
+uv sync --extra languages
+just check    # lint + typecheck + test
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for internals.
+
+## License
+
+MIT

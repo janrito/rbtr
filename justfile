@@ -1,18 +1,39 @@
-check: lint typecheck test
+# ── setup ──
 
-ci: lint typecheck test-cov
+setup: setup-py setup-js
 
-fmt: fmt-py fmt-sql fmt-md
+setup-ci: setup-ci-py setup-ci-js
 
-lint: lint-py lint-sql lint-md
+setup-py:
+    uv sync --all-groups --all-packages --all-extras
+
+setup-ci-py:
+    uv sync --frozen --all-packages --all-extras
+
+setup-js:
+    bun install
+
+setup-ci-js:
+    bun install --frozen-lockfile
+
+# ── check ──
+
+[default]
+check: schema-check validate-graphql lint typecheck test test-ts
+
+ci: schema-check validate-graphql lint typecheck test-cov test-ts
+
+fmt: fmt-py fmt-ts fmt-sql fmt-md
+
+lint: lint-py lint-ts lint-sql lint-md
 
 fmt-py:
-    uv run ruff check --fix .
-    uv run ruff format .
+    uv run ruff check --fix
+    uv run ruff format
 
 lint-py:
-    uv run ruff check .
-    uv run ruff format --check .
+    uv run ruff check
+    uv run ruff format --check
 
 fmt-sql:
     uv run sqlfluff fix .
@@ -26,65 +47,80 @@ fmt-md *FILES:
 lint-md *FILES:
     uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
-typecheck:
+fmt-ts:
+    bunx @biomejs/biome check --fix packages/pi-rbtr skills/review-github-pr/queries
+
+lint-ts:
+    bunx @biomejs/biome check packages/pi-rbtr skills/review-github-pr/queries
+
+typecheck: typecheck-py typecheck-ts
+
+typecheck-py:
     uv run mypy
 
-test:
+typecheck-ts:
+    cd packages/pi-rbtr && bunx tsc --noEmit
+
+# Regenerate the pi-rbtr TypeScript protocol types from the
+# Python models (via `rbtr schema-dump`).  The generated file is
+# committed, so CI (and local `just check`) runs this before
+
+# `git diff --exit-code` fails on any drift.
+schema-check:
+    cd packages/pi-rbtr && bun run scripts/gen-types.ts
+    git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
+
+validate-graphql:
+    curl -sf "https://docs.github.com/public/fpt/schema.docs.graphql" -o /tmp/github-schema.graphql
+    bunx --bun @graphql-inspector/cli validate \
+        "skills/review-github-pr/queries/*.graphql" \
+        /tmp/github-schema.graphql
+
+test: test-py test-ts
+
+test-py:
     uv run pytest
+
+test-ts:
+    cd packages/pi-rbtr && uv run bunx vitest run
 
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
-build:
-    uv build
+# ── build ──
+
+build: build-py build-ext
+
+build-py:
+    uv build --package rbtr --out-dir dist
+
+build-ext:
+    mkdir -p dist
+    npm pack ./packages/pi-rbtr --pack-destination dist
+    npm pack ./skills/review-github-pr --pack-destination dist
+
+# ── skills ──
+
+# Editable-install all CLI tools so they're available globally.
+install-tools:
+    uv tool install -eU packages/rbtr
 
 # ── dead code detection (requires `uv sync --group debug`) ──
 
 dead-code:
     uv run --group debug vulture
 
-# ── profiling (requires `uv sync --group debug`) ──
-# Benchmark indexing + query latency (no embedding).
+# Run the rbtr-eval pipeline (clone -> extract -> merge -> measure).
 
-# Usage: just bench [repo-path] [base-ref] [head-ref]
-bench *ARGS:
-    uv run scripts/bench_index.py {{ ARGS }}
+# Run a single stage with `cd packages/rbtr-eval && uv run dvc repro <stage>`.
+eval *FLAGS:
+    cd packages/rbtr-eval && uv run {{ FLAGS }} dvc repro
 
-# Mine real search queries from session history and replay them.
-# Usage: just bench-search [path/to/sessions.db]
-bench-search *ARGS:
-    uv run scripts/bench_search.py {{ ARGS }}
-
-# Evaluate search quality against curated queries (rbtr repo only).
-
-# Usage: just eval-search [ref]
-eval-search *ARGS:
-    uv run scripts/eval_search.py {{ ARGS }}
-
-# Tune search fusion weights via grid search (rbtr repo only).
-
-# Usage: just tune-search [--step 0.05]
-tune-search *ARGS:
-    uv run scripts/tune_search.py {{ ARGS }}
-
-# Run bench_index.py under scalene (line-level CPU + memory).
-
-# Usage: just bench-scalene [repo-path] [base-ref] [head-ref]
-bench-scalene *ARGS:
-    uv run --group debug python -m scalene run -o .rbtr/scalene-bench.json scripts/bench_index.py {{ ARGS }}
-
-# View a scalene profile in browser (defaults to bench profile).
-
-# Usage: just scalene-view [path-to-json]
-scalene-view *ARGS:
-    uv run --group debug python -m scalene view {{ ARGS }}
-
+# ── release ──
 # Get the current version from pyproject.toml
 
 current_version := `uvx bump-my-version show current_version`
 is_dev := if current_version =~ '.*dev.*' { 'true' } else { 'false' }
-
-
 
 # Bump version, branch, commit, tag, and push.
 # The branch name determines which workflow runs (release-* or pre-release-*).

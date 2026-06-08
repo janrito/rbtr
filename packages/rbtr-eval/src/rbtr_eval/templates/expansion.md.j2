@@ -1,0 +1,41 @@
+# Expansion report
+
+LLM-generated keyword synonyms and variant rephrasings for
+search queries. Every query kind receives both keywords and
+variants; the prompt is tailored per kind. The downstream
+ablation in `measure` isolates the effect of each channel.
+
+## Summary
+
+{{ summary_table }}
+
+## Per-kind breakdown
+
+{{ kind_table }}
+
+## Per-repo breakdown
+
+{{ repo_table }}
+
+## Per-provenance breakdown
+
+{{ provenance_table }}
+
+## Examples
+{% for ex in examples %}
+
+### {{ ex.kind }}: `{{ ex.heading }}` (`{{ ex.slug }}`)
+{% if ex.heading != ex.name %}
+**symbol:**
+
+```
+{{ ex.name }}
+```
+{% endif %}
+````{{ ex.language }}
+{{ ex.query }}
+````
+
+- **keywords:** {{ ex.keywords }}
+- **variants:** {{ ex.variants }}
+{%- endfor %}

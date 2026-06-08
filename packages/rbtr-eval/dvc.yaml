@@ -1,0 +1,271 @@
+vars:
+  - repos_dir: data/repos
+  # Isolation for this pipeline.
+  - data_dir: data/index
+  - config_dir: data/config
+  - log_dir: data/logs
+  - per_repo_dir: data/per-repo
+  - headers_dir: data/headers
+  - report: data/BENCHMARKS.md
+  - metrics: data/metrics.json
+  - tuning_report: data/TUNING.md
+  - reranker_tuning_report: data/RERANKER_TUNING.md
+  - reranker_tune_queries_per_cell: 5
+  - reranker_pool_min: 20
+  - reranker_pool_max: 80
+  - reranker_pool_step: 30
+  - reranker_blend_min: 0.0
+  - reranker_blend_max: 1.0
+  - reranker_blend_steps: 5
+  - expansion_report: data/EXPANSION.md
+  - paraphrase_report: data/PARAPHRASE.md
+  - paraphrase_concurrency: 20
+  - seed: 0
+  - queries_per_cell: 25
+  - n_trials: 50
+  - tune_queries_per_cell: 10
+  # Local clone (`../..`) gets HEAD via `git clone`; remotes get
+  # the default branch.  Resolved SHAs are recorded by `extract`.
+  # Local clone only sees committed state; uncommitted dev
+  # changes are silently ignored — desirable for reproducibility.
+  - concept_dir: data/concept
+  - expansion_dir: data/expansion
+  - expansion_model: openai:zai-org/GLM-5.1
+  - expansion_concurrency: 20
+  - paraphrase_model: openai:zai-org/GLM-5.1
+  - repos:
+      - slug: rbtr__rbtr
+        url: ../..
+      - slug: django__django
+        url: git@github.com:django/django.git
+      - slug: badlogic__pi-mono
+        url: git@github.com:badlogic/pi-mono.git
+      - slug: astral-sh__uv
+        url: git@github.com:astral-sh/uv.git
+      - slug: anthropics__skills
+        url: https://github.com/anthropics/skills
+
+stages:
+  clone:
+    foreach: ${repos}
+    do:
+      frozen: true
+      cmd: git clone --depth 1 ${item.url} ${repos_dir}/${item.slug}
+      outs:
+        - ${repos_dir}/${item.slug}:
+            cache: false
+            push: false
+
+  extract:
+    foreach: ${repos}
+    do:
+      cmd: >-
+        python -m rbtr_eval extract
+        --slug ${item.slug}
+        --data-dir ${data_dir}
+        --out-dir ${per_repo_dir}
+        --headers-dir ${headers_dir}
+        --seed ${seed}
+        --queries-per-cell ${queries_per_cell}
+      deps:
+        - src/rbtr_eval/extract.py
+        - data/.chunks-ready
+      outs:
+        - ${per_repo_dir}/${item.slug}.parquet
+        - ${headers_dir}/${item.slug}.parquet
+
+  paraphrase:
+    foreach: ${repos}
+    do:
+      cmd: >-
+        python -m rbtr_eval paraphrase
+        --slug ${item.slug}
+        --symbols ${per_repo_dir}/${item.slug}.parquet
+        --repo-path ${repos_dir}/${item.slug}
+        --data-dir ${data_dir}
+        --out ${concept_dir}/${item.slug}.parquet
+        --model ${paraphrase_model}
+        --concurrency ${paraphrase_concurrency}
+      deps:
+        - src/rbtr_eval/paraphrase.py
+        - ${per_repo_dir}/${item.slug}.parquet
+        - data/.chunks-ready
+      outs:
+        - ${concept_dir}/${item.slug}.parquet
+
+  paraphrase-report:
+    cmd: >-
+      python -m rbtr_eval paraphrase-report
+      --concept-dir ${concept_dir}
+      --data-dir ${data_dir}
+      --model ${paraphrase_model}
+      --report ${paraphrase_report}
+      && uv run rumdl fmt ${paraphrase_report}
+    deps:
+      - src/rbtr_eval/paraphrase.py
+      - ${concept_dir}
+      - data/.chunks-ready
+    outs:
+      - ${paraphrase_report}:
+          cache: false
+
+  expand:
+    cmd: >-
+      python -m rbtr_eval expand
+      --per-repo-dir ${per_repo_dir}
+      --concept-dir ${concept_dir}
+      --out ${expansion_dir}/expansions.parquet
+      --model ${expansion_model}
+      --concurrency ${expansion_concurrency}
+      --report ${expansion_report}
+      && uv run rumdl fmt ${expansion_report}
+    deps:
+      - src/rbtr_eval/expand.py
+      - ${per_repo_dir}
+      - ${concept_dir}
+    outs:
+      - ${expansion_dir}/expansions.parquet
+      - ${expansion_report}:
+          cache: false
+
+  # Two stages share the same DuckDB file (`${data_dir}`).  Neither
+  # declares it as `outs` — both write to it as a side effect.
+  # Ordering is enforced via sentinel files:
+  #   index (.chunks-ready) → embed (.embed-ready)
+  # Parallel execution of `embed` and `paraphrase` is safe because
+  # `paraphrase` only reads (DuckDB MVCC handles the concurrency).
+  index:
+    cmd: >-
+      python -m rbtr_eval index
+      --no-embed
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      --repos-dir ${repos_dir}
+      --sentinel data/.chunks-ready
+      --report data/INDEX.md
+      && uv run rumdl fmt data/INDEX.md
+    deps:
+      - src/rbtr_eval/index_stage.py
+      - ../rbtr/src/rbtr
+      - ${repos_dir}
+    outs:
+      - data/.chunks-ready:
+          cache: false
+      - data/INDEX.md:
+          cache: false
+      - ${config_dir}:
+          cache: false
+          push: false
+          persist: true
+
+  embed:
+    cmd: >-
+      python -m rbtr_eval index
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      --repos-dir ${repos_dir}
+      --sentinel data/.embed-ready
+      --report data/EMBEDDING.md
+      && uv run rumdl fmt data/EMBEDDING.md
+    deps:
+      - src/rbtr_eval/index_stage.py
+      - ../rbtr/src/rbtr
+      - data/.chunks-ready
+    outs:
+      - data/.embed-ready:
+          cache: false
+      - data/EMBEDDING.md:
+          cache: false
+
+  measure:
+    cmd: >-
+      python -m rbtr_eval measure
+      --per-repo-dir ${per_repo_dir}
+      --concept-dir ${concept_dir}
+      --headers-dir ${headers_dir}
+      --repos-dir ${repos_dir}
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      --report ${report}
+      --metrics ${metrics}
+      --expansion-dir ${expansion_dir}
+      && uv run rumdl fmt ${report}
+    deps:
+      - src/rbtr_eval/measure.py
+      - src/rbtr_eval/templates/benchmarks.md.j2
+      - ../rbtr/src/rbtr
+      - ${per_repo_dir}
+      - ${concept_dir}
+      - ${headers_dir}
+      - ${expansion_dir}
+      - data/.embed-ready
+    outs:
+      - ${report}:
+          cache: false
+      - data/mrr_by_repo.png:
+          cache: false
+      - data/mrr_by_provenance.png:
+          cache: false
+    metrics:
+      - ${metrics}:
+          cache: false
+
+  tune:
+    cmd: >-
+      python -m rbtr_eval tune
+      --per-repo-dir ${per_repo_dir}
+      --concept-dir ${concept_dir}
+      --repos-dir ${repos_dir}
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      --n-trials ${n_trials}
+      --tune-queries-per-cell ${tune_queries_per_cell}
+      --seed ${seed}
+      --report ${tuning_report}
+      && uv run rumdl fmt ${tuning_report}
+    deps:
+      - src/rbtr_eval/tune.py
+      - ../rbtr/src/rbtr
+      - ${per_repo_dir}
+      - ${concept_dir}
+      - data/.embed-ready
+    outs:
+      - ${tuning_report}:
+          cache: false
+      - data/convergence.png:
+          cache: false
+      - data/simplex.png:
+          cache: false
+
+  tune-reranker:
+    cmd: >-
+      python -m rbtr_eval tune-reranker
+      --per-repo-dir ${per_repo_dir}
+      --concept-dir ${concept_dir}
+      --repos-dir ${repos_dir}
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      --queries-per-cell ${reranker_tune_queries_per_cell}
+      --pool-min ${reranker_pool_min}
+      --pool-max ${reranker_pool_max}
+      --pool-step ${reranker_pool_step}
+      --blend-min ${reranker_blend_min}
+      --blend-max ${reranker_blend_max}
+      --blend-steps ${reranker_blend_steps}
+      --seed ${seed}
+      --report ${reranker_tuning_report}
+      && uv run rumdl fmt ${reranker_tuning_report}
+    deps:
+      - src/rbtr_eval/tune_reranker.py
+      - ../rbtr/src/rbtr
+      - ${per_repo_dir}
+      - ${concept_dir}
+      - data/.embed-ready
+    outs:
+      - ${reranker_tuning_report}:
+          cache: false

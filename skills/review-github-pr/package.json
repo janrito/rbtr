@@ -1,0 +1,11 @@
+{
+  "name": "@rbtr/skill-review-github-pr",
+  "version": "2026.4.0",
+  "description": "pi skill — post GitHub PR reviews via gh and GraphQL",
+  "license": "MIT",
+  "keywords": ["pi-skill"],
+  "files": ["SKILL.md", "queries/", "references/"],
+  "publishConfig": {
+    "access": "public"
+  }
+}

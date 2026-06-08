@@ -1,79 +1,7 @@
-[build-system]
-requires = ["uv_build>=0.9,<1"]
-build-backend = "uv_build"
-
-# -- Project metadata --
-
-[project]
-name = "rbtr"
-version = "2026.4.0"
-description = "rbtr — Interactive LLM-powered PR review workbench"
-readme = "README.md"
-license = "MIT"
-requires-python = ">=3.13"
-dependencies = [
-  "anyio>=4.0",
-  "httpx",
-  "pydantic>=2.12.5",
-  "pydantic-ai>=1.70.0",
-  "pydantic-settings[toml]>=2.12.0",
-  "tomli-w",
-  "PyGithub",
-  "pygit2",
-  "rich",
-  "prompt-toolkit>=3.0",
-  "minijinja>=2.15.1",
-  "tree-sitter>=0.24",
-  "tree-sitter-python",
-  "tree-sitter-json",
-  "tree-sitter-yaml",
-  "tree-sitter-toml",
-  "tree-sitter-bash",
-  "duckdb>=1.0",
-  "pyarrow>=17.0",
-  "llama-cpp-python",
-  "huggingface-hub",
-  "pluggy>=1.6.0",
-  "uuid-utils>=0.14.1",
-  "ruamel-yaml>=0.19.1",
-  "python-frontmatter>=1.1.0",
-]
-
-[project.optional-dependencies]
-languages = [
-  "tree-sitter-c",
-  "tree-sitter-c-sharp",
-  "tree-sitter-cpp",
-  "tree-sitter-css",
-  "tree-sitter-go",
-  "tree-sitter-hcl",
-  "tree-sitter-html",
-  "tree-sitter-java",
-  "tree-sitter-javascript",
-  "tree-sitter-kotlin",
-  "tree-sitter-ruby",
-  "tree-sitter-rust",
-  "tree-sitter-scala",
-  "tree-sitter-swift",
-  "tree-sitter-typescript",
-]
-
-[project.scripts]
-rbtr = "rbtr.cli:main"
-
-[dependency-groups]
-debug = ["ipython>=9.10.0", "scalene>=2.1", "vulture>=2.14"]
-dev = [
-  "mypy",
-  "pytest",
-  "pytest-cases>=3.10.1",
-  "pytest-cov",
-  "pytest-httpx>=0.36.0",
-  "pytest-mock",
-  "pytest-xdist>=3.8.0",
-  "ruff",
-  "rumdl>=0.1.43",
-  "sqlfluff>=4.0.4",
+[tool.uv.workspace]
+members = [
+  "packages/rbtr",
+  "packages/rbtr-eval",
 ]
 
 # -- ruff --
@@ -81,6 +9,10 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 100
+src = [
+  "packages/rbtr/src",
+  "packages/rbtr-eval/src",
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -88,31 +20,32 @@ quote-style = "double"
 [tool.ruff.lint]
 select = [
   "A",
+  "ASYNC",
   "B",
+  "BLE",
   "C4",
   "DTZ",
   "E",
   "F",
   "G",
   "I",
+  "INT",
+  "ISC",
   "LOG",
   "PT",
   "RUF",
   "S",
   "SIM",
+  "TRY",
   "UP",
   "W",
 ]
 ignore = ["E501", "W191"]
 unfixable = ["B"]
 
-
 [tool.ruff.lint.extend-per-file-ignores]
-"src/tests/**/*.py" = [
+"**/tests/**/*.py" = [
   "S101", # asserts allowed in tests
-  "S105", # hardcoded password in test assertions
-  "S106", # hardcoded password in test arguments
-  "S107", # hardcoded password in test defaults
 ]
 
 [tool.ruff.lint.flake8-quotes]
@@ -154,15 +87,13 @@ indent_unit = "space"
 tab_space_size = 2
 
 [tool.sqlfluff.templater.placeholder]
-param_style = "question_mark"
-
+param_style = "dollar"
 
 # -- mypy --
 
 [tool.mypy]
 python_version = "3.13"
-mypy_path = "src"
-packages = ["rbtr"]
+packages = ["rbtr", "rbtr_eval"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
@@ -171,37 +102,39 @@ show_error_codes = true
 warn_redundant_casts = true
 warn_unused_configs = true
 
-[[tool.mypy.overrides]]
-module = "frontmatter"
-ignore_missing_imports = true
 
 
 # -- Pytest & Coverage --
 
 [tool.pytest.ini_options]
-testpaths = ["src/tests"]
+testpaths = [
+  "packages/rbtr/src/rbtr/tests",
+  "packages/rbtr-eval/src/rbtr_eval/tests",
+]
 minversion = "6.0"
 addopts = ["--strict-markers", "--import-mode=importlib", "-n", "auto"]
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
+
+[tool.pytest_env]
+RBTR_DATA_DIR = {value = "/tmp/rbtr-test-data", transform = true}
+RBTR_CONFIG_DIR = {value = "/tmp/rbtr-test-config", transform = true}
+RBTR_LOG_DIR = {value = "/tmp/rbtr-test-logs", transform = true}
+RBTR_DB_NAME = "test_index.duckdb"
+RBTR_WARMUP = "false"
+# Tests run the tiny CPU embedding model (all-MiniLM-L6-v2, 384-dim,
+# ~20 MB) instead of the 600 MB production model.  In-process tests
+# use StubModel (instant); only the subprocess CLI smoke tests load
+# the real GGUF.  Reranker disabled — irrelevant to routing tests.
+RBTR_EMBEDDING_MODEL = "second-state/All-MiniLM-L6-v2-Embedding-GGUF/all-MiniLM-L6-v2-Q4_0.gguf"
+RBTR_EMBEDDING_POOLING_TYPE = "1"
+RBTR_RERANKER_MODEL = ""
 
 [tool.coverage.run]
 branch = true
+source = ["rbtr", "rbtr_eval"]
 
 [tool.coverage.report]
 show_missing = true
-
-[tool.vulture]
-min_confidence = 80
-paths = ["src/rbtr"]
-ignore_names = [
-  "init_settings",        # pydantic_settings settings_customise_sources
-  "dotenv_settings",      # pydantic_settings settings_customise_sources
-  "file_secret_settings", # pydantic_settings settings_customise_sources
-  "exc_type",             # __exit__ signature
-  "exc_val",              # __exit__ signature
-  "exc_tb",               # __exit__ signature
-  "user_data",            # llama_cpp log callback signature
-  "format",               # http.server log_message signature
-]
 
 # -- Versioning --
 
@@ -212,7 +145,7 @@ parse = """(?x)                     # Verbose mode
         (?:[1-9][0-9]{3})\\.        # YYYY.
         (?:1[0-2]|[1-9])            # MM.
     )
-    \\.(?P<num>0|[1-9]\\d*)    # num version number
+    \\.(?P<num>0|[1-9]\\d*)         # num version number
     (?:
          -(?P<pre_label>dev|stable)     # pre_release label
         (?P<pre_release>0|[1-9]\\d*)    # pre_release version number
@@ -233,4 +166,42 @@ optional_value = "stable"
 values = ["dev", "stable"]
 
 [[tool.bumpversion.files]]
-glob = "**/pyproject.toml"
+glob = "packages/*/pyproject.toml"
+
+[[tool.bumpversion.files]]
+glob = "packages/*/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
+[[tool.bumpversion.files]]
+glob = "skills/*/package.json"
+search = '"version": "{current_version}"'
+replace = '"version": "{new_version}"'
+
+[tool.vulture]
+min_confidence = 80
+paths = ["packages/rbtr/src/rbtr", "packages/rbtr-eval/src/rbtr_eval"]
+ignore_names = [
+  "init_settings",        # pydantic_settings settings_customise_sources
+  "dotenv_settings",      # pydantic_settings settings_customise_sources
+  "file_secret_settings", # pydantic_settings settings_customise_sources
+  "exc_type",             # __exit__ signature
+  "exc_val",              # __exit__ signature
+  "exc_tb",               # __exit__ signature
+  "user_data",            # llama_cpp log callback signature
+  "format",               # http.server log_message signature
+]
+
+[dependency-groups]
+debug = [
+    "vulture>=2.16",
+]
+dev = [
+    "mypy>=2.1.0",
+    "pytest-cov>=6.2",
+    "pytest-env>=1.6.0",
+    "ruff>=0.15.13",
+    "rumdl>=0.1.93",
+    "rust-just>=1.51.0",
+    "sqlfluff>=4.2.1",
+]

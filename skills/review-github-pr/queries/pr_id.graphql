@@ -1,0 +1,15 @@
+query PRId($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      reviews(first: 100, states: [PENDING]) {
+        nodes {
+          id
+          author {
+            login
+          }
+        }
+      }
+    }
+  }
+}
