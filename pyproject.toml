@@ -139,7 +139,7 @@ show_missing = true
 # -- Versioning --
 
 [tool.bumpversion]
-current_version = "2026.6.0-dev5"
+current_version = "2026.6.0-dev6"
 parse = """(?x)                     # Verbose mode
     (?P<release>                    # The release part
         (?:[1-9][0-9]{3})\\.        # YYYY.
