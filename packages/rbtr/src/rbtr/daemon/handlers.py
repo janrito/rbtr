@@ -73,6 +73,8 @@ def _resolve_read_ref(
     repo_path: str,
     repo_id: int,
     requested_ref: str | None,
+    *,
+    require_indexed: bool = False,
 ) -> str:
     """Resolve a ref for read operations.
 
@@ -82,14 +84,20 @@ def _resolve_read_ref(
     `"HEAD"` always resolves to the committed state.  Falls back
     to the latest indexed commit when the repo is missing.
     Raises `RbtrError` if the ref cannot be resolved.
+
+    When *require_indexed* is set and an explicit *requested_ref*
+    was given, the resolved SHA must already be indexed, else
+    `RbtrError` is raised rather than silently returning an empty
+    result.  The implicit worktree/HEAD path is unaffected.
     """
+    explicit = requested_ref is not None
     if requested_ref is None:
         tree_sha = worktree_tree_sha(repo_path)
         if tree_sha is not None and store.has_indexed(repo_id, tree_sha):
             return tree_sha
         requested_ref = "HEAD"
     try:
-        return resolve_ref(repo_path, requested_ref)
+        sha = resolve_ref(repo_path, requested_ref)
     except RbtrError:
         if requested_ref == "HEAD":
             indexed = store.list_indexed_commits(repo_id)
@@ -97,6 +105,9 @@ def _resolve_read_ref(
                 return indexed[0][0]
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
+    if require_indexed and explicit:
+        _require_indexed(store, repo_id, requested_ref, sha)
+    return sha
 
 
 # ── Read-only handlers ───────────────────────────────────────────────
@@ -156,14 +167,14 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
 
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
     return ReadSymbolResponse(chunks=_scope_chunks(chunks, request.file_paths))
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = store.get_chunks(
         ref,
         file_path=request.file_path,
@@ -174,7 +185,7 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = _scope_chunks(
         store.match_by_name(ref, request.symbol, repo_id=repo_id), request.file_paths
     )

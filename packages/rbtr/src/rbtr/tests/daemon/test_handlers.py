@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
     ListSymbolsRequest,
@@ -23,6 +26,18 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+
+
+@pytest.fixture
+def unindexed_ref() -> str:
+    """A ref that resolves but was never indexed.
+
+    A 40-char hex SHA resolves to itself without repo access, and the
+    seeded store never indexed it — so it exercises the "resolved but
+    not indexed" path rather than "cannot resolve".
+    """
+    return "0" * 40
+
 
 # ── Search ───────────────────────────────────────────────────────────
 
@@ -96,6 +111,18 @@ def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_rep
     assert len(resp.chunks) == 0
 
 
+def test_read_symbol_unindexed_ref_errors(
+    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+) -> None:
+    """An explicit ref that isn't indexed is an error, not an empty result."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(
+            ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
+        )
+    assert isinstance(resp, ErrorResponse)
+    assert "not indexed" in resp.message
+
+
 def test_read_symbol_with_file_paths(
     running_server_with_index: DaemonServer, fake_repo: str
 ) -> None:
@@ -146,6 +173,18 @@ def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_r
     assert len(resp.chunks) == 0
 
 
+def test_list_symbols_unindexed_ref_errors(
+    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+) -> None:
+    """An explicit ref that isn't indexed is an error, not an empty outline."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(
+            ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py", ref=unindexed_ref)
+        )
+    assert isinstance(resp, ErrorResponse)
+    assert "not indexed" in resp.message
+
+
 # ── Find refs ────────────────────────────────────────────────────────
 
 
@@ -155,6 +194,18 @@ def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> N
     assert isinstance(resp, FindRefsResponse)
     assert len(resp.edges) >= 1
     assert resp.edges[0].target_id == "fn_config"
+
+
+def test_find_refs_unindexed_ref_errors(
+    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+) -> None:
+    """An explicit ref that isn't indexed is an error, not empty edges."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(
+            FindRefsRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
+        )
+    assert isinstance(resp, ErrorResponse)
+    assert "not indexed" in resp.message
 
 
 def test_find_refs_with_file_paths(running_server_with_index: DaemonServer, fake_repo: str) -> None:
