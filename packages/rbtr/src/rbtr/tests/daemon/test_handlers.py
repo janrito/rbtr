@@ -120,7 +120,7 @@ def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_r
 
 def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(FindRefsRequest(path=fake_repo, symbol="fn_config"))
+        resp = client.send(FindRefsRequest(path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
     assert len(resp.edges) >= 1
     assert resp.edges[0].target_id == "fn_config"

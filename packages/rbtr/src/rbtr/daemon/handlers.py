@@ -49,7 +49,7 @@ from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc
-from rbtr.index.models import RepoRef
+from rbtr.index.models import Edge, RepoRef
 
 if TYPE_CHECKING:
     from rbtr.index.classify import Expansion
@@ -167,7 +167,10 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
     repo_id = store.resolve_repo(request.path)
     ref = _resolve_read_ref(store, request.path, repo_id, request.ref)
-    edges = store.get_edges(ref, target_id=request.symbol, repo_id=repo_id)
+    chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
+    edges: list[Edge] = []
+    for chunk in chunks:
+        edges.extend(store.get_edges(ref, target_id=chunk.id, repo_id=repo_id))
     return FindRefsResponse(edges=edges)
 
 
