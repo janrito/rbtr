@@ -75,8 +75,4 @@ def test_status_scope(
     resp = handle_status(StatusRequest(path=paths[1], scope=scenario.scope), store)
 
     expected_paths = {paths[r] for r in scenario.expected_repos}
-    if scenario.attributed:
-        assert {ref.repo_path for ref in resp.indexed_refs} == expected_paths
-    else:
-        assert len(resp.indexed_refs) == len(scenario.expected_repos)
-        assert all(ref.repo_path is None for ref in resp.indexed_refs)
+    assert {ref.repo_path for ref in resp.indexed_refs} == expected_paths
