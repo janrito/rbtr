@@ -68,6 +68,7 @@ from rbtr.index.frames import (
     InboundDegreeResultRow,
     ScoredChunkResultRow,
     _decode_metadata,
+    file_paths_frame,
     frame_to_chunks,
     repo_refs_frame,
     scored_to_chunks,
@@ -85,6 +86,7 @@ log = logging.getLogger(__name__)
 _GET_CHUNKS_SQL = load_sql("get_chunks.sql")
 _GET_EDGES_SQL = load_sql("get_edges.sql")
 _DIFF_SYMBOLS_SQL = load_sql("diff_symbols.sql")
+_DIFF_SYMBOLS_SCOPED_SQL = load_sql("diff_symbols_scoped.sql")
 _SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
 _SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
 _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
@@ -543,6 +545,7 @@ class IndexStore:
         head_sha: str,
         *,
         repo_id: int,
+        file_paths: list[str] | None = None,
     ) -> dy.DataFrame[ChangedSymbolRow]:
         """Symbol-level diff between two indexed commits.
 
@@ -553,16 +556,29 @@ class IndexStore:
         not indexed contributes no rows, so the caller must check
         both commits are present to distinguish "no changes" from
         "not indexed".
+
+        When *file_paths* is a non-empty list, the diff is scoped to
+        those files via a registered `_file_paths` join view; `None`
+        or an empty list diffs every file.
         """
-        return (
-            self._cursor.execute(
-                _DIFF_SYMBOLS_SQL,
-                {"repo_id": repo_id, "head_sha": head_sha, "base_sha": base_sha},
+        params = {"repo_id": repo_id, "head_sha": head_sha, "base_sha": base_sha}
+        if not file_paths:
+            return (
+                self._cursor.execute(_DIFF_SYMBOLS_SQL, params)
+                .pl()
+                .pipe(_decode_metadata)
+                .pipe(ChangedSymbolRow.validate, cast=True)
             )
-            .pl()
-            .pipe(_decode_metadata)
-            .pipe(ChangedSymbolRow.validate, cast=True)
-        )
+        self._cursor.register("_file_paths", file_paths_frame(file_paths))
+        try:
+            return (
+                self._cursor.execute(_DIFF_SYMBOLS_SCOPED_SQL, params)
+                .pl()
+                .pipe(_decode_metadata)
+                .pipe(ChangedSymbolRow.validate, cast=True)
+            )
+        finally:
+            self._cursor.unregister("_file_paths")
 
     # ── Match (internal frame, public chunk) ─────────────────────
 

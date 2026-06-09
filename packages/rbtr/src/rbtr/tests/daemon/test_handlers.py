@@ -96,6 +96,37 @@ def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_rep
     assert len(resp.chunks) == 0
 
 
+def test_read_symbol_with_file_paths(
+    running_server_with_index: DaemonServer, fake_repo: str
+) -> None:
+    """`file_paths` narrows the lookup to chunks from the listed files.
+
+    The seeded `load_config` matches both the function (`src/config.py`)
+    and the import line (`src/app.py`, name `from config import
+    load_config`), so scoping must partition by file.
+    """
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        unscoped = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
+        scoped = client.send(
+            ReadSymbolRequest(
+                repo_path=fake_repo, symbol="load_config", file_paths=["src/config.py"]
+            )
+        )
+        missing = client.send(
+            ReadSymbolRequest(
+                repo_path=fake_repo, symbol="load_config", file_paths=["nonexistent.py"]
+            )
+        )
+    assert isinstance(unscoped, ReadSymbolResponse)
+    unscoped_files = {c.file_path for c in unscoped.chunks}
+    assert {"src/config.py", "src/app.py"} <= unscoped_files
+    assert isinstance(scoped, ReadSymbolResponse)
+    assert len(scoped.chunks) >= 1
+    assert all(c.file_path == "src/config.py" for c in scoped.chunks)
+    assert isinstance(missing, ReadSymbolResponse)
+    assert len(missing.chunks) == 0
+
+
 # ── List symbols ─────────────────────────────────────────────────────
 
 
@@ -124,6 +155,21 @@ def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> N
     assert isinstance(resp, FindRefsResponse)
     assert len(resp.edges) >= 1
     assert resp.edges[0].target_id == "fn_config"
+
+
+def test_find_refs_with_file_paths(running_server_with_index: DaemonServer, fake_repo: str) -> None:
+    """`file_paths` narrows name resolution before edges are queried."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        scoped = client.send(
+            FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/config.py"])
+        )
+        elsewhere = client.send(
+            FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/app.py"])
+        )
+    assert isinstance(scoped, FindRefsResponse)
+    assert len(scoped.edges) >= 1
+    assert isinstance(elsewhere, FindRefsResponse)
+    assert len(elsewhere.edges) == 0
 
 
 # ── Status ───────────────────────────────────────────────────────────

@@ -49,7 +49,7 @@ from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc
-from rbtr.index.models import Edge, RepoRef
+from rbtr.index.models import Chunk, Edge, RepoRef
 
 if TYPE_CHECKING:
     from rbtr.index.classify import Expansion
@@ -146,11 +146,19 @@ def handle_search(
     return SearchResponse(results=results, expansion=expansion)
 
 
+def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chunk]:
+    """Filter chunks to *file_paths*; a no-op when it is empty or `None`."""
+    if not file_paths:
+        return chunks
+    allowed = set(file_paths)
+    return [c for c in chunks if c.file_path in allowed]
+
+
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
     ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
     chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
-    return ReadSymbolResponse(chunks=chunks)
+    return ReadSymbolResponse(chunks=_scope_chunks(chunks, request.file_paths))
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
@@ -167,7 +175,9 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
     repo_id = store.resolve_repo(request.repo_path)
     ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
-    chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
+    chunks = _scope_chunks(
+        store.match_by_name(ref, request.symbol, repo_id=repo_id), request.file_paths
+    )
     edges: list[Edge] = []
     for chunk in chunks:
         edges.extend(store.get_edges(ref, target_id=chunk.id, repo_id=repo_id))
@@ -199,7 +209,7 @@ def handle_changed_symbols(
     head = resolve_ref(request.repo_path, request.head)
     _require_indexed(store, repo_id, request.base, base)
     _require_indexed(store, repo_id, request.head, head)
-    frame = store.diff_symbols(base, head, repo_id=repo_id)
+    frame = store.diff_symbols(base, head, repo_id=repo_id, file_paths=request.file_paths)
     changes = [
         ChangedSymbol(chunk=chunk, change=change) for chunk, change in changed_to_symbols(frame)
     ]

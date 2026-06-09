@@ -789,12 +789,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Symbol names come as: bare name (`fuse_scores`), class-qualified (`HttpClient.retry`), or module-qualified (`rbtr.index.search.fuse_scores`). The index stores whatever the language's tree-sitter parser emits; try the plain name first, then qualify if there are collisions.",
       "Typical chain: rbtr_search → pick a hit → pass its `name` field as the `symbol` parameter to rbtr_read_symbol for the full body. Then rbtr_find_refs on the same name to see callers.",
       "If the tool returns 'Symbol not found', the symbol either doesn't exist at the indexed ref or lives in a file type the parser doesn't cover; fall back to grep + read.",
+      "Pass file_paths to disambiguate a name that exists in several files — only symbols defined in the listed files are returned.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
         description:
           "Symbol name as stored in the index. Examples: 'fuse_scores', 'HttpClient.retry', 'rbtr.index.search.fuse_scores'.",
       }),
+      file_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Restrict to symbols defined in these files. Use to disambiguate a name that collides across files.",
+        }),
+      ),
     }),
     renderCall: (args, theme) => renderReadSymbolCall(args, theme),
     renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
@@ -808,6 +815,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "read_symbol",
               repo_path: ctx.cwd,
               symbol: params.symbol,
+              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
             if (resp.chunks.length === 0) {
               return {
@@ -819,7 +827,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const result = await runRbtr(pi, resolved, ["read-symbol", params.symbol], { signal, timeout: 30_000 });
+            const readArgs = ["read-symbol", params.symbol];
+            for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
+            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: 30_000 });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -847,11 +857,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "This is structural, not textual: edge kinds ('imports', 'tests', 'docs') give you intent, not raw string occurrences. Prefer this to grep when asking a graph-shaped question.",
       "Use grep when you need every raw occurrence of an identifier including inside strings / comments / unsupported file types.",
       "Chain after rbtr_search or rbtr_read_symbol: you've identified the symbol, now find who depends on it.",
+      "Pass file_paths to disambiguate a name that exists in several files — references are resolved only against symbols defined in the listed files.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
         description: "Symbol name (same format as rbtr_read_symbol: bare / class-qualified / module-qualified).",
       }),
+      file_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Restrict name resolution to symbols defined in these files. Use to disambiguate a name that collides across files.",
+        }),
+      ),
     }),
     renderCall: (args, theme) => renderFindRefsCall(args, theme),
     renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
@@ -865,6 +882,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "find_refs",
               repo_path: ctx.cwd,
               symbol: params.symbol,
+              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
             if (resp.edges.length === 0) {
               return {
@@ -876,7 +894,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const result = await runRbtr(pi, resolved, ["find-refs", params.symbol], { signal, timeout: 30_000 });
+            const findArgs = ["find-refs", params.symbol];
+            for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
+            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: 30_000 });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -904,10 +924,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Both refs must be indexed. If the tool errors with 'not indexed', call rbtr_index with refs=['base', 'head'] first, then retry.",
       "Use git diff when you need the exact line-level changes or when you need to see non-code changes (config, data files). Use rbtr_changed_symbols when the question is about code structure.",
       "Chain: rbtr_changed_symbols → rbtr_read_symbol on the most interesting entries for the new body → rbtr_find_refs to see callers that might need updating.",
+      "Pass file_paths to scope the diff to specific files — only changes in the listed files are reported.",
     ],
     parameters: Type.Object({
       base: Type.String({ description: "Base ref (branch name, tag, or SHA). Must be indexed." }),
       head: Type.String({ description: "Head ref (branch name, tag, or SHA). Must be indexed." }),
+      file_paths: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Scope the diff to these files. Only changes in the listed files are reported.",
+        }),
+      ),
     }),
     renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
@@ -926,6 +952,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               repo_path: ctx.cwd,
               base: params.base,
               head: params.head,
+              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
             if (resp.changes.length === 0) {
               return {
@@ -937,7 +964,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const result = await runRbtr(pi, resolved, ["changed-symbols", params.base, params.head], {
+            const changedArgs = ["changed-symbols", params.base, params.head];
+            for (const fp of params.file_paths ?? []) changedArgs.push("--file-path", fp);
+            const result = await runRbtr(pi, resolved, changedArgs, {
               signal,
               timeout: 30_000,
             });

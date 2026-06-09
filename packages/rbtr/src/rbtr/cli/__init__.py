@@ -424,6 +424,9 @@ class ReadSymbol(BaseModel):
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
     repo_path: str = Field(".", description="Repository path")
+    file_path: list[str] | None = Field(
+        None, description="Limit to symbols in these files (repeatable)"
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.repo_path)
@@ -431,6 +434,7 @@ class ReadSymbol(BaseModel):
             repo_path=resolved_repo,
             symbol=self.symbol,
             ref=self.ref,
+            file_paths=self.file_path,
         )
 
         match try_daemon(request):
@@ -500,10 +504,18 @@ class FindRefs(BaseModel):
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
     repo_path: str = Field(".", description="Repository path")
+    file_path: list[str] | None = Field(
+        None, description="Limit to symbols in these files (repeatable)"
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.repo_path)
-        request = FindRefsRequest(repo_path=resolved_repo, symbol=self.symbol, ref=self.ref)
+        request = FindRefsRequest(
+            repo_path=resolved_repo,
+            symbol=self.symbol,
+            ref=self.ref,
+            file_paths=self.file_path,
+        )
 
         match try_daemon(request):
             case FindRefsResponse() as resp:
@@ -532,6 +544,9 @@ class ChangedSymbols(BaseModel):
     base: CliPositionalArg[str] = Field(description="Base ref")
     head: CliPositionalArg[str] = Field(description="Head ref")
     repo_path: str = Field(".", description="Repository path")
+    file_path: list[str] | None = Field(
+        None, description="Limit to changes in these files (repeatable)"
+    )
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.repo_path)
@@ -539,6 +554,7 @@ class ChangedSymbols(BaseModel):
             repo_path=resolved_repo,
             base=self.base,
             head=self.head,
+            file_paths=self.file_path,
         )
 
         match try_daemon(request):

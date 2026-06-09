@@ -149,6 +149,7 @@ class ReadSymbolRequest(BaseModel):
     repo_path: str
     symbol: str
     ref: str | None = None
+    file_paths: list[str] | None = None
 
 
 class ListSymbolsRequest(BaseModel):
@@ -165,6 +166,7 @@ class FindRefsRequest(BaseModel):
     repo_path: str
     symbol: str
     ref: str | None = None
+    file_paths: list[str] | None = None
 
 
 class ChangedSymbolsRequest(BaseModel):
@@ -173,6 +175,7 @@ class ChangedSymbolsRequest(BaseModel):
     repo_path: str
     base: str
     head: str
+    file_paths: list[str] | None = None
 
 
 class StatusRequest(BaseModel):

@@ -127,6 +127,7 @@ export interface ReadSymbolRequest {
   repo_path: string;
   symbol: string;
   ref?: string | null;
+  file_paths?: string[] | null;
 }
 export interface ListSymbolsRequest {
   kind: "list_symbols";
@@ -139,12 +140,14 @@ export interface FindRefsRequest {
   repo_path: string;
   symbol: string;
   ref?: string | null;
+  file_paths?: string[] | null;
 }
 export interface ChangedSymbolsRequest {
   kind: "changed_symbols";
   repo_path: string;
   base: string;
   head: string;
+  file_paths?: string[] | null;
 }
 export interface StatusRequest {
   kind: "status";
