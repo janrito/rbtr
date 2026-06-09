@@ -86,7 +86,6 @@ log = logging.getLogger(__name__)
 _GET_CHUNKS_SQL = load_sql("get_chunks.sql")
 _GET_EDGES_SQL = load_sql("get_edges.sql")
 _DIFF_SYMBOLS_SQL = load_sql("diff_symbols.sql")
-_DIFF_SYMBOLS_SCOPED_SQL = load_sql("diff_symbols_scoped.sql")
 _SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
 _SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
 _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
@@ -558,21 +557,20 @@ class IndexStore:
         "not indexed".
 
         When *file_paths* is a non-empty list, the diff is scoped to
-        those files via a registered `_file_paths` join view; `None`
-        or an empty list diffs every file.
+        those files via the cursor-registered `_file_paths` semi-join
+        in `diff_symbols.sql`; `None` or an empty list diffs every
+        file (the `scope_all` flag bypasses the view).
         """
-        params = {"repo_id": repo_id, "head_sha": head_sha, "base_sha": base_sha}
-        if not file_paths:
-            return (
-                self._cursor.execute(_DIFF_SYMBOLS_SQL, params)
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ChangedSymbolRow.validate, cast=True)
-            )
-        self._cursor.register("_file_paths", file_paths_frame(file_paths))
+        params = {
+            "repo_id": repo_id,
+            "head_sha": head_sha,
+            "base_sha": base_sha,
+            "scope_all": not file_paths,
+        }
+        self._cursor.register("_file_paths", file_paths_frame(file_paths or []))
         try:
             return (
-                self._cursor.execute(_DIFF_SYMBOLS_SCOPED_SQL, params)
+                self._cursor.execute(_DIFF_SYMBOLS_SQL, params)
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
