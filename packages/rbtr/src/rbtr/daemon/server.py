@@ -67,7 +67,7 @@ from rbtr.daemon.messages import (
     EmbedJob,
     ErrorCode,
     ErrorResponse,
-    HasPath,
+    HasRepoPath,
     IndexErrorNotification,
     OkResponse,
     ProgressNotification,
@@ -112,7 +112,7 @@ def _progress_callback(push: zmq.Socket, path: str) -> ProgressCallback:
     """Return a progress callback that sends `ProgressNotification`s."""
 
     def on_progress(phase: str, done: int, total: int) -> None:
-        _notify(push, ProgressNotification(path=path, phase=phase, current=done, total=total))
+        _notify(push, ProgressNotification(repo_path=path, phase=phase, current=done, total=total))
 
     return on_progress
 
@@ -268,28 +268,28 @@ class DaemonServer:
     def _run_build(self, job: BuildJob, store: IndexStore, push: zmq.Socket) -> None:
         """Execute a build job.  Called from `_run_job`."""
         with store.session() as ws:
-            repo_id = ws.register_repo(job.path)
+            repo_id = ws.register_repo(job.repo_path)
 
         try:
-            resolved = resolve_refs(job.path, list(job.refs))
+            resolved = resolve_refs(job.repo_path, list(job.refs))
         except RbtrError as exc:
-            _notify(push, IndexErrorNotification(path=job.path, message=str(exc)))
+            _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
             return
 
         for sha in resolved:
             result = build_index(
-                job.path,
+                job.repo_path,
                 sha,
                 store,
                 repo_id=repo_id,
-                on_progress=_progress_callback(push, job.path),
+                on_progress=_progress_callback(push, job.repo_path),
             )
             total = store.count_chunks(sha, repo_id=repo_id)
             unembedded = store.count_unembedded(repo_id, sha)
             _notify(
                 push,
                 ReadyNotification(
-                    path=job.path,
+                    repo_path=job.repo_path,
                     ref=sha,
                     chunks=total,
                     embedded=total - unembedded,
@@ -303,7 +303,7 @@ class DaemonServer:
             # the old worktree was built against the previous
             # HEAD's tree.  Either way, drop any tree-type SHA
             # that isn't the one we just built.
-            self._drop_stale_worktree_shas(store, repo_id, job.path, keep=sha)
+            self._drop_stale_worktree_shas(store, repo_id, job.repo_path, keep=sha)
 
     @staticmethod
     def _drop_stale_worktree_shas(
@@ -347,7 +347,7 @@ class DaemonServer:
             job.ref,
             repo_id=job.repo_id,
             embedder=self._embedder,
-            on_progress=_progress_callback(push, job.path),
+            on_progress=_progress_callback(push, job.repo_path),
             should_stop=lambda: bool(watcher.poll(store)),
         )
         total = store.count_chunks(job.ref, repo_id=job.repo_id)
@@ -355,7 +355,7 @@ class DaemonServer:
         _notify(
             push,
             EmbedCompleteNotification(
-                path=job.path,
+                repo_path=job.repo_path,
                 ref=job.ref,
                 chunks=total,
                 embedded=total - unembedded,
@@ -379,7 +379,7 @@ class DaemonServer:
 
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
-        on_progress = _progress_callback(push, job.path)
+        on_progress = _progress_callback(push, job.repo_path)
         on_progress("loading_model", 0, 0)
         done = 0
 
@@ -432,7 +432,7 @@ class DaemonServer:
             _notify(
                 push,
                 EmbedCompleteNotification(
-                    path=job.path,
+                    repo_path=job.repo_path,
                     ref=job.ref,
                     chunks=total_chunks,
                     embedded=total_chunks - unembedded,
@@ -474,7 +474,7 @@ class DaemonServer:
         """
         if isinstance(job, BuildJob) and self._store is not None:
             with self._store.session() as ws:
-                ws.register_repo(job.path)
+                ws.register_repo(job.repo_path)
         self._wake.set()
 
     def _is_building(self) -> bool:
@@ -495,14 +495,14 @@ class DaemonServer:
             job = self._active_build.model_copy(
                 update={"elapsed_seconds": time.monotonic() - self._started_at}
             )
-            if job.path == path:
+            if job.repo_path == path:
                 active_build = job
         active_embed: ActiveJob | None = None
         if self._active_embed is not None and self._started_at is not None:
             job = self._active_embed.model_copy(
                 update={"elapsed_seconds": time.monotonic() - self._started_at}
             )
-            if job.path == path:
+            if job.repo_path == path:
                 active_embed = job
         return active_build, active_embed
 
@@ -528,14 +528,14 @@ class DaemonServer:
             key = stale.repo_path
             if key == self._active_key:
                 continue
-            return BuildJob(path=stale.repo_path, refs=(stale.new_ref,))
+            return BuildJob(repo_path=stale.repo_path, refs=(stale.new_ref,))
 
         # Worktree builds: dirty working trees.
         for dirty in watcher.poll_worktree(store):
             key = f"{dirty.repo_path}:wt:{dirty.tree_sha}"
             if key == self._active_key:
                 continue
-            return BuildJob(path=dirty.repo_path, refs=(dirty.tree_sha,))
+            return BuildJob(repo_path=dirty.repo_path, refs=(dirty.tree_sha,))
 
         # Embeds: indexed commits with un-embedded chunks.
         for repo_id, repo_path in store.list_repos():
@@ -545,7 +545,7 @@ class DaemonServer:
                     key = f"{repo_id}:{sha}"
                     if key == self._active_key:
                         continue
-                    return EmbedJob(path=repo_path, repo_id=repo_id, ref=sha)
+                    return EmbedJob(repo_path=repo_path, repo_id=repo_id, ref=sha)
 
         return None
 
@@ -554,9 +554,9 @@ class DaemonServer:
         self._started_at = time.monotonic()
         match job:
             case BuildJob():
-                self._active_key = job.path
+                self._active_key = job.repo_path
                 self._active_build = ActiveJob(
-                    path=job.path,
+                    repo_path=job.repo_path,
                     ref="",
                     phase="starting",
                     current=0,
@@ -566,7 +566,7 @@ class DaemonServer:
             case EmbedJob():
                 self._active_key = f"{job.repo_id}:{job.ref}"
                 self._active_embed = ActiveJob(
-                    path=job.path,
+                    repo_path=job.repo_path,
                     ref=job.ref,
                     phase="embedding",
                     current=0,
@@ -792,7 +792,7 @@ class DaemonServer:
                 )
                 _notify(
                     self._notify_push,
-                    AutoRebuildNotification(path=stale.repo_path, new_ref=stale.new_ref),
+                    AutoRebuildNotification(repo_path=stale.repo_path, new_ref=stale.new_ref),
                 )
                 self._wake.set()
             dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)
@@ -800,7 +800,7 @@ class DaemonServer:
                 log.info("Dirty worktree in %s (tree %s)", dirty.repo_path, dirty.tree_sha[:12])
                 _notify(
                     self._notify_push,
-                    AutoRebuildNotification(path=dirty.repo_path, new_ref=dirty.tree_sha),
+                    AutoRebuildNotification(repo_path=dirty.repo_path, new_ref=dirty.tree_sha),
                 )
                 self._wake.set()
 
@@ -812,8 +812,8 @@ class DaemonServer:
                 code=ErrorCode.INVALID_REQUEST,
                 message=f"Invalid request: {exc}",
             )
-        if isinstance(request, HasPath):
-            request.path = normalise_repo_path(request.path)
+        if isinstance(request, HasRepoPath):
+            request.repo_path = normalise_repo_path(request.repo_path)
         handler = self._handlers.get(request.kind)
         if handler is None:
             return ErrorResponse(

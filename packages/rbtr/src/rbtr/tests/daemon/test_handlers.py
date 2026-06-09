@@ -29,7 +29,7 @@ from rbtr.daemon.server import DaemonServer
 
 def test_search_returns_results(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(SearchRequest(path=fake_repo, query="load_config"))
+        resp = client.send(SearchRequest(repo_path=fake_repo, query="load_config"))
     assert isinstance(resp, SearchResponse)
     assert len(resp.results) > 0
     names = {r.name for r in resp.results}
@@ -38,7 +38,7 @@ def test_search_returns_results(running_server_with_index: DaemonServer, fake_re
 
 def test_search_respects_limit(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(SearchRequest(path=fake_repo, query="config", limit=1))
+        resp = client.send(SearchRequest(repo_path=fake_repo, query="config", limit=1))
     assert isinstance(resp, SearchResponse)
     assert len(resp.results) <= 1
 
@@ -50,7 +50,7 @@ def test_search_with_client_keywords(
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(
             SearchRequest(
-                path=fake_repo,
+                repo_path=fake_repo,
                 query="load_config",
                 keywords=["settings", "configuration"],
             ),
@@ -67,7 +67,7 @@ def test_search_with_client_variants(
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(
             SearchRequest(
-                path=fake_repo,
+                repo_path=fake_repo,
                 query="load_config",
                 variants=["read configuration from file"],
             ),
@@ -82,7 +82,7 @@ def test_search_with_client_variants(
 
 def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ReadSymbolRequest(path=fake_repo, name="load_config"))
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, name="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
     names = {c.name for c in resp.chunks}
@@ -91,7 +91,7 @@ def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) ->
 
 def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ReadSymbolRequest(path=fake_repo, name="nonexistent_xyz"))
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, name="nonexistent_xyz"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) == 0
 
@@ -101,7 +101,7 @@ def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_rep
 
 def test_list_symbols(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ListSymbolsRequest(path=fake_repo, file_path="src/config.py"))
+        resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
     assert isinstance(resp, ListSymbolsResponse)
     assert len(resp.chunks) >= 1
     names = {c.name for c in resp.chunks}
@@ -110,7 +110,7 @@ def test_list_symbols(running_server_with_index: DaemonServer, fake_repo: str) -
 
 def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ListSymbolsRequest(path=fake_repo, file_path="nonexistent.py"))
+        resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="nonexistent.py"))
     assert isinstance(resp, ListSymbolsResponse)
     assert len(resp.chunks) == 0
 
@@ -120,7 +120,7 @@ def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_r
 
 def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(FindRefsRequest(path=fake_repo, symbol="load_config"))
+        resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
     assert len(resp.edges) >= 1
     assert resp.edges[0].target_id == "fn_config"
@@ -135,7 +135,7 @@ def test_status_with_index(
     daemon_commit: str,
 ) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(StatusRequest(path=fake_repo))
+        resp = client.send(StatusRequest(repo_path=fake_repo))
     assert isinstance(resp, StatusResponse)
     assert len(resp.indexed_refs) == 1
     assert resp.indexed_refs[0].sha == daemon_commit
@@ -155,6 +155,6 @@ def test_status_unknown_repo(
     sig = pygit2.Signature("t", "t@t.t")
     r.create_commit("refs/heads/main", sig, sig, "init", r.TreeBuilder().write(), [])
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(StatusRequest(path=str(other)))
+        resp = client.send(StatusRequest(repo_path=str(other)))
     assert isinstance(resp, StatusResponse)
     assert resp.indexed_refs == []

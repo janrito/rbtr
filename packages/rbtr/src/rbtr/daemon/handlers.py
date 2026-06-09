@@ -115,14 +115,14 @@ def handle_search(
 
     `request.scope == Scope.ALL` searches every indexed repo and
     attributes each result with its `repo_path`; otherwise the
-    search is scoped to the single repo at `request.path`.
+    search is scoped to the single repo at `request.repo_path`.
     """
     if request.scope == Scope.ALL:
         refs = store.list_latest_refs()
         repo_paths = dict(store.list_repos())
     else:
-        repo_id = store.resolve_repo(request.path)
-        ref = _resolve_read_ref(store, request.path, repo_id, request.ref)
+        repo_id = store.resolve_repo(request.repo_path)
+        ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
         refs = [RepoRef(repo_id=repo_id, commit_sha=ref)]
         repo_paths = None
     try:
@@ -147,15 +147,15 @@ def handle_search(
 
 
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
-    repo_id = store.resolve_repo(request.path)
-    ref = _resolve_read_ref(store, request.path, repo_id, request.ref)
+    repo_id = store.resolve_repo(request.repo_path)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
     chunks = store.match_by_name(ref, request.name, repo_id=repo_id)
     return ReadSymbolResponse(chunks=chunks)
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
-    repo_id = store.resolve_repo(request.path)
-    ref = _resolve_read_ref(store, request.path, repo_id, request.ref)
+    repo_id = store.resolve_repo(request.repo_path)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
     chunks = store.get_chunks(
         ref,
         file_path=request.file_path,
@@ -165,8 +165,8 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
-    repo_id = store.resolve_repo(request.path)
-    ref = _resolve_read_ref(store, request.path, repo_id, request.ref)
+    repo_id = store.resolve_repo(request.repo_path)
+    ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
     chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
     edges: list[Edge] = []
     for chunk in chunks:
@@ -194,9 +194,9 @@ def handle_changed_symbols(
     error rather than an empty diff (the symbol-level comparison
     reads chunks from both commits).
     """
-    repo_id = store.resolve_repo(request.path)
-    base = resolve_ref(request.path, request.base)
-    head = resolve_ref(request.path, request.head)
+    repo_id = store.resolve_repo(request.repo_path)
+    base = resolve_ref(request.repo_path, request.base)
+    head = resolve_ref(request.repo_path, request.head)
     _require_indexed(store, repo_id, request.base, base)
     _require_indexed(store, repo_id, request.head, head)
     frame = store.diff_symbols(base, head, repo_id=repo_id)
@@ -248,14 +248,14 @@ def handle_status(
 
     `request.scope == Scope.ALL` reports every indexed repo, each
     `IndexedRef` carrying its `repo_path`; otherwise only the repo
-    at `request.path`.
+    at `request.repo_path`.
     """
     if request.scope == Scope.ALL:
         indexed_refs: list[IndexedRef] = []
         for repo_id, repo_path in store.list_repos():
             indexed_refs.extend(_refs_for_repo(store, repo_id, repo_path, attribute=True))
     else:
-        ws_repo_id = store.get_repo_id(request.path)
+        ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
             return StatusResponse(
                 db_path=store.db_path,
@@ -263,11 +263,11 @@ def handle_status(
                 active_build=None,
                 active_embed=None,
             )
-        indexed_refs = _refs_for_repo(store, ws_repo_id, request.path, attribute=False)
+        indexed_refs = _refs_for_repo(store, ws_repo_id, request.repo_path, attribute=False)
     active_build = None
     active_embed = None
     if snapshot_status is not None:
-        active_build, active_embed = snapshot_status(request.path)
+        active_build, active_embed = snapshot_status(request.repo_path)
     return StatusResponse(
         db_path=store.db_path,
         indexed_refs=indexed_refs,
@@ -280,11 +280,11 @@ def handle_status(
 
 
 def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
-    repo_id = store.resolve_repo(request.path)
+    repo_id = store.resolve_repo(request.repo_path)
     t0 = time.monotonic()
     counts = run_gc(
         store,
-        request.path,
+        request.repo_path,
         repo_id,
         mode=request.mode,
         refs=request.refs,
@@ -315,6 +315,6 @@ def handle_build_index(
     via `store.list_repos`.
     """
     submit(
-        BuildJob(path=request.path, refs=tuple(request.refs), embed=request.embed),
+        BuildJob(repo_path=request.repo_path, refs=tuple(request.refs), embed=request.embed),
     )
     return OkResponse()

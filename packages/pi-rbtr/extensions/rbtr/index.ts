@@ -245,7 +245,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   ): Promise<StatusResponse | null> {
     if (session.available) {
       try {
-        return await session.send({ kind: "status", path: repo, scope });
+        return await session.send({ kind: "status", repo_path: repo, scope });
       } catch (err) {
         if (err instanceof RbtrDaemonError) return null;
         // transport — fall through to CLI
@@ -368,7 +368,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   /**
    * Subscribe to daemon notifications and drive the footer off
-   * them.  Filters to ``notification.path === ctx.cwd`` so we
+   * them.  Filters to ``notification.repo_path === ctx.cwd`` so we
    * ignore traffic from other repos the daemon might be
    * watching.
    */
@@ -386,7 +386,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     try {
       session.subscribe((notification) => {
-        if (notification.path !== ctx.cwd) return;
+        if (notification.repo_path !== ctx.cwd) return;
         if (!footer) return;
         switch (notification.kind) {
           case "progress": {
@@ -455,7 +455,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         async () => {
           // The extension always builds the 'full' variant (the default).
           // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
-          await session.send({ kind: "index", path: ctx.cwd, refs: targetRefs });
+          await session.send({ kind: "index", repo_path: ctx.cwd, refs: targetRefs });
         },
         async () => {
           if (!resolved) throw new Error("rbtr CLI not available");
@@ -608,7 +608,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       // signal.
       const status = await queryIndexStatus(ctx.cwd);
 
-      if (status?.active_build && status.active_build.path === ctx.cwd) {
+      if (status?.active_build && status.active_build.repo_path === ctx.cwd) {
         const j = status.active_build;
         const pct = j.total > 0 ? ` (${Math.round((100 * j.current) / j.total)}%)` : "";
         return {
@@ -741,7 +741,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             const resp = await session.send({
               kind: "search",
-              path: ctx.cwd,
+              repo_path: ctx.cwd,
               query: params.query,
               ...(params.limit !== undefined ? { limit: params.limit } : {}),
               ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
@@ -806,7 +806,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             const resp = await session.send({
               kind: "read_symbol",
-              path: ctx.cwd,
+              repo_path: ctx.cwd,
               name: params.symbol,
             });
             if (resp.chunks.length === 0) {
@@ -863,7 +863,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             const resp = await session.send({
               kind: "find_refs",
-              path: ctx.cwd,
+              repo_path: ctx.cwd,
               symbol: params.symbol,
             });
             if (resp.edges.length === 0) {
@@ -923,7 +923,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             const resp = await session.send({
               kind: "changed_symbols",
-              path: ctx.cwd,
+              repo_path: ctx.cwd,
               base: params.base,
               head: params.head,
             });
@@ -982,7 +982,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             const resp = await session.send({
               kind: "list_symbols",
-              path: ctx.cwd,
+              repo_path: ctx.cwd,
               file_path: params.file,
             });
             if (resp.chunks.length === 0) {

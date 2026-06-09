@@ -227,7 +227,7 @@ class Index(BaseModel):
             return
 
         request = BuildIndexRequest(
-            path=resolved_repo,
+            repo_path=resolved_repo,
             refs=resolved_refs,
             embed=self.embed,
         )
@@ -370,7 +370,7 @@ class Search(BaseModel):
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
         try:
             request = SearchRequest(
-                path=resolved_repo,
+                repo_path=resolved_repo,
                 query=self.query,
                 limit=self.limit,
                 ref=self.ref,
@@ -428,7 +428,7 @@ class ReadSymbol(BaseModel):
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.path)
         request = ReadSymbolRequest(
-            path=resolved_repo,
+            repo_path=resolved_repo,
             name=self.symbol,
             ref=self.ref,
         )
@@ -466,7 +466,7 @@ class ListSymbols(BaseModel):
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.path)
         request = ListSymbolsRequest(
-            path=resolved_repo,
+            repo_path=resolved_repo,
             file_path=self.file,
             ref=self.ref,
         )
@@ -503,7 +503,7 @@ class FindRefs(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.path)
-        request = FindRefsRequest(path=resolved_repo, symbol=self.symbol, ref=self.ref)
+        request = FindRefsRequest(repo_path=resolved_repo, symbol=self.symbol, ref=self.ref)
 
         match try_daemon(request):
             case FindRefsResponse() as resp:
@@ -536,7 +536,7 @@ class ChangedSymbols(BaseModel):
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.path)
         request = ChangedSymbolsRequest(
-            path=resolved_repo,
+            repo_path=resolved_repo,
             base=self.base,
             head=self.head,
         )
@@ -571,7 +571,7 @@ class Status(BaseModel):
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.path)
-        request = StatusRequest(path=resolved_repo, scope=self.scope)
+        request = StatusRequest(repo_path=resolved_repo, scope=self.scope)
 
         match try_daemon(request):
             case StatusResponse() as resp:
@@ -628,7 +628,7 @@ class Gc(BaseModel):
         mode, refs = self._resolve_mode()
         resolved_repo = normalise_repo_path(self.path)
         request = GcRequest(
-            path=resolved_repo,
+            repo_path=resolved_repo,
             mode=mode,
             refs=refs,
             dry_run=self.dry_run,

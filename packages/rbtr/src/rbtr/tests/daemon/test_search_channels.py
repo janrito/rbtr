@@ -172,7 +172,7 @@ def test_daemon_and_direct_search_produce_identical_results(
 
     # Via daemon.
     with DaemonClient(channel_server.runtime_dir) as client:
-        req = SearchRequest(path=fake_repo, query=query, limit=5)
+        req = SearchRequest(repo_path=fake_repo, query=query, limit=5)
         daemon_resp = client.send_or_raise_as(SearchResponse, req)
     daemon_names = [r.name for r in daemon_resp.results]
     daemon_scores = [round(r.score, 6) for r in daemon_resp.results]
@@ -212,7 +212,7 @@ def test_different_weights_produce_different_rankings(
         sem_resp = client.send_or_raise_as(
             SearchResponse,
             SearchRequest(
-                path=fake_repo,
+                repo_path=fake_repo,
                 query=query,
                 limit=3,
                 weights=WeightTriple(alpha=1.0, beta=0.0, gamma=0.0),
@@ -221,7 +221,7 @@ def test_different_weights_produce_different_rankings(
         lex_resp = client.send_or_raise_as(
             SearchResponse,
             SearchRequest(
-                path=fake_repo,
+                repo_path=fake_repo,
                 query=query,
                 limit=3,
                 weights=WeightTriple(alpha=0.0, beta=1.0, gamma=0.0),
@@ -230,7 +230,7 @@ def test_different_weights_produce_different_rankings(
         name_resp = client.send_or_raise_as(
             SearchResponse,
             SearchRequest(
-                path=fake_repo,
+                repo_path=fake_repo,
                 query=query,
                 limit=3,
                 weights=WeightTriple(alpha=0.0, beta=0.0, gamma=1.0),

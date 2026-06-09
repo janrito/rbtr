@@ -53,7 +53,9 @@ def test_search_scope(
 ) -> None:
     """Search returns hits from exactly the in-scope repos, attributed."""
     store, paths = two_repos
-    resp = handle_search(SearchRequest(path=paths[1], query="load", scope=scenario.scope), store)
+    resp = handle_search(
+        SearchRequest(repo_path=paths[1], query="load", scope=scenario.scope), store
+    )
     by_id = {r.id: r for r in resp.results}
 
     expected_ids = {1: "r1_loader", 2: "r2_loader"}
@@ -72,7 +74,7 @@ def test_status_scope(
 ) -> None:
     """Status reports refs for exactly the in-scope repos, attributed."""
     store, paths = two_repos
-    resp = handle_status(StatusRequest(path=paths[1], scope=scenario.scope), store)
+    resp = handle_status(StatusRequest(repo_path=paths[1], scope=scenario.scope), store)
 
     expected_paths = {paths[r] for r in scenario.expected_repos}
     if scenario.attributed:
