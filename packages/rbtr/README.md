@@ -114,6 +114,13 @@ Full source of a symbol by name.
 rbtr read-symbol fuse_scores
 ```
 
+When a name lives in several files, narrow it with
+`--file-path` (repeatable):
+
+```bash
+rbtr read-symbol Config --file-path src/auth/config.py
+```
+
 ### `rbtr list-symbols <file>`
 
 Table of contents for a file — one line per symbol.
@@ -131,12 +138,26 @@ graph (imports, tests, docs).
 rbtr find-refs IndexStore
 ```
 
+Disambiguate a colliding name by restricting resolution to
+certain files with `--file-path` (repeatable):
+
+```bash
+rbtr find-refs Config --file-path src/auth/config.py
+```
+
 ### `rbtr changed-symbols <base> <head>`
 
 Symbols in files that changed between two refs.
 
 ```bash
 rbtr changed-symbols HEAD~5 HEAD
+```
+
+Scope the diff to specific files with `--file-path`
+(repeatable):
+
+```bash
+rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/store.py
 ```
 
 ### `rbtr status`
