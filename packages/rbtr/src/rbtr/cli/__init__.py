@@ -212,12 +212,12 @@ class Index(BaseModel):
     """Index a repository (one ref or base + head)."""
 
     refs: CliPositionalArg[list[str]] = Field(["HEAD"], description="Refs to index")
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
     embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
 
         # Resolve refs to SHAs
         resolved_refs = [resolve_ref(resolved_repo, r) for r in self.refs]
@@ -342,7 +342,7 @@ class Search(BaseModel):
     ref: str | None = Field(
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
     alpha: float | None = Field(
         None, description="Override fusion weight for the semantic channel."
     )
@@ -364,7 +364,7 @@ class Search(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         weights = None
         if self.alpha is not None and self.beta is not None and self.gamma is not None:
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
@@ -423,10 +423,10 @@ class ReadSymbol(BaseModel):
     ref: str | None = Field(
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = ReadSymbolRequest(
             repo_path=resolved_repo,
             name=self.symbol,
@@ -461,10 +461,10 @@ class ListSymbols(BaseModel):
     ref: str | None = Field(
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = ListSymbolsRequest(
             repo_path=resolved_repo,
             file_path=self.file,
@@ -499,10 +499,10 @@ class FindRefs(BaseModel):
     ref: str | None = Field(
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = FindRefsRequest(repo_path=resolved_repo, symbol=self.symbol, ref=self.ref)
 
         match try_daemon(request):
@@ -531,10 +531,10 @@ class ChangedSymbols(BaseModel):
 
     base: CliPositionalArg[str] = Field(description="Base ref")
     head: CliPositionalArg[str] = Field(description="Head ref")
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = ChangedSymbolsRequest(
             repo_path=resolved_repo,
             base=self.base,
@@ -563,14 +563,14 @@ class ChangedSymbols(BaseModel):
 class Status(BaseModel):
     """Show index status."""
 
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
     scope: ScopeField = Field(
         Scope.WORKSPACE,
         description="Status scope: workspace (this repo) or all (every indexed repo).",
     )
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = StatusRequest(repo_path=resolved_repo, scope=self.scope)
 
         match try_daemon(request):
@@ -604,7 +604,7 @@ class Gc(BaseModel):
     specific refs, drop specific refs, or sweep residue only.
     """
 
-    path: str = Field(".", description="Repository path")
+    repo_path: str = Field(".", description="Repository path")
     keep_head_only: bool = Field(False, description="Keep only HEAD; default behaviour")
     keep_refs: bool = Field(
         False,
@@ -626,7 +626,7 @@ class Gc(BaseModel):
 
     def cli_cmd(self) -> None:
         mode, refs = self._resolve_mode()
-        resolved_repo = normalise_repo_path(self.path)
+        resolved_repo = normalise_repo_path(self.repo_path)
         request = GcRequest(
             repo_path=resolved_repo,
             mode=mode,
