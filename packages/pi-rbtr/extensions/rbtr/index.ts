@@ -807,7 +807,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const resp = await session.send({
               kind: "read_symbol",
               repo_path: ctx.cwd,
-              name: params.symbol,
+              symbol: params.symbol,
             });
             if (resp.chunks.length === 0) {
               return {

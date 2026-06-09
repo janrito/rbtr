@@ -149,7 +149,7 @@ def handle_search(
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
     ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
-    chunks = store.match_by_name(ref, request.name, repo_id=repo_id)
+    chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
     return ReadSymbolResponse(chunks=chunks)
 
 

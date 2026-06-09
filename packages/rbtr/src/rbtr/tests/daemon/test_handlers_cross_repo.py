@@ -66,6 +66,6 @@ def test_status_workspace_single_repo(two_repo_server: TwoRepoServer) -> None:
 def test_read_symbol_isolated_to_repo(two_repo_server: TwoRepoServer) -> None:
     """read_symbol for a colliding name returns only the path's repo."""
     with DaemonClient(two_repo_server.server.runtime_dir) as client:
-        resp = client.send(ReadSymbolRequest(repo_path=two_repo_server.path_a, name="shared_fn"))
+        resp = client.send(ReadSymbolRequest(repo_path=two_repo_server.path_a, symbol="shared_fn"))
     assert isinstance(resp, ReadSymbolResponse)
     assert {c.id for c in resp.chunks} == {"shared_alpha"}

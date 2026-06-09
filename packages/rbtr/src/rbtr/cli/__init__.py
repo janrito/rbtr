@@ -429,7 +429,7 @@ class ReadSymbol(BaseModel):
         resolved_repo = normalise_repo_path(self.repo_path)
         request = ReadSymbolRequest(
             repo_path=resolved_repo,
-            name=self.symbol,
+            symbol=self.symbol,
             ref=self.ref,
         )
 

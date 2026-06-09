@@ -82,7 +82,7 @@ def test_search_with_client_variants(
 
 def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, name="load_config"))
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
     names = {c.name for c in resp.chunks}
@@ -91,7 +91,7 @@ def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) ->
 
 def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, name="nonexistent_xyz"))
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="nonexistent_xyz"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) == 0
 

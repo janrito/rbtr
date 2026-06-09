@@ -147,7 +147,7 @@ class ReadSymbolRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["read_symbol"] = "read_symbol"
     repo_path: str
-    name: str
+    symbol: str
     ref: str | None = None
 
 

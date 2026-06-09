@@ -125,7 +125,7 @@ export interface WeightTriple {
 export interface ReadSymbolRequest {
   kind: "read_symbol";
   repo_path: string;
-  name: string;
+  symbol: string;
   ref?: string | null;
 }
 export interface ListSymbolsRequest {

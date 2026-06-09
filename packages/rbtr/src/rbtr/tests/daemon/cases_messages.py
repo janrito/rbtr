@@ -105,10 +105,10 @@ def case_search_defaults() -> MessageScenario:
 @case(tags=["request"])
 def case_read_symbol() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"read_symbol","repo_path":"/r","name":"HttpClient"}',
+        raw=b'{"kind":"read_symbol","repo_path":"/r","symbol":"HttpClient"}',
         adapter=request_adapter,
         expected_type=ReadSymbolRequest,
-        checks={"name": "HttpClient", "ref": None},
+        checks={"symbol": "HttpClient", "ref": None},
     )
 
 
