@@ -374,7 +374,7 @@ def _render_status_response(m: StatusResponse) -> None:
     print_banner()
     if not m.indexed_refs:
         _out.print("[red]✗[/]  No index found")
-    elif any(ref.repo_path is not None for ref in m.indexed_refs):
+    elif len({ref.repo_path for ref in m.indexed_refs}) > 1:
         # Cross-repo: group refs under their repo.
         _out.print(f"[green]✓[/]  indexed repos  [dim]{m.db_path}[/]")
         by_repo: dict[str, list[IndexedRef]] = {}
