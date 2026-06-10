@@ -53,6 +53,9 @@ class ImportResolution:
     """Test file name suffix (e.g. `.test`, `_test`)."""
     module_style: ModuleStyle = ModuleStyle.PATH
     """How module strings map to file paths. See `ModuleStyle`."""
+    own_extensions: frozenset[str] = frozenset()
+    """The importing language's *own* extensions (distinct from the flattened
+    target `extensions`). Used to break same-path ties in the suffix tier."""
 
 
 def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
@@ -78,6 +81,7 @@ def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
             test_prefix=reg.test_prefix,
             test_suffix=reg.test_suffix,
             module_style=reg.module_style,
+            own_extensions=reg.extensions,
         )
     return result
 
@@ -89,11 +93,17 @@ def _resolve_module_to_file(
     module_path: str,
     repo_files: set[str],
     resolution: ImportResolution,
+    importer_ext: str = "",
 ) -> str | None:
     """Find a repo file matching a `/`-separated *module_path*.
 
     DOTTED: converts `.` to `/` before searching.
     PATH: searches as-is (bare path first, then extensions).
+
+    Resolution proceeds in tiers: config-driven prefix matching against
+    `source_roots` first, then a layout-independent full-path *suffix* match
+    (Tier 3). *importer_ext* is the importing file's extension, used only to
+    break ties when several files share one path but differ by extension.
     """
     # Apply prefix substitutions.
     resolved = module_path
@@ -117,7 +127,73 @@ def _resolve_module_to_file(
         for idx in resolution.index_files:
             if f"{base}/{idx}" in repo_files:
                 return f"{base}/{idx}"
-    return None
+
+    # Tier 3: layout-independent full-path suffix match. Requires >=2 path
+    # segments so single-segment bare modules (`os`, `io`) cannot match a
+    # nested `.../os.py`. Files only; the index-file (package) form is not
+    # tried here.
+    if "/" not in resolved:
+        return None
+    candidates = _suffix_matches(resolved, repo_files, resolution.extensions)
+    if not candidates:
+        return None
+    # Group by path-without-extension; more than one group is genuine
+    # ambiguity (distinct files) and is dropped.
+    groups: dict[str, list[str]] = {}
+    for f in candidates:
+        groups.setdefault(str(PurePosixPath(f).with_suffix("")), []).append(f)
+    if len(groups) != 1:
+        return None
+    group = next(iter(groups.values()))
+    if len(group) == 1:
+        return group[0]
+    return _pick_by_importer(group, importer_ext, resolution.own_extensions)
+
+
+def _suffix_matches(
+    name: str,
+    repo_files: set[str],
+    extensions: tuple[str, ...],
+) -> list[str]:
+    """Collect repo files matching *name* as a full-path suffix.
+
+    A file matches when it equals `name{ext}` or ends with `/name{ext}` for
+    some extension. Shared by the import resolver's Tier 3 and the test-edge
+    `_find_source_file` last resort so both apply one suffix-matching policy.
+    """
+    matches: list[str] = []
+    for ext in extensions:
+        target = f"{name}{ext}"
+        suffix = f"/{target}"
+        matches.extend(f for f in repo_files if f == target or f.endswith(suffix))
+    return matches
+
+
+def _pick_by_importer(
+    candidates: list[str],
+    importer_ext: str,
+    own_extensions: frozenset[str],
+) -> str | None:
+    """Pick the candidate closest to the importing file.
+
+    Ranks by: (0) extension equals the importer's own extension, (1) extension
+    belongs to the importer's language, (2) anything else. Returns the single
+    best-ranked candidate, or `None` if two candidates tie at the top rank.
+    """
+
+    def rank(f: str) -> int:
+        ext = PurePosixPath(f).suffix
+        if importer_ext and ext == importer_ext:
+            return 0
+        if ext in own_extensions:
+            return 1
+        return 2
+
+    ranked = sorted(candidates, key=rank)
+    best = rank(ranked[0])
+    if sum(1 for f in ranked if rank(f) == best) != 1:
+        return None
+    return ranked[0]
 
 
 def _resolve_import_to_file(
@@ -152,7 +228,8 @@ def _resolve_import_to_file(
 
     if not module or resolution is None:
         return None
-    return _resolve_module_to_file(module, repo_files, resolution)
+    importer_ext = PurePosixPath(file_path).suffix
+    return _resolve_module_to_file(module, repo_files, resolution, importer_ext)
 
 
 def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
@@ -423,12 +500,11 @@ def _find_source_file(
                 if candidate in repo_files:
                     return candidate
 
-    # Last resort: suffix search.
-    for ext in extensions:
-        suffix = f"/{base_name}{ext}"
-        for f in sorted(repo_files):
-            if f.endswith(suffix) or f == f"{base_name}{ext}":
-                return f
+    # Last resort: full-path suffix search, unique-match-only (same policy as
+    # the import resolver's Tier 3 — drop rather than guess on ambiguity).
+    candidates = _suffix_matches(base_name, repo_files, extensions)
+    if len(candidates) == 1:
+        return candidates[0]
 
     return None
 

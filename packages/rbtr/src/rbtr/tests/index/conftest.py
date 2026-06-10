@@ -19,16 +19,8 @@ from pathlib import Path
 
 import pygit2
 import pytest
-from pygit2.enums import FileMode
 
-from rbtr.index.models import (
-    Chunk,
-    ChunkKind,
-    Edge,
-    EdgeKind,
-    Snapshot,
-    TokenisedChunk,
-)
+from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 
@@ -245,25 +237,6 @@ def serve():
 # ═════════════════════════════════════════════════════════════════════
 # Symbol-diff dataset (for test_diff_symbols.py)
 # ═════════════════════════════════════════════════════════════════════
-
-
-def commit_file_set(repo: pygit2.Repository, files: dict[str, bytes], *, parents: list[str]) -> str:
-    """Create a dangling commit whose tree is exactly *files*.
-
-    The tree is built from an in-memory index, so the working
-    directory is never touched — `build_index` reads file content
-    from the git tree at the SHA, not the workdir.
-    """
-    index = pygit2.Index()
-    for path, content in files.items():
-        blob_oid = repo.create_blob(content)
-        index.add(pygit2.IndexEntry(path, blob_oid, FileMode.BLOB))
-    tree_oid = index.write_tree(repo)
-    sig = pygit2.Signature("Test", "test@test.com")
-    commit_oid = repo.create_commit(
-        None, sig, sig, "case", tree_oid, [pygit2.Oid(hex=p) for p in parents]
-    )
-    return str(commit_oid)
 
 
 @pytest.fixture

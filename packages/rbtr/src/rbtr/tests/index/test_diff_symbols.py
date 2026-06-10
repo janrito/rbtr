@@ -16,9 +16,9 @@ from rbtr.index.models import ChangeKind, Chunk
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
 
+from ..conftest import make_commit
 from .asserts import assert_changes
 from .cases_diff import DiffScenario
-from .conftest import commit_file_set
 
 
 @fixture
@@ -28,19 +28,20 @@ def diff_result(
     diff_repo: pygit2.Repository,
     store: IndexStore,
 ) -> tuple[DiffScenario, list[tuple[Chunk, ChangeKind]]]:
-    base_sha = commit_file_set(diff_repo, scenario.base_files, parents=[])
+    base_oid = make_commit(diff_repo, scenario.base_files)
+    base_sha = str(base_oid)
     build_index(diff_repo.workdir, base_sha, store, repo_id=1)
 
     if scenario.same_as_base:
         head_sha = base_sha
     else:
-        head_commit = commit_file_set(diff_repo, scenario.head_files, parents=[base_sha])
+        head_oid = make_commit(diff_repo, scenario.head_files, parents=[base_oid])
         if scenario.head_as_tree:
-            commit_obj = diff_repo.get(head_commit)
+            commit_obj = diff_repo.get(head_oid)
             assert isinstance(commit_obj, pygit2.Commit)
             head_sha = str(commit_obj.tree_id)
         else:
-            head_sha = head_commit
+            head_sha = str(head_oid)
         build_index(diff_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
 
     frame = store.diff_symbols(base_sha, head_sha, repo_id=1, file_paths=scenario.file_paths)
