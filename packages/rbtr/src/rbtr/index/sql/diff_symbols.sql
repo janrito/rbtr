@@ -1,6 +1,7 @@
 -- sqlfluff:templater:placeholder:repo_id:1
 -- sqlfluff:templater:placeholder:head_sha:'def'
 -- sqlfluff:templater:placeholder:base_sha:'abc'
+-- sqlfluff:templater:placeholder:scope_all:true
 --
 -- Symbol-level diff between two indexed commits in a single pass.
 -- Symbol identity is (file_path, name, scope); "modified" means the
@@ -8,6 +9,11 @@
 -- selects one side's columns as plain references so the projection
 -- matches ChunkResultRow exactly (no COALESCE aliases on keyword
 -- columns like name/content). The synthetic label is `change_kind`.
+--
+-- The diff is optionally scoped to a set of files: when $scope_all is
+-- false, both CTEs keep only rows whose file_path is present in the
+-- cursor-registered `_file_paths` view (a semi-join). When true, the
+-- view is ignored and every file participates.
 WITH head AS (
   SELECT
     c.id,
@@ -33,6 +39,13 @@ WITH head AS (
     fs.repo_id = $repo_id
     AND fs.commit_sha = $head_sha
     AND c.kind IN ('function', 'class', 'method')
+    AND (
+      $scope_all
+      OR EXISTS (
+        SELECT 1 FROM _file_paths AS fp
+        WHERE fp.file_path = c.file_path
+      )
+    )
 ),
 
 base AS (
@@ -60,6 +73,13 @@ base AS (
     fs.repo_id = $repo_id
     AND fs.commit_sha = $base_sha
     AND c.kind IN ('function', 'class', 'method')
+    AND (
+      $scope_all
+      OR EXISTS (
+        SELECT 1 FROM _file_paths AS fp
+        WHERE fp.file_path = c.file_path
+      )
+    )
 )
 
 -- Added: present at head, absent at base.

@@ -60,7 +60,7 @@ def _collect_candidates(
             resp = client.send_or_raise_as(
                 SearchResponse,
                 SearchRequest(
-                    path=str(repo_path),
+                    repo_path=str(repo_path),
                     query=query["text"],
                     reranker_pool=pool,
                 ),

@@ -176,7 +176,7 @@ def test_search_works_during_embed(
     with DaemonClient(contention_server.runtime_dir) as client:
         responses: list[SearchResponse] = []
         for _ in range(20):
-            resp = client.send(SearchRequest(path=contention_repo, query="func_0", limit=5))
+            resp = client.send(SearchRequest(repo_path=contention_repo, query="func_0", limit=5))
             assert isinstance(resp, SearchResponse)
             responses.append(resp)
             time.sleep(0.01)
@@ -200,7 +200,7 @@ def test_search_results_correct_during_embed(
     time.sleep(0.5)
 
     with DaemonClient(contention_server.runtime_dir) as client:
-        daemon_resp = client.send(SearchRequest(path=contention_repo, query="func_0", limit=5))
+        daemon_resp = client.send(SearchRequest(repo_path=contention_repo, query="func_0", limit=5))
         assert isinstance(daemon_resp, SearchResponse)
 
     # Direct search for comparison.

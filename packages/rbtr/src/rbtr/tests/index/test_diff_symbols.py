@@ -43,7 +43,7 @@ def diff_result(
             head_sha = head_commit
         build_index(diff_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
 
-    frame = store.diff_symbols(base_sha, head_sha, repo_id=1)
+    frame = store.diff_symbols(base_sha, head_sha, repo_id=1, file_paths=scenario.file_paths)
     return scenario, changed_to_symbols(frame)
 
 

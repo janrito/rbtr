@@ -75,7 +75,7 @@ def case_shutdown() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_defaults() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","path":"/r"}',
+        raw=b'{"kind":"index","repo_path":"/r"}',
         adapter=request_adapter,
         expected_type=BuildIndexRequest,
         checks={"refs": ["HEAD"], "embed": True},
@@ -85,7 +85,7 @@ def case_build_index_defaults() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_two_refs() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","path":"/r","refs":["main","HEAD"]}',
+        raw=b'{"kind":"index","repo_path":"/r","refs":["main","HEAD"]}',
         adapter=request_adapter,
         expected_type=BuildIndexRequest,
         checks={"refs": ["main", "HEAD"]},
@@ -95,7 +95,7 @@ def case_build_index_two_refs() -> MessageScenario:
 @case(tags=["request"])
 def case_search_defaults() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"search","path":"/r","query":"config"}',
+        raw=b'{"kind":"search","repo_path":"/r","query":"config"}',
         adapter=request_adapter,
         expected_type=SearchRequest,
         checks={"query": "config", "limit": 10, "ref": None},
@@ -105,17 +105,17 @@ def case_search_defaults() -> MessageScenario:
 @case(tags=["request"])
 def case_read_symbol() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"read_symbol","path":"/r","name":"HttpClient"}',
+        raw=b'{"kind":"read_symbol","repo_path":"/r","symbol":"HttpClient"}',
         adapter=request_adapter,
         expected_type=ReadSymbolRequest,
-        checks={"name": "HttpClient", "ref": None},
+        checks={"symbol": "HttpClient", "ref": None},
     )
 
 
 @case(tags=["request"])
 def case_list_symbols() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"list_symbols","path":"/r","file_path":"src/app.py"}',
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"src/app.py"}',
         adapter=request_adapter,
         expected_type=ListSymbolsRequest,
         checks={"file_path": "src/app.py"},
@@ -125,7 +125,7 @@ def case_list_symbols() -> MessageScenario:
 @case(tags=["request"])
 def case_find_refs() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"find_refs","path":"/r","symbol":"load_config"}',
+        raw=b'{"kind":"find_refs","repo_path":"/r","symbol":"load_config"}',
         adapter=request_adapter,
         expected_type=FindRefsRequest,
         checks={"symbol": "load_config"},
@@ -135,7 +135,7 @@ def case_find_refs() -> MessageScenario:
 @case(tags=["request"])
 def case_changed_symbols() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"changed_symbols","path":"/r","base":"abc","head":"def"}',
+        raw=b'{"kind":"changed_symbols","repo_path":"/r","base":"abc","head":"def"}',
         adapter=request_adapter,
         expected_type=ChangedSymbolsRequest,
         checks={"base": "abc", "head": "def"},
@@ -145,17 +145,17 @@ def case_changed_symbols() -> MessageScenario:
 @case(tags=["request"])
 def case_status() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"status","path":"/r"}',
+        raw=b'{"kind":"status","repo_path":"/r"}',
         adapter=request_adapter,
         expected_type=StatusRequest,
-        checks={"path": "/r"},
+        checks={"repo_path": "/r"},
     )
 
 
 @case(tags=["request"])
 def case_gc() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"gc","path":"/r","mode":"head_only"}',
+        raw=b'{"kind":"gc","repo_path":"/r","mode":"head_only"}',
         adapter=request_adapter,
         expected_type=GcRequest,
         checks={"mode": GcMode.HEAD_ONLY, "dry_run": False},
@@ -289,7 +289,7 @@ def case_gc_response() -> MessageScenario:
 @case(tags=["notification"])
 def case_progress() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"progress","path":"/r","phase":"parsing","current":5,"total":10}',
+        raw=b'{"kind":"progress","repo_path":"/r","phase":"parsing","current":5,"total":10}',
         adapter=notification_adapter,
         expected_type=ProgressNotification,
         checks={"phase": "parsing", "current": 5, "total": 10},
@@ -299,7 +299,7 @@ def case_progress() -> MessageScenario:
 @case(tags=["notification"])
 def case_ready() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"ready","path":"/r","ref":"abc","chunks":100,"embedded":0,"edges":50,"elapsed":1.2}',
+        raw=b'{"kind":"ready","repo_path":"/r","ref":"abc","chunks":100,"embedded":0,"edges":50,"elapsed":1.2}',
         adapter=notification_adapter,
         expected_type=ReadyNotification,
         checks={"ref": "abc", "chunks": 100},
@@ -309,7 +309,7 @@ def case_ready() -> MessageScenario:
 @case(tags=["notification"])
 def case_auto_rebuild() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"auto_rebuild","path":"/r","new_ref":"b"}',
+        raw=b'{"kind":"auto_rebuild","repo_path":"/r","new_ref":"b"}',
         adapter=notification_adapter,
         expected_type=AutoRebuildNotification,
         checks={"new_ref": "b"},
@@ -319,7 +319,7 @@ def case_auto_rebuild() -> MessageScenario:
 @case(tags=["notification"])
 def case_embed_complete() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"embed_complete","path":"/r","ref":"abc","chunks":100,"embedded":42}',
+        raw=b'{"kind":"embed_complete","repo_path":"/r","ref":"abc","chunks":100,"embedded":42}',
         adapter=notification_adapter,
         expected_type=EmbedCompleteNotification,
         checks={"ref": "abc", "embedded": 42},
@@ -329,7 +329,7 @@ def case_embed_complete() -> MessageScenario:
 @case(tags=["notification"])
 def case_index_error() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index_error","path":"/r","message":"parse failed"}',
+        raw=b'{"kind":"index_error","repo_path":"/r","message":"parse failed"}',
         adapter=notification_adapter,
         expected_type=IndexErrorNotification,
         checks={"message": "parse failed"},

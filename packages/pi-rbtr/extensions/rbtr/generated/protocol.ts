@@ -20,7 +20,7 @@ export type Request =
 /**
  * Breadth of a search or status request.
  *
- * `WORKSPACE` is the single repo identified by `path`;
+ * `WORKSPACE` is the single repo identified by `repo_path`;
  * `ALL` is every indexed repo in the shared store.
  */
 export type Scope = "workspace" | "all";
@@ -86,7 +86,7 @@ export interface ShutdownRequest {
 }
 export interface BuildIndexRequest {
   kind: "index";
-  path: string;
+  repo_path: string;
   refs?: string[];
   embed?: boolean;
 }
@@ -99,7 +99,7 @@ export interface BuildIndexRequest {
  */
 export interface SearchRequest {
   kind: "search";
-  path: string;
+  repo_path: string;
   query: string;
   limit?: number;
   ref?: string | null;
@@ -124,36 +124,39 @@ export interface WeightTriple {
 }
 export interface ReadSymbolRequest {
   kind: "read_symbol";
-  path: string;
-  name: string;
+  repo_path: string;
+  symbol: string;
   ref?: string | null;
+  file_paths?: string[] | null;
 }
 export interface ListSymbolsRequest {
   kind: "list_symbols";
-  path: string;
+  repo_path: string;
   file_path: string;
   ref?: string | null;
 }
 export interface FindRefsRequest {
   kind: "find_refs";
-  path: string;
+  repo_path: string;
   symbol: string;
   ref?: string | null;
+  file_paths?: string[] | null;
 }
 export interface ChangedSymbolsRequest {
   kind: "changed_symbols";
-  path: string;
+  repo_path: string;
   base: string;
   head: string;
+  file_paths?: string[] | null;
 }
 export interface StatusRequest {
   kind: "status";
-  path: string;
+  repo_path: string;
   scope?: Scope;
 }
 export interface GcRequest {
   kind: "gc";
-  path: string;
+  repo_path: string;
   mode: GcMode;
   refs?: string[];
   dry_run?: boolean;
@@ -325,7 +328,7 @@ export interface IndexedRef {
  * reason about clock boundaries.
  */
 export interface ActiveJob {
-  path: string;
+  repo_path: string;
   ref: string;
   phase: string;
   current: number;
@@ -343,14 +346,14 @@ export interface GcResponse {
 }
 export interface ProgressNotification {
   kind: "progress";
-  path: string;
+  repo_path: string;
   phase: string;
   current: number;
   total: number;
 }
 export interface ReadyNotification {
   kind: "ready";
-  path: string;
+  repo_path: string;
   ref: string;
   chunks: number;
   embedded: number;
@@ -359,19 +362,19 @@ export interface ReadyNotification {
 }
 export interface EmbedCompleteNotification {
   kind: "embed_complete";
-  path: string;
+  repo_path: string;
   ref: string;
   chunks: number;
   embedded: number;
 }
 export interface AutoRebuildNotification {
   kind: "auto_rebuild";
-  path: string;
+  repo_path: string;
   new_ref: string;
 }
 export interface IndexErrorNotification {
   kind: "index_error";
-  path: string;
+  repo_path: string;
   message: string;
 }
 /**

@@ -46,8 +46,8 @@ def test_shutdown(runtime_dir: Path) -> None:
 
 def test_multiple_requests(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
-        r1 = client.send(StatusRequest(path=fake_repo))
-        r2 = client.send(StatusRequest(path=fake_repo))
+        r1 = client.send(StatusRequest(repo_path=fake_repo))
+        r2 = client.send(StatusRequest(repo_path=fake_repo))
     assert r1.kind == "status"
     assert r2.kind == "status"
 

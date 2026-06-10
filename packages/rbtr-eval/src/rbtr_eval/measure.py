@@ -116,7 +116,7 @@ def _search(
 ) -> SearchResponse:
     """One search call via the daemon client."""
     request = SearchRequest(
-        path=str(repo_path),
+        repo_path=str(repo_path),
         query=query,
         limit=10,
         keywords=keywords,

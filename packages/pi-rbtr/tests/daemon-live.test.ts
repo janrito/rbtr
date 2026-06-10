@@ -66,7 +66,7 @@ test("queryDaemonStatus reports running with pid + rpc endpoint", async () => {
 test("send(StatusRequest) round-trips against a real daemon", async () => {
   process.env.RBTR_HOME = home;
   try {
-    const response = await send({ kind: "status", path: repo });
+    const response = await send({ kind: "status", repo_path: repo });
     expect(response.kind).toBe("status");
     if (response.kind === "status") {
       // Fresh daemon, freshly-initialised repo → no index yet.

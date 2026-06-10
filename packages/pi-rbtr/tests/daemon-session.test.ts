@@ -45,7 +45,7 @@ describe("DaemonSession.send", () => {
     });
     const session = primedSession(daemon.endpoint);
 
-    await expect(session.send({ kind: "status", path: "/nope" })).rejects.toSatisfy(
+    await expect(session.send({ kind: "status", repo_path: "/nope" })).rejects.toSatisfy(
       (err: unknown) =>
         err instanceof RbtrDaemonError && err.code === "repo_not_found" && err.message.includes("not a git repository"),
     );

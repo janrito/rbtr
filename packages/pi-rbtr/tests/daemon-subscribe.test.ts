@@ -40,7 +40,7 @@ describe("DaemonSession.subscribe", () => {
     await sleep(80);
     await daemon.publish({
       kind: "progress",
-      path: "/r",
+      repo_path: "/r",
       phase: "parsing",
       current: 10,
       total: 42,
@@ -48,7 +48,7 @@ describe("DaemonSession.subscribe", () => {
     await sleep(80);
     await daemon.publish({
       kind: "ready",
-      path: "/r",
+      repo_path: "/r",
       ref: "abc",
       chunks: 100,
       edges: 200,
@@ -89,7 +89,7 @@ describe("DaemonSession.subscribe", () => {
     await sleep(80);
     await daemon.publish({
       kind: "index_error",
-      path: "/r",
+      repo_path: "/r",
       message: "boom",
     });
     await sleep(80);

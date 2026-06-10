@@ -111,7 +111,7 @@ def test_gc_drop_removes_commit(
     seeded_repo_id_both_commits: int,
 ) -> None:
     repo_id = seeded_repo_id_both_commits
-    r = run_cli(["--json", "gc", "--path", str(tiny_repo.path), "--drop", tiny_repo.c1])
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--drop", tiny_repo.c1])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["kind"] == "gc"
@@ -127,7 +127,7 @@ def test_gc_dry_run_changes_nothing(
     seeded_repo_id_first_commit: int,
 ) -> None:
     repo_id = seeded_repo_id_first_commit
-    r = run_cli(["--json", "gc", "--path", str(tiny_repo.path), "--dry-run"])
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--dry-run"])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["dry_run"] is True
@@ -137,6 +137,6 @@ def test_gc_dry_run_changes_nothing(
 
 
 def test_gc_keep_and_drop_are_mutually_exclusive(tiny_repo: TinyRepo) -> None:
-    r = run_cli(["gc", "--path", str(tiny_repo.path), "--drop", "HEAD", "main"])
+    r = run_cli(["gc", "--repo-path", str(tiny_repo.path), "--drop", "HEAD", "main"])
     assert r.returncode != 0
     assert "mutually exclusive" in r.stderr.lower()

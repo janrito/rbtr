@@ -126,7 +126,7 @@ def _wait_for_build_start(client: DaemonClient, repo_path: Path, deadline_s: flo
     """
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        resp = client.send(StatusRequest(path=str(repo_path)))
+        resp = client.send(StatusRequest(repo_path=str(repo_path)))
         if isinstance(resp, StatusResponse) and resp.active_build is not None:
             return
         time.sleep(0.05)
@@ -150,7 +150,7 @@ def test_search_returns_promptly_during_live_build(
     repo_path, _sha = large_repo
 
     with DaemonClient(running_daemon.runtime_dir) as client:
-        build_resp = client.send(BuildIndexRequest(path=str(repo_path)))
+        build_resp = client.send(BuildIndexRequest(repo_path=str(repo_path)))
         assert isinstance(build_resp, OkResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)
@@ -159,7 +159,7 @@ def test_search_returns_promptly_during_live_build(
         for _ in range(10):
             t0 = time.monotonic()
             search_resp = client.send(
-                SearchRequest(path=str(repo_path), query="helper_42", limit=5)
+                SearchRequest(repo_path=str(repo_path), query="helper_42", limit=5)
             )
             elapsed = time.monotonic() - t0
             # During the first build, FTS may not exist yet.
@@ -193,14 +193,14 @@ def test_status_returns_promptly_during_live_build(
     repo_path, _sha = large_repo
 
     with DaemonClient(running_daemon.runtime_dir) as client:
-        build_resp = client.send(BuildIndexRequest(path=str(repo_path)))
+        build_resp = client.send(BuildIndexRequest(repo_path=str(repo_path)))
         assert isinstance(build_resp, OkResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)
 
         for _ in range(10):
             t0 = time.monotonic()
-            resp = client.send(StatusRequest(path=str(repo_path)))
+            resp = client.send(StatusRequest(repo_path=str(repo_path)))
             elapsed = time.monotonic() - t0
             assert isinstance(resp, StatusResponse)
             assert elapsed < search_budget_s, f"status took {elapsed * 1000:.0f} ms during build"
