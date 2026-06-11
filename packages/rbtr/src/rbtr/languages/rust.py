@@ -46,6 +46,14 @@ _QUERY = """\
   type: (type_identifier) @_cls_name) @class
 
 (use_declaration) @import
+
+(source_file
+  (const_item
+    name: (identifier) @_var_name) @variable)
+
+(source_file
+  (static_item
+    name: (identifier) @_var_name) @variable)
 """
 
 # ── Import extractor ─────────────────────────────────────────────────
@@ -163,5 +171,6 @@ class RustPlugin:
                 index_files=frozenset({"mod.rs"}),
                 path_substitutions=(("crate/", "src/"),),
                 test_prefix="test_",
+                language_plugin_version=2,
             ),
         ]

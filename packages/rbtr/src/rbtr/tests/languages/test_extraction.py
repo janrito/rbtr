@@ -262,6 +262,54 @@ def hello():
     assert chunks[0].name == "<anonymous>"
 
 
+def test_py_module_variable_content_is_whole_statement() -> None:
+    """A module-level VARIABLE chunk spans the whole statement, named by LHS."""
+    src = """\
+MAX_SIZE = 100
+"""
+    chunks = extract_chunks("python", src)
+    variables = [c for c in chunks if c.kind == ChunkKind.VARIABLE]
+    assert len(variables) == 1
+    assert variables[0].name == "MAX_SIZE"
+    assert variables[0].content.strip() == "MAX_SIZE = 100"
+
+
+def test_py_function_local_not_captured_as_variable() -> None:
+    """Assignments inside a function stay part of the function chunk."""
+    src = """\
+def f():
+    tmp = 1
+    return tmp
+"""
+    chunks = extract_chunks("python", src)
+    assert [c for c in chunks if c.kind == ChunkKind.VARIABLE] == []
+
+
+def test_py_class_attribute_not_captured_as_variable() -> None:
+    """Class-body attributes stay part of the class chunk, not VARIABLE chunks."""
+    src = """\
+class Config:
+    DEFAULT = 30
+"""
+    chunks = extract_chunks("python", src)
+    assert [c for c in chunks if c.kind == ChunkKind.VARIABLE] == []
+
+
+def test_py_tuple_unpacking_captured_as_variables() -> None:
+    """Flat tuple-unpacking binds each target as its own VARIABLE chunk.
+
+    Both names come from one statement (tree-sitter fans the destructuring
+    into a match per identifier), and each chunk spans the whole statement.
+    """
+    src = """\
+a, b = compute()
+"""
+    chunks = extract_chunks("python", src)
+    variables = [c for c in chunks if c.kind == ChunkKind.VARIABLE]
+    assert {c.name for c in variables} == {"a", "b"}
+    assert all(c.content.strip() == "a, b = compute()" for c in variables)
+
+
 def test_unknown_capture_name_ignored(
     language_manager: LanguageManager,
 ) -> None:

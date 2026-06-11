@@ -31,6 +31,7 @@ _CAPTURE_KIND: dict[str, ChunkKind] = {
     "function": ChunkKind.FUNCTION,
     "method": ChunkKind.METHOD,
     "class": ChunkKind.CLASS,
+    "variable": ChunkKind.VARIABLE,
     "import": ChunkKind.IMPORT,
     "doc_section": ChunkKind.DOC_SECTION,
 }
@@ -41,6 +42,7 @@ _NAME_CAPTURE_KEY: dict[str, str] = {
     "function": "_fn_name",
     "method": "_method_name",
     "class": "_cls_name",
+    "variable": "_var_name",
     "doc_section": "_section_name",
 }
 

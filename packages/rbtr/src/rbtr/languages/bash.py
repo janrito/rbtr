@@ -34,6 +34,10 @@ _QUERY = """\
   .
   (word) @_import_module
   (#eq? @_cmd ".")) @import
+
+(program
+  (variable_assignment
+    name: (variable_name) @_var_name) @variable)
 """
 
 # ── Plugin ───────────────────────────────────────────────────────────
@@ -67,5 +71,6 @@ class BashPlugin:
                 query=_QUERY,
                 # Bash: `#` comments above a function attach.
                 doc_comment_node_types=frozenset({"comment"}),
+                language_plugin_version=2,
             ),
         ]

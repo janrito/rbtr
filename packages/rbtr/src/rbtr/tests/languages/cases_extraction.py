@@ -10,6 +10,7 @@ Organisation: one section per language, cases tagged by behavior
 
 from __future__ import annotations
 
+import pytest
 from pytest_cases import case
 
 from .conftest import skip_unless_grammar
@@ -207,6 +208,33 @@ class Svc:
         pass
 """
     return "python", src, [("method", "create", "Svc")]
+
+
+@case(tags=["symbol"])
+def case_py_module_constant() -> SymbolCase:
+    """Module-level constant."""
+    src = """\
+MAX_SIZE = 100
+"""
+    return "python", src, [("variable", "MAX_SIZE", "")]
+
+
+@case(tags=["symbol"])
+def case_py_module_singleton() -> SymbolCase:
+    """Module-level lowercase singleton (the motivating case)."""
+    src = """\
+config = Config()
+"""
+    return "python", src, [("variable", "config", "")]
+
+
+@case(tags=["symbol"])
+def case_py_annotated_module_var() -> SymbolCase:
+    """Module-level annotated assignment."""
+    src = """\
+TIMEOUT: int = 30
+"""
+    return "python", src, [("variable", "TIMEOUT", "")]
 
 
 # ── Imports ──────────────────────────────────────────────────────────
@@ -2461,3 +2489,260 @@ def case_html_body_elements() -> SymbolCase:
 def case_html_empty() -> SymbolCase:
     """Empty HTML produces no chunks."""
     return "html", "", []
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Module-level variables (cross-language fan-out)
+# ═════════════════════════════════════════════════════════════════════
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_module_const() -> SymbolCase:
+    """Top-level const."""
+    return "javascript", "const MAX = 100;\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_exported_const() -> SymbolCase:
+    """Exported top-level const."""
+    return "javascript", "export const TIMEOUT = 30;\n", [("variable", "TIMEOUT", "")]
+
+
+@case(tags=["symbol"])
+@_skip_ts
+def case_ts_module_const() -> SymbolCase:
+    """Top-level annotated const."""
+    return "typescript", "const MAX: number = 100;\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
+@_skip_go
+def case_go_package_var() -> SymbolCase:
+    """Package-level var."""
+    return "go", "package main\nvar MaxSize = 100\n", [("variable", "MaxSize", "")]
+
+
+@case(tags=["symbol"])
+@_skip_go
+def case_go_package_const() -> SymbolCase:
+    """Package-level const."""
+    return "go", "package main\nconst Timeout = 30\n", [("variable", "Timeout", "")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_const() -> SymbolCase:
+    """Crate-level const."""
+    return "rust", "const MAX: i32 = 100;\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_static() -> SymbolCase:
+    """Crate-level static."""
+    return "rust", 'static NAME: &str = "x";\n', [("variable", "NAME", "")]
+
+
+@case(tags=["symbol"])
+@_skip_ruby
+def case_ruby_constant() -> SymbolCase:
+    """Top-level constant."""
+    return "ruby", "MAX_SIZE = 100\n", [("variable", "MAX_SIZE", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_assignment() -> SymbolCase:
+    """Top-level variable assignment."""
+    return "bash", "MAX=100\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
+@_skip_c
+def case_c_global() -> SymbolCase:
+    """File-scope global with initialiser."""
+    return "c", "int g = 5;\n", [("variable", "g", "")]
+
+
+@case(tags=["symbol"])
+@_skip_cpp
+def case_cpp_global() -> SymbolCase:
+    """File-scope global with initialiser."""
+    return "cpp", "int g = 5;\n", [("variable", "g", "")]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Module-level destructuring & multiple assignment (flat)
+# ═════════════════════════════════════════════════════════════════════
+
+_xfail_nested = pytest.mark.xfail(
+    reason="nested/chained destructuring unsupported — no query-only recursion",
+    strict=True,
+)
+
+
+@case(tags=["symbol"])
+def case_py_tuple_unpack() -> SymbolCase:
+    """Flat tuple unpacking."""
+    return "python", "a, b = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+def case_py_paren_tuple_unpack() -> SymbolCase:
+    """Parenthesised tuple target."""
+    return "python", "(a, b) = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+def case_py_list_unpack() -> SymbolCase:
+    """List-pattern target."""
+    return "python", "[a, b] = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+def case_py_star_unpack() -> SymbolCase:
+    """Starred target."""
+    return "python", "a, *rest = compute()\n", [("variable", "a", ""), ("variable", "rest", "")]
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_object_destructure() -> SymbolCase:
+    """Object destructuring (shorthand)."""
+    return "javascript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_object_renamed() -> SymbolCase:
+    """Object destructuring with rename binds the renamed target."""
+    return "javascript", "const {a: ra} = o;\n", [("variable", "ra", "")]
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_array_destructure() -> SymbolCase:
+    """Array destructuring."""
+    return "javascript", "const [x, y] = arr;\n", [("variable", "x", ""), ("variable", "y", "")]
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_object_rest() -> SymbolCase:
+    """Object rest element."""
+    return (
+        "javascript",
+        "const {a, ...rest} = o;\n",
+        [("variable", "a", ""), ("variable", "rest", "")],
+    )
+
+
+@case(tags=["symbol"])
+@_skip_js
+def case_js_exported_destructure() -> SymbolCase:
+    """Exported destructuring."""
+    return (
+        "javascript",
+        "export const {a, b} = o;\n",
+        [("variable", "a", ""), ("variable", "b", "")],
+    )
+
+
+@case(tags=["symbol"])
+@_skip_ts
+def case_ts_object_destructure() -> SymbolCase:
+    """TS object destructuring."""
+    return "typescript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+@_skip_ruby
+def case_ruby_multiple_assignment() -> SymbolCase:
+    """Ruby multiple assignment of constants."""
+    return "ruby", "A, B = 1, 2\n", [("variable", "A", ""), ("variable", "B", "")]
+
+
+@case(tags=["symbol"])
+@_skip_ruby
+def case_ruby_splat_assignment() -> SymbolCase:
+    """Ruby splat target."""
+    return "ruby", "A, *B = list\n", [("variable", "A", ""), ("variable", "B", "")]
+
+
+@case(tags=["symbol"])
+@_skip_go
+def case_go_grouped_var() -> SymbolCase:
+    """Go grouped var block."""
+    src = """\
+package m
+
+var (
+	X = 1
+	Y = 2
+)
+"""
+    return "go", src, [("variable", "X", ""), ("variable", "Y", "")]
+
+
+@case(tags=["symbol"])
+@_skip_go
+def case_go_grouped_const() -> SymbolCase:
+    """Go grouped const block (already supported — regression guard)."""
+    src = """\
+package m
+
+const (
+	A = 1
+	B = 2
+)
+"""
+    return "go", src, [("variable", "A", ""), ("variable", "B", "")]
+
+
+# ── Known limitations: nested / chained (strict xfail) ───────────────
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+def case_py_nested_unpack_xfail() -> SymbolCase:
+    """Nested tuple unpacking — only the outer level is captured today."""
+    return (
+        "python",
+        "(a, b), c = f()\n",
+        [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
+    )
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+def case_py_chained_assignment_xfail() -> SymbolCase:
+    """Chained assignment — only the first target is captured today."""
+    return "python", "a = b = f()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+@_skip_js
+def case_js_nested_array_xfail() -> SymbolCase:
+    """Nested array destructuring — only the outer level captured today."""
+    return (
+        "javascript",
+        "const [a, [b, c]] = x;\n",
+        [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
+    )
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+@_skip_js
+def case_js_nested_object_xfail() -> SymbolCase:
+    """Nested object destructuring — nothing captured today."""
+    return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+@_skip_ruby
+def case_ruby_nested_unpack_xfail() -> SymbolCase:
+    """Ruby nested destructuring — only the outer level captured today."""
+    return (
+        "ruby",
+        "(A, B), C = x\n",
+        [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
+    )

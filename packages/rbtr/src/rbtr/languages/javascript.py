@@ -50,6 +50,59 @@ _SHARED = """\
     value: (arrow_function))) @function
 """
 
+# Module-level const/let bindings with a non-function value become
+# variables.  The value allowlist excludes arrow/function expressions,
+# which `_SHARED` already captures as functions.
+_VAR_VALUES = """\
+[(number) (string) (template_string) (true) (false) (null)
+ (object) (array) (identifier) (member_expression)
+ (call_expression) (new_expression) (binary_expression) (unary_expression)]"""
+
+# Flat destructuring targets (object/array patterns).  The binding names
+# differ by shape: object shorthand, renamed `value:`, defaulted `left:`,
+# and rest elements.  Nested patterns are not captured (no query-only
+# recursion).  No value allowlist needed — a destructuring target is never a
+# function.
+_DESTRUCTURE_NAMES = """\
+name: [
+  (object_pattern [
+    (shorthand_property_identifier_pattern) @_var_name
+    (pair_pattern value: (identifier) @_var_name)
+    (object_assignment_pattern left: (shorthand_property_identifier_pattern) @_var_name)
+    (rest_pattern (identifier) @_var_name)
+  ])
+  (array_pattern [
+    (identifier) @_var_name
+    (rest_pattern (identifier) @_var_name)
+  ])
+]"""
+
+_VARIABLES = f"""
+(program
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @_var_name
+      value: {_VAR_VALUES}) @variable))
+
+(program
+  (export_statement
+    declaration: (lexical_declaration
+      (variable_declarator
+        name: (identifier) @_var_name
+        value: {_VAR_VALUES}) @variable)))
+
+(program
+  (lexical_declaration
+    (variable_declarator
+      {_DESTRUCTURE_NAMES}) @variable))
+
+(program
+  (export_statement
+    declaration: (lexical_declaration
+      (variable_declarator
+        {_DESTRUCTURE_NAMES}) @variable)))
+"""
+
 # JS uses `identifier` for class names, TS uses `type_identifier`.
 _JS_QUERY = (
     """\
@@ -58,6 +111,7 @@ _JS_QUERY = (
 
 """
     + _SHARED
+    + _VARIABLES
 )
 
 _TS_QUERY = (
@@ -67,6 +121,7 @@ _TS_QUERY = (
 
 """
     + _SHARED
+    + _VARIABLES
 )
 
 # ── Import extractor (shared by JS and TS) ───────────────────────────
@@ -172,6 +227,7 @@ class JavaScriptPlugin:
                 import_targets=frozenset({"javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
+                language_plugin_version=2,
             ),
             LanguageRegistration(
                 id="typescript",
@@ -186,5 +242,6 @@ class JavaScriptPlugin:
                 import_targets=frozenset({"typescript", "javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
+                language_plugin_version=2,
             ),
         ]

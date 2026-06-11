@@ -104,6 +104,17 @@ def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) ->
     assert "load_config" in names
 
 
+def test_read_symbol_returns_variable(
+    running_server_with_index: DaemonServer, fake_repo: str
+) -> None:
+    """Module-level VARIABLE chunks are readable like any other symbol."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="MAX_SIZE"))
+    assert isinstance(resp, ReadSymbolResponse)
+    names = {c.name for c in resp.chunks}
+    assert "MAX_SIZE" in names
+
+
 def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="nonexistent_xyz"))
@@ -164,6 +175,7 @@ def test_list_symbols(running_server_with_index: DaemonServer, fake_repo: str) -
     assert len(resp.chunks) >= 1
     names = {c.name for c in resp.chunks}
     assert "load_config" in names
+    assert "MAX_SIZE" in names
 
 
 def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_repo: str) -> None:
