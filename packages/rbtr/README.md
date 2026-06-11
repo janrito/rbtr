@@ -1,8 +1,8 @@
 # rbtr
 
 A language-agnostic structural code index. rbtr decomposes
-source files into functions, classes, methods, and imports,
-connects them with a dependency graph, and makes them
+source files into functions, classes, methods, variables, and
+imports, connects them with a dependency graph, and makes them
 searchable through name matching, keyword search, and
 semantic similarity — fused into a single ranked result.
 
@@ -59,6 +59,7 @@ List symbols in a file:
 
 ```text
 rbtr list-symbols src/rbtr/index/search.py
+variable  log                          43
 function  _name_score_expr             44–86
 function  _kind_boost_expr             95–127
 function  fuse_scores                  298–380
@@ -317,7 +318,8 @@ class SwiftPlugin:
 
 Capture conventions: `@function`/`@_fn_name`,
 `@class`/`@_cls_name`, `@method`/`@_method_name`,
-`@import`/`@_import_module`, `@doc_section`/`@_section_name`.
+`@variable`/`@_var_name`, `@import`/`@_import_module`,
+`@doc_section`/`@_section_name`.
 
 Import captures: `@_import_module` populates
 `ImportMeta.module` directly from the query, with delimiter

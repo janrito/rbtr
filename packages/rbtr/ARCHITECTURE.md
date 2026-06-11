@@ -538,7 +538,7 @@ Each file is routed to one of three extraction strategies
 by the language plugin:
 
 - **Tree-sitter** - grammar + query → functions, classes,
-  methods, imports as structured `Chunk` objects.
+  methods, variables, imports as structured `Chunk` objects.
 - **Custom chunker** - plugin-provided (e.g. markdown
   heading-hierarchy splitting).
 - **Plaintext fallback** - fixed-size overlapping line
@@ -547,6 +547,10 @@ by the language plugin:
 Scope detection: when a function node is nested inside a
 class node (per the plugin's `scope_types`), the chunk gets
 `scope = "ClassName"` and `kind = METHOD`.
+
+Variable chunks cover module-level bindings only; class
+attributes and function-locals stay within their enclosing
+chunk.
 
 ## Dependency graph
 
@@ -557,6 +561,14 @@ class node (per the plugin's `scope_types`), the chunk gets
 - **Test edges** - `test_foo.py` → `foo.py` by naming
   convention and import analysis.
 - **Doc edges** - markdown sections mentioning symbol names.
+
+Import resolution maps a module string to a repo file:
+relative paths directly, absolute/dotted paths by matching
+the dotted path as a *suffix* of a candidate file path (so
+`rbtr.index.store` → `…/rbtr/index/store.py`) — which lets a
+single index span a monorepo. `module_style` and
+`source_roots` tune the mapping per language; ambiguous
+matches are dropped rather than guessed.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
@@ -1100,6 +1112,13 @@ cross-encoder evaluates each `(query, chunk)` pair
 with full cross-attention, catching relevance that
 channel scores miss. Evaluated at +10.6pp Hit@1 and
 +0.107 MRR over fusion alone on 5029 queries.
+
+**Suffix-match import resolution.** Absolute/dotted
+imports resolve by matching the module path as a suffix
+of candidate file paths, not by per-repo module-root
+configuration. This supports monorepos transparently;
+genuinely ambiguous matches are dropped rather than
+guessed.
 
 ## Testing
 
