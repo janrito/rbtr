@@ -789,7 +789,14 @@ class DaemonServer:
                 message=f"Invalid request: {exc}",
             )
         if isinstance(request, HasRepoPath):
-            request.repo_path = normalise_repo_path(request.repo_path)
+            try:
+                request.repo_path = normalise_repo_path(request.repo_path)
+            except RbtrError as exc:
+                # A bad repo_path (e.g. a client whose cwd is not a git
+                # repo) must not take the whole daemon down: reply with an
+                # error so the surviving daemon keeps serving other repos.
+                log.warning("Rejected request %s: %s", request.kind, exc)
+                return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
         handler = self._handlers.get(request.kind)
         if handler is None:
             return ErrorResponse(

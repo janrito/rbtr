@@ -69,6 +69,28 @@ def test_garbage_returns_error(running_server: DaemonServer) -> None:
     ctx.term()
 
 
+def test_non_git_repo_path_returns_error_and_daemon_survives(
+    running_server_with_index: DaemonServer, fake_repo: str, tmp_path: Path
+) -> None:
+    """A request with a non-git repo_path must not crash the daemon.
+
+    Regression: `normalise_repo_path` raised `RbtrError` outside the
+    dispatch error handler, so a client whose cwd was not a git repo
+    took the whole (shared) daemon down mid-job.
+    """
+    not_git = tmp_path / "not_a_repo"
+    not_git.mkdir()
+
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        bad = client.send(StatusRequest(repo_path=str(not_git)))
+        assert isinstance(bad, ErrorResponse)
+        assert bad.code == ErrorCode.REPO_NOT_FOUND
+
+        # Daemon is still alive and serving other repos.
+        good = client.send(StatusRequest(repo_path=fake_repo))
+    assert good.kind == "status"
+
+
 def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
     def bad_handler(_request: object) -> Response:
         msg = "handler broke"
