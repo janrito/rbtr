@@ -42,181 +42,168 @@ ablation in `measure` isolates the effect of each channel.
 
 ## Examples
 
-### concept: `CompressionMethod` (`astral-sh__uv`)
-
-````rust
-supported archive compression formats
-````
-
-- **keywords:** supported_formats, compression_codec, archive_type,
-  compression_algorithm, file_ext
-- **variants:** which compression codecs are available for archives, what archive types
-  can be decompressed
-
-### concept: `list_indexed_commits` (`rbtr__rbtr`)
-
-````python
-retrieve the commits that have been processed for a given repository with their timestamps
-````
-
-- **keywords:** processed_commits, commit_history, get_commits, commit_timestamps,
-  fetch_revisions
-- **variants:** list already-handled commits and their dates for a repo, get the log of
-  ingested commits with time info for a repository
-
-### concept: `search_p95_ms` (`rbtr__rbtr`)
+### concept: `node` (`badlogic__pi-mono`)
 
 ````json
-how to configure p95 search latency threshold
+how to set minimum runtime version requirement in package config
 ````
 
-- **keywords:** p95_threshold, latency_threshold, percentile_latency, search_sla,
-  response_time_config
-- **variants:** set the 95th percentile response time limit for search, configure search
-  performance SLA and latency bounds
+- **keywords:** engines, python_requires, requires-python, rust-version, engine-strict
+- **variants:** specify compatible runtime version in package manifest, enforce minimum
+  language version in package metadata
 
-### concept: `All models` (`anthropics__skills`)
+### concept: `Live Documentation Sources` (`anthropics__skills`)
 
 ````markdown
-Model Migration Guide > Breaking Changes by Source Model.All models
+# Live Documentation Sources
 ````
 
-- **keywords:** breaking_changes, migration_guide, deprecation, model_upgrade,
-  source_model
-- **variants:** what changed when switching between model versions, deprecation and
-  migration notes per source model
+- **keywords:** doc_sources, live_docs, documentation_provider, doc_generator,
+  realtime_docs
+- **variants:** where does live documentation pull content from, how are documentation
+  sources loaded dynamically
 
-### concept: `django/contrib/admindocs/templates/admin_doc/bookmarklets.html` (`django__django`)
-
-````html
-how to install browser shortcuts that navigate to the documentation for the current page's view
-````
-
-- **keywords:** bookmarklet, docs_bookmarklet, admindocs, install_shortcut,
-  documentation_shortcut
-- **variants:** set up bookmarklet that opens docs for the current view, add browser
-  bookmarklet to jump to page documentation
-
-### identifier: `Parameter schemas` (`rbtr__rbtr`)
+### concept: `Footer class` (`rbtr__rbtr`)
 
 ````markdown
-### Parameter schemas
+how does the footer status bar show animation during long-running operations
 ````
 
-- **keywords:** param_schema, param_spec, arg_schema, parameter_validation, param_defs
-- **variants:** define validation rules and types for function or API parameters,
-  specify the structure and constraints of input parameters
+- **keywords:** progress_bar, status_bar_animation, spinner, loading_indicator,
+  busy_indicator
+- **variants:** how the status bar displays progress feedback for running tasks, what
+  animation plays in the footer while operations are in progress
 
-### identifier: `.tree-node` (`badlogic__pi-mono`)
-
-````css
-.tree-node
-````
-
-- **keywords:** treeNode, tree_item, hierarchy_node, tree_node_item, branch_node
-- **variants:** a single element within a hierarchical tree view component, rendering a
-  node in a collapsible tree data structure
-
-### identifier: `Installation` (`badlogic__pi-mono`)
+### concept: `homeassistant.components.rmvtransport` (`astral-sh__uv`)
 
 ````markdown
-@mariozechner/pi-agent-core.Installation
+what Python package does the RMV transport integration depend on
 ````
 
-- **keywords:** install, setup, deployment, agent_instance, pi_agent_install
-- **variants:** represent an installed pi-agent instance, manage pi-agent setup and
-  deployment configuration
+- **keywords:** pyrmv, rmv_transport, manifest.json, requirements, DEPENDENCIES
+- **variants:** which pip package is required by the RMV transport component, Python
+  library dependency for RMV public transit integration
 
-### identifier: `Embedding summary` (`rbtr__rbtr`)
-
-````markdown
-Embedding summary
-````
-
-- **keywords:** embedding_aggregation, embedding_pooling, summarize_embeddings,
-  embedding_reduce, embedding_compression
-- **variants:** aggregate multiple embedding vectors into a single summary vector,
-  reduce dimensionality of embeddings into a compact representation
-
-### identifier: `from_url` (`astral-sh__uv`)
-
-````rust
-/// Parse [`Credentials`] from a URL, if any.
-````
-
-- **keywords:** credentials_from_url, extract_credentials, parse_url_credentials,
-  credential_from_uri, url_credentials
-- **variants:** extract username and password from a URL, parse authentication
-  credentials embedded in a URL
-
-### code: `navigateTo` (`badlogic__pi-mono`)
+### concept: `makeRelParts` (`django__django`)
 
 ````javascript
-function navigateTo(targetId, scrollMode = 'target', scrollToEntryId = null) {
-        currentLeafId = targetId;
-        currentTargetId = scrollToEntryId || targetId;
-        const path = getPath(tar
+split a relationship name into plugin ID and resource ID parts
 ````
 
-- **keywords:** navigateTo, targetId, scrollMode, scrollToEntryId, currentLeafId,
-  getPath
-- **variants:** function that navigates to a target node and scrolls to an entry within
-  it, navigate to tree leaf with optional scroll-to-entry behavior
+- **keywords:** parse_relationship, split_identifier, plugin_resource, decompose_name,
+  relationship_parser
+- **variants:** how to parse relationship identifiers into plugin and resource
+  components, extracting plugin and resource IDs from a compound relationship name
 
-### code: `uv` (`astral-sh__uv`)
-
-````toml
-[tool.uv]
-dev-dependencies = [
-  "Sphinx",
-  "asyncudp>=0.7",
-  "black==24.4.2",
-  "cairosvg",
-  "celery-types",
-  "coverage",
-  "curlylint",
-  "doc8>=1.1.0",
-  "factory_boy",
-  "flake8",
-  "freezegun
-````
-
-- **keywords:** dev-dependencies, pyproject.toml, tool.uv, development_dependencies,
-  Sphinx
-- **variants:** uv dev-dependencies configuration in pyproject.toml, Python project
-  development dependency list
-
-### code: `_flavor_priority` (`astral-sh__uv`)
+### identifier: `cursor_iter` (`django__django`)
 
 ````python
-def _flavor_priority(self, flavor: str) -> int:
-        try:
-            priority = self.FLAVOR_PREFERENCES.index(flavor)
-        except ValueError:
-            priority = len(self.FLAVOR_PREFERENCES)
+"""
+    Yield blocks of rows from a cursor and ensure the cursor is closed when
+    done.
 ````
 
-- **keywords:** _flavor_priority, FLAVOR_PREFERENCES, priority, index, ValueError
-- **variants:** get priority ranking for a flavor with fallback for unknown values,
-  lookup flavor preference order defaulting to lowest priority
+- **keywords:** iter_chunks, fetchmany_batches, cursor_generator, chunked_rows,
+  batch_fetch
+- **variants:** yield rows in batches from a database cursor with cleanup, iterate over
+  database cursor results in chunks and close cursor afterward
 
-### code: `django/forms/templates/django/forms/formsets/ul.html` (`django__django`)
+### identifier: `Fixed` (`badlogic__pi-mono`)
+
+````markdown
+Changelog > [0.52.7] - 2026-02-06.Fixed
+````
+
+- **keywords:** release_notes, version_fix, changelog_fix, patch_notes, bugfix_0_52_7
+- **variants:** fixes in version 0.52.7 release, bug fixes listed in changelog for
+  0.52.7
+
+### identifier: `findVisibleAncestor` (`badlogic__pi-mono`)
+
+````javascript
+// Find nearest visible ancestor for a node
+````
+
+- **keywords:** nearest_visible_ancestor, closest_visible_parent, find_visible_ancestor,
+  get_visible_parent, visible_node_ancestor
+- **variants:** traverse up the DOM tree to find the first ancestor element that is not
+  hidden, find closest displayed parent of a hidden DOM node
+
+### identifier: `Graceful degradation` (`rbtr__rbtr`)
+
+````markdown
+## Graceful degradation
+````
+
+- **keywords:** fallback_handling, degrade_gracefully, graceful_fallback,
+  resilience_pattern, failover_handling
+- **variants:** continue operating with reduced functionality when components fail,
+  design system to maintain partial operation during failures
+
+### identifier: `launcher` (`astral-sh__uv`)
+
+````rust
+/// The name of the launcher shim.
+````
+
+- **keywords:** launcher_shim_name, bootstrap_launcher, launch_wrapper, launcher_stub,
+  shim_identifier
+- **variants:** name of the thin launcher wrapper used to start an application,
+  identifier for the bootstrap shim that launches the main process
+
+### code: `resolveCommand` (`rbtr__rbtr`)
+
+````typescript
+function resolveCommand(command: string): ResolvedCommand {
+  const trimmed = command.trim();
+````
+
+- **keywords:** resolveCommand, ResolvedCommand, command, trimmed, trim
+- **variants:** resolve a command string into a ResolvedCommand, parse and trim a
+  command string before resolution
+
+### code: `django/forms/jinja2/django/forms/errors/list/ul.html` (`django__django`)
 
 ````html
-{{ formset.management_form }}{% for form in formset %}{{ form.as_ul }}{% endfor %}
+{% if errors %}<ul class="{{ error_class }}"{% if errors.field_id %} id="{{ errors.field_id }}_error"{% endif %}>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
 ````
 
-- **keywords:** formset, management_form, as_ul, django_formset, management_form
-- **variants:** render a Django formset with management form and each form as unordered
-  list, Django template loop over formset forms rendering management_form and form.as_ul
+- **keywords:** error_class, errors.field_id, form_errors, error_list, field_id_error
+- **variants:** Django template rendering form field errors as an unordered list with
+  CSS class and ID, Jinja2 macro to display validation error messages in a ul element
 
-### code: ```WeekArchiveView``` (`django__django`)
+### code: `publishConfig` (`rbtr__rbtr`)
 
-````rst
-``WeekArchiveView``
-===================
+````json
+"publishConfig": {
+    "access": "public"
+  }
 ````
 
-- **keywords:** WeekArchiveView, archive_week, DateMixin, WeekArchiveMixin, django_views
-- **variants:** Django generic view for weekly archive listing, class-based view that
-  shows objects by week
+- **keywords:** publishConfig, access, public, npm_publish, scoped_package
+- **variants:** npm package.json publishConfig access public for scoped package,
+  configure npm scoped package for public registry access
+
+### code: `isType` (`django__django`)
+
+````javascript
+function isType(value, type) {
+  return Object.prototype.toString.call(value) === "[object ".concat(type, "]");
+}
+````
+
+- **keywords:** isType, Object.prototype.toString.call, object type check, toString type
+  detection, [object
+- **variants:** check value type using Object.prototype.toString, type guard via
+  toString call and [object] tag comparison
+
+### code: `TimerPanel` (`badlogic__pi-mono`)
+
+````typescript
+class TimerPanel extends BaseOverlay {
+	private seconds = 0;
+````
+
+- **keywords:** TimerPanel, BaseOverlay, seconds, timer_overlay, countdown_panel
+- **variants:** timer overlay UI panel with seconds counter, class extending BaseOverlay
+  to display a timer with elapsed seconds

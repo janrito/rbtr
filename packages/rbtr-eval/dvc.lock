@@ -131,9 +131,9 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 684e00a530a7be0f6171d7343a44aa7d.dir
-      size: 3913938
-      nfiles: 411
+      md5: 08020d92c8f522627481be5b7a0c62d8.dir
+      size: 4049271
+      nfiles: 418
     - path: data/repos
       hash: md5
       md5: 2a0fd0e3824d0ef578d3ae006a2b045e.dir
@@ -141,8 +141,8 @@ stages:
       nfiles: 9799
     - path: src/rbtr_eval/index_stage.py
       hash: md5
-      md5: f36a78d59caf449510e286d64205325f
-      size: 6585
+      md5: 9878e5e2bc2e43d16be2d0231738aa0b
+      size: 6595
     outs:
     - path: data/.chunks-ready
       hash: md5
@@ -150,8 +150,8 @@ stages:
       size: 64
     - path: data/INDEX.md
       hash: md5
-      md5: 8893cc419a5566c411be930e6494642d
-      size: 1792
+      md5: a30eba2886ddcbc9a9272f6112187288
+      size: 1849
     - path: data/config
       hash: md5
       md5: d751713988987e9331980363e24189ce.dir
@@ -166,9 +166,9 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 684e00a530a7be0f6171d7343a44aa7d.dir
-      size: 3913938
-      nfiles: 411
+      md5: 08020d92c8f522627481be5b7a0c62d8.dir
+      size: 4049271
+      nfiles: 418
     - path: data/.embed-ready
       hash: md5
       md5: 0e890fdb2f5b3a730baf93e33aa0146c
@@ -180,8 +180,8 @@ stages:
       nfiles: 5
     - path: data/expansion
       hash: md5
-      md5: d4f196b86745e7403cdf25353ef14708.dir
-      size: 223603
+      md5: 2b21789cbb51810d5ee965aa66c17d85.dir
+      size: 223310
       nfiles: 2
     - path: data/headers
       hash: md5
@@ -195,8 +195,8 @@ stages:
       nfiles: 5
     - path: src/rbtr_eval/measure.py
       hash: md5
-      md5: f2044f881bccf5122a57818583e6b1f5
-      size: 30887
+      md5: 1e4435b26155f34fd4787b6b6ab69d69
+      size: 30947
     - path: src/rbtr_eval/templates/benchmarks.md.j2
       hash: md5
       md5: 82f488d2c1556b4fd09b8fedf4626b17
@@ -204,20 +204,20 @@ stages:
     outs:
     - path: data/BENCHMARKS.md
       hash: md5
-      md5: 46bbecf85c630ee8bc2ee5d9b2271b33
+      md5: 8faa244fe86a7c910cecd5094ca51bde
       size: 6809
     - path: data/metrics.json
       hash: md5
-      md5: 4253ece8299c8d17cd78fc50d82ee72e
-      size: 331557
+      md5: 1fc4c2987aad06093862228f651c1aa0
+      size: 331220
     - path: data/mrr_by_provenance.png
       hash: md5
-      md5: aed7ee5dc1fa684f67463793eae30f05
-      size: 69662
+      md5: 05b6b43da0e048e6390ba79e016d6189
+      size: 69511
     - path: data/mrr_by_repo.png
       hash: md5
-      md5: 6694a3d05aff26265ca84ac55ee36d74
-      size: 78857
+      md5: e1ae31cb16a55ae000a792e2be6c2d50
+      size: 78382
   tune:
     cmd: python -m rbtr_eval tune --per-repo-dir data/per-repo --concept-dir 
       data/concept --repos-dir data/repos --data-dir data/index --config-dir 
@@ -226,9 +226,9 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 684e00a530a7be0f6171d7343a44aa7d.dir
-      size: 3913938
-      nfiles: 411
+      md5: 08020d92c8f522627481be5b7a0c62d8.dir
+      size: 4049271
+      nfiles: 418
     - path: data/.embed-ready
       hash: md5
       md5: 0e890fdb2f5b3a730baf93e33aa0146c
@@ -245,21 +245,21 @@ stages:
       nfiles: 5
     - path: src/rbtr_eval/tune.py
       hash: md5
-      md5: 2d000c5b0c2beff0f912b05b55caf4ac
-      size: 22053
+      md5: d148e2382c6e77754e376d50197cd92d
+      size: 22301
     outs:
     - path: data/TUNING.md
       hash: md5
-      md5: d12caf17980eae0f5d6370b60757ebc5
+      md5: cd4adac164bfa5b004b1ef0e31232d7d
       size: 10083
     - path: data/convergence.png
       hash: md5
-      md5: 96b7c0a64d854a373738c9c5271aaf27
-      size: 307630
+      md5: 846e7e3931527016bf7812326ac1f2ac
+      size: 313820
     - path: data/simplex.png
       hash: md5
-      md5: 3b59a25266a45991c7b9676ddc267afa
-      size: 215349
+      md5: e06b5013a0bd2e9201637ca3ce2038ce
+      size: 214234
   paraphrase@0:
     cmd: python -m rbtr_eval paraphrase --slug rbtr__rbtr --symbols 
       data/per-repo/rbtr__rbtr.parquet --repo-path data/repos/rbtr__rbtr 
@@ -439,17 +439,17 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 684e00a530a7be0f6171d7343a44aa7d.dir
-      size: 3913938
-      nfiles: 411
+      md5: 08020d92c8f522627481be5b7a0c62d8.dir
+      size: 4049271
+      nfiles: 418
     - path: data/.chunks-ready
       hash: md5
       md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/index_stage.py
       hash: md5
-      md5: f36a78d59caf449510e286d64205325f
-      size: 6585
+      md5: 9878e5e2bc2e43d16be2d0231738aa0b
+      size: 6595
     outs:
     - path: data/.embed-ready
       hash: md5
@@ -457,7 +457,7 @@ stages:
       size: 64
     - path: data/EMBEDDING.md
       hash: md5
-      md5: 117aad6cdc983f100f9124ebfe30cf0c
+      md5: f4f20a26b6c11d4977247adbf0e99b23
       size: 498
   tune-reranker:
     cmd: python -m rbtr_eval tune-reranker --per-repo-dir data/per-repo 
@@ -469,9 +469,9 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 684e00a530a7be0f6171d7343a44aa7d.dir
-      size: 3913938
-      nfiles: 411
+      md5: 08020d92c8f522627481be5b7a0c62d8.dir
+      size: 4049271
+      nfiles: 418
     - path: data/.embed-ready
       hash: md5
       md5: 0e890fdb2f5b3a730baf93e33aa0146c
@@ -488,12 +488,12 @@ stages:
       nfiles: 5
     - path: src/rbtr_eval/tune_reranker.py
       hash: md5
-      md5: fe69e741e22fe6844aad1ac939098687
-      size: 17552
+      md5: d8908b0ed0fdd22631345015f1d6b634
+      size: 17790
     outs:
     - path: data/RERANKER_TUNING.md
       hash: md5
-      md5: f59cd22bb8b942deb9bddb46963bfbcf
+      md5: 0b454f214dfc9fba2c5b4717315b6d6b
       size: 18615
   expand:
     cmd: python -m rbtr_eval expand --per-repo-dir data/per-repo --concept-dir 
@@ -513,14 +513,14 @@ stages:
       nfiles: 5
     - path: src/rbtr_eval/expand.py
       hash: md5
-      md5: 4158a5c2fcd2d1b2439c24441918e63e
-      size: 16467
+      md5: ba4a10ef6ca203fc59574f1f5d825e38
+      size: 16496
     outs:
     - path: data/EXPANSION.md
       hash: md5
-      md5: 75b51f0b9288fad5f0298146dfda455f
-      size: 7121
+      md5: d68a0f986ce4ec970db1a7e5e813d449
+      size: 7037
     - path: data/expansion/expansions.parquet
       hash: md5
-      md5: 98296a523e2081ddfe9ff781cc45f808
-      size: 223583
+      md5: 9c2771df449dbb3610c9bc0e466cc8bf
+      size: 223290
