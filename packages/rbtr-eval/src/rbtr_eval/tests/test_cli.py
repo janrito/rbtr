@@ -62,29 +62,12 @@ class Greeter:
     return repo
 
 
-@pytest.fixture
-def indexed_tiny_repo(tmp_path: Path, tiny_repo: Path) -> tuple[Path, IndexStore]:
-    """Index the tiny repo into an in-memory store, return (repo_path, store)."""
-    from rbtr.index.orchestrator import build_index  # deferred: heavy native libs
-
-    repo = pygit2.Repository(str(tiny_repo))
-    store = IndexStore(writable=True)
-    with store.session() as ws:
-        repo_id = ws.register_repo(str(tiny_repo.resolve()))
-    head = str(repo.head.target)
-    build_index(repo.workdir, head, store, repo_id=repo_id)
-    return tiny_repo, store
-
-
-def test_extract_writes_validated_parquet_files(
-    tmp_path: Path, indexed_tiny_repo: tuple[Path, IndexStore]
-) -> None:
+def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path) -> None:
     """`rbtr-eval extract` writes per-kind query files and a header.
 
     The extract reads symbols from the index, generates queries,
     and writes one parquet per provenance plus a header.
     """
-    tiny_repo, _store = indexed_tiny_repo
     out_dir = tmp_path / "out"
     headers_dir = tmp_path / "headers"
 

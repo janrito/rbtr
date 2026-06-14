@@ -1,7 +1,8 @@
 """Tests for the paraphrase module.
 
-Uses pydantic-ai's TestModel and FunctionModel for
-deterministic, no-API-call tests.
+Uses the `clean_model` / `excluded_model` fixtures (pydantic-ai
+`FunctionModel`) to mock the LLM at its boundary for deterministic,
+no-API-call tests.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from pydantic_ai import ModelResponse
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.models.test import TestModel
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -30,47 +30,52 @@ from rbtr_eval.paraphrase import (
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.schemas import ConceptQuery, QueryRow
+from rbtr_eval.schemas import QueryRow
 
 # ── _excluded_identifiers ────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
-    ("name", "scope", "file_path", "expected_subset"),
+    ("name", "scope", "file_path", "present", "absent"),
     [
         (
             "compact_history",
             "Session",
             "src/engine.py",
             {"compact_history", "Session", "engine", "src"},
+            set(),
         ),
         (
             "foo",
             "",
             "packages/rbtr/src/rbtr/index/store.py",
             {"foo", "store", "index", "rbtr", "packages", "src"},
+            set(),
         ),
-        ("foo", "Bar.Baz", "x.py", {"foo", "Bar.Baz", "Bar", "Baz"}),
+        ("foo", "Bar.Baz", "x.py", {"foo", "Bar.Baz", "Bar", "Baz"}, set()),
+        ("foo", "", "a/b.py", {"foo"}, {"a", "b"}),
+        ("foo", "", "src/store.py", {"foo", "store"}, {"store.py"}),
     ],
-    ids=["name-and-scope", "path-segments", "dotted-scope"],
+    ids=[
+        "name-and-scope",
+        "path-segments",
+        "dotted-scope",
+        "short-segments-skipped",
+        "stem-stripped",
+    ],
 )
-def test_excluded_includes_expected(
-    name: str, scope: str, file_path: str, expected_subset: set[str]
+def test_excluded_identifiers_derivation(
+    name: str, scope: str, file_path: str, present: set[str], absent: set[str]
 ) -> None:
+    """Identifiers to exclude are derived from name, scope, and path.
+
+    `present` must all appear (so the LLM is told to avoid them);
+    `absent` must not (short path segments are skipped, file stems are
+    stripped of their extension).
+    """
     result = set(_excluded_identifiers(name, scope, file_path))
-    assert expected_subset <= result
-
-
-def test_excluded_skips_short_path_segments() -> None:
-    result = _excluded_identifiers("foo", "", "a/b.py")
-    assert "a" not in result
-    assert "b" not in result
-
-
-def test_excluded_strips_extensions_via_stem() -> None:
-    result = _excluded_identifiers("foo", "", "src/store.py")
-    assert "store" in result
-    assert "store.py" not in result
+    assert present <= result
+    assert absent.isdisjoint(result)
 
 
 # ── Agent: output_validator rejects excluded identifiers ─────────────
@@ -83,53 +88,52 @@ def symbol_deps() -> SymbolContext:
     )
 
 
-def test_agent_produces_structured_output(symbol_deps: SymbolContext) -> None:
-    """TestModel produces a ConceptQuery with valid length."""
-    result = paraphrase_agent.run_sync(
-        "```python\ndef greet(): pass\n```",
-        deps=symbol_deps,
-        model=TestModel(),
-    )
-    assert isinstance(result.output, ConceptQuery)
-    assert len(result.output.text) >= 15
+@pytest.fixture
+def clean_model() -> FunctionModel:
+    """LLM whose paraphrase contains no excluded identifiers."""
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart(content='{"text": "say hello to a person by their name"}')]
+        )
+
+    return FunctionModel(_respond)
 
 
-def test_output_validator_retries_on_excluded(symbol_deps: SymbolContext) -> None:
+@pytest.fixture
+def excluded_model() -> FunctionModel:
+    """LLM whose paraphrase leaks the excluded `greet` identifier."""
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content='{"text": "the greet function says hello"}')])
+
+    return FunctionModel(_respond)
+
+
+def test_output_validator_retries_on_excluded(
+    symbol_deps: SymbolContext, excluded_model: FunctionModel
+) -> None:
     """FunctionModel returning an excluded identifier triggers ModelRetry.
 
     The agent retries and gets the same response, eventually
     exhausting retries.
     """
-
-    def returns_excluded(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(content='{"text": "the greet function says hello"}')])
-
     with pytest.raises(UnexpectedModelBehavior):
         paraphrase_agent.run_sync(
             "```python\ndef greet(): pass\n```",
             deps=symbol_deps,
-            model=FunctionModel(returns_excluded),
+            model=excluded_model,
         )
 
 
-def test_output_validator_accepts_clean_response(symbol_deps: SymbolContext) -> None:
+def test_output_validator_accepts_clean_response(
+    symbol_deps: SymbolContext, clean_model: FunctionModel
+) -> None:
     """A response without excluded identifiers passes the validator."""
-
-    def returns_clean(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content='{"text": "say hello to a person by their name"}')]
-        )
-
     result = paraphrase_agent.run_sync(
         "```python\ndef greet(): pass\n```",
         deps=symbol_deps,
-        model=FunctionModel(returns_clean),
+        model=clean_model,
     )
     assert result.output.text == "say hello to a person by their name"
 
@@ -183,32 +187,10 @@ def mini_queries() -> dy.DataFrame[QueryRow]:
     ).pipe(QueryRow.validate, cast=True)
 
 
-def _clean_model() -> FunctionModel:
-    def _fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content='{"text": "produce a friendly welcome message for someone"}')]
-        )
-
-    return FunctionModel(_fn)
-
-
-def _excluded_model() -> FunctionModel:
-    def _fn(
-        messages: list[ModelMessage],
-        info: AgentInfo,
-    ) -> ModelResponse:
-        return ModelResponse(
-            parts=[TextPart(content='{"text": "the greet function produces a greeting"}')]
-        )
-
-    return FunctionModel(_fn)
-
-
 def test_paraphrase_symbols_produces_concept_rows(
-    mini_repo: tuple[Path, IndexStore, int], mini_queries: dy.DataFrame[QueryRow]
+    mini_repo: tuple[Path, IndexStore, int],
+    mini_queries: dy.DataFrame[QueryRow],
+    clean_model: FunctionModel,
 ) -> None:
     """End-to-end: dedup → content lookup → LLM → validated output."""
     repo_path, store, repo_id = mini_repo
@@ -217,7 +199,7 @@ def test_paraphrase_symbols_produces_concept_rows(
         store,
         str(repo_path.resolve()),
         repo_id,
-        model=_clean_model(),
+        model=clean_model,
         concurrency=1,
     )
 
@@ -230,7 +212,9 @@ def test_paraphrase_symbols_produces_concept_rows(
 
 
 def test_paraphrase_symbols_skips_when_excluded_in_response(
-    mini_repo: tuple[Path, IndexStore, int], mini_queries: dy.DataFrame[QueryRow]
+    mini_repo: tuple[Path, IndexStore, int],
+    mini_queries: dy.DataFrame[QueryRow],
+    excluded_model: FunctionModel,
 ) -> None:
     """Responses containing excluded identifiers exhaust retries and are dropped."""
     repo_path, store, repo_id = mini_repo
@@ -239,7 +223,7 @@ def test_paraphrase_symbols_skips_when_excluded_in_response(
         store,
         str(repo_path.resolve()),
         repo_id,
-        model=_excluded_model(),
+        model=excluded_model,
         concurrency=1,
     )
     assert result.height == 0

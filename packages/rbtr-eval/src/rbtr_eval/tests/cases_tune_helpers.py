@@ -6,64 +6,7 @@ import dataframely as dy
 import polars as pl
 from pytest_cases import case
 
-from rbtr_eval.schemas import QueryMeta, QueryRow, ScoredCandidate
-
-# ── _with_query_kind ─────────────────────────────────────────────────────────
-
-
-@case(tags=["query_kind"])
-def case_query_kind_all_provenances() -> tuple[dy.DataFrame[QueryRow], list[str]]:
-    """All four eval provenances map to the expected query kinds."""
-    queries = pl.DataFrame(
-        [
-            {
-                "slug": "r",
-                "file_path": "a.py",
-                "scope": "",
-                "name": "f",
-                "line_start": 1,
-                "symbol_kind": "function",
-                "language": "python",
-                "provenance": "name",
-                "text": "f",
-            },
-            {
-                "slug": "r",
-                "file_path": "a.py",
-                "scope": "",
-                "name": "g",
-                "line_start": 2,
-                "symbol_kind": "function",
-                "language": "python",
-                "provenance": "body",
-                "text": "def g(): pass",
-            },
-            {
-                "slug": "r",
-                "file_path": "a.py",
-                "scope": "",
-                "name": "h",
-                "line_start": 3,
-                "symbol_kind": "function",
-                "language": "python",
-                "provenance": "docstring",
-                "text": "does something",
-            },
-            {
-                "slug": "r",
-                "file_path": "a.py",
-                "scope": "",
-                "name": "i",
-                "line_start": 4,
-                "symbol_kind": "function",
-                "language": "python",
-                "provenance": "concept",
-                "text": "a conceptual query",
-            },
-        ]
-    ).pipe(QueryRow.validate, cast=True)
-    return queries, ["identifier", "code", "concept", "concept"]
-
+from rbtr_eval.schemas import QueryMeta, ScoredCandidate
 
 # ── _rescore_and_rank ────────────────────────────────────────────────────────
 

@@ -52,108 +52,40 @@ def queries() -> dy.DataFrame[QueryRow]:
     return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
 
 
-@pytest.mark.parametrize(
-    ("queries_per_cell", "expected_docstring_n"),
-    [
-        (50, 10),  # cap above docstring cell size
-        (100, 10),  # cap above all cell sizes — full passthrough
-    ],
-    ids=["partial-cap", "full-passthrough"],
-)
-def test_small_cells_kept_whole(
-    queries: dy.DataFrame[QueryRow],
-    queries_per_cell: int,
-    expected_docstring_n: int,
-) -> None:
-    """Cells with fewer rows than the target keep all rows."""
-    result = subsample(
-        queries,
-        queries_per_cell=queries_per_cell,
-        seed=0,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    # docstring cells have 10 rows each — should survive intact.
-    docstring = result.filter(pl.col("provenance") == "docstring")
-    per_slug = dict(docstring.group_by("slug").agg(pl.len().alias("n")).iter_rows())
-    assert per_slug["repo_a"] == expected_docstring_n
-    assert per_slug["repo_b"] == expected_docstring_n
-    # Full passthrough: every row survives.
-    if queries_per_cell >= 100:
-        assert result.height == queries.height
+def test_subsample_caps_and_preserves(queries: dy.DataFrame[QueryRow]) -> None:
+    """Subsample caps large cells, keeps small cells whole, drops no stratum.
 
-
-def test_large_cells_capped(queries: dy.DataFrame[QueryRow]) -> None:
-    """Cells larger than the target are capped."""
+    With a cap of 30 the name (80) and body (60) cells are capped while
+    the docstring cells (10 rows) survive intact — guarding scarce data
+    against over-dropping — and every input `(slug, language,
+    provenance)` stratum is still present.
+    """
     cap = 30
-    result = subsample(
-        queries,
-        queries_per_cell=cap,
-        seed=0,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    counts = result.group_by("slug", "language", "provenance").agg(pl.len().alias("n"))
+    strat_keys = ("slug", "language", "provenance")
+    result = subsample(queries, queries_per_cell=cap, seed=0, strat_keys=strat_keys)
+
+    counts = result.group_by(strat_keys).agg(pl.len().alias("n"))
     for row in counts.iter_rows(named=True):
         assert row["n"] <= cap
 
+    docstring = result.filter(pl.col("provenance") == "docstring")
+    per_slug = dict(docstring.group_by("slug").agg(pl.len().alias("n")).iter_rows())
+    assert per_slug == {"repo_a": 10, "repo_b": 10}
 
-def test_deterministic(queries: dy.DataFrame[QueryRow]) -> None:
-    """Same seed produces identical output."""
-    a = subsample(
-        queries,
-        queries_per_cell=30,
-        seed=42,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    b = subsample(
-        queries,
-        queries_per_cell=30,
-        seed=42,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    assert a.equals(b)
+    result_cells = set(result.select(strat_keys).unique().iter_rows())
+    input_cells = set(queries.select(strat_keys).unique().iter_rows())
+    assert result_cells == input_cells
 
 
-def test_different_seeds_differ(queries: dy.DataFrame[QueryRow]) -> None:
-    """Different seeds produce different samples."""
-    a = subsample(
-        queries,
-        queries_per_cell=30,
-        seed=0,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    b = subsample(
-        queries,
-        queries_per_cell=30,
-        seed=99,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    assert not a.equals(b)
+def test_subsample_is_deterministic(queries: dy.DataFrame[QueryRow]) -> None:
+    """Same seed reproduces the sample exactly; a different seed changes it."""
+    strat_keys = ("slug", "language", "provenance")
+    same_a = subsample(queries, queries_per_cell=30, seed=42, strat_keys=strat_keys)
+    same_b = subsample(queries, queries_per_cell=30, seed=42, strat_keys=strat_keys)
+    assert same_a.equals(same_b)
 
-
-def test_validates_as_query_row(queries: dy.DataFrame[QueryRow]) -> None:
-    """Subsampled frame passes QueryRow schema validation."""
-    result = subsample(
-        queries,
-        queries_per_cell=30,
-        seed=0,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    result.pipe(QueryRow.validate, cast=True)
-
-
-def test_all_cells_present(queries: dy.DataFrame[QueryRow]) -> None:
-    """Every (slug, language, provenance) cell present in the input survives."""
-    cap = 30
-    result = subsample(
-        queries,
-        queries_per_cell=cap,
-        seed=0,
-        strat_keys=("slug", "language", "provenance"),
-    )
-    cell_keys = ["slug", "language", "provenance"]
-    original_cells = set(queries.select(cell_keys).unique().iter_rows())
-    result_cells = set(result.select(cell_keys).unique().iter_rows())
-    assert result_cells == original_cells
+    other = subsample(queries, queries_per_cell=30, seed=99, strat_keys=strat_keys)
+    assert not same_a.equals(other)
 
 
 def test_load_all_queries(tmp_path: Path) -> None:

@@ -26,4 +26,5 @@ _MULTILINE_SELECTOR = """\
     ],
 )
 def test_heading_label(name: str, expected: str) -> None:
+    """A raw symbol name is trimmed and truncated to a one-line heading."""
     assert heading_label(name) == expected
