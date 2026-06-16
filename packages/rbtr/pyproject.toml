@@ -32,6 +32,7 @@ dependencies = [
   "pyzmq>=27.1.0",
   "rich>=13.0",
   "rich-argparse>=1.7.2",
+  "structlog>=24.1",
 
   # tree-sitter — one grammar per built-in language plugin
   "tree-sitter>=0.24",

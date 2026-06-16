@@ -9,18 +9,18 @@ management is delegated to the slot.
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import structlog
 from llama_cpp import LLAMA_POOLING_TYPE_UNSPECIFIED, Llama
 
 from rbtr.config import config
 from rbtr.index._gpu_model import GpuModelSlot, install_llama_log_callback, resolve_gguf_path
 from rbtr.index._llama_cpp_compat import fix_embedding_context
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +37,7 @@ class EmbedResult:
 def _load_model() -> Llama:
     """Load the embedding model, downloading if necessary."""
     model_path = resolve_gguf_path(config.embedding_model)
-    log.info("Loading embedding model from %s", model_path)
+    log.info("loading_embedding_model", path=model_path)
 
     # Install callback before Llama() — ggml_metal_init runs during
     # construction and would otherwise dump to stdout/stderr.

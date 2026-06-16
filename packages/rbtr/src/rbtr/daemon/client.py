@@ -17,7 +17,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import os
 import signal
 import subprocess
@@ -26,6 +25,7 @@ import time
 from pathlib import Path
 from types import TracebackType
 
+import structlog
 import zmq
 from pydantic import BaseModel
 
@@ -41,7 +41,7 @@ from rbtr.daemon.pidfile import is_pid_alive
 from rbtr.daemon.status import DaemonStatus, read_status, remove_status
 from rbtr.errors import DaemonBusyError, RbtrError
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def _status() -> DaemonStatus | None:
@@ -100,14 +100,17 @@ def start_daemon() -> DaemonStatus:
             cmd.extend([flag, str(value)])
     cmd.extend(["daemon", "serve"])
 
-    with open(config.daemon_log, "a") as log_file:
-        proc = subprocess.Popen(  # noqa: S603 - trusted args
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+    # The daemon configures its own rotating JSON log sink
+    # (`configure_logging(to_file=True)`), so we no longer redirect the
+    # child's streams to the log file — that would pin the rotated
+    # inode and interleave raw stderr with structured records.
+    proc = subprocess.Popen(  # noqa: S603 - trusted args
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
     # Wait for the status file to appear (daemon writes it after bind)
     for _ in range(50):  # 5 s at 100 ms intervals
@@ -141,7 +144,7 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
         with DaemonClient(runtime_dir) as client:
             client.send_or_raise(ShutdownRequest())
     except Exception:  # noqa: BLE001 — best-effort shutdown; anything can fail
-        log.debug("Graceful ZMQ shutdown failed, falling back to signals", exc_info=True)
+        log.debug("graceful_shutdown_failed", exc_info=True)
 
     # Wait for the process to exit
     for _ in range(int(timeout / 0.5)):

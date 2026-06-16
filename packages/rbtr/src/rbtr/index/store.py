@@ -44,13 +44,13 @@ docstring documents the semantics and prose special case.
 from __future__ import annotations
 
 import contextlib
-import logging
 import threading
 from pathlib import Path
 
 import dataframely as dy
 import duckdb
 import polars as pl
+import structlog
 
 from rbtr.config import WeightTriple, config
 from rbtr.errors import IndexNotBuiltError, RbtrError
@@ -79,7 +79,7 @@ from rbtr.index.search import search
 from rbtr.index.tokenise import tokenise_code
 from rbtr.index.writer import WriteSession
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 # Pre-load all SQL at import time so file I/O is not on the hot path.
@@ -138,9 +138,9 @@ def check_schema_version(db_path: Path) -> None:
     if stored == SCHEMA_VERSION:
         return
     log.warning(
-        "Index schema changed (%s→%s), rebuilding.",
-        stored or "none",
-        SCHEMA_VERSION,
+        "index_schema_changed",
+        stored=stored or "none",
+        current=SCHEMA_VERSION,
     )
     db_path.unlink(missing_ok=True)
     db_path.with_suffix(db_path.suffix + ".wal").unlink(missing_ok=True)
@@ -177,7 +177,7 @@ class IndexStore:
         except duckdb.IOException as exc:
             msg = str(exc)
             if "lock" in msg.lower():
-                log.exception("DuckDB lock conflict")
+                log.exception("duckdb_lock_conflict")
                 locked_msg = (
                     "Index database is locked by another process. "
                     "If the daemon is running, route commands through it "

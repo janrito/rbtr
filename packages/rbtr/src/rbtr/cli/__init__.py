@@ -21,11 +21,11 @@ the daemon unless `--no-daemon` is given.
 from __future__ import annotations
 
 import asyncio
-import logging
 import sys
 import threading
 from typing import Annotated
 
+import structlog
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError
 from pydantic_settings import (
     CliApp,
@@ -92,8 +92,9 @@ from rbtr.index.embeddings import Embedder
 from rbtr.index.orchestrator import build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
+from rbtr.logging import configure_logging
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def _normalise_scope(value: str | Scope) -> str | Scope:
@@ -114,17 +115,9 @@ class DaemonServe(BaseModel):
     """Internal: run the daemon server (spawned by `daemon start`)."""
 
     def cli_cmd(self) -> None:
-        # Reconfigure logging to write directly to the daemon log
-        # file.  The parent redirects stderr to this file too, but
-        # stderr is block-buffered when it points to a file.
-        # FileHandler flushes after every record.
-        logging.basicConfig(
-            filename=str(config.daemon_log),
-            format="%(asctime)s %(name)s %(levelname)s %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S%z",
-            level=logging.INFO,
-            force=True,
-        )
+        # The daemon's sole log sink is the rotating JSON file; the
+        # parent no longer redirects the child's stderr here.
+        configure_logging(to_file=True)
 
         config.runtime_dir.mkdir(parents=True, exist_ok=True)
         print_banner()
@@ -742,6 +735,10 @@ class Rbtr(
         for field in Config.model_fields:
             setattr(config, field, getattr(self, field))
 
+        # Re-apply logging now that CLI overrides (level, format, dirs)
+        # are on `config`; `main()` configured it earlier with defaults.
+        configure_logging()
+
         sub = get_subcommand(self, is_required=False)
         if sub is None:
             if sys.stderr.isatty():
@@ -758,11 +755,7 @@ def main() -> None:
     at the outer boundary so subcommand bodies don't each have to
     do the same try/except dance.
     """
-    logging.basicConfig(
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
-        level=logging.INFO,
-    )
+    configure_logging()
     cli_source: CliSettingsSource[Rbtr] = CliSettingsSource(Rbtr, formatter_class=RichHelpFormatter)
     try:
         CliApp.run(Rbtr, cli_settings_source=cli_source)

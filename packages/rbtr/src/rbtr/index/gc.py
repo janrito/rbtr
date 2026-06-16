@@ -28,14 +28,14 @@ ORPHANS
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from rbtr.daemon.messages import GcMode
 from rbtr.git import head_sha, local_ref_shas, resolve_refs_to_shas, worktree_tree_sha
 from rbtr.index.models import GcCounts
 from rbtr.index.store import IndexStore
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # Reference namespaces that contribute to `KEEP_REFS`.
 _KEPT_REF_PREFIXES: tuple[str, ...] = (

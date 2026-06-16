@@ -540,6 +540,75 @@ truth. `rbtr schema-dump` produces JSON Schema.
 TypeScript types used by `pi-rbtr`) and fails CI if the
 generated file is stale.
 
+## Observability
+
+rbtr's own code logs through `structlog.get_logger(__name__)`,
+producing event dictionaries (a short snake_case `event` name plus
+keyword fields). `rbtr.logging.configure_logging` is the single setup
+point; see its docstring for the call contract.
+
+### Pipeline and sinks
+
+```text
+rbtr code ─ structlog.get_logger ─┐
+                                  ├─ shared processors ─ ProcessorFormatter ─ handler ─ sink
+third-party ─ logging.getLogger ──┘   (foreign_pre_chain)
+```
+
+Application events and third-party `logging` records (llama.cpp,
+huggingface_hub, duckdb, pyzmq, pygit2) converge on **one** stdlib
+handler whose formatter is a `structlog.stdlib.ProcessorFormatter`.
+Foreign records are lifted through a `foreign_pre_chain` that mirrors
+the structlog processors, so every line carries the same fields
+(level, logger, ISO timestamp, callsite) regardless of origin. A
+single sink means level, format, and rotation are configured once.
+
+### Renderers
+
+- **CLI** → `StreamHandler` on stderr. `ConsoleRenderer` (coloured)
+  on a TTY, JSON otherwise. stdout is reserved for command output
+  (`cli.output.emit`), so logs never corrupt a `--json` result.
+- **Daemon** → `RotatingFileHandler` on `daemon.log`, always JSON
+  lines, sized by `log_max_bytes` / `log_backup_count`.
+
+`log_format=auto` chooses console-on-TTY-else-JSON for the stream;
+`console` and `json` force one. A rendered daemon line:
+
+```json
+{"event": "request_complete", "level": "info", "logger": "rbtr.daemon.server",
+ "timestamp": "2026-06-15T10:00:44Z", "func_name": "_dispatch", "lineno": 846,
+ "request_id": "a1b2c3d4", "kind": "search", "repo": "/p", "elapsed_ms": 12.4}
+```
+
+### Correlation
+
+Keys are bound with `structlog.contextvars` so they merge into every
+event emitted within their scope, and reset on exit:
+
+- `_dispatch` binds `request_id` (+ `kind`, `repo`) per request.
+- the job worker binds `job_id` (+ `repo`, `ref`, `job_kind`) per job.
+- `_watcher_loop` binds a `watch_cycle` id per poll.
+
+Bindings ride `asyncio.to_thread` — it copies the context — so a
+search handler running in a worker thread, or a build/embed running
+in `to_thread`, still tags its lines with the originating request or
+job. This is what lets one request or background job be followed
+across `server`, `handlers`, `search`, `store`, and the index
+pipeline.
+
+### Timing
+
+Latency is logged as structured fields: `request_complete`
+(`elapsed_ms`) per dispatch, `embedded_chunks` (`elapsed_ms`) per
+embed run, `index_complete` (`elapsed_seconds`) per build, and
+`reranked_candidates` (`elapsed_ms`) per rerank.
+
+### Testing
+
+Log behaviour is asserted on captured event dicts via
+`structlog.testing` (the autouse `log_output` fixture); see the
+`rbtr-testing` skill for the fixture and conventions.
+
 ## Language decomposition
 
 Each file is routed to one of three extraction strategies
@@ -1142,6 +1211,13 @@ CLI flags. TOML, env, and CLI args merge in one framework.
 
 **ZMQ for the daemon.** REQ/REP + PUB/SUB. Simpler than
 HTTP; single process, single build worker.
+
+**structlog through one stdlib sink.** Application code uses
+structlog, but the renderer is a `ProcessorFormatter` on a single
+stdlib handler so third-party `logging` output is captured and
+formatted identically. A pure `WriteLoggerFactory` was rejected:
+third-party libraries still log via stdlib, so capturing them would
+need a second handler writing the same file. See [Observability](#observability).
 
 **Exact cosine over approximate NN.** Exact recall
 outweighs marginal latency. Revisit when query latency is

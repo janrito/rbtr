@@ -19,12 +19,11 @@ all call sites.
 
 from __future__ import annotations
 
-import logging
-
 import llama_cpp._internals as _internals
+import structlog
 from llama_cpp import Llama
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def fix_embedding_context(model: Llama) -> None:
@@ -48,7 +47,4 @@ def fix_embedding_context(model: Llama) -> None:
         params=model.context_params,
         verbose=model.verbose,
     )
-    log.debug(
-        "Applied kv_unified fix (PR #2217 workaround), n_ctx=%d",
-        model.n_ctx(),
-    )
+    log.debug("applied_kv_unified_fix", n_ctx=model.n_ctx())

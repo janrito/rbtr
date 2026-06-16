@@ -240,6 +240,32 @@ Example from `rbtr search --json`:
 See [Daemon protocol](ARCHITECTURE.md#daemon-protocol)
 for the full response models.
 
+## Logs
+
+The daemon writes structured logs — one JSON object per line — to
+`daemon.log` in the log directory, rotating at 10 MB and keeping five
+backups. CLI commands log to stderr: coloured on a terminal, JSON when
+piped. stdout is reserved for command output, so logs never pollute a
+`--json` result.
+
+Raise verbosity with `--log-level` or the `RBTR_LOG_LEVEL`
+environment variable:
+
+```bash
+rbtr --log-level debug search "retry logic"   # DEBUG to stderr
+RBTR_LOG_LEVEL=debug rbtr status              # same, via env
+```
+
+`rbtr config` shows the log directory (`log_dir`); tail the daemon log
+with any JSON-aware tool:
+
+```bash
+tail -f <log_dir>/daemon.log
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md#observability) for the logging
+pipeline and how requests are correlated.
+
 ## Configuration
 
 `{config_dir}/config.toml`. Environment variables with
@@ -256,6 +282,11 @@ Notable settings:
   `""` to disable reranking.
 - `reranker_settings` — per-query-kind reranker pool size
   and blend weight.
+- `log_level` — root log level (`DEBUG`, `INFO`, …).
+- `log_format` — `auto` (console on a TTY, else JSON), `console`,
+  or `json`.
+- `log_max_bytes` / `log_backup_count` — `daemon.log` rotation size
+  and backup count.
 
 Run `rbtr config` to see every field with its current
 value.

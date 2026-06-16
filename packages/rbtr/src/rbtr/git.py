@@ -28,13 +28,13 @@ Public surface
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pathspec
 import pygit2
+import structlog
 
 from rbtr.errors import RbtrError
 
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 _HEX_SHA_LEN = 40
 
@@ -363,7 +363,7 @@ def local_ref_shas(
         try:
             out.add(str(repo.references[name].peel(pygit2.Commit).id))
         except (pygit2.GitError, KeyError):
-            log.debug("Skipping malformed ref %s", name, exc_info=True)
+            log.debug("skipping_malformed_ref", ref=name, exc_info=True)
             continue
     return out
 

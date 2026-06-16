@@ -21,11 +21,15 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import structlog
 from llama_cpp.llama_cpp import llama_log_callback, llama_log_set
 
 from rbtr.config import config
 
-log = logging.getLogger(__name__)
+# `import logging` is still used below to quiet `huggingface_hub`; this
+# module's own logger is structlog (positional-arg calls still work via
+# the configured `PositionalArgumentsFormatter`).
+log = structlog.get_logger(__name__)
 
 
 # ── GpuModelSlot ─────────────────────────────────────────────────────
@@ -148,10 +152,10 @@ class GpuModelSlot[T]:
             idle = time.monotonic() - self._last_use_time
             if idle >= self._idle_timeout:
                 log.info(
-                    "%s model idle for %.0f s (limit: %.0f s), unloading.",
-                    self._label,
-                    idle,
-                    self._idle_timeout,
+                    "model_idle_unload",
+                    label=self._label,
+                    idle_seconds=round(idle),
+                    limit_seconds=round(self._idle_timeout),
                 )
                 await self._unload()
 
@@ -208,7 +212,7 @@ def install_llama_log_callback() -> None:
     ) -> None:
         msg = text.decode(errors="replace").rstrip() if text else ""
         if msg:
-            log.debug("llama.cpp: %s", msg)
+            log.debug("llama_cpp", text=msg)
 
     _llama_log_cb_ref = _cb
     llama_log_set(_cb, ctypes.c_void_p())
@@ -279,6 +283,6 @@ def resolve_gguf_path(model_id: str) -> Path:
             )
             raise ValueError(msg)
 
-    log.info("Resolving model %s/%s", repo, filename)
+    log.info("resolving_model", repo=repo, filename=filename)
     path = _download(repo, filename, cache_dir)
     return Path(path)
