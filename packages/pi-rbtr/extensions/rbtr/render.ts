@@ -14,6 +14,8 @@
 import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 
+import { decodeStringList } from "./args.js";
+
 import type {
   ChangedSymbol,
   ChangedSymbolsResponse,
@@ -68,6 +70,18 @@ function shortenPath(filePath: string): string {
   return filePath.replace(/^packages\/rbtr\/src\//, "");
 }
 
+/**
+ * Dim suffix describing a call's `file_paths` scoping, or `""` when the
+ * call is unscoped.  Lets the call line distinguish a single-path lookup
+ * from an everywhere lookup — otherwise the scoping argument is invisible.
+ */
+export function fileScopeSuffix(args: Record<string, unknown>, theme: Theme): string {
+  const paths = decodeStringList(args.file_paths);
+  if (paths.length === 0) return "";
+  const label = paths.length === 1 ? shortenPath(paths[0]) : `${paths.length} files`;
+  return theme.fg("dim", ` in ${label}`);
+}
+
 // ── Search ──────────────────────────────────────────────────────
 
 function scoreStyle(theme: Theme, score: number): string {
@@ -90,7 +104,14 @@ export function renderSearchCall(args: Record<string, unknown>, theme: Theme): T
   const query = str(args.query);
   let text = theme.fg("toolTitle", theme.bold("rbtr_search "));
   text += query === null ? invalidArg(theme) : query ? theme.fg("accent", `"${query}"`) : theme.fg("toolOutput", "...");
-  if (args.limit) text += theme.fg("dim", ` (limit: ${args.limit})`);
+  const extras: string[] = [];
+  if (args.limit) extras.push(`limit: ${args.limit}`);
+  const keywords = decodeStringList(args.keywords);
+  if (keywords.length > 0) extras.push(`+${keywords.length} kw`);
+  const variants = decodeStringList(args.variants);
+  if (variants.length > 0) extras.push(`+${variants.length} var`);
+  if (typeof args.scope === "string" && args.scope !== "workspace") extras.push(`scope: ${args.scope}`);
+  if (extras.length > 0) text += theme.fg("dim", ` (${extras.join(", ")})`);
   return new Text(text, 0, 0);
 }
 
@@ -144,7 +165,7 @@ export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme
   const symbol = str(args.symbol);
   const label =
     symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + label, 0, 0);
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + label + fileScopeSuffix(args, theme), 0, 0);
 }
 
 export function renderReadSymbolResult(
@@ -215,7 +236,7 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
   const symbol = str(args.symbol);
   const label =
     symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) + label, 0, 0);
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) + label + fileScopeSuffix(args, theme), 0, 0);
 }
 
 export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
@@ -243,7 +264,11 @@ export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: T
   const base = str(args.base);
   const head = str(args.head);
   const label = base && head ? theme.fg("accent", `${base}..${head}`) : invalidArg(theme);
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_changed_symbols ")) + label, 0, 0);
+  return new Text(
+    theme.fg("toolTitle", theme.bold("rbtr_changed_symbols ")) + label + fileScopeSuffix(args, theme),
+    0,
+    0,
+  );
 }
 
 export function renderChangedSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
@@ -290,8 +315,9 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
 // ── Index ───────────────────────────────────────────────────────
 
 export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
-  const refs = (args.refs as string[]) || ["HEAD"];
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_index ")) + theme.fg("accent", refs.join(", ")), 0, 0);
+  const refs = decodeStringList(args.refs);
+  const label = refs.length > 0 ? refs.join(", ") : "HEAD";
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_index ")) + theme.fg("accent", label), 0, 0);
 }
 
 export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {

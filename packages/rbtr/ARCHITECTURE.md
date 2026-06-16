@@ -523,8 +523,16 @@ Error responses carry a `code` field:
 - `index_in_progress` — a build is running; retry after
   the `ready` notification.
 - `repo_not_found` — the repo path isn't registered.
-- `invalid_request` — malformed or missing fields.
+- `invalid_request` — malformed or missing fields; the message
+  names each offending field and the value it received, so a
+  caller can see how an argument was mis-shaped.
 - `internal` — unexpected server error.
+
+The two index errors differ by where they're decided: a read
+for an unindexed ref raises a plain `IndexNotBuiltError`, and
+`_dispatch` — the one place that knows a build is running —
+turns it into `index_in_progress`, otherwise it stays
+`index_not_built`.
 
 **Schema generation.** `messages.py` is the source of
 truth. `rbtr schema-dump` produces JSON Schema.
@@ -667,6 +675,24 @@ single-repo consumers are unaffected. `find_refs`,
 `changed_symbols`, `read_symbol`, and `list_symbols` remain
 single-repo: their edges and ref comparisons don't span
 repos.
+
+### Read-ref resolution and scoping
+
+Read handlers pick their ref through `_resolve_read_ref`:
+with no explicit ref, the indexed dirty-worktree tree SHA if
+there is one, else `HEAD`. The ref has to be indexed to read
+from, and the two cases differ on purpose:
+
+- An explicit ref that isn't indexed is an error — you asked
+  for that ref, so we don't quietly answer from another.
+- An *implicit* ref that isn't indexed yet (a build still
+  finalising) falls back to the latest indexed commit, so a
+  read returns a slightly stale answer rather than nothing. It
+  only errors when the repo has no indexed commits at all.
+
+`file_paths` is normalised to repo-root-relative POSIX form,
+so absolute, `./`-prefixed, and relative inputs all match the
+stored (repo-relative) chunk paths.
 
 ### Query expansion
 

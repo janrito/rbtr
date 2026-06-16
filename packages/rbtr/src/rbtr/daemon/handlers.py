@@ -85,10 +85,15 @@ def _resolve_read_ref(
     to the latest indexed commit when the repo is missing.
     Raises `RbtrError` if the ref cannot be resolved.
 
-    When *require_indexed* is set and an explicit *requested_ref*
-    was given, the resolved SHA must already be indexed, else
-    `RbtrError` is raised rather than silently returning an empty
-    result.  The implicit worktree/HEAD path is unaffected.
+    When *require_indexed* is set, the resolved SHA must be usable:
+
+    - An explicit *requested_ref* whose SHA is not indexed is an
+      error (`_require_indexed`) rather than a silent empty result.
+    - The implicit worktree/HEAD path falls back to the latest
+      indexed commit when the resolved SHA is not indexed (e.g. a
+      build is still finalising), and only errors when the repo has
+      no indexed commits at all. So an older indexed version of a
+      symbol is preferred over an error.
     """
     explicit = requested_ref is not None
     if requested_ref is None:
@@ -105,7 +110,11 @@ def _resolve_read_ref(
                 return indexed[0][0]
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
-    if require_indexed and explicit:
+    if require_indexed and not store.has_indexed(repo_id, sha):
+        if not explicit:
+            indexed = store.list_indexed_commits(repo_id)
+            if indexed:
+                return indexed[0][0]
         _require_indexed(store, repo_id, requested_ref, sha)
     return sha
 
@@ -119,13 +128,16 @@ def handle_search(
     *,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
-    is_building: Callable[[], bool] | None = None,
 ) -> SearchResponse:
     """Search the index for `request.query`.
 
     `request.scope == Scope.ALL` searches every indexed repo and
     attributes each result with its `repo_path`; otherwise the
     search is scoped to the single repo at `request.repo_path`.
+
+    Propagates `IndexNotBuiltError` from the store; the daemon's
+    `_dispatch` turns it into an "index is building" message when a
+    build is active.
     """
     if request.scope == Scope.ALL:
         refs = store.list_latest_refs()
@@ -136,26 +148,20 @@ def handle_search(
         refs = [RepoRef(repo_id=repo_id, commit_sha=ref)]
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
-    try:
-        results = store.search(
-            refs,
-            request.query,
-            top_k=request.limit,
-            embedder=embedder,
-            kind=override,
-            keywords=request.keywords,
-            variants=request.variants,
-            weights=request.weights,
-            reranker=reranker,
-            reranker_pool=request.reranker_pool,
-            reranker_blend_weight=request.reranker_blend_weight,
-            repo_paths=repo_paths,
-        )
-    except IndexNotBuiltError:
-        if is_building is not None and is_building():
-            msg = "Index is building. Try again shortly."
-            raise IndexNotBuiltError(msg) from None
-        raise
+    results = store.search(
+        refs,
+        request.query,
+        top_k=request.limit,
+        embedder=embedder,
+        kind=override,
+        keywords=request.keywords,
+        variants=request.variants,
+        weights=request.weights,
+        reranker=reranker,
+        reranker_pool=request.reranker_pool,
+        reranker_blend_weight=request.reranker_blend_weight,
+        repo_paths=repo_paths,
+    )
     query_kind = override or (results[0].query_kind if results else None)
     return SearchResponse(
         results=[SearchHitOut.from_scored(r, explain=request.explain) for r in results],
@@ -202,14 +208,19 @@ def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsRes
 
 
 def _require_indexed(store: IndexStore, repo_id: int, requested_ref: str, sha: str) -> None:
-    """Raise a clear error if *sha* is not indexed for this repo."""
+    """Raise `IndexNotBuiltError` if *sha* is not indexed for this repo.
+
+    The daemon's `_dispatch` upgrades this to an "index is building"
+    message when a build is active; inline callers see the plain
+    "not indexed" guidance.
+    """
     if store.has_indexed(repo_id, sha):
         return
     if requested_ref == WORKTREE_REF:
         msg = "Working tree is not indexed yet — run rbtr index first"
     else:
         msg = f"Ref '{requested_ref}' is not indexed — run rbtr index first"
-    raise RbtrError(msg)
+    raise IndexNotBuiltError(msg)
 
 
 def handle_changed_symbols(

@@ -77,7 +77,7 @@ from rbtr.daemon.messages import (
     request_adapter,
 )
 from rbtr.daemon.status import remove_status, write_status
-from rbtr.errors import RbtrError
+from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import filter_tree_shas, normalise_repo_path
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
@@ -93,6 +93,25 @@ type RequestHandler = Callable[[Any], Response | Awaitable[Response]]
 def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
     """Serialise a notification model and send it over a zmq socket."""
     sock.send(notification.model_dump_json().encode())
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    """Render a pydantic `ValidationError` as concise per-field feedback.
+
+    Each line names the offending field, what was wrong, and the value
+    actually received — enough for a caller (human or model) to see how
+    an argument was mis-shaped and resend it correctly, for any field,
+    not just one hand-picked failure mode.
+    """
+    lines: list[str] = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err["loc"]) or "(root)"
+        received = repr(err.get("input"))
+        if len(received) > 120:
+            received = f"{received[:117]}..."
+        lines.append(f"  - {loc}: {err['msg']} (received: {received})")
+    body = "\n".join(lines) or "  - (no detail)"
+    return f"Invalid request arguments:\n{body}"
 
 
 def _progress_callback(push: zmq.Socket, path: str) -> ProgressCallback:
@@ -201,7 +220,6 @@ class DaemonServer:
                     store,
                     embedder=emb,
                     reranker=rnk,
-                    is_building=self._is_building,
                 )
 
         self._handlers.update(
@@ -786,7 +804,7 @@ class DaemonServer:
         except ValidationError as exc:
             return ErrorResponse(
                 code=ErrorCode.INVALID_REQUEST,
-                message=f"Invalid request: {exc}",
+                message=_format_validation_error(exc),
             )
         if isinstance(request, HasRepoPath):
             try:
@@ -807,6 +825,19 @@ class DaemonServer:
             result = handler(request)
             if inspect.isawaitable(result):
                 return await result
+        except IndexNotBuiltError as exc:
+            # A ref/symbol that isn't indexed yet: if a build is
+            # running it will become queryable soon, so say so rather
+            # than tell the caller to start an index that is already
+            # in progress.  This is the daemon's single source of
+            # build-awareness; handlers stay build-agnostic.
+            if self._is_building():
+                return ErrorResponse(
+                    code=ErrorCode.INDEX_IN_PROGRESS,
+                    message="Index is building. Try again shortly.",
+                )
+            log.warning("Handler error for %s: %s", request.kind, exc)
+            return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
         except RbtrError as exc:
             log.warning("Handler error for %s: %s", request.kind, exc)
             return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))

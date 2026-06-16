@@ -9,7 +9,13 @@
 import { describe, expect, test } from "vitest";
 
 import type { SearchHitOut } from "../extensions/rbtr/generated/protocol.js";
-import { extractPayload } from "../extensions/rbtr/render.js";
+import { extractPayload, fileScopeSuffix } from "../extensions/rbtr/render.js";
+
+// Minimal theme: styling is identity so assertions see raw text.
+const plainTheme = {
+  fg: (_style: string, text: string) => text,
+  bold: (text: string) => text,
+} as unknown as Parameters<typeof fileScopeSuffix>[1];
 
 type ToolResult = Parameters<typeof extractPayload>[0];
 
@@ -52,5 +58,36 @@ describe("extractPayload", () => {
 
   test("returns empty for unparseable content", () => {
     expect(extractPayload<SearchHitOut>(cliResult("not json"), "search", "results")).toEqual([]);
+  });
+});
+
+describe("fileScopeSuffix", () => {
+  test("is empty when no file_paths are given", () => {
+    expect(fileScopeSuffix({ symbol: "x" }, plainTheme)).toBe("");
+    expect(fileScopeSuffix({ file_paths: [] }, plainTheme)).toBe("");
+  });
+
+  test("names the single scoped path (shortened)", () => {
+    expect(fileScopeSuffix({ file_paths: ["packages/rbtr/src/rbtr/index/search.py"] }, plainTheme)).toBe(
+      " in rbtr/index/search.py",
+    );
+  });
+
+  test("counts multiple scoped paths", () => {
+    expect(fileScopeSuffix({ file_paths: ["a.py", "b.py", "c.py"] }, plainTheme)).toBe(" in 3 files");
+  });
+
+  test("ignores non-string entries", () => {
+    expect(fileScopeSuffix({ file_paths: [42, null] }, plainTheme)).toBe("");
+  });
+
+  test("decodes a bare JSON-string file_paths (provider double-encoding)", () => {
+    expect(fileScopeSuffix({ file_paths: '["packages/rbtr/src/rbtr/index/search.py"]' }, plainTheme)).toBe(
+      " in rbtr/index/search.py",
+    );
+  });
+
+  test("decodes a one-element list wrapping a JSON string", () => {
+    expect(fileScopeSuffix({ file_paths: ['["a.py", "b.py"]'] }, plainTheme)).toBe(" in 2 files");
   });
 });

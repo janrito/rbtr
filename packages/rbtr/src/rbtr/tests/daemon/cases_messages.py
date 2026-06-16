@@ -113,6 +113,103 @@ def case_read_symbol() -> MessageScenario:
 
 
 @case(tags=["request"])
+def case_read_symbol_file_paths_absolute() -> MessageScenario:
+    """An absolute scoping path is normalised to repo-root-relative."""
+    return MessageScenario(
+        raw=b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":["/r/src/config.py"]}',
+        adapter=request_adapter,
+        expected_type=ReadSymbolRequest,
+        checks={"file_paths": ["src/config.py"]},
+    )
+
+
+@case(tags=["request"])
+def case_read_symbol_file_paths_dot_prefixed() -> MessageScenario:
+    """A `./`-prefixed scoping path is stripped to repo-root-relative."""
+    return MessageScenario(
+        raw=b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":["./src/config.py"]}',
+        adapter=request_adapter,
+        expected_type=ReadSymbolRequest,
+        checks={"file_paths": ["src/config.py"]},
+    )
+
+
+@case(tags=["request"])
+def case_read_symbol_file_paths_double_encoded() -> MessageScenario:
+    """A JSON-array delivered as a one-element string list is decoded."""
+    return MessageScenario(
+        raw=(
+            b'{"kind":"read_symbol","repo_path":"/r","symbol":"x",'
+            b'"file_paths":["[\\"src/config.py\\"]"]}'
+        ),
+        adapter=request_adapter,
+        expected_type=ReadSymbolRequest,
+        checks={"file_paths": ["src/config.py"]},
+    )
+
+
+@case(tags=["request"])
+def case_read_symbol_file_paths_bare_json_string() -> MessageScenario:
+    """A JSON-array delivered as a bare string is decoded."""
+    return MessageScenario(
+        raw=(
+            b'{"kind":"read_symbol","repo_path":"/r","symbol":"x",'
+            b'"file_paths":"[\\"src/config.py\\"]"}'
+        ),
+        adapter=request_adapter,
+        expected_type=ReadSymbolRequest,
+        checks={"file_paths": ["src/config.py"]},
+    )
+
+
+@case(tags=["request"])
+def case_search_keywords_double_encoded() -> MessageScenario:
+    """`keywords` shares the JSON-encoded-string decoding."""
+    return MessageScenario(
+        raw=b'{"kind":"search","repo_path":"/r","query":"q","keywords":["[\\"a\\", \\"b\\"]"]}',
+        adapter=request_adapter,
+        expected_type=SearchRequest,
+        checks={"keywords": ["a", "b"]},
+    )
+
+
+@case(tags=["request"])
+def case_index_refs_double_encoded() -> MessageScenario:
+    """`refs` shares the JSON-encoded-string decoding."""
+    return MessageScenario(
+        raw=b'{"kind":"index","repo_path":"/r","refs":["[\\"main\\", \\"HEAD\\"]"]}',
+        adapter=request_adapter,
+        expected_type=BuildIndexRequest,
+        checks={"refs": ["main", "HEAD"]},
+    )
+
+
+@case(tags=["request"])
+def case_find_refs_file_paths_absolute() -> MessageScenario:
+    """`find_refs` shares the same path normalisation as `read_symbol`."""
+    return MessageScenario(
+        raw=b'{"kind":"find_refs","repo_path":"/r","symbol":"x","file_paths":["/r/src/app.py"]}',
+        adapter=request_adapter,
+        expected_type=FindRefsRequest,
+        checks={"file_paths": ["src/app.py"]},
+    )
+
+
+@case(tags=["request"])
+def case_changed_symbols_file_paths_absolute() -> MessageScenario:
+    """`changed_symbols` shares the same path normalisation."""
+    return MessageScenario(
+        raw=(
+            b'{"kind":"changed_symbols","repo_path":"/r","base":"a","head":"b",'
+            b'"file_paths":["/r/src/app.py"]}'
+        ),
+        adapter=request_adapter,
+        expected_type=ChangedSymbolsRequest,
+        checks={"file_paths": ["src/app.py"]},
+    )
+
+
+@case(tags=["request"])
 def case_list_symbols() -> MessageScenario:
     return MessageScenario(
         raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"src/app.py"}',
