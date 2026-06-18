@@ -2,9 +2,12 @@
  * Integration test — spawns a real ``rbtr daemon`` subprocess
  * and drives it through the production TypeScript client.
  *
- * Widest sensible entry point: no fakes on either side.  Uses a
- * disposable ``RBTR_HOME`` tmpdir so nothing touches the user's
- * real `~/.rbtr`.
+ * Widest sensible entry point: no fakes on either side.  The
+ * daemon is isolated via the ``RBTR_DATA_DIR`` / ``RBTR_CONFIG_DIR``
+ * / ``RBTR_LOG_DIR`` overrides so it gets its own index DB, runtime
+ * sockets, and logs — nothing touches the user's real daemon.  The
+ * model cache is left shared so weights are not re-downloaded, and
+ * ``RBTR_WARMUP=false`` stops the test daemon loading any models.
  */
 
 import { spawnSync } from "node:child_process";
@@ -17,14 +20,35 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { queryDaemonStatus, send } from "../extensions/rbtr/daemon-client.js";
 import { resolveCommand } from "../extensions/rbtr/exec.js";
 
-// macOS socket path limit — keep prefix short.
-const home = mkdtempSync(join(tmpdir(), `rbtr-${randomBytes(3).toString("hex")}-`));
+const dataDir = mkdtempSync(join(tmpdir(), `rbtr-d-${randomBytes(3).toString("hex")}-`));
+const configDir = mkdtempSync(join(tmpdir(), `rbtr-c-${randomBytes(3).toString("hex")}-`));
+const logDir = mkdtempSync(join(tmpdir(), `rbtr-l-${randomBytes(3).toString("hex")}-`));
 const repo = mkdtempSync(join(tmpdir(), `rbtr-r-${randomBytes(3).toString("hex")}-`));
 
 const RBTR = resolveCommand("rbtr");
-const env = { ...process.env, RBTR_HOME: home, RBTR_WARMUP: "false" };
+
+// runtime_dir (and thus the sockets) derives from data_dir, so
+// redirecting RBTR_DATA_DIR isolates both the index DB and the RPC
+// endpoint.  Sockets still live under platformdirs' user_runtime_path,
+// so the macOS socket-path length limit is not a concern here.
+const overrides: Record<string, string> = {
+  RBTR_DATA_DIR: dataDir,
+  RBTR_CONFIG_DIR: configDir,
+  RBTR_LOG_DIR: logDir,
+  RBTR_WARMUP: "false",
+};
+const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
+  // queryDaemonStatus / send shell out to the CLI inheriting
+  // process.env, so the overrides have to live there for the whole
+  // file (restored in afterAll).  Safe: the file runs in its own
+  // forked worker.
+  for (const [key, value] of Object.entries(overrides)) {
+    savedEnv[key] = process.env[key];
+    process.env[key] = value;
+  }
+
   // handle_status on the daemon calls git.open_repo, so the test
   // repo has to be a real git directory with at least one commit.
   const g = (args: string[]) => {
@@ -36,43 +60,36 @@ beforeAll(() => {
   g(["config", "user.name", "t"]);
   g(["commit", "--allow-empty", "-qm", "init"]);
 
-  const start = spawnSync(RBTR.executable, [...RBTR.baseArgs, "daemon", "start"], { env, encoding: "utf8" });
+  const start = spawnSync(RBTR.executable, [...RBTR.baseArgs, "daemon", "start"], { encoding: "utf8" });
   if (start.status !== 0) {
     throw new Error(`daemon start failed (code=${start.status}):\nstdout: ${start.stdout}\nstderr: ${start.stderr}`);
   }
 });
 
 afterAll(() => {
-  spawnSync(RBTR.executable, [...RBTR.baseArgs, "daemon", "stop"], { env, encoding: "utf8" });
-  rmSync(home, { recursive: true, force: true });
+  spawnSync(RBTR.executable, [...RBTR.baseArgs, "daemon", "stop"], { encoding: "utf8" });
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(configDir, { recursive: true, force: true });
+  rmSync(logDir, { recursive: true, force: true });
   rmSync(repo, { recursive: true, force: true });
 });
 
 test("queryDaemonStatus reports running with pid + rpc endpoint", async () => {
-  // queryDaemonStatus always shells out to the CLI; inherit the
-  // test's RBTR_HOME so it sees the same daemon we started.
-  const previous = process.env.RBTR_HOME;
-  process.env.RBTR_HOME = home;
-  try {
-    const status = await queryDaemonStatus();
-    expect(status.running).toBe(true);
-    expect(status.pid).toBeGreaterThan(0);
-    expect(status.rpc).toMatch(/^ipc:\/\//);
-  } finally {
-    process.env.RBTR_HOME = previous;
-  }
+  const status = await queryDaemonStatus();
+  expect(status.running).toBe(true);
+  expect(status.pid).toBeGreaterThan(0);
+  expect(status.rpc).toMatch(/^ipc:\/\//);
 });
 
 test("send(StatusRequest) round-trips against a real daemon", async () => {
-  process.env.RBTR_HOME = home;
-  try {
-    const response = await send({ kind: "status", repo_path: repo });
-    expect(response.kind).toBe("status");
-    if (response.kind === "status") {
-      // Fresh daemon, freshly-initialised repo → no index yet.
-      expect(response.indexed_refs).toEqual([]);
-    }
-  } finally {
-    process.env.RBTR_HOME = home;
+  const response = await send({ kind: "status", repo_path: repo });
+  expect(response.kind).toBe("status");
+  if (response.kind === "status") {
+    // Isolated daemon, freshly-initialised repo → no index yet.
+    expect(response.indexed_refs).toEqual([]);
   }
 });

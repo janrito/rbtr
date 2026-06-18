@@ -6,8 +6,9 @@
  * module — if it is not in there, it does not exist.
  *
  * Endpoint discovery runs `rbtr daemon status --json` (the CLI
- * knows how its own `RBTR_HOME` setting resolves).  The status
- * file path is **not** read directly.
+ * knows how its own runtime dir resolves from its config /
+ * `RBTR_*_DIR` overrides).  The status file path is **not** read
+ * directly.
  *
  * One REQ socket per call; no pooling.  ZMQ REQ enforces strict
  * send/recv alternation, and the CLI is not worth the complexity
@@ -56,9 +57,9 @@ type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 /**
  * Ask the CLI for the running daemon's status.
  *
- * The path to the status file depends on the user's `RBTR_HOME`
- * setting, so the CLI is the source of truth — we do not read
- * the JSON file directly.
+ * The path to the status file depends on the user's runtime dir
+ * (resolved from config / `RBTR_*_DIR` overrides), so the CLI is
+ * the source of truth — we do not read the JSON file directly.
  */
 export async function queryDaemonStatus(): Promise<DaemonStatus> {
   const resolved = resolveCommand("rbtr");
