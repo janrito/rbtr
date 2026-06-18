@@ -28,9 +28,32 @@ import type {
   SearchResponse,
   StatusResponse,
   SymbolOut,
+  WatchedRef,
 } from "./generated/protocol.js";
 
 type ToolResult = AgentToolResult<unknown>;
+
+/**
+ * Render the watch set as status lines (mirrors the Python
+ * `_render_status_response` “watching:” section): ✓ indexed,
+ * ⟳ pending (resolved but not yet indexed), ✗ unresolvable.
+ * Returns no lines when nothing is watched.
+ */
+export function formatWatched(watched: WatchedRef[]): string[] {
+  if (watched.length === 0) return [];
+  const lines = ["Watching:"];
+  for (const w of watched) {
+    const repo = w.repo_path ? `${w.repo_path} ` : "";
+    if (!w.sha) {
+      lines.push(`  ✗ ${repo}${w.ref} — unresolvable`);
+    } else if (w.indexed) {
+      lines.push(`  ✓ ${repo}${w.ref} — ${w.sha.slice(0, 12)} indexed`);
+    } else {
+      lines.push(`  ⟳ ${repo}${w.ref} — ${w.sha.slice(0, 12)} pending`);
+    }
+  }
+  return lines;
+}
 
 // ── Helpers ─────────────────────────────────────────────────────
 

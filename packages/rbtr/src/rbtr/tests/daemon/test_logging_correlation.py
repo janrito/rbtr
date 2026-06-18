@@ -144,3 +144,50 @@ def test_embed_job_logs_are_correlated(
     assert entry["repo"]
     assert "ref" in entry
     assert isinstance(entry["elapsed_ms"], float)
+
+
+def test_watched_ref_build_is_observable(
+    runtime_dir: Path,
+    unindexed_store: IndexStore,
+    log_output: structlog.testing.LogCapture,
+) -> None:
+    """A watched ref flows from detection to indexed, fully correlated.
+
+    The watcher loop logs `watched_ref_stale` (naming the ref/sha) and
+    wakes the worker, whose build emits `index_complete` tagged with the
+    build `job_id`/`job_kind`/`ref` — closing the gap where a build left
+    no log line naming the SHA it indexed.
+    """
+    server = DaemonServer(
+        runtime_dir,
+        store=unindexed_store,
+        idle_poll_interval=0.05,
+        busy_poll_interval=0.05,
+    )
+    thread = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
+    thread.start()
+    assert server.wait_ready(), "daemon did not start within timeout"
+    try:
+        deadline = time.monotonic() + 10.0
+        built: list[structlog.typing.EventDict] = []
+        while time.monotonic() < deadline:
+            built = [e for e in log_output.entries if e["event"] == "index_complete"]
+            if built:
+                break
+            time.sleep(0.05)
+    finally:
+        server.request_shutdown()
+        thread.join(timeout=5)
+
+    stale = [e for e in log_output.entries if e["event"] == "watched_ref_stale"]
+    assert stale, "no watched_ref_stale log captured"
+    assert stale[0]["ref"] == "HEAD"
+    assert stale[0]["repo"]
+    assert stale[0]["sha"]
+
+    assert built, "no index_complete log captured"
+    entry = built[-1]
+    assert "job_id" in entry
+    assert entry["job_kind"] == "build"
+    assert entry["repo"]
+    assert "ref" in entry

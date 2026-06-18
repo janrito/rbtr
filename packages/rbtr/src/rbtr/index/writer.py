@@ -31,6 +31,8 @@ from rbtr.index.frames import chunks_frame, edges_frame, embeddings_frame, snaps
 from rbtr.index.models import Edge, GcCounts, Snapshot, TokenisedChunk
 
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
+_ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
+_REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
 _DELETE_EDGES_SQL = load_sql("delete_edges.sql")
 _DELETE_SNAPSHOTS_SQL = load_sql("delete_snapshots.sql")
 _DROP_COMMIT_SQL = load_sql("drop_commit.sql")
@@ -261,6 +263,20 @@ class WriteSession:
             _DELETE_CHUNKS_FOR_BLOBS_SQL, {"repo_id": repo_id, "blob_shas": list(blob_shas)}
         )
         self._chunks_modified = True
+
+    def add_watched_refs(self, repo_id: int, refs: list[str]) -> None:
+        """Add *refs* to the repo's watch set (idempotent on the PK)."""
+        if not refs:
+            return
+        self._require_active()
+        self._cursor.execute(_ADD_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
+
+    def remove_watched_refs(self, repo_id: int, refs: list[str]) -> None:
+        """Remove *refs* from the repo's watch set."""
+        if not refs:
+            return
+        self._require_active()
+        self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
 
     def insert_snapshots(self, snapshots: list[Snapshot], repo_id: int) -> None:
         """Batch insert snapshots."""

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
@@ -25,11 +25,9 @@ from rbtr.daemon.dto import RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     ActiveJob,
     BuildIndexRequest,
-    BuildJob,
     ChangedSymbol,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
-    EmbedJob,
     FindRefsRequest,
     FindRefsResponse,
     GcRequest,
@@ -46,9 +44,10 @@ from rbtr.daemon.messages import (
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    WatchedRef,
 )
 from rbtr.errors import IndexNotBuiltError, RbtrError
-from rbtr.git import WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
+from rbtr.git import HEAD_REF, WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc
 from rbtr.index.models import Chunk, QueryKind, RepoRef
@@ -101,11 +100,11 @@ def _resolve_read_ref(
         tree_sha = worktree_tree_sha(repo_path)
         if tree_sha is not None and store.has_indexed(repo_id, tree_sha):
             return tree_sha
-        requested_ref = "HEAD"
+        requested_ref = HEAD_REF
     try:
         sha = resolve_ref(repo_path, requested_ref)
     except RbtrError:
-        if requested_ref == "HEAD":
+        if requested_ref == HEAD_REF:
             indexed = store.list_indexed_commits(repo_id)
             if indexed:
                 return indexed[0][0]
@@ -279,6 +278,36 @@ def _refs_for_repo(
     return refs
 
 
+def _watched_for_repo(
+    store: IndexStore,
+    repo_id: int,
+    repo_path: str,
+    *,
+    attribute: bool,
+) -> list[WatchedRef]:
+    """Build `WatchedRef`s for one repo's watch set.
+
+    Resolves each watched ref to a SHA (`None` if it no longer
+    resolves) and marks it indexed when that SHA is recorded in
+    `indexed_commits`; otherwise it is pending.
+    """
+    out: list[WatchedRef] = []
+    for ref in store.list_watched_refs(repo_id):
+        try:
+            sha: str | None = resolve_ref(repo_path, ref)
+        except RbtrError:
+            sha = None
+        out.append(
+            WatchedRef(
+                ref=ref,
+                sha=sha,
+                indexed=sha is not None and store.has_indexed(repo_id, sha),
+                repo_path=repo_path if attribute else None,
+            )
+        )
+    return out
+
+
 def handle_status(
     request: StatusRequest,
     store: IndexStore,
@@ -292,18 +321,22 @@ def handle_status(
     """
     if request.scope == Scope.ALL:
         indexed_refs: list[IndexedRef] = []
+        watched: list[WatchedRef] = []
         for repo_id, repo_path in store.list_repos():
             indexed_refs.extend(_refs_for_repo(store, repo_id, repo_path, attribute=True))
+            watched.extend(_watched_for_repo(store, repo_id, repo_path, attribute=True))
     else:
         ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
             return StatusResponse(
                 db_path=store.db_path,
                 indexed_refs=[],
+                watched=[],
                 active_build=None,
                 active_embed=None,
             )
         indexed_refs = _refs_for_repo(store, ws_repo_id, request.repo_path, attribute=False)
+        watched = _watched_for_repo(store, ws_repo_id, request.repo_path, attribute=False)
     active_build = None
     active_embed = None
     if snapshot_status is not None:
@@ -311,6 +344,7 @@ def handle_status(
     return StatusResponse(
         db_path=store.db_path,
         indexed_refs=indexed_refs,
+        watched=watched,
         active_build=active_build,
         active_embed=active_embed,
     )
@@ -330,31 +364,46 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
         refs=request.refs,
         dry_run=request.dry_run,
     )
+    elapsed = time.monotonic() - t0
+    log.info(
+        "gc_complete",
+        mode=request.mode,
+        dry_run=request.dry_run,
+        commits=counts.commits,
+        snapshots=counts.snapshots,
+        edges=counts.edges,
+        chunks=counts.chunks,
+        elapsed_ms=round(elapsed * 1000, 1),
+    )
     return GcResponse(
         commits_dropped=counts.commits,
         snapshots_dropped=counts.snapshots,
         edges_dropped=counts.edges,
         chunks_dropped=counts.chunks,
-        elapsed_seconds=time.monotonic() - t0,
+        elapsed_seconds=elapsed,
         dry_run=request.dry_run,
     )
 
 
-type SubmitFn = Callable[[BuildJob | EmbedJob], None]
+class WatchFn(Protocol):
+    """The watch-set mutation the index handler is given (injected).
+
+    Implemented by `DaemonServer.watch_refs`; a `Protocol` (not
+    `Callable[..., None]`) so the keyword-only `remove` stays typed.
+    """
+
+    def __call__(self, repo_path: str, refs: list[str], *, remove: bool) -> None: ...
 
 
 def handle_build_index(
     request: BuildIndexRequest,
-    submit: SubmitFn,
+    watch: WatchFn,
 ) -> Response:
-    """Submit a build to the worker.
+    """Record (or remove) the request's refs in the repo's watch set.
 
-    The repo row is created by the build runner inside a
-    `WriteSession`, so no separate registration is needed
-    here. The watcher learns about the repo on its next poll
-    via `store.list_repos`.
+    The worker derives and runs the actual build from `watched_refs`
+    on its next poll. `remove=True` stops watching the given refs;
+    `HEAD` cannot be removed (the daemon rejects it atomically).
     """
-    submit(
-        BuildJob(repo_path=request.repo_path, refs=tuple(request.refs), embed=request.embed),
-    )
+    watch(request.repo_path, request.refs, remove=request.remove)
     return OkResponse()

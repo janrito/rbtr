@@ -106,16 +106,17 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     return repo_id
 
 
-def test_gc_drop_removes_commit(
+def test_gc_default_keeps_head_drops_unreferenced(
     tiny_repo: TinyRepo,
     seeded_repo_id_both_commits: int,
 ) -> None:
+    """Default `rbtr gc` keeps ref tips (HEAD/main = c2), drops c1."""
     repo_id = seeded_repo_id_both_commits
-    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--drop", tiny_repo.c1])
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path)])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["kind"] == "gc"
-    assert payload["commits_dropped"] == 1
+    assert payload["commits_dropped"] == 1  # c1 is not a ref tip
 
     store = IndexStore.from_config(writable=True)
     assert store.has_indexed(repo_id, tiny_repo.c1) is False
@@ -136,7 +137,14 @@ def test_gc_dry_run_changes_nothing(
     assert store.has_indexed(repo_id, tiny_repo.c1) is True
 
 
-def test_gc_keep_and_drop_are_mutually_exclusive(tiny_repo: TinyRepo) -> None:
-    r = run_cli(["gc", "--repo-path", str(tiny_repo.path), "--drop", "HEAD", "main"])
-    assert r.returncode != 0
-    assert "mutually exclusive" in r.stderr.lower()
+def test_gc_watched_only_smoke(
+    tiny_repo: TinyRepo,
+    seeded_repo_id_both_commits: int,
+) -> None:
+    """`--watched-only` parses and routes; HEAD survives."""
+    repo_id = seeded_repo_id_both_commits
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--watched-only"])
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["kind"] == "gc"
+    store = IndexStore.from_config(writable=True)
+    assert store.has_indexed(repo_id, tiny_repo.c2) is True  # HEAD kept

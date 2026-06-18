@@ -39,6 +39,7 @@ from rbtr.daemon.messages import (
     ReadSymbolResponse,
     SearchResponse,
     StatusResponse,
+    WatchedRef,
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.index.models import ChangeKind
@@ -430,6 +431,10 @@ def _render_status_response(m: StatusResponse) -> None:
         _out.print(f"[green]✓[/]  {_human(total)} chunks  [dim]{m.db_path}[/]")
         for ref in m.indexed_refs:
             _out.print(f"   {_fmt_ref(ref)}")
+    if m.watched:
+        _out.print("[dim]watching:[/]")
+        for w in m.watched:
+            _out.print(f"   {_fmt_watched(w)}")
     if m.active_build is not None:
         job = m.active_build
         pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
@@ -445,6 +450,16 @@ def _render_status_response(m: StatusResponse) -> None:
         _out.print(
             f"[magenta]↻[/]  Embedding: {ej.ref[:12]} — {ej.current}/{ej.total}{pct} — {elapsed}"
         )
+
+
+def _fmt_watched(w: WatchedRef) -> str:
+    """Render one watched ref: indexed (✓), pending (⟳), or unresolvable (✗)."""
+    repo = f"{w.repo_path} " if w.repo_path else ""
+    if w.sha is None:
+        return f"[red]✗[/] {repo}{w.ref} — unresolvable"
+    if w.indexed:
+        return f"[green]✓[/] {repo}{w.ref} — {w.sha[:12]} indexed"
+    return f"[yellow]⟳[/] {repo}{w.ref} — {w.sha[:12]} pending"
 
 
 def _fmt_ref(ref: IndexedRef) -> str:

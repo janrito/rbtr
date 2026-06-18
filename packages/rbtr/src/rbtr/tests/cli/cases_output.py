@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from pytest_cases import case
 
 from rbtr.daemon.dto import SearchHitOut
-from rbtr.daemon.messages import IndexedRef, SearchResponse, StatusResponse
+from rbtr.daemon.messages import IndexedRef, SearchResponse, StatusResponse, WatchedRef
 from rbtr.index.models import ChunkKind
 
 
@@ -74,4 +74,21 @@ def case_status_grouped_by_repo() -> RenderScenario:
         # "indexed repos" header is the cross-repo grouping cue,
         # rendered only in TTY mode — proves the rich path, not JSON.
         expected=("indexed repos", "/projects/one", "/projects/two"),
+    )
+
+
+@case(tags=["status"])
+def case_status_shows_watch_set() -> RenderScenario:
+    """Watched refs render with indexed / pending / unresolvable markers."""
+    return RenderScenario(
+        model=StatusResponse(
+            db_path="/db",
+            indexed_refs=[IndexedRef(sha="a" * 40, total=3, embedded=3)],
+            watched=[
+                WatchedRef(ref="main", sha="a" * 40, indexed=True),
+                WatchedRef(ref="feature", sha="b" * 40, indexed=False),
+                WatchedRef(ref="deleted", sha=None, indexed=False),
+            ],
+        ),
+        expected=("watching:", "main", "pending", "unresolvable"),
     )

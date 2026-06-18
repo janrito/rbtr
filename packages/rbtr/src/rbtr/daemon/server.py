@@ -79,7 +79,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import IndexNotBuiltError, RbtrError
-from rbtr.git import filter_tree_shas, normalise_repo_path
+from rbtr.git import HEAD_REF, filter_tree_shas, normalise_repo_path
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
 from rbtr.index.reranker import Reranker
@@ -190,6 +190,7 @@ class DaemonServer:
                     load_lock=self._gpu_load_lock,
                 )
             self._register_index_handlers(store)
+            self._backfill_head_watches(store)
             self._recover_pending_embeds(store)
 
     def _register_atexit(self) -> None:
@@ -237,9 +238,24 @@ class DaemonServer:
                     self._snapshot_status,
                 ),
                 "gc": lambda req: handle_gc(req, store),
-                "index": lambda req: handle_build_index(req, self.submit),
+                "index": lambda req: handle_build_index(req, self.watch_refs),
             }
         )
+
+    def _backfill_head_watches(self, store: IndexStore) -> None:
+        """Seed a `"HEAD"` watch for every registered repo (idempotent).
+
+        Ensures HEAD tracking for repos registered before the
+        `watched_refs` table existed; new repos get their HEAD row
+        through the `index` request path.
+        """
+        repos = store.list_repos()
+        if not repos:
+            return
+        with store.session() as ws:
+            for repo_id, _repo_path in repos:
+                ws.add_watched_refs(repo_id, [HEAD_REF])
+        log.info("head_watch_backfill", repos=len(repos))
 
     def _recover_pending_embeds(self, store: IndexStore) -> None:
         """Check for indexed commits with un-embedded chunks and wake the worker.
@@ -344,7 +360,7 @@ class DaemonServer:
             repo_id=job.repo_id,
             embedder=self._embedder,
             on_progress=_progress_callback(push, job.repo_path),
-            should_stop=lambda: bool(watcher.poll(store)),
+            should_stop=lambda: bool(watcher.poll_watched(store)),
         )
         total = store.count_chunks(job.ref, repo_id=job.repo_id)
         unembedded = store.count_unembedded(job.repo_id, job.ref)
@@ -408,7 +424,7 @@ class DaemonServer:
                         log.info("embedding_stopped_shutdown", done=done, total=total)
                         return
                     # Yield to higher-priority builds or worktree rebuilds.
-                    stale = await asyncio.to_thread(watcher.poll, store)
+                    stale = await asyncio.to_thread(watcher.poll_watched, store)
                     dirty = await asyncio.to_thread(watcher.poll_worktree, store)
                     if stale or dirty:
                         log.info("embedding_preempted", done=done, total=total)
@@ -462,16 +478,34 @@ class DaemonServer:
         """
         return self._ready.wait(timeout=timeout)
 
-    def submit(self, job: BuildJob | EmbedJob) -> None:
-        """Signal the worker that new work may be available.
+    def watch_refs(self, repo_path: str, refs: list[str], *, remove: bool) -> None:
+        """Add or remove watched refs for a repo, then wake the worker.
 
-        For `BuildJob`s, ensures the repo is registered in the DB
-        so `_find_next_job` can discover the un-indexed HEAD.
-        The worker discovers the actual work via DB polling.
+        Records intent in `watched_refs`; `poll_watched` derives the
+        actual build on its next poll.  On *remove*, `"HEAD"` is
+        rejected with `RbtrError` **before any delete** so the whole
+        request fails atomically — HEAD is the default always-watched
+        ref.
         """
-        if isinstance(job, BuildJob) and self._store is not None:
+        if self._store is None:
+            return
+        if remove:
+            if HEAD_REF in refs:
+                msg = "HEAD cannot be removed from the watch set"
+                raise RbtrError(msg)
+            repo_id = self._store.get_repo_id(repo_path)
+            if repo_id is None:
+                return  # nothing watched for an unregistered repo
             with self._store.session() as ws:
-                ws.register_repo(job.repo_path)
+                ws.remove_watched_refs(repo_id, refs)
+            log.info("watched_refs_removed", repo=repo_path, refs=refs)
+            return
+        with self._store.session() as ws:
+            repo_id = ws.register_repo(repo_path)
+            # HEAD is always watched and cannot be removed; ensure it
+            # here so any `index` (not just startup backfill) upholds it.
+            ws.add_watched_refs(repo_id, [HEAD_REF, *refs])
+        log.info("watched_refs_added", repo=repo_path, refs=refs)
         self._wake.set()
 
     def _is_building(self) -> bool:
@@ -520,12 +554,12 @@ class DaemonServer:
         if store is None:
             return None
 
-        # Builds: un-indexed HEADs.
-        for stale in watcher.poll(store):
-            key = stale.repo_path
+        # Builds: un-indexed watched refs (HEAD is the default one).
+        for target in watcher.poll_watched(store):
+            key = target.repo_path
             if key == self._active_key:
                 continue
-            return BuildJob(repo_path=stale.repo_path, refs=(stale.new_ref,))
+            return BuildJob(repo_path=target.repo_path, refs=(target.sha,))
 
         # Worktree builds: dirty working trees.
         for dirty in watcher.poll_worktree(store):
@@ -624,6 +658,8 @@ class DaemonServer:
                 }
                 if isinstance(job, EmbedJob):
                     job_ctx["ref"] = job.ref
+                else:
+                    job_ctx["ref"] = job.refs[0][:12]
                 # Bound for the job's lifetime; `to_thread` copies the
                 # context, so build/embed logs in worker threads carry it.
                 with structlog.contextvars.bound_contextvars(**job_ctx):
@@ -783,7 +819,7 @@ class DaemonServer:
         return self._idle_poll_interval
 
     async def _watcher_loop(self) -> None:
-        """Async task that polls git repos for un-indexed HEADs and dirty worktrees."""
+        """Async task that polls watched refs and dirty worktrees for index work."""
         while not self._shutdown:
             await asyncio.sleep(self._next_poll_interval())
             if self._shutdown:
@@ -791,16 +827,17 @@ class DaemonServer:
             if self._store is None:
                 continue
             with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
-                stale_list = await asyncio.to_thread(watcher.poll, self._store)
-                for stale in stale_list:
+                stale_list = await asyncio.to_thread(watcher.poll_watched, self._store)
+                for target in stale_list:
                     log.info(
-                        "head_not_indexed",
-                        repo=stale.repo_path,
-                        ref=stale.new_ref[:12],
+                        "watched_ref_stale",
+                        repo=target.repo_path,
+                        ref=target.ref,
+                        sha=target.sha[:12],
                     )
                     _notify(
                         self._notify_push,
-                        AutoRebuildNotification(repo_path=stale.repo_path, new_ref=stale.new_ref),
+                        AutoRebuildNotification(repo_path=target.repo_path, new_ref=target.sha),
                     )
                     self._wake.set()
                 dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)

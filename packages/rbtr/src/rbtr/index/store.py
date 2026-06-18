@@ -100,6 +100,7 @@ _GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
 _COUNT_CHUNKS_SQL = load_sql("count_chunks.sql")
 _HAS_INDEXED_SQL = load_sql("has_indexed.sql")
 _LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_commits.sql")
+_LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
 _COUNT_SNAPSHOTS_FOR_COMMIT_SQL = load_sql("count_snapshots_for_commit.sql")
 _COUNT_EDGES_FOR_COMMIT_SQL = load_sql("count_edges_for_commit.sql")
 _GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
@@ -253,6 +254,11 @@ class IndexStore:
         """Return all registered repos as `(id, path)` tuples."""
         rows = self._cursor.execute(_LIST_REPOS_SQL).fetchall()
         return [(int(r[0]), str(r[1])) for r in rows]
+
+    def list_watched_refs(self, repo_id: int) -> list[str]:
+        """Return the repo's watched refs (symbolic names), sorted by name."""
+        rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
+        return [str(r[0]) for r in rows]
 
     def latest_ref(self, repo_id: int, repo_path: str) -> RepoRef | None:
         """Resolve the most recent indexed ref for one repo.

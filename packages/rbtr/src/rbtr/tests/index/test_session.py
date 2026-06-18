@@ -17,6 +17,7 @@ from rbtr.index.models import Edge, EdgeKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_store_repos import RepoSequence
+from .cases_store_watched_refs import WatchedRefScenario
 from .conftest import make_chunk, make_snap
 
 # ── Commit / rollback ───────────────────────────────────────────────
@@ -203,7 +204,25 @@ def test_register_repo(scenario: RepoSequence, store: IndexStore) -> None:
     assert store.list_repos() == scenario.expected_listing
 
 
-# ── resolve_repo ──────────────────────────────────────────────────
+# ── watched_refs ─────────────────────────────────────────────────
+
+
+@parametrize_with_cases("scenario", cases=".cases_store_watched_refs")
+def test_watched_refs(scenario: WatchedRefScenario, store: IndexStore) -> None:
+    repo_ids: dict[str, int] = {}
+    with store.session() as ws:
+        for key, path in scenario.repos.items():
+            repo_ids[key] = ws.register_repo(path)
+        for key, op, refs in scenario.ops:
+            if op == "add":
+                ws.add_watched_refs(repo_ids[key], refs)
+            else:
+                ws.remove_watched_refs(repo_ids[key], refs)
+    for key, expected in scenario.expected.items():
+        assert store.list_watched_refs(repo_ids[key]) == expected
+
+
+# ── resolve_repo ─────────────────────────────────────
 
 
 def test_resolve_repo_returns_id(store: IndexStore) -> None:

@@ -63,6 +63,16 @@ def runtime_dir() -> Path:
 
 
 @pytest.fixture
+def unindexed_store(fake_repo: str) -> Generator[IndexStore]:
+    """Real repo registered, HEAD not indexed (a stale watched ref)."""
+    store = IndexStore(writable=True)
+    with store.session() as ws:
+        ws.register_repo(fake_repo)
+    yield store
+    store.close()
+
+
+@pytest.fixture
 def seeded_store(
     fake_repo: str,
     daemon_commit: str,

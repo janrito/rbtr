@@ -113,20 +113,47 @@ def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
 
 
-# ── KEEP_REFS ────────────────────────────────────────────────────────
+# ── WATCHED (default) ───────────────────────────────────────
 
 
-def test_keep_refs_preserves_tag_and_head(gc: GcFixture) -> None:
+def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
+    """Keeps HEAD plus every watched ref — branch/tag and bare SHA alike."""
+    with gc.store.session() as ws:
+        ws.add_watched_refs(gc.repo_id, ["v1", gc.c2])  # a tag and a bare SHA
     counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.KEEP_REFS, refs=[], dry_run=False
+        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
+    )
+    assert counts.commits == 0
+    assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # watched tag v1
+    assert gc.store.has_indexed(gc.repo_id, gc.c2) is True  # watched bare SHA
+    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD
+
+
+def test_watched_keeps_all_branches_drops_unreferenced(gc: GcFixture) -> None:
+    """With no watched refs, WATCHED still keeps HEAD + branches/tags;
+    only the genuinely unreferenced commit is dropped."""
+    counts = run_gc(
+        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
     )
     assert counts.commits == 1  # only c2 (unreachable) dropped
-    assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # tag v1
-    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD
+    assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # tag v1 kept
+    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
 
 
-# ── KEEP ─────────────────────────────────────────────────────────────
+def test_watched_only_drops_unwatched_branches_and_tags(gc: GcFixture) -> None:
+    """WATCHED_ONLY keeps only HEAD + watched refs; an unwatched tag/branch
+    is dropped (unlike the default which keeps all branches/tags)."""
+    counts = run_gc(
+        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False
+    )
+    assert counts.commits == 2  # c1 (tag v1) and c2 dropped; only HEAD kept
+    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
+    assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
+    assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
+
+
+# ── KEEP ──────────────────────────────────────────────────────────────
 
 
 def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
@@ -145,25 +172,6 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
-
-
-# ── DROP ─────────────────────────────────────────────────────────────
-
-
-def test_drop_removes_only_listed_refs(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.DROP, refs=["v1"], dry_run=False
-    )
-    assert counts.commits == 1
-    assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
-    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
-    assert gc.store.has_indexed(gc.repo_id, gc.c2) is True
-
-
-def test_drop_head_is_allowed(gc: GcFixture) -> None:
-    """DROP does not implicitly keep HEAD — if the user says drop HEAD, do it."""
-    run_gc(gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.DROP, refs=["HEAD"], dry_run=False)
-    assert gc.store.has_indexed(gc.repo_id, gc.c3) is False
 
 
 # ── ORPHANS ──────────────────────────────────────────────────────────
