@@ -192,9 +192,10 @@ def test_read_symbol_with_file_paths(
 ) -> None:
     """`file_paths` narrows the lookup to chunks from the listed files.
 
-    The seeded `load_config` matches both the function (`src/config.py`)
-    and the import line (`src/app.py`, name `from config import
-    load_config`), so scoping must partition by file.
+    Tiered name resolution means `load_config` exact-matches only
+    the function definition in `src/config.py`.  The import line
+    in `src/app.py` (name `from config import load_config`) is a
+    substring match at a lower tier and is excluded.
     """
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         unscoped = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
@@ -210,7 +211,8 @@ def test_read_symbol_with_file_paths(
         )
     assert isinstance(unscoped, ReadSymbolResponse)
     unscoped_files = {c.file_path for c in unscoped.chunks}
-    assert {"src/config.py", "src/app.py"} <= unscoped_files
+    assert "src/config.py" in unscoped_files
+    assert "src/app.py" not in unscoped_files  # substring match excluded
     assert isinstance(scoped, ReadSymbolResponse)
     assert len(scoped.chunks) >= 1
     assert all(c.file_path == "src/config.py" for c in scoped.chunks)
