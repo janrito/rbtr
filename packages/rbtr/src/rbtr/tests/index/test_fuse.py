@@ -15,7 +15,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from rbtr.config import config
 from rbtr.index.frames import FusionInputRow
 from rbtr.index.models import QueryKind, ScoredChunk
-from rbtr.index.search import fuse_scores, materialise_scored, with_match_preview
+from rbtr.index.search import fuse_scores, match_preview_exprs, materialise_scored
 
 from .cases_fuse import FuseScenario
 
@@ -160,8 +160,13 @@ def test_match_preview_columns(
     expected_offset: int | None,
     expected_terms: list[str],
 ) -> None:
-    """`with_match_preview` anchors on the densest matching line."""
-    out = with_match_preview(pl.DataFrame({"content": [content]}), tokens).to_dicts()[0]
+    """`match_preview_exprs` anchors on the densest matching line."""
+    offset, terms = match_preview_exprs(tokens)
+    out = (
+        pl.DataFrame({"content": [content]})
+        .select(offset.alias("match_line_offset"), terms.alias("matched_terms"))
+        .to_dicts()[0]
+    )
     assert out["match_line_offset"] == expected_offset
     assert out["matched_terms"] == expected_terms
 
@@ -172,7 +177,11 @@ def test_match_preview_is_row_wise() -> None:
     Guards the polars expression against accidentally collapsing the
     per-row `list` operations into frame-wide aggregates.
     """
-    frame = pl.DataFrame({"content": ["x = 1\nagent here", "no match", "agent\nmore"]})
-    out = with_match_preview(frame, ["agent"]).to_dicts()
+    offset, terms = match_preview_exprs(["agent"])
+    out = (
+        pl.DataFrame({"content": ["x = 1\nagent here", "no match", "agent\nmore"]})
+        .select(offset.alias("match_line_offset"), terms.alias("matched_terms"))
+        .to_dicts()
+    )
     assert [r["match_line_offset"] for r in out] == [1, None, 0]
     assert [r["matched_terms"] for r in out] == [["agent"], [], ["agent"]]

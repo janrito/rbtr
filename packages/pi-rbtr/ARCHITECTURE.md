@@ -249,8 +249,13 @@ or kind mismatch.
 ### Collapsed vs. expanded
 
 Search results show up to 5 results in collapsed view
-(one line each: score, path, kind, name) and all results
-with code previews when expanded (Ctrl+O).
+(one line each: score, path, kind, name), plus the single
+matched line beneath a hit that carries a preview anchor.
+Expanded (Ctrl+O) shows every result with a code preview
+windowed around that anchor. Matched query terms
+(`matched_terms` from the response) are highlighted in both
+views; the anchor (`match_line_offset`) is computed by the
+search layer (see rbtr `ARCHITECTURE.md`, “Preview anchor”).
 
 Read-symbol shows path and line range when collapsed,
 full source when expanded.

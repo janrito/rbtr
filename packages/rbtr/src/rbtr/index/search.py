@@ -401,33 +401,30 @@ def _token_hits_per_line(tokens: Sequence[str]) -> pl.Expr:
     return expr
 
 
-def with_match_preview(frame: pl.DataFrame, tokens: Sequence[str]) -> pl.DataFrame:
-    """Add `match_line_offset` and `matched_terms` columns to *frame*.
+def match_preview_exprs(tokens: Sequence[str]) -> tuple[pl.Expr, pl.Expr]:
+    """`(match_line_offset, matched_terms)` expressions over `content`.
 
-    Anchors a search preview on the line of each row's `content`
-    that best matches the query: `match_line_offset` is the 0-based
-    offset (over `"\n"`-split lines) of the earliest line containing
-    the most *tokens*, or `None` when no token occurs. `matched_terms`
+    Anchors a search preview on the line of `content` that best
+    matches the query. `match_line_offset` is the 0-based offset
+    (over `"\n"`-split lines) of the earliest line containing the
+    most *tokens*, or `None` when no token occurs. `matched_terms`
     lists the distinct *tokens* occurring anywhere in `content`, in
     caller order, or `[]` when none.
 
     *tokens* must already be lowercased (the caller tokenises the
     query with `tokenise_code`). Matching is case-insensitive literal
-    substring containment, so a tokenised fragment like `deps`
-    deliberately matches inside a compound identifier such as
-    `AgentDeps` — the intended behaviour for highlighting. No
-    minimum-length filter is applied: this mirrors what BM25 indexed.
+    substring containment, so a tokenised fragment like `deps` matches
+    inside a compound identifier such as `AgentDeps` — the behaviour
+    that drives sub-span highlighting.
     """
     if not tokens:
-        return frame.with_columns(
-            pl.lit(None, dtype=pl.Int32).alias("match_line_offset"),
-            pl.lit([], dtype=pl.List(pl.String)).alias("matched_terms"),
-        )
+        return pl.lit(None, dtype=pl.Int32), pl.lit([], dtype=pl.List(pl.String))
     content_lower = pl.col("content").str.to_lowercase()
     counts = content_lower.str.split("\n").list.eval(_token_hits_per_line(tokens))
     offset = (
         pl.when(counts.list.max() == 0).then(None).otherwise(counts.list.arg_max()).cast(pl.Int32)
     )
+    # No minimum-length filter: a one-token-bag mirrors what BM25 indexed.
     matched = pl.concat_list(
         [
             pl.when(content_lower.str.contains(token, literal=True))
@@ -436,10 +433,7 @@ def with_match_preview(frame: pl.DataFrame, tokens: Sequence[str]) -> pl.DataFra
             for token in tokens
         ]
     ).list.drop_nulls()
-    return frame.with_columns(
-        offset.alias("match_line_offset"),
-        matched.alias("matched_terms"),
-    )
+    return offset, matched
 
 
 def materialise_scored(
@@ -466,12 +460,14 @@ def materialise_scored(
     """
     if frame.is_empty():
         return []
-    enriched = (
-        with_match_preview(frame, tokenise_code(lex_query).split())
-        if lex_query is not None
-        else frame
-    )
-    rows = enriched.to_dicts()
+    preview_cols: list[pl.Expr] = []
+    if lex_query is not None:
+        offset_expr, terms_expr = match_preview_exprs(tokenise_code(lex_query).split())
+        preview_cols = [
+            offset_expr.alias("match_line_offset"),
+            terms_expr.alias("matched_terms"),
+        ]
+    rows = frame.with_columns(preview_cols).to_dicts()
     for row in rows:
         row["query_kind"] = query_kind
         if repo_paths is not None:

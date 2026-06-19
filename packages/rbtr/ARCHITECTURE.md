@@ -713,8 +713,10 @@ always-present `metadata` bag — that no caller needs and that
 adds noise and tokens to an agent's context. Handlers instead
 project to output DTOs in `rbtr.daemon.dto` (`SymbolOut`,
 `SearchHitOut`, `RefOut`): a curated, low-noise public
-contract. Empty `metadata` and null `repo_path` are omitted;
-the nine search signals collapse to a single `score` unless
+contract. Empty `metadata` and null `repo_path` are omitted,
+as is the preview anchor (`match_line_offset`, `matched_terms`)
+when the hit has no literal match; the nine search signals
+collapse to a single `score` unless
 the request sets `explain`, which attaches a nested
 `SearchSignals` (used by the eval tuners). The DTOs are
 output-only — never fed to the write/staging path — which is
@@ -791,6 +793,23 @@ single-repo consumers are unaffected. `find_refs`,
 `changed_symbols`, `read_symbol`, and `list_symbols` remain
 single-repo: their edges and ref comparisons don't span
 repos.
+
+### Preview anchor
+
+`materialise_scored` attaches a render hint to each result:
+`match_line_offset` (the `"\n"`-line of `content` that best
+matches the query) and `matched_terms` (the query tokens
+present in it). Both come from `match_preview_exprs` — polars
+expressions evaluated over the fused top-k frame, so there is
+no extra pass or DB round-trip. The token set is
+`tokenise_code(query + keywords)`, the same tokens BM25 saw,
+so the preview agrees with why the lexical channel retrieved
+the hit; substring containment lets a fragment like `deps`
+anchor inside `AgentDeps`. A hit with no literal overlap
+(e.g. a purely semantic match) gets `None`/`[]`, and renderers
+fall back to the first lines. The CLI emphasises the whole
+matched line (rich `Syntax` highlight, which can't overlay
+sub-spans); the pi TUI highlights the matched terms within it.
 
 ### Read-ref resolution and scoping
 
