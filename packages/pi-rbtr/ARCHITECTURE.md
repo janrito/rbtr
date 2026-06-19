@@ -85,11 +85,22 @@ All CLI calls go through `pi.exec()`, which returns
 
 ### Validation
 
-On `session_start`, the extension runs `rbtr status` with
-a 5-second timeout. If it fails, `cliAvailable` is set to
-`false` and all tools throw on invocation. This single
-check covers command-not-found, broken installs, and
-permission errors.
+On `session_start` the extension probes both transports.
+`session.refresh()` looks for a live daemon; `reconcile()`
+then starts, restarts, or yields to it by version (see
+[Daemon-first, CLI fallback](#daemon-first-cli-fallback)).
+A single `queryIndexStatus()` call then resolves index
+state — daemon first, CLI `rbtr status` (5-second timeout)
+as the fallback. If it returns null, `cliAvailable` is set
+to `false`, the footer shows "not found", and the user is
+notified with install instructions; otherwise `cliAvailable`
+is `true`.
+
+There is no separate readiness flag. Each tool call gates
+itself through `withFallback` (below), which needs either a
+live daemon (`session.available`) or a working CLI
+(`cliAvailable`) — with neither it throws an actionable
+"not available" error.
 
 ---
 
@@ -121,7 +132,8 @@ LLM knows it can use the tools without being told.
 Query tools (`search`, `read-symbol`, `list-symbols`,
 `find-refs`, `changed-symbols`) follow the same pattern:
 
-1. Call `runRbtr()` with the appropriate subcommand.
+1. Dispatch via `withFallback` — the daemon RPC for the
+   subcommand, with `runRbtr()` as the CLI fallback.
 2. If the result is empty, return a "not found" message that
    echoes the arguments the tool received (`echoArgs`), so a
    mis-shaped argument is visible in context for the model to
@@ -139,54 +151,64 @@ parameters for query expansion. The session LLM generates
 these inline when constructing the tool call, guided by
 `promptGuidelines`.
 
-### The `requireReady` guard
+### Transport dispatch (`withFallback`)
 
-A shared guard function checks two conditions before any
-query tool executes:
+Every tool call runs through `withFallback<T>(fromDaemon,
+fromCli)`:
 
-- `cliAvailable` is true (validated on session start).
-- `indexPromise` is null (no indexing in progress).
+- If `session.available`, try the daemon callback. A
+  `DaemonUnavailableError` (transport failure) falls
+  through to the CLI; an `RbtrDaemonError` (an actionable
+  reply from the daemon, e.g. "not indexed") is re-thrown
+  untouched and surfaces to the LLM as the tool result.
+- Otherwise — or after a daemon transport failure — run
+  the CLI callback, provided `cliAvailable`. With neither
+  transport it throws "rbtr CLI not available" with install
+  instructions.
 
-If either check fails, the guard throws an error that the
-LLM receives as an `isError` tool result with an
-actionable message.
+Dispatch and readiness-gating are the same step: there is
+no separate guard. See
+[Daemon-first, CLI fallback](#daemon-first-cli-fallback)
+for the transport's reconnection and health-check
+behaviour.
 
 ---
 
 ## Index management
 
-### Background indexing
+### Triggering a build
 
-`startIndexing()` fires a `pi.exec()` call for `rbtr index`
-and stores the returned promise in `indexPromise`. The
-function returns `false` if a indexing is already running
-(promise is non-null).
+`triggerIndex(ctx, ...refs)` requests a build through
+`withFallback`: the daemon path sends `{kind: "index",
+repo_path, refs}`; the CLI fallback spawns `rbtr index
+<refs>`. Refs default to `["HEAD"]`. The footer shows an
+animated "indexing…" spinner while the request is in
+flight; on failure it switches to "indexing failed" and
+the user is notified.
 
-The promise chain:
-
-1. On success — parse index stats, update footer with
-   symbol count, notify user.
-2. On failure — set footer to "indexing failed", notify
-   with error message.
-3. Finally — clear `indexPromise` to null.
-
-UI context (`setStatus`, `notify`, `theme`) is captured
-by reference at indexing start so the callbacks can update
-the TUI after the event handler returns.
+The extension holds no build state of its own — no promise,
+no "already running" flag. The daemon owns build scheduling
+and de-duplication; build progress reaches the footer
+through the PUB subscription (`progress`, `ready`,
+`embed_complete`, `auto_rebuild`, `index_error`
+notifications), not a local promise chain. The same
+mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
+and `triggerGc` — each a `withFallback` over a daemon RPC
+with a CLI fallback.
 
 ### Auto-index
 
-On `session_start`, if the index does not exist and
-`autoIndex` is true, `startIndexing()` is called
-automatically. Indexing runs in the background — the
-session is immediately usable for other work.
+On `session_start`, if no index exists and `autoIndex` is
+true, `triggerIndex(ctx)` is called automatically. Indexing
+runs in the background — the session is immediately usable
+for other work.
 
 ### Timeout
 
-Builds have a 10-minute timeout. A fresh build with
-embeddings for a large repository can take several minutes
-(embedding is the bottleneck). Incremental builds with
-blob-SHA dedup typically complete in seconds.
+The CLI fallback caps a build at 10 minutes. A fresh build
+with embeddings for a large repository can take several
+minutes (embedding is the bottleneck). Incremental builds
+with blob-SHA dedup typically complete in seconds.
 
 ---
 
