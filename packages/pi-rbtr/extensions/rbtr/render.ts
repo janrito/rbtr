@@ -123,6 +123,47 @@ function invalidArg(theme: Theme): string {
   return theme.fg("error", "[invalid arg]");
 }
 
+// Matched-query highlight reuses the `accent` role so the bit the
+// user searched for stands out from the dim preview context.
+const MATCH_STYLE = "accent" as const;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Render *text* with *terms* highlighted; non-matches stay dim. */
+function highlightTerms(theme: Theme, text: string, terms: string[]): string {
+  if (terms.length === 0) return theme.fg("dim", text);
+  // Longest-first so `agentdeps` wins over `agent` at the same index.
+  const alts = [...terms].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  const re = new RegExp(`(${alts.join("|")})`, "gi");
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const i = m.index ?? last;
+    if (i > last) out += theme.fg("dim", text.slice(last, i));
+    out += theme.fg(MATCH_STYLE, m[0]);
+    last = i + m[0].length;
+  }
+  if (last < text.length) out += theme.fg("dim", text.slice(last));
+  return out;
+}
+
+/**
+ * Slice a preview window of up to *max* lines from *content*, scrolled
+ * to *offset* only when it falls past the first window (mirrors the CLI
+ * renderer).
+ */
+function previewWindow(
+  content: string,
+  offset: number | null | undefined,
+  max: number,
+): { window: string[]; start: number } {
+  const all = content.split("\n");
+  const start = offset != null && offset >= max ? offset - 1 : 0;
+  return { window: all.slice(start, start + max), start };
+}
+
 export function renderSearchCall(args: Record<string, unknown>, theme: Theme): Text {
   const query = str(args.query);
   let text = theme.fg("toolTitle", theme.bold("rbtr_search "));
@@ -165,12 +206,19 @@ export function renderSearchResult(
     if (r.scope) line += theme.fg("dim", ` (${r.scope})`);
     lines.push(line);
 
+    const terms = r.matched_terms ?? [];
     if (options.expanded) {
-      const preview = r.content.split("\n").slice(0, 4).join("\n");
-      for (const pl of preview.split("\n")) {
-        lines.push(`  ${theme.fg("dim", pl)}`);
+      const { window, start } = previewWindow(r.content, r.match_line_offset, 4);
+      if (start > 0) lines.push(theme.fg("dim", "  …"));
+      for (const pl of window) {
+        lines.push(`  ${highlightTerms(theme, pl, terms)}`);
       }
       lines.push("");
+    } else if (r.match_line_offset != null) {
+      // Surface the matched line so the collapsed view shows “that
+      // bit” without expanding.
+      const anchorLine = r.content.split("\n")[r.match_line_offset] ?? "";
+      lines.push(`  ${highlightTerms(theme, anchorLine, terms)}`);
     }
   }
 

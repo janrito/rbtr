@@ -279,22 +279,33 @@ def _render_scored_result(m: SearchHitOut) -> None:
     s.append(f"{m.score:.2f}", style=_score_style(m.score))
     _out.print(s)
 
-    # Code preview — skip for single-line chunks (header is enough)
-    lines = m.content.splitlines()
+    # Code preview — skip for single-line chunks (header is enough).
+    # Split on "\n" (not splitlines) so offsets agree with the pi
+    # renderer and with `match_line_offset`.
+    lines = m.content.split("\n")
     if len(lines) > 1:
         max_preview = 4
-        preview = lines[:max_preview]
-        if len(lines) > max_preview:
-            preview.append(f"… {len(lines)} lines total")
+        anchor = m.match_line_offset
+        # Scroll the window to the anchor only when it falls past the
+        # first window; otherwise keep the natural first-N preview.
+        start = anchor - 1 if anchor is not None and anchor >= max_preview else 0
+        window = lines[start : start + max_preview]
+        # `highlight_lines` is 1-based within the rendered window.
+        highlight = {anchor - start + 1} if anchor is not None else set()
+        if start > 0:
+            _out.print(Text("    …", style="dim"))
         _out.print(
             Syntax(
-                "\n".join(preview),
+                "\n".join(window),
                 m.language,
                 theme="monokai",
                 line_numbers=False,
                 padding=(0, 4),
+                highlight_lines=highlight,
             )
         )
+        if start + len(window) < len(lines):
+            _out.print(Text(f"    … {len(lines)} lines total", style="dim"))
 
     _out.print()  # blank line between results
 

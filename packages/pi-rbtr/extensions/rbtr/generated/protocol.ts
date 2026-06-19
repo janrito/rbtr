@@ -210,6 +210,8 @@ export interface SearchHitOut {
   content: string;
   line_start: number;
   line_end: number;
+  match_line_offset?: number | null;
+  matched_terms?: string[];
   metadata?: ImportMeta | null;
   repo_path?: string | null;
   score: number;

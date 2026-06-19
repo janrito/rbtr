@@ -143,6 +143,23 @@ def test_signals_omitted_by_default(scored_chunk: ScoredChunk) -> None:
     assert "signals" not in data
 
 
+def test_search_hit_omits_empty_match_preview(scored_chunk: ScoredChunk) -> None:
+    data = json.loads(SearchHitOut.from_scored(scored_chunk).model_dump_json())
+    assert "match_line_offset" not in data
+    assert "matched_terms" not in data
+
+
+def test_search_hit_keeps_match_preview_when_set(scored_chunk: ScoredChunk) -> None:
+    hit = SearchHitOut.from_scored(
+        scored_chunk.model_copy(
+            update={"match_line_offset": 2, "matched_terms": ["config", "load"]}
+        )
+    )
+    data = json.loads(hit.model_dump_json())
+    assert data["match_line_offset"] == 2
+    assert data["matched_terms"] == ["config", "load"]
+
+
 def test_ref_out_describes_the_referrer() -> None:
     # Built from an inbound_refs frame row (referrer identity + edge kind).
     row = {

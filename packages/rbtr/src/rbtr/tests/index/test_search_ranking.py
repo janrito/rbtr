@@ -176,3 +176,24 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     # The keywords caused BM25 to find chunks containing "config" or "load".
     names = [r.name for r in with_keywords]
     assert any("config" in n.lower() or "load" in n.lower() for n in names)
+
+
+# ── Match preview ────────────────────────────────────────
+
+
+def test_match_preview_populated_for_lexical_hit(
+    ranking_store: IndexStore, ranking_commit: str
+) -> None:
+    """A literal hit carries a preview anchor through to `ScoredChunk`.
+
+    Guards the `search` → `materialise_scored` (lex_query) wiring:
+    the `load_config` chunk's signature line contains the query
+    tokens, so it anchors there with the terms populated.
+    """
+    results = ranking_store.search(
+        [RepoRef(repo_id=1, commit_sha=ranking_commit)], "load_config", top_k=10
+    )
+    hit = next(r for r in results if r.id == "load_config")
+    assert hit.match_line_offset is not None
+    assert "load" in hit.matched_terms
+    assert "config" in hit.matched_terms

@@ -13,6 +13,7 @@ coordinates channel retrieval, candidate merging, and fusion.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import dataframely as dy
@@ -32,6 +33,7 @@ from rbtr.index.frames import (
     ScoredChunkResultRow,
 )
 from rbtr.index.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
+from rbtr.index.tokenise import tokenise_code
 
 if TYPE_CHECKING:
     from rbtr.index.embeddings import Embedder
@@ -387,10 +389,64 @@ def fuse_scores(
     )
 
 
+def _token_hits_per_line(tokens: Sequence[str]) -> pl.Expr:
+    """Per-line count of *tokens* present, for use inside `list.eval`.
+
+    `pl.element()` is each line of the split content; each token
+    contributes 1 when it occurs as a literal substring.
+    """
+    expr = pl.lit(0)
+    for token in tokens:
+        expr = expr + pl.element().str.contains(token, literal=True).cast(pl.Int32)
+    return expr
+
+
+def with_match_preview(frame: pl.DataFrame, tokens: Sequence[str]) -> pl.DataFrame:
+    """Add `match_line_offset` and `matched_terms` columns to *frame*.
+
+    Anchors a search preview on the line of each row's `content`
+    that best matches the query: `match_line_offset` is the 0-based
+    offset (over `"\n"`-split lines) of the earliest line containing
+    the most *tokens*, or `None` when no token occurs. `matched_terms`
+    lists the distinct *tokens* occurring anywhere in `content`, in
+    caller order, or `[]` when none.
+
+    *tokens* must already be lowercased (the caller tokenises the
+    query with `tokenise_code`). Matching is case-insensitive literal
+    substring containment, so a tokenised fragment like `deps`
+    deliberately matches inside a compound identifier such as
+    `AgentDeps` — the intended behaviour for highlighting. No
+    minimum-length filter is applied: this mirrors what BM25 indexed.
+    """
+    if not tokens:
+        return frame.with_columns(
+            pl.lit(None, dtype=pl.Int32).alias("match_line_offset"),
+            pl.lit([], dtype=pl.List(pl.String)).alias("matched_terms"),
+        )
+    content_lower = pl.col("content").str.to_lowercase()
+    counts = content_lower.str.split("\n").list.eval(_token_hits_per_line(tokens))
+    offset = (
+        pl.when(counts.list.max() == 0).then(None).otherwise(counts.list.arg_max()).cast(pl.Int32)
+    )
+    matched = pl.concat_list(
+        [
+            pl.when(content_lower.str.contains(token, literal=True))
+            .then(pl.lit(token))
+            .otherwise(None)
+            for token in tokens
+        ]
+    ).list.drop_nulls()
+    return frame.with_columns(
+        offset.alias("match_line_offset"),
+        matched.alias("matched_terms"),
+    )
+
+
 def materialise_scored(
     frame: dy.DataFrame[FusedRow],
     repo_paths: dict[int, str] | None,
     query_kind: QueryKind,
+    lex_query: str | None = None,
 ) -> list[ScoredChunk]:
     """Serialise a fused frame to a list of `ScoredChunk`.
 
@@ -402,10 +458,20 @@ def materialise_scored(
     result's `repo_path` is populated from its `repo_id` column —
     used by cross-repo search to attribute results to their repo.
     When `None` (single-repo search), `repo_path` stays `None`.
+
+    When *lex_query* is given, each result gains a preview anchor
+    (`match_line_offset` / `matched_terms`) via `with_match_preview`,
+    tokenised the same way BM25 saw the query. When `None`, those
+    fields keep their `ScoredChunk` defaults.
     """
     if frame.is_empty():
         return []
-    rows = frame.to_dicts()
+    enriched = (
+        with_match_preview(frame, tokenise_code(lex_query).split())
+        if lex_query is not None
+        else frame
+    )
+    rows = enriched.to_dicts()
     for row in rows:
         row["query_kind"] = query_kind
         if repo_paths is not None:
@@ -670,4 +736,4 @@ def search(
     )
     if reranker is not None:
         frame = reranker.rerank(query, frame, top_k=top_k, blend_weight=blend)
-    return materialise_scored(frame, repo_paths, effective_kind)
+    return materialise_scored(frame, repo_paths, effective_kind, lex_query=lex_query)

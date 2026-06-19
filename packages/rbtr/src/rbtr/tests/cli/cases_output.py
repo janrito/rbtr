@@ -60,6 +60,65 @@ def case_search_unattributed() -> RenderScenario:
     )
 
 
+@case(tags=["search"])
+def case_search_preview_anchors_on_match() -> RenderScenario:
+    """The preview window scrolls to the matched line.
+
+    The match sits at offset 5, past the 4-line window, so the
+    preview shows the matched line and drops the first line.
+    """
+    content = """\
+FIRSTLINE_MARKER = 0
+a = 1
+b = 2
+c = 3
+d = 4
+NEEDLE_HERE = 5
+e = 6
+f = 7
+"""
+    hit = SearchHitOut(
+        file_path="src/big.py",
+        kind=ChunkKind.FUNCTION,
+        name="big",
+        language="python",
+        content=content,
+        line_start=1,
+        line_end=9,
+        score=0.9,
+        match_line_offset=5,
+        matched_terms=["needle_here"],
+    )
+    return RenderScenario(
+        model=SearchResponse(results=[hit]),
+        expected=("NEEDLE_HERE",),
+        forbidden=("FIRSTLINE_MARKER",),
+    )
+
+
+@case(tags=["search"])
+def case_search_preview_without_match_shows_head() -> RenderScenario:
+    """With no anchor, the preview keeps the first-N lines."""
+    content = """\
+def visible_top():
+    return 1
+"""
+    hit = SearchHitOut(
+        file_path="src/top.py",
+        kind=ChunkKind.FUNCTION,
+        name="top",
+        language="python",
+        content=content,
+        line_start=1,
+        line_end=3,
+        score=0.9,
+    )
+    return RenderScenario(
+        model=SearchResponse(results=[hit]),
+        expected=("visible_top",),
+    )
+
+
 @case(tags=["status"])
 def case_status_grouped_by_repo() -> RenderScenario:
     """Cross-repo status groups refs under each repo path."""
