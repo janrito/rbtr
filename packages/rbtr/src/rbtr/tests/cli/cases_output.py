@@ -62,15 +62,17 @@ def case_search_unattributed() -> RenderScenario:
 
 @case(tags=["search"])
 def case_search_preview_anchors_on_match() -> RenderScenario:
-    """The preview window scrolls to the matched line.
+    """A deep match shows the signature line, then the matched line.
 
     The match sits at offset 5, past the 4-line window, so the
-    preview shows the matched line and drops the first line.
+    preview keeps the chunk's first line (the signature) for
+    orientation, drops the lines in between, and anchors on the
+    matched line.
     """
     content = """\
-FIRSTLINE_MARKER = 0
+def big_function():
 a = 1
-b = 2
+GAP_HIDDEN = 2
 c = 3
 d = 4
 NEEDLE_HERE = 5
@@ -91,8 +93,8 @@ f = 7
     )
     return RenderScenario(
         model=SearchResponse(results=[hit]),
-        expected=("NEEDLE_HERE",),
-        forbidden=("FIRSTLINE_MARKER",),
+        expected=("big_function", "NEEDLE_HERE"),
+        forbidden=("GAP_HIDDEN",),
     )
 
 

@@ -209,7 +209,12 @@ export function renderSearchResult(
     const terms = r.matched_terms ?? [];
     if (options.expanded) {
       const { window, start } = previewWindow(r.content, r.match_line_offset, 4);
-      if (start > 0) lines.push(theme.fg("dim", "  …"));
+      if (start > 0) {
+        // Show the chunk's signature line for orientation, then the gap.
+        const signature = r.content.split("\n")[0] ?? "";
+        lines.push(`  ${highlightTerms(theme, signature, terms)}`);
+        lines.push(theme.fg("dim", "  …"));
+      }
       for (const pl of window) {
         lines.push(`  ${highlightTerms(theme, pl, terms)}`);
       }

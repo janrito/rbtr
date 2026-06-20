@@ -293,6 +293,17 @@ def _render_scored_result(m: SearchHitOut) -> None:
         # `highlight_lines` is 1-based within the rendered window.
         highlight = {anchor - start + 1} if anchor is not None else set()
         if start > 0:
+            # Show the chunk's opening line (its signature) for
+            # orientation, then the gap down to the matched window.
+            _out.print(
+                Syntax(
+                    lines[0],
+                    m.language,
+                    theme="monokai",
+                    line_numbers=False,
+                    padding=(0, 4),
+                )
+            )
             _out.print(Text("    …", style="dim"))
         _out.print(
             Syntax(

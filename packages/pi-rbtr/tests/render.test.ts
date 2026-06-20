@@ -149,7 +149,7 @@ describe("renderSearchResult", () => {
     name: "big",
     kind: "function",
     file_path: "src/big.py",
-    content: "FIRSTLINE = 0\na = 1\nb = 2\nc = 3\nd = 4\nNEEDLE = 5\ne = 6\nf = 7",
+    content: "def big():\na = 1\nGAP = 2\nc = 3\nd = 4\nNEEDLE = 5\ne = 6\nf = 7",
     line_start: 1,
     line_end: 8,
     score: 0.9,
@@ -167,10 +167,11 @@ describe("renderSearchResult", () => {
     expect(out).not.toContain("UNIQUE_BODY");
   });
 
-  test("expanded view scrolls the window to the match and highlights it", () => {
+  test("expanded view shows the signature, then scrolls to the highlighted match", () => {
     const out = renderText(daemonResult({ kind: "search", results: [windowHit] }), true);
+    expect(out).toContain("def big()");
     expect(out).toContain("«NEEDLE»");
     expect(out).toContain("…");
-    expect(out).not.toContain("FIRSTLINE");
+    expect(out).not.toContain("GAP");
   });
 });
