@@ -810,6 +810,10 @@ anchor inside `AgentDeps`. A hit with no literal overlap
 fall back to the first lines. The CLI emphasises the whole
 matched line (rich `Syntax` highlight, which can't overlay
 sub-spans); the pi TUI highlights the matched terms within it.
+Both renderers window a few lines around the anchor; when that
+window scrolls past the chunk's start to reach a deep match,
+they keep the first line (the signature) above the elision, so
+a result shows what it is as well as where it matched.
 
 ### Read-ref resolution and scoping
 
