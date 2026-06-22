@@ -203,28 +203,30 @@ def test_status_shows_indexed_refs(seeded_repo: SeededRepo) -> None:
 def test_read_symbol_returns_source(seeded_repo: SeededRepo) -> None:
     r = run_cli(["--json", "read-symbol", "load_config", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
-    lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
-    assert len(lines) >= 1
-    names = {line["name"] for line in lines}
+    chunks = json.loads(r.stdout)["chunks"]
+    assert len(chunks) >= 1
+    names = {c["name"] for c in chunks}
     assert "load_config" in names
-    assert any("def load_config" in line["content"] for line in lines)
+    assert any("def load_config" in c["content"] for c in chunks)
 
 
 def test_list_symbols_returns_file_outline(seeded_repo: SeededRepo) -> None:
     r = run_cli(["--json", "list-symbols", "src/config.py", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
-    lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
-    assert len(lines) >= 1
-    names = {line["name"] for line in lines}
+    chunks = json.loads(r.stdout)["chunks"]
+    assert len(chunks) >= 1
+    names = {c["name"] for c in chunks}
     assert "load_config" in names
 
 
-def test_find_refs_returns_edges(seeded_repo: SeededRepo) -> None:
+def test_find_refs_returns_refs(seeded_repo: SeededRepo) -> None:
     r = run_cli(["--json", "find-refs", "load_config", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
-    lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
-    assert len(lines) >= 1
-    assert any(line["target_id"] == "fn_config_v2" for line in lines)
+    refs = json.loads(r.stdout)["refs"]
+    assert len(refs) >= 1
+    # The reference is the importing chunk in src/app.py; the response
+    # resolves it to a legible referrer rather than an opaque id hash.
+    assert any(ref["file_path"] == "src/app.py" and ref["edge"] == "imports" for ref in refs)
 
 
 def test_changed_symbols_between_commits(seeded_repo: SeededRepo) -> None:
@@ -239,6 +241,6 @@ def test_changed_symbols_between_commits(seeded_repo: SeededRepo) -> None:
         ]
     )
     assert r.returncode == 0, r.stderr
-    resp = json.loads(r.stdout)
-    files = {item["chunk"]["file_path"] for item in resp["changes"]}
+    changes = json.loads(r.stdout)["changes"]
+    files = {item["chunk"]["file_path"] for item in changes}
     assert "src/config.py" in files

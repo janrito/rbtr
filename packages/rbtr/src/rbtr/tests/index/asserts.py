@@ -22,11 +22,6 @@ def _rank_in(results: list[ScoredChunk], chunk_id: str) -> int | None:
     return None
 
 
-def _ids_of(results: list[ScoredChunk]) -> list[str]:
-    """Extract chunk IDs in rank order."""
-    return [r.id for r in results]
-
-
 # ── Public assertion helpers ────────────────────────────────────────
 
 
@@ -53,13 +48,6 @@ def assert_in_results(results: list[ScoredChunk], chunk_id: str) -> ScoredChunk:
             return r
     msg = f"{chunk_id} not found in results"
     raise AssertionError(msg)
-
-
-def assert_same_ranking(a: list[ScoredChunk], b: list[ScoredChunk]) -> None:
-    """Assert two result lists have identical chunk ID ordering."""
-    ids_a = _ids_of(a)
-    ids_b = _ids_of(b)
-    assert ids_a == ids_b, f"rankings differ: {ids_a} != {ids_b}"
 
 
 def assert_changes(

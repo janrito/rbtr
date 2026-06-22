@@ -12,11 +12,10 @@ file-category penalty, and importance.
 
 from __future__ import annotations
 
-from rbtr.index.classify import Expansion, QueryKind
 from rbtr.index.models import RepoRef, ScoredChunk
 from rbtr.index.store import IndexStore
 
-from .asserts import assert_outranks, assert_ranked_within, assert_same_ranking
+from .asserts import assert_outranks, assert_ranked_within
 
 # ── Kind boost ───────────────────────────────────────────────────────
 
@@ -156,17 +155,6 @@ def test_no_results_for_gibberish(ranking_store: IndexStore, ranking_commit: str
 # ── Expansion integration ─────────────────────────────────────────
 
 
-def test_search_without_expansion_unchanged(ranking_store: IndexStore, ranking_commit: str) -> None:
-    """expansion=None produces identical results to no expansion."""
-    baseline = ranking_store.search(
-        [RepoRef(repo_id=1, commit_sha=ranking_commit)], "config", top_k=10
-    )
-    with_none = ranking_store.search(
-        [RepoRef(repo_id=1, commit_sha=ranking_commit)], "config", top_k=10, expansion=None
-    )
-    assert_same_ranking(baseline, with_none)
-
-
 def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Keywords in expansion are appended to the BM25 query.
 
@@ -178,16 +166,11 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     )
     assert no_results == []
 
-    expansion = Expansion(
-        kind=QueryKind.CONCEPT,
-        keywords=["config", "load"],
-        variants=[],
-    )
     with_keywords = ranking_store.search(
         [RepoRef(repo_id=1, commit_sha=ranking_commit)],
         "zzz_xyzzy_999",
         top_k=10,
-        expansion=expansion,
+        keywords=["config", "load"],
     )
     assert len(with_keywords) > 0
     # The keywords caused BM25 to find chunks containing "config" or "load".

@@ -11,7 +11,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import get_case_tags, parametrize_with_cases
 
-from rbtr.index.classify import QueryKind, _code_score, classify_query
+from rbtr.index.classify import _code_score, classify_query
+from rbtr.index.models import QueryKind
 
 # ── Classification ───────────────────────────────────────────────────
 

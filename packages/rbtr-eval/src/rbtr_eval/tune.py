@@ -29,7 +29,7 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import WeightTriple, config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.classify import QueryKind
+from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
@@ -83,10 +83,15 @@ def _collect_scored_candidates(
                 repo_path=str(repo_path),
                 query=query["text"],
                 limit=50,
+                explain=True,
             ),
         )
         idx = i - 1  # 0-based to match with_row_index
         for r in resp.results:
+            signals = r.signals
+            if signals is None:
+                msg = "search must return signals when explain=True"
+                raise RuntimeError(msg)
             rows.append(
                 {
                     "query_idx": idx,
@@ -94,13 +99,13 @@ def _collect_scored_candidates(
                     "scope": r.scope,
                     "name": r.name,
                     "line_start": r.line_start,
-                    "semantic": r.semantic,
-                    "lexical": r.lexical,
-                    "name_match": r.name_match,
-                    "kind_boost": r.kind_boost,
-                    "file_penalty": r.file_penalty,
-                    "importance": r.importance,
-                    "proximity": r.proximity,
+                    "semantic": signals.semantic,
+                    "lexical": signals.lexical,
+                    "name_match": signals.name_match,
+                    "kind_boost": signals.kind_boost,
+                    "file_penalty": signals.file_penalty,
+                    "importance": signals.importance,
+                    "proximity": signals.proximity,
                 }
             )
         if on_progress is not None:

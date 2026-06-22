@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pytest_cases import case
 
+from rbtr.daemon.dto import SearchHitOut
 from rbtr.daemon.messages import IndexedRef, SearchResponse, StatusResponse
-from rbtr.index.models import ChunkKind, ScoredChunk
+from rbtr.index.models import ChunkKind
 
 
 @dataclass(frozen=True)
@@ -26,11 +27,9 @@ class RenderScenario:
     forbidden: tuple[str, ...] = ()
 
 
-def _scored(*, repo_path: str | None) -> ScoredChunk:
-    """A search result for one file, optionally repo-attributed."""
-    return ScoredChunk(
-        id="abcdef12",
-        blob_sha="b",
+def _hit(*, repo_path: str | None) -> SearchHitOut:
+    """A search hit for one file, optionally repo-attributed."""
+    return SearchHitOut(
         repo_path=repo_path,
         file_path="src/main.py",
         kind=ChunkKind.FUNCTION,
@@ -39,11 +38,6 @@ def _scored(*, repo_path: str | None) -> ScoredChunk:
         line_start=1,
         line_end=1,
         score=0.9,
-        lexical=0.0,
-        semantic=0.0,
-        name_match=0.0,
-        kind_boost=1.0,
-        file_penalty=1.0,
     )
 
 
@@ -51,7 +45,7 @@ def _scored(*, repo_path: str | None) -> ScoredChunk:
 def case_search_attributed() -> RenderScenario:
     """A cross-repo hit is prefixed with its repo name."""
     return RenderScenario(
-        model=SearchResponse(results=[_scored(repo_path="/projects/widgets")]),
+        model=SearchResponse(results=[_hit(repo_path="/projects/widgets")]),
         expected=("widgets/src/main.py",),
     )
 
@@ -60,7 +54,7 @@ def case_search_attributed() -> RenderScenario:
 def case_search_unattributed() -> RenderScenario:
     """A workspace hit shows the bare path, no repo prefix."""
     return RenderScenario(
-        model=SearchResponse(results=[_scored(repo_path=None)]),
+        model=SearchResponse(results=[_hit(repo_path=None)]),
         expected=("src/main.py",),
         forbidden=("widgets/src/main.py",),
     )

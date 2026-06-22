@@ -177,15 +177,14 @@ def test_daemon_and_direct_search_produce_identical_results(
     daemon_names = [r.name for r in daemon_resp.results]
     daemon_scores = [round(r.score, 6) for r in daemon_resp.results]
 
-    # Via direct store.search — pass the same expansion and reranker
-    # the daemon used.
+    # Via direct store.search — the request sent no keywords/variants, so
+    # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
     direct_results = channel_store.search(
         [RepoRef(repo_id=1, commit_sha=sha)],
         query,
         top_k=5,
         embedder=embedder,
-        expansion=daemon_resp.expansion,
         reranker=channel_server._reranker,
     )
     direct_names = [r.name for r in direct_results]

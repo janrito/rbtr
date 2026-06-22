@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.models import Edge, EdgeKind
+from rbtr.index.models import ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 
 from .cases_read import ChunkQueryScenario, HasBlobScenario
@@ -141,6 +141,36 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
     edges = store.get_edges("head", kind=EdgeKind.IMPORTS, repo_id=1)
     assert len(edges) == 1
     assert edges[0].kind == EdgeKind.IMPORTS
+
+
+# ── inbound_refs ─────────────────────────────────────
+
+
+def test_inbound_refs_resolves_source(store: IndexStore) -> None:
+    """Each inbound edge resolves to its source chunk plus the edge kind."""
+    src = make_chunk(
+        "imp", name="from m import fn", path="app.py", blob="b_app", kind=ChunkKind.IMPORT
+    )
+    with store.session() as ws:
+        ws.register_repo("/repo")
+        ws.add_chunk(src)
+        ws.insert_snapshots([make_snap("head", "app.py", "b_app")], repo_id=1)
+        ws.insert_edges(
+            [Edge(source_id="imp", target_id="fn", kind=EdgeKind.IMPORTS)], "head", repo_id=1
+        )
+
+    frame = store.inbound_refs("head", ["fn"], repo_id=1)
+    assert frame.height == 1
+    row = frame.to_dicts()[0]
+    assert row["name"] == "from m import fn"
+    assert row["kind"] == "import"
+    assert row["file_path"] == "app.py"
+    assert row["edge"] == "imports"
+
+
+def test_inbound_refs_empty_targets(store: IndexStore) -> None:
+    """No target IDs returns an empty frame without touching the store."""
+    assert store.inbound_refs("head", [], repo_id=1).is_empty()
 
 
 # ── Multi-repo isolation ────────────────────────────────────────────

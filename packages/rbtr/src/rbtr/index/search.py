@@ -21,7 +21,7 @@ import duckdb
 import polars as pl
 
 from rbtr.config import WeightTriple, config
-from rbtr.index.classify import QueryKind, classify_query
+from rbtr.index.classify import classify_query
 from rbtr.index.frames import (
     _EMBEDDING_SENTINEL,
     ChunkPathResultRow,
@@ -31,10 +31,9 @@ from rbtr.index.frames import (
     FusionInputRow,
     ScoredChunkResultRow,
 )
-from rbtr.index.models import ChunkKind, ScoredChunk, ScoredChunks
+from rbtr.index.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
 
 if TYPE_CHECKING:
-    from rbtr.index.classify import Expansion
     from rbtr.index.embeddings import Embedder
     from rbtr.index.models import RepoRef
     from rbtr.index.reranker import Reranker
@@ -390,9 +389,14 @@ def fuse_scores(
 
 def materialise_scored(
     frame: dy.DataFrame[FusedRow],
-    repo_paths: dict[int, str] | None = None,
+    repo_paths: dict[int, str] | None,
+    query_kind: QueryKind,
 ) -> list[ScoredChunk]:
     """Serialise a fused frame to a list of `ScoredChunk`.
+
+    *query_kind* is the classification that selected this search's
+    weights; it is stamped onto every result (a query-level scalar
+    that completes each chunk's score breakdown).
 
     When *repo_paths* maps `repo_id` to a filesystem path, each
     result's `repo_path` is populated from its `repo_id` column —
@@ -402,8 +406,9 @@ def materialise_scored(
     if frame.is_empty():
         return []
     rows = frame.to_dicts()
-    if repo_paths is not None:
-        for row in rows:
+    for row in rows:
+        row["query_kind"] = query_kind
+        if repo_paths is not None:
             row["repo_path"] = repo_paths.get(row["repo_id"])
     return ScoredChunks.validate_python(rows)
 
@@ -460,7 +465,7 @@ def _select_weights(
 def _embed_query(
     query: str,
     embedder: Embedder,
-    expansion: Expansion | None,
+    variants: list[str] | None,
 ) -> list[list[float]]:
     """Embed the query and any expansion variants.
 
@@ -473,9 +478,9 @@ def _embed_query(
         original_vec = embedder.embed_single(query_text)
 
         variant_vecs: list[list[float]] = []
-        if expansion is not None and expansion.variants:
+        if variants:
             try:
-                variant_texts = [f"{prefix}{v}" if prefix else v for v in expansion.variants]
+                variant_texts = [f"{prefix}{v}" if prefix else v for v in variants]
                 variant_vecs = [r.vector for r in embedder.embed(variant_texts)]
             except (RuntimeError, ValueError):
                 log.debug("Variant batch embedding failed", exc_info=True)
@@ -599,7 +604,9 @@ def search(
     top_k: int = 10,
     changed_files: set[str] | None = None,
     embedder: Embedder | None = None,
-    expansion: Expansion | None = None,
+    kind: QueryKind | None = None,
+    keywords: list[str] | None = None,
+    variants: list[str] | None = None,
     weights: WeightTriple | None = None,
     reranker: Reranker | None = None,
     reranker_pool: int | None = None,
@@ -621,15 +628,15 @@ def search(
     three-channel retrieval, then to `fuse_scores` for
     normalisation, weighting, and top-k selection.
     """
-    kind = expansion.kind if expansion is not None else classify_query(query)
+    effective_kind = kind if kind is not None else classify_query(query)
 
     # ── Expansion: augment query for BM25 ────────────────────
     lex_query = query
-    if expansion is not None and expansion.keywords:
-        lex_query = query + " " + " ".join(expansion.keywords)
+    if keywords:
+        lex_query = query + " " + " ".join(keywords)
 
     # ── Embed query + variants ─────────────────────────────
-    query_vecs = _embed_query(query, embedder, expansion) if embedder is not None else []
+    query_vecs = _embed_query(query, embedder, variants) if embedder is not None else []
 
     candidates = _retrieve(
         store,
@@ -642,13 +649,13 @@ def search(
     )
 
     alpha, beta, gamma = _select_weights(
-        kind,
+        effective_kind,
         weights,
         has_semantic=_has_semantic(candidates),
     )
 
     pool, blend = _select_reranker_params(
-        kind,
+        effective_kind,
         pool_override=reranker_pool,
         blend_override=reranker_blend_weight,
     )
@@ -663,4 +670,4 @@ def search(
     )
     if reranker is not None:
         frame = reranker.rerank(query, frame, top_k=top_k, blend_weight=blend)
-    return materialise_scored(frame, repo_paths)
+    return materialise_scored(frame, repo_paths, effective_kind)

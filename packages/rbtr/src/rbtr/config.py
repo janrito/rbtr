@@ -48,7 +48,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr.index.classify import QueryKind
+from rbtr.index.models import QueryKind
 
 RBTR_NAME = "rbtr"
 
@@ -210,6 +210,11 @@ Disable in tests or resource-constrained environments.",
         default=10,
         description="Semantic retrieval pool = limit * this multiplier.  "
         "Pre-filter; trimmed to the lexical pool size after cosine cutoff.",
+    )
+    max_expansion_keywords: int = Field(
+        default=10,
+        ge=1,
+        description="Cap on a search request's expansion keywords; the excess is dropped.",
     )
     search_weights: dict[QueryKind, WeightTriple] = Field(
         default={

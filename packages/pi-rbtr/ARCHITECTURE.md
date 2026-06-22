@@ -59,8 +59,9 @@ Setting               Executable    Base args
 ```
 
 The `--json` flag is always present. It makes `rbtr`
-output NDJSON (one JSON object per line) instead of
-rich-formatted text. The extension never sees TTY output.
+output a single JSON response object (the same shape the
+daemon returns) instead of rich-formatted text. The
+extension never sees TTY output.
 
 ### Invocation
 
@@ -71,7 +72,7 @@ All CLI calls go through `pi.exec()`, which returns
 - `runRbtr()` — runs a command, throws on non-zero exit
   or kill. Returns raw stdout/stderr.
 - `runRbtrJson<T>()` — runs a command and parses stdout
-  as NDJSON into a typed array.
+  as a single typed JSON response object.
 
 ### Error handling
 
@@ -123,18 +124,17 @@ Query tools (`search`, `read-symbol`, `list-symbols`,
 1. Call `runRbtr()` with the appropriate subcommand.
 2. If stdout is empty, return a "not found" message.
 3. Otherwise, truncate to pi's limits (50 KB / 2000 lines)
-   and return the raw NDJSON as content.
+   and return the raw JSON response object as content.
 
-The raw NDJSON is sent to the LLM as tool content. The LLM
-parses JSON natively — no reformatting needed. The custom
-renderers parse the same NDJSON for TUI display.
+The raw JSON response is sent to the LLM as tool content.
+The LLM parses JSON natively — no reformatting needed. The
+custom renderers parse the same JSON object for TUI
+display.
 
 `rbtr_search` accepts optional `keywords` and `variants`
 parameters for query expansion. The session LLM generates
 these inline when constructing the tool call, guided by
-`promptGuidelines`. The daemon returns
-`SearchResponse.expansion` reflecting the client-supplied
-data.
+`promptGuidelines`.
 
 ### The `requireReady` guard
 
@@ -203,14 +203,16 @@ the tool's `execute` function.
 
 ### Rendering strategy
 
-The render functions parse the NDJSON content text from
-`result.content` at render time. This avoids duplicating
-parsed data in `details` and keeps the tool execute
+The render functions parse the JSON response object from
+`result.content` at render time (or read it off
+`details.response` on the daemon path). This avoids
+duplicating parsed data and keeps the tool execute
 functions simple.
 
-The `tryParseNdjson<T>()` helper silently returns an empty
-array on parse failure, so renderers fall back to raw text
-display.
+The shared `extractPayload<T>()` helper narrows the
+generated `Response` union by `kind` and returns its list
+field, silently yielding an empty array on a parse failure
+or kind mismatch.
 
 ### Collapsed vs. expanded
 
@@ -255,14 +257,15 @@ settings are edited by hand.
 
 ## Design decisions
 
-### Raw NDJSON as tool content
+### Raw JSON as tool content
 
-The extension sends `rbtr`'s raw JSON output directly to
-the LLM rather than reformatting it. LLMs parse JSON
-natively and can extract exactly the fields they need.
-Reformatting would lose information or add size. The
-custom renderers handle human-readable display
-independently.
+The extension sends `rbtr`'s raw JSON response object
+directly to the LLM rather than reformatting it. LLMs parse
+JSON natively and can extract exactly the fields they need.
+Reformatting would lose information or add size. The custom
+renderers handle human-readable display independently.
+The CLI emits the same single response object the daemon
+returns, so both transports converge on one shape.
 
 ### Daemon-first, CLI fallback
 

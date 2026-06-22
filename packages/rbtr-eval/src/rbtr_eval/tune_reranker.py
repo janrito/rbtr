@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.classify import QueryKind
+from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import PROVENANCE_TO_KIND, load_all_queries, sample_distribution, subsample
@@ -63,11 +63,16 @@ def _collect_candidates(
                     repo_path=str(repo_path),
                     query=query["text"],
                     reranker_pool=pool,
+                    explain=True,
                 ),
             )
             latency_ms = (time.monotonic() - t0) * 1000.0
 
             for r in resp.results:
+                signals = r.signals
+                if signals is None:
+                    msg = "search must return signals when explain=True"
+                    raise RuntimeError(msg)
                 rows.append(
                     {
                         "pool": pool,
@@ -76,8 +81,8 @@ def _collect_candidates(
                         "scope": r.scope,
                         "name": r.name,
                         "line_start": r.line_start,
-                        "fusion": r.fusion,
-                        "reranker": r.reranker,
+                        "fusion": signals.fusion,
+                        "reranker": signals.reranker,
                         "latency_ms": latency_ms,
                     }
                 )

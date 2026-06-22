@@ -19,30 +19,14 @@ tree-sitter grammars via `LanguageManager`.
 from __future__ import annotations
 
 import re
-from enum import StrEnum
 from functools import cache
 
-from pydantic import BaseModel, Field, field_validator
-
+from rbtr.index.models import QueryKind
 from rbtr.languages import get_manager
 
 _CONCEPT_MIN_WORDS = 3
 _CODE_THRESHOLD = 2
 _CONCEPT_MAX_PUNCT = 0.04
-_MAX_KEYWORDS = 10
-
-
-class QueryKind(StrEnum):
-    """Query processing tier.
-
-    `CONCEPT`    — natural-language question ("how does fusion work").
-    `IDENTIFIER` — a symbol name ("fuse_scores", "Embedder").
-    `CODE`       — a code fragment ("def fuse_scores(").
-    """
-
-    CONCEPT = "concept"
-    IDENTIFIER = "identifier"
-    CODE = "code"
 
 
 # Tree-sitter internal node names that leak into the anonymous
@@ -213,31 +197,3 @@ def classify_query(query: str) -> QueryKind:
         return QueryKind.CONCEPT
 
     return QueryKind.IDENTIFIER
-
-
-# ── Expansion data ───────────────────────────────────────────────────
-
-
-class Expansion(BaseModel):
-    """Result of expanding a search query.
-
-    Produced by any expansion source (session LLM, eval stage)
-    and consumed by `search.search()` to widen BM25 and
-    semantic retrieval.
-    """
-
-    kind: QueryKind = QueryKind.CONCEPT
-    variants: list[str] = Field(default_factory=list)
-    keywords: list[str] = Field(default_factory=list)
-
-    @field_validator("keywords", "variants")
-    @classmethod
-    def _strip_empty(cls, v: list[str]) -> list[str]:
-        """Strip whitespace and drop empty strings."""
-        return [stripped for x in v if (stripped := x.strip())]
-
-    @field_validator("keywords")
-    @classmethod
-    def _dedup_and_cap(cls, v: list[str]) -> list[str]:
-        """Deduplicate preserving order, cap at `_MAX_KEYWORDS`."""
-        return list(dict.fromkeys(v))[:_MAX_KEYWORDS]

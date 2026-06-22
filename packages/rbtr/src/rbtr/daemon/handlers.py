@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from rbtr.daemon.dto import RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     ActiveJob,
     BuildIndexRequest,
@@ -49,10 +50,9 @@ from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc
-from rbtr.index.models import Chunk, Edge, RepoRef
+from rbtr.index.models import Chunk, QueryKind, RepoRef
 
 if TYPE_CHECKING:
-    from rbtr.index.classify import Expansion
     from rbtr.index.embeddings import Embedder
     from rbtr.index.reranker import Reranker
     from rbtr.index.store import IndexStore
@@ -118,7 +118,6 @@ def handle_search(
     store: IndexStore,
     *,
     embedder: Embedder | None = None,
-    expansion: Expansion | None = None,
     reranker: Reranker | None = None,
     is_building: Callable[[], bool] | None = None,
 ) -> SearchResponse:
@@ -136,13 +135,16 @@ def handle_search(
         ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
         refs = [RepoRef(repo_id=repo_id, commit_sha=ref)]
         repo_paths = None
+    override = QueryKind(request.query_kind) if request.query_kind else None
     try:
         results = store.search(
             refs,
             request.query,
             top_k=request.limit,
             embedder=embedder,
-            expansion=expansion,
+            kind=override,
+            keywords=request.keywords,
+            variants=request.variants,
             weights=request.weights,
             reranker=reranker,
             reranker_pool=request.reranker_pool,
@@ -154,7 +156,11 @@ def handle_search(
             msg = "Index is building. Try again shortly."
             raise IndexNotBuiltError(msg) from None
         raise
-    return SearchResponse(results=results, expansion=expansion)
+    query_kind = override or (results[0].query_kind if results else None)
+    return SearchResponse(
+        results=[SearchHitOut.from_scored(r, explain=request.explain) for r in results],
+        query_kind=query_kind if request.explain else None,
+    )
 
 
 def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chunk]:
@@ -169,7 +175,8 @@ def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSym
     repo_id = store.resolve_repo(request.repo_path)
     ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = store.match_by_name(ref, request.symbol, repo_id=repo_id)
-    return ReadSymbolResponse(chunks=_scope_chunks(chunks, request.file_paths))
+    scoped = _scope_chunks(chunks, request.file_paths)
+    return ReadSymbolResponse(chunks=[SymbolOut.from_chunk(c) for c in scoped])
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
@@ -180,7 +187,7 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
         file_path=request.file_path,
         repo_id=repo_id,
     )
-    return ListSymbolsResponse(chunks=chunks)
+    return ListSymbolsResponse(chunks=[SymbolOut.from_chunk(c) for c in chunks])
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
@@ -189,10 +196,9 @@ def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsRes
     chunks = _scope_chunks(
         store.match_by_name(ref, request.symbol, repo_id=repo_id), request.file_paths
     )
-    edges: list[Edge] = []
-    for chunk in chunks:
-        edges.extend(store.get_edges(ref, target_id=chunk.id, repo_id=repo_id))
-    return FindRefsResponse(edges=edges)
+    frame = store.inbound_refs(ref, [chunk.id for chunk in chunks], repo_id=repo_id)
+    refs = RefOuts.validate_python(frame.to_dicts())
+    return FindRefsResponse(refs=refs)
 
 
 def _require_indexed(store: IndexStore, repo_id: int, requested_ref: str, sha: str) -> None:
@@ -222,7 +228,8 @@ def handle_changed_symbols(
     _require_indexed(store, repo_id, request.head, head)
     frame = store.diff_symbols(base, head, repo_id=repo_id, file_paths=request.file_paths)
     changes = [
-        ChangedSymbol(chunk=chunk, change=change) for chunk, change in changed_to_symbols(frame)
+        ChangedSymbol(chunk=SymbolOut.from_chunk(chunk), change=change)
+        for chunk, change in changed_to_symbols(frame)
     ]
     return ChangedSymbolsResponse(changes=changes)
 

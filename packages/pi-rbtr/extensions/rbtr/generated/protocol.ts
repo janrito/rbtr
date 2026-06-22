@@ -108,6 +108,7 @@ export interface SearchRequest {
   reranker_blend_weight?: number | null;
   keywords?: string[] | null;
   variants?: string[] | null;
+  explain?: boolean;
   scope?: Scope;
   /**
    * Force expansion pipeline. One of concept|identifier|code. None means heuristic.
@@ -189,39 +190,29 @@ export interface IndexStats {
 }
 export interface SearchResponse {
   kind: "search";
-  results: ScoredChunk[];
-  expansion?: Expansion | null;
+  results: SearchHitOut[];
+  query_kind?: QueryKind | null;
 }
 /**
- * A search result: chunk data plus full signal breakdown.
+ * A search result: a symbol plus its fused score.
  *
- * `repo_path` attributes the result to its repo in cross-repo
- * search; it is `None` for single-repo (workspace) searches.
+ * Carries the single final `score`. The ranking-signal breakdown
+ * (`signals`) is included only when the search requests `explain`,
+ * keeping the default payload low-noise.
  */
-export interface ScoredChunk {
-  id: string;
-  blob_sha: string;
-  repo_path?: string | null;
-  file_path: string;
-  kind: ChunkKind;
+export interface SearchHitOut {
   name: string;
+  kind: ChunkKind;
+  file_path: string;
   scope?: string;
   language?: string;
   content: string;
   line_start: number;
   line_end: number;
-  metadata?: ImportMeta;
-  embedding?: number[];
+  metadata?: ImportMeta | null;
+  repo_path?: string | null;
   score: number;
-  lexical: number;
-  semantic: number;
-  name_match: number;
-  kind_boost: number;
-  file_penalty: number;
-  importance?: number;
-  proximity?: number;
-  fusion?: number;
-  reranker?: number;
+  signals?: SearchSignals | null;
 }
 /**
  * Structured import data extracted by tree-sitter.
@@ -237,53 +228,63 @@ export interface ImportMeta {
   language_hint?: string;
 }
 /**
- * Result of expanding a search query.
+ * The per-signal ranking breakdown behind a hit's fused `score`.
  *
- * Produced by any expansion source (session LLM, eval stage)
- * and consumed by `search.search()` to widen BM25 and
- * semantic retrieval.
+ * Returned only when a search requests `explain`; the weight and
+ * reranker tuners re-rank candidates offline from these components.
+ * Not part of the default payload.
  */
-export interface Expansion {
-  kind: QueryKind;
-  variants?: string[];
-  keywords?: string[];
+export interface SearchSignals {
+  lexical: number;
+  semantic: number;
+  name_match: number;
+  kind_boost: number;
+  file_penalty: number;
+  importance: number;
+  proximity: number;
+  fusion: number;
+  reranker: number;
 }
 export interface ReadSymbolResponse {
   kind: "read_symbol";
-  chunks: Chunk[];
+  chunks: SymbolOut[];
 }
 /**
- * A single indexed unit of code, documentation, or configuration.
+ * A symbol as returned by read-symbol, list-symbols, changed-symbols.
  */
-export interface Chunk {
-  id: string;
-  blob_sha: string;
-  file_path: string;
-  kind: ChunkKind;
+export interface SymbolOut {
   name: string;
+  kind: ChunkKind;
+  file_path: string;
   scope?: string;
   language?: string;
   content: string;
   line_start: number;
   line_end: number;
-  metadata?: ImportMeta;
-  embedding?: number[];
+  metadata?: ImportMeta | null;
 }
 export interface ListSymbolsResponse {
   kind: "list_symbols";
-  chunks: Chunk[];
+  chunks: SymbolOut[];
 }
 export interface FindRefsResponse {
   kind: "find_refs";
-  edges: Edge[];
+  refs: RefOut[];
 }
 /**
- * A directed relationship between two chunks.
+ * A reference to the queried symbol, resolved to its referrer.
+ *
+ * `find-refs` answers "what references this symbol"; each edge's target
+ * is the queried symbol, so the legible part is the source. The source
+ * chunk's identity is surfaced here (rather than an opaque chunk-id
+ * hash) along with the relationship `edge` kind.
  */
-export interface Edge {
-  source_id: string;
-  target_id: string;
-  kind: EdgeKind;
+export interface RefOut {
+  name: string;
+  kind: ChunkKind;
+  file_path: string;
+  line_start: number;
+  edge: EdgeKind;
 }
 export interface ChangedSymbolsResponse {
   kind: "changed_symbols";
@@ -293,7 +294,7 @@ export interface ChangedSymbolsResponse {
  * One changed symbol: its chunk plus how it changed.
  */
 export interface ChangedSymbol {
-  chunk: Chunk;
+  chunk: SymbolOut;
   change: ChangeKind;
 }
 export interface StatusResponse {

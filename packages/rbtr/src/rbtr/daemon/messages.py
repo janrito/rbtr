@@ -16,10 +16,12 @@ from enum import StrEnum
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic.json_schema import JsonSchemaValue, models_json_schema
 
-from rbtr.config import WeightTriple
-from rbtr.index.classify import Expansion, QueryKind
-from rbtr.index.models import ChangeKind, Chunk, Edge, IndexStats, ScoredChunk
+from rbtr.config import WeightTriple, config
+from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.status import DaemonStatusReport
+from rbtr.index.models import ChangeKind, IndexStats, QueryKind
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -126,6 +128,7 @@ class SearchRequest(BaseModel):
     reranker_blend_weight: float | None = None
     keywords: list[str] | None = None
     variants: list[str] | None = None
+    explain: bool = False
     scope: Scope = Scope.WORKSPACE
     query_kind: str | None = Field(
         default=None,
@@ -141,6 +144,22 @@ class SearchRequest(BaseModel):
             msg = f"query_kind must be one of {list(QueryKind)}; got {v!r}"
             raise ValueError(msg)
         return v
+
+    @field_validator("keywords", "variants")
+    @classmethod
+    def _strip_empty(cls, v: list[str] | None) -> list[str] | None:
+        """Strip whitespace and drop empty strings."""
+        if v is None:
+            return None
+        return [stripped for x in v if (stripped := x.strip())]
+
+    @field_validator("keywords")
+    @classmethod
+    def _dedup_and_cap(cls, v: list[str] | None) -> list[str] | None:
+        """Deduplicate preserving order, cap at `config.max_expansion_keywords`."""
+        if v is None:
+            return None
+        return list(dict.fromkeys(v))[: config.max_expansion_keywords]
 
 
 class ReadSymbolRequest(BaseModel):
@@ -246,33 +265,33 @@ class BuildIndexResponse(BaseModel):
 class SearchResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["search"] = "search"
-    results: list[ScoredChunk]
-    expansion: Expansion | None = None
+    results: list[SearchHitOut]
+    query_kind: QueryKind | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ReadSymbolResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["read_symbol"] = "read_symbol"
-    chunks: list[Chunk]
+    chunks: list[SymbolOut]
 
 
 class ListSymbolsResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
-    chunks: list[Chunk]
+    chunks: list[SymbolOut]
 
 
 class FindRefsResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["find_refs"] = "find_refs"
-    edges: list[Edge]
+    refs: list[RefOut]
 
 
 class ChangedSymbol(BaseModel):
     """One changed symbol: its chunk plus how it changed."""
 
     model_config = _STRICT
-    chunk: Chunk
+    chunk: SymbolOut
     change: ChangeKind
 
 
@@ -410,3 +429,34 @@ Notification = Annotated[
 ]
 
 notification_adapter: TypeAdapter[Notification] = TypeAdapter(Notification)
+
+
+class ProtocolSchema(BaseModel):
+    """The protocol's top-level types, bundled for one-pass schema gen.
+
+    A single `models_json_schema` pass over this bundle emits every wire
+    message union and the CLI-only `DaemonStatusReport` with one shared
+    `$defs` — no per-union duplication for the TypeScript codegen to
+    reconcile. Used only by `protocol_json_schema`; not a wire message.
+    """
+
+    request: Request
+    response: Response
+    notification: Notification
+    daemon_status_report: DaemonStatusReport
+
+
+def protocol_json_schema() -> JsonSchemaValue:
+    """The protocol's JSON Schema (generation only), for codegen.
+
+    One `models_json_schema` pass over `ProtocolSchema` yields a single
+    schema document with shared definitions: the three message unions
+    under `$defs.ProtocolSchema.properties`, every referenced model and
+    `DaemonStatusReport` as shared `$defs` entries. Serialising it is
+    the caller's concern.
+    """
+    _, schema = models_json_schema(
+        [(ProtocolSchema, "validation")],
+        ref_template="#/$defs/{model}",
+    )
+    return schema
