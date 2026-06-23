@@ -64,7 +64,7 @@ def test_status_workspace_single_repo(two_repo_server: TwoRepoServer) -> None:
         resp = client.send(StatusRequest(repo_path=two_repo_server.path_a))
     assert isinstance(resp, StatusResponse)
     assert resp.indexed_refs
-    assert all(ref.repo_path is None for ref in resp.indexed_refs)
+    assert all(ref.repo_path == two_repo_server.path_a for ref in resp.indexed_refs)
 
 
 def test_read_symbol_isolated_to_repo(two_repo_server: TwoRepoServer) -> None:

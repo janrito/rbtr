@@ -376,7 +376,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
 
   const lines: string[] = [];
   const indexed = response?.indexed_refs ?? [];
-  const crossRepo = indexed.some((ref) => ref.repo_path != null);
+  const crossRepo = new Set(indexed.map((ref) => ref.repo_path)).size > 1;
   if (indexed.length === 0) {
     lines.push(theme.fg("error", "✗ No index found"));
   } else if (crossRepo) {
