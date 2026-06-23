@@ -13,6 +13,7 @@ import pytest
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    ActiveJob,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
@@ -156,6 +157,30 @@ def test_read_symbol_unindexed_ref_errors(
     assert "not indexed" in resp.message
 
 
+def test_read_symbol_unindexed_ref_reports_building_when_active(
+    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+) -> None:
+    """While a build is active, an unindexed ref reports 'building'.
+
+    Build-awareness lives only in the daemon's `_dispatch`: the handler
+    raises a plain not-indexed error, which `_dispatch` upgrades when a
+    build is running.
+    """
+    server = running_server_with_index
+    server._active_build = ActiveJob(
+        repo_path=fake_repo, ref="x" * 40, phase="parsing", current=1, total=2, elapsed_seconds=0.0
+    )
+    try:
+        with DaemonClient(server.runtime_dir) as client:
+            resp = client.send(
+                ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
+            )
+    finally:
+        server._active_build = None
+    assert isinstance(resp, ErrorResponse)
+    assert "building" in resp.message.lower()
+
+
 def test_read_symbol_with_file_paths(
     running_server_with_index: DaemonServer, fake_repo: str
 ) -> None:
@@ -185,6 +210,48 @@ def test_read_symbol_with_file_paths(
     assert all(c.file_path == "src/config.py" for c in scoped.chunks)
     assert isinstance(missing, ReadSymbolResponse)
     assert len(missing.chunks) == 0
+
+
+def test_read_symbol_file_paths_absolute_end_to_end(
+    running_server_with_index: DaemonServer, fake_repo: str
+) -> None:
+    """An absolute scoping path resolves through the full wire path.
+
+    Path-form normalisation itself is covered at the model level
+    (`cases_messages.py`); this guards that the normalised request is
+    what the daemon deserialises and scopes against stored chunks.
+    """
+    abs_path = str(Path(fake_repo) / "src/config.py")
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(
+            ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", file_paths=[abs_path])
+        )
+    assert isinstance(resp, ReadSymbolResponse)
+    assert len(resp.chunks) >= 1
+    assert all(c.file_path == "src/config.py" for c in resp.chunks)
+
+
+def test_read_symbol_implicit_falls_back_when_head_unindexed(
+    running_server_with_index: DaemonServer, fake_repo: str, daemon_commit: str
+) -> None:
+    """A moved-but-unindexed HEAD resolves to the latest indexed commit.
+
+    Reproduces the session-start race (HEAD advanced or still building)
+    where the resolved ref isn't indexed: the implicit lookup should
+    fall back rather than report the symbol missing.
+    """
+    import pygit2
+
+    repo = pygit2.Repository(fake_repo)
+    sig = pygit2.Signature("t", "t@t.t")
+    tree = repo.head.peel(pygit2.Commit).tree.id
+    repo.create_commit("HEAD", sig, sig, "second", tree, [repo.head.target])
+    assert str(repo.head.target) != daemon_commit
+
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
+    assert isinstance(resp, ReadSymbolResponse)
+    assert len(resp.chunks) >= 1
 
 
 # ── List symbols ─────────────────────────────────────────────────────

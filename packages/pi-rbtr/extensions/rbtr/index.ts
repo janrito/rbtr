@@ -29,6 +29,7 @@ import type { BuildIndexResponse, Response, StatusResponse } from "./generated/p
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
 
+import { decodeStringList, echoArgs } from "./args.js";
 import {
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
@@ -598,7 +599,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       if (!cliAvailable) {
         throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
       }
-      const refs = params.refs ?? ["HEAD"];
+      // Decode refs in case the provider delivered the array as a
+      // JSON-encoded string, so the up-to-date check and message below
+      // operate on the real refs (the daemon decodes its copy too).
+      const decodedRefs = decodeStringList(params.refs);
+      const refs = decodedRefs.length > 0 ? decodedRefs : ["HEAD"];
 
       // Check current state first so we can give the LLM an
       // actionable answer instead of blindly queueing a build.
@@ -749,7 +754,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             });
             if (resp.results.length === 0) {
               return {
-                content: [{ type: "text", text: "No results found." }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                  },
+                ],
                 details: { fromDaemon: true, response: resp },
               };
             }
@@ -764,7 +774,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const text = result.stdout.trim();
             if (!text) {
               return {
-                content: [{ type: "text", text: "No results found." }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                  },
+                ],
                 details: { fromCli: true, results: [] },
               };
             }
@@ -818,8 +833,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             });
             if (resp.chunks.length === 0) {
               return {
-                content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
-                details: { fromDaemon: true, response: resp },
+                content: [
+                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                ],
+                details: { fromDaemon: true, response: resp, symbol: params.symbol },
               };
             }
             return toolResultFromDaemon(resp);
@@ -832,7 +849,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const text = result.stdout.trim();
             if (!text) {
               return {
-                content: [{ type: "text", text: `Symbol not found: ${params.symbol}` }],
+                content: [
+                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
               };
             }
@@ -885,7 +904,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             });
             if (resp.refs.length === 0) {
               return {
-                content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                  },
+                ],
                 details: { fromDaemon: true, response: resp },
               };
             }
@@ -899,7 +923,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const text = result.stdout.trim();
             if (!text) {
               return {
-                content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                  },
+                ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
               };
             }
@@ -955,7 +984,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             });
             if (resp.changes.length === 0) {
               return {
-                content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
+                  },
+                ],
                 details: { fromDaemon: true, response: resp },
               };
             }
@@ -972,7 +1006,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const text = result.stdout.trim();
             if (!text) {
               return {
-                content: [{ type: "text", text: `No changed symbols between ${params.base} and ${params.head}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
+                  },
+                ],
                 details: { fromCli: true, base: params.base, head: params.head, found: false },
               };
             }

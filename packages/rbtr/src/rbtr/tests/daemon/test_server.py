@@ -69,6 +69,51 @@ def test_garbage_returns_error(running_server: DaemonServer) -> None:
     ctx.term()
 
 
+def test_malformed_argument_returns_field_feedback(running_server: DaemonServer) -> None:
+    """A structurally-invalid argument is rejected with per-field detail.
+
+    The error names the offending field and echoes the received value,
+    so the caller can see how the argument was mis-shaped — general
+    feedback, not a hand-picked failure mode.
+    """
+    ctx = zmq.Context()
+    sock = ctx.socket(zmq.REQ)
+    sock.setsockopt(zmq.RCVTIMEO, 5000)
+    sock.connect(f"ipc://{running_server.runtime_dir / 'daemon.rpc'}")
+    # file_paths must be a list of strings; element 123 is not a string.
+    sock.send(b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":[123]}')
+    raw = sock.recv()
+    resp = response_adapter.validate_json(raw)
+    assert isinstance(resp, ErrorResponse)
+    assert resp.code == ErrorCode.INVALID_REQUEST
+    assert "file_paths" in resp.message
+    assert "123" in resp.message
+    sock.close()
+    ctx.term()
+
+
+def test_json_encoded_list_is_decoded_then_validated(running_server: DaemonServer) -> None:
+    """A JSON-encoded list arg is decoded, then validated by pydantic.
+
+    The unwrap only decodes; it does not type-check. A decoded list of
+    the wrong element type is therefore rejected by normal validation
+    with field-level feedback — no duplicated checking.
+    """
+    ctx = zmq.Context()
+    sock = ctx.socket(zmq.REQ)
+    sock.setsockopt(zmq.RCVTIMEO, 5000)
+    sock.connect(f"ipc://{running_server.runtime_dir / 'daemon.rpc'}")
+    # file_paths delivered as a JSON string encoding a list of ints.
+    sock.send(b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":["[1, 2]"]}')
+    raw = sock.recv()
+    resp = response_adapter.validate_json(raw)
+    assert isinstance(resp, ErrorResponse)
+    assert resp.code == ErrorCode.INVALID_REQUEST
+    assert "file_paths" in resp.message
+    sock.close()
+    ctx.term()
+
+
 def test_non_git_repo_path_returns_error_and_daemon_survives(
     running_server_with_index: DaemonServer, fake_repo: str, tmp_path: Path
 ) -> None:

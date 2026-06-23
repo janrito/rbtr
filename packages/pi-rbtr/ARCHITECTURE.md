@@ -122,7 +122,10 @@ Query tools (`search`, `read-symbol`, `list-symbols`,
 `find-refs`, `changed-symbols`) follow the same pattern:
 
 1. Call `runRbtr()` with the appropriate subcommand.
-2. If stdout is empty, return a "not found" message.
+2. If the result is empty, return a "not found" message that
+   echoes the arguments the tool received (`echoArgs`), so a
+   mis-shaped argument is visible in context for the model to
+   correct.
 3. Otherwise, truncate to pi's limits (50 KB / 2000 lines)
    and return the raw JSON response object as content.
 
@@ -200,6 +203,13 @@ Both functions receive the pi `Theme` object for
 consistent styling. `renderResult` receives an
 `AgentToolResult<unknown>` — the same object returned by
 the tool's `execute` function.
+
+### Call-line arguments
+
+`renderCall` shows the scoping arguments on the call line so a
+scoped call reads differently from an unscoped one: `file_paths`
+as `in <path>` / `in N files`, search's `keywords` / `variants`
+/ non-default `scope`, and index's `refs`.
 
 ### Rendering strategy
 

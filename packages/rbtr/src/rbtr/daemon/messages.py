@@ -11,12 +11,24 @@ Serialisation uses `model_dump_json()` / `TypeAdapter.validate_json()`.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Hashable
 from enum import StrEnum
-from typing import Annotated, Literal, Protocol, runtime_checkable
+from pathlib import PurePath
+from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationInfo,
+    field_validator,
+)
 from pydantic.json_schema import JsonSchemaValue, models_json_schema
+from pydantic_core import from_json
 
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
@@ -93,6 +105,74 @@ class EmbedJob(BaseModel):
 Job = Annotated[BuildJob | EmbedJob, Field(discriminator="kind")]
 
 
+def _decode_json_array(text: str) -> Any:
+    """Return *text* JSON-decoded if it is a JSON array, else *text* itself.
+
+    Uses pydantic-core's JSON parser (the same one pydantic uses for
+    `model_validate_json`). Only decodes; the decoded value is validated
+    by pydantic as usual, so no type-checking is duplicated here.
+    """
+    if not text.strip().startswith("["):
+        return text
+    try:
+        return from_json(text)
+    except ValueError:
+        return text
+
+
+def _unwrap_json_list(value: Any) -> Any:
+    """Decode a list argument delivered as a JSON-encoded string.
+
+    Some tool-call providers send a `list[str]` argument as a JSON
+    string — bare (`'["a"]'`) or wrapped in a one-element list
+    (`['["a"]']`) by an intermediate validator. Decode the JSON so
+    pydantic's normal validation runs against the real list (and reports
+    its own error for a genuinely wrong shape). Native lists and
+    non-JSON strings pass through untouched.
+    """
+    if isinstance(value, str):
+        return _decode_json_array(value)
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+        decoded = _decode_json_array(value[0])
+        # Unwrap only when the element really was JSON; a genuine
+        # single value (identity unchanged) keeps its one-element list.
+        return decoded if decoded is not value[0] else value
+    return value
+
+
+# A list-of-strings request field that tolerates a JSON-encoded-string
+# delivery (see `_unwrap_json_list`). Optional and required variants.
+OptStrList = Annotated[list[str] | None, BeforeValidator(_unwrap_json_list)]
+StrList = Annotated[list[str], BeforeValidator(_unwrap_json_list)]
+
+
+def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
+    """Normalise scoping paths to repo-root-relative POSIX form.
+
+    Chunk `file_path`s are stored repo-root-relative with POSIX
+    separators, so scoping matches them exactly. Absolute paths are made
+    relative to the request's `repo_path`; a leading `./` is stripped.
+    Paths outside the repo root simply won't match any chunk. `None` or
+    an empty list passes through unchanged.
+
+    Relies on `repo_path` being declared before the annotated field so
+    it is present in `info.data` by the time this runs.
+    """
+    if not value:
+        return value
+    repo_path = info.data["repo_path"]
+    return [
+        PurePath(os.path.relpath(p, repo_path) if os.path.isabs(p) else p).as_posix() for p in value
+    ]
+
+
+# Scoping paths, normalised to repo-root-relative POSIX form at validation
+# time so handlers can match them against stored chunk paths directly.
+RepoRelativePaths = Annotated[
+    list[str] | None, BeforeValidator(_unwrap_json_list), AfterValidator(_to_repo_relative)
+]
+
+
 # ── Requests (client → server) ──────────────────────────────────────
 
 
@@ -105,7 +185,7 @@ class BuildIndexRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["index"] = "index"
     repo_path: str
-    refs: list[str] = ["HEAD"]
+    refs: StrList = ["HEAD"]
     embed: bool = True
 
 
@@ -126,8 +206,8 @@ class SearchRequest(BaseModel):
     weights: WeightTriple | None = None
     reranker_pool: int | None = None
     reranker_blend_weight: float | None = None
-    keywords: list[str] | None = None
-    variants: list[str] | None = None
+    keywords: OptStrList = None
+    variants: OptStrList = None
     explain: bool = False
     scope: Scope = Scope.WORKSPACE
     query_kind: str | None = Field(
@@ -168,7 +248,7 @@ class ReadSymbolRequest(BaseModel):
     repo_path: str
     symbol: str
     ref: str | None = None
-    file_paths: list[str] | None = None
+    file_paths: RepoRelativePaths = None
 
 
 class ListSymbolsRequest(BaseModel):
@@ -185,7 +265,7 @@ class FindRefsRequest(BaseModel):
     repo_path: str
     symbol: str
     ref: str | None = None
-    file_paths: list[str] | None = None
+    file_paths: RepoRelativePaths = None
 
 
 class ChangedSymbolsRequest(BaseModel):
@@ -194,7 +274,7 @@ class ChangedSymbolsRequest(BaseModel):
     repo_path: str
     base: str
     head: str
-    file_paths: list[str] | None = None
+    file_paths: RepoRelativePaths = None
 
 
 class StatusRequest(BaseModel):
