@@ -116,6 +116,16 @@ dead-code:
 eval *FLAGS:
     cd packages/rbtr-eval && uv run {{ FLAGS }} dvc repro
 
+# ── demo ──
+
+# Record all demo tapes (requires `brew install vhs`).
+demo:
+    for tape in demo/*.tape; do vhs "$tape"; done
+
+# Record a single demo tape.
+demo-one tape:
+    vhs {{ tape }}
+
 # ── release ──
 # Get the current version from pyproject.toml
 

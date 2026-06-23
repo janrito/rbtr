@@ -2,6 +2,27 @@
 
 Monorepo for rbtr.
 
+## Demos
+
+### Search & retrieval
+
+Three ways to find code: by name, by snippet, by meaning.
+
+![Search & retrieval](demo/output/index-search.gif)
+
+### Structural navigation
+
+File outlines, dependency graph, and structural diffs.
+
+![Structural navigation](demo/output/structural-nav.gif)
+
+### Agent integration
+
+An LLM chains rbtr tools to navigate code — no shell
+commands, no file paths.
+
+![Agent integration](demo/output/agent-integration.gif)
+
 ## Packages
 
 | Package                                | Language   | Description                              |
