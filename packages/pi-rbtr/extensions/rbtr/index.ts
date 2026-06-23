@@ -626,7 +626,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Call rbtr_index when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
       "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
+      "When you begin substantive work on a branch, watch its base too (the default branch it forked from), not just HEAD — so you can later review the branch with rbtr_changed_symbols without a cold index.",
       "Use `remove` to stop watching refs, or `remove_stale` to drop refs whose branch was deleted.",
+      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data.",
       "This is fire-and-forget: the tool returns immediately. Use rbtr_status to see progress and the current watch set.",
     ],
     parameters: Type.Object({
@@ -1066,7 +1068,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     promptSnippet: "Symbol-level diff between two refs, for PR review / branch understanding",
     promptGuidelines: [
       "Use rbtr_changed_symbols for code review and branch-understanding questions ('what did this PR change', 'summarise the work on this branch'). It gives you a short list of changed symbols instead of a huge patch to read.",
-      "Both refs must be indexed. If the tool errors with 'not indexed', call rbtr_index with refs=['base', 'head'] first, then retry.",
+      "Both refs must be indexed. When you set out to review or understand a branch, watch both refs up front — call rbtr_index with the working ref and its base (usually the default branch it forked from; check the repo, don't assume a name). HEAD is watched automatically. If the tool still errors 'not indexed', index the missing ref and retry.",
       "Use git diff when you need the exact line-level changes or when you need to see non-code changes (config, data files). Use rbtr_changed_symbols when the question is about code structure.",
       "Chain: rbtr_changed_symbols → rbtr_read_symbol on the most interesting entries for the new body → rbtr_find_refs to see callers that might need updating.",
       "Pass file_paths to scope the diff to specific files — only changes in the listed files are reported.",
