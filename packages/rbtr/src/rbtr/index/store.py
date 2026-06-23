@@ -610,13 +610,18 @@ class IndexStore:
     # ── Match (internal frame, public chunk) ─────────────────────
 
     def _match_by_name(self, refs: list[RepoRef], pattern: str) -> dy.DataFrame[ChunkResultRow]:
-        """Return name-matched chunks as a validated frame."""
+        """Return name-matched chunks as a validated frame.
+
+        Resolution is tiered: exact → case-insensitive exact →
+        prefix → substring.  Only the best tier that has matches
+        is returned.
+        """
         self._cursor.register("_repo_refs", repo_refs_frame(refs))
         try:
             return (
                 self._cursor.execute(
                     _SEARCH_BY_NAME_SQL,
-                    {"pattern": f"%{pattern}%"},
+                    {"name": pattern, "pattern": f"%{pattern}%"},
                 )
                 .pl()
                 .pipe(_decode_metadata)
@@ -626,7 +631,11 @@ class IndexStore:
             self._cursor.unregister("_repo_refs")
 
     def match_by_name(self, commit_sha: str, pattern: str, *, repo_id: int) -> list[Chunk]:
-        """Find chunks whose name contains *pattern* (case-insensitive)."""
+        """Find chunks by name with tiered resolution.
+
+        Prefers exact matches, then case-insensitive exact, then
+        prefix, then substring.  Returns only the best tier.
+        """
         return frame_to_chunks(
             self._match_by_name([RepoRef(repo_id=repo_id, commit_sha=commit_sha)], pattern)
         )
