@@ -27,7 +27,7 @@ class ScopeScenario:
 
 @case(id="workspace")
 def case_workspace() -> ScopeScenario:
-    """Default scope: only the request's own repo, no attribution."""
+    """Default scope: only the request's own repo, no search attribution."""
     return ScopeScenario(scope=Scope.WORKSPACE, expected_repos=frozenset({1}), attributed=False)
 
 

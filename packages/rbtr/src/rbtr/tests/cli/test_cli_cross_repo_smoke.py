@@ -120,7 +120,7 @@ def test_status_workspace_single_repo(two_repos: TwoRepos) -> None:
     r = run_cli(["--json", "status", "--repo-path", two_repos.path_a])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
-    assert all(ref["repo_path"] is None for ref in payload["indexed_refs"])
+    assert all(ref["repo_path"] == two_repos.path_a for ref in payload["indexed_refs"])
 
 
 def test_read_symbol_isolated_to_repo(two_repos: TwoRepos) -> None:

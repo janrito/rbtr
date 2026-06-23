@@ -234,14 +234,8 @@ def _refs_for_repo(
     store: IndexStore,
     repo_id: int,
     repo_path: str,
-    *,
-    attribute: bool,
 ) -> list[IndexedRef]:
-    """Build `IndexedRef`s for one repo's indexed commits.
-
-    *attribute* sets `repo_path` on each ref (cross-repo status);
-    leaves it `None` for single-repo status.
-    """
+    """Build `IndexedRef`s for one repo's indexed commits."""
     indexed_shas = [sha for sha, _ in store.list_indexed_commits(repo_id)]
     ref_names = names_for_commits(repo_path, indexed_shas)
     refs: list[IndexedRef] = []
@@ -254,7 +248,7 @@ def _refs_for_repo(
                 names=ref_names.get(sha, []),
                 total=total,
                 embedded=total - unembedded,
-                repo_path=repo_path if attribute else None,
+                repo_path=repo_path,
             )
         )
     return refs
@@ -265,16 +259,11 @@ def handle_status(
     store: IndexStore,
     snapshot_status: SnapshotStatusFn | None = None,
 ) -> StatusResponse:
-    """Report index status for the workspace repo or every repo.
-
-    `request.scope == Scope.ALL` reports every indexed repo, each
-    `IndexedRef` carrying its `repo_path`; otherwise only the repo
-    at `request.repo_path`.
-    """
+    """Report index status for the workspace repo or every repo."""
     if request.scope == Scope.ALL:
         indexed_refs: list[IndexedRef] = []
         for repo_id, repo_path in store.list_repos():
-            indexed_refs.extend(_refs_for_repo(store, repo_id, repo_path, attribute=True))
+            indexed_refs.extend(_refs_for_repo(store, repo_id, repo_path))
     else:
         ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
@@ -284,7 +273,7 @@ def handle_status(
                 active_build=None,
                 active_embed=None,
             )
-        indexed_refs = _refs_for_repo(store, ws_repo_id, request.repo_path, attribute=False)
+        indexed_refs = _refs_for_repo(store, ws_repo_id, request.repo_path)
     active_build = None
     active_embed = None
     if snapshot_status is not None:
