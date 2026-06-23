@@ -236,7 +236,12 @@ def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
     """Map `(file_path, name)` → chunk for symbol lookup."""
     index: dict[tuple[str, str], Chunk] = {}
     for c in chunks:
-        if c.kind in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD):
+        if c.kind in (
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+        ):
             key = (c.file_path, c.name)
             # First definition wins (top-level preferred over nested).
             if key not in index:

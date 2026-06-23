@@ -52,6 +52,31 @@ _QUERY = """\
   body: (block
     . (expression_statement (string) @_docstring)?)) @class
 
+(module
+  (expression_statement
+    (assignment
+      left: (identifier) @_var_name) @variable))
+
+(module
+  (expression_statement
+    (assignment
+      left: (pattern_list (identifier) @_var_name)) @variable))
+
+(module
+  (expression_statement
+    (assignment
+      left: (tuple_pattern (identifier) @_var_name)) @variable))
+
+(module
+  (expression_statement
+    (assignment
+      left: (list_pattern (identifier) @_var_name)) @variable))
+
+(module
+  (expression_statement
+    (assignment
+      left: (pattern_list (list_splat_pattern (identifier) @_var_name))) @variable))
+
 (import_statement
   name: (dotted_name) @_import_module) @import
 
@@ -147,5 +172,6 @@ class PythonPlugin:
                 source_roots=("", "src"),
                 test_prefix="test_",
                 module_style=ModuleStyle.DOTTED,
+                language_plugin_version=2,
             ),
         ]

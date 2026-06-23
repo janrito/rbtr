@@ -85,6 +85,15 @@ def seeded_store(
                 repo_id=repo_id,
             ),
             make_chunk(
+                "var_config",
+                name="MAX_SIZE",
+                content="MAX_SIZE = 100\n",
+                path="src/config.py",
+                blob="blob_config",
+                kind=ChunkKind.VARIABLE,
+                repo_id=repo_id,
+            ),
+            make_chunk(
                 "cls_app",
                 name="Application",
                 content="class Application:\n    pass\n",

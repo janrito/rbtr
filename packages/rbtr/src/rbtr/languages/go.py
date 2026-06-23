@@ -41,6 +41,22 @@ _QUERY = """\
   (import_spec_list
     (import_spec
       path: (interpreted_string_literal) @_import_module))) @import
+
+(source_file
+  (var_declaration
+    (var_spec
+      name: (identifier) @_var_name) @variable))
+
+(source_file
+  (const_declaration
+    (const_spec
+      name: (identifier) @_var_name) @variable))
+
+(source_file
+  (var_declaration
+    (var_spec_list
+      (var_spec
+        name: (identifier) @_var_name) @variable)))
 """
 
 # ── Plugin ───────────────────────────────────────────────────────────
@@ -69,5 +85,6 @@ class GoPlugin:
                 # type for both line and block forms.
                 doc_comment_node_types=frozenset({"comment"}),
                 test_suffix="_test",
+                language_plugin_version=2,
             ),
         ]

@@ -54,6 +54,18 @@ _QUERY = """
   arguments: (argument_list
     (string) @_import_module)
   (#eq? @_call_name "require_relative"))  @import
+
+(program
+  (assignment
+    left: (constant) @_var_name) @variable)
+
+(program
+  (assignment
+    left: (left_assignment_list (constant) @_var_name)) @variable)
+
+(program
+  (assignment
+    left: (left_assignment_list (rest_assignment (constant) @_var_name))) @variable)
 """
 
 # ── Import extractor ─────────────────────────────────────────────────
@@ -103,5 +115,6 @@ class RubyPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "lib"),
                 test_prefix="test_",
+                language_plugin_version=2,
             ),
         ]

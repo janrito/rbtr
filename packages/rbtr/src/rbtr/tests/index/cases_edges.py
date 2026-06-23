@@ -82,6 +82,58 @@ def case_import_from_import() -> EdgeScenario:
     )
 
 
+def case_import_variable_target() -> EdgeScenario:
+    """from src.config import config — named import of a module-level VARIABLE."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp_cfg",
+                kind=ChunkKind.IMPORT,
+                name="from src.config import config",
+                file_path="src/app.py",
+                language="python",
+                metadata=ImportMeta(module="src.config", names="config"),
+            ),
+            ChunkSpec(
+                id="var_cfg",
+                kind=ChunkKind.VARIABLE,
+                name="config",
+                file_path="src/config.py",
+            ),
+        ],
+        repo_files=frozenset({"src/app.py", "src/config.py"}),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset({("imp_cfg", "var_cfg")}),
+    )
+
+
+def case_import_destructured_variable_target() -> EdgeScenario:
+    """from src.config import a — `a` came from `a, b = load()`, still links."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp_a",
+                kind=ChunkKind.IMPORT,
+                name="from src.config import a",
+                file_path="src/app.py",
+                language="python",
+                metadata=ImportMeta(module="src.config", names="a"),
+            ),
+            ChunkSpec(
+                id="var_a",
+                kind=ChunkKind.VARIABLE,
+                name="a",
+                file_path="src/config.py",
+            ),
+        ],
+        repo_files=frozenset({"src/app.py", "src/config.py"}),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset({("imp_a", "var_a")}),
+    )
+
+
 def case_import_bare_module() -> EdgeScenario:
     """import src.models — bare import → edges to all non-import chunks."""
     return EdgeScenario(

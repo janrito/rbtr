@@ -41,6 +41,11 @@ _QUERY = """
 
 (type_definition
   declarator: (type_identifier) @_cls_name) @class
+
+(translation_unit
+  (declaration
+    declarator: (init_declarator
+      declarator: (identifier) @_var_name)) @variable)
 """
 
 # ── Plugin ───────────────────────────────────────────────────────────
@@ -63,5 +68,6 @@ class CPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "include", "src"),
                 test_prefix="test_",
+                language_plugin_version=2,
             ),
         ]

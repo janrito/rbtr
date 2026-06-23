@@ -45,6 +45,17 @@ _QUERY = """
 
 (enum_specifier
   name: (type_identifier) @_cls_name) @class
+
+(translation_unit
+  (declaration
+    declarator: (init_declarator
+      declarator: (identifier) @_var_name)) @variable)
+
+(namespace_definition
+  body: (declaration_list
+    (declaration
+      declarator: (init_declarator
+        declarator: (identifier) @_var_name)) @variable))
 """
 
 # ── Plugin ───────────────────────────────────────────────────────────
@@ -66,5 +77,6 @@ class CppPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "include", "src"),
                 test_prefix="test_",
+                language_plugin_version=2,
             ),
         ]

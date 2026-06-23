@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pluggy
 import pytest
+from tree_sitter import Query
 
 from rbtr.languages import LanguageManager
 from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
@@ -154,6 +155,21 @@ def test_bash_query_has_function_and_import(language_manager: LanguageManager) -
     assert "@function" in q
     assert "@import" in q
     assert "@class" not in q
+
+
+def test_every_query_compiles_against_its_grammar(language_manager: LanguageManager) -> None:
+    """Each registered query compiles — guards against grammar-version drift.
+
+    Query strings reference grammar-specific node types; a grammar bump that
+    renames a node makes the whole query fail to compile. Compiling each here
+    turns that into one located failure rather than scattered index errors.
+    """
+    for lang_id in language_manager.all_language_ids():
+        query_str = language_manager.get_query(lang_id)
+        grammar = language_manager.load_grammar(lang_id)
+        if query_str is None or grammar is None:
+            continue
+        Query(grammar, query_str)  # raises QueryError on an unknown node type
 
 
 # ── get_scope_types ──────────────────────────────────────────────────
