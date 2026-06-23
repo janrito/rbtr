@@ -20,6 +20,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
@@ -126,10 +127,7 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
         if dots:
             meta.dots = str(dots)
         # Strip file extensions so edges.py can match without guessing.
-        if "." in cleaned:
-            stem, _sep, _ext = cleaned.rpartition(".")
-            if stem:
-                cleaned = stem
+        cleaned = str(PurePosixPath(cleaned).with_suffix("")) or cleaned
         meta.module = cleaned
 
     if names:

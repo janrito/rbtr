@@ -53,6 +53,69 @@ def built_index(
     store.close()
 
 
+@pytest.fixture
+def monorepo_repo(tmp_path: Path) -> pygit2.Repository:
+    """Git repo with a packages/*/src monorepo layout.
+
+    The importer uses an absolute dotted path (`core.models`) to a file below
+    an unknown root, which only the suffix-matching tier resolves.
+    """
+    repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
+    files = {
+        "packages/core/src/core/models.py": b'''\
+"""Core models."""
+
+
+class Widget:
+    pass
+''',
+        "packages/app/src/app/main.py": b'''\
+"""App entry point."""
+
+from core.models import Widget
+
+
+def run() -> Widget:
+    return Widget()
+''',
+    }
+    index = repo.index
+    for path, content in files.items():
+        full = tmp_path / path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(content)
+        index.add(path)
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
+    return repo
+
+
+def test_build_index_resolves_monorepo_absolute_import(
+    store: IndexStore, monorepo_repo: pygit2.Repository
+) -> None:
+    """An absolute import across packages/*/src yields a retrievable edge.
+
+    Mirrors the path handle_find_refs walks: resolve the target chunk, then
+    query edges by target_id.
+    """
+    sha = str(monorepo_repo.head.target)
+    build_index(monorepo_repo.workdir, sha, store, repo_id=1)
+    widget = next(
+        c
+        for c in store.get_chunks(sha, repo_id=1)
+        if c.name == "Widget"
+        and c.kind == ChunkKind.CLASS
+        and c.file_path == "packages/core/src/core/models.py"
+    )
+
+    edges = store.get_edges(sha, target_id=widget.id, repo_id=1)
+    assert any(e.kind == EdgeKind.IMPORTS for e in edges), (
+        "absolute import across packages/*/src produced no inbound edge"
+    )
+
+
 def test_build_index_creates_chunks(
     built_index: tuple[IndexStore, IndexResult, str],
 ) -> None:

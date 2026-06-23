@@ -158,6 +158,7 @@ def test_strip_test_affix(path: str, prefix: str, suffix: str, expected: str | N
         ("foo_bar", "tests/test_foo_bar.py", {"src/foo/bar.py"}, "src/foo/bar.py"),
         ("foo", "tests/test_foo.py", {"deep/nested/foo.py"}, "deep/nested/foo.py"),
         ("foo", "tests/test_foo.py", {"bar.py"}, None),
+        ("foo", "tests/test_foo.py", {"a/foo.py", "b/foo.py"}, None),
     ],
     ids=[
         "direct",
@@ -166,6 +167,7 @@ def test_strip_test_affix(path: str, prefix: str, suffix: str, expected: str | N
         "underscore_to_path",
         "suffix_fallback",
         "not_found",
+        "ambiguous_dropped",
     ],
 )
 def test_find_source_file(
@@ -316,8 +318,19 @@ def test_language_hint_directs_resolution(
             ),
             None,
         ),
+        (
+            "components/Button",
+            {"src/ui/components/Button.js"},
+            ImportResolution(
+                extensions=(".js",),
+                index_files=(),
+                source_roots=("",),
+                path_substitutions=(),
+            ),
+            "src/ui/components/Button.js",
+        ),
     ],
-    ids=["bare-filename", "extensionless", "index-file", "not-found"],
+    ids=["bare-filename", "extensionless", "index-file", "not-found", "nested-suffix"],
 )
 def test_resolve_path_style(
     module: str,
@@ -383,8 +396,91 @@ def test_resolve_path_style(
             ),
             None,
         ),
+        (
+            "rbtr.index.store",
+            {"packages/rbtr/src/rbtr/index/store.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("", "src"),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            "packages/rbtr/src/rbtr/index/store.py",
+        ),
+        (
+            "rbtr.utils.helpers",
+            {"packages/rbtr/src/rbtr/utils/helpers.py", "other/helpers.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("", "src"),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            "packages/rbtr/src/rbtr/utils/helpers.py",
+        ),
+        (
+            "common.io",
+            {"packages/a/src/common/io.py", "packages/b/src/common/io.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("", "src"),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            None,
+        ),
+        (
+            "os",
+            {"a/b/os.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("",),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            None,
+        ),
+        (
+            "pydantic.main",
+            {"src/app.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("", "src"),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            None,
+        ),
+        (
+            "app.models",
+            {"app/models.py", "deep/nested/app/models.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=("__init__.py",),
+                source_roots=("",),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+            ),
+            "app/models.py",
+        ),
     ],
-    ids=["multi-segment", "single-segment", "init-file", "not-found"],
+    ids=[
+        "multi-segment",
+        "single-segment",
+        "init-file",
+        "not-found",
+        "monorepo-suffix",
+        "helpers-non-collision",
+        "true-collision-dropped",
+        "single-segment-guard-nested",
+        "multi-seg-external-none",
+        "tier2-prefix-wins",
+    ],
 )
 def test_resolve_dotted_style(
     module: str,
@@ -394,3 +490,82 @@ def test_resolve_dotted_style(
 ) -> None:
     """DOTTED-style resolution: dot-to-slash conversion."""
     assert _resolve_module_to_file(module, files, resolution) == expected
+
+
+# ── suffix-tier tie-break by importer (Question 5) ────────────────────
+
+
+@pytest.mark.parametrize(
+    ("module", "files", "resolution", "importer_ext", "expected"),
+    [
+        (
+            "pkg.models",
+            {"a/pkg/models.py", "a/pkg/models.pyi"},
+            ImportResolution(
+                extensions=(".py", ".pyi"),
+                index_files=(),
+                source_roots=("",),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+                own_extensions=frozenset({".py", ".pyi"}),
+            ),
+            ".py",
+            "a/pkg/models.py",
+        ),
+        (
+            "ui/Button",
+            {"src/ui/Button.tsx", "src/ui/Button.js"},
+            ImportResolution(
+                extensions=(".ts", ".tsx", ".js"),
+                index_files=(),
+                source_roots=("",),
+                path_substitutions=(),
+                own_extensions=frozenset({".ts", ".tsx"}),
+            ),
+            ".ts",
+            "src/ui/Button.tsx",
+        ),
+        (
+            "ui/Button",
+            {"src/ui/Button.js", "src/ui/Button.css"},
+            ImportResolution(
+                extensions=(".js", ".css"),
+                index_files=(),
+                source_roots=("",),
+                path_substitutions=(),
+                own_extensions=frozenset({".js", ".jsx"}),
+            ),
+            ".js",
+            "src/ui/Button.js",
+        ),
+        (
+            "pkg.models",
+            {"a/pkg/models.py", "b/pkg/models.py"},
+            ImportResolution(
+                extensions=(".py",),
+                index_files=(),
+                source_roots=("",),
+                path_substitutions=(),
+                module_style=ModuleStyle.DOTTED,
+                own_extensions=frozenset({".py"}),
+            ),
+            ".py",
+            None,
+        ),
+    ],
+    ids=[
+        "py-over-pyi",
+        "tsx-over-js-same-language",
+        "js-over-css",
+        "same-ext-two-paths-dropped",
+    ],
+)
+def test_resolve_suffix_tie_break(
+    module: str,
+    files: set[str],
+    resolution: ImportResolution,
+    importer_ext: str,
+    expected: str | None,
+) -> None:
+    """Suffix-tier same-path collisions resolve toward the importing file."""
+    assert _resolve_module_to_file(module, files, resolution, importer_ext) == expected

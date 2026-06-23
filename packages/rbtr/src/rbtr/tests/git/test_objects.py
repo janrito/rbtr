@@ -33,10 +33,10 @@ from rbtr.git import (
 )
 from rbtr.rbtrignore import parse_ignore
 
+from ..conftest import make_commit
 from .conftest import (
     MergeRepo,
     SampleRepo,
-    make_commit,
 )
 
 # ── is_binary ───────────────────────────────────────────────────────

@@ -244,6 +244,139 @@ def case_import_multiple_names() -> EdgeScenario:
     )
 
 
+def case_import_monorepo_absolute_suffix() -> EdgeScenario:
+    """Absolute import resolves across a packages/*/src layout via suffix."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp1",
+                kind=ChunkKind.IMPORT,
+                name="from rbtr.index.store import IndexStore",
+                file_path="packages/app/src/app/main.py",
+                language="python",
+                metadata=ImportMeta(module="rbtr.index.store", names="IndexStore"),
+            ),
+            ChunkSpec(
+                id="cls1",
+                kind=ChunkKind.CLASS,
+                name="IndexStore",
+                file_path="packages/rbtr/src/rbtr/index/store.py",
+            ),
+        ],
+        repo_files=frozenset(
+            {
+                "packages/app/src/app/main.py",
+                "packages/rbtr/src/rbtr/index/store.py",
+            }
+        ),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset({("imp1", "cls1")}),
+    )
+
+
+def case_import_suffix_helpers_non_collision() -> EdgeScenario:
+    """Full-path suffix resolves to the right file, not a same-named stem."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp1",
+                kind=ChunkKind.IMPORT,
+                name="from rbtr.utils.helpers import format_path",
+                file_path="packages/app/src/app/main.py",
+                language="python",
+                metadata=ImportMeta(module="rbtr.utils.helpers", names="format_path"),
+            ),
+            ChunkSpec(
+                id="fn1",
+                kind=ChunkKind.FUNCTION,
+                name="format_path",
+                file_path="packages/rbtr/src/rbtr/utils/helpers.py",
+            ),
+            ChunkSpec(
+                id="fn2",
+                kind=ChunkKind.FUNCTION,
+                name="format_path",
+                file_path="other/helpers.py",
+            ),
+        ],
+        repo_files=frozenset(
+            {
+                "packages/app/src/app/main.py",
+                "packages/rbtr/src/rbtr/utils/helpers.py",
+                "other/helpers.py",
+            }
+        ),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset({("imp1", "fn1")}),
+    )
+
+
+def case_import_suffix_collision_dropped() -> EdgeScenario:
+    """Same full-path suffix in two packages is ambiguous → no edge."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp1",
+                kind=ChunkKind.IMPORT,
+                name="from common.io import read_blob",
+                file_path="packages/a/src/a/main.py",
+                language="python",
+                metadata=ImportMeta(module="common.io", names="read_blob"),
+            ),
+            ChunkSpec(
+                id="fn1",
+                kind=ChunkKind.FUNCTION,
+                name="read_blob",
+                file_path="packages/a/src/common/io.py",
+            ),
+            ChunkSpec(
+                id="fn2",
+                kind=ChunkKind.FUNCTION,
+                name="read_blob",
+                file_path="packages/b/src/common/io.py",
+            ),
+        ],
+        repo_files=frozenset(
+            {
+                "packages/a/src/a/main.py",
+                "packages/a/src/common/io.py",
+                "packages/b/src/common/io.py",
+            }
+        ),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset(),
+    )
+
+
+def case_import_suffix_single_segment_guard() -> EdgeScenario:
+    """A single-segment module never matches a nested file via suffix."""
+    return EdgeScenario(
+        fn=InferFn.IMPORT,
+        chunks=[
+            ChunkSpec(
+                id="imp1",
+                kind=ChunkKind.IMPORT,
+                name="import models",
+                file_path="packages/a/src/a/main.py",
+                language="python",
+                metadata=ImportMeta(module="models"),
+            ),
+            ChunkSpec(
+                id="fn1",
+                kind=ChunkKind.FUNCTION,
+                name="build",
+                file_path="deep/nested/models.py",
+            ),
+        ],
+        repo_files=frozenset({"packages/a/src/a/main.py", "deep/nested/models.py"}),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset(),
+    )
+
+
 # ── import edges: text-search fallback ──────────────────────────────
 
 
@@ -505,6 +638,40 @@ def case_test_edges_imports_without_functions() -> EdgeScenario:
         ],
         repo_files=frozenset({"src/foo.py", "tests/test_foo.py"}),
         expected=frozenset(),
+    )
+
+
+def case_test_edges_monorepo_suffix() -> EdgeScenario:
+    """Test resolves its source by full-path suffix across a monorepo.
+
+    The source is neither at a root nor a sibling of the test directory, so
+    only `_find_source_file`'s last-resort suffix match locates it.
+    """
+    return EdgeScenario(
+        fn=InferFn.TEST,
+        chunks=[
+            ChunkSpec(
+                id="fn1",
+                kind=ChunkKind.FUNCTION,
+                name="build_widget",
+                file_path="packages/core/src/core/factory.py",
+                language="python",
+            ),
+            ChunkSpec(
+                id="tf1",
+                kind=ChunkKind.FUNCTION,
+                name="test_build_widget",
+                file_path="packages/app/tests/test_factory.py",
+                language="python",
+            ),
+        ],
+        repo_files=frozenset(
+            {
+                "packages/core/src/core/factory.py",
+                "packages/app/tests/test_factory.py",
+            }
+        ),
+        expected=frozenset({("tf1", "fn1")}),
     )
 
 

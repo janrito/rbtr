@@ -70,6 +70,8 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from ..conftest import make_commit
+
 # ── File-content fixtures ───────────────────────────────────────────
 
 
@@ -116,54 +118,6 @@ def shared_py_content() -> bytes:
 @pytest.fixture
 def feature_py_content() -> bytes:
     return b"f = 1\n"
-
-
-# ── Tree builder (pure projection over caller-supplied paths) ──────
-
-
-def build_tree(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-) -> pygit2.Oid:
-    """Build a nested tree from `{"dir/file.py": b"..."}` paths.
-
-    Pure projection over the caller-supplied `files` mapping; does
-    not read from module state.
-    """
-    subtrees: dict[str, dict[str, bytes]] = {}
-    blobs: dict[str, bytes] = {}
-
-    for path, content in files.items():
-        if "/" in path:
-            top, rest = path.split("/", 1)
-            subtrees.setdefault(top, {})[rest] = content
-        else:
-            blobs[path] = content
-
-    tb = repo.TreeBuilder()
-    for name, data in blobs.items():
-        tb.insert(name, repo.create_blob(data), pygit2.GIT_FILEMODE_BLOB)
-    for name, sub_files in subtrees.items():
-        tb.insert(name, build_tree(repo, sub_files), pygit2.GIT_FILEMODE_TREE)
-    return tb.write()
-
-
-def make_commit(
-    repo: pygit2.Repository,
-    files: dict[str, bytes],
-    *,
-    message: str = "commit",
-    parents: list[pygit2.Oid] | None = None,
-    ref: str = "refs/heads/main",
-    author: str = "Test Author",
-) -> pygit2.Oid:
-    """Create a commit with the given file tree and return its OID.
-
-    Pure projection over caller-supplied arguments.
-    """
-    tree_oid = build_tree(repo, files)
-    sig = pygit2.Signature(author, "test@test.com")
-    return repo.create_commit(ref, sig, sig, message, tree_oid, parents or [])
 
 
 # ── Repo datasets ───────────────────────────────────────────────────
