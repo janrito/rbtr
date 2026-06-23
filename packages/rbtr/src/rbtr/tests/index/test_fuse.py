@@ -15,7 +15,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from rbtr.config import config
 from rbtr.index.frames import FusionInputRow
 from rbtr.index.models import QueryKind, ScoredChunk
-from rbtr.index.search import fuse_scores, materialise_scored
+from rbtr.index.search import fuse_scores, match_preview_exprs, materialise_scored
 
 from .cases_fuse import FuseScenario
 
@@ -125,3 +125,63 @@ def test_every_result_has_populated_breakdown(
         assert r.score >= 0.0
         assert r.fusion == r.score
         assert r.reranker == 0.0
+
+
+@pytest.mark.parametrize(
+    ("content", "tokens", "expected_offset", "expected_terms"),
+    [
+        # Densest line wins: line 1 holds both tokens, lines 0 and 2 none.
+        (
+            "def f():\n    deps = agent_deps\n    x = 1",
+            ["agent", "deps"],
+            1,
+            ["agent", "deps"],
+        ),
+        # Tie on count resolves to the earliest line.
+        ("deps here\nagent here\nx", ["agent", "deps"], 0, ["agent", "deps"]),
+        # A camelCase fragment matches inside a compound identifier.
+        (
+            "class AgentDeps:\n    pass",
+            ["agentdeps", "agent", "deps"],
+            0,
+            ["agentdeps", "agent", "deps"],
+        ),
+        # No token occurs: no anchor, no terms.
+        ("def f():\n    return 1", ["zzz", "qqq"], None, []),
+        # Empty token set: no anchor, no terms.
+        ("anything\nhere", [], None, []),
+        # Empty content: no anchor, no terms.
+        ("", ["agent"], None, []),
+    ],
+)
+def test_match_preview_columns(
+    content: str,
+    tokens: list[str],
+    expected_offset: int | None,
+    expected_terms: list[str],
+) -> None:
+    """`match_preview_exprs` anchors on the densest matching line."""
+    offset, terms = match_preview_exprs(tokens)
+    out = (
+        pl.DataFrame({"content": [content]})
+        .select(offset.alias("match_line_offset"), terms.alias("matched_terms"))
+        .to_dicts()[0]
+    )
+    assert out["match_line_offset"] == expected_offset
+    assert out["matched_terms"] == expected_terms
+
+
+def test_match_preview_is_row_wise() -> None:
+    """Each row anchors independently — no aggregation across the frame.
+
+    Guards the polars expression against accidentally collapsing the
+    per-row `list` operations into frame-wide aggregates.
+    """
+    offset, terms = match_preview_exprs(["agent"])
+    out = (
+        pl.DataFrame({"content": ["x = 1\nagent here", "no match", "agent\nmore"]})
+        .select(offset.alias("match_line_offset"), terms.alias("matched_terms"))
+        .to_dicts()
+    )
+    assert [r["match_line_offset"] for r in out] == [1, None, 0]
+    assert [r["matched_terms"] for r in out] == [["agent"], [], ["agent"]]

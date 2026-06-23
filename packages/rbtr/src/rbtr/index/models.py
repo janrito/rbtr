@@ -147,6 +147,11 @@ class ScoredChunk(BaseModel, frozen=True):
     proximity: float = 1.0
     fusion: float = 0.0
     reranker: float = 0.0
+    # Preview anchor: where the query literally matched the content.
+    # Populated only when the search passes a lexical query; not a
+    # ranking signal.
+    match_line_offset: int | None = None
+    matched_terms: list[str] = Field(default_factory=list)
 
 
 class TokenisedChunk(Chunk):

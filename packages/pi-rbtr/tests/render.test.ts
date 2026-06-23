@@ -9,7 +9,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { SearchHitOut } from "../extensions/rbtr/generated/protocol.js";
-import { extractPayload, fileScopeSuffix, formatWatched } from "../extensions/rbtr/render.js";
+import { extractPayload, fileScopeSuffix, formatWatched, renderSearchResult } from "../extensions/rbtr/render.js";
 
 // Minimal theme: styling is identity so assertions see raw text.
 const plainTheme = {
@@ -108,5 +108,70 @@ describe("formatWatched", () => {
 
   test("empty watch set renders nothing", () => {
     expect(formatWatched([])).toEqual([]);
+  });
+});
+
+// Marks the `accent` role with guillemets so highlighted terms are
+// visible in assertions; every other role is identity.
+const markTheme = {
+  fg: (style: string, text: string) => (style === "accent" ? `«${text}»` : text),
+  bold: (text: string) => text,
+} as unknown as Parameters<typeof renderSearchResult>[2];
+
+function renderText(result: ToolResult, expanded: boolean): string {
+  return renderSearchResult(result, { expanded, isPartial: false }, markTheme).render(1000).join("\n");
+}
+
+describe("renderSearchResult", () => {
+  const previewHit: SearchHitOut = {
+    name: "load_config",
+    kind: "function",
+    file_path: "src/config.py",
+    content: "def load_config(path):\n    return read(path)",
+    line_start: 1,
+    line_end: 2,
+    score: 0.9,
+    match_line_offset: 0,
+    matched_terms: ["load_config", "config", "load"],
+  };
+
+  const plainHit: SearchHitOut = {
+    name: "helper",
+    kind: "function",
+    file_path: "src/util.py",
+    content: "def helper():\n    return UNIQUE_BODY",
+    line_start: 1,
+    line_end: 2,
+    score: 0.5,
+  };
+
+  const windowHit: SearchHitOut = {
+    name: "big",
+    kind: "function",
+    file_path: "src/big.py",
+    content: "def big():\na = 1\nGAP = 2\nc = 3\nd = 4\nNEEDLE = 5\ne = 6\nf = 7",
+    line_start: 1,
+    line_end: 8,
+    score: 0.9,
+    match_line_offset: 5,
+    matched_terms: ["needle"],
+  };
+
+  test("collapsed view surfaces the matched line, highlighted", () => {
+    const out = renderText(daemonResult({ kind: "search", results: [previewHit] }), false);
+    expect(out).toContain("«load_config»");
+  });
+
+  test("collapsed view stays header-only without a match offset", () => {
+    const out = renderText(daemonResult({ kind: "search", results: [plainHit] }), false);
+    expect(out).not.toContain("UNIQUE_BODY");
+  });
+
+  test("expanded view shows the signature, then scrolls to the highlighted match", () => {
+    const out = renderText(daemonResult({ kind: "search", results: [windowHit] }), true);
+    expect(out).toContain("def big()");
+    expect(out).toContain("«NEEDLE»");
+    expect(out).toContain("…");
+    expect(out).not.toContain("GAP");
   });
 });
