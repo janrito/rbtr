@@ -14,13 +14,13 @@ lives here.
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 import time
 from collections.abc import Callable
 
 import dataframely as dy
 import polars as pl
+import structlog
 from llama_cpp import LLAMA_POOLING_TYPE_RANK, Llama
 
 from rbtr.config import config
@@ -29,7 +29,7 @@ from rbtr.index._llama_cpp_compat import fix_embedding_context
 from rbtr.index.frames import FusedRow
 from rbtr.index.search import _normalise_col
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # ── Prompt template ──────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ def _load_model() -> Llama:
         raise ValueError(msg)
 
     model_path = resolve_gguf_path(model_id)
-    log.info("Loading reranker model from %s", model_path)
+    log.info("loading_reranker_model", path=model_path)
     install_llama_log_callback()
 
     model = Llama(
@@ -160,13 +160,13 @@ class Reranker:
             scores = self._score_candidates(model, query, frame)
             elapsed = time.perf_counter() - t0
             log.info(
-                "Reranked %d candidates in %.1f ms (%.1f ms/pair)",
-                len(scores),
-                elapsed * 1000,
-                elapsed * 1000 / len(scores) if scores else 0,
+                "reranked_candidates",
+                candidates=len(scores),
+                elapsed_ms=round(elapsed * 1000, 1),
+                ms_per_pair=round(elapsed * 1000 / len(scores), 1) if scores else 0,
             )
         except (RuntimeError, ValueError, OSError, TypeError, AttributeError):
-            log.warning("Reranker scoring failed, falling back to fusion order", exc_info=True)
+            log.warning("reranker_scoring_failed", exc_info=True)
             return FusedRow.validate(frame.head(top_k), cast=True)
 
         return (

@@ -34,6 +34,7 @@ direct import is safe — identity never changes::
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import os
 from pathlib import Path
@@ -51,6 +52,17 @@ from pydantic_settings import (
 from rbtr.index.models import QueryKind
 
 RBTR_NAME = "rbtr"
+
+
+class LogFormat(enum.StrEnum):
+    """Renderer selection for log output.
+
+    `AUTO` resolves to `CONSOLE` when stderr is a TTY, else `JSON`.
+    """
+
+    AUTO = "auto"
+    CONSOLE = "console"
+    JSON = "json"
 
 
 class RerankerSettings(BaseModel):
@@ -176,6 +188,22 @@ class Config(BaseSettings):
         "Set to 0 to keep the model loaded.  Only used by the daemon.",
     )
     json_output: bool = Field(default=False, alias="json", description="Force JSON output.")
+    log_level: str = Field(
+        default="INFO",
+        description="Root log level (e.g. DEBUG, INFO, WARNING).  Raised by `-v`.",
+    )
+    log_format: LogFormat = Field(
+        default=LogFormat.AUTO,
+        description="Log renderer: auto (console on a TTY, else JSON), console, or json.",
+    )
+    log_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        description="Max size of `daemon.log` before rotation (bytes).",
+    )
+    log_backup_count: int = Field(
+        default=5,
+        description="Number of rotated `daemon.log` backups to keep.",
+    )
     embed_idle_timeout: int = Field(
         default=300,
         description="Seconds before unloading the embedding model when idle.  \

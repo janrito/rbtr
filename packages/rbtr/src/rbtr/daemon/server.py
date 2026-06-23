@@ -32,7 +32,6 @@ import contextlib
 import inspect
 import itertools
 import json
-import logging
 import os
 import signal
 import threading
@@ -40,7 +39,9 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+import structlog
 import zmq
 import zmq.asyncio
 from pydantic import BaseModel, ValidationError
@@ -83,8 +84,9 @@ from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
+from rbtr.logging import elapsed_ms
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 type RequestHandler = Callable[[Any], Response | Awaitable[Response]]
@@ -201,12 +203,12 @@ class DaemonServer:
             try:
                 self._embedder.close()
             except Exception:
-                log.exception("Embedder cleanup failed during daemon shutdown")
+                log.exception("embedder_cleanup_failed")
         if self._reranker is not None:
             try:
                 self._reranker.close()
             except Exception:
-                log.exception("Reranker cleanup failed during daemon shutdown")
+                log.exception("reranker_cleanup_failed")
 
     def _register_index_handlers(self, store: IndexStore) -> None:
         emb = self._embedder
@@ -251,10 +253,10 @@ class DaemonServer:
                 count = store.count_unembedded(repo_id, sha)
                 if count > 0:
                     log.info(
-                        "Recovering embed for repo_id=%d sha=%s (%d chunks)",
-                        repo_id,
-                        sha[:12],
-                        count,
+                        "recovering_embed",
+                        repo_id=repo_id,
+                        sha=sha[:12],
+                        chunks=count,
                     )
                     self._wake.set()
                     return
@@ -324,7 +326,7 @@ class DaemonServer:
         with store.session() as ws:
             for sha in stale:
                 ws.drop_commit(repo_id, sha)
-                log.info("Dropped stale worktree tree SHA %s", sha[:12])
+                log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
     def _run_embed(self, job: EmbedJob, store: IndexStore, push: zmq.Socket) -> None:
         """Execute an embed job.  Called from `_run_job`.
@@ -376,6 +378,7 @@ class DaemonServer:
         on_progress = _progress_callback(push, job.repo_path)
         on_progress("loading_model", 0, 0)
         done = 0
+        t0 = time.perf_counter()
 
         try:
             while True:
@@ -389,7 +392,7 @@ class DaemonServer:
                         async with self._gpu_lock:
                             results = await asyncio.to_thread(embedder.embed, texts)
                     except (RuntimeError, ValueError):
-                        log.warning("Embedding batch failed - skipping", exc_info=True)
+                        log.warning("embedding_batch_failed", exc_info=True)
                         continue
                     await asyncio.to_thread(
                         self._write_embed_batch,
@@ -402,13 +405,13 @@ class DaemonServer:
                     done += len(batch)
                     on_progress("embedding", done, total)
                     if self._shutdown:
-                        log.info("Embedding stopped by shutdown after %d/%d chunks", done, total)
+                        log.info("embedding_stopped_shutdown", done=done, total=total)
                         return
                     # Yield to higher-priority builds or worktree rebuilds.
                     stale = await asyncio.to_thread(watcher.poll, store)
                     dirty = await asyncio.to_thread(watcher.poll_worktree, store)
                     if stale or dirty:
-                        log.info("Embedding preempted after %d/%d chunks", done, total)
+                        log.info("embedding_preempted", done=done, total=total)
                         return
                 if done == before:
                     break
@@ -433,7 +436,7 @@ class DaemonServer:
                 ),
             )
             push.close()
-        log.info("Embedded %d/%d chunks", done, total)
+        log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
 
     @staticmethod
     def _write_embed_batch(
@@ -614,16 +617,26 @@ class DaemonServer:
                 if job is None:
                     break
                 self._set_active(job)
-                try:
-                    if isinstance(job, EmbedJob):
-                        await self._run_embed_async(job)
-                    else:
-                        async with self._write_sem:
-                            await asyncio.to_thread(self._run_job, job)
-                except Exception:
-                    log.exception("Job failed: %s", job)
-                finally:
-                    self._clear_active()
+                job_ctx: dict[str, str] = {
+                    "job_id": uuid4().hex[:8],
+                    "repo": job.repo_path,
+                    "job_kind": "build" if isinstance(job, BuildJob) else "embed",
+                }
+                if isinstance(job, EmbedJob):
+                    job_ctx["ref"] = job.ref
+                # Bound for the job's lifetime; `to_thread` copies the
+                # context, so build/embed logs in worker threads carry it.
+                with structlog.contextvars.bound_contextvars(**job_ctx):
+                    try:
+                        if isinstance(job, EmbedJob):
+                            await self._run_embed_async(job)
+                        else:
+                            async with self._write_sem:
+                                await asyncio.to_thread(self._run_job, job)
+                    except Exception:
+                        log.exception("job_failed", job=str(job))
+                    finally:
+                        self._clear_active()
 
     def _install_signal_handlers(self) -> None:
         """Register signal handlers via the running event loop.
@@ -676,7 +689,7 @@ class DaemonServer:
                 pub=self.pub_addr,
                 version=get_version(),
             )
-            log.info("Daemon listening: rpc=%s pub=%s", self.rpc_addr, self.pub_addr)
+            log.info("daemon_listening", rpc=self.rpc_addr, pub=self.pub_addr)
             self._ready.set()
 
             warmup_tasks: list[asyncio.Task[None]] = []
@@ -722,7 +735,7 @@ class DaemonServer:
             rep.close()
             pub.close()
             ctx.term()
-            log.info("Daemon stopped")
+            log.info("daemon_stopped")
 
     async def _notification_relay(self, pull: zmq.asyncio.Socket, pub: zmq.asyncio.Socket) -> None:
         """Receive notifications from inproc PULL and forward to PUB.
@@ -777,26 +790,27 @@ class DaemonServer:
                 break
             if self._store is None:
                 continue
-            stale_list = await asyncio.to_thread(watcher.poll, self._store)
-            for stale in stale_list:
-                log.info(
-                    "HEAD not indexed in %s: %s",
-                    stale.repo_path,
-                    stale.new_ref[:12],
-                )
-                _notify(
-                    self._notify_push,
-                    AutoRebuildNotification(repo_path=stale.repo_path, new_ref=stale.new_ref),
-                )
-                self._wake.set()
-            dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)
-            for dirty in dirty_list:
-                log.info("Dirty worktree in %s (tree %s)", dirty.repo_path, dirty.tree_sha[:12])
-                _notify(
-                    self._notify_push,
-                    AutoRebuildNotification(repo_path=dirty.repo_path, new_ref=dirty.tree_sha),
-                )
-                self._wake.set()
+            with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
+                stale_list = await asyncio.to_thread(watcher.poll, self._store)
+                for stale in stale_list:
+                    log.info(
+                        "head_not_indexed",
+                        repo=stale.repo_path,
+                        ref=stale.new_ref[:12],
+                    )
+                    _notify(
+                        self._notify_push,
+                        AutoRebuildNotification(repo_path=stale.repo_path, new_ref=stale.new_ref),
+                    )
+                    self._wake.set()
+                dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)
+                for dirty in dirty_list:
+                    log.info("dirty_worktree", repo=dirty.repo_path, tree=dirty.tree_sha[:12])
+                    _notify(
+                        self._notify_push,
+                        AutoRebuildNotification(repo_path=dirty.repo_path, new_ref=dirty.tree_sha),
+                    )
+                    self._wake.set()
 
     async def _dispatch(self, raw: bytes) -> Response:
         try:
@@ -813,38 +827,46 @@ class DaemonServer:
                 # A bad repo_path (e.g. a client whose cwd is not a git
                 # repo) must not take the whole daemon down: reply with an
                 # error so the surviving daemon keeps serving other repos.
-                log.warning("Rejected request %s: %s", request.kind, exc)
+                log.warning("request_rejected", kind=request.kind, error=str(exc))
                 return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-        handler = self._handlers.get(request.kind)
-        if handler is None:
-            return ErrorResponse(
-                code=ErrorCode.INVALID_REQUEST,
-                message=f"No handler for kind: {request.kind}",
-            )
-        try:
-            result = handler(request)
-            if inspect.isawaitable(result):
-                return await result
-        except IndexNotBuiltError as exc:
-            # A ref/symbol that isn't indexed yet: if a build is
-            # running it will become queryable soon, so say so rather
-            # than tell the caller to start an index that is already
-            # in progress.  This is the daemon's single source of
-            # build-awareness; handlers stay build-agnostic.
-            if self._is_building():
+        # Bind correlation context for this request.  All keys reset on
+        # exit, so no state leaks to the next request.
+        req_ctx: dict[str, str] = {"request_id": uuid4().hex[:8], "kind": request.kind}
+        if isinstance(request, HasRepoPath):
+            req_ctx["repo"] = request.repo_path
+        with structlog.contextvars.bound_contextvars(**req_ctx):
+            handler = self._handlers.get(request.kind)
+            if handler is None:
                 return ErrorResponse(
-                    code=ErrorCode.INDEX_IN_PROGRESS,
-                    message="Index is building. Try again shortly.",
+                    code=ErrorCode.INVALID_REQUEST,
+                    message=f"No handler for kind: {request.kind}",
                 )
-            log.warning("Handler error for %s: %s", request.kind, exc)
-            return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
-        except RbtrError as exc:
-            log.warning("Handler error for %s: %s", request.kind, exc)
-            return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
-        except Exception as exc:
-            log.exception("Handler error for %s", request.kind)
-            return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
-        return result
+            t0 = time.perf_counter()
+            try:
+                result = handler(request)
+                if inspect.isawaitable(result):
+                    result = await result
+            except IndexNotBuiltError as exc:
+                # A ref/symbol that isn't indexed yet: if a build is
+                # running it will become queryable soon, so say so rather
+                # than tell the caller to start an index that is already
+                # in progress.  This is the daemon's single source of
+                # build-awareness; handlers stay build-agnostic.
+                if self._is_building():
+                    return ErrorResponse(
+                        code=ErrorCode.INDEX_IN_PROGRESS,
+                        message="Index is building. Try again shortly.",
+                    )
+                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
+                return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
+            except RbtrError as exc:
+                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
+                return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
+            except Exception as exc:
+                log.exception("handler_error", elapsed_ms=elapsed_ms(t0))
+                return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
+            log.info("request_complete", elapsed_ms=elapsed_ms(t0))
+            return result
 
     def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
         self.request_shutdown()

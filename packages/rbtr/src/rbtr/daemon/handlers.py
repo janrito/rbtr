@@ -15,10 +15,11 @@ Write-side handlers (GC) also use `store`.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
+
+import structlog
 
 from rbtr.daemon.dto import RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
     from rbtr.index.reranker import Reranker
     from rbtr.index.store import IndexStore
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:

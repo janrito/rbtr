@@ -17,13 +17,14 @@ API, and no drift between the watcher and the index: the store's
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
+
+import structlog
 
 from rbtr.git import read_head, worktree_tree_sha
 from rbtr.index.store import IndexStore
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)

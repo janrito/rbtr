@@ -17,12 +17,12 @@ and search.  `WriteSession` owns all data mutations.
 
 from __future__ import annotations
 
-import logging
 from types import TracebackType
 from typing import TYPE_CHECKING
 
 import duckdb
 import polars as pl
+import structlog
 
 from rbtr.config import config
 from rbtr.index import load_sql
@@ -57,7 +57,7 @@ _CLEAR_ALL_EMBEDDINGS_SQL = load_sql("clear_all_embeddings.sql")
 _SET_EMBEDDING_VERSION_SQL = load_sql("set_embedding_version.sql")
 _SET_EMBEDDING_MODEL_SQL = load_sql("set_embedding_model.sql")
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from rbtr.index.store import IndexStore
@@ -139,12 +139,12 @@ class WriteSession:
         count = n[0] if n else 0
         if count > 0:
             log.warning(
-                "Embedding config changed (model %s→%s, version %s→%s), clearing %d embeddings.",
-                stored_model or "<none>",
-                current_model,
-                stored_version or "<none>",
-                current_version,
-                count,
+                "embedding_config_changed",
+                stored_model=stored_model or "<none>",
+                current_model=current_model,
+                stored_version=stored_version or "<none>",
+                current_version=current_version,
+                cleared=count,
             )
             self._cursor.execute(_CLEAR_ALL_EMBEDDINGS_SQL)
         self._cursor.execute(
@@ -397,4 +397,4 @@ class WriteSession:
             if has_any is None:
                 continue
             self.cleanup(repo_id)
-            log.info("Swept orphans for repo_id=%d", repo_id)
+            log.info("swept_orphans", repo_id=repo_id)

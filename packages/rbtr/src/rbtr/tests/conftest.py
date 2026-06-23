@@ -6,10 +6,12 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
 import pytest
+import structlog
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
@@ -134,6 +136,35 @@ def _test_dirs() -> None:
         assert d.is_relative_to(sys_tmp) or d.is_relative_to(slash_tmp), f"{key}={d} not under temp"
         assert "test" in d.name, f"{key}={d} missing 'test'"
         d.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(name="log_output")
+def fixture_log_output() -> structlog.testing.LogCapture:
+    """Capture structlog events emitted during a test.
+
+    Assert on `log_output.entries` — a list of event dicts, each with
+    `event`, `log_level`, and any bound/contextvar keys.
+    """
+    return structlog.testing.LogCapture()
+
+
+@pytest.fixture(autouse=True)
+def _configure_structlog(log_output: structlog.testing.LogCapture) -> Generator[None]:
+    """Route structlog through `LogCapture` for every test.
+
+    Without this, unconfigured structlog prints to stdout in-process.
+    `merge_contextvars` is included so correlation tests (request_id /
+    job_id bound via contextvars) see those keys.  Caching stays off so
+    per-test reconfiguration is honoured; `reset_defaults` restores the
+    real config on teardown.
+    """
+    structlog.configure(
+        processors=[structlog.contextvars.merge_contextvars, log_output],
+        cache_logger_on_first_use=False,
+    )
+    yield
+    structlog.contextvars.clear_contextvars()
+    structlog.reset_defaults()
 
 
 @pytest.fixture

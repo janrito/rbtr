@@ -21,10 +21,11 @@ reports real-time state.
 from __future__ import annotations
 
 import itertools
-import logging
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+
+import structlog
 
 from rbtr.config import config
 from rbtr.git import FileEntry, changed_files, list_files
@@ -43,9 +44,10 @@ from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import extract_symbols
 from rbtr.languages import get_manager
 from rbtr.languages.hookspec import LanguageRegistration, build_import_from_captures
+from rbtr.logging import elapsed_ms
 from rbtr.rbtrignore import load_ignore
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 type ProgressCallback = Callable[[str, int, int], None]
 """`(phase, done, total)` — called to report build progress."""
@@ -209,7 +211,7 @@ def _extract_and_store_chunks(
                         result.stats.parsed_files += 1
                 except Exception:
                     msg = f"Failed to index {entry.path}"
-                    log.exception(msg)
+                    log.exception("index_file_failed", path=entry.path)
                     result.errors.append(msg)
 
             # Record detected language on snapshot.
@@ -227,11 +229,11 @@ def _extract_and_store_chunks(
         session.replace_snapshots(commit_sha, snapshots, repo_id=repo_id)
 
     log.info(
-        "Extracted %d files (%d parsed, %d skipped) at %s",
-        result.stats.total_files,
-        result.stats.parsed_files,
-        result.stats.skipped_files,
-        commit_sha[:12],
+        "extracted_files",
+        total=result.stats.total_files,
+        parsed=result.stats.parsed_files,
+        skipped=result.stats.skipped_files,
+        sha=commit_sha[:12],
     )
     return result, repo_files
 
@@ -256,7 +258,7 @@ def _infer_and_store_edges(
     with store.session() as session:
         session.replace_edges(commit_sha, edges, repo_id=repo_id)
 
-    log.info("Inferred %d edges", len(edges))
+    log.info("inferred_edges", edges=len(edges))
     return len(edges)
 
 
@@ -270,10 +272,10 @@ def _mark_indexed_and_cleanup(
         cleaned = session.cleanup(repo_id)
         if cleaned.snapshots or cleaned.edges or cleaned.chunks:
             log.info(
-                "Cleanup: %d snapshots, %d edges, %d chunks removed",
-                cleaned.snapshots,
-                cleaned.edges,
-                cleaned.chunks,
+                "cleanup",
+                snapshots=cleaned.snapshots,
+                edges=cleaned.edges,
+                chunks=cleaned.chunks,
             )
 
 
@@ -334,10 +336,10 @@ def build_index(
     result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
     log.info(
-        "Index complete: %d chunks, %d edges, %.1fs",
-        result.stats.total_chunks,
-        result.stats.total_edges,
-        result.stats.elapsed_seconds,
+        "index_complete",
+        chunks=result.stats.total_chunks,
+        edges=result.stats.total_edges,
+        elapsed_seconds=round(result.stats.elapsed_seconds, 1),
     )
     return result
 
@@ -372,6 +374,7 @@ def embed_index(
     on_progress("loading_model", 0, 0)
 
     done = 0
+    t0 = time.perf_counter()
 
     while missing := store.get_unembedded_chunks(repo_id, commit_sha):
         before = done
@@ -380,7 +383,7 @@ def embed_index(
             try:
                 results = embedder.embed(texts)
             except (RuntimeError, ValueError):
-                log.warning("Embedding batch failed - skipping", exc_info=True)
+                log.warning("embedding_batch_failed", exc_info=True)
                 continue
             with store.session() as session:
                 session.update_embeddings(
@@ -392,10 +395,10 @@ def embed_index(
             done += len(batch)
             on_progress("embedding", done, total)
             if should_stop is not None and should_stop():
-                log.info("Embedding preempted after %d/%d chunks", done, total)
+                log.info("embedding_preempted", done=done, total=total)
                 return done
         if done == before:
             break
 
-    log.info("Embedded %d/%d chunks", done, total)
+    log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
     return done

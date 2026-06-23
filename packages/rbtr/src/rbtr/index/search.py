@@ -13,12 +13,12 @@ coordinates channel retrieval, candidate merging, and fusion.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import dataframely as dy
 import duckdb
 import polars as pl
+import structlog
 
 from rbtr.config import WeightTriple, config
 from rbtr.index.classify import classify_query
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from rbtr.index.reranker import Reranker
     from rbtr.index.store import IndexStore
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # Import and doc_section chunks produce misleadingly high cosine
 # scores due to short, keyword-dense content.  Filtering them
@@ -483,7 +483,7 @@ def _embed_query(
                 variant_texts = [f"{prefix}{v}" if prefix else v for v in variants]
                 variant_vecs = [r.vector for r in embedder.embed(variant_texts)]
             except (RuntimeError, ValueError):
-                log.debug("Variant batch embedding failed", exc_info=True)
+                log.debug("variant_embedding_failed", exc_info=True)
     except (RuntimeError, ValueError):
         return []
     return [original_vec, *variant_vecs]
