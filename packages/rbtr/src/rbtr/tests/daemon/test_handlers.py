@@ -26,6 +26,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.index.models import EdgeKind, QueryKind
 
 
 @pytest.fixture
@@ -58,38 +59,59 @@ def test_search_respects_limit(running_server_with_index: DaemonServer, fake_rep
     assert len(resp.results) <= 1
 
 
-def test_search_with_client_keywords(
+@pytest.mark.parametrize(
+    ("keywords", "variants"),
+    [
+        (["settings", "configuration"], None),
+        (None, ["read configuration from file"]),
+    ],
+)
+def test_search_accepts_expansion_inputs(
     running_server_with_index: DaemonServer,
     fake_repo: str,
+    keywords: list[str] | None,
+    variants: list[str] | None,
 ) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(
             SearchRequest(
                 repo_path=fake_repo,
                 query="load_config",
-                keywords=["settings", "configuration"],
+                keywords=keywords,
+                variants=variants,
             ),
         )
     assert isinstance(resp, SearchResponse)
-    assert resp.expansion is not None
-    assert resp.expansion.keywords == ["settings", "configuration"]
+    assert len(resp.results) > 0
 
 
-def test_search_with_client_variants(
+@pytest.mark.parametrize("explain", [True, False])
+def test_search_query_kind_only_under_explain(
     running_server_with_index: DaemonServer,
     fake_repo: str,
+    explain: bool,
 ) -> None:
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(
+            SearchRequest(repo_path=fake_repo, query="load_config", explain=explain),
+        )
+    assert isinstance(resp, SearchResponse)
+    assert (resp.query_kind is not None) == explain
+
+
+def test_search_query_kind_override_without_expansion(
+    running_server_with_index: DaemonServer,
+    fake_repo: str,
+) -> None:
+    """An explicit query_kind is honoured with no keywords/variants present."""
+    with DaemonClient(running_server_with_index.runtime_dir) as client:
+        resp = client.send(
             SearchRequest(
-                repo_path=fake_repo,
-                query="load_config",
-                variants=["read configuration from file"],
+                repo_path=fake_repo, query="load_config", query_kind="code", explain=True
             ),
         )
     assert isinstance(resp, SearchResponse)
-    assert resp.expansion is not None
-    assert resp.expansion.variants == ["read configuration from file"]
+    assert resp.query_kind == QueryKind.CODE
 
 
 # ── Read symbol ──────────────────────────────────────────────────────
@@ -204,8 +226,10 @@ def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> N
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
-    assert len(resp.edges) >= 1
-    assert resp.edges[0].target_id == "fn_config"
+    assert len(resp.refs) >= 1
+    # The reference resolves to the importing chunk in src/app.py.
+    assert resp.refs[0].edge == EdgeKind.IMPORTS
+    assert resp.refs[0].file_path == "src/app.py"
 
 
 def test_find_refs_unindexed_ref_errors(
@@ -230,9 +254,9 @@ def test_find_refs_with_file_paths(running_server_with_index: DaemonServer, fake
             FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/app.py"])
         )
     assert isinstance(scoped, FindRefsResponse)
-    assert len(scoped.edges) >= 1
+    assert len(scoped.refs) >= 1
     assert isinstance(elsewhere, FindRefsResponse)
-    assert len(elsewhere.edges) == 0
+    assert len(elsewhere.refs) == 0
 
 
 # ── Status ───────────────────────────────────────────────────────────

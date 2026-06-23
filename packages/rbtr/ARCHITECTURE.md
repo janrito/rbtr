@@ -507,7 +507,7 @@ A concrete search exchange:
 ```json
 → {"kind": "search", "repo": "/path/to/repo", "query": "retry logic", "limit": 10}
 ← {"kind": "search", "results": [{"name": "retry_with_backoff", "kind": "function",
-    "file_path": "src/client.py", "score": 0.87, "lexical": 0.4, "semantic": 0.9, ...}]}
+    "file_path": "src/client.py", "line_start": 12, "line_end": 30, "score": 0.87}]}
 ```
 
 A progress notification (PUB):
@@ -573,8 +573,30 @@ matches are dropped rather than guessed.
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
 to chunk IDs via `match_by_name` (edges are keyed on chunk
-IDs, not names), then returns the inbound edges targeting
-those IDs.
+IDs, not names), then a single `inbound_refs` query joins the
+inbound edges to their *source* chunk so the response names
+the referring symbol (`RefOut`) rather than exposing an opaque
+hash.
+
+## Storage models vs API DTOs
+
+The read commands (`search`, `read-symbol`, `list-symbols`,
+`find-refs`, `changed-symbols`) do not return the storage
+models (`Chunk`, `ScoredChunk`, `Edge`). Those carry
+persistence detail — identity hashes (`id`, `blob_sha`), the
+embedding, the full ranking-signal breakdown, an
+always-present `metadata` bag — that no caller needs and that
+adds noise and tokens to an agent's context. Handlers instead
+project to output DTOs in `rbtr.daemon.dto` (`SymbolOut`,
+`SearchHitOut`, `RefOut`): a curated, low-noise public
+contract. Empty `metadata` and null `repo_path` are omitted;
+the nine search signals collapse to a single `score` unless
+the request sets `explain`, which attaches a nested
+`SearchSignals` (used by the eval tuners). The DTOs are
+output-only — never fed to the write/staging path — which is
+what lets them omit fields freely; the storage models, which
+the same `model_dump` serialises into DuckDB staging frames,
+cannot.
 
 ## Search fusion
 
@@ -648,17 +670,20 @@ repos.
 
 ### Query expansion
 
-Query expansion is client-supplied. The caller passes
-an `Expansion(kind, keywords, variants)` on
-`SearchRequest`. In pi sessions the session LLM
-generates keywords and variants inline as tool-call
+Query expansion is client-supplied: the caller passes
+`keywords` and `variants` directly on `SearchRequest`,
+which strips, de-duplicates, and caps them
+(`config.max_expansion_keywords`). In pi sessions the
+session LLM generates them inline as tool-call
 parameters, guided by `promptGuidelines`. In eval the
 `expand` DVC stage pre-generates them via an LLM API.
 
 A heuristic classifier (`classify_query` in
-`index/classify.py`) determines the query kind. When
-the caller provides no expansion, `search()` classifies
-the query and selects per-kind fusion weights.
+`index/classify.py`) determines the query kind, from
+which `search()` selects the per-kind fusion weights.
+The caller may force the kind with the
+`SearchRequest.query_kind` override; otherwise the
+query text is classified.
 Classification uses additive scoring: syntax characters
 (braces, operators, function-call patterns) and language
 keywords each contribute points. A query is classified

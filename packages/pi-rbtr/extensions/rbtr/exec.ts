@@ -2,7 +2,8 @@
  * CLI invocation and command resolution for rbtr.
  *
  * Resolves the `command` setting into an executable + base args pair,
- * then provides helpers to run rbtr subcommands and parse NDJSON output.
+ * then provides helpers to run rbtr subcommands and parse their JSON
+ * response object.
  *
  * When the command is `"rbtr"`, resolution follows a cascade:
  * 1. rbtr in the active Python environment (detected via
@@ -67,16 +68,6 @@ export function resolveCommand(command: string): ResolvedCommand {
   return { executable: trimmed, baseArgs: ["--json"], description: `${trimmed} (PATH)` };
 }
 
-/**
- * Parse NDJSON (newline-delimited JSON) output into typed objects.
- */
-export function parseNdjson<T>(stdout: string): T[] {
-  return stdout
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line) => JSON.parse(line) as T);
-}
-
 export interface RbtrExecResult {
   stdout: string;
   stderr: string;
@@ -113,14 +104,14 @@ export async function runRbtr(
 }
 
 /**
- * Run an rbtr subcommand and parse NDJSON output.
+ * Run an rbtr subcommand and parse its single JSON response object.
  */
 export async function runRbtrJson<T>(
   pi: ExtensionAPI,
   resolved: ResolvedCommand,
   args: string[],
   options?: { signal?: AbortSignal; timeout?: number },
-): Promise<T[]> {
+): Promise<T> {
   const result = await runRbtr(pi, resolved, args, options);
-  return parseNdjson<T>(result.stdout);
+  return JSON.parse(result.stdout) as T;
 }

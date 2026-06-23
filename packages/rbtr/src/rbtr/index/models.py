@@ -32,6 +32,19 @@ CODE_KINDS: frozenset[ChunkKind] = frozenset(
 )
 
 
+class QueryKind(StrEnum):
+    """Query processing tier.
+
+    `CONCEPT`    — natural-language question ("how does fusion work").
+    `IDENTIFIER` — a symbol name ("fuse_scores", "Embedder").
+    `CODE`       — a code fragment ("def fuse_scores(").
+    """
+
+    CONCEPT = "concept"
+    IDENTIFIER = "identifier"
+    CODE = "code"
+
+
 class ChangeKind(StrEnum):
     """How a symbol changed between two indexed commits."""
 
@@ -115,6 +128,7 @@ class ScoredChunk(BaseModel, frozen=True):
     repo_path: str | None = None
     file_path: str
     kind: ChunkKind
+    query_kind: QueryKind
     name: str
     scope: str = ""
     language: str = ""

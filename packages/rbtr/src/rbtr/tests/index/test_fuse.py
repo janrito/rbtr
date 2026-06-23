@@ -13,9 +13,8 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.index.classify import QueryKind
 from rbtr.index.frames import FusionInputRow
-from rbtr.index.models import ScoredChunk
+from rbtr.index.models import QueryKind, ScoredChunk
 from rbtr.index.search import fuse_scores, materialise_scored
 
 from .cases_fuse import FuseScenario
@@ -66,7 +65,7 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
         else config.search_weights[QueryKind.IDENTIFIER].gamma,
         top_k=scenario.top_k,
     )
-    return scenario, materialise_scored(frame)
+    return scenario, materialise_scored(frame, None, QueryKind.IDENTIFIER)
 
 
 def test_count_matches(fused: tuple[FuseScenario, list[ScoredChunk]]) -> None:

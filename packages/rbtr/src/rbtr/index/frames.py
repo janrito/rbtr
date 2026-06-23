@@ -229,6 +229,16 @@ class InboundDegreeResultRow(dy.Schema):
     degree = dy.Int64(nullable=False)
 
 
+class InboundRefResultRow(dy.Schema):
+    """Columns projected by `inbound_refs.sql`: a referrer + edge kind."""
+
+    name = dy.String(nullable=False)
+    kind = dy.Enum(k.value for k in ChunkKind)
+    file_path = dy.String(nullable=False)
+    line_start = dy.Int32(nullable=False)
+    edge = dy.Enum(k.value for k in EdgeKind)
+
+
 class ChunkPathResultRow(dy.Schema):
     """Columns projected by `get_chunk_paths.sql`."""
 

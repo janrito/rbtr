@@ -7,9 +7,6 @@ import subprocess
 import sys
 from io import StringIO
 
-import pytest
-from rich.console import Console
-
 from rbtr.cli import ConfigCmd
 
 
@@ -45,14 +42,10 @@ def test_config_piped_outputs_valid_json() -> None:
     assert "db_path" in payload
 
 
-def test_config_tty_prints_table(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_tty_prints_table(rendered: StringIO) -> None:
     """When stdout is a tty the command prints a rich table."""
-    buf = StringIO()
-    monkeypatch.setattr("rbtr.cli._out", Console(file=buf, highlight=False))
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-
     ConfigCmd().cli_cmd()
 
-    out = buf.getvalue()
+    out = rendered.getvalue()
     assert "data_dir" in out
     assert "config file:" in out

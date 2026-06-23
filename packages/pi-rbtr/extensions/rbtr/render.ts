@@ -5,9 +5,10 @@
  * renderResult (collapsed/expanded views).
  *
  * Two sources of payload:
- *   - details.response        — typed response from the daemon
- *                               (preferred path; no parsing).
- *   - content[].text (NDJSON) — from the CLI fallback path.
+ *   - details.response — typed response from the daemon
+ *                        (preferred path; no parsing).
+ *   - content[].text   — one JSON response object, from the CLI
+ *                        fallback path (the same shape, serialised).
  */
 
 import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
@@ -16,15 +17,15 @@ import { Text } from "@mariozechner/pi-tui";
 import type {
   ChangedSymbol,
   ChangedSymbolsResponse,
-  Chunk,
-  Edge,
   FindRefsResponse,
   ListSymbolsResponse,
   ReadSymbolResponse,
+  RefOut,
   Response,
-  ScoredChunk,
+  SearchHitOut,
   SearchResponse,
   StatusResponse,
+  SymbolOut,
 } from "./generated/protocol.js";
 
 type ToolResult = AgentToolResult<unknown>;
@@ -38,28 +39,28 @@ function getContentText(result: ToolResult): string {
   return "";
 }
 
-function tryParseNdjson<T>(text: string): T[] {
+function tryParseResponse(text: string): Response | undefined {
   try {
-    return text
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line) as T);
+    return JSON.parse(text) as Response;
   } catch {
-    return [];
+    return undefined;
   }
 }
 
 /**
- * Read the typed daemon response off ``result.details`` if it
- * came from the daemon path; otherwise parse NDJSON stdout.
+ * Return the ``payloadKey`` array of the response for *responseKind*.
+ *
+ * Both transports carry one JSON response object: the daemon path
+ * exposes it on ``result.details.response``; the CLI fallback prints it
+ * to stdout (captured as the tool content text). Either way we narrow
+ * the same generated ``Response`` union and read its list field.
  */
-function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
+export function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
   const details = result.details as { fromDaemon?: boolean; response?: Response } | undefined;
-  if (details?.fromDaemon && details.response?.kind === responseKind) {
-    const value = (details.response as unknown as Record<string, unknown>)[payloadKey];
-    return Array.isArray(value) ? (value as T[]) : [];
-  }
-  return tryParseNdjson<T>(getContentText(result));
+  const response = details?.fromDaemon ? details.response : tryParseResponse(getContentText(result));
+  if (response?.kind !== responseKind) return [];
+  const value = (response as unknown as Record<string, unknown>)[payloadKey];
+  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function shortenPath(filePath: string): string {
@@ -100,7 +101,7 @@ export function renderSearchResult(
 ): Text {
   if (options.isPartial) return new Text(theme.fg("warning", "Searching…"), 0, 0);
 
-  const results = extractPayload<ScoredChunk>(result, "search", "results") satisfies SearchResponse["results"];
+  const results = extractPayload<SearchHitOut>(result, "search", "results") satisfies SearchResponse["results"];
   if (results.length === 0) {
     return new Text(theme.fg("dim", "No results found."), 0, 0);
   }
@@ -153,7 +154,7 @@ export function renderReadSymbolResult(
 ): Text {
   if (options.isPartial) return new Text(theme.fg("warning", "Reading…"), 0, 0);
 
-  const chunks = extractPayload<Chunk>(result, "read_symbol", "chunks") satisfies ReadSymbolResponse["chunks"];
+  const chunks = extractPayload<SymbolOut>(result, "read_symbol", "chunks") satisfies ReadSymbolResponse["chunks"];
   const symbol = (result.details as { symbol?: string } | undefined)?.symbol;
   if (chunks.length === 0) {
     return new Text(theme.fg("error", `Symbol not found${symbol ? `: ${symbol}` : ""}`), 0, 0);
@@ -194,7 +195,7 @@ export function renderListSymbolsCall(args: Record<string, unknown>, theme: Them
 export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("warning", "Listing…"), 0, 0);
 
-  const chunks = extractPayload<Chunk>(result, "list_symbols", "chunks") satisfies ListSymbolsResponse["chunks"];
+  const chunks = extractPayload<SymbolOut>(result, "list_symbols", "chunks") satisfies ListSymbolsResponse["chunks"];
   if (chunks.length === 0) {
     return new Text(theme.fg("dim", "No symbols found."), 0, 0);
   }
@@ -220,16 +221,19 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
 export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("warning", "Finding…"), 0, 0);
 
-  const edges = extractPayload<Edge>(result, "find_refs", "edges") satisfies FindRefsResponse["edges"];
-  if (edges.length === 0) {
+  const refs = extractPayload<RefOut>(result, "find_refs", "refs") satisfies FindRefsResponse["refs"];
+  if (refs.length === 0) {
     return new Text(theme.fg("dim", "No references found."), 0, 0);
   }
 
   const lines: string[] = [];
-  for (const e of edges) {
-    lines.push(`${e.source_id} ${theme.fg("dim", "→")} ${e.target_id}  ${theme.fg("muted", `(${e.kind})`)}`);
+  for (const r of refs) {
+    const path = shortenPath(r.file_path);
+    lines.push(
+      `${theme.fg("accent", path)}${theme.fg("dim", `:${r.line_start}`)}  ${theme.fg("muted", r.kind)}  ${r.name}  ${theme.fg("dim", `(${r.edge})`)}`,
+    );
   }
-  lines.push(theme.fg("dim", `${edges.length} reference(s)`));
+  lines.push(theme.fg("dim", `${refs.length} reference(s)`));
   return new Text(lines.join("\n"), 0, 0);
 }
 

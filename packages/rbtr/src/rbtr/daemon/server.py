@@ -79,25 +79,12 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import RbtrError
 from rbtr.git import filter_tree_shas, normalise_repo_path
-from rbtr.index.classify import Expansion, QueryKind, classify_query
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
 
 log = logging.getLogger(__name__)
-
-
-def _parse_query_kind_override(raw: str | None) -> QueryKind | None:
-    """Convert a request's `query_kind` string to `QueryKind | None`.
-
-    `None` means heuristic (no override).
-    """
-    match raw:
-        case None:
-            return None
-        case _:
-            return QueryKind(raw)
 
 
 type RequestHandler = Callable[[Any], Response | Awaitable[Response]]
@@ -207,23 +194,12 @@ class DaemonServer:
         rnk = self._reranker
 
         async def _async_search(req: Any) -> Response:
-            override = _parse_query_kind_override(req.query_kind)
-            if req.keywords is not None or req.variants is not None:
-                kind = override or classify_query(req.query)
-                expansion: Expansion | None = Expansion(
-                    kind=kind,
-                    keywords=req.keywords or [],
-                    variants=req.variants or [],
-                )
-            else:
-                expansion = None
             async with self._gpu_lock:
                 return await asyncio.to_thread(
                     handle_search,
                     req,
                     store,
                     embedder=emb,
-                    expansion=expansion,
                     reranker=rnk,
                     is_building=self._is_building,
                 )

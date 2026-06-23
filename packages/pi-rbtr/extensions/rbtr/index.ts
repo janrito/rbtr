@@ -254,8 +254,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     if (!resolved) return null;
     try {
       const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
-      const results = await runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
-      return results[0] ?? null;
+      return await runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
     } catch {
       return null;
     }
@@ -884,7 +883,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               symbol: params.symbol,
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
-            if (resp.edges.length === 0) {
+            if (resp.refs.length === 0) {
               return {
                 content: [{ type: "text", text: `No references found for: ${params.symbol}` }],
                 details: { fromDaemon: true, response: resp },

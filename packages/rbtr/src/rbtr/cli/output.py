@@ -17,25 +17,31 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from pydantic import BaseModel
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import to_json
 from rich.console import Console
 from rich.progress import Progress, TaskID
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import config
+from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     BuildIndexResponse,
     ChangedSymbol,
     ChangedSymbolsResponse,
+    FindRefsResponse,
     GcResponse,
     IndexedRef,
+    ListSymbolsResponse,
     OkResponse,
+    ReadSymbolResponse,
     SearchResponse,
     StatusResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.index.classify import Expansion
-from rbtr.index.models import ChangeKind, Chunk, Edge, ScoredChunk
+from rbtr.index.models import ChangeKind
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich
 # style per change kind, and the added→modified→removed order.
@@ -66,23 +72,55 @@ def _json_output() -> bool:
     return config.json_output or not _out.is_terminal
 
 
-def emit(model: BaseModel, *, compact: bool = False) -> None:
-    """Print a single output model — JSON or rich-formatted.
+def emit(model: BaseModel) -> None:
+    """Print a response model — the sole output boundary.
 
-    *compact* only affects TTY mode — JSON is always the full
-    model. When True, chunk renderers show a one-line summary
-    instead of the full source.
+    JSON mode serialises the whole model in one `model_dump_json` call;
+    TTY mode hands off to `_print_rich`. Callers pass the response and
+    never choose the format — this module owns it, dispatching on type.
     """
     if _json_output():
         sys.stdout.write(model.model_dump_json())
         sys.stdout.write("\n")
     else:
-        _print_rich(model, compact=compact)
+        _print_rich(model)
 
 
 def print_err(msg: str) -> None:
     """Print a rich-formatted message to stderr."""
     _err.print(msg)
+
+
+def print_json_schema(schema: JsonSchemaValue) -> None:
+    """Serialise a JSON Schema document to stdout as indented JSON.
+
+    Always JSON (no rich rendering) — for the protocol schema dump;
+    ordinary responses go through `emit`. Pydantic's writer serialises.
+    """
+    sys.stdout.write(to_json(schema, indent=2).decode())
+    sys.stdout.write("\n")
+
+
+def render_config() -> None:
+    """Render the resolved configuration.
+
+    Piped / `--json`: the full config as indented JSON (a human reads
+    this; unlike protocol responses it isn't machine-consumed). TTY: a
+    settings table plus the config-file location.
+    """
+    if _json_output():
+        sys.stdout.write(config.model_dump_json(indent=2))
+        sys.stdout.write("\n")
+        return
+    table = Table(title="rbtr configuration")
+    table.add_column("Setting", style="bold")
+    table.add_column("Value")
+    for key, value in sorted(config.model_dump(mode="json").items()):
+        table.add_row(key, str(value))
+    _out.print(table)
+    toml_path = config.config_dir / "config.toml"
+    exists = "(exists)" if toml_path.exists() else "(not found)"
+    _out.print(f"[dim]config file:[/] {toml_path} {exists}")
 
 
 def print_banner() -> None:
@@ -156,7 +194,7 @@ def _score_style(score: float) -> str:
 # ── Rich formatting ─────────────────────────────────────────────────
 
 
-def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
+def _print_rich(model: BaseModel) -> None:
     """Format a model with rich for interactive terminal output.
 
     Rule: every field in the model must appear in the output.
@@ -168,14 +206,14 @@ def _print_rich(model: BaseModel, *, compact: bool = False) -> None:
             _render_build_index_response(model)
         case SearchResponse():
             _render_search_response(model)
-        case ScoredChunk():
-            _render_scored_result(model)
-        case Chunk():
-            _render_chunk(model, compact=compact)
+        case ReadSymbolResponse():
+            _render_read_symbol_response(model)
+        case ListSymbolsResponse():
+            _render_list_symbols_response(model)
+        case FindRefsResponse():
+            _render_find_refs_response(model)
         case ChangedSymbolsResponse():
             _render_changed_symbols_response(model)
-        case Edge():
-            _render_edge(model)
         case StatusResponse():
             _render_status_response(model)
         case DaemonStatusReport():
@@ -203,24 +241,26 @@ def _render_build_index_response(m: BuildIndexResponse) -> None:
 
 
 def _render_search_response(m: SearchResponse) -> None:
-    if m.expansion is not None:
-        _render_expansion_summary(m.expansion)
     for r in m.results:
         _render_scored_result(r)
 
 
-def _render_expansion_summary(exp: Expansion) -> None:
-    """Print a dim one-liner summarising the expansion applied to a search."""
-    t = Text("  expansion: ", style="dim")
-    t.append(exp.kind.value, style="dim bold")
-    if exp.keywords:
-        t.append(f"  kw=[{', '.join(exp.keywords)}]", style="dim")
-    if exp.variants:
-        t.append(f"  variants={len(exp.variants)}", style="dim")
-    _out.print(t)
+def _render_read_symbol_response(m: ReadSymbolResponse) -> None:
+    for c in m.chunks:
+        _render_chunk(c)
 
 
-def _render_scored_result(m: ScoredChunk) -> None:
+def _render_list_symbols_response(m: ListSymbolsResponse) -> None:
+    for c in m.chunks:
+        _render_chunk(c, compact=True)
+
+
+def _render_find_refs_response(m: FindRefsResponse) -> None:
+    for r in m.refs:
+        _render_ref(r)
+
+
+def _render_scored_result(m: SearchHitOut) -> None:
     path = _short_path(m.file_path)
     if m.repo_path is not None:
         path = f"{os.path.basename(m.repo_path.rstrip('/'))}/{path}"
@@ -236,7 +276,6 @@ def _render_scored_result(m: ScoredChunk) -> None:
     # Score line
     s = Text("  ")
     s.append(f"{m.score:.2f}", style=_score_style(m.score))
-    s.append(f"  [{m.id[:8]}]", style="dim")
     _out.print(s)
 
     # Code preview — skip for single-line chunks (header is enough)
@@ -259,7 +298,7 @@ def _render_scored_result(m: ScoredChunk) -> None:
     _out.print()  # blank line between results
 
 
-def _render_chunk(m: Chunk, *, compact: bool = False) -> None:
+def _render_chunk(m: SymbolOut, *, compact: bool = False) -> None:
     path = _short_path(m.file_path)
 
     if compact:
@@ -343,12 +382,14 @@ def _render_changed_symbols_response(m: ChangedSymbolsResponse) -> None:
     _out.print(summary)
 
 
-def _render_edge(m: Edge) -> None:
+def _render_ref(m: RefOut) -> None:
+    path = _short_path(m.file_path)
     t = Text()
-    t.append(f"  {m.source_id}")
-    t.append(" → ", style="dim")
-    t.append(m.target_id)
-    t.append(f"  ({m.kind})", style="dim")
+    t.append(f"  {path}", style="bold")
+    t.append(f":{m.line_start}", style="dim")
+    t.append(f"  {m.kind}", style="dim")
+    t.append(f"  {m.name}")
+    t.append(f"  ({m.edge})", style="dim")
     _out.print(t)
 
 

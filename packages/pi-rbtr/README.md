@@ -73,9 +73,12 @@ knows the index is available without being told.
 ```json
 {"kind": "search", "results": [
   {"name": "fuse_scores", "kind": "function", "file_path": "src/rbtr/index/search.py",
-   "line_start": 298, "score": 0.49, "lexical": 0.0, "semantic": 0.81, "name_match": 0.0}
+   "line_start": 298, "line_end": 380, "content": "def fuse_scores(...):\n    ...", "score": 0.49}
 ]}
 ```
+
+The per-signal ranking breakdown is omitted by default; pass
+`explain: true` to include a nested `signals` object.
 
 **`rbtr_read_symbol`** — symbol name in, full source out:
 
@@ -95,11 +98,12 @@ knows the index is available without being told.
 ]}
 ```
 
-**`rbtr_find_refs`** — symbol name in, dependency edges out:
+**`rbtr_find_refs`** — symbol name in, referring symbols out:
 
 ```json
-{"kind": "find_refs", "edges": [
-  {"source_id": "abc123", "target_id": "def456", "kind": "imports"}
+{"kind": "find_refs", "refs": [
+  {"name": "from search import fuse_scores", "kind": "import",
+   "file_path": "src/rbtr/index/ranking.py", "line_start": 12, "edge": "imports"}
 ]}
 ```
 

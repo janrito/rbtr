@@ -205,6 +205,16 @@ def case_search_response() -> MessageScenario:
 
 
 @case(tags=["response"])
+def case_search_response_with_query_kind() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"search","results":[],"query_kind":"concept"}',
+        adapter=response_adapter,
+        expected_type=SearchResponse,
+        checks={"query_kind": "concept"},
+    )
+
+
+@case(tags=["response"])
 def case_read_symbol_response() -> MessageScenario:
     return MessageScenario(
         raw=b'{"kind":"read_symbol","chunks":[]}',
@@ -227,10 +237,10 @@ def case_list_symbols_response() -> MessageScenario:
 @case(tags=["response"])
 def case_find_refs_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"find_refs","edges":[]}',
+        raw=b'{"kind":"find_refs","refs":[]}',
         adapter=response_adapter,
         expected_type=FindRefsResponse,
-        checks={"edges": []},
+        checks={"refs": []},
     )
 
 

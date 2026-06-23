@@ -29,14 +29,11 @@ const HEADER = `/**
 
 `;
 
-interface Schemas {
-  request: JSONSchema;
-  response: JSONSchema;
-  notification: JSONSchema;
-  cli: Record<string, JSONSchema>;
+interface ProtocolSchema {
+  $defs: Record<string, JSONSchema>;
 }
 
-function runSchemaDump(): Schemas {
+function runSchemaDump(): ProtocolSchema {
   const result = spawnSync("uv", ["run", "--package", "rbtr", "rbtr", "schema-dump"], {
     encoding: "utf8",
     cwd: join(HERE, "..", "..", ".."),
@@ -47,60 +44,31 @@ function runSchemaDump(): Schemas {
     throw new Error(`rbtr schema-dump exited with code ${result.status}`);
   }
 
-  return JSON.parse(result.stdout) as Schemas;
-}
-
-/**
- * Pop a group's `$defs` into the shared map and return a top-level
- * `$ref` shape that points at the same definitions.
- *
- * The compiler emits one named type per `$defs` entry, so merging
- * everything into one map ensures shared definitions (`Chunk`,
- * `IndexVariant`, etc.) are emitted exactly once.  Without this,
- * the compiler renames duplicates as `IndexVariant1`,
- * `IndexVariant2`, ...
- */
-function moveDefs(group: JSONSchema, sharedDefs: Record<string, JSONSchema>): JSONSchema {
-  const groupDefs = (group.$defs ?? {}) as Record<string, JSONSchema>;
-  for (const [name, def] of Object.entries(groupDefs)) {
-    if (sharedDefs[name] === undefined) {
-      sharedDefs[name] = def;
-    }
-  }
-  const { $defs: _, ...rest } = group as Record<string, unknown>;
-  return rest as JSONSchema;
+  return JSON.parse(result.stdout) as ProtocolSchema;
 }
 
 async function main(): Promise<void> {
-  const schemas = runSchemaDump();
+  // `rbtr schema-dump` runs one `models_json_schema` pass, so every
+  // model is already a single shared `$defs` entry (no duplication to
+  // merge).  The three message unions live under the bundle wrapper's
+  // properties; lift them to named `$defs` so the compiler emits
+  // `Request` / `Response` / `Notification` as union types.
+  const { ProtocolSchema: bundle, ...memberDefs } = runSchemaDump().$defs;
+  const bundleProps = (bundle.properties ?? {}) as Record<string, JSONSchema>;
 
-  const sharedDefs: Record<string, JSONSchema> = {};
-  const requestRoot = moveDefs(schemas.request, sharedDefs);
-  const responseRoot = moveDefs(schemas.response, sharedDefs);
-  const notificationRoot = moveDefs(schemas.notification, sharedDefs);
-  const cliRoots: Record<string, JSONSchema> = {};
-  for (const [name, schema] of Object.entries(schemas.cli)) {
-    cliRoots[name] = moveDefs(schema, sharedDefs);
-  }
-
-  // Combined root schema: every top-level alias plus every CLI
-  // type lives as a `$defs` entry.  json-schema-to-typescript
-  // then walks the whole graph once and emits each definition
-  // exactly once.
   const combined: JSONSchema = {
     $defs: {
-      ...sharedDefs,
-      Request: requestRoot,
-      Response: responseRoot,
-      Notification: notificationRoot,
-      ...cliRoots,
+      ...memberDefs,
+      Request: bundleProps.request,
+      Response: bundleProps.response,
+      Notification: bundleProps.notification,
     },
     type: "object",
     properties: {
       request: { $ref: "#/$defs/Request" },
       response: { $ref: "#/$defs/Response" },
       notification: { $ref: "#/$defs/Notification" },
-      ...Object.fromEntries(Object.keys(cliRoots).map((name) => [name.toLowerCase(), { $ref: `#/$defs/${name}` }])),
+      daemonstatusreport: { $ref: "#/$defs/DaemonStatusReport" },
     },
     title: "RbtrProtocol",
   };

@@ -56,15 +56,15 @@ def test_search_scope(
     resp = handle_search(
         SearchRequest(repo_path=paths[1], query="load", scope=scenario.scope), store
     )
-    by_id = {r.id: r for r in resp.results}
-
-    expected_ids = {1: "r1_loader", 2: "r2_loader"}
-    for repo_id, chunk_id in expected_ids.items():
-        present = repo_id in scenario.expected_repos
-        assert (chunk_id in by_id) is present
-        if present and scenario.attributed:
-            assert by_id[chunk_id].repo_path == paths[repo_id]
-    if not scenario.attributed:
+    # The DTO carries no id; repo_path is the attribution signal. In
+    # attributed (cross-repo) mode the set of repo_paths returned must be
+    # exactly the in-scope repos; in workspace mode all hits are
+    # unattributed and come from the queried repo only.
+    if scenario.attributed:
+        expected_paths = {paths[r] for r in scenario.expected_repos}
+        assert {r.repo_path for r in resp.results} == expected_paths
+    else:
+        assert resp.results
         assert all(r.repo_path is None for r in resp.results)
 
 

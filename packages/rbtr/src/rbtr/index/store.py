@@ -56,7 +56,6 @@ from rbtr.config import WeightTriple, config
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
-from rbtr.index.classify import Expansion
 from rbtr.index.constants import SCHEMA_VERSION
 from rbtr.index.embeddings import Embedder
 from rbtr.index.frames import (
@@ -66,6 +65,7 @@ from rbtr.index.frames import (
     ChunkResultRow,
     EdgeResultRow,
     InboundDegreeResultRow,
+    InboundRefResultRow,
     ScoredChunkResultRow,
     _decode_metadata,
     file_paths_frame,
@@ -73,7 +73,7 @@ from rbtr.index.frames import (
     repo_refs_frame,
     scored_to_chunks,
 )
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, RepoRef, ScoredChunk
+from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, RepoRef, ScoredChunk
 from rbtr.index.reranker import Reranker
 from rbtr.index.search import search
 from rbtr.index.tokenise import tokenise_code
@@ -85,6 +85,7 @@ log = logging.getLogger(__name__)
 # Pre-load all SQL at import time so file I/O is not on the hot path.
 _GET_CHUNKS_SQL = load_sql("get_chunks.sql")
 _GET_EDGES_SQL = load_sql("get_edges.sql")
+_INBOUND_REFS_SQL = load_sql("inbound_refs.sql")
 _DIFF_SYMBOLS_SQL = load_sql("diff_symbols.sql")
 _SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
 _SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
@@ -448,6 +449,28 @@ class IndexStore:
         )
         return frame_to_chunks(frame)
 
+    def inbound_refs(
+        self, commit_sha: str, target_ids: list[str], *, repo_id: int
+    ) -> dy.DataFrame[InboundRefResultRow]:
+        """Return referrers of the given target chunks at *commit_sha*.
+
+        One row per inbound edge, resolved to the source (referrer)
+        chunk's identity plus the edge kind — powers `find-refs`.
+        """
+        if not target_ids:
+            return InboundRefResultRow.create_empty()
+        self._cursor.register(
+            "_repo_refs", repo_refs_frame([RepoRef(repo_id=repo_id, commit_sha=commit_sha)])
+        )
+        try:
+            return (
+                self._cursor.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
+                .pl()
+                .pipe(InboundRefResultRow.validate, cast=True)
+            )
+        finally:
+            self._cursor.unregister("_repo_refs")
+
     def get_chunks_frame(self, commit_sha: str, *, repo_id: int) -> dy.DataFrame[ChunkContentRow]:
         """Return all chunks at *commit_sha* as a content-only frame.
 
@@ -764,7 +787,9 @@ class IndexStore:
         top_k: int = 10,
         changed_files: set[str] | None = None,
         embedder: Embedder | None = None,
-        expansion: Expansion | None = None,
+        kind: QueryKind | None = None,
+        keywords: list[str] | None = None,
+        variants: list[str] | None = None,
         weights: WeightTriple | None = None,
         reranker: Reranker | None = None,
         reranker_pool: int | None = None,
@@ -786,7 +811,9 @@ class IndexStore:
             top_k=top_k,
             changed_files=changed_files,
             embedder=embedder,
-            expansion=expansion,
+            kind=kind,
+            keywords=keywords,
+            variants=variants,
             weights=weights,
             reranker=reranker,
             reranker_pool=reranker_pool,

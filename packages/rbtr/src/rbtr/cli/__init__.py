@@ -6,7 +6,8 @@ loaded from TOML/env, subcommand args from the CLI.
 Output modes:
 - **TTY** (interactive): rich-formatted text with syntax
   highlighting, coloured scores, and progress bars.
-- **Piped / --json**: JSON or NDJSON to stdout.
+- **Piped / --json**: a single JSON response object to stdout
+  (the same shape the daemon returns).
 
 Both modes emit the **same data** — the pydantic output models
 are the single source of truth. The human format is a richer
@@ -20,13 +21,12 @@ the daemon unless `--no-daemon` is given.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sys
 import threading
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError
 from pydantic_settings import (
     CliApp,
     CliPositionalArg,
@@ -34,10 +34,16 @@ from pydantic_settings import (
     CliSubCommand,
     get_subcommand,
 )
-from rich.table import Table
 from rich_argparse import RichHelpFormatter
 
-from rbtr.cli.output import _out, emit, print_banner, print_err, progress_reporter
+from rbtr.cli.output import (
+    emit,
+    print_banner,
+    print_err,
+    print_json_schema,
+    progress_reporter,
+    render_config,
+)
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
     _status,
@@ -68,17 +74,15 @@ from rbtr.daemon.messages import (
     GcResponse,
     ListSymbolsRequest,
     ListSymbolsResponse,
-    Notification,
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Request,
-    Response,
     Scope,
     SearchRequest,
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    protocol_json_schema,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
@@ -358,6 +362,12 @@ class Search(BaseModel):
             "Omit to use the heuristic."
         ),
     )
+    keywords: list[str] | None = Field(
+        None, description="Extra keyword to widen retrieval (repeatable)"
+    )
+    variants: list[str] | None = Field(
+        None, description="Alternative phrasing of the query (repeatable)"
+    )
     scope: ScopeField = Field(
         Scope.WORKSPACE,
         description="Search scope: workspace (this repo) or all (every indexed repo).",
@@ -376,6 +386,8 @@ class Search(BaseModel):
                 ref=self.ref,
                 weights=weights,
                 query_kind=self.query_kind,
+                keywords=self.keywords,
+                variants=self.variants,
                 scope=self.scope,
             )
         except ValidationError as exc:
@@ -439,8 +451,7 @@ class ReadSymbol(BaseModel):
 
         match try_daemon(request):
             case ReadSymbolResponse() as resp:
-                for c in resp.chunks:
-                    emit(c)
+                emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(1)
@@ -448,8 +459,7 @@ class ReadSymbol(BaseModel):
                 store = IndexStore.from_config()
 
                 try:
-                    for c in handle_read_symbol(request, store).chunks:
-                        emit(c)
+                    emit(handle_read_symbol(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)
@@ -477,8 +487,7 @@ class ListSymbols(BaseModel):
 
         match try_daemon(request):
             case ListSymbolsResponse() as resp:
-                for c in resp.chunks:
-                    emit(c, compact=True)
+                emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(1)
@@ -486,8 +495,7 @@ class ListSymbols(BaseModel):
                 store = IndexStore.from_config()
 
                 try:
-                    for c in handle_list_symbols(request, store).chunks:
-                        emit(c, compact=True)
+                    emit(handle_list_symbols(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)
@@ -519,8 +527,7 @@ class FindRefs(BaseModel):
 
         match try_daemon(request):
             case FindRefsResponse() as resp:
-                for e in resp.edges:
-                    emit(e)
+                emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(1)
@@ -528,8 +535,7 @@ class FindRefs(BaseModel):
                 store = IndexStore.from_config()
 
                 try:
-                    for e in handle_find_refs(request, store).edges:
-                        emit(e)
+                    emit(handle_find_refs(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)
@@ -693,41 +699,14 @@ class SchemaDump(BaseModel):
 
     def cli_cmd(self) -> None:
         # Always outputs JSON — ignore json_output mode.
-        out = {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "title": "rbtr Protocol",
-            "request": TypeAdapter(Request).json_schema(),
-            "response": TypeAdapter(Response).json_schema(),
-            "notification": TypeAdapter(Notification).json_schema(),
-            # CLI-only shapes — not part of any protocol union but
-            # exported so TypeScript can deserialise the JSON that
-            # `rbtr daemon status --json` prints.
-            "cli": {
-                "DaemonStatusReport": DaemonStatusReport.model_json_schema(),
-            },
-        }
-        print(json.dumps(out, indent=2))
+        print_json_schema(protocol_json_schema())
 
 
 class ConfigCmd(BaseModel):
     """Show the rendered rbtr configuration."""
 
     def cli_cmd(self) -> None:
-        if config.json_output or not sys.stdout.isatty():
-            sys.stdout.write(config.model_dump_json(indent=2))
-            sys.stdout.write("\n")
-            return
-
-        toml_path = config.config_dir / "config.toml"
-        table = Table(title="rbtr configuration")
-        table.add_column("Setting", style="bold")
-        table.add_column("Value")
-        for key, value in sorted(config.model_dump(mode="json").items()):
-            table.add_row(key, str(value))
-        _out.print(table)
-        _out.print(
-            f"[dim]config file:[/] {toml_path} {'(exists)' if toml_path.exists() else '(not found)'}"
-        )
+        render_config()
 
 
 # ── Root command ─────────────────────────────────────────────────────

@@ -28,9 +28,13 @@ def test_search_scope_all_merges_repos(two_repo_server: TwoRepoServer) -> None:
             SearchRequest(repo_path=two_repo_server.path_a, query="shared_fn", scope=Scope.ALL)
         )
     assert isinstance(resp, SearchResponse)
-    by_id = {r.id: r.repo_path for r in resp.results}
-    assert by_id.get("shared_alpha") == two_repo_server.path_a
-    assert by_id.get("shared_beta") == two_repo_server.path_b
+    # Both repos hold a `shared_fn`; the hit carries repo_path attribution
+    # rather than an id, so the merge shows as both repo_paths present.
+    assert "shared_fn" in {r.name for r in resp.results}
+    assert {r.repo_path for r in resp.results} == {
+        two_repo_server.path_a,
+        two_repo_server.path_b,
+    }
 
 
 def test_search_workspace_excludes_other_repo(two_repo_server: TwoRepoServer) -> None:
@@ -38,10 +42,10 @@ def test_search_workspace_excludes_other_repo(two_repo_server: TwoRepoServer) ->
     with DaemonClient(two_repo_server.server.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=two_repo_server.path_b, query="shared_fn"))
     assert isinstance(resp, SearchResponse)
-    ids = {r.id for r in resp.results}
-    assert "shared_beta" in ids
-    assert "shared_alpha" not in ids
-    assert "alpha_id" not in ids
+    names = {r.name for r in resp.results}
+    assert "shared_fn" in names
+    # Repo A's unique symbol must not leak into a repo-B workspace search.
+    assert "alpha_fn" not in names
     assert all(r.repo_path is None for r in resp.results)
 
 
@@ -68,4 +72,7 @@ def test_read_symbol_isolated_to_repo(two_repo_server: TwoRepoServer) -> None:
     with DaemonClient(two_repo_server.server.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=two_repo_server.path_a, symbol="shared_fn"))
     assert isinstance(resp, ReadSymbolResponse)
-    assert {c.id for c in resp.chunks} == {"shared_alpha"}
+    # Both repos hold a `shared_fn` in `shared.py`; the DTO carries no id,
+    # so isolation shows as exactly one chunk (a leak would return two).
+    assert len(resp.chunks) == 1
+    assert resp.chunks[0].name == "shared_fn"

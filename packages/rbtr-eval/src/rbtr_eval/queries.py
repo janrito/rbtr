@@ -18,7 +18,7 @@ from pathlib import Path
 import dataframely as dy
 import polars as pl
 
-from rbtr.index.classify import QueryKind
+from rbtr.index.models import QueryKind
 from rbtr_eval.schemas import QueryRow
 
 PROVENANCE_TO_KIND: dict[str, str] = {

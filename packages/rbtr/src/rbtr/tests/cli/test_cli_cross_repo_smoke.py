@@ -78,32 +78,29 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
     return TwoRepos(path_a=path_a, path_b=path_b)
 
 
-def _ndjson(stdout: str) -> list[dict]:
-    return [json.loads(line) for line in stdout.strip().splitlines() if line]
-
-
 def test_search_scope_all_merges_repos(two_repos: TwoRepos) -> None:
     """`search --scope all` returns hits from both repos, attributed."""
     r = run_cli(
         ["--json", "search", "shared_fn", "--scope", "all", "--repo-path", two_repos.path_a]
     )
     assert r.returncode == 0, r.stderr
-    payload = json.loads(r.stdout)
-    attributed = {(hit["id"], hit["repo_path"]) for hit in payload["results"]}
-    assert ("shared_alpha", two_repos.path_a) in attributed
-    assert ("shared_beta", two_repos.path_b) in attributed
+    # The hit carries repo_path attribution rather than an id; the merge
+    # shows as both repos' paths present among the results.
+    repo_paths = {hit["repo_path"] for hit in json.loads(r.stdout)["results"]}
+    assert repo_paths == {two_repos.path_a, two_repos.path_b}
 
 
 def test_search_workspace_excludes_other_repo(two_repos: TwoRepos) -> None:
     """A workspace search never surfaces the other repo's chunks."""
     r = run_cli(["--json", "search", "shared_fn", "--repo-path", two_repos.path_b])
     assert r.returncode == 0, r.stderr
-    payload = json.loads(r.stdout)
-    ids = {hit["id"] for hit in payload["results"]}
-    assert "shared_beta" in ids
-    assert "shared_alpha" not in ids
-    assert "alpha_id" not in ids
-    assert all(hit["repo_path"] is None for hit in payload["results"])
+    hits = json.loads(r.stdout)["results"]
+    names = {hit["name"] for hit in hits}
+    assert "shared_fn" in names
+    # Repo A's unique symbol must not leak into a repo-B workspace search.
+    assert "alpha_fn" not in names
+    # repo_path is omitted (not null) for workspace hits.
+    assert all("repo_path" not in hit for hit in hits)
 
 
 def test_status_scope_all_lists_both_repos(two_repos: TwoRepos) -> None:
@@ -127,5 +124,8 @@ def test_read_symbol_isolated_to_repo(two_repos: TwoRepos) -> None:
     """read-symbol for a colliding name returns only the path's repo."""
     r = run_cli(["--json", "read-symbol", "shared_fn", "--repo-path", two_repos.path_a])
     assert r.returncode == 0, r.stderr
-    ids = {line["id"] for line in _ndjson(r.stdout)}
-    assert ids == {"shared_alpha"}
+    # Both repos hold a `shared_fn`; the DTO carries no id, so isolation
+    # shows as a single chunk (a leak would emit the other repo's too).
+    chunks = json.loads(r.stdout)["chunks"]
+    assert len(chunks) == 1
+    assert chunks[0]["name"] == "shared_fn"

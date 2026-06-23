@@ -92,6 +92,16 @@ single ranked result. See
 [ARCHITECTURE.md](ARCHITECTURE.md#search-fusion)
 for the fusion algorithm.
 
+Supply `--keywords` and `--variants` (both repeatable) to
+widen retrieval — keywords extend the lexical query,
+variants add semantic rephrasings:
+
+```bash
+rbtr search "load config" \
+  --keywords settings --keywords env \
+  --variants "read configuration from file"
+```
+
 Pass `--scope all` to search every indexed repo in the
 shared store, not just the current one. Results from all
 repos merge into one ranked list, each prefixed with its
@@ -218,9 +228,10 @@ Modes: `head_only` keeps only the current HEAD.
 ## Output modes
 
 - **TTY**: rich-formatted text with syntax highlighting.
-- **Piped / `--json`**: NDJSON — one JSON object per line.
+- **Piped / `--json`**: a single JSON object — the full response
+  model, serialised in one pass (the same shape the daemon returns).
 
-Example NDJSON from `rbtr search --json`:
+Example from `rbtr search --json`:
 
 ```json
 {"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_path":"src/rbtr/index/search.py","score":0.49,...}]}

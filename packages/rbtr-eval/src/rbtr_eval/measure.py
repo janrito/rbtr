@@ -36,7 +36,8 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.classify import QueryKind, classify_query
+from rbtr.index.classify import classify_query
+from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
@@ -181,7 +182,7 @@ def _run_searches(
                     variants=vr,
                 )
                 latency_ms = (time.monotonic() - t0) * 1000.0
-                exp = resp.expansion
+                expanded = kw is not None or vr is not None
                 rows.append(
                     {
                         "arm": arm.value,
@@ -204,9 +205,9 @@ def _run_searches(
                             }
                             for h in resp.results
                         ],
-                        "expansion_kind": exp.kind.value if exp else None,
-                        "expansion_n_keywords": len(exp.keywords) if exp else None,
-                        "expansion_n_variants": len(exp.variants) if exp else None,
+                        "expansion_kind": query_kind if expanded else None,
+                        "expansion_n_keywords": len(kw or []) if expanded else None,
+                        "expansion_n_variants": len(vr or []) if expanded else None,
                     }
                 )
                 done += 1
