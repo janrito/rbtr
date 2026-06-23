@@ -171,7 +171,7 @@ class IndexCmd(BaseModel):
                 *dir_flags,
                 "index",
                 "--no-daemon",
-                "--path",
+                "--repo-path",
                 str(repo_path),
             ]
             if not self.embed:
@@ -182,7 +182,7 @@ class IndexCmd(BaseModel):
                     *dir_flags,
                     "gc",
                     "--keep-head-only",
-                    "--path",
+                    "--repo-path",
                     str(repo_path),
                 ]
             )

@@ -50,8 +50,8 @@ describe("send", () => {
       },
     });
 
-    await send({ kind: "search", path: "/r", query: "needle", limit: 5 }, { rpcEndpoint: daemon.endpoint });
+    await send({ kind: "search", repo_path: "/r", query: "needle", limit: 5 }, { rpcEndpoint: daemon.endpoint });
 
-    expect(seen).toEqual({ kind: "search", path: "/r", query: "needle", limit: 5 });
+    expect(seen).toEqual({ kind: "search", repo_path: "/r", query: "needle", limit: 5 });
   });
 });

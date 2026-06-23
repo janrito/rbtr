@@ -34,6 +34,8 @@ class DiffScenario:
     # Index head under its *tree* SHA, not its commit SHA — exercises
     # the worktree path, where a working tree is indexed by tree SHA.
     head_as_tree: bool = False
+    # Scope the diff to these files; None diffs every file.
+    file_paths: list[str] | None = None
 
 
 # A two-function module reused by several cases. Cases that must
@@ -188,6 +190,25 @@ class Svc:
         base_files={"svc.py": base},
         head_files={"svc.py": head},
         expected_modified={("start", "Svc"), ("Svc", "")},
+    )
+
+
+@case(tags=["diff"])
+def case_scoped_to_file() -> DiffScenario:
+    """`file_paths` scopes the diff to the listed files only.
+
+    Both files change, but scoping to `a.py` surfaces only its
+    symbol; `b.py`'s change must not leak in.
+    """
+    a_base = b"def a():\n    return 1\n"
+    a_head = b"def a():\n    return 2\n"
+    b_base = b"def b():\n    return 1\n"
+    b_head = b"def b():\n    return 2\n"
+    return DiffScenario(
+        base_files={"a.py": a_base, "b.py": b_base},
+        head_files={"a.py": a_head, "b.py": b_head},
+        expected_modified={("a", "")},
+        file_paths=["a.py"],
     )
 
 

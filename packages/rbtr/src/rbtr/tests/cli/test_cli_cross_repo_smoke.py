@@ -84,7 +84,9 @@ def _ndjson(stdout: str) -> list[dict]:
 
 def test_search_scope_all_merges_repos(two_repos: TwoRepos) -> None:
     """`search --scope all` returns hits from both repos, attributed."""
-    r = run_cli(["--json", "search", "shared_fn", "--scope", "all", "--path", two_repos.path_a])
+    r = run_cli(
+        ["--json", "search", "shared_fn", "--scope", "all", "--repo-path", two_repos.path_a]
+    )
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     attributed = {(hit["id"], hit["repo_path"]) for hit in payload["results"]}
@@ -94,7 +96,7 @@ def test_search_scope_all_merges_repos(two_repos: TwoRepos) -> None:
 
 def test_search_workspace_excludes_other_repo(two_repos: TwoRepos) -> None:
     """A workspace search never surfaces the other repo's chunks."""
-    r = run_cli(["--json", "search", "shared_fn", "--path", two_repos.path_b])
+    r = run_cli(["--json", "search", "shared_fn", "--repo-path", two_repos.path_b])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     ids = {hit["id"] for hit in payload["results"]}
@@ -106,7 +108,7 @@ def test_search_workspace_excludes_other_repo(two_repos: TwoRepos) -> None:
 
 def test_status_scope_all_lists_both_repos(two_repos: TwoRepos) -> None:
     """`status --scope all` reports exactly the two indexed repos."""
-    r = run_cli(["--json", "status", "--scope", "all", "--path", two_repos.path_a])
+    r = run_cli(["--json", "status", "--scope", "all", "--repo-path", two_repos.path_a])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     repo_paths = {ref["repo_path"] for ref in payload["indexed_refs"]}
@@ -115,7 +117,7 @@ def test_status_scope_all_lists_both_repos(two_repos: TwoRepos) -> None:
 
 def test_status_workspace_single_repo(two_repos: TwoRepos) -> None:
     """Workspace status reports only the path's repo."""
-    r = run_cli(["--json", "status", "--path", two_repos.path_a])
+    r = run_cli(["--json", "status", "--repo-path", two_repos.path_a])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert all(ref["repo_path"] == two_repos.path_a for ref in payload["indexed_refs"])
@@ -123,7 +125,7 @@ def test_status_workspace_single_repo(two_repos: TwoRepos) -> None:
 
 def test_read_symbol_isolated_to_repo(two_repos: TwoRepos) -> None:
     """read-symbol for a colliding name returns only the path's repo."""
-    r = run_cli(["--json", "read-symbol", "shared_fn", "--path", two_repos.path_a])
+    r = run_cli(["--json", "read-symbol", "shared_fn", "--repo-path", two_repos.path_a])
     assert r.returncode == 0, r.stderr
     ids = {line["id"] for line in _ndjson(r.stdout)}
     assert ids == {"shared_alpha"}

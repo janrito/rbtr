@@ -24,7 +24,7 @@ export interface SendScenario {
 export const sendScenarios: readonly SendScenario[] = [
   {
     name: "status round-trip",
-    request: { kind: "status", path: "/r" },
+    request: { kind: "status", repo_path: "/r" },
     daemonResponse: {
       kind: "status",
       db_path: "/home/db.duckdb",
@@ -41,19 +41,19 @@ export const sendScenarios: readonly SendScenario[] = [
   },
   {
     name: "search round-trip",
-    request: { kind: "search", path: "/r", query: "retry logic" },
+    request: { kind: "search", repo_path: "/r", query: "retry logic" },
     daemonResponse: { kind: "search", results: [] },
     expected: { kind: "success", response: { kind: "search", results: [] } },
   },
   {
     name: "index submission returns ok",
-    request: { kind: "index", path: "/r", refs: ["HEAD"] },
+    request: { kind: "index", repo_path: "/r", refs: ["HEAD"] },
     daemonResponse: { kind: "ok" },
     expected: { kind: "success", response: { kind: "ok" } },
   },
   {
     name: "error response raises RbtrDaemonError with code",
-    request: { kind: "status", path: "/nope" },
+    request: { kind: "status", repo_path: "/nope" },
     daemonResponse: {
       kind: "error",
       code: "repo_not_found",
@@ -67,7 +67,7 @@ export const sendScenarios: readonly SendScenario[] = [
   },
   {
     name: "error response preserves INTERNAL code",
-    request: { kind: "search", path: "/r", query: "x" },
+    request: { kind: "search", repo_path: "/r", query: "x" },
     daemonResponse: {
       kind: "error",
       code: "internal",

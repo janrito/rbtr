@@ -12,7 +12,7 @@ from rbtr.daemon.messages import SearchRequest
 
 
 def test_no_override_accepted() -> None:
-    req = SearchRequest(path="/r", query="q")
+    req = SearchRequest(repo_path="/r", query="q")
     assert req.weights is None
 
 
@@ -30,7 +30,7 @@ def test_no_override_accepted() -> None:
 )
 def test_valid_override_accepted(a: float, b: float, g: float) -> None:
     wt = WeightTriple(alpha=a, beta=b, gamma=g)
-    req = SearchRequest(path="/r", query="q", weights=wt)
+    req = SearchRequest(repo_path="/r", query="q", weights=wt)
     assert req.weights is not None
     assert (req.weights.alpha, req.weights.beta, req.weights.gamma) == (a, b, g)
 

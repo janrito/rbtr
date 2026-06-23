@@ -22,7 +22,8 @@ def test_changed_symbols_labels(
 ) -> None:
     """A modified function and a new function surface with the right labels."""
     resp = handle_changed_symbols(
-        ChangedSymbolsRequest(path=fake_repo, base=daemon_commit, head=changed_head), seeded_store
+        ChangedSymbolsRequest(repo_path=fake_repo, base=daemon_commit, head=changed_head),
+        seeded_store,
     )
 
     labelled = {(item.chunk.name, item.change) for item in resp.changes}
@@ -37,5 +38,6 @@ def test_changed_symbols_not_indexed(
 
     with pytest.raises(RbtrError, match="not indexed"):
         handle_changed_symbols(
-            ChangedSymbolsRequest(path=fake_repo, base=daemon_commit, head=unindexed), seeded_store
+            ChangedSymbolsRequest(repo_path=fake_repo, base=daemon_commit, head=unindexed),
+            seeded_store,
         )

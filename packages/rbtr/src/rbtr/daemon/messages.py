@@ -37,7 +37,7 @@ class ErrorCode(StrEnum):
 class Scope(StrEnum):
     """Breadth of a search or status request.
 
-    `WORKSPACE` is the single repo identified by `path`;
+    `WORKSPACE` is the single repo identified by `repo_path`;
     `ALL` is every indexed repo in the shared store.
     """
 
@@ -51,10 +51,10 @@ _STRICT = ConfigDict(extra="forbid")
 
 
 @runtime_checkable
-class HasPath(Protocol):
+class HasRepoPath(Protocol):
     """Any message that carries a repository path."""
 
-    path: str
+    repo_path: str
 
 
 # ── Job types (work queue) ───────────────────────────────────────────
@@ -65,13 +65,13 @@ class BuildJob(BaseModel):
 
     model_config = _STRICT
     kind: Literal["build"] = "build"
-    path: str
+    repo_path: str
     refs: tuple[str, ...]
     embed: bool = True
 
     @property
     def dedupe_key(self) -> Hashable:
-        return (self.path, self.refs)
+        return (self.repo_path, self.refs)
 
 
 class EmbedJob(BaseModel):
@@ -79,7 +79,7 @@ class EmbedJob(BaseModel):
 
     model_config = _STRICT
     kind: Literal["embed"] = "embed"
-    path: str
+    repo_path: str
     repo_id: int
     ref: str
 
@@ -102,7 +102,7 @@ class ShutdownRequest(BaseModel):
 class BuildIndexRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["index"] = "index"
-    path: str
+    repo_path: str
     refs: list[str] = ["HEAD"]
     embed: bool = True
 
@@ -117,7 +117,7 @@ class SearchRequest(BaseModel):
 
     model_config = _STRICT
     kind: Literal["search"] = "search"
-    path: str
+    repo_path: str
     query: str
     limit: int = 10
     ref: str | None = None
@@ -146,15 +146,16 @@ class SearchRequest(BaseModel):
 class ReadSymbolRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["read_symbol"] = "read_symbol"
-    path: str
-    name: str
+    repo_path: str
+    symbol: str
     ref: str | None = None
+    file_paths: list[str] | None = None
 
 
 class ListSymbolsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
-    path: str
+    repo_path: str
     file_path: str
     ref: str | None = None
 
@@ -162,23 +163,25 @@ class ListSymbolsRequest(BaseModel):
 class FindRefsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["find_refs"] = "find_refs"
-    path: str
+    repo_path: str
     symbol: str
     ref: str | None = None
+    file_paths: list[str] | None = None
 
 
 class ChangedSymbolsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["changed_symbols"] = "changed_symbols"
-    path: str
+    repo_path: str
     base: str
     head: str
+    file_paths: list[str] | None = None
 
 
 class StatusRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["status"] = "status"
-    path: str
+    repo_path: str
     scope: Scope = Scope.WORKSPACE
 
 
@@ -195,7 +198,7 @@ class GcMode(StrEnum):
 class GcRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    path: str
+    repo_path: str
     mode: GcMode
     refs: list[str] = []
     dry_run: bool = False
@@ -295,7 +298,7 @@ class ActiveJob(BaseModel):
     """
 
     model_config = _STRICT
-    path: str
+    repo_path: str
     ref: str
     phase: str
     current: int
@@ -357,7 +360,7 @@ response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
 class ProgressNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["progress"] = "progress"
-    path: str
+    repo_path: str
     phase: str
     current: int
     total: int
@@ -366,7 +369,7 @@ class ProgressNotification(BaseModel):
 class ReadyNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["ready"] = "ready"
-    path: str
+    repo_path: str
     ref: str
     chunks: int
     embedded: int
@@ -377,14 +380,14 @@ class ReadyNotification(BaseModel):
 class AutoRebuildNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["auto_rebuild"] = "auto_rebuild"
-    path: str
+    repo_path: str
     new_ref: str
 
 
 class EmbedCompleteNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["embed_complete"] = "embed_complete"
-    path: str
+    repo_path: str
     ref: str
     chunks: int
     embedded: int
@@ -393,7 +396,7 @@ class EmbedCompleteNotification(BaseModel):
 class IndexErrorNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["index_error"] = "index_error"
-    path: str
+    repo_path: str
     message: str
 
 

@@ -128,6 +128,16 @@ class RepoRefRow(dy.Schema):
     commit_sha = dy.String(nullable=False)
 
 
+class FilePathRow(dy.Schema):
+    """Backs the cursor-registered `_file_paths` join view.
+
+    Not an insert target: the diff SQL inner-joins against this view
+    to scope changed symbols to a caller-supplied set of files.
+    """
+
+    file_path = dy.String(nullable=False)
+
+
 # ── Result-row schemas (DuckDB -> Python reads) ──────────────────────
 
 
@@ -297,6 +307,13 @@ def repo_refs_frame(refs: list[RepoRef]) -> dy.DataFrame[RepoRefRow]:
             "commit_sha": [r.commit_sha for r in refs],
         }
     ).pipe(RepoRefRow.validate, cast=True)
+
+
+def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
+    """Build the `_file_paths` join view from a list of file paths."""
+    if not file_paths:
+        return FilePathRow.create_empty()
+    return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
 
 
 def embeddings_frame(

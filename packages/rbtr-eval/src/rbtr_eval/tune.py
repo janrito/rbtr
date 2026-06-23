@@ -80,7 +80,7 @@ def _collect_scored_candidates(
         resp = client.send_or_raise_as(
             SearchResponse,
             SearchRequest(
-                path=str(repo_path),
+                repo_path=str(repo_path),
                 query=query["text"],
                 limit=50,
             ),

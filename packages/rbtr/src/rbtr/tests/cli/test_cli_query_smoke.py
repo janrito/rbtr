@@ -155,7 +155,8 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         chunks_c1[2],  # import unchanged
     ]
 
-    edges = [Edge(source_id="imp_config", target_id="fn_config_v1", kind=EdgeKind.IMPORTS)]
+    edges_c1 = [Edge(source_id="imp_config", target_id="fn_config_v1", kind=EdgeKind.IMPORTS)]
+    edges_c2 = [Edge(source_id="imp_config", target_id="fn_config_v2", kind=EdgeKind.IMPORTS)]
 
     with store.session() as ws:
         for c in chunks_c1:
@@ -167,7 +168,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ],
             repo_id=repo_id,
         )
-        ws.insert_edges(edges, c1, repo_id=repo_id)
+        ws.insert_edges(edges_c1, c1, repo_id=repo_id)
         ws.mark_indexed(repo_id, c1)
 
     with store.session() as ws:
@@ -180,7 +181,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ],
             repo_id=repo_id,
         )
-        ws.insert_edges(edges, c2, repo_id=repo_id)
+        ws.insert_edges(edges_c2, c2, repo_id=repo_id)
         ws.mark_indexed(repo_id, c2)
 
     store.close()
@@ -191,7 +192,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
 
 
 def test_status_shows_indexed_refs(seeded_repo: SeededRepo) -> None:
-    r = run_cli(["--json", "status", "--path", str(seeded_repo.path)])
+    r = run_cli(["--json", "status", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["kind"] == "status"
@@ -200,7 +201,7 @@ def test_status_shows_indexed_refs(seeded_repo: SeededRepo) -> None:
 
 
 def test_read_symbol_returns_source(seeded_repo: SeededRepo) -> None:
-    r = run_cli(["--json", "read-symbol", "load_config", "--path", str(seeded_repo.path)])
+    r = run_cli(["--json", "read-symbol", "load_config", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
     lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
     assert len(lines) >= 1
@@ -210,7 +211,7 @@ def test_read_symbol_returns_source(seeded_repo: SeededRepo) -> None:
 
 
 def test_list_symbols_returns_file_outline(seeded_repo: SeededRepo) -> None:
-    r = run_cli(["--json", "list-symbols", "src/config.py", "--path", str(seeded_repo.path)])
+    r = run_cli(["--json", "list-symbols", "src/config.py", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
     lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
     assert len(lines) >= 1
@@ -219,11 +220,11 @@ def test_list_symbols_returns_file_outline(seeded_repo: SeededRepo) -> None:
 
 
 def test_find_refs_returns_edges(seeded_repo: SeededRepo) -> None:
-    r = run_cli(["--json", "find-refs", "fn_config_v1", "--path", str(seeded_repo.path)])
+    r = run_cli(["--json", "find-refs", "load_config", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr
     lines = [json.loads(line) for line in r.stdout.strip().splitlines()]
     assert len(lines) >= 1
-    assert any(line["target_id"] == "fn_config_v1" for line in lines)
+    assert any(line["target_id"] == "fn_config_v2" for line in lines)
 
 
 def test_changed_symbols_between_commits(seeded_repo: SeededRepo) -> None:
@@ -233,7 +234,7 @@ def test_changed_symbols_between_commits(seeded_repo: SeededRepo) -> None:
             "changed-symbols",
             seeded_repo.c1,
             seeded_repo.c2,
-            "--path",
+            "--repo-path",
             str(seeded_repo.path),
         ]
     )

@@ -14,7 +14,7 @@ export interface SessionScenario {
 export const sessionScenarios: readonly SessionScenario[] = [
   {
     name: "session routes status through cached endpoint",
-    request: { kind: "status", path: "/r" },
+    request: { kind: "status", repo_path: "/r" },
     daemonResponse: {
       kind: "status",
       db_path: "/home/db.duckdb",
@@ -28,13 +28,13 @@ export const sessionScenarios: readonly SessionScenario[] = [
   },
   {
     name: "session routes search through cached endpoint",
-    request: { kind: "search", path: "/r", query: "hello" },
+    request: { kind: "search", repo_path: "/r", query: "hello" },
     daemonResponse: { kind: "search", results: [] },
     expectedResponse: { kind: "search", results: [] },
   },
   {
     name: "session fires index as fire-and-forget ok",
-    request: { kind: "index", path: "/r", refs: ["HEAD"] },
+    request: { kind: "index", repo_path: "/r", refs: ["HEAD"] },
     daemonResponse: { kind: "ok" },
     expectedResponse: { kind: "ok" },
   },

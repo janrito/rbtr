@@ -559,7 +559,10 @@ class node (per the plugin's `scope_types`), the chunk gets
 - **Doc edges** - markdown sections mentioning symbol names.
 
 Powers `find-refs` and the importance signal in search
-ranking.
+ranking. `find-refs` first resolves the user's symbol *name*
+to chunk IDs via `match_by_name` (edges are keyed on chunk
+IDs, not names), then returns the inbound edges targeting
+those IDs.
 
 ## Search fusion
 

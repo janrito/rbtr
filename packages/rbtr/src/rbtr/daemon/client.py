@@ -12,7 +12,7 @@ Timeouts: 10 s receive, 5 s send.
 Usage::
 
     with DaemonClient() as client:
-        resp = client.send(StatusRequest(path="/path"))
+        resp = client.send(StatusRequest(repo_path="/path"))
 """
 
 from __future__ import annotations
