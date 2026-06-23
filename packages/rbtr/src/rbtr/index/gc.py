@@ -10,16 +10,20 @@ single source of truth for what `rbtr gc` can do.
 Modes
 -----
 
+WATCHED
+    The **default**.  Keep HEAD, every local branch / tag / note,
+    **and** every ref in the repo's `watched_refs` table resolved
+    to a SHA (unresolvable refs skipped).  So a routine GC keeps
+    everything a branch points at plus anything explicitly watched
+    (e.g. a bare SHA); it only drops genuinely unreferenced commits.
+WATCHED_ONLY
+    Keep HEAD plus the resolved `watched_refs` only — drops
+    unwatched branches and tags.  The opt-in way to reclaim every
+    ref that is not on the watch list.
 HEAD_ONLY
     Keep the repo's current HEAD; drop every other indexed commit.
-KEEP_REFS
-    Keep HEAD plus every local branch / tag / note.  Only refs
-    actually present in `indexed_commits` are kept; we never
-    trigger new indexing from a GC call.
 KEEP
     Keep the union of HEAD and the caller-supplied refs; drop rest.
-DROP
-    Drop only the caller-supplied refs; keep the rest.
 ORPHANS
     Do not drop any indexed commits.  Only sweep residue from
     crashed builds (`sweep_orphan_commits`, which also removes
@@ -31,13 +35,20 @@ from __future__ import annotations
 import structlog
 
 from rbtr.daemon.messages import GcMode
-from rbtr.git import head_sha, local_ref_shas, resolve_refs_to_shas, worktree_tree_sha
+from rbtr.errors import RbtrError
+from rbtr.git import (
+    head_sha,
+    local_ref_shas,
+    resolve_ref,
+    resolve_refs_to_shas,
+    worktree_tree_sha,
+)
 from rbtr.index.models import GcCounts
 from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
 
-# Reference namespaces that contribute to `KEEP_REFS`.
+# Reference namespaces kept by `WATCHED` (the default mode).
 _KEPT_REF_PREFIXES: tuple[str, ...] = (
     "refs/heads/",
     "refs/tags/",
@@ -63,13 +74,11 @@ def run_gc(
     if mode is GcMode.ORPHANS:
         return _run_orphans_only(store, repo_id, dry_run=dry_run)
 
-    keep_set = _resolve_keep_set(repo_path, mode=mode, refs=refs)
+    keep_set = _resolve_keep_set(repo_path, store, repo_id, mode=mode, refs=refs)
     drop_set = _resolve_drop_set(
         store,
         repo_path=repo_path,
         repo_id=repo_id,
-        mode=mode,
-        refs=refs,
         keep_set=keep_set,
     )
 
@@ -98,6 +107,8 @@ def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCo
 
 def _resolve_keep_set(
     repo_path: str,
+    store: IndexStore,
+    repo_id: int,
     *,
     mode: GcMode,
     refs: list[str],
@@ -106,13 +117,29 @@ def _resolve_keep_set(
     head = head_sha(repo_path)
     if mode is GcMode.HEAD_ONLY:
         return {head}
-    if mode is GcMode.KEEP_REFS:
-        return {head, *local_ref_shas(repo_path, _KEPT_REF_PREFIXES)}
     if mode is GcMode.KEEP:
         return {head, *resolve_refs_to_shas(repo_path, refs)}
-    # DROP has no keep set — every indexed commit is eligible unless
-    # explicitly listed in `refs`.
-    return set()
+    if mode is GcMode.WATCHED_ONLY:
+        return {head, *_watched_shas(store, repo_id, repo_path)}
+    # WATCHED (default): all local refs plus the resolved watch set.
+    return {
+        head,
+        *local_ref_shas(repo_path, _KEPT_REF_PREFIXES),
+        *_watched_shas(store, repo_id, repo_path),
+    }
+
+
+def _watched_shas(store: IndexStore, repo_id: int, repo_path: str) -> set[str]:
+    """Resolve the repo's watched refs to SHAs, skipping unresolvable ones."""
+    out: set[str] = set()
+    for ref in store.list_watched_refs(repo_id):
+        try:
+            out.add(resolve_ref(repo_path, ref))
+        except RbtrError:
+            # A watched ref that no longer resolves (deleted branch)
+            # keeps nothing; its old commit becomes collectable.
+            continue
+    return out
 
 
 def _resolve_drop_set(
@@ -120,11 +147,9 @@ def _resolve_drop_set(
     *,
     repo_path: str,
     repo_id: int,
-    mode: GcMode,
-    refs: list[str],
     keep_set: set[str],
 ) -> set[str]:
-    """Return SHAs to drop given *mode* and the resolved *keep_set*."""
+    """Return indexed SHAs to drop: everything outside *keep_set*."""
     indexed = {sha for sha, _at in store.list_indexed_commits(repo_id)}
     # Protect the current worktree tree SHA from GC.  Tree SHAs
     # are never reachable from a git ref (they're tree objects,
@@ -134,8 +159,6 @@ def _resolve_drop_set(
     current_wt = worktree_tree_sha(repo_path)
     if current_wt is not None:
         indexed.discard(current_wt)
-    if mode is GcMode.DROP:
-        return resolve_refs_to_shas(repo_path, refs) & indexed
     return indexed - keep_set
 
 

@@ -27,7 +27,7 @@ export type Scope = "workspace" | "all";
 /**
  * What a `rbtr gc` invocation is allowed to delete.
  */
-export type GcMode = "head_only" | "keep_refs" | "keep" | "drop" | "orphans";
+export type GcMode = "head_only" | "keep" | "orphans" | "watched" | "watched_only";
 export type Response =
   | ErrorResponse
   | OkResponse
@@ -89,6 +89,7 @@ export interface BuildIndexRequest {
   repo_path: string;
   refs?: string[];
   embed?: boolean;
+  remove?: boolean;
 }
 /**
  * Search the code index.
@@ -301,6 +302,7 @@ export interface StatusResponse {
   kind: "status";
   db_path?: string | null;
   indexed_refs?: IndexedRef[];
+  watched?: WatchedRef[];
   active_build?: ActiveJob | null;
   active_embed?: ActiveJob | null;
 }
@@ -312,6 +314,20 @@ export interface IndexedRef {
   names?: string[];
   total: number;
   embedded: number;
+  repo_path?: string | null;
+}
+/**
+ * A ref the daemon keeps indexed, and whether it is indexed yet.
+ *
+ * `sha` is the ref's current resolution (`None` when it no longer
+ * resolves, e.g. a deleted branch). `indexed` is true once that SHA
+ * has an `indexed_commits` row; false means *pending* (just added,
+ * or its tip moved and a rebuild is due).
+ */
+export interface WatchedRef {
+  ref: string;
+  sha?: string | null;
+  indexed?: boolean;
   repo_path?: string | null;
 }
 /**

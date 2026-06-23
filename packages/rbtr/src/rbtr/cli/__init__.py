@@ -87,7 +87,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.errors import RbtrError
-from rbtr.git import normalise_repo_path, resolve_ref
+from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.embeddings import Embedder
 from rbtr.index.orchestrator import build_index, embed_index
 from rbtr.index.reranker import Reranker
@@ -206,40 +206,47 @@ class Daemon(BaseModel):
 
 
 class Index(BaseModel):
-    """Index a repository (one ref or base + head)."""
+    """Watch refs for continuous indexing (`--remove` to stop).
 
-    refs: CliPositionalArg[list[str]] = Field(["HEAD"], description="Refs to index")
+    Each positional ref is an independent watch target the daemon
+    keeps indexed; `rbtr index` with no args watches `HEAD`.
+    """
+
+    refs: CliPositionalArg[list[str]] = Field([HEAD_REF], description="Refs to watch and index")
     repo_path: str = Field(".", description="Repository path")
+    remove: bool = Field(False, description="Stop watching the given refs (HEAD cannot be removed)")
+    remove_stale: bool = Field(
+        False, description="Stop watching refs that no longer resolve (e.g. deleted branches)"
+    )
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
     embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.repo_path)
 
-        # Resolve refs to SHAs
-        resolved_refs = [resolve_ref(resolved_repo, r) for r in self.refs]
-
-        if not self.daemon:
-            self._run_inline(resolved_repo, resolved_refs)
+        if self.remove_stale:
+            self._run_remove_stale(resolved_repo)
             return
 
-        request = BuildIndexRequest(
-            repo_path=resolved_repo,
-            refs=resolved_refs,
-            embed=self.embed,
-        )
+        if self.remove:
+            self._run_remove(resolved_repo)
+            return
+
+        # Validate every ref (raises on a bad ref); the daemon stores
+        # symbolic names so moving refs track their tip.
+        for r in self.refs:
+            resolve_ref(resolved_repo, r)
+
+        request = BuildIndexRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
+
+        if not self.daemon:
+            self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+            return
 
         # Try daemon first
         resp = try_daemon(request)
         if resp is not None:
-            match resp:
-                case BuildIndexResponse():
-                    emit(resp)
-                case OkResponse():
-                    print_err("[yellow]Index job queued.[/]")
-                    print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
-                case _:
-                    print_err(f"[red]error:[/] unexpected response: {resp}")
+            self._report_watch(resp, started=False)
             return
 
         # Daemon not running: auto-start and retry
@@ -248,15 +255,106 @@ class Index(BaseModel):
         except RuntimeError as exc:
             print_err(f"[red]error:[/] failed to start daemon: {exc}")
             print_err("[dim]Falling back to inline execution.[/]")
-            self._run_inline(resolved_repo, resolved_refs)
+            self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
             return
 
+        self._report_watch(try_daemon(request), started=True)
+
+    def _report_watch(self, resp: object, *, started: bool) -> None:
+        """Print the outcome of a daemon watch (add) request."""
+        suffix = " (daemon started)" if started else ""
+        match resp:
+            case BuildIndexResponse():
+                emit(resp)
+            case OkResponse():
+                print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
+                print_err("[dim]Indexing in background; run `rbtr daemon status` to track.[/]")
+            case ErrorResponse(message=msg):
+                print_err(f"[red]error:[/] {msg}")
+                sys.exit(1)
+            case _:
+                print_err("[red]error:[/] daemon did not record the watch")
+                sys.exit(1)
+
+    def _run_remove(self, resolved_repo: str) -> None:
+        """Stop watching the given refs (daemon path, else inline DB edit)."""
+        if HEAD_REF in self.refs:
+            print_err("[red]error:[/] HEAD cannot be removed from the watch set")
+            sys.exit(2)
+        request = BuildIndexRequest(
+            repo_path=resolved_repo, refs=self.refs, embed=self.embed, remove=True
+        )
         resp = try_daemon(request)
-        if resp is not None and isinstance(resp, (BuildIndexResponse, OkResponse)):
-            print_err("[yellow]Index job queued (daemon started).[/]")
-            print_err("[dim]Run `rbtr daemon status` to track progress.[/]")
+        if resp is not None:
+            match resp:
+                case OkResponse():
+                    print_err(f"[green]Stopped watching:[/] {', '.join(self.refs)}")
+                case ErrorResponse(message=msg):
+                    print_err(f"[red]error:[/] {msg}")
+                    sys.exit(1)
+                case _:
+                    print_err(f"[red]error:[/] unexpected response: {resp}")
+                    sys.exit(1)
+            return
+        # Daemon not running: edit the watch set inline (don't auto-start it).
+        store = IndexStore.from_config(writable=True)
+        try:
+            repo_id = store.get_repo_id(resolved_repo)
+            if repo_id is not None:
+                with store.session() as ws:
+                    ws.remove_watched_refs(repo_id, self.refs)
+        finally:
+            store.close()
+        print_err(f"[green]Stopped watching:[/] {', '.join(self.refs)}")
+
+    def _run_remove_stale(self, resolved_repo: str) -> None:
+        """Remove watched refs that no longer resolve (e.g. deleted branches).
+
+        Reuses `status` (which marks unresolvable refs with `sha=None`) when
+        the daemon is up; otherwise resolves against the store inline. `HEAD`
+        always resolves, so it is never pruned.
+        """
+        status = try_daemon(StatusRequest(repo_path=resolved_repo)) if self.daemon else None
+        if status is not None:
+            if not isinstance(status, StatusResponse):
+                print_err(f"[red]error:[/] unexpected response: {status}")
+                sys.exit(1)
+            stale = [w.ref for w in status.watched if w.sha is None and w.ref != HEAD_REF]
+            if stale:
+                resp = try_daemon(
+                    BuildIndexRequest(repo_path=resolved_repo, refs=stale, remove=True)
+                )
+                if isinstance(resp, ErrorResponse):
+                    print_err(f"[red]error:[/] {resp.message}")
+                    sys.exit(1)
+            self._report_stale(stale)
+            return
+        # No daemon: resolve each watched ref against the store and prune.
+        store = IndexStore.from_config(writable=True)
+        try:
+            repo_id = store.get_repo_id(resolved_repo)
+            stale = []
+            if repo_id is not None:
+                for ref in store.list_watched_refs(repo_id):
+                    if ref == HEAD_REF:
+                        continue
+                    try:
+                        resolve_ref(resolved_repo, ref)
+                    except RbtrError:
+                        stale.append(ref)
+                if stale:
+                    with store.session() as ws:
+                        ws.remove_watched_refs(repo_id, stale)
+        finally:
+            store.close()
+        self._report_stale(stale)
+
+    @staticmethod
+    def _report_stale(stale: list[str]) -> None:
+        if stale:
+            print_err(f"[green]Removed stale:[/] {', '.join(stale)}")
         else:
-            print_err("[red]error:[/] daemon started but failed to queue index job")
+            print_err("[dim]No stale watched refs.[/]")
 
     def _run_inline(
         self,
@@ -277,26 +375,18 @@ class Index(BaseModel):
                 elif phase == "parsing":
                     on_parse(done, total)
 
-            if len(resolved_refs) == 2:
-                build_index(
-                    resolved_repo,
-                    resolved_refs[0],
-                    store,
-                    repo_id=repo_id,
-                    on_progress=on_progress,
-                )
+            # Each ref is an independent full build.
+            result = build_index(
+                resolved_repo,
+                resolved_refs[0],
+                store,
+                repo_id=repo_id,
+                on_progress=on_progress,
+            )
+            for ref in resolved_refs[1:]:
                 result = build_index(
                     resolved_repo,
-                    resolved_refs[1],
-                    store,
-                    repo_id=repo_id,
-                    base_sha=resolved_refs[0],
-                    on_progress=on_progress,
-                )
-            else:
-                result = build_index(
-                    resolved_repo,
-                    resolved_refs[0],
+                    ref,
                     store,
                     repo_id=repo_id,
                     on_progress=on_progress,
@@ -614,24 +704,24 @@ class Status(BaseModel):
 class Gc(BaseModel):
     """Garbage-collect a repository's index.
 
-    By default drops every indexed commit except the current HEAD
-    and sweeps crashed-build residue. Alternate modes let you keep
-    specific refs, drop specific refs, or sweep residue only.
+    Destructive and not undoable — permanently deletes indexed
+    commits/chunks. Use --dry-run to preview first.
+
+    By default keeps the watch set — HEAD, all local branches/tags,
+    and every watched ref (plus the current worktree) — and sweeps
+    crashed-build residue. Alternate modes let you keep only the
+    watch set, only HEAD, or specific refs, or sweep residue only.
     """
 
     repo_path: str = Field(".", description="Repository path")
-    keep_head_only: bool = Field(False, description="Keep only HEAD; default behaviour")
-    keep_refs: bool = Field(
+    watched_only: bool = Field(
         False,
-        description="Keep HEAD, local branches, tags, and notes",
+        description="Keep only HEAD and watched refs (drop unwatched branches/tags)",
     )
+    keep_head_only: bool = Field(False, description="Keep only HEAD (drop everything else)")
     keep: CliPositionalArg[list[str]] = Field(
         [],
-        description="Keep these refs (implicitly keeps HEAD); drops the rest",
-    )
-    drop: list[str] = Field(
-        [],
-        description="Drop these refs; mutually exclusive with --keep",
+        description="Keep only these refs plus HEAD; drop the rest",
     )
     orphans: bool = Field(
         False,
@@ -668,20 +758,17 @@ class Gc(BaseModel):
                 sys.exit(1)
 
     def _resolve_mode(self) -> tuple[GcMode, list[str]]:
-        """Pick the mode from the set of flags; enforce exclusivity."""
-        if self.keep and self.drop:
-            print_err("[red]error:[/] --keep and --drop are mutually exclusive")
-            sys.exit(2)
+        """Pick the GC mode from the set of flags."""
         if self.orphans:
             return GcMode.ORPHANS, []
-        if self.drop:
-            return GcMode.DROP, self.drop
         if self.keep:
             return GcMode.KEEP, self.keep
-        if self.keep_refs:
-            return GcMode.KEEP_REFS, []
-        # keep_head_only is the default whether or not the flag is set
-        return GcMode.HEAD_ONLY, []
+        if self.watched_only:
+            return GcMode.WATCHED_ONLY, []
+        if self.keep_head_only:
+            return GcMode.HEAD_ONLY, []
+        # Default: HEAD + local branches/tags + the watch set.
+        return GcMode.WATCHED, []
 
 
 class SchemaDump(BaseModel):

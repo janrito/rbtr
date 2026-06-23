@@ -187,6 +187,7 @@ class BuildIndexRequest(BaseModel):
     repo_path: str
     refs: StrList = ["HEAD"]
     embed: bool = True
+    remove: bool = False
 
 
 class SearchRequest(BaseModel):
@@ -288,10 +289,10 @@ class GcMode(StrEnum):
     """What a `rbtr gc` invocation is allowed to delete."""
 
     HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
-    KEEP_REFS = "keep_refs"  # keep all local refs (branches/tags/notes/HEAD)
     KEEP = "keep"  # keep only listed refs
-    DROP = "drop"  # drop only listed refs
     ORPHANS = "orphans"  # sweep residue only, drop no commits
+    WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
+    WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
 
 
 class GcRequest(BaseModel):
@@ -416,11 +417,28 @@ class IndexedRef(BaseModel):
     repo_path: str | None = None
 
 
+class WatchedRef(BaseModel):
+    """A ref the daemon keeps indexed, and whether it is indexed yet.
+
+    `sha` is the ref's current resolution (`None` when it no longer
+    resolves, e.g. a deleted branch). `indexed` is true once that SHA
+    has an `indexed_commits` row; false means *pending* (just added,
+    or its tip moved and a rebuild is due).
+    """
+
+    model_config = _STRICT
+    ref: str
+    sha: str | None = None
+    indexed: bool = False
+    repo_path: str | None = None
+
+
 class StatusResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["status"] = "status"
     db_path: str | None = None
     indexed_refs: list[IndexedRef] = []
+    watched: list[WatchedRef] = []
     active_build: ActiveJob | None = None
     active_embed: ActiveJob | None = None
 

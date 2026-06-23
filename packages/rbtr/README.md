@@ -16,9 +16,10 @@ rbtr index                   # build the index
 rbtr search "retry logic"    # search it
 ```
 
-A background daemon starts automatically and keeps the
-index current as HEAD changes. Subsequent builds are
-incremental — unchanged files (by blob SHA) are skipped.
+A background daemon starts automatically and keeps every
+watched ref current (`HEAD` by default; add more with
+`rbtr index <ref>`). Subsequent builds are incremental —
+unchanged files (by blob SHA) are skipped.
 
 ## Walkthrough
 
@@ -70,12 +71,22 @@ function  search                       381–494
 
 ### `rbtr index`
 
-Build or update the index for a repository.
+Watch refs and keep them indexed. Each positional ref is an
+independent watch target the daemon keeps current; with no
+arguments it watches `HEAD`.
 
 ```bash
-rbtr index                         # index HEAD
-rbtr index HEAD~1 HEAD             # incremental: base + head
+rbtr index                    # watch HEAD (the default)
+rbtr index main               # watch main, even from another branch
+rbtr index main release       # watch several refs independently
+rbtr index --remove main      # stop watching main (HEAD can't be removed)
+rbtr index --remove-stale     # stop watching refs that no longer exist
 ```
+
+A moving ref (branch) tracks its tip; a bare SHA settles
+after one build. Removing a ref stops watching it; its index
+is reclaimed by `rbtr gc --watched-only` (a plain `rbtr gc`
+keeps every branch/tag regardless).
 
 ### `rbtr search <query>`
 
@@ -212,18 +223,27 @@ Starts automatically on first `rbtr index` or `rbtr search`.
 
 ### `rbtr gc`
 
-Garbage-collect old index data.
+Garbage-collect old index data. **Destructive and not undoable** —
+it permanently deletes indexed commits/chunks. Always preview with
+`--dry-run` first. It is only ever manual; the daemon never GCs on
+its own.
 
 ```bash
-rbtr gc --mode drop --refs HEAD~5
-rbtr gc --dry-run
+rbtr gc                       # default: keep branches/tags + the watch set
+rbtr gc --watched-only        # keep only HEAD and watched refs
+rbtr gc --dry-run             # preview what would be dropped
 ```
 
-Modes: `head_only` keeps only the current HEAD.
-`keep_refs` keeps HEAD plus local branches and tags.
-`keep` keeps HEAD plus the caller-supplied refs.
-`drop` removes only the supplied refs.
-`orphans` sweeps residue from crashed builds.
+By default it keeps HEAD, every local branch and tag, and
+every watched ref (plus the current worktree), dropping only
+genuinely unreferenced commits — so a routine gc never
+discards anything still reachable. `--watched-only` keeps
+just HEAD and the watch set, dropping unwatched branches and
+tags (the way to reclaim refs you no longer index).
+
+The other modes: `head-only` keeps only HEAD; `keep <refs>`
+keeps HEAD plus the listed refs; `orphans` sweeps residue
+from crashed builds.
 
 ## Output modes
 

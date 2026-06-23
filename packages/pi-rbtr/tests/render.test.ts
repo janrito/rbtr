@@ -9,7 +9,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { SearchHitOut } from "../extensions/rbtr/generated/protocol.js";
-import { extractPayload, fileScopeSuffix } from "../extensions/rbtr/render.js";
+import { extractPayload, fileScopeSuffix, formatWatched } from "../extensions/rbtr/render.js";
 
 // Minimal theme: styling is identity so assertions see raw text.
 const plainTheme = {
@@ -89,5 +89,24 @@ describe("fileScopeSuffix", () => {
 
   test("decodes a one-element list wrapping a JSON string", () => {
     expect(fileScopeSuffix({ file_paths: ['["a.py", "b.py"]'] }, plainTheme)).toBe(" in 2 files");
+  });
+});
+
+describe("formatWatched", () => {
+  test("renders indexed / pending / unresolvable markers", () => {
+    const out = formatWatched([
+      { ref: "main", sha: "a".repeat(40), indexed: true },
+      { ref: "feature", sha: "b".repeat(40), indexed: false },
+      { ref: "deleted", sha: null, indexed: false },
+    ]).join("\n");
+    expect(out).toContain("Watching:");
+    expect(out).toContain("✓ main");
+    expect(out).toContain("⟳ feature");
+    expect(out).toContain("✗ deleted");
+    expect(out).toContain("unresolvable");
+  });
+
+  test("empty watch set renders nothing", () => {
+    expect(formatWatched([])).toEqual([]);
   });
 });

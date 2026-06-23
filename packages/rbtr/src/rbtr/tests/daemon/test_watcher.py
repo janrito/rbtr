@@ -1,11 +1,12 @@
-"""Behavioural tests for `rbtr.daemon.watcher.poll` and `poll_worktree`.
+"""Behavioural tests for `rbtr.daemon.watcher.poll_watched` and `poll_worktree`.
 
-`poll(store)` returns repos whose current HEAD is not recorded
-in `indexed_commits`.  Scenarios in `case_watcher.py`.
+`poll_watched(store)` resolves each repo's `watched_refs` and
+returns those whose SHA is not recorded in `indexed_commits`.
+Scenarios in `cases_watcher.py`.
 
 `poll_worktree(store)` returns repos whose working tree is
 dirty and not yet indexed.  Scenarios in
-`case_watcher_worktree.py`.
+`cases_watcher_worktree.py`.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pathlib import Path
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.daemon.watcher import DirtyWorktree, StaleHead, poll, poll_worktree
+from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 from rbtr.git import worktree_tree_sha
 from rbtr.index.store import IndexStore
 
@@ -79,40 +80,43 @@ def seeded_store(
     scenario: WatcherScenario,
     built_repos: dict[str, BuiltRepo],
 ) -> Generator[IndexStore]:
-    """Register every repo in *scenario* and apply recorded marks."""
+    """Register every repo, apply recorded marks, and seed watched refs."""
     store = IndexStore(writable=True)
     for spec in scenario.repos:
         if not spec.register:
             continue
+        built = built_repos[spec.name]
         with store.session() as ws:
-            repo_id = ws.register_repo(built_repos[spec.name].path)
+            repo_id = ws.register_repo(built.path)
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(repo_id, built_repos[spec.name].shas[marked_index])
+                ws.mark_indexed(repo_id, built.shas[marked_index])
+            symbolic = scenario.watched.get(spec.name, [])
+            bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
+            ws.add_watched_refs(repo_id, [*symbolic, *bare])
     yield store
     store.close()
 
 
 @fixture
-def expected_stale(
+def expected_targets(
     scenario: WatcherScenario,
     built_repos: dict[str, BuiltRepo],
-) -> list[StaleHead]:
-    """Compute the expected `poll` output from the scenario."""
-    return [
-        StaleHead(
-            repo_path=built_repos[name].path,
-            new_ref=built_repos[name].shas[-1],
-        )
-        for name in scenario.expected_stale
-    ]
+) -> list[WatchedTarget]:
+    """Compute the expected `poll_watched` output from the scenario."""
+    out: list[WatchedTarget] = []
+    for e in scenario.expected:
+        built = built_repos[e.repo]
+        sha = built.shas[e.sha_index]
+        out.append(WatchedTarget(repo_path=built.path, ref=e.ref or sha, sha=sha))
+    return out
 
 
-def test_poll_reports_stale_heads(
+def test_poll_watched(
     seeded_store: IndexStore,
-    expected_stale: list[StaleHead],
+    expected_targets: list[WatchedTarget],
 ) -> None:
-    assert poll(seeded_store) == expected_stale
+    assert poll_watched(seeded_store) == expected_targets
 
 
 # ── poll_worktree ───────────────────────────────────────────────────

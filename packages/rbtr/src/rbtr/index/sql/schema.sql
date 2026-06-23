@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS indexed_commits (
   PRIMARY KEY (repo_id, commit_sha)
 );
 
+CREATE TABLE IF NOT EXISTS watched_refs (
+  repo_id INTEGER NOT NULL,
+  ref TEXT NOT NULL,
+  PRIMARY KEY (repo_id, ref)
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_repo_blob
 ON chunks (repo_id, blob_sha);
 

@@ -312,6 +312,10 @@ builds. GC uses it to identify orphans: any
 `file_snapshots` or `edges` row without a matching
 `indexed_commits` row is orphan.
 
+`indexed_commits` is **completion**; `watched_refs` is
+**intent** (which refs to keep indexed). See
+[Watched refs](#watched-refs).
+
 ### Versioning
 
 `meta` is a key-value table that tracks compatibility.
@@ -328,6 +332,13 @@ Three keys:
 When the model or version changes, all embeddings are
 cleared and recomputed on the next build.
 
+**Additive vs breaking changes.** `schema.sql` is applied
+`CREATE TABLE IF NOT EXISTS` on every writable open, so a
+purely **additive** table (e.g. `watched_refs`) appears in
+existing databases in place — no `schema_version` bump, no
+wipe. Only a **breaking** change to an existing table or
+column bumps `schema_version` (and so deletes the database).
+
 ## Daemon
 
 The daemon keeps the index current without blocking the
@@ -337,7 +348,7 @@ CLI or editor. Single process, asyncio event loop:
 DaemonServer (asyncio.TaskGroup)
  ├─ _rpc_loop            — zmq REP poll + dispatch
  ├─ _job_worker          — await Event, to_thread(run_job)
- ├─ _watcher_loop        — sleep, to_thread(poll), wake
+ ├─ _watcher_loop        — sleep, to_thread(poll_watched), wake
  ├─ _notification_relay  — zmq inproc PULL → PUB
  └─ _idle_loop           — sleep, check idle, unload
 ```
@@ -347,18 +358,42 @@ DaemonServer (asyncio.TaskGroup)
   `Embedder` instance shared between build (indexing)
   and search (query embedding).
 - **`_job_worker`** — DB-polling async task. Queries
-  the database for un-indexed commits (builds) and
-  un-embedded chunks (embeds). Priority is implicit
-  in query order: builds before embeds. Runs each
-  job via `asyncio.to_thread`.
-- **`_watcher_loop`** — async task that polls registered
-  repos' HEAD against `has_indexed`. Sets `_wake` when
-  stale HEADs are found.
+  the database for un-indexed watched refs and dirty
+  worktrees (builds) and un-embedded chunks (embeds).
+  Priority is implicit in query order: builds before
+  embeds. Runs each job via `asyncio.to_thread`.
+- **`_watcher_loop`** — async task that polls each repo's
+  watched refs and dirty worktree against `has_indexed`.
+  Sets `_wake` when a watched ref or worktree is stale.
 - **`_notification_relay`** — async task that receives
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
   ZMQ.
+
+### Watched refs
+
+`watched_refs(repo_id, ref)` is the durable record of
+**intent** — the refs the daemon keeps indexed. It is the
+single source the watcher derives builds from;
+`indexed_commits` remains the record of **completion**
+(see [Completion tracking](#completion-tracking)).
+
+- `rbtr index` (no args) watches the default ref, `HEAD`;
+  `rbtr index <refs…>` adds each as an independent watch
+  target; `rbtr index --remove <refs…>` removes them.
+  `HEAD` cannot be removed — rejected atomically before any
+  delete.
+- Symbolic names are stored and re-resolved each poll, so a
+  moving ref (branch) tracks its tip; a bare SHA resolves to
+  itself and settles after one build.
+- `watcher.poll_watched` resolves every watched ref, skips
+  unresolvable ones, and returns a `WatchedTarget` for any
+  whose SHA is not in `indexed_commits`, de-duplicated by
+  `(repo, sha)`.
+- On startup, `_backfill_head_watches` seeds a `HEAD` watch
+  for every already-registered repo, so HEAD tracking
+  survives the upgrade from the previous HEAD-only poll.
 
 Requests and responses are pydantic models discriminated on
 a `kind` field (`messages.py`). The daemon writes a status
@@ -374,7 +409,9 @@ distinguishes them. Both are filtered to the requested
 repo so a status query never leaks activity from
 unrelated repos. Text renderers (CLI, TUI, LLM) derive
 output solely from the response model — never from
-external state like config.
+external state like config. `watched` lists the repo's
+watch set (each `WatchedRef` carries the resolved sha and
+whether it is indexed yet).
 
 ### Concurrency model
 
@@ -453,17 +490,20 @@ call. This means search waits at most one batch duration
 (not the entire embed job).
 
 **Priority:** The worker queries the DB for un-indexed
-commits first (builds), then un-embedded chunks (embeds).
-When a build arrives while an embed is running, the embed
-finishes first (interrupting mid-write is unsafe), then
+watched refs (HEAD is the default) then dirty worktrees
+(builds), then un-embedded chunks (embeds). When a build
+arrives while an embed is running, the embed worker yields
+between batches (interrupting mid-write is unsafe), then
 the build runs next.
 
 ### Crash recovery
 
 **Indexing:** `WriteSession.sweep` deletes data
 for commits never `mark_indexed`. On next startup the
-watcher detects the un-indexed HEAD and re-triggers the
-build.
+watcher re-derives any un-indexed watched ref (HEAD is
+one) and re-triggers the build; startup also runs
+`_backfill_head_watches` (a `WriteSession` write, like
+embed recovery). The watcher itself stays read-only.
 
 **Embedding:** On startup, the daemon scans indexed commits
 for un-embedded chunks and sets the wake event so the
@@ -602,6 +642,13 @@ Latency is logged as structured fields: `request_complete`
 (`elapsed_ms`) per dispatch, `embedded_chunks` (`elapsed_ms`) per
 embed run, `index_complete` (`elapsed_seconds`) per build, and
 `reranked_candidates` (`elapsed_ms`) per rerank.
+
+Watch-set lifecycle events: `watched_ref_stale` (a watched ref
+resolved to an un-indexed SHA, naming `repo`/`ref`/`sha`),
+`watched_refs_added` / `watched_refs_removed` (an `index`
+add/remove request), `head_watch_backfill` (startup seeding), and
+`gc_complete` (mode + drop counts). The build job binds `ref` into
+its log context, so `index_complete` names the SHA it indexed.
 
 ### Testing
 
@@ -940,6 +987,19 @@ row is orphan. Both operations live on `WriteSession`:
   (chunks not referenced by any snapshot, edges whose
   commit has no snapshots).
 
+The keep-set depends on the `GcMode`. The **default** is
+`WATCHED`: keep HEAD, every local branch / tag / note,
+**and** every resolved [watched ref](#watched-refs) (the
+current worktree tree is always protected). So a routine
+`rbtr gc` only drops genuinely unreferenced commits — it
+never discards anything a branch points at or that you
+asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
+the watch set, dropping unwatched branches/tags — the opt-in
+way to reclaim refs you no longer index. `HEAD_ONLY`,
+`KEEP`, and `ORPHANS` are the other explicit modes. If an
+aggressive mode drops a still-watched commit, the watcher
+rebuilds it on the next poll (self-healing).
+
 ## Working-tree indexing
 
 The index pipeline was originally git-only: every file
@@ -1074,7 +1134,8 @@ the rebuild is skipped.
 The daemon's watcher drives the worktree lifecycle. On
 each poll cycle:
 
-- `poll()` checks HEAD against `indexed_commits`.
+- `poll_watched()` resolves each watched ref (HEAD is the
+  default) and checks `indexed_commits`.
 - `poll_worktree()` computes `worktree_tree_sha` and
   checks `has_indexed`. Read-only — never writes.
 
@@ -1123,8 +1184,8 @@ _drop_stale_worktree_shas:
 ```text
 State: HEAD=abc123, tree_A indexed. User commits → HEAD=def456.
 
-poll → StaleHead(def456)
-_find_next_job → BuildJob(refs=(def456,))  # commits first
+poll_watched → WatchedTarget(ref=HEAD, sha=def456)
+_find_next_job → BuildJob(refs=(def456,))  # watched refs first
 
 build_index(def456) completes.
 _drop_stale_worktree_shas → drops tree_A.
@@ -1165,7 +1226,7 @@ tree_A is cleaned up by:
 State: HEAD=abc123 (main), tree_A indexed.
 User switches to feature → HEAD=fed987.
 
-poll → StaleHead(fed987) → commit build.
+poll_watched → WatchedTarget(ref=HEAD, sha=fed987) → build.
 _drop_stale_worktree_shas → drops tree_A.
 
 If tree still dirty on new branch:
@@ -1188,12 +1249,12 @@ If clean: nothing.
    calls `worktree_tree_sha` and excludes it. Stale tree
    SHAs are included in the drop set (not reachable from
    any ref).
-5. **Commit builds have priority over worktree builds.**
-   `_find_next_job` checks `poll()` before
-   `poll_worktree()`.
-6. **Worktree builds preempt embedding.** The embed
-   worker checks `poll()` and `poll_worktree()` between
-   batches and yields if higher-priority work is needed.
+5. **Watched-ref builds have priority over worktree
+   builds.** `_find_next_job` checks `poll_watched()`
+   before `poll_worktree()`.
+6. **Builds preempt embedding.** The embed worker checks
+   `poll_watched()` and `poll_worktree()` between batches
+   and yields if higher-priority work is needed.
 
 ## Design decisions
 
@@ -1218,6 +1279,17 @@ stdlib handler so third-party `logging` output is captured and
 formatted identically. A pure `WriteLoggerFactory` was rejected:
 third-party libraries still log via stdlib, so capturing them would
 need a second handler writing the same file. See [Observability](#observability).
+
+**Watched refs over hardcoded HEAD tracking.** The daemon
+derives builds from a durable `watched_refs` table rather
+than a hardcoded HEAD poll: this keeps the “derive work from
+DB + git” design (no in-memory queue), survives restart, and
+lets review run against arbitrary refs, with HEAD as the
+default entry. GC follows suit — `rbtr gc` defaults to
+keeping HEAD, local branches/tags, and the watch set, so it
+never discards anything reachable from a branch
+(`--watched-only` opts into reclaiming unwatched branches).
+See [Watched refs](#watched-refs).
 
 **Exact cosine over approximate NN.** Exact recall
 outweighs marginal latency. Revisit when query latency is

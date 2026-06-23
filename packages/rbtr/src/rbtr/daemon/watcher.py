@@ -1,18 +1,22 @@
-"""Ref watcher — detects repos whose HEAD is not indexed.
+"""Ref watcher — detects watched refs and worktrees that need indexing.
 
 Two polling functions, both **read-only** (no writes to the
 index store):
 
-- `poll` — commit staleness.  Returns `StaleHead` for repos
-  whose current HEAD has no `indexed_commits` row.
+- `poll_watched` — watched-ref staleness.  For every ref in a
+  repo's `watched_refs` table, resolves it to a SHA and returns
+  a `WatchedTarget` when that SHA has no `indexed_commits` row.
+  Symbolic names (`"HEAD"`, `"main"`) are re-resolved each poll
+  so moving refs track their tip; a bare SHA resolves to itself
+  (one-shot).  `HEAD` is just the default watched ref.
 - `poll_worktree` — working-tree staleness.  Computes the
   current tree SHA via `worktree_tree_sha` and checks
   `has_indexed`.  Returns `DirtyWorktree` when the tree is
   dirty and the current tree SHA is not yet indexed.
 
-No in-memory state means no startup seeding, no register/unregister
-API, and no drift between the watcher and the index: the store's
-`indexed_commits` table is the single source of truth.
+No in-memory state: the store's `watched_refs` (intent) and
+`indexed_commits` (completion) tables are the single source of
+truth.  See ARCHITECTURE.md's Watched refs section.
 """
 
 from __future__ import annotations
@@ -21,18 +25,24 @@ from dataclasses import dataclass
 
 import structlog
 
-from rbtr.git import read_head, worktree_tree_sha
+from rbtr.errors import RbtrError
+from rbtr.git import resolve_ref, worktree_tree_sha
 from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class StaleHead:
-    """A repo whose current HEAD is not recorded in `indexed_commits`."""
+class WatchedTarget:
+    """A watched ref whose resolved SHA is not in `indexed_commits`.
+
+    `ref` is the symbolic watched name (e.g. `"HEAD"`, `"main"`);
+    `sha` is its current resolution.
+    """
 
     repo_path: str
-    new_ref: str
+    ref: str
+    sha: str
 
 
 @dataclass(frozen=True)
@@ -48,23 +58,31 @@ class DirtyWorktree:
     tree_sha: str
 
 
-def poll(store: IndexStore) -> list[StaleHead]:
-    """Return every repo whose current HEAD has not been fully indexed.
+def poll_watched(store: IndexStore) -> list[WatchedTarget]:
+    """Return every watched ref whose resolved SHA is not yet indexed.
 
-    Iterates over registered repos (`store.list_repos`), reads each
-    one's current HEAD with `git.read_head`, and yields a `StaleHead`
-    for any commit that has no `indexed_commits` row. Repos whose
-    HEAD cannot be read (unborn, missing path, permission error) are
-    silently skipped.
+    Iterates registered repos (`store.list_repos`) and their
+    `watched_refs`, resolving each symbolic name to a SHA with
+    `git.resolve_ref`.  Unresolvable refs (deleted branch, missing
+    repo path) are silently skipped.  A SHA already present in
+    `indexed_commits` is skipped.  Targets are de-duplicated by
+    `(repo_path, sha)`, so two refs pointing at the same commit
+    (e.g. `"HEAD"` and `"main"`) yield a single build.
     """
-    out: list[StaleHead] = []
+    out: list[WatchedTarget] = []
+    seen: set[tuple[str, str]] = set()
     for repo_id, path in store.list_repos():
-        current = read_head(path)
-        if current is None:
-            continue
-        if store.has_indexed(repo_id, current):
-            continue
-        out.append(StaleHead(repo_path=path, new_ref=current))
+        for ref in store.list_watched_refs(repo_id):
+            try:
+                sha = resolve_ref(path, ref)
+            except RbtrError:
+                continue
+            if store.has_indexed(repo_id, sha):
+                continue
+            if (path, sha) in seen:
+                continue
+            seen.add((path, sha))
+            out.append(WatchedTarget(repo_path=path, ref=ref, sha=sha))
     return out
 
 

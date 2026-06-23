@@ -42,6 +42,9 @@ from rbtr.errors import RbtrError
 # to the working-tree tree SHA.
 WORKTREE_REF = "worktree"
 
+# The default watched ref; resolves to the current HEAD commit.
+HEAD_REF = "HEAD"
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -310,7 +313,7 @@ def names_for_commits(repo_path: str, shas: list[str]) -> dict[str, list[str]]:
         if not repo.head_is_unborn:
             current_head = str(repo.head.target)
             if current_head in wanted:
-                names[current_head].append("HEAD")
+                names[current_head].append(HEAD_REF)
     except pygit2.GitError:
         pass
 

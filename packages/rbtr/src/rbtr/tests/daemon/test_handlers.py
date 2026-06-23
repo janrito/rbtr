@@ -10,15 +10,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import structlog
 
 from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.handlers import handle_build_index, handle_status
 from rbtr.daemon.messages import (
     ActiveJob,
+    BuildIndexRequest,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
     ListSymbolsRequest,
     ListSymbolsResponse,
+    OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
     SearchRequest,
@@ -27,7 +31,9 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.errors import RbtrError
 from rbtr.index.models import EdgeKind, QueryKind
+from rbtr.index.store import IndexStore
 
 
 @pytest.fixture
@@ -341,6 +347,8 @@ def test_status_with_index(
     assert resp.indexed_refs[0].sha == daemon_commit
     assert resp.indexed_refs[0].total > 0
     assert resp.indexed_refs[0].embedded == 0  # no embedder configured
+    # The backfilled HEAD watch is surfaced and reported indexed.
+    assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
 
 
 def test_status_unknown_repo(
@@ -358,3 +366,112 @@ def test_status_unknown_repo(
         resp = client.send(StatusRequest(repo_path=str(other)))
     assert isinstance(resp, StatusResponse)
     assert resp.indexed_refs == []
+
+
+# ── Index (watch_refs) ──────────────────────────────────────────
+#
+# Single-threaded: drive `handle_build_index` against a non-served
+# server (no worker thread) so the watch-set write is observable
+# without socket round-trips or build/embed background activity.
+
+
+@pytest.fixture
+def index_server(runtime_dir: Path, seeded_store: IndexStore) -> DaemonServer:
+    """A server over the seeded store, not serving (no worker thread)."""
+    return DaemonServer(
+        runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
+
+
+def test_index_always_watches_head(
+    index_server: DaemonServer, seeded_store: IndexStore, tmp_path: Path
+) -> None:
+    """A repo first seen via `index <ref>` (not startup backfill) still
+    watches HEAD — the invariant that HEAD is always watched."""
+    other = str(tmp_path / "other")
+    handle_build_index(BuildIndexRequest(repo_path=other, refs=["main"]), index_server.watch_refs)
+    watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
+    assert "HEAD" in watched
+    assert "main" in watched
+
+
+def test_remove_on_unregistered_repo_is_noop(
+    index_server: DaemonServer, seeded_store: IndexStore, tmp_path: Path
+) -> None:
+    """Removing from a repo that was never indexed is a no-op — and must not
+    spuriously register the repo."""
+    other = str(tmp_path / "unregistered")
+    resp = handle_build_index(
+        BuildIndexRequest(repo_path=other, refs=["main"], remove=True), index_server.watch_refs
+    )
+    assert isinstance(resp, OkResponse)
+    assert seeded_store.get_repo_id(other) is None
+
+
+def test_index_add_then_remove(
+    index_server: DaemonServer, seeded_store: IndexStore, fake_repo: str
+) -> None:
+    """`index` records a ref in the watch set; `--remove` drops it."""
+    repo_id = seeded_store.resolve_repo(fake_repo)
+    added = handle_build_index(
+        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
+    )
+    assert isinstance(added, OkResponse)
+    assert "main" in seeded_store.list_watched_refs(repo_id)
+
+    removed = handle_build_index(
+        BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
+        index_server.watch_refs,
+    )
+    assert isinstance(removed, OkResponse)
+    assert "main" not in seeded_store.list_watched_refs(repo_id)
+
+
+def test_index_remove_head_rejected_atomically(
+    index_server: DaemonServer, seeded_store: IndexStore, fake_repo: str
+) -> None:
+    """`--remove HEAD` fails wholesale: no co-listed ref is deleted."""
+    repo_id = seeded_store.resolve_repo(fake_repo)
+    handle_build_index(
+        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
+    )
+    with pytest.raises(RbtrError, match="HEAD"):
+        handle_build_index(
+            BuildIndexRequest(repo_path=fake_repo, refs=["main", "HEAD"], remove=True),
+            index_server.watch_refs,
+        )
+    watched = seeded_store.list_watched_refs(repo_id)
+    assert "HEAD" in watched
+    assert "main" in watched
+
+
+def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: str) -> None:
+    """Each watched ref is reported as indexed, pending, or unresolvable."""
+    repo_id = seeded_store.resolve_repo(fake_repo)
+    pending_sha = "0" * 40  # a bare SHA: resolves to itself, never indexed
+    with seeded_store.session() as ws:
+        ws.add_watched_refs(repo_id, ["main", pending_sha, "nonexistent-branch"])
+    resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_store)
+    watched = {w.ref: w for w in resp.watched}
+    assert watched["main"].indexed is True  # resolves to the indexed HEAD
+    assert watched[pending_sha].indexed is False
+    assert watched[pending_sha].sha == pending_sha
+    assert watched["nonexistent-branch"].sha is None  # unresolvable
+
+
+def test_watch_refs_logs_intent(
+    index_server: DaemonServer,
+    fake_repo: str,
+    log_output: structlog.testing.LogCapture,
+) -> None:
+    """Add and remove each emit a correlated intent event."""
+    handle_build_index(
+        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
+    )
+    handle_build_index(
+        BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
+        index_server.watch_refs,
+    )
+    events = [e["event"] for e in log_output.entries]
+    assert "watched_refs_added" in events
+    assert "watched_refs_removed" in events

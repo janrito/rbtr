@@ -24,13 +24,14 @@ import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
-import type { BuildIndexResponse, Response, StatusResponse } from "./generated/protocol.js";
+import type { BuildIndexResponse, GcMode, GcResponse, Response, StatusResponse } from "./generated/protocol.js";
 
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
 
 import { decodeStringList, echoArgs } from "./args.js";
 import {
+  formatWatched,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -143,6 +144,7 @@ function renderStatusText(status: StatusResponse): string {
       lines.push(`  ${label} — ${humanCount(ref.total)} indexed, ${embedPart}`);
     }
   }
+  lines.push(...formatWatched(status.watched ?? []));
   const job = status.active_build;
   if (job) {
     const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
@@ -470,6 +472,46 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
   }
 
+  // Stop watching the given refs (daemon path, CLI fallback).
+  async function triggerUnwatch(ctx: ExtensionContext, refs: string[]): Promise<void> {
+    await withFallback(
+      async () => {
+        await session.send({ kind: "index", repo_path: ctx.cwd, refs, remove: true });
+      },
+      async () => {
+        if (!resolved) throw new Error("rbtr CLI not available");
+        await runRbtr(pi, resolved, ["index", "--remove", ...refs], { timeout: 60_000 });
+      },
+    );
+  }
+
+  // Prune watched refs that no longer resolve (e.g. deleted branches).
+  // Reuses status (unresolvable → sha === null) then unwatches them;
+  // HEAD always resolves, so it is never pruned.
+  async function triggerRemoveStale(ctx: ExtensionContext): Promise<string[]> {
+    const status = await queryIndexStatus(ctx.cwd);
+    const stale = (status?.watched ?? []).filter((w) => w.sha == null && w.ref !== "HEAD").map((w) => w.ref);
+    if (stale.length > 0) await triggerUnwatch(ctx, stale);
+    return stale;
+  }
+
+  async function triggerGc(
+    ctx: ExtensionContext,
+    opts: { watchedOnly: boolean; dryRun: boolean },
+  ): Promise<GcResponse> {
+    const mode: GcMode = opts.watchedOnly ? "watched_only" : "watched";
+    return withFallback(
+      async () => session.send({ kind: "gc", repo_path: ctx.cwd, mode, refs: [], dry_run: opts.dryRun }),
+      async () => {
+        if (!resolved) throw new Error("rbtr CLI not available");
+        const args = ["gc"];
+        if (opts.watchedOnly) args.push("--watched-only");
+        if (opts.dryRun) args.push("--dry-run");
+        return runRbtrJson<GcResponse>(pi, resolved, args, { timeout: 120_000 });
+      },
+    );
+  }
+
   // ── Commands ────────────────────────────────────────────────
 
   pi.registerCommand("rbtr-status", {
@@ -579,17 +621,23 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_index",
     label: "rbtr index",
     description:
-      "Build or refresh the rbtr structural code index for this repository so the other rbtr_* tools work. Safe to call repeatedly — returns 'up to date' if HEAD is already indexed.",
-    promptSnippet: "Build or refresh the rbtr code index for this repository",
+      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
+    promptSnippet: "Watch refs for the rbtr code index (or --remove to stop)",
     promptGuidelines: [
-      "Call rbtr_index when the user explicitly asks to (re)index, or when another rbtr_* tool returns a 'not indexed' error. In normal session flow the daemon keeps HEAD indexed automatically — you rarely need this.",
-      "Pass refs=['base', 'head'] (two refs) to index both sides of a diff for use with rbtr_changed_symbols. Pass no refs to target HEAD.",
-      "This is fire-and-forget: the tool returns immediately. Indexing is incremental (unchanged files are skipped) but cold builds can take minutes on large repos. Use rbtr_status to see progress.",
-      "The tool answers 'up to date' / 'in progress' / 'queued' — read the reply; don't assume it queued a new build.",
+      "Call rbtr_index when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
+      "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
+      "Use `remove` to stop watching refs, or `remove_stale` to drop refs whose branch was deleted.",
+      "This is fire-and-forget: the tool returns immediately. Use rbtr_status to see progress and the current watch set.",
     ],
     parameters: Type.Object({
       refs: Type.Optional(
-        Type.Array(Type.String(), { description: "Git refs to index (default: ['HEAD']). Two refs = base + head." }),
+        Type.Array(Type.String(), {
+          description: "Refs to watch and index (default: ['HEAD']). Each ref is an independent watch target.",
+        }),
+      ),
+      remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
+      remove_stale: Type.Optional(
+        Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
       ),
     }),
     renderCall: (args, theme) => renderIndexCall(args, theme),
@@ -604,6 +652,32 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       // operate on the real refs (the daemon decodes its copy too).
       const decodedRefs = decodeStringList(params.refs);
       const refs = decodedRefs.length > 0 ? decodedRefs : ["HEAD"];
+
+      if (params.remove_stale) {
+        const pruned = await triggerRemoveStale(ctx);
+        return {
+          content: [
+            {
+              type: "text",
+              text: pruned.length > 0 ? `Stopped watching stale refs: ${pruned.join(", ")}.` : "No stale watched refs.",
+            },
+          ],
+          details: { status: "remove_stale", pruned },
+        };
+      }
+      if (params.remove) {
+        if (refs.includes("HEAD")) {
+          return {
+            content: [{ type: "text", text: "HEAD cannot be removed from the watch set." }],
+            details: { status: "rejected", refs },
+          };
+        }
+        await triggerUnwatch(ctx, refs);
+        return {
+          content: [{ type: "text", text: `Stopped watching: ${refs.join(", ")}.` }],
+          details: { status: "removed", refs },
+        };
+      }
 
       // Check current state first so we can give the LLM an
       // actionable answer instead of blindly queueing a build.
@@ -692,6 +766,49 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: renderStatusText(status) }],
         details: { fromDaemon: true, response: status },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "rbtr_gc",
+    label: "rbtr gc",
+    description:
+      "⚠ DESTRUCTIVE, IRREVERSIBLE. Permanently deletes indexed data (commits, chunks, embeddings) from the rbtr index — there is no undo. Runs as a dry-run preview by default; only pass dry_run=false when the user has EXPLICITLY asked to delete index data. By default keeps HEAD, all local branches/tags, and the watch set (drops only unreferenced commits); watched_only also drops unwatched branches/tags.",
+    promptSnippet: "Garbage-collect the rbtr index (⚠ destructive; reclaim storage)",
+    promptGuidelines: [
+      "⚠ Destructive and irreversible. Only call rbtr_gc when the user has EXPLICITLY asked to reclaim index space or drop refs — never speculatively, never to 'tidy up' on your own initiative, never as a side-effect of another task.",
+      "It runs as a dry-run preview by default. Show the user what it would drop and get their explicit confirmation; pass dry_run=false ONLY after they confirm they want the deletion applied.",
+      "The default mode never drops anything reachable from a branch or the watch set; watched_only=true additionally drops unwatched branches/tags. The daemon never GCs automatically — nothing is deleted unless you call this.",
+    ],
+    parameters: Type.Object({
+      watched_only: Type.Optional(
+        Type.Boolean({ description: "Keep only HEAD and watched refs (drop unwatched branches/tags)." }),
+      ),
+      dry_run: Type.Optional(
+        Type.Boolean({
+          description:
+            "Preview without deleting. Defaults to true (safe); set false ONLY after explicit user confirmation to actually delete.",
+        }),
+      ),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (!cliAvailable) {
+        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
+      }
+      // Dry-run by default: a careless call previews; deleting needs a
+      // deliberate dry_run=false after the user has confirmed.
+      const res = await triggerGc(ctx, {
+        watchedOnly: params.watched_only ?? false,
+        dryRun: params.dry_run ?? true,
+      });
+      const text = res.dry_run
+        ? `Dry run: would drop ${res.commits_dropped} commit(s) and ${res.chunks_dropped} chunk(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
+        : `Dropped ${res.commits_dropped} commit(s) and ${res.chunks_dropped} chunk(s).`;
+      return {
+        content: [{ type: "text", text }],
+        details: { fromDaemon: true, response: res },
       };
     },
   });
