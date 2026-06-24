@@ -15,6 +15,7 @@ from pathlib import Path
 
 from rbtr.config import Config
 from rbtr.daemon.status import read_status
+from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
 
@@ -67,4 +68,23 @@ def test_start_when_already_running_is_idempotent(isolated_db: Path) -> None:
         assert second.returncode == 0
         assert "already running" in second.stderr.lower()
     finally:
+        run_cli(["daemon", "stop"])
+
+
+def test_start_with_db_lock_held_exits_cleanly(isolated_db: Path) -> None:
+    """A start that cannot acquire the DuckDB lock fails honestly.
+
+    Holding the exclusive lock in-process makes the spawned
+    `daemon serve` die on the lock, so `start_daemon` raises
+    `RbtrError`.  The command must catch it and exit 1 (its own
+    handler) — not let it escape to the global handler as exit 2,
+    which is what the pre-fix `except RuntimeError` did.
+    """
+    store = IndexStore.from_config(writable=True)  # take the exclusive lock
+    try:
+        result = run_cli(["daemon", "start"])
+        assert result.returncode == 1, result.stderr
+        assert "Daemon failed to start" in result.stderr
+    finally:
+        store.close()
         run_cli(["daemon", "stop"])

@@ -50,6 +50,8 @@ export interface ReconcileResult {
   outcome: ReconcileOutcome;
   previousVersion: string | null;
   newVersion: string | null;
+  /** On `failed`, the reason from the failing `execDaemon` call. */
+  detail?: string;
 }
 
 /**
@@ -229,8 +231,8 @@ export class DaemonSession {
     if (!this.available) {
       try {
         await deps.execDaemon("start");
-      } catch {
-        return { outcome: "failed", previousVersion: before, newVersion: null };
+      } catch (err) {
+        return { outcome: "failed", previousVersion: before, newVersion: null, detail: reason(err) };
       }
       const fresh = await this.refresh();
       return {
@@ -253,8 +255,8 @@ export class DaemonSession {
     try {
       await deps.execDaemon("stop");
       await deps.execDaemon("start");
-    } catch {
-      return { outcome: "failed", previousVersion: before, newVersion: null };
+    } catch (err) {
+      return { outcome: "failed", previousVersion: before, newVersion: null, detail: reason(err) };
     }
     this.status = null;
     const fresh = await this.refresh();
@@ -273,6 +275,11 @@ export class DaemonSession {
  * Returns a negative number if *a* < *b*, zero if equal, positive
  * if *a* > *b*.
  */
+/** Extract a human-readable reason from a thrown value. */
+function reason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function compareCalver(a: string | null, b: string | null): number {
   if (a === b) return 0;
   if (a === null) return -1;

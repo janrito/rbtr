@@ -46,17 +46,6 @@ def daemon_edges() -> list[Edge]:
 
 
 @pytest.fixture
-def fake_repo(tmp_path: Path) -> str:
-    """Minimal real git repo — one empty commit, returns workdir path."""
-    path = tmp_path / "repo"
-    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-    tree = repo.TreeBuilder().write()
-    repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
-    return str(path)
-
-
-@pytest.fixture
 def runtime_dir() -> Path:
     """Short temp dir for IPC sockets (avoids AF_UNIX path limit)."""
     return Path(tempfile.mkdtemp(prefix="rbtr"))
@@ -195,9 +184,14 @@ def running_server(runtime_dir: Path) -> Generator[DaemonServer]:
 
 @pytest.fixture
 def running_server_with_index(
-    runtime_dir: Path, seeded_store: IndexStore
+    runtime_dir: Path, seeded_store: IndexStore, stub_embedding_model: None
 ) -> Generator[DaemonServer]:
-    """Server with a seeded index — for handler tests."""
+    """Server with a seeded index — for handler tests.
+
+    Uses the stub embedder: these tests exercise routing / read /
+    status, not vector quality, so the daemon must not load the
+    real GGUF (and never touch the GPU).
+    """
     server = DaemonServer(
         runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
@@ -228,8 +222,13 @@ def _init_bare_commit_repo(path: Path) -> tuple[str, str]:
 
 
 @pytest.fixture
-def two_repo_server(runtime_dir: Path, tmp_path: Path) -> Generator[TwoRepoServer]:
+def two_repo_server(
+    runtime_dir: Path, tmp_path: Path, stub_embedding_model: None
+) -> Generator[TwoRepoServer]:
     """Daemon over an in-memory store with two indexed git repos.
+
+    Uses the stub embedder (cross-repo routing, not vector quality),
+    so the daemon never loads the real GGUF or touches the GPU.
 
     Each repo holds a uniquely-named chunk plus `shared_fn` (same
     name in both), so cross-repo merge, workspace isolation, and

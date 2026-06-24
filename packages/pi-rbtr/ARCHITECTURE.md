@@ -76,12 +76,12 @@ All CLI calls go through `pi.exec()`, which returns
 
 ### Error handling
 
-| Condition         | Behaviour                                                                |
-| ----------------- | ------------------------------------------------------------------------ |
-| Command not found | `session_start` sets footer to error, notifies with install instructions |
-| Non-zero exit     | `runRbtr` throws with stderr content                                     |
-| Timeout           | `pi.exec()` kills the process; `runRbtr` throws                          |
-| Empty output      | Callers handle gracefully (e.g. "no results")                            |
+| Condition                  | Behaviour                                                                                                                                            |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Daemon start/restart fails | `classifyDaemonFailure` sorts it into `missing-cli` (install instructions, rbtr disabled), `db-locked`, or `transient`; reconcile carries the reason |
+| Non-zero exit              | `runRbtr` throws with stderr content                                                                                                                 |
+| Timeout                    | `pi.exec()` kills the process; `runRbtr` throws                                                                                                      |
+| Empty output               | Callers handle gracefully (e.g. "no results")                                                                                                        |
 
 ### Validation
 
@@ -91,10 +91,11 @@ then starts, restarts, or yields to it by version (see
 [Daemon-first, CLI fallback](#daemon-first-cli-fallback)).
 A single `queryIndexStatus()` call then resolves index
 state — daemon first, CLI `rbtr status` (5-second timeout)
-as the fallback. If it returns null, `cliAvailable` is set
-to `false`, the footer shows "not found", and the user is
-notified with install instructions; otherwise `cliAvailable`
-is `true`.
+as the fallback. A `null` result is ambiguous, so
+`decideStartupDecision` uses whether the command resolved on
+PATH: only a genuinely unresolved CLI sets `cliAvailable=false`
+and shows "not found"; a transient daemon/lock failure keeps
+`cliAvailable=true` and shows "temporarily unavailable".
 
 There is no separate readiness flag. Each tool call gates
 itself through `withFallback` (below), which needs either a
@@ -202,6 +203,10 @@ On `session_start`, if no index exists and `autoIndex` is
 true, `triggerIndex(ctx)` is called automatically. Indexing
 runs in the background — the session is immediately usable
 for other work.
+
+A transient status failure (daemon down / DB busy) no longer
+skips auto-index — only a genuinely missing CLI does — so a
+fresh repo still indexes once the daemon is healthy.
 
 ### Timeout
 

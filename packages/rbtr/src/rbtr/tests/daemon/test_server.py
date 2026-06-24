@@ -26,6 +26,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.index.store import IndexStore
 
 # ── Ping / shutdown ──────────────────────────────────────────────────
 
@@ -42,6 +43,81 @@ def test_shutdown(runtime_dir: Path) -> None:
     assert isinstance(resp, OkResponse)
     t.join(timeout=3)
     assert not t.is_alive()
+
+
+@pytest.fixture
+def warmup_started() -> threading.Event:
+    """Set once the stubbed warmup begins running."""
+    return threading.Event()
+
+
+@pytest.fixture
+def warmup_gate() -> threading.Event:
+    """Set by the test to let the stubbed warmup finish."""
+    return threading.Event()
+
+
+@pytest.fixture
+def warming_daemon(
+    runtime_dir: Path,
+    unindexed_store: IndexStore,
+    warmup_started: threading.Event,
+    warmup_gate: threading.Event,
+) -> DaemonServer:
+    """A daemon whose embedder warmup blocks until `warmup_gate` is set.
+
+    Forces a warmup task to stay in-flight so a shutdown lands
+    mid-warmup and exercises the cancel path.  The reranker is
+    disabled so a single warmup task suffices.
+    """
+    server = DaemonServer(
+        runtime_dir, store=unindexed_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
+    server._warmup = True
+    server._reranker = None
+
+    def blocking_warmup() -> None:
+        warmup_started.set()
+        warmup_gate.wait(timeout=10)
+
+    assert server._embedder is not None
+    server._embedder.warmup = blocking_warmup  # type: ignore[method-assign]  # stub blocks warmup mid-flight
+    return server
+
+
+def test_shutdown_during_warmup_does_not_raise(
+    runtime_dir: Path,
+    warming_daemon: DaemonServer,
+    warmup_started: threading.Event,
+    warmup_gate: threading.Event,
+) -> None:
+    """Cancelling in-flight warmup on shutdown must not escape `serve()`.
+
+    Regression: warmup tasks were awaited under
+    `contextlib.suppress(Exception)`, which does not catch the
+    `CancelledError` (a `BaseException`) from `task.cancel()`, so a
+    stop during warmup crashed the daemon with a non-zero exit.
+    """
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            asyncio.run(warming_daemon.serve())
+        except BaseException as exc:  # noqa: BLE001 - must capture CancelledError too
+            errors.append(exc)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    try:
+        assert warming_daemon.wait_ready(), "daemon did not start within timeout"
+        assert warmup_started.wait(timeout=2), "warmup task did not start"
+        with DaemonClient(runtime_dir) as client:
+            client.send(ShutdownRequest())
+    finally:
+        warmup_gate.set()
+    t.join(timeout=5)
+    assert not t.is_alive()
+    assert errors == [], f"serve() raised on shutdown: {errors!r}"
 
 
 def test_multiple_requests(running_server_with_index: DaemonServer, fake_repo: str) -> None:

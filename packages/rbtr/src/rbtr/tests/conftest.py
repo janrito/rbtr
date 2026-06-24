@@ -15,6 +15,7 @@ import structlog
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
+from rbtr.index.store import IndexStore
 
 
 class StubModel:
@@ -105,6 +106,100 @@ def make_commit(
     tree_oid = build_tree(repo, files)
     sig = pygit2.Signature(author, "test@test.com")
     return repo.create_commit(ref, sig, sig, message, tree_oid, parents or [])
+
+
+@pytest.fixture
+def fake_repo(tmp_path: Path) -> str:
+    """Minimal real git repo — one empty commit, returns workdir path."""
+    path = tmp_path / "repo"
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
+    sig = pygit2.Signature("t", "t@t.t")
+    tree = repo.TreeBuilder().write()
+    repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+    return str(path)
+
+
+@pytest.fixture
+def store() -> Generator[IndexStore]:
+    """In-memory writable IndexStore."""
+    s = IndexStore(writable=True)
+    yield s
+    s.close()
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> pygit2.Repository:
+    """Git repo with 3 Python files, tests, and README.
+
+    Writes to working directory (needed by tests that exercise
+    tree-sitter extraction via `build_index`).
+    """
+    repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
+
+    files = {
+        "src/models.py": b"""\
+\"\"\"Data models.\"\"\"
+
+class User:
+    pass
+
+class Order:
+    pass
+""",
+        "src/utils.py": b"""\
+\"\"\"Utility functions.\"\"\"
+
+def helper():
+    return 42
+
+def format_name(name):
+    return name.strip()
+""",
+        "src/main.py": b"""\
+\"\"\"Main module.\"\"\"
+
+from src.models import User
+from src.utils import helper
+
+def run():
+    u = User()
+    return helper()
+""",
+        "tests/test_utils.py": b"""\
+\"\"\"Tests for utils.\"\"\"
+
+from src.utils import helper, format_name
+
+def test_helper():
+    assert helper() == 42
+
+def test_format():
+    assert format_name(\"  hi  \") == \"hi\"
+""",
+        "README.md": b"""\
+# My Project
+
+This project uses `helper` and `User` for things.
+
+## Setup
+
+Run `format_name` to clean strings.
+""",
+    }
+
+    index = repo.index
+    for path, content in files.items():
+        full = tmp_path / path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(content)
+        index.add(path)
+
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
+
+    return repo
 
 
 @pytest.fixture

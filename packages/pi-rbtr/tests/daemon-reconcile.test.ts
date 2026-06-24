@@ -107,6 +107,12 @@ describe("DaemonSession.reconcile", () => {
     expect(result.outcome).toBe("failed");
   });
 
+  test("start failure carries the reason as detail", async () => {
+    const session = scriptedSession(null, []);
+    const result = await session.reconcile("2026.4.0", failingDeps("start"));
+    expect(result.detail).toContain("simulated start failure");
+  });
+
   test("versions match -> up_to_date", async () => {
     const session = scriptedSession({ running: true, version: "2026.4.0" }, []);
     const { deps, calls } = recordingDeps();
