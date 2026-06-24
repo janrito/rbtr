@@ -1,6 +1,25 @@
 # rbtr
 
-Monorepo for rbtr.
+> Language-agnostic structural code intelligence for humans
+> and clankers.
+
+rbtr reads a codebase the way a reviewer does — as functions,
+classes, methods, variables, and imports tied together by a
+dependency graph — rather than as a flat wall of text. It builds
+that structure into an index you can interrogate by name, by
+snippet, or by meaning, and serves it from a background daemon
+that keeps every watched ref current. The same index answers
+questions for a person at a terminal and for an agent navigating
+code through tools — in any language [tree-sitter] can parse.
+
+This repository is the monorepo for the whole system: the index
+itself, the agent integration that exposes it, the evaluation
+pipeline that tunes its search quality, and the review skill
+that builds on top. Start with the [demos](#demos) below for a
+feel of what it does, then the [packages](#packages) and
+[architecture](#architecture) sections to find your way around.
+
+[tree-sitter]: https://tree-sitter.github.io/tree-sitter/
 
 ## Demos
 

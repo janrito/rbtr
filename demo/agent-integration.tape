@@ -18,6 +18,7 @@ Set Padding 20
 Set Theme "Ayu Mirage"
 Set TypingSpeed 40ms
 Set CursorBlink false
+Set PlaybackSpeed 2.0
 
 Type "cd ~/apps/rbtr"
 Enter
@@ -29,24 +30,15 @@ Type "# The footer shows the index is live"
 Enter
 Sleep 500ms
 
-Type "pi --model openrouter/z-ai/glm-5.2 --no-skills --no-context-files --no-prompt-templates --no-themes --no-extensions -e packages/pi-rbtr"
+Type@20ms "pi --model openrouter/z-ai/glm-5.2 --no-skills --no-context-files --no-prompt-templates --no-themes --no-extensions -e packages/pi-rbtr"
 Enter
-Sleep 8s
+Sleep 5s
 
 # ── Concept question ─────────────────────────────────────────
 
-Type "How does search fusion work in this codebase?"
+Type "How does search fusion work?"
 Enter
-Sleep 30s
-
-# ── Branch changes ───────────────────────────────────────────
-
-Type "What changed on the current branch vs main?"
-Enter
-Sleep 25s
-
-# Let the final answer settle on screen
-Sleep 10s
+Sleep 60s
 
 # ── Exit ─────────────────────────────────────────────────────
 

@@ -19,10 +19,12 @@ Set Padding 20
 Set Theme "Ayu Mirage"
 Set TypingSpeed 40ms
 Set CursorBlink false
+Set PlaybackSpeed 2.0
+
 
 Type "cd ~/apps/rbtr"
 Enter
-Sleep 1s
+Wait
 
 # ── File outline ─────────────────────────────────────────────
 
@@ -32,7 +34,13 @@ Sleep 500ms
 
 Type "rbtr list-symbols packages/rbtr/src/rbtr/index/search.py"
 Enter
-Sleep 5s
+Wait
+Sleep 1s
+ScrollUp 25
+Sleep 2s
+ScrollDown 25
+Sleep 1s
+
 
 # ── Read symbol ──────────────────────────────────────────────
 
@@ -42,7 +50,13 @@ Sleep 500ms
 
 Type "rbtr read-symbol fuse_scores"
 Enter
-Sleep 6s
+Wait
+Sleep 1s
+ScrollUp 25
+Sleep 3s
+ScrollDown 25
+Sleep 1s
+
 
 # ── Find references ──────────────────────────────────────────
 
@@ -52,13 +66,12 @@ Sleep 500ms
 
 Type "rbtr find-refs Chunk"
 Enter
-Sleep 5s
-
-# Scroll up so the viewer can see the top of the list
-ScrollUp 5
+Wait
+Sleep 1s
+ScrollUp 25
 Sleep 3s
-ScrollDown 5
-Sleep 2s
+ScrollDown 25
+Sleep 1s
 
 # ── Structural diff ──────────────────────────────────────────
 
@@ -66,6 +79,7 @@ Type "# What changed on this branch?"
 Enter
 Sleep 500ms
 
-Type "rbtr changed-symbols main HEAD --file-path packages/rbtr/src/rbtr/index/search.py"
+Type "rbtr changed-symbols v2026.6.0 main --file-path packages/rbtr/src/rbtr/index/search.py"
 Enter
-Sleep 5s
+Wait
+Sleep 2.5s
