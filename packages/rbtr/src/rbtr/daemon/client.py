@@ -24,6 +24,7 @@ import sys
 import time
 from pathlib import Path
 from types import TracebackType
+from typing import TypeGuard
 
 import structlog
 import zmq
@@ -57,6 +58,17 @@ def is_daemon_running() -> bool:
     return is_pid_alive(status.pid)
 
 
+def _daemon_ready(status: DaemonStatus | None) -> TypeGuard[DaemonStatus]:
+    """True when *status* describes a live daemon process.
+
+    The readiness test is deliberately "is **any** live daemon
+    up?", not "is the daemon I spawned up?".  Concurrent callers
+    that lose the start race must accept the winner's daemon
+    rather than waiting for their own (doomed) `serve` to bind.
+    """
+    return status is not None and is_pid_alive(status.pid)
+
+
 def start_daemon() -> DaemonStatus:
     """Start the daemon and wait for it to become ready.
 
@@ -66,8 +78,13 @@ def start_daemon() -> DaemonStatus:
     next `daemon serve` from failing on `EADDRINUSE` after a
     hard-crashed daemon left sockets behind.
 
-    Returns the daemon status on success. Raises `RuntimeError`
-    if the daemon fails to start within the timeout.
+    Concurrency-safe: if a daemon is already running (a
+    concurrent caller won the race), it is reused instead of
+    spawning a second `serve`.  If our own spawn loses the race,
+    we terminate it and return the winner.
+
+    Returns the daemon status on success. Raises `RbtrError`
+    if no daemon becomes ready within the timeout.
     """
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
     config.log_dir.mkdir(parents=True, exist_ok=True)
@@ -75,13 +92,18 @@ def start_daemon() -> DaemonStatus:
     # Stale cleanup: status file with dead PID -> remove status
     # + orphan sockets.  A live PID is left alone.
     # NOTE: PID recycling could cause a false positive from
-    # is_pid_alive; concurrent starts race without a lock.
-    # Both are low-probability for a per-user tool.
-    stale = read_status(config.runtime_dir)
-    if stale is not None and not is_pid_alive(stale.pid):
+    # is_pid_alive; low-probability for a per-user tool.
+    status = read_status(config.runtime_dir)
+    if status is not None and not is_pid_alive(status.pid):
         remove_status(config.runtime_dir)
         config.daemon_rpc.unlink(missing_ok=True)
         config.daemon_pub.unlink(missing_ok=True)
+        status = None
+
+    # A live daemon already exists (e.g. a concurrent caller won
+    # the race): reuse it rather than spawning a second serve.
+    if _daemon_ready(status):
+        return status
 
     # Propagate the active dir overrides to the spawned child so
     # the daemon resolves the same data_path / log_path / cache_path
@@ -112,11 +134,17 @@ def start_daemon() -> DaemonStatus:
         start_new_session=True,
     )
 
-    # Wait for the status file to appear (daemon writes it after bind)
+    # Wait for any live daemon to appear (it writes its status
+    # file after binding sockets).  If the daemon that comes up
+    # isn't the one we spawned, a concurrent caller won the race:
+    # terminate our redundant serve (it would otherwise die on
+    # the DuckDB lock) and return the winner.
     for _ in range(50):  # 5 s at 100 ms intervals
         time.sleep(0.1)
         status = _status()
-        if status is not None and status.pid == proc.pid:
+        if _daemon_ready(status):
+            if status.pid != proc.pid and proc.poll() is None:
+                proc.terminate()
             return status
 
     proc.terminate()

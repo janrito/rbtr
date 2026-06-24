@@ -140,7 +140,7 @@ class DaemonStart(BaseModel):
 
         try:
             start_daemon()
-        except RuntimeError as exc:
+        except RbtrError as exc:
             print_err(f"[red]error:[/] {exc}")
             sys.exit(1)
 
@@ -157,7 +157,7 @@ class DaemonStop(BaseModel):
 
         try:
             stop_daemon()
-        except RuntimeError as exc:
+        except RbtrError as exc:
             print_err(f"[red]error:[/] {exc}")
             sys.exit(1)
 
@@ -252,7 +252,7 @@ class Index(BaseModel):
         # Daemon not running: auto-start and retry
         try:
             start_daemon()
-        except RuntimeError as exc:
+        except RbtrError as exc:
             print_err(f"[red]error:[/] failed to start daemon: {exc}")
             print_err("[dim]Falling back to inline execution.[/]")
             self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])

@@ -91,3 +91,13 @@ just fmt                    # auto-fix (Python, TypeScript, SQL, Markdown)
 | ------------------------------------------------ | ------------------------- |
 | [`rbtr-data`](.agents/skills/rbtr-data/)         | Data handling conventions |
 | [`rbtr-testing`](.agents/skills/rbtr-testing/)   | Testing conventions       |
+
+## Troubleshooting
+
+| Symptom                                                                | Recovery                                                                                                                                                                                            |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rbtr CLI not found` or `daemon start/restart failed` at session start | Run `rbtr daemon status`; if it's down, `rbtr daemon start`. Concurrent sessions converge on one daemon, so this is usually transient — a busy index reports "temporarily unavailable" and retries. |
+| `Index database is locked by another process`                          | The running daemon holds the index lock; route commands through it (`rbtr daemon status`). Only `rbtr daemon stop` a genuinely stale daemon — never kill a healthy one.                             |
+| `No index found` for a repo that should be indexed                     | Run `rbtr index` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                              |
+
+`rbtr config` prints the resolved paths (including the daemon log) for deeper diagnosis.

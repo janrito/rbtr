@@ -761,7 +761,10 @@ class DaemonServer:
                     await relay_task
                 for wt in warmup_tasks:
                     wt.cancel()
-                    with contextlib.suppress(Exception):
+                    # suppress CancelledError (a BaseException, not caught
+                    # by Exception) from the cancel above, plus any warmup
+                    # error — neither matters once we are shutting down.
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
                         await wt
         finally:
             self._cleanup()

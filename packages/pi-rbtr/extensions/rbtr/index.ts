@@ -20,6 +20,7 @@ import {
 import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
+import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
 import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
@@ -104,9 +105,11 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
         "info",
       );
       break;
-    case "failed":
-      ctx.ui.notify("rbtr daemon start/restart failed. Falling back to CLI mode.", "warning");
+    case "failed": {
+      const why = result.detail ? `: ${result.detail}` : "";
+      ctx.ui.notify(`rbtr daemon start/restart failed${why}. Falling back to CLI mode.`, "warning");
       break;
+    }
     case "older_client":
     case "up_to_date":
       // silent — normal operation
@@ -284,9 +287,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           if (!resolved) throw new Error("rbtr command not resolved");
           if (sub === "start") footer?.setSpinner("muted", (frame) => `rbtr: ${frame} starting daemon…`);
           else footer?.setSpinner("muted", (frame) => `rbtr: ${frame} restarting daemon…`);
-          await pi.exec(resolved.executable, [...resolved.baseArgs, "daemon", sub], {
+          const result = await pi.exec(resolved.executable, [...resolved.baseArgs, "daemon", sub], {
             timeout: 15_000,
           });
+          if (result.code !== 0) {
+            throw new Error(classifyDaemonFailure(result.code, result.stderr ?? "").message);
+          }
         },
       });
       notifyReconcile(ctx, reconcileResult);
@@ -301,7 +307,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }, 30_000);
 
     const status = await queryIndexStatus(ctx.cwd);
-    if (status === null) {
+    const decision = decideStartupDecision(resolved !== null, status, settings.autoIndex);
+
+    if (decision.kind === "missing-cli") {
+      // Genuinely unresolvable CLI — the only case that disables
+      // rbtr for the session.  A transient daemon/lock failure
+      // must not land here (it would mislabel a present CLI as
+      // missing and skip auto-index).
       cliAvailable = false;
       footer.setStatic("error", "rbtr: not found");
       ctx.ui.notify(
@@ -314,13 +326,24 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     cliAvailable = true;
 
-    const indexed = status.indexed_refs ?? [];
-    if (indexed.length > 0) {
-      footer.setStatic("success", footerLabel(indexed[0].total, indexed[0].embedded, session.available));
-    } else if (settings.autoIndex) {
+    if (decision.kind === "indexed") {
+      const top = (status?.indexed_refs ?? [])[0];
+      if (top) footer.setStatic("success", footerLabel(top.total, top.embedded, session.available));
+      return;
+    }
+
+    if (decision.kind === "transient") {
+      ctx.ui.notify("rbtr index temporarily unavailable (database busy); will retry.", "warning");
+    }
+
+    // empty or transient: index if enabled (the CLI auto-starts /
+    // falls back), else leave a hint in the footer.
+    if (decision.index) {
       await triggerIndex(ctx);
     } else {
-      footer.setStatic("muted", "rbtr: no index — /rbtr-index");
+      const hint =
+        decision.kind === "transient" ? "rbtr: index unavailable — retrying" : "rbtr: no index — /rbtr-index";
+      footer.setStatic("muted", hint);
     }
   });
 

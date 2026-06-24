@@ -496,6 +496,16 @@ arrives while an embed is running, the embed worker yields
 between batches (interrupting mid-write is unsafe), then
 the build runs next.
 
+### Daemon startup
+
+The daemon is **single and global** per `data_dir`: `serve` takes
+DuckDB's exclusive lock (via `IndexStore.from_config`) before
+binding its sockets, so a second `serve` racing it dies on the
+lock. `start_daemon()` tolerates this rather than coordinating it
+— it treats any live daemon as ready, so concurrent callers
+converge on the winner and a losing spawn is terminated. The
+double-spawn is cheap, so no parent-side start lock is needed.
+
 ### Crash recovery
 
 **Indexing:** `WriteSession.sweep` deletes data
