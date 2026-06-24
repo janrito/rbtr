@@ -16,10 +16,11 @@ Set Padding 20
 Set Theme "Ayu Mirage"
 Set TypingSpeed 40ms
 Set CursorBlink false
+Set PlaybackSpeed 2.0
 
 Type "cd ~/apps/rbtr"
 Enter
-Sleep 1s
+Wait
 
 # ── Index ────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ Sleep 500ms
 
 Type "rbtr index"
 Enter
-Sleep 10s
+Wait
 
 # ── Identifier search ────────────────────────────────────────
 
@@ -39,7 +40,8 @@ Sleep 500ms
 
 Type 'rbtr search "Embedder" --limit 3'
 Enter
-Sleep 5s
+Wait
+Sleep 2.5s
 
 # ── Code search ──────────────────────────────────────────────
 
@@ -47,9 +49,10 @@ Type "# I have a snippet from a traceback"
 Enter
 Sleep 500ms
 
-Type 'rbtr search "model.encode(texts" --limit 3'
+Type 'rbtr search "model.embed(texts)" --limit 3'
 Enter
-Sleep 5s
+Wait
+Sleep 2.5s
 
 # ── Concept search ───────────────────────────────────────────
 
@@ -59,7 +62,8 @@ Sleep 500ms
 
 Type 'rbtr search "where is the embedding model loaded" --limit 3'
 Enter
-Sleep 5s
+Wait
+Sleep 3s
 
 # ── Read symbol ──────────────────────────────────────────────
 
@@ -69,4 +73,5 @@ Sleep 500ms
 
 Type "rbtr read-symbol Embedder"
 Enter
-Sleep 6s
+Wait
+Sleep 2s

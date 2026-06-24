@@ -268,7 +268,7 @@ class Index(BaseModel):
                 emit(resp)
             case OkResponse():
                 print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
-                print_err("[dim]Indexing in background; run `rbtr daemon status` to track.[/]")
+                print_err("[dim]Indexing in background; run `rbtr status` to track.[/]")
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(1)
