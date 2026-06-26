@@ -104,7 +104,6 @@ def embeddable_store(contention_repo: str) -> Generator[IndexStore]:
         chunks.append(
             TokenisedChunk(
                 id=f"chunk_{i}",
-                repo_id=repo_id,
                 blob_sha=f"blob_{i}",
                 file_path=f"src/mod_{i}.py",
                 kind=ChunkKind.FUNCTION,

@@ -1,6 +1,5 @@
 INSERT INTO chunks
 SELECT
-  repo_id,
   id,
   blob_sha,
   file_path,
@@ -18,7 +17,7 @@ SELECT
   NULL AS embedding,
   FALSE AS embedding_truncated
 FROM _stg
-ON CONFLICT (repo_id, id) DO UPDATE SET
+ON CONFLICT (id) DO UPDATE SET
   blob_sha = excluded.blob_sha,
   file_path = excluded.file_path,
   kind = excluded.kind,

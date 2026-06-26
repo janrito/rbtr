@@ -12,7 +12,7 @@ from __future__ import annotations
 # stored version in `meta.schema_version` doesn't match the code's
 # version, the DB file is deleted and rebuilt from scratch.  Uses
 # calver (YYYY.M.NUM) matching the project version format.
-SCHEMA_VERSION = "2026.5.5"
+SCHEMA_VERSION = "2026.5.6"
 
 # Bump this when the embedding text format (i.e. `embedding_text()`)
 # changes.  Stored alongside `config.embedding_model` in the DB's

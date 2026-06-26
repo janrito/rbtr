@@ -413,7 +413,6 @@ class DaemonServer:
                     await asyncio.to_thread(
                         self._write_embed_batch,
                         store,
-                        job.repo_id,
                         batch,
                         [r.vector for r in results],
                         [r.truncated for r in results],
@@ -457,16 +456,13 @@ class DaemonServer:
     @staticmethod
     def _write_embed_batch(
         store: IndexStore,
-        repo_id: int,
         batch: tuple[Any, ...],
         vectors: list[list[float]],
         truncated: list[bool] | None = None,
     ) -> None:
         """Write one embedding batch in its own session."""
         with store.session() as session:
-            session.update_embeddings(
-                [c.id for c in batch], vectors, repo_id=repo_id, truncated=truncated
-            )
+            session.update_embeddings([c.id for c in batch], vectors, truncated=truncated)
 
     def register(self, kind: str, handler: RequestHandler) -> None:
         self._handlers[kind] = handler

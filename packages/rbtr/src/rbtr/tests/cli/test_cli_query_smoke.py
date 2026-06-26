@@ -98,7 +98,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     chunks_c1 = [
         TokenisedChunk(
             id="fn_config_v1",
-            repo_id=repo_id,
             blob_sha="blob_config_v1",
             file_path="src/config.py",
             kind=ChunkKind.FUNCTION,
@@ -111,7 +110,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         ),
         TokenisedChunk(
             id="cls_app",
-            repo_id=repo_id,
             blob_sha="blob_app",
             file_path="src/app.py",
             kind=ChunkKind.CLASS,
@@ -124,7 +122,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         ),
         TokenisedChunk(
             id="imp_config",
-            repo_id=repo_id,
             blob_sha="blob_app",
             file_path="src/app.py",
             kind=ChunkKind.IMPORT,
@@ -140,7 +137,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     chunks_c2 = [
         TokenisedChunk(
             id="fn_config_v2",
-            repo_id=repo_id,
             blob_sha="blob_config_v2",
             file_path="src/config.py",
             kind=ChunkKind.FUNCTION,

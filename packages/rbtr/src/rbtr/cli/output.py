@@ -520,7 +520,8 @@ def _render_gc_response(m: GcResponse) -> None:
         f"{prefix}  {m.commits_dropped} commits, "
         f"{m.snapshots_dropped} snapshots, "
         f"{m.edges_dropped} edges, "
-        f"{m.chunks_dropped} chunks"
+        f"{m.chunks_dropped} chunks freed, "
+        f"{m.chunks_kept_shared} chunks kept"
     )
     t.append(f"  ({m.elapsed_seconds:.2f}s)", style="dim")
     _out.print(t)

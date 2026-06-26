@@ -108,6 +108,24 @@ def case_get_chunks_nonexistent_file() -> ChunkQueryScenario:
     )
 
 
+@case(tags=["get_chunks"])
+def case_get_chunks_same_blob_two_paths() -> ChunkQueryScenario:
+    """Identical content at two paths does not cross-contaminate.
+
+    Both chunks share one `blob_sha` but sit at different paths, so the
+    `(blob_sha, file_path)` join must return only the queried path's
+    chunk — never the same-blob chunk at the other path.
+    """
+    at_a = make_chunk("at_a", path="a.py", blob="b")
+    at_b = make_chunk("at_b", path="b.py", blob="b")
+    return ChunkQueryScenario(
+        chunks=[at_a, at_b],
+        snapshots=[make_snap("head", "a.py", "b"), make_snap("head", "b.py", "b")],
+        file_path="a.py",
+        expected_ids=["at_a"],
+    )
+
+
 # ── has_blob cases ──────────────────────────────────────────────────
 
 
@@ -143,7 +161,7 @@ def case_has_blob_different_language() -> HasBlobScenario:
 def case_has_blob_same_language_and_version() -> HasBlobScenario:
     """Blob stored as 'markdown' v1, queried with same → True."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
-    c = TokenisedChunk(**{**c.model_dump(), "language": "markdown"})
+    c = c.model_copy(update={"language": "markdown"})
     return HasBlobScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
@@ -158,7 +176,7 @@ def case_has_blob_same_language_and_version() -> HasBlobScenario:
 def case_has_blob_different_version() -> HasBlobScenario:
     """Blob stored at version 1, queried with version 2 → False."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
-    c = TokenisedChunk(**{**c.model_dump(), "language": "markdown"})
+    c = c.model_copy(update={"language": "markdown"})
     return HasBlobScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
@@ -180,4 +198,97 @@ def case_has_blob_nonexistent() -> HasBlobScenario:
         query_language="",
         query_language_plugin_version=1,
         expected=False,
+    )
+
+
+# ── Scenario dataclasses for the GC chunk split ─────────────────────
+
+
+@dataclass(frozen=True)
+class SnapshotGroup:
+    """Snapshots for one commit of one repo, plus the repo to seed under."""
+
+    repo_id: int
+    commit_sha: str
+    snapshots: list[Snapshot]
+
+
+@dataclass(frozen=True)
+class GcCountScenario:
+    """Seed data + a drop set + expected (dropped, kept) chunk counts."""
+
+    chunks: list[TokenisedChunk]
+    groups: list[SnapshotGroup]
+    drop_repo_id: int
+    drop_shas: list[str]
+    expected_dropped: int
+    expected_kept: int
+
+
+# ── gc_counts cases ─────────────────────────────────────────────────
+
+
+@case(tags=["gc_counts"])
+def case_gc_split_last_reference() -> GcCountScenario:
+    """The drop removes the chunk's only reference → dropped."""
+    c = make_chunk("only", path="a.py", blob="b1")
+    return GcCountScenario(
+        chunks=[c],
+        groups=[SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "b1")])],
+        drop_repo_id=1,
+        drop_shas=["c1"],
+        expected_dropped=1,
+        expected_kept=0,
+    )
+
+
+@case(tags=["gc_counts"])
+def case_gc_split_shared_cross_repo() -> GcCountScenario:
+    """Another repo references the same blob+path → kept."""
+    c = make_chunk("shared", path="x.py", blob="b")
+    return GcCountScenario(
+        chunks=[c],
+        groups=[
+            SnapshotGroup(1, "c1", [make_snap("c1", "x.py", "b")]),
+            SnapshotGroup(2, "c2", [make_snap("c2", "x.py", "b")]),
+        ],
+        drop_repo_id=1,
+        drop_shas=["c1"],
+        expected_dropped=0,
+        expected_kept=1,
+    )
+
+
+@case(tags=["gc_counts"])
+def case_gc_split_shared_same_repo_other_ref() -> GcCountScenario:
+    """A surviving ref of the same repo references the chunk → kept."""
+    c = make_chunk("multi", path="a.py", blob="b")
+    return GcCountScenario(
+        chunks=[c],
+        groups=[
+            SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "b")]),
+            SnapshotGroup(1, "c2", [make_snap("c2", "a.py", "b")]),
+        ],
+        drop_repo_id=1,
+        drop_shas=["c1"],
+        expected_dropped=0,
+        expected_kept=1,
+    )
+
+
+@case(tags=["gc_counts"])
+def case_gc_split_mixed() -> GcCountScenario:
+    """One candidate loses its last reference; another survives via c2."""
+    gone = make_chunk("gone", path="a.py", blob="ba")
+    stays = make_chunk("stays", path="b.py", blob="bb")
+    return GcCountScenario(
+        chunks=[gone, stays],
+        groups=[
+            SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "ba"), make_snap("c1", "b.py", "bb")]),
+            SnapshotGroup(1, "c2", [make_snap("c2", "b.py", "bb")]),
+        ],
+        drop_repo_id=1,
+        drop_shas=["c1"],
+        expected_dropped=1,
+        expected_kept=1,
     )

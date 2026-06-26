@@ -160,15 +160,15 @@ class TokenisedChunk(Chunk):
     Written during extraction, stored in DB, consumed by FTS.
     No code outside the extraction loop reads these fields
     from the model — they exist only to flow into DuckDB.
-    The four added fields split by role: `content_tokens` and
+    The added fields split by role: `content_tokens` and
     `name_tokens` are the code-aware tokenisations BM25/FTS
-    queries against; `repo_id` and `language_plugin_version` are
-    storage columns, not part of chunk identity, which is derived
-    from file/blob/name/line only.  `repo_id` defaults to 1, the
-    sole repo in the common single-repo case.
+    queries against; `language_plugin_version` is a storage
+    column, not part of chunk identity, which is derived from
+    file/blob/name/line only.  Chunks carry no `repo_id` — the
+    store is content-addressed and repo attribution lives in
+    `file_snapshots`.
     """
 
-    repo_id: int = 1
     content_tokens: str = ""
     name_tokens: str = ""
     language_plugin_version: int = 1
@@ -246,12 +246,21 @@ class IndexStatus(BaseModel):
 
 @dataclass(frozen=True)
 class GcCounts:
-    """Rows removed by a garbage-collection operation."""
+    """Rows removed by a garbage-collection operation.
+
+    `commits`, `snapshots`, and `edges` are per-repo. The chunk figures
+    are global, since chunks are content-addressed and shared across
+    repos: `chunks` is the count freed by the operation, and
+    `chunks_kept_shared` is the candidate chunks retained because
+    another indexed ref (any repo) still references them. Crash-residue
+    prunes are not counted in either chunk figure.
+    """
 
     commits: int = 0
     snapshots: int = 0
     edges: int = 0
     chunks: int = 0
+    chunks_kept_shared: int = 0
 
     def __add__(self, other: GcCounts) -> GcCounts:
         return GcCounts(
@@ -259,6 +268,7 @@ class GcCounts:
             snapshots=self.snapshots + other.snapshots,
             edges=self.edges + other.edges,
             chunks=self.chunks + other.chunks,
+            chunks_kept_shared=self.chunks_kept_shared + other.chunks_kept_shared,
         )
 
 

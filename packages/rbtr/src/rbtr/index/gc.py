@@ -82,8 +82,21 @@ def run_gc(
         keep_set=keep_set,
     )
 
+    # Read-only split of the drop set's chunks into freed vs kept (a
+    # candidate retained because a surviving ref still references it).
+    # Computed before any writes so the reference graph is intact, and
+    # used for both dry-run and real runs.
+    chunks_freed, chunks_kept = store.count_gc_chunk_split(repo_id, list(drop_set))
+
     if dry_run:
-        return _dry_run_counts(store, repo_id, drop_set=drop_set)
+        counts = _dry_run_counts(store, repo_id, drop_set=drop_set)
+        return GcCounts(
+            commits=counts.commits,
+            snapshots=counts.snapshots,
+            edges=counts.edges,
+            chunks=chunks_freed,
+            chunks_kept_shared=chunks_kept,
+        )
 
     with store.session() as session:
         session.sweep()
@@ -91,7 +104,13 @@ def run_gc(
         for sha in drop_set:
             total = total + session.drop_commit(repo_id, sha)
         total = total + session.cleanup(repo_id)
-    return total
+    return GcCounts(
+        commits=total.commits,
+        snapshots=total.snapshots,
+        edges=total.edges,
+        chunks=chunks_freed,
+        chunks_kept_shared=chunks_kept,
+    )
 
 
 def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCounts:
@@ -163,13 +182,12 @@ def _resolve_drop_set(
 
 
 def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> GcCounts:
-    """Compute counts without writing.
+    """Compute commit / snapshot / edge counts without writing.
 
-    Accurate for commits / snapshots / edges.  The `chunks` field
-    is left at zero because computing it exactly would require
-    simulating the drops and walking the blob-reference graph, and
-    DuckDB does not allow nested transactions that could be rolled
-    back.  Users who need precise chunk counts should run a real GC.
+    The chunk figures are computed separately by `run_gc` via
+    `count_gc_chunk_split` (a read-only reference-graph query that
+    needs no drop simulation), so this returns `chunks=0` and the
+    caller overrides it.
     """
     total = GcCounts(commits=len(drop_set))
     snapshots = 0

@@ -100,10 +100,13 @@ def multi_repo_store(store: IndexStore) -> tuple[IndexStore, int, int]:
         repo_two = ws.register_repo("/repo_two")
     seed_store(
         store,
-        [
-            make_chunk("r1_a", name="alpha_func", path="a.py", blob="b_r1", repo_id=repo_one),
-            make_chunk("r2_b", name="beta_func", path="b.py", blob="b_r2", repo_id=repo_two),
-        ],
+        [make_chunk("r1_a", name="alpha_func", path="a.py", blob="b_r1")],
+        repo_id=repo_one,
+    )
+    seed_store(
+        store,
+        [make_chunk("r2_b", name="beta_func", path="b.py", blob="b_r2")],
+        repo_id=repo_two,
     )
     return store, repo_one, repo_two
 
@@ -117,6 +120,42 @@ def test_fts_scoped_to_repo(multi_repo_store: tuple[IndexStore, int, int]) -> No
 
     r2 = store.match_fulltext("head", "alpha", repo_id=repo_two)
     assert r2 == []
+
+
+def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_store: IndexStore) -> None:
+    """A chunk shared by two repos is found by FTS from either repo.
+
+    One physical row, two snapshot references: the id-keyed FTS index
+    must surface it for whichever repo scopes the query.
+    """
+    store = shared_chunk_store
+    r1 = store.match_fulltext("head", "shared", repo_id=1)
+    r2 = store.match_fulltext("head", "shared", repo_id=2)
+    assert [c.id for c, _score in r1] == ["shared_fn"]
+    assert [c.id for c, _score in r2] == ["shared_fn"]
+
+
+def test_shared_chunk_found_via_semantic_from_both_repos(shared_chunk_store: IndexStore) -> None:
+    """A shared chunk's single embedding is reachable by semantic search from either repo."""
+    store = shared_chunk_store
+    with store.session() as ws:
+        ws.update_embeddings(["shared_fn"], [[1.0, 0.0, 0.0, 0.0]])
+    query_vec = [1.0, 0.0, 0.0, 0.0]
+    r1 = store.match_similar("head", query_vec, top_k=5, repo_id=1)
+    r2 = store.match_similar("head", query_vec, top_k=5, repo_id=2)
+    assert [c.id for c, _score in r1] == ["shared_fn"]
+    assert [c.id for c, _score in r2] == ["shared_fn"]
+
+
+def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
+    shared_chunk_store: IndexStore,
+) -> None:
+    """Cross-repo search keeps a shared chunk as one row per repo, each attributed."""
+    store = shared_chunk_store
+    refs = [RepoRef(repo_id=1, commit_sha="head"), RepoRef(repo_id=2, commit_sha="head")]
+    results = store.search(refs, "shared", top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
+    shared = [r for r in results if r.id == "shared_fn"]
+    assert {r.repo_path for r in shared} == {"/repo1", "/repo2"}
 
 
 def test_cross_repo_search_merges_both_repos(multi_repo_store: tuple[IndexStore, int, int]) -> None:
@@ -157,7 +196,7 @@ def semantic_store(store: IndexStore) -> IndexStore:
     vec_close = [0.9, 0.1, 0.1, 0.1]
     vec_far = [0.3, 0.7, 0.7, 0.7]
     with store.session() as ws:
-        ws.update_embeddings(["close", "far"], [vec_close, vec_far], repo_id=1)
+        ws.update_embeddings(["close", "far"], [vec_close, vec_far])
     return store
 
 
@@ -218,7 +257,7 @@ def test_seeded_chunks_have_embedding_flag(store: IndexStore) -> None:
     seed_store(store, s.chunks)
     vec = [0.5, 0.5, 0.5, 0.5]
     with store.session() as ws:
-        ws.update_embeddings(["a"], [vec], repo_id=1)
+        ws.update_embeddings(["a"], [vec])
     chunks = store.get_chunks("head", repo_id=1)
     assert chunks[0].embedding
 

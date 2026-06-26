@@ -81,7 +81,7 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
     """
     with store.session() as ws:
         ws.add_chunk(make_chunk("r1_a", path="a.py", blob="b1a"))
-        ws.add_chunk(make_chunk("r2_a", path="a.py", blob="b2a", repo_id=2))
+        ws.add_chunk(make_chunk("r2_a", path="a.py", blob="b2a"))
         ws.add_chunk(make_chunk("r1_b", path="b.py", blob="b1b"))
         ws.insert_snapshots(
             [make_snap("head", "a.py", "b1a"), make_snap("head", "b.py", "b1b")],
@@ -189,8 +189,8 @@ def test_empty_operations_are_noops(store: IndexStore) -> None:
     with store.session() as ws:
         ws.insert_snapshots([], repo_id=1)
         ws.insert_edges([], "c1", repo_id=1)
-        ws.update_embeddings([], [], repo_id=1)
-        ws.delete_chunks_for_blobs(set(), repo_id=1)
+        ws.update_embeddings([], [])
+        ws.delete_chunks_for_blobs(set())
 
 
 # ── register_repo ────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
 
     vec = [0.1, 0.2, 0.3]
     with store.session() as ws:
-        ws.update_embeddings(["a", "b"], [vec, vec], repo_id=1, truncated=[True, False])
+        ws.update_embeddings(["a", "b"], [vec, vec], truncated=[True, False])
 
     # After embedding — both flagged as embedded.
     chunks = store.get_chunks("c1", repo_id=1)
@@ -324,7 +324,7 @@ def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
         ws.add_chunk(make_chunk("a"))
         ws.add_chunk(make_chunk("b", blob="blob_b", path="g.py"))
         with pytest.raises(ValidationError):
-            ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]], repo_id=1)
+            ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
 
 
 # ── delete_snapshots ─────────────────────────────────────────────────
@@ -358,5 +358,5 @@ def test_delete_snapshots_hides_chunks(
         ws.delete_snapshots("head", repo_id=1)
 
     assert store.get_chunks("head", repo_id=1) == []
-    assert store.has_blob(math_func.blob_sha, repo_id=1) is True
-    assert store.has_blob(http_func.blob_sha, repo_id=1) is True
+    assert store.has_blob(math_func.blob_sha) is True
+    assert store.has_blob(http_func.blob_sha) is True

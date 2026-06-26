@@ -20,7 +20,12 @@ CREATE TABLE IF NOT EXISTS file_snapshots (
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
-  repo_id INTEGER NOT NULL DEFAULT 1,
+  -- Content-addressed store: `id` is a blake2b hash of
+  -- (file_path, blob_sha, name, line_start) and is therefore
+  -- globally unique and repo-independent.  Identical content in
+  -- several repos/worktrees is one row here; per-repo attribution
+  -- lives entirely in `file_snapshots` (joined on blob_sha +
+  -- file_path).  See ARCHITECTURE.md "Content-addressed chunks".
   id TEXT NOT NULL,
   blob_sha TEXT NOT NULL,
   file_path TEXT NOT NULL,
@@ -39,17 +44,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   -- the model (see ARCHITECTURE.md "Embedding column").
   embedding FLOAT [] DEFAULT NULL,
   embedding_truncated BOOLEAN NOT NULL DEFAULT FALSE,
-  -- Globally-unique surrogate key for DuckDB FTS, which
-  -- accepts only a single-column identifier.  Our natural PK
-  -- `(repo_id, id)` can collide on `id` alone when multiple
-  -- repos share a home, which caused `match_bm25` to raise
-  -- "scalar subquery returned more than one row".  VIRTUAL
-  -- because DuckDB only supports VIRTUAL generated columns
-  -- today; recomputed on every read.  FTS reads it once at
-  -- `create_fts_index` time to materialise `docs.name`, so
-  -- the per-read cost is irrelevant.
-  fts_row_key TEXT GENERATED ALWAYS AS (repo_id || ':' || id),
-  PRIMARY KEY (repo_id, id)
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -74,8 +69,8 @@ CREATE TABLE IF NOT EXISTS watched_refs (
   PRIMARY KEY (repo_id, ref)
 );
 
-CREATE INDEX IF NOT EXISTS idx_chunks_repo_blob
-ON chunks (repo_id, blob_sha);
+CREATE INDEX IF NOT EXISTS idx_chunks_blob
+ON chunks (blob_sha, file_path);
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_repo_commit
 ON file_snapshots (repo_id, commit_sha);

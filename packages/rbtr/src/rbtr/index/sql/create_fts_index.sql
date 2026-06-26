@@ -1,10 +1,9 @@
--- Keyed on `fts_row_key` (generated column = `repo_id || ':' ||
--- id`), not `id` alone.  DuckDB FTS accepts only one identifier
--- column and it must be globally unique.  With multiple repos in
--- a shared home, `id` alone collides -- see the comment on
--- chunks.fts_row_key.
+-- Keyed on `id` — the content-addressed chunk hash, which is
+-- globally unique (one row per unique content across all repos),
+-- so DuckDB FTS's single-column identifier requirement is met
+-- directly.  No surrogate key is needed.
 PRAGMA create_fts_index(  -- noqa: PRS
-  'chunks', 'fts_row_key', 'name_tokens', 'content_tokens',
+  'chunks', 'id', 'name_tokens', 'content_tokens',
   stemmer = 'none', stopwords = 'none',
   ignore = '([^a-z0-9_])+',
   overwrite = 1

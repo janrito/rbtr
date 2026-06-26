@@ -81,7 +81,6 @@ def seeded_store(
                 path="src/config.py",
                 blob="blob_config",
                 kind=ChunkKind.FUNCTION,
-                repo_id=repo_id,
             ),
             make_chunk(
                 "var_config",
@@ -90,7 +89,6 @@ def seeded_store(
                 path="src/config.py",
                 blob="blob_config",
                 kind=ChunkKind.VARIABLE,
-                repo_id=repo_id,
             ),
             make_chunk(
                 "cls_app",
@@ -99,7 +97,6 @@ def seeded_store(
                 path="src/app.py",
                 blob="blob_app",
                 kind=ChunkKind.CLASS,
-                repo_id=repo_id,
             ),
             make_chunk(
                 "imp_config",
@@ -108,7 +105,6 @@ def seeded_store(
                 path="src/app.py",
                 blob="blob_app",
                 kind=ChunkKind.IMPORT,
-                repo_id=repo_id,
             ),
         ]
         for c in chunks:
@@ -145,7 +141,6 @@ def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
                 path="src/config.py",
                 blob="blob_config_v2",
                 kind=ChunkKind.FUNCTION,
-                repo_id=repo_id,
             )
         )
         ws.add_chunk(
@@ -156,7 +151,6 @@ def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
                 path="src/config.py",
                 blob="blob_config_v2",
                 kind=ChunkKind.FUNCTION,
-                repo_id=repo_id,
             )
         )
         ws.insert_snapshots(
@@ -244,12 +238,8 @@ def two_repo_server(
         id_a = ws.register_repo(path_a)
         id_b = ws.register_repo(path_b)
         for repo_id, uniq, head in ((id_a, "alpha", head_a), (id_b, "beta", head_b)):
-            ws.add_chunk(
-                make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py", repo_id=repo_id)
-            )
-            ws.add_chunk(
-                make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py", repo_id=repo_id)
-            )
+            ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
+            ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
                 [
                     Snapshot(commit_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"),
