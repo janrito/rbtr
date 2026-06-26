@@ -9,20 +9,7 @@ output (presence or absence of the `docstring` provenance).
 
 from __future__ import annotations
 
-import pytest
 from pytest_cases import case
-
-from rbtr.languages import get_manager
-
-_mgr = get_manager()
-_skip_no_rust = pytest.mark.skipif(
-    _mgr.load_grammar("rust") is None,
-    reason="rust tree-sitter grammar not installed",
-)
-_skip_no_ts = pytest.mark.skipif(
-    _mgr.load_grammar("typescript") is None,
-    reason="typescript tree-sitter grammar not installed",
-)
 
 
 @case(tags=["yields_queries"])
@@ -55,7 +42,6 @@ def case_symbol_too_short_for_body() -> tuple[str, str, str, set[str]]:
 
 
 @case(tags=["yields_queries"])
-@_skip_no_rust
 def case_rust_with_doc_comment() -> tuple[str, str, str, set[str]]:
     """Rust function with /// doc comment produces all three."""
     content = """\
@@ -68,7 +54,6 @@ fn greet(name: &str) -> String {
 
 
 @case(tags=["yields_queries"])
-@_skip_no_ts
 def case_ts_with_jsdoc() -> tuple[str, str, str, set[str]]:
     """TypeScript function with JSDoc produces all three."""
     content = """\
@@ -83,7 +68,6 @@ function greet(name: string): string {
 
 
 @case(tags=["yields_queries"])
-@_skip_no_ts
 def case_ts_without_doc() -> tuple[str, str, str, set[str]]:
     """TypeScript function without JSDoc produces name + body only."""
     content = """\

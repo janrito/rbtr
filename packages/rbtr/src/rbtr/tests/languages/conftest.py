@@ -80,15 +80,3 @@ def extract_chunks(
             doc_comment_node_types=doc_types,
         )
     )
-
-
-def skip_unless_grammar(lang: str) -> pytest.MarkDecorator:
-    """Return a `skipif` marker when the grammar for *lang* is missing.
-
-    Called at parametrize collection time, so it cannot depend on
-    a fixture.  `get_manager()` is idempotent.
-    """
-    return pytest.mark.skipif(
-        get_manager().load_grammar(lang) is None,
-        reason=f"tree-sitter-{lang} not installed",
-    )

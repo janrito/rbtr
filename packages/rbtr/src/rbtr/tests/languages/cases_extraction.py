@@ -13,24 +13,11 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-from .conftest import skip_unless_grammar
-
 # Return types per tag — each @case function returns one of these.
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
 type ImportCase = tuple[str, str, dict[str, str]]
 type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
-
-# ── Skip markers for optional grammars ───────────────────────────────
-
-_skip_js = skip_unless_grammar("javascript")
-_skip_ts = skip_unless_grammar("typescript")
-_skip_go = skip_unless_grammar("go")
-_skip_rust = skip_unless_grammar("rust")
-_skip_java = skip_unless_grammar("java")
-_skip_c = skip_unless_grammar("c")
-_skip_cpp = skip_unless_grammar("cpp")
-_skip_ruby = skip_unless_grammar("ruby")
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -573,21 +560,18 @@ def main():
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_function_declaration() -> SymbolCase:
     """function greet() {}."""
     return "javascript", "function greet() {}\n", [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_arrow_function() -> SymbolCase:
     """const add = (a, b) => a + b."""
     return "javascript", "const add = (a, b) => a + b;\n", [("function", "add", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_arrow_function_block() -> SymbolCase:
     """Arrow function with block body."""
     src = """\
@@ -599,7 +583,6 @@ const fetch = () => {
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_multiple_functions() -> SymbolCase:
     """Multiple function forms."""
     src = """\
@@ -619,21 +602,18 @@ const c = () => {};
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_class() -> SymbolCase:
     """class User {}."""
     return "javascript", "class User {}\n", [("class", "User", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_class_extends() -> SymbolCase:
     """class Admin extends User {}."""
     return "javascript", "class Admin extends User {}\n", [("class", "Admin", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_nested_function() -> SymbolCase:
     """A function nested in a function is addressed by the outer function."""
     src = """\
@@ -651,7 +631,6 @@ function outer() {
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_named_single() -> ImportCase:
     """import { foo } from './models'."""
     return (
@@ -662,7 +641,6 @@ def case_js_import_named_single() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_named_multiple() -> ImportCase:
     """import { foo, bar } from './models'."""
     return (
@@ -673,7 +651,6 @@ def case_js_import_named_multiple() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_named_parent() -> ImportCase:
     """import from parent directory."""
     return (
@@ -684,7 +661,6 @@ def case_js_import_named_parent() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_named_grandparent() -> ImportCase:
     """import from grandparent directory."""
     return (
@@ -695,14 +671,12 @@ def case_js_import_named_grandparent() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_default() -> ImportCase:
     """import React from 'react'."""
     return "javascript", "import React from 'react';\n", {"module": "react", "names": "React"}
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_default_relative() -> ImportCase:
     """import App from './App'."""
     return (
@@ -713,7 +687,6 @@ def case_js_import_default_relative() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_namespace() -> ImportCase:
     """import * as utils from '../utils'."""
     return (
@@ -724,21 +697,18 @@ def case_js_import_namespace() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_side_effect() -> ImportCase:
     """import './styles.css' — side-effect only."""
     return "javascript", "import './styles.css';\n", {"module": "styles", "dots": "1"}
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_side_effect_no_ext() -> ImportCase:
     """import './polyfills' — no extension."""
     return "javascript", "import './polyfills';\n", {"module": "polyfills", "dots": "1"}
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_package() -> ImportCase:
     """import express from 'express' — absolute."""
     return (
@@ -749,7 +719,6 @@ def case_js_import_package() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_js
 def case_js_import_scoped_package() -> ImportCase:
     """import from scoped npm package."""
     return (
@@ -763,7 +732,6 @@ def case_js_import_scoped_package() -> ImportCase:
 
 
 @case(tags=["multi_import"])
-@_skip_js
 def case_js_multiple_imports() -> MultiImportCase:
     """Two import statements."""
     src = """\
@@ -785,7 +753,6 @@ import { useState } from 'react';
 
 
 @case(tags=["mixed"])
-@_skip_js
 def case_js_full_module() -> MixedCase:
     """Realistic JS module with JSDoc on every symbol.
 
@@ -821,14 +788,12 @@ const destroy = () => {};
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_function() -> SymbolCase:
     """function greet(): void {}."""
     return "typescript", "function greet(): void {}\n", [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_arrow_function() -> SymbolCase:
     """Arrow function with type annotations."""
     return (
@@ -839,21 +804,18 @@ def case_ts_arrow_function() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_class() -> SymbolCase:
     """class Service {}."""
     return "typescript", "class Service {}\n", [("class", "Service", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_class_generics() -> SymbolCase:
     """class Container<T> {}."""
     return "typescript", "class Container<T> {}\n", [("class", "Container", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_namespace_function() -> SymbolCase:
     """A function in a TS namespace is addressed by the namespace.
 
@@ -868,7 +830,6 @@ namespace N {
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_nested_namespace() -> SymbolCase:
     """Nested TS namespaces compose."""
     src = """\
@@ -885,7 +846,6 @@ namespace A {
 
 
 @case(tags=["import"])
-@_skip_ts
 def case_ts_import_named() -> ImportCase:
     """import { User } from './types'."""
     return (
@@ -896,7 +856,6 @@ def case_ts_import_named() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_ts
 def case_ts_import_type() -> ImportCase:
     """import type { Config } from './config'."""
     return (
@@ -907,7 +866,6 @@ def case_ts_import_type() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_ts
 def case_ts_import_default() -> ImportCase:
     """import Express from 'express'."""
     return (
@@ -918,14 +876,12 @@ def case_ts_import_default() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_ts
 def case_ts_import_namespace() -> ImportCase:
     """import * as path from 'path'."""
     return "typescript", "import * as path from 'path';\n", {"module": "path", "names": "path"}
 
 
 @case(tags=["import"])
-@_skip_ts
 def case_ts_import_side_effect() -> ImportCase:
     """import './setup'."""
     return "typescript", "import './setup';\n", {"module": "setup", "dots": "1"}
@@ -935,7 +891,6 @@ def case_ts_import_side_effect() -> ImportCase:
 
 
 @case(tags=["mixed"])
-@_skip_ts
 def case_ts_full_module() -> MixedCase:
     """Realistic TS module with JSDoc on every symbol.
 
@@ -965,7 +920,6 @@ function query(): void {
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_function() -> SymbolCase:
     """func hello() {}."""
     src = """\
@@ -977,7 +931,6 @@ func hello() {}
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_function_params() -> SymbolCase:
     """func add(a int, b int) int."""
     src = """\
@@ -989,7 +942,6 @@ func add(a int, b int) int { return a + b }
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_multiple_functions() -> SymbolCase:
     """Multiple functions."""
     src = """\
@@ -1011,7 +963,6 @@ func baz() {}
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_method() -> SymbolCase:
     """Value receiver method."""
     src = """\
@@ -1025,7 +976,6 @@ func (u User) Name() string { return u.name }
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_pointer_method() -> SymbolCase:
     """Pointer receiver method."""
     src = """\
@@ -1039,7 +989,6 @@ func (s *Svc) Start() {}
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_struct() -> SymbolCase:
     """type User struct."""
     src = """\
@@ -1053,7 +1002,6 @@ type User struct {
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_interface() -> SymbolCase:
     """type Reader interface."""
     src = """\
@@ -1067,7 +1015,6 @@ type Reader interface {
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_type_alias() -> SymbolCase:
     """type ID string."""
     src = """\
@@ -1079,7 +1026,6 @@ type ID string
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_multiple_types() -> SymbolCase:
     """Multiple type declarations."""
     src = """\
@@ -1095,7 +1041,6 @@ type Bar struct{}
 
 
 @case(tags=["import"])
-@_skip_go
 def case_go_import_single() -> ImportCase:
     """import "fmt"."""
     src = """\
@@ -1106,7 +1051,6 @@ import "fmt"
 
 
 @case(tags=["import"])
-@_skip_go
 def case_go_import_nested() -> ImportCase:
     """import "os/exec"."""
     src = """\
@@ -1117,7 +1061,6 @@ import "os/exec"
 
 
 @case(tags=["import"])
-@_skip_go
 def case_go_import_url() -> ImportCase:
     """import "github.com/user/repo"."""
     src = """\
@@ -1128,7 +1071,6 @@ import "github.com/user/repo"
 
 
 @case(tags=["import"])
-@_skip_go
 def case_go_import_aliased() -> ImportCase:
     """import f "fmt" — alias ignored, module captured."""
     src = """\
@@ -1139,7 +1081,6 @@ import f "fmt"
 
 
 @case(tags=["multi_import"])
-@_skip_go
 def case_go_import_grouped() -> MultiImportCase:
     """import ("fmt" "os") — separate chunks per spec."""
     src = """\
@@ -1158,7 +1099,6 @@ import (
 
 
 @case(tags=["multi_import"])
-@_skip_go
 def case_go_import_grouped_paths() -> MultiImportCase:
     """Grouped import with nested paths — separate chunks."""
     src = """\
@@ -1178,7 +1118,6 @@ import (
 
 
 @case(tags=["import"])
-@_skip_go
 def case_go_import_grouped_single() -> ImportCase:
     """Grouped import with one item."""
     src = """\
@@ -1194,7 +1133,6 @@ import (
 
 
 @case(tags=["mixed"])
-@_skip_go
 def case_go_full_module() -> MixedCase:
     """Realistic Go module with godoc-style comments.
 
@@ -1233,35 +1171,30 @@ func main() {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_function() -> SymbolCase:
     """fn hello() {}."""
     return "rust", "fn hello() {}\n", [("function", "hello", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_function_params() -> SymbolCase:
     """fn add(a: i32, b: i32) -> i32."""
     return "rust", "fn add(a: i32, b: i32) -> i32 { a + b }\n", [("function", "add", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_pub_function() -> SymbolCase:
     """pub fn visible() {}."""
     return "rust", "pub fn visible() {}\n", [("function", "visible", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_async_function() -> SymbolCase:
     """async fn fetch() {}."""
     return "rust", "async fn fetch() {}\n", [("function", "fetch", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_multiple_functions() -> SymbolCase:
     """Multiple functions."""
     src = """\
@@ -1273,7 +1206,6 @@ fn c() {}
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_struct() -> SymbolCase:
     """struct User { name: String }."""
     src = """\
@@ -1285,21 +1217,18 @@ struct User {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_unit_struct() -> SymbolCase:
     """struct Marker;"""
     return "rust", "struct Marker;\n", [("class", "Marker", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_tuple_struct() -> SymbolCase:
     """struct Point(f64, f64);"""
     return "rust", "struct Point(f64, f64);\n", [("class", "Point", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_enum() -> SymbolCase:
     """enum Color { Red, Green, Blue }."""
     src = """\
@@ -1313,7 +1242,6 @@ enum Color {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_method_in_impl() -> SymbolCase:
     """Methods inside impl block scoped to type."""
     src = """\
@@ -1327,7 +1255,6 @@ impl Svc {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_method_named_like_type() -> SymbolCase:
     """An impl method whose name equals its type is addressed `Node::`."""
     src = """\
@@ -1340,7 +1267,6 @@ impl Node {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_fn_in_mod() -> SymbolCase:
     """A function in a module is addressed by the module.
 
@@ -1355,7 +1281,6 @@ mod outer {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_impl_in_mod() -> SymbolCase:
     """An impl method inside a module carries module::type."""
     src = """\
@@ -1370,7 +1295,6 @@ mod m {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_nested_mod() -> SymbolCase:
     """Nested modules compose."""
     src = """\
@@ -1384,7 +1308,6 @@ mod a {
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_nested_mod_impl_method() -> SymbolCase:
     """A method in an impl, nested in two modules, composes `a::b::S`."""
     src = """\
@@ -1404,7 +1327,6 @@ mod a {
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_scoped() -> ImportCase:
     """use std::collections::HashMap."""
     return (
@@ -1415,21 +1337,18 @@ def case_rust_import_scoped() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_deeply_nested() -> ImportCase:
     """use a::b::c::d::Item."""
     return "rust", "use a::b::c::d::Item;\n", {"module": "a/b/c/d", "names": "Item"}
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_crate() -> ImportCase:
     """use crate::models::Chunk."""
     return "rust", "use crate::models::Chunk;\n", {"module": "crate/models", "names": "Chunk"}
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_crate_braces() -> ImportCase:
     """use crate::models::{Chunk, Edge}."""
     return (
@@ -1440,14 +1359,12 @@ def case_rust_import_crate_braces() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_super_single() -> ImportCase:
     """use super::utils."""
     return "rust", "use super::utils;\n", {"names": "utils", "dots": "2"}
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_super_nested() -> ImportCase:
     """use super::helpers::run."""
     return (
@@ -1458,7 +1375,6 @@ def case_rust_import_super_nested() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_super_super() -> ImportCase:
     """use super::super::common::Config — double super."""
     return (
@@ -1469,21 +1385,18 @@ def case_rust_import_super_super() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_use_list() -> ImportCase:
     """use std::io::{Read, Write}."""
     return "rust", "use std::io::{Read, Write};\n", {"module": "std/io", "names": "Read,Write"}
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_use_list_self() -> ImportCase:
     """use std::io::{self, Read}."""
     return "rust", "use std::io::{self, Read};\n", {"module": "std/io", "names": "self,Read"}
 
 
 @case(tags=["import"])
-@_skip_rust
 def case_rust_import_bare() -> ImportCase:
     """use serde;"""
     return "rust", "use serde;\n", {"module": "serde"}
@@ -1493,7 +1406,6 @@ def case_rust_import_bare() -> ImportCase:
 
 
 @case(tags=["mixed"])
-@_skip_rust
 def case_rust_full_module() -> MixedCase:
     """Realistic Rust module with `///` doc comments.
 
@@ -1539,35 +1451,30 @@ fn main() {}
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_class() -> SymbolCase:
     """class User {}."""
     return "java", "class User {}\n", [("class", "User", "")]
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_public_class() -> SymbolCase:
     """public class App {}."""
     return "java", "public class App {}\n", [("class", "App", "")]
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_class_extends() -> SymbolCase:
     """class Admin extends User {}."""
     return "java", "class Admin extends User {}\n", [("class", "Admin", "")]
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_class_implements() -> SymbolCase:
     """class UserService implements Service {}."""
     return "java", "class UserService implements Service {}\n", [("class", "UserService", "")]
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_multiple_classes() -> SymbolCase:
     """Multiple classes."""
     src = """\
@@ -1578,7 +1485,6 @@ class Bar {}
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_method_in_class() -> SymbolCase:
     """Method scoped to class."""
     src = """\
@@ -1590,7 +1496,6 @@ class Service {
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_multiple_methods() -> SymbolCase:
     """Multiple methods."""
     src = """\
@@ -1603,7 +1508,6 @@ class Svc {
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_static_method() -> SymbolCase:
     """Static method still scoped."""
     src = """\
@@ -1615,7 +1519,6 @@ class Factory {
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_method_params() -> SymbolCase:
     """Method with parameters."""
     src = """\
@@ -1627,7 +1530,6 @@ class Calc {
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_nested_class() -> SymbolCase:
     """Nested class scoped to outer, method scoped to inner."""
     src = """\
@@ -1645,7 +1547,6 @@ class Outer {
 
 
 @case(tags=["symbol"])
-@_skip_java
 def case_java_triple_nested_class() -> SymbolCase:
     """Three levels of nested class compose the full path."""
     src = """\
@@ -1664,14 +1565,12 @@ class Outer {
 
 
 @case(tags=["import"])
-@_skip_java
 def case_java_import_class() -> ImportCase:
     """import java.util.HashMap."""
     return "java", "import java.util.HashMap;\n", {"module": "java.util.HashMap"}
 
 
 @case(tags=["import"])
-@_skip_java
 def case_java_import_deeply_nested() -> ImportCase:
     """import com.example.app.models.User."""
     return (
@@ -1682,7 +1581,6 @@ def case_java_import_deeply_nested() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_java
 def case_java_import_static() -> ImportCase:
     """import static org.junit.Assert.assertEquals."""
     return (
@@ -1693,7 +1591,6 @@ def case_java_import_static() -> ImportCase:
 
 
 @case(tags=["import"])
-@_skip_java
 def case_java_import_static_method() -> ImportCase:
     """import static java.util.Collections.sort."""
     return (
@@ -1707,7 +1604,6 @@ def case_java_import_static_method() -> ImportCase:
 
 
 @case(tags=["multi_import"])
-@_skip_java
 def case_java_multiple_imports() -> MultiImportCase:
     """Two import statements."""
     src = """\
@@ -1729,7 +1625,6 @@ import java.util.Map;
 
 
 @case(tags=["mixed"])
-@_skip_java
 def case_java_full_class() -> MixedCase:
     """Realistic Java class with Javadoc on every member.
 
@@ -1889,28 +1784,24 @@ rollback() {
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_function_basic() -> SymbolCase:
     """int add(int a, int b)."""
     return "c", "int add(int a, int b) { return a + b; }\n", [("function", "add", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_function_void() -> SymbolCase:
     """void do_stuff(void)."""
     return "c", "void do_stuff(void) { }\n", [("function", "do_stuff", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_function_static() -> SymbolCase:
     """static int helper(void)."""
     return "c", "static int helper(void) { return 1; }\n", [("function", "helper", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_multiple_functions() -> SymbolCase:
     """Multiple C functions."""
     src = """\
@@ -1921,28 +1812,24 @@ void bar(void) { }
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_struct() -> SymbolCase:
     """struct Node."""
     return "c", "struct Node { int value; };\n", [("class", "Node", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_enum() -> SymbolCase:
     """enum Color."""
     return "c", "enum Color { RED, GREEN, BLUE };\n", [("class", "Color", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_typedef_struct() -> SymbolCase:
     """typedef struct { ... } Point."""
     return "c", "typedef struct { int x; int y; } Point;\n", [("class", "Point", "")]
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_no_scope() -> SymbolCase:
     """C functions are never scoped — no classes."""
     src = """\
@@ -1956,28 +1843,24 @@ int func(void) { return 0; }
 
 
 @case(tags=["import"])
-@_skip_c
 def case_c_include_system() -> ImportCase:
     """#include <stdio.h>."""
     return "c", "#include <stdio.h>\n", {"module": "stdio.h"}
 
 
 @case(tags=["import"])
-@_skip_c
 def case_c_include_local() -> ImportCase:
     """#include "mylib.h"."""
     return "c", '#include "mylib.h"\n', {"module": "mylib.h"}
 
 
 @case(tags=["import"])
-@_skip_c
 def case_c_include_nested_path() -> ImportCase:
     """#include "utils/helpers.h"."""
     return "c", '#include "utils/helpers.h"\n', {"module": "utils/helpers.h"}
 
 
 @case(tags=["import"])
-@_skip_c
 def case_c_include_system_nested() -> ImportCase:
     """#include <sys/types.h>."""
     return "c", "#include <sys/types.h>\n", {"module": "sys/types.h"}
@@ -1987,7 +1870,6 @@ def case_c_include_system_nested() -> ImportCase:
 
 
 @case(tags=["multi_import"])
-@_skip_c
 def case_c_multiple_includes() -> MultiImportCase:
     """Two include directives."""
     src = """\
@@ -2001,7 +1883,6 @@ def case_c_multiple_includes() -> MultiImportCase:
 
 
 @case(tags=["mixed"])
-@_skip_c
 def case_c_full_file() -> MixedCase:
     """Realistic C file with Doxygen comments on every symbol.
 
@@ -2040,21 +1921,18 @@ static void cleanup(void) {
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_free_function_void() -> SymbolCase:
     """void greet()."""
     return "cpp", "void greet() { }\n", [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_free_function_returning() -> SymbolCase:
     """int compute(int x)."""
     return "cpp", "int compute(int x) { return x; }\n", [("function", "compute", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_multiple_functions() -> SymbolCase:
     """Multiple C++ functions."""
     src = """\
@@ -2065,28 +1943,24 @@ void bar() { }
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_class() -> SymbolCase:
     """class Shape."""
     return "cpp", "class Shape { };\n", [("class", "Shape", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_struct() -> SymbolCase:
     """struct Point."""
     return "cpp", "struct Point { double x; double y; };\n", [("class", "Point", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_enum_class() -> SymbolCase:
     """enum class Color."""
     return "cpp", "enum class Color { Red, Green, Blue };\n", [("class", "Color", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_class_inheritance() -> SymbolCase:
     """class Derived : public Base."""
     src = """\
@@ -2097,7 +1971,6 @@ class Derived : public Base { };
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_class_method() -> SymbolCase:
     """Method scoped to class."""
     src = """\
@@ -2110,14 +1983,12 @@ public:
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_struct_method() -> SymbolCase:
     """Method scoped to struct."""
     return "cpp", "struct Vec { void push(int v) { } };\n", [("method", "push", "Vec")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_multiple_methods() -> SymbolCase:
     """Multiple methods in one class."""
     src = """\
@@ -2131,7 +2002,6 @@ public:
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_namespace_function() -> SymbolCase:
     """A free function in a namespace is addressed by the namespace.
 
@@ -2146,7 +2016,6 @@ void f() { }
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_namespace_class_method() -> SymbolCase:
     """A method in a class in a namespace carries the full path."""
     src = """\
@@ -2161,7 +2030,6 @@ public:
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_nested_namespace() -> SymbolCase:
     """Nested namespaces compose outermost-first."""
     src = """\
@@ -2175,7 +2043,6 @@ void f() { }
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_namespace_nested_class_method() -> SymbolCase:
     """A method in nested classes, inside a namespace, composes the full path.
 
@@ -2196,7 +2063,6 @@ public:
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_free_function_not_scoped() -> SymbolCase:
     """Function after class is not scoped."""
     src = """\
@@ -2210,21 +2076,18 @@ void standalone() { }
 
 
 @case(tags=["import"])
-@_skip_cpp
 def case_cpp_include_system() -> ImportCase:
     """#include <iostream>."""
     return "cpp", "#include <iostream>\n", {"module": "iostream"}
 
 
 @case(tags=["import"])
-@_skip_cpp
 def case_cpp_include_local() -> ImportCase:
     """#include "myheader.h"."""
     return "cpp", '#include "myheader.h"\n', {"module": "myheader.h"}
 
 
 @case(tags=["import"])
-@_skip_cpp
 def case_cpp_include_nested() -> ImportCase:
     """#include <boost/optional.hpp>."""
     return "cpp", "#include <boost/optional.hpp>\n", {"module": "boost/optional.hpp"}
@@ -2234,7 +2097,6 @@ def case_cpp_include_nested() -> ImportCase:
 
 
 @case(tags=["mixed"])
-@_skip_cpp
 def case_cpp_full_file() -> MixedCase:
     """Realistic C++ file with Doxygen comments.
 
@@ -2280,7 +2142,6 @@ void run(Engine& e) {
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_method_no_args() -> SymbolCase:
     """def greet — top-level function."""
     src = """\
@@ -2292,7 +2153,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_method_with_args() -> SymbolCase:
     """def add(a, b) — top-level function."""
     src = """\
@@ -2304,7 +2164,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_multiple_functions() -> SymbolCase:
     """Multiple top-level functions."""
     src = """\
@@ -2320,7 +2179,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_class() -> SymbolCase:
     """class Shape."""
     src = """\
@@ -2331,7 +2189,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_module() -> SymbolCase:
     """module Utils."""
     src = """\
@@ -2342,7 +2199,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_class_superclass() -> SymbolCase:
     """class Circle < Shape."""
     src = """\
@@ -2353,7 +2209,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_method_scoped_to_class() -> SymbolCase:
     """Method scoped to class."""
     src = """\
@@ -2367,7 +2222,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_singleton_method() -> SymbolCase:
     """def self.build — singleton method."""
     src = """\
@@ -2381,7 +2235,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_method_scoped_to_module() -> SymbolCase:
     """Method scoped to module."""
     src = """\
@@ -2395,7 +2248,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_top_level_not_scoped() -> SymbolCase:
     """Function after class is not scoped."""
     src = """\
@@ -2410,7 +2262,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_nested_class_in_module() -> SymbolCase:
     """Class nested in module, method scoped to inner class."""
     src = """\
@@ -2434,7 +2285,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_module_in_module() -> SymbolCase:
     """A method in a module nested in a module carries the full path."""
     src = """\
@@ -2450,7 +2300,6 @@ end
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_module_module_class_method() -> SymbolCase:
     """A method nested module::module::class carries the full path."""
     src = """\
@@ -2471,35 +2320,30 @@ end
 
 
 @case(tags=["import"])
-@_skip_ruby
 def case_ruby_require_simple() -> ImportCase:
     """require "json"."""
     return "ruby", 'require "json"\n', {"module": "json"}
 
 
 @case(tags=["import"])
-@_skip_ruby
 def case_ruby_require_nested() -> ImportCase:
     """require "net/http"."""
     return "ruby", 'require "net/http"\n', {"module": "net/http"}
 
 
 @case(tags=["import"])
-@_skip_ruby
 def case_ruby_require_relative() -> ImportCase:
     """require_relative "helpers"."""
     return "ruby", 'require_relative "helpers"\n', {"module": "helpers", "dots": "1"}
 
 
 @case(tags=["import"])
-@_skip_ruby
 def case_ruby_require_relative_nested() -> ImportCase:
     """require_relative "lib/utils"."""
     return "ruby", 'require_relative "lib/utils"\n', {"module": "lib/utils", "dots": "1"}
 
 
 @case(tags=["import"])
-@_skip_ruby
 def case_ruby_require_empty_string() -> ImportCase:
     """require "" — empty string returns empty metadata.
 
@@ -2512,7 +2356,6 @@ def case_ruby_require_empty_string() -> ImportCase:
 
 
 @case(tags=["multi_import"])
-@_skip_ruby
 def case_ruby_multiple_requires() -> MultiImportCase:
     """require + require_relative."""
     src = """\
@@ -2526,7 +2369,6 @@ require_relative "helpers"
 
 
 @case(tags=["mixed"])
-@_skip_ruby
 def case_ruby_full_file() -> MixedCase:
     """Realistic Ruby file with doc comments on top-level
     declarations.  Comments inside the class body are not
@@ -2952,56 +2794,48 @@ def case_html_empty() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_module_const() -> SymbolCase:
     """Top-level const."""
     return "javascript", "const MAX = 100;\n", [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_exported_const() -> SymbolCase:
     """Exported top-level const."""
     return "javascript", "export const TIMEOUT = 30;\n", [("variable", "TIMEOUT", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_module_const() -> SymbolCase:
     """Top-level annotated const."""
     return "typescript", "const MAX: number = 100;\n", [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_package_var() -> SymbolCase:
     """Package-level var."""
     return "go", "package main\nvar MaxSize = 100\n", [("variable", "MaxSize", "")]
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_package_const() -> SymbolCase:
     """Package-level const."""
     return "go", "package main\nconst Timeout = 30\n", [("variable", "Timeout", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_const() -> SymbolCase:
     """Crate-level const."""
     return "rust", "const MAX: i32 = 100;\n", [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
-@_skip_rust
 def case_rust_static() -> SymbolCase:
     """Crate-level static."""
     return "rust", 'static NAME: &str = "x";\n', [("variable", "NAME", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_constant() -> SymbolCase:
     """Top-level constant."""
     return "ruby", "MAX_SIZE = 100\n", [("variable", "MAX_SIZE", "")]
@@ -3014,14 +2848,12 @@ def case_bash_assignment() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_c
 def case_c_global() -> SymbolCase:
     """File-scope global with initialiser."""
     return "c", "int g = 5;\n", [("variable", "g", "")]
 
 
 @case(tags=["symbol"])
-@_skip_cpp
 def case_cpp_global() -> SymbolCase:
     """File-scope global with initialiser."""
     return "cpp", "int g = 5;\n", [("variable", "g", "")]
@@ -3062,28 +2894,24 @@ def case_py_star_unpack() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_object_destructure() -> SymbolCase:
     """Object destructuring (shorthand)."""
     return "javascript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_object_renamed() -> SymbolCase:
     """Object destructuring with rename binds the renamed target."""
     return "javascript", "const {a: ra} = o;\n", [("variable", "ra", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_array_destructure() -> SymbolCase:
     """Array destructuring."""
     return "javascript", "const [x, y] = arr;\n", [("variable", "x", ""), ("variable", "y", "")]
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_object_rest() -> SymbolCase:
     """Object rest element."""
     return (
@@ -3094,7 +2922,6 @@ def case_js_object_rest() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_js
 def case_js_exported_destructure() -> SymbolCase:
     """Exported destructuring."""
     return (
@@ -3105,28 +2932,24 @@ def case_js_exported_destructure() -> SymbolCase:
 
 
 @case(tags=["symbol"])
-@_skip_ts
 def case_ts_object_destructure() -> SymbolCase:
     """TS object destructuring."""
     return "typescript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_multiple_assignment() -> SymbolCase:
     """Ruby multiple assignment of constants."""
     return "ruby", "A, B = 1, 2\n", [("variable", "A", ""), ("variable", "B", "")]
 
 
 @case(tags=["symbol"])
-@_skip_ruby
 def case_ruby_splat_assignment() -> SymbolCase:
     """Ruby splat target."""
     return "ruby", "A, *B = list\n", [("variable", "A", ""), ("variable", "B", "")]
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_grouped_var() -> SymbolCase:
     """Go grouped var block."""
     src = """\
@@ -3141,7 +2964,6 @@ var (
 
 
 @case(tags=["symbol"])
-@_skip_go
 def case_go_grouped_const() -> SymbolCase:
     """Go grouped const block (already supported — regression guard)."""
     src = """\
@@ -3175,7 +2997,6 @@ def case_py_chained_assignment_xfail() -> SymbolCase:
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
-@_skip_js
 def case_js_nested_array_xfail() -> SymbolCase:
     """Nested array destructuring — only the outer level captured today."""
     return (
@@ -3186,14 +3007,12 @@ def case_js_nested_array_xfail() -> SymbolCase:
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
-@_skip_js
 def case_js_nested_object_xfail() -> SymbolCase:
     """Nested object destructuring — nothing captured today."""
     return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
-@_skip_ruby
 def case_ruby_nested_unpack_xfail() -> SymbolCase:
     """Ruby nested destructuring — only the outer level captured today."""
     return (

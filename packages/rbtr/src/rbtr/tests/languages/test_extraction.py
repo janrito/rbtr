@@ -29,7 +29,7 @@ from rbtr.index.models import ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
 from rbtr.languages import LanguageManager
 
-from .conftest import extract_chunks, skip_unless_grammar
+from .conftest import extract_chunks
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -109,31 +109,15 @@ def test_extracts_multi_import(
 @pytest.fixture(
     params=[
         pytest.param(("python", "def f():\n    pass\n"), id="python"),
-        pytest.param(
-            ("javascript", "function f() {}\n"),
-            id="javascript",
-            marks=skip_unless_grammar("javascript"),
-        ),
-        pytest.param(
-            ("typescript", "function f(): void {}\n"),
-            id="typescript",
-            marks=skip_unless_grammar("typescript"),
-        ),
-        pytest.param(
-            ("go", "package main\nfunc f() {}\n"),
-            id="go",
-            marks=skip_unless_grammar("go"),
-        ),
-        pytest.param(("rust", "fn f() {}\n"), id="rust", marks=skip_unless_grammar("rust")),
-        pytest.param(
-            ("java", "class C { void f() {} }\n"),
-            id="java",
-            marks=skip_unless_grammar("java"),
-        ),
+        pytest.param(("javascript", "function f() {}\n"), id="javascript"),
+        pytest.param(("typescript", "function f(): void {}\n"), id="typescript"),
+        pytest.param(("go", "package main\nfunc f() {}\n"), id="go"),
+        pytest.param(("rust", "fn f() {}\n"), id="rust"),
+        pytest.param(("java", "class C { void f() {} }\n"), id="java"),
         pytest.param(("bash", "f() { :; }\n"), id="bash"),
-        pytest.param(("c", "void f(void) { }\n"), id="c", marks=skip_unless_grammar("c")),
-        pytest.param(("cpp", "void f() { }\n"), id="cpp", marks=skip_unless_grammar("cpp")),
-        pytest.param(("ruby", "def f\n  1\nend\n"), id="ruby", marks=skip_unless_grammar("ruby")),
+        pytest.param(("c", "void f(void) { }\n"), id="c"),
+        pytest.param(("cpp", "void f() { }\n"), id="cpp"),
+        pytest.param(("ruby", "def f\n  1\nend\n"), id="ruby"),
     ]
 )
 def lang_and_source(request: pytest.FixtureRequest) -> tuple[str, str]:
@@ -205,7 +189,6 @@ def test_syntax_error_still_extracts_valid_parts(lang: str, minimal_source: str)
 # ── Language-specific edge cases ─────────────────────────────────────
 
 
-@skip_unless_grammar("java")
 def test_java_constructor_not_captured() -> None:
     """Java constructors use constructor_declaration, not method_declaration."""
     src = """\
@@ -218,7 +201,6 @@ class Foo {
     assert methods == []
 
 
-@skip_unless_grammar("rust")
 def test_rust_impl_captures_struct_and_impl() -> None:
     """Both struct and impl produce class chunks for the same type."""
     src = """\
@@ -232,7 +214,6 @@ impl Svc {
     assert len(svc_classes) == 2  # struct + impl
 
 
-@skip_unless_grammar("bash")
 def test_bash_source_and_dot_extracted_as_imports() -> None:
     """source/. commands are captured as imports."""
     src = """\
