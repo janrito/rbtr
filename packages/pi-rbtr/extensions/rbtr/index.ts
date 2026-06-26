@@ -644,14 +644,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_index",
     label: "rbtr index",
     description:
-      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
+      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale_refs` drops refs that no longer resolve. Safe to call repeatedly.",
     promptSnippet: "Watch refs for the rbtr code index (or --remove to stop)",
     promptGuidelines: [
       "Call rbtr_index when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
       "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
       "When you begin substantive work on a branch, watch its base too (the default branch it forked from), not just HEAD — so you can later review the branch with rbtr_changed_symbols without a cold index.",
-      "Use `remove` to stop watching refs, or `remove_stale` to drop refs whose branch was deleted.",
-      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data.",
+      "Use `remove` to stop watching refs, or `remove_stale_refs` to drop refs whose branch was deleted.",
+      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale_refs` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data. (Forgetting a removed checkout entirely is a CLI maintenance action: `rbtr index --remove-stale-repos`.)",
       "This is fire-and-forget: the tool returns immediately. Use rbtr_status to see progress and the current watch set.",
     ],
     parameters: Type.Object({
@@ -661,7 +661,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
       remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
-      remove_stale: Type.Optional(
+      remove_stale_refs: Type.Optional(
         Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
       ),
     }),
@@ -678,7 +678,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const decodedRefs = decodeStringList(params.refs);
       const refs = decodedRefs.length > 0 ? decodedRefs : ["HEAD"];
 
-      if (params.remove_stale) {
+      if (params.remove_stale_refs) {
         const pruned = await triggerRemoveStale(ctx);
         return {
           content: [
@@ -687,7 +687,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               text: pruned.length > 0 ? `Stopped watching stale refs: ${pruned.join(", ")}.` : "No stale watched refs.",
             },
           ],
-          details: { status: "remove_stale", pruned },
+          details: { status: "remove_stale_refs", pruned },
         };
       }
       if (params.remove) {
@@ -829,8 +829,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         dryRun: params.dry_run ?? true,
       });
       const text = res.dry_run
-        ? `Dry run: would drop ${res.commits_dropped} commit(s); ${res.chunks_dropped} chunk(s) freed, ${res.chunks_kept_shared} chunk(s) kept. Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
-        : `Dropped ${res.commits_dropped} commit(s); ${res.chunks_dropped} chunk(s) freed, ${res.chunks_kept_shared} chunk(s) kept.`;
+        ? `Dry run: would drop ${res.commits_dropped} commit(s) and free ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
+        : `Dropped ${res.commits_dropped} commit(s); freed ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s).`;
       return {
         content: [{ type: "text", text }],
         details: { fromDaemon: true, response: res },

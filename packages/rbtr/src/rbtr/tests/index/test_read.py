@@ -448,3 +448,69 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     assert after is not None
     assert before[0] - after[0] == predicted_dropped
     assert store.count_orphan_chunks() == 0
+
+
+# ── forget_repo: metadata-only purge of a whole repo ─────────────────
+
+
+def test_forget_repo_removes_references_keeps_shared_chunk(
+    shared_chunk_store: IndexStore,
+) -> None:
+    """forget_repo purges a repo's references and `repos` row but leaves a
+    chunk another repo still references; reclamation is gc's job."""
+    store = shared_chunk_store
+    with store.session() as ws:
+        ws.add_watched_refs(1, ["main"])
+
+    with store.session() as ws:
+        ws.forget_repo(1)
+
+    # Repo 1 is gone entirely.
+    assert store.get_repo_id("/repo1") is None
+    assert store.list_watched_refs(1) == []
+    assert store.has_indexed(1, "head") is False
+    # Repo 2 is untouched and the shared chunk is still visible to it.
+    assert store.get_repo_id("/repo2") == 2
+    assert store.has_indexed(2, "head") is True
+    assert len(store.get_chunks("head", repo_id=2)) > 0
+
+
+def test_forget_repo_leaves_orphan_chunks_for_gc(
+    shared_chunk_store: IndexStore,
+) -> None:
+    """forget_repo does not sweep: a chunk only the forgotten repo
+    referenced becomes an orphan that a later GC reclaims."""
+    store = shared_chunk_store
+    with store.session() as ws:
+        ws.add_chunk(make_chunk("only1", path="y.py", blob="b_only1"))
+        ws.insert_snapshots([make_snap("head", "y.py", "b_only1")], repo_id=1)
+    assert store.count_orphan_chunks() == 0
+
+    with store.session() as ws:
+        ws.forget_repo(1)
+
+    # only1 is now unreferenced (repo 1 gone) but still present — no sweep.
+    # (A sweep would have removed it, leaving zero orphans.)
+    assert store.count_orphan_chunks() == 1
+
+
+def test_forget_repo_purges_indexed_commits_incl_worktree_sha(
+    store: IndexStore,
+) -> None:
+    """Every indexed commit for the repo — HEAD and any worktree tree SHA —
+    is purged along with the `repos` row."""
+    with store.session() as ws:
+        ws.register_repo("/r")
+        ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
+        ws.insert_snapshots([make_snap("headsha", "a.py", "b")], repo_id=1)
+        ws.mark_indexed(1, "headsha")
+        ws.mark_indexed(1, "treesha")  # a working-tree tree SHA
+    assert store.has_indexed(1, "headsha") is True
+    assert store.has_indexed(1, "treesha") is True
+
+    with store.session() as ws:
+        ws.forget_repo(1)
+
+    assert store.get_repo_id("/r") is None
+    assert store.has_indexed(1, "headsha") is False
+    assert store.has_indexed(1, "treesha") is False

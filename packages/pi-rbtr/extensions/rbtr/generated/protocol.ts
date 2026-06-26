@@ -16,7 +16,8 @@ export type Request =
   | FindRefsRequest
   | ChangedSymbolsRequest
   | StatusRequest
-  | GcRequest;
+  | GcRequest
+  | ForgetRequest;
 /**
  * Breadth of a search or status request.
  *
@@ -38,7 +39,8 @@ export type Response =
   | FindRefsResponse
   | ChangedSymbolsResponse
   | StatusResponse
-  | GcResponse;
+  | GcResponse
+  | ForgetResponse;
 /**
  * Error codes for the daemon protocol.
  */
@@ -158,9 +160,23 @@ export interface StatusRequest {
 }
 export interface GcRequest {
   kind: "gc";
-  repo_path: string;
+  repo_path?: string | null;
   mode: GcMode;
   refs?: string[];
+  dry_run?: boolean;
+}
+/**
+ * Forget a whole repo's index (metadata-only; GC reclaims chunks).
+ *
+ * `repo_path` set: forget that single repo (used when its only watched
+ * ref is HEAD). `stale=True` with `repo_path` None: forget every
+ * registered repo whose path no longer resolves — the only way to reach
+ * a removed worktree/clone, since its path cannot be normalised.
+ */
+export interface ForgetRequest {
+  kind: "forget";
+  repo_path?: string | null;
+  stale?: boolean;
   dry_run?: boolean;
 }
 export interface ErrorResponse {
@@ -356,12 +372,24 @@ export interface ActiveJob {
 }
 export interface GcResponse {
   kind: "gc";
+  repos_collected?: number;
   commits_dropped: number;
   snapshots_dropped: number;
   edges_dropped: number;
-  chunks_dropped: number;
-  chunks_kept_shared?: number;
+  chunks_freed: number;
   elapsed_seconds: number;
+  dry_run?: boolean;
+}
+/**
+ * Repos forgotten by a `ForgetRequest`.
+ *
+ * Carries only the paths it forgot — forget is metadata-only and reports
+ * no reclamation statistics (run `rbtr gc` to reclaim and report freed
+ * space).
+ */
+export interface ForgetResponse {
+  kind: "forget";
+  forgotten?: string[];
   dry_run?: boolean;
 }
 export interface ProgressNotification {

@@ -53,6 +53,7 @@ from rbtr.daemon.handlers import (
     handle_build_index,
     handle_changed_symbols,
     handle_find_refs,
+    handle_forget,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
@@ -238,6 +239,7 @@ class DaemonServer:
                     self._snapshot_status,
                 ),
                 "gc": lambda req: handle_gc(req, store),
+                "forget": lambda req: handle_forget(req, store),
                 "index": lambda req: handle_build_index(req, self.watch_refs),
             }
         )
@@ -856,7 +858,7 @@ class DaemonServer:
                 code=ErrorCode.INVALID_REQUEST,
                 message=_format_validation_error(exc),
             )
-        if isinstance(request, HasRepoPath):
+        if isinstance(request, HasRepoPath) and request.repo_path is not None:
             try:
                 request.repo_path = normalise_repo_path(request.repo_path)
             except RbtrError as exc:

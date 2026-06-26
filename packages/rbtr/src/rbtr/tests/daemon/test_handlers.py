@@ -13,13 +13,15 @@ import pytest
 import structlog
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.handlers import handle_build_index, handle_status
+from rbtr.daemon.handlers import handle_build_index, handle_gc, handle_status
 from rbtr.daemon.messages import (
     ActiveJob,
     BuildIndexRequest,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
+    GcMode,
+    GcRequest,
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
@@ -45,6 +47,17 @@ def unindexed_ref() -> str:
     not indexed" path rather than "cannot resolve".
     """
     return "0" * 40
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [GcMode.WATCHED_ONLY, GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
+)
+def test_handle_gc_global_rejects_non_watched_mode(mode: GcMode, store: IndexStore) -> None:
+    """A global request (no repo_path) is restricted to the safe default
+    reclamation; any other mode is rejected before touching the store."""
+    with pytest.raises(RbtrError, match="default"):
+        handle_gc(GcRequest(repo_path=None, mode=mode), store)
 
 
 # ── Search ───────────────────────────────────────────────────────────

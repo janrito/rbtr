@@ -55,6 +55,7 @@ from rbtr.daemon.client import (
 from rbtr.daemon.handlers import (
     handle_changed_symbols,
     handle_find_refs,
+    handle_forget,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
@@ -69,6 +70,8 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
+    ForgetRequest,
+    ForgetResponse,
     GcMode,
     GcRequest,
     GcResponse,
@@ -214,18 +217,32 @@ class Index(BaseModel):
 
     refs: CliPositionalArg[list[str]] = Field([HEAD_REF], description="Refs to watch and index")
     repo_path: str = Field(".", description="Repository path")
-    remove: bool = Field(False, description="Stop watching the given refs (HEAD cannot be removed)")
-    remove_stale: bool = Field(
-        False, description="Stop watching refs that no longer resolve (e.g. deleted branches)"
+    remove: bool = Field(
+        False,
+        description="Stop watching the given refs; with no refs, forget a HEAD-only repo",
+    )
+    remove_stale_refs: bool = Field(
+        False,
+        description="Stop watching this repo's refs that no longer resolve (deleted branches)",
+    )
+    remove_stale_repos: bool = Field(
+        False,
+        description="Forget every indexed repo whose path no longer exists (removed checkouts)",
     )
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
     embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
 
     def cli_cmd(self) -> None:
+        # Forgetting vanished repos needs no current repo — handle it before
+        # resolving the cwd, which would fail outside a git repo.
+        if self.remove_stale_repos:
+            self._run_remove_stale_repos()
+            return
+
         resolved_repo = normalise_repo_path(self.repo_path)
 
-        if self.remove_stale:
-            self._run_remove_stale(resolved_repo)
+        if self.remove_stale_refs:
+            self._run_remove_stale_refs(resolved_repo)
             return
 
         if self.remove:
@@ -277,9 +294,17 @@ class Index(BaseModel):
                 sys.exit(1)
 
     def _run_remove(self, resolved_repo: str) -> None:
-        """Stop watching the given refs (daemon path, else inline DB edit)."""
+        """Stop watching the given refs (daemon path, else inline DB edit).
+
+        Removing `HEAD` forgets the whole repo, but only when `HEAD` is the
+        sole watched ref; otherwise it stays rejected (trim the other refs
+        first).
+        """
         if HEAD_REF in self.refs:
-            print_err("[red]error:[/] HEAD cannot be removed from the watch set")
+            if not self._current_watched(resolved_repo) - {HEAD_REF}:
+                self._run_forget(ForgetRequest(repo_path=resolved_repo))
+                return
+            print_err("[red]error:[/] HEAD cannot be removed while other refs are watched")
             sys.exit(2)
         request = BuildIndexRequest(
             repo_path=resolved_repo, refs=self.refs, embed=self.embed, remove=True
@@ -307,7 +332,7 @@ class Index(BaseModel):
             store.close()
         print_err(f"[green]Stopped watching:[/] {', '.join(self.refs)}")
 
-    def _run_remove_stale(self, resolved_repo: str) -> None:
+    def _run_remove_stale_refs(self, resolved_repo: str) -> None:
         """Remove watched refs that no longer resolve (e.g. deleted branches).
 
         Reuses `status` (which marks unresolvable refs with `sha=None`) when
@@ -355,6 +380,56 @@ class Index(BaseModel):
             print_err(f"[green]Removed stale:[/] {', '.join(stale)}")
         else:
             print_err("[dim]No stale watched refs.[/]")
+
+    def _current_watched(self, resolved_repo: str) -> set[str]:
+        """The repo's current watch set (daemon `status`, else the store)."""
+        status = try_daemon(StatusRequest(repo_path=resolved_repo)) if self.daemon else None
+        if isinstance(status, StatusResponse):
+            return {w.ref for w in status.watched}
+        store = IndexStore.from_config(writable=False)
+        try:
+            repo_id = store.get_repo_id(resolved_repo)
+            return set(store.list_watched_refs(repo_id)) if repo_id is not None else set()
+        finally:
+            store.close()
+
+    def _run_remove_stale_repos(self) -> None:
+        """Forget every indexed repo whose path no longer exists.
+
+        Global and needs no current repo (a vanished path cannot be
+        resolved). Daemon path, else inline via the same handler.
+        """
+        self._run_forget(ForgetRequest(stale=True))
+
+    def _run_forget(self, request: ForgetRequest) -> None:
+        """Send a forget request (daemon path, else inline) and report it."""
+        resp = try_daemon(request) if self.daemon else None
+        if resp is None:
+            store = IndexStore.from_config(writable=True)
+            try:
+                resp = handle_forget(request, store)
+            finally:
+                store.close()
+        match resp:
+            case ForgetResponse():
+                self._report_forgotten(resp)
+            case ErrorResponse(message=msg):
+                print_err(f"[red]error:[/] {msg}")
+                sys.exit(1)
+            case _:
+                print_err(f"[red]error:[/] unexpected response: {resp}")
+                sys.exit(1)
+
+    @staticmethod
+    def _report_forgotten(resp: ForgetResponse) -> None:
+        if not resp.forgotten:
+            print_err("[dim]Nothing to forget.[/]")
+            return
+        verb = "Would forget" if resp.dry_run else "Forgot"
+        for path in resp.forgotten:
+            print_err(f"[green]{verb}:[/] {path}")
+        if not resp.dry_run:
+            print_err("[dim]Run `rbtr gc` to reclaim the freed space.[/]")
 
     def _run_inline(
         self,
@@ -707,6 +782,10 @@ class Gc(BaseModel):
     Destructive and not undoable — permanently deletes indexed
     commits/chunks. Use --dry-run to preview first.
 
+    Operates on the current repo by default; `--all-repos` reclaims
+    across every indexed repo at once, but only with the safe default
+    (watched) reclamation — scope aggressive modes to one repo.
+
     By default keeps the watch set — HEAD, all local branches/tags,
     and every watched ref (plus the current worktree) — and sweeps
     crashed-build residue. Alternate modes let you keep only the
@@ -714,6 +793,10 @@ class Gc(BaseModel):
     """
 
     repo_path: str = Field(".", description="Repository path")
+    all_repos: bool = Field(
+        False,
+        description="GC every indexed repo (default reclamation only; not with aggressive modes)",
+    )
     watched_only: bool = Field(
         False,
         description="Keep only HEAD and watched refs (drop unwatched branches/tags)",
@@ -731,7 +814,16 @@ class Gc(BaseModel):
 
     def cli_cmd(self) -> None:
         mode, refs = self._resolve_mode()
-        resolved_repo = normalise_repo_path(self.repo_path)
+        if self.all_repos:
+            if mode is not GcMode.WATCHED:
+                print_err(
+                    "[red]error:[/] --all-repos supports only the default reclamation; "
+                    "scope an aggressive mode with --repo-path"
+                )
+                sys.exit(2)
+            resolved_repo = None
+        else:
+            resolved_repo = normalise_repo_path(self.repo_path)
         request = GcRequest(
             repo_path=resolved_repo,
             mode=mode,

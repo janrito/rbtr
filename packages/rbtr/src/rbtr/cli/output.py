@@ -515,13 +515,15 @@ def _format_elapsed(seconds: float) -> str:
 
 
 def _render_gc_response(m: GcResponse) -> None:
-    prefix = "[yellow]would remove[/]" if m.dry_run else "[green]removed[/]"
+    drop = "would remove" if m.dry_run else "removed"
+    free = "would free" if m.dry_run else "freed"
+    repos = "1 repo" if m.repos_collected == 1 else f"{m.repos_collected} repos"
     t = Text.from_markup(
-        f"{prefix}  {m.commits_dropped} commits, "
+        f"[green]{drop}[/]  {m.commits_dropped} commits, "
         f"{m.snapshots_dropped} snapshots, "
-        f"{m.edges_dropped} edges, "
-        f"{m.chunks_dropped} chunks freed, "
-        f"{m.chunks_kept_shared} chunks kept"
+        f"{m.edges_dropped} edges; "
+        f"{free} {m.chunks_freed} chunks "
+        f"(across {repos})"
     )
     t.append(f"  ({m.elapsed_seconds:.2f}s)", style="dim")
     _out.print(t)

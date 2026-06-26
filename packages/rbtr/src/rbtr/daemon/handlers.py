@@ -30,6 +30,9 @@ from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     FindRefsRequest,
     FindRefsResponse,
+    ForgetRequest,
+    ForgetResponse,
+    GcMode,
     GcRequest,
     GcResponse,
     IndexedRef,
@@ -47,9 +50,16 @@ from rbtr.daemon.messages import (
     WatchedRef,
 )
 from rbtr.errors import IndexNotBuiltError, RbtrError
-from rbtr.git import HEAD_REF, WORKTREE_REF, names_for_commits, resolve_ref, worktree_tree_sha
+from rbtr.git import (
+    HEAD_REF,
+    WORKTREE_REF,
+    names_for_commits,
+    normalise_repo_path,
+    resolve_ref,
+    worktree_tree_sha,
+)
 from rbtr.index.frames import changed_to_symbols
-from rbtr.index.gc import run_gc
+from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.models import Chunk, QueryKind, RepoRef
 
 if TYPE_CHECKING:
@@ -341,37 +351,98 @@ def handle_status(
 
 
 def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
-    repo_id = store.resolve_repo(request.repo_path)
     t0 = time.monotonic()
-    counts = run_gc(
-        store,
-        request.repo_path,
-        repo_id,
-        mode=request.mode,
-        refs=request.refs,
-        dry_run=request.dry_run,
-    )
+    if request.repo_path is None:
+        # Global GC: reclaim across every registered repo. Restricted to
+        # the safe default reclamation — aggressive modes must be scoped to
+        # one repo (a global drop of unwatched/non-HEAD commits is a
+        # footgun, and KEEP refs are repo-specific).
+        if request.mode is not GcMode.WATCHED:
+            msg = (
+                f"global GC supports only the default (watched) reclamation, "
+                f"not {request.mode.value}; scope it with repo_path"
+            )
+            raise RbtrError(msg)
+        counts, repos_collected = run_gc_all(
+            store, mode=request.mode, refs=request.refs, dry_run=request.dry_run
+        )
+    else:
+        repo_id = store.resolve_repo(request.repo_path)
+        counts = run_gc(
+            store,
+            request.repo_path,
+            repo_id,
+            mode=request.mode,
+            refs=request.refs,
+            dry_run=request.dry_run,
+        )
+        repos_collected = 1
+    # A real run's `counts.chunks` is the actual reclamation. A dry run only
+    # predicts the drop set's freed chunks, so add the pre-existing orphans
+    # the global prune would also remove (counted once across all repos).
+    chunks_freed = counts.chunks
+    if request.dry_run:
+        chunks_freed += store.count_orphan_chunks()
     elapsed = time.monotonic() - t0
     log.info(
         "gc_complete",
         mode=request.mode,
         dry_run=request.dry_run,
+        repos=repos_collected,
         commits=counts.commits,
         snapshots=counts.snapshots,
         edges=counts.edges,
-        chunks=counts.chunks,
-        chunks_kept=counts.chunks_kept_shared,
+        chunks_freed=chunks_freed,
         elapsed_ms=round(elapsed * 1000, 1),
     )
     return GcResponse(
+        repos_collected=repos_collected,
         commits_dropped=counts.commits,
         snapshots_dropped=counts.snapshots,
         edges_dropped=counts.edges,
-        chunks_dropped=counts.chunks,
-        chunks_kept_shared=counts.chunks_kept_shared,
+        chunks_freed=chunks_freed,
         elapsed_seconds=elapsed,
         dry_run=request.dry_run,
     )
+
+
+def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
+    """Forget whole repos (metadata-only; GC reclaims the chunks).
+
+    `stale=True`: forget every registered repo whose stored path no longer
+    resolves (a removed worktree/clone) — found by enumeration, since a
+    gone path cannot be normalised into a request. Otherwise forget the
+    single `repo_path`, but only when its watch set is exactly `{HEAD}`
+    (trim other refs first). `dry_run` reports without deleting.
+    """
+    if request.stale:
+        gone: list[tuple[int, str]] = []
+        for repo_id, path in store.list_repos():
+            try:
+                normalise_repo_path(path)
+            except RbtrError:
+                gone.append((repo_id, path))
+        if not request.dry_run and gone:
+            with store.session() as ws:
+                for repo_id, _path in gone:
+                    ws.forget_repo(repo_id)
+        return ForgetResponse(forgotten=[path for _id, path in gone], dry_run=request.dry_run)
+
+    if request.repo_path is None:
+        msg = "forget requires a repo_path or stale=True"
+        raise RbtrError(msg)
+    target_id = store.get_repo_id(request.repo_path)
+    if target_id is None:
+        return ForgetResponse(forgotten=[], dry_run=request.dry_run)
+    # Forget only when nothing beyond HEAD is watched (an empty watch set —
+    # e.g. an inline `--no-daemon` index — also qualifies).
+    if set(store.list_watched_refs(target_id)) - {HEAD_REF}:
+        msg = "refusing to forget a repo watching refs beyond HEAD; remove them first"
+        raise RbtrError(msg)
+    if not request.dry_run:
+        with store.session() as ws:
+            ws.forget_repo(target_id)
+    return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
 class WatchFn(Protocol):

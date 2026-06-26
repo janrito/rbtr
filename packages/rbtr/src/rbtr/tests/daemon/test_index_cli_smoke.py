@@ -1,4 +1,4 @@
-"""End-to-end smoke for `rbtr index --remove-stale` via subprocess.
+"""End-to-end smoke for `rbtr index --remove-stale-refs` via subprocess.
 
 Exercises the inline (no-daemon) prune path: watched refs that no
 longer resolve are removed; HEAD and resolvable refs are kept.
@@ -55,8 +55,10 @@ def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db:
         store.close()
 
 
-def test_index_remove_stale_prunes_unresolvable(repo_with_stale_watch: str) -> None:
-    r = run_cli(["index", "--remove-stale", "--no-daemon", "--repo-path", repo_with_stale_watch])
+def test_index_remove_stale_refs_prunes_unresolvable(repo_with_stale_watch: str) -> None:
+    r = run_cli(
+        ["index", "--remove-stale-refs", "--no-daemon", "--repo-path", repo_with_stale_watch]
+    )
     assert r.returncode == 0, r.stderr
 
     store = IndexStore.from_config(writable=True)
@@ -69,3 +71,49 @@ def test_index_remove_stale_prunes_unresolvable(repo_with_stale_watch: str) -> N
     assert "gone-branch" not in watched  # unresolvable → pruned
     assert "main" in watched  # resolvable → kept
     assert "HEAD" in watched  # always kept
+
+
+@pytest.fixture
+def head_only_repo(tmp_path: Path, isolated_db: Path) -> str:
+    """A real repo registered with HEAD as its only watched ref."""
+    path = tmp_path / "solo"
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
+    sig = pygit2.Signature("t", "t@t.t")
+    repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
+    resolved = normalise_repo_path(str(path))
+    store = IndexStore.from_config(writable=True)
+    with store.session() as ws:
+        repo_id = ws.register_repo(resolved)
+        ws.add_watched_refs(repo_id, ["HEAD"])
+    store.close()
+    return str(path)
+
+
+def test_index_remove_no_refs_forgets_head_only_repo(head_only_repo: str) -> None:
+    """`rbtr index --remove` with no refs forgets a HEAD-only repo."""
+    r = run_cli(["index", "--remove", "--no-daemon", "--repo-path", head_only_repo])
+    assert r.returncode == 0, r.stderr
+    store = IndexStore.from_config(writable=True)
+    try:
+        assert store.get_repo_id(normalise_repo_path(head_only_repo)) is None
+    finally:
+        store.close()
+
+
+def test_index_remove_stale_repos_forgets_vanished(tmp_path: Path, isolated_db: Path) -> None:
+    """`--remove-stale-repos` forgets a repo whose path is gone, needing no
+    current repo of its own."""
+    gone = str(tmp_path / "gone")  # never created on disk
+    store = IndexStore.from_config(writable=True)
+    with store.session() as ws:
+        ws.register_repo(gone)
+    store.close()
+
+    r = run_cli(["index", "--remove-stale-repos", "--no-daemon"])
+    assert r.returncode == 0, r.stderr
+
+    store = IndexStore.from_config(writable=True)
+    try:
+        assert store.get_repo_id(gone) is None
+    finally:
+        store.close()

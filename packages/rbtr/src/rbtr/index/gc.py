@@ -39,6 +39,7 @@ from rbtr.errors import RbtrError
 from rbtr.git import (
     head_sha,
     local_ref_shas,
+    read_head,
     resolve_ref,
     resolve_refs_to_shas,
     worktree_tree_sha,
@@ -47,6 +48,38 @@ from rbtr.index.models import GcCounts
 from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
+
+
+def run_gc_all(
+    store: IndexStore,
+    *,
+    mode: GcMode,
+    refs: list[str],
+    dry_run: bool,
+) -> tuple[GcCounts, int]:
+    """Run `run_gc` over every registered repo; sum counts, count repos.
+
+    Backs `rbtr gc --all-repos`.  The chunk sweep is already global
+    (content-addressed), so reclamation is correct regardless of iteration
+    order; summing the per-repo `GcCounts` is exact (each chunk is freed in
+    exactly the pass that drops its last reference). Returns the summed
+    counts and the number of repos actually collected (skipped ones
+    excluded).
+
+    A repo whose path no longer resolves (a removed worktree/clone) is
+    **skipped** with a hint, never purged — forgetting it is a separate,
+    explicit action.
+    """
+    total = GcCounts()
+    collected = 0
+    for repo_id, repo_path in store.list_repos():
+        if read_head(repo_path) is None:
+            log.info("gc_skipped_unresolvable_repo", repo=repo_path)
+            continue
+        total = total + run_gc(store, repo_path, repo_id, mode=mode, refs=refs, dry_run=dry_run)
+        collected += 1
+    return total, collected
+
 
 # Reference namespaces kept by `WATCHED` (the default mode).
 _KEPT_REF_PREFIXES: tuple[str, ...] = (
@@ -82,35 +115,29 @@ def run_gc(
         keep_set=keep_set,
     )
 
-    # Read-only split of the drop set's chunks into freed vs kept (a
-    # candidate retained because a surviving ref still references it).
-    # Computed before any writes so the reference graph is intact, and
-    # used for both dry-run and real runs.
-    chunks_freed, chunks_kept = store.count_gc_chunk_split(repo_id, list(drop_set))
-
     if dry_run:
+        # Predict only the chunks the drop set would free (read-only split,
+        # graph intact). Pre-existing orphans the global prune would also
+        # reclaim are added once by the caller (`handle_gc`).
         counts = _dry_run_counts(store, repo_id, drop_set=drop_set)
+        chunks_freed, _kept = store.count_gc_chunk_split(repo_id, list(drop_set))
         return GcCounts(
             commits=counts.commits,
             snapshots=counts.snapshots,
             edges=counts.edges,
             chunks=chunks_freed,
-            chunks_kept_shared=chunks_kept,
         )
 
+    # Real run: accumulate the *actual* deletions (commit drops + the
+    # global orphan prune in `cleanup`), so the chunk figure is the true
+    # reclamation — including orphans left by a forgotten repo.
     with store.session() as session:
         session.sweep()
         total = GcCounts()
         for sha in drop_set:
             total = total + session.drop_commit(repo_id, sha)
         total = total + session.cleanup(repo_id)
-    return GcCounts(
-        commits=total.commits,
-        snapshots=total.snapshots,
-        edges=total.edges,
-        chunks=chunks_freed,
-        chunks_kept_shared=chunks_kept,
-    )
+    return total
 
 
 def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCounts:
