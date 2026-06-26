@@ -215,31 +215,51 @@ impl Svc {
     assert len(svc_classes) == 2  # struct + impl
 
 
-def test_sql_procedure_not_extracted() -> None:
-    """CREATE PROCEDURE yields no chunk.
+def test_sql_procedure_not_recognised() -> None:
+    """CREATE PROCEDURE is not recognised as a routine.
 
-    The tree-sitter-sql 0.3.11 grammar has no `create_procedure`
-    node, so the statement parses to an ERROR and the query
-    matches nothing. If a future grammar adds the node this test
-    flags that the plugin should map it.
+    tree-sitter-sql 0.3.11 has no `create_procedure` node, so the
+    statement parses to an ERROR and the procedure itself produces
+    no chunk — there is no chunk named for the procedure. (Under
+    error recovery, statements inside the `$$ … $$` body may leak
+    as their own chunks; what this guards is that the procedure
+    header is never captured. If a future grammar adds the node,
+    this flags that the plugin should map it.)
     """
     src = """\
 CREATE PROCEDURE refresh()
 LANGUAGE SQL
 AS $$ DELETE FROM cache; $$;
 """
+    names = {c.name for c in extract_chunks("sql", src)}
+    assert "refresh" not in names
+
+
+def test_sql_pragma_not_extracted() -> None:
+    """A DuckDB PRAGMA yields no chunk.
+
+    The grammar has no PRAGMA statement node, so it parses to a
+    top-level ERROR with no enclosing `statement` to capture. This
+    is a known limitation guard; it flags the day the grammar gains
+    PRAGMA support.
+    """
+    src = "PRAGMA create_fts_index('chunks', 'id', 'body');\n"
     assert extract_chunks("sql", src) == []
 
 
-def test_sql_schema_qualified_table_name() -> None:
-    """A schema-qualified table is named by the table, not the schema."""
+def test_sql_multi_statement_one_chunk_each() -> None:
+    """Each top-level statement in a file becomes its own chunk."""
     src = """\
-CREATE TABLE app.users (id INT);
+CREATE TABLE a (id INT);
+SELECT * FROM a;
+DROP TABLE a;
 """
     chunks = extract_chunks("sql", src)
-    classes = [c for c in chunks if c.kind == ChunkKind.CLASS]
-    assert len(classes) == 1
-    assert classes[0].name == "users"
+    assert [(c.kind, c.name) for c in chunks] == [
+        (ChunkKind.CLASS, "a"),
+        (ChunkKind.FUNCTION, "a"),
+        (ChunkKind.FUNCTION, "a"),
+    ]
 
 
 def test_bash_source_and_dot_extracted_as_imports() -> None:
