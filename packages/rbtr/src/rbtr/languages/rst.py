@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser, Query, QueryCursor
 
-from rbtr.index.chunks import make_chunk_id
+from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
@@ -129,20 +129,21 @@ def chunk_rst(file_path: str, blob_sha: str, content: str, grammar: Language) ->
                     .strip()
                 )
                 if text:
-                    scope = " > ".join(t for t, _ in scope_stack)
+                    # Exclude the section being closed (the stack top) so
+                    # scope is the enclosing path only — never self. The
+                    # final-section close below does the same via [:-1].
                     chunks.append(
-                        Chunk(
-                            id=make_chunk_id(
-                                file_path, blob_sha, current_title, current_line_start - 1
-                            ),
-                            blob_sha=blob_sha,
-                            file_path=file_path,
-                            kind=ChunkKind.DOC_SECTION,
-                            name=current_title,
-                            scope=scope,
-                            content=text,
-                            line_start=current_line_start,
-                            line_end=child.start_point[0],
+                        Chunk.model_validate(
+                            {
+                                "blob_sha": blob_sha,
+                                "file_path": file_path,
+                                "kind": ChunkKind.DOC_SECTION,
+                                "name": current_title,
+                                "scope": [t for t, _ in scope_stack[:-1]],
+                                "content": text,
+                                "line_start": current_line_start,
+                                "line_end": child.start_point[0],
+                            }
                         )
                     )
 
@@ -167,18 +168,18 @@ def chunk_rst(file_path: str, blob_sha: str, content: str, grammar: Language) ->
         text = content_bytes[current_start:].decode("utf-8", errors="replace").strip()
         if text:
             scope_stack_for_scope = scope_stack[:-1]
-            scope = " > ".join(t for t, _ in scope_stack_for_scope)
             chunks.append(
-                Chunk(
-                    id=make_chunk_id(file_path, blob_sha, current_title, current_line_start - 1),
-                    blob_sha=blob_sha,
-                    file_path=file_path,
-                    kind=ChunkKind.DOC_SECTION,
-                    name=current_title,
-                    scope=scope,
-                    content=text,
-                    line_start=current_line_start,
-                    line_end=root.end_point[0],
+                Chunk.model_validate(
+                    {
+                        "blob_sha": blob_sha,
+                        "file_path": file_path,
+                        "kind": ChunkKind.DOC_SECTION,
+                        "name": current_title,
+                        "scope": [t for t, _ in scope_stack_for_scope],
+                        "content": text,
+                        "line_start": current_line_start,
+                        "line_end": root.end_point[0],
+                    }
                 )
             )
 
@@ -344,5 +345,6 @@ class RstPlugin:
                 extensions=frozenset({".rst"}),
                 grammar_module="tree_sitter_rst",
                 chunker=chunk_rst,
+                language_plugin_version=3,
             ),
         ]

@@ -76,6 +76,7 @@ def extract_chunks(
                 else build_import_from_captures
             ),
             scope_types=reg.scope_types,
+            class_scope_types=reg.class_scope_types,
             doc_comment_node_types=doc_types,
         )
     )

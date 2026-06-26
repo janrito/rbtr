@@ -10,11 +10,11 @@ files under `rbtr/languages/`.
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Iterator
 
 from rbtr.config import config
+from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind
 
 # ── Prose format detection ─────────────────────────────────────────
@@ -80,12 +80,3 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
 def chunk_plaintext(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
     """Chunk plain text or unsupported file types."""
     yield from _raw_chunks(file_path, blob_sha, content)
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def make_chunk_id(file_path: str, blob_sha: str, name: str, line_start: int) -> str:
-    """Deterministic chunk ID from file path, blob SHA, symbol name, and line."""
-    raw = f"{file_path}:{blob_sha}:{name}:{line_start}"
-    return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()

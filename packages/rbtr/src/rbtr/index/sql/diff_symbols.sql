@@ -4,11 +4,17 @@
 -- sqlfluff:templater:placeholder:scope_all:true
 --
 -- Symbol-level diff between two indexed commits in a single pass.
--- Symbol identity is (file_path, name, scope); "modified" means the
--- key exists on both sides with differing content. Each branch
--- selects one side's columns as plain references so the projection
--- matches ChunkResultRow exactly (no COALESCE aliases on keyword
--- columns like name/content). The synthetic label is `change_kind`.
+-- Symbol identity is (file_path, name, scope). "modified" uses
+-- content-set semantics so a non-unique identity cannot fan out: a
+-- head symbol is modified iff its key exists at base AND no base
+-- symbol shares that key and content. When the key is unique this is
+-- exactly "present on both sides with differing content"; when it is
+-- not (co-named symbols in one file), each side is matched against the
+-- whole set of same-key contents rather than cross-joined pairwise.
+-- Each branch selects one side's columns as plain references so the
+-- projection matches ChunkResultRow exactly (no COALESCE aliases on
+-- keyword columns like name/content). The synthetic label is
+-- `change_kind`.
 --
 -- The diff is optionally scoped to a set of files: when $scope_all is
 -- false, both CTEs keep only rows whose file_path is present in the
@@ -136,7 +142,10 @@ WHERE
 
 UNION ALL
 
--- Modified: present on both sides with differing content.
+-- Modified: a head symbol whose identity exists at base, but whose
+-- content matches no base symbol of that identity. Content-set
+-- membership (EXISTS / NOT EXISTS) instead of a join, so a non-unique
+-- (file_path, name, scope) cannot fan out into N×M pairs.
 SELECT
   'modified' AS change_kind,
   h.id,
@@ -153,11 +162,21 @@ SELECT
   h.metadata,
   h.has_embedding
 FROM head AS h
-INNER JOIN base AS b
-  ON
-    h.file_path = b.file_path
-    AND h.name = b.name
-    AND h.scope = b.scope
-WHERE h.content <> b.content
+WHERE
+  EXISTS (
+    SELECT 1 FROM base AS b
+    WHERE
+      b.file_path = h.file_path
+      AND b.name = h.name
+      AND b.scope = h.scope
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM base AS b
+    WHERE
+      b.file_path = h.file_path
+      AND b.name = h.name
+      AND b.scope = h.scope
+      AND b.content = h.content
+  )
 
 ORDER BY change_kind, file_path, line_start

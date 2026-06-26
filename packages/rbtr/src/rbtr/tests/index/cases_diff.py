@@ -212,6 +212,64 @@ def case_scoped_to_file() -> DiffScenario:
     )
 
 
+# Two module-level functions that share the name `handler` (a
+# redefinition). They have the same name and the same empty scope,
+# so this is a genuine identity collision that addressing cannot
+# disambiguate — the residual case the content-set diff must handle.
+# A flat redefinition, not nested closures: closures would be told
+# apart by their enclosing function, but two top-level definitions
+# share both name and (empty) scope.
+_DUP_IDENTITY = b"""\
+def handler():
+    return 1
+
+def handler():
+    return 2
+"""
+
+
+@case(tags=["diff"])
+def case_duplicate_identity_unchanged() -> DiffScenario:
+    """Co-named symbols must not fan out into false modifications.
+
+    Both `handler` definitions share identity ("handler", "") but
+    have different bodies. Diffing the commit against itself must
+    yield nothing. Before the fix the `modified` INNER JOIN
+    cross-pairs the two same-key rows, and the off-diagonal pairs
+    (differing content) are emitted as spurious modifications even
+    though no file changed.
+    """
+    return DiffScenario(
+        base_files={"factories.py": _DUP_IDENTITY},
+        head_files={},
+        same_as_base=True,
+    )
+
+
+@case(tags=["diff"])
+def case_duplicate_identity_modified() -> DiffScenario:
+    """A genuine edit under a non-unique key reports once, not N times.
+
+    One `handler` body changes. The key ("handler", "") is
+    non-unique, but content-set membership must surface exactly one
+    `handler` modification — not a cross-join of every co-named
+    definition. The edited body is absent from the base content set
+    (modified); the untouched twin is present (unchanged).
+    """
+    head = b"""\
+def handler():
+    return 100
+
+def handler():
+    return 2
+"""
+    return DiffScenario(
+        base_files={"factories.py": _DUP_IDENTITY},
+        head_files={"factories.py": head},
+        expected_modified={("handler", "")},
+    )
+
+
 @case(tags=["diff"])
 def case_worktree() -> DiffScenario:
     """Head indexed by tree SHA (worktree path) diffs like a commit."""

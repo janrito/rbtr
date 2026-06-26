@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.index.chunks import make_chunk_id
+from rbtr.index.identity import compose_scope
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.hookspec import build_import_from_captures
 
@@ -94,18 +94,19 @@ def _resolve_name(
 
 def _resolve_kind(
     kind: ChunkKind,
-    scope: str,
+    *,
+    nearest_scope_is_class: bool,
 ) -> ChunkKind:
-    """Promote `FUNCTION` to `METHOD` when inside a scope.
+    """Promote `FUNCTION` to `METHOD` inside a class-like scope.
 
     Tree-sitter grammars use `function_definition` /
-    `function_declaration` for both free functions and
-    methods — the distinction is structural (a function
-    inside a class is a method).  The scope walk in
-    `_find_scope` detects the enclosing class/impl, and
-    this function applies the promotion.
+    `function_declaration` for both free functions and methods —
+    the distinction is structural.  A function is a method only
+    when its *nearest* enclosing naming scope is class-like (a
+    class/struct/impl, per the language's `class_scope_types`); a
+    function nested in another function stays a function.
     """
-    if kind == ChunkKind.FUNCTION and scope:
+    if kind == ChunkKind.FUNCTION and nearest_scope_is_class:
         return ChunkKind.METHOD
     return kind
 
@@ -134,23 +135,46 @@ def _chunk_line_start(
     return start_byte, line
 
 
-def _find_scope(node: Node, scope_types: frozenset[str]) -> str:
-    """Walk up the tree to find the enclosing scope name.
+def _scope_name(node: Node) -> str:
+    """Name of a scope-bearing node via its `name` (or Rust `type`) field."""
+    name_node = node.child_by_field_name("name")
+    if name_node is None:
+        name_node = node.child_by_field_name("type")
+    if name_node and name_node.text:
+        return name_node.text.decode()
+    return ""
 
-    Tries `child_by_field_name("name")` first, then
-    `child_by_field_name("type")` (Rust `impl_item` uses
-    `type` instead of `name`).
-    """
+
+def _enclosing_scopes(node: Node, scope_types: frozenset[str]) -> list[Node]:
+    """Ancestor nodes that open a naming scope, nearest first."""
+    scopes: list[Node] = []
     current = node.parent
     while current is not None:
         if current.type in scope_types:
-            name_node = current.child_by_field_name("name")
-            if name_node is None:
-                name_node = current.child_by_field_name("type")
-            if name_node and name_node.text:
-                return name_node.text.decode()
+            scopes.append(current)
         current = current.parent
-    return ""
+    return scopes
+
+
+def _enclosing_scope_names(
+    node: Node,
+    scope_types: frozenset[str],
+    class_scope_types: frozenset[str],
+) -> tuple[list[str], bool]:
+    """Return *(scope_names, nearest_scope_is_class)* for a symbol node.
+
+    *scope_names* are the enclosing naming scopes outermost-first
+    (e.g. `["Outer", "Inner"]`, `["Svc", "start"]`) — discovery only,
+    not composed; the `Chunk.scope` validator forms the `::` address
+    (via `compose_scope`) and drops empty/anonymous segments.  The
+    boolean reports whether the *nearest* enclosing scope is
+    class-like, which drives function→method promotion in
+    `_resolve_kind`.
+    """
+    scopes = _enclosing_scopes(node, scope_types)
+    names = [_scope_name(s) for s in reversed(scopes)]
+    nearest_is_class = bool(scopes) and scopes[0].type in class_scope_types
+    return names, nearest_is_class
 
 
 def _doc_ranges_for_symbol(
@@ -260,6 +284,7 @@ def extract_symbols(
         [Node, dict[str, list[Node]]], ImportMeta
     ] = build_import_from_captures,
     scope_types: frozenset[str] = frozenset(),
+    class_scope_types: frozenset[str] = frozenset(),
     doc_comment_node_types: frozenset[str] = frozenset(),
 ) -> Iterator[Chunk]:
     """Parse *content* and yield structural chunks.
@@ -297,7 +322,13 @@ def extract_symbols(
                                 capture dict.  Defaults to
                                 `build_import_from_captures`.
         scope_types:            Node types that define naming
-                                scopes (e.g. `class_definition`).
+                                scopes, used to compose the full
+                                enclosing-scope address (classes,
+                                functions, namespaces, modules…).
+        class_scope_types:      Subset of *scope_types* that is
+                                class-like; a function whose nearest
+                                enclosing scope is one of these is a
+                                method (see `_resolve_kind`).
         doc_comment_node_types: Comment node types for leading-doc
                                 attachment.  When non-empty, each
                                 symbol's span extends backward over
@@ -326,8 +357,10 @@ def extract_symbols(
                 if capture_name == "import":
                     meta = import_extractor(node, capture_dict)
 
-                scope = _find_scope(node, scope_types)
-                actual_kind = _resolve_kind(kind, scope)
+                scope_names, nearest_is_class = _enclosing_scope_names(
+                    node, scope_types, class_scope_types
+                )
+                actual_kind = _resolve_kind(kind, nearest_scope_is_class=nearest_is_class)
 
                 start_byte, line_start = _chunk_line_start(
                     node,
@@ -338,18 +371,22 @@ def extract_symbols(
 
                 text = content[start_byte : node.end_byte].decode("utf-8", errors="replace")
 
-                yield Chunk(
-                    id=make_chunk_id(file_path, blob_sha, name, line_start - 1),
-                    blob_sha=blob_sha,
-                    file_path=file_path,
-                    kind=actual_kind,
-                    name=name,
-                    scope=scope,
-                    language=language,
-                    content=text,
-                    line_start=line_start,
-                    line_end=node.end_point[0] + 1,
-                    metadata=meta,
+                # `scope` is given as segment names; the `Chunk` scope
+                # validator composes them and the id is derived there.
+                # model_validate keeps that input type-honest.
+                yield Chunk.model_validate(
+                    {
+                        "blob_sha": blob_sha,
+                        "file_path": file_path,
+                        "kind": actual_kind,
+                        "name": name,
+                        "scope": scope_names,
+                        "language": language,
+                        "content": text,
+                        "line_start": line_start,
+                        "line_end": node.end_point[0] + 1,
+                        "metadata": meta,
+                    }
                 )
 
 
@@ -382,6 +419,7 @@ def extract_doc_spans(
     query_str: str,
     *,
     scope_types: frozenset[str] = frozenset(),
+    class_scope_types: frozenset[str] = frozenset(),
     doc_comment_node_types: frozenset[str] = frozenset(),
 ) -> Iterator[DocSpan]:
     """Yield `DocSpan` records for every documented symbol.
@@ -429,8 +467,13 @@ def extract_doc_spans(
                     continue
 
                 name = name_nodes[0].text.decode()
-                scope = _find_scope(node, scope_types)
-                kind = _resolve_kind(_CAPTURE_KIND[capture_name], scope)
+                scope_names, nearest_is_class = _enclosing_scope_names(
+                    node, scope_types, class_scope_types
+                )
+                scope = compose_scope(scope_names)
+                kind = _resolve_kind(
+                    _CAPTURE_KIND[capture_name], nearest_scope_is_class=nearest_is_class
+                )
 
                 _, line_start = _chunk_line_start(
                     node,

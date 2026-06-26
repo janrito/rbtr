@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser
 
-from rbtr.index.chunks import make_chunk_id
+from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 

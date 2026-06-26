@@ -115,6 +115,6 @@ class RubyPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "lib"),
                 test_prefix="test_",
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
         ]

@@ -32,6 +32,7 @@ from pydantic_ai.models import Model
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.git import read_head
 from rbtr.index.frames import ChunkContentRow
+from rbtr.index.identity import SCOPE_SEPARATOR
 from rbtr.index.models import CODE_KINDS, ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
@@ -169,7 +170,7 @@ def _excluded_identifiers(name: str, scope: str, file_path: str) -> list[str]:
     excluded = {name}
     if scope:
         excluded.add(scope)
-        for part in scope.split("."):
+        for part in scope.split(SCOPE_SEPARATOR):
             if part:
                 excluded.add(part)
     for segment in Path(file_path).parts:
