@@ -383,7 +383,7 @@ Content.
     chunks = extract_chunks("rst", src)
     deep = next(c for c in chunks if c.name == "Deep")
     # Deep is the final section; scope shows parent chain.
-    assert deep.scope == "Top > Mid"
+    assert deep.scope == "Top::Mid"
 
 
 def test_rst_overline_headings() -> None:

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
+
+from rbtr.index.identity import compose_scope, make_chunk_id
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -100,9 +103,17 @@ class ImportMeta(BaseModel):
 
 
 class Chunk(BaseModel):
-    """A single indexed unit of code, documentation, or configuration."""
+    """A single indexed unit of code, documentation, or configuration.
 
-    id: str
+    The model owns its identity: `scope` is composed from enclosing-scope
+    segments (a list is joined into a `::` address; a string passes
+    through), and `id` is derived from `(file_path, blob_sha, name,
+    line_start - 1)` when not supplied. Synthetic chunks (raw/link/ref)
+    that need a decorated id pass it explicitly, and reads from storage
+    carry the stored id — both are kept as-is.
+    """
+
+    id: str = ""
     blob_sha: str
     file_path: str
     kind: ChunkKind
@@ -114,6 +125,32 @@ class Chunk(BaseModel):
     line_end: int
     metadata: ImportMeta = Field(default_factory=ImportMeta)
     embedding: Annotated[list[float], Field(exclude=True)] = []
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def _compose_scope(cls, value: str | Sequence[str]) -> str:
+        """Join enclosing-scope segments into the `::` address.
+
+        A plain string (storage read, scope-less chunk) passes through;
+        a sequence of segment names is composed. The `str` guard avoids
+        treating a string as a sequence of characters.
+        """
+        if isinstance(value, str):
+            return value
+        return compose_scope(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_id(cls, data: Any) -> Any:
+        """Derive `id` from identity fields when one is not supplied."""
+        if isinstance(data, dict) and not data.get("id"):
+            return {
+                **data,
+                "id": make_chunk_id(
+                    data["file_path"], data["blob_sha"], data["name"], data["line_start"] - 1
+                ),
+            }
+        return data
 
 
 class ScoredChunk(BaseModel, frozen=True):

@@ -6,6 +6,10 @@ IDs involved so test output is immediately actionable.
 
 from __future__ import annotations
 
+import dataframely as dy
+import polars as pl
+
+from rbtr.index.frames import ChangedSymbolRow
 from rbtr.index.models import ChangeKind, Chunk, ScoredChunk
 
 # A symbol's identity for diff assertions: (name, scope).
@@ -69,3 +73,18 @@ def assert_changes(
     assert buckets[ChangeKind.ADDED] == added
     assert buckets[ChangeKind.MODIFIED] == modified
     assert buckets[ChangeKind.REMOVED] == removed
+
+
+def assert_no_duplicate_changes(frame: dy.DataFrame[ChangedSymbolRow]) -> None:
+    """Assert each changed symbol appears at most once per bucket.
+
+    A legitimate diff emits one row per head (or base) symbol. A
+    duplicate `(file_path, name, scope, change_kind)` row means the
+    `modified` branch has fanned out across a non-unique identity (the
+    NxM cross-join bug). Counting stays in polars rather than a
+    hand-rolled Python tally.
+    """
+    duplicates = (
+        frame.group_by("file_path", "name", "scope", "change_kind").len().filter(pl.col("len") > 1)
+    )
+    assert duplicates.is_empty(), f"duplicate changed symbols (identity fan-out):\n{duplicates}"

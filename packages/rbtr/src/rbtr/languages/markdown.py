@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.index.chunks import chunk_plaintext, make_chunk_id
+from rbtr.index.chunks import chunk_plaintext
+from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
@@ -120,7 +121,7 @@ def _extract_sections(
 
     # Heading names indexed by depth.  Tracks the current
     # branch of the heading tree so we can reconstruct the
-    # scope ("Top > Mid") for each section.
+    # scope ("Top::Mid") for each section.
     scope_stack: list[str] = []
 
     for _pattern_idx, capture_dict in matches:
@@ -137,7 +138,7 @@ def _extract_sections(
         depth = _section_depth(node)
         while len(scope_stack) > depth:
             scope_stack.pop()
-        scope = " > ".join(scope_stack)
+        scope_segments = list(scope_stack)
         scope_stack.append(name)
 
         text = _section_own_content(node, content_bytes)
@@ -145,17 +146,18 @@ def _extract_sections(
             continue
 
         line_start = node.start_point[0] + 1
-        yield Chunk(
-            id=make_chunk_id(file_path, blob_sha, name, line_start - 1),
-            blob_sha=blob_sha,
-            file_path=file_path,
-            kind=ChunkKind.DOC_SECTION,
-            name=name,
-            scope=scope,
-            language="markdown",
-            content=text,
-            line_start=line_start,
-            line_end=node.end_point[0] + 1,
+        yield Chunk.model_validate(
+            {
+                "blob_sha": blob_sha,
+                "file_path": file_path,
+                "kind": ChunkKind.DOC_SECTION,
+                "name": name,
+                "scope": scope_segments,
+                "language": "markdown",
+                "content": text,
+                "line_start": line_start,
+                "line_end": node.end_point[0] + 1,
+            }
         )
 
 
@@ -246,6 +248,6 @@ class MarkdownPlugin:
                 extensions=frozenset({".md"}),
                 grammar_module="tree_sitter_markdown",
                 chunker=chunk_markdown,
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
         ]

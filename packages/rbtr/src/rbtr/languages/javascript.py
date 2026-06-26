@@ -219,7 +219,8 @@ class JavaScriptPlugin:
                 grammar_module="tree_sitter_javascript",
                 query=_JS_QUERY,
                 import_extractor=extract_import_meta,
-                scope_types=frozenset({"class_declaration"}),
+                scope_types=frozenset({"class_declaration", "function_declaration"}),
+                class_scope_types=frozenset({"class_declaration"}),
                 # Both `/** */` JSDoc and `//` comments land in
                 # the grammar as a single `comment` node type.
                 doc_comment_node_types=frozenset({"comment"}),
@@ -227,7 +228,7 @@ class JavaScriptPlugin:
                 import_targets=frozenset({"javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
             LanguageRegistration(
                 id="typescript",
@@ -236,12 +237,15 @@ class JavaScriptPlugin:
                 grammar_entry="language_typescript",
                 query=_TS_QUERY,
                 import_extractor=extract_import_meta,
-                scope_types=frozenset({"class_declaration"}),
+                scope_types=frozenset(
+                    {"class_declaration", "function_declaration", "internal_module"}
+                ),
+                class_scope_types=frozenset({"class_declaration"}),
                 doc_comment_node_types=frozenset({"comment"}),
                 index_files=frozenset({"index.ts", "index.js"}),
                 import_targets=frozenset({"typescript", "javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
         ]

@@ -703,9 +703,14 @@ by the language plugin:
 - **Plaintext fallback** - fixed-size overlapping line
   chunks.
 
-Scope detection: when a function node is nested inside a
-class node (per the plugin's `scope_types`), the chunk gets
-`scope = "ClassName"` and `kind = METHOD`.
+Scope addressing: each chunk's `scope` is the full path of its
+enclosing named scopes, outermost-first, joined by `::` (e.g.
+`Outer::Inner`, `make_adder::handler`), composed by walking the
+parse tree's scope-bearing nodes (per the plugin's `scope_types`);
+Markdown/RST compose their heading hierarchy the same way. A
+function becomes a `METHOD` only when its nearest enclosing scope
+is class-like (`class_scope_types`), so a closure inside a function
+or method stays a function.
 
 Variable chunks cover module-level bindings only; class
 attributes and function-locals stay within their enclosing

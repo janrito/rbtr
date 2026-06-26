@@ -61,5 +61,6 @@ class JavaPlugin:
                 source_roots=("", "src/main/java"),
                 test_suffix="Test",
                 module_style=ModuleStyle.DOTTED,
+                language_plugin_version=2,
             ),
         ]

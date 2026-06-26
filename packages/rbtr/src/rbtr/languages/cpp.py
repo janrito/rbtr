@@ -72,11 +72,14 @@ class CppPlugin:
                 extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
                 grammar_module="tree_sitter_cpp",
                 query=_QUERY,
-                scope_types=frozenset({"class_specifier", "struct_specifier"}),
+                scope_types=frozenset(
+                    {"class_specifier", "struct_specifier", "namespace_definition"}
+                ),
+                class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
                 # Same grammar as C — single `comment` node.
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "include", "src"),
                 test_prefix="test_",
-                language_plugin_version=2,
+                language_plugin_version=4,
             ),
         ]

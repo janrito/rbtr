@@ -160,7 +160,8 @@ class RustPlugin:
                 grammar_module="tree_sitter_rust",
                 query=_QUERY,
                 import_extractor=extract_import_meta,
-                scope_types=frozenset({"impl_item", "struct_item"}),
+                scope_types=frozenset({"impl_item", "struct_item", "mod_item"}),
+                class_scope_types=frozenset({"impl_item", "struct_item"}),
                 # Rust splits doc comments (`///`, `//!`) from
                 # regular line/block comments at parse time by
                 # wrapping them in distinct grammar rules, but
@@ -171,6 +172,6 @@ class RustPlugin:
                 index_files=frozenset({"mod.rs"}),
                 path_substitutions=(("crate/", "src/"),),
                 test_prefix="test_",
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
         ]

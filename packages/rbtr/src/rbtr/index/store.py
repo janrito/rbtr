@@ -605,11 +605,13 @@ class IndexStore:
 
         Returns one row per changed symbol, each labelled
         added/modified/removed in a single SQL pass. Symbol identity
-        is `(file_path, name, scope)`; "modified" means that key
-        exists on both sides with differing content. A side that is
-        not indexed contributes no rows, so the caller must check
-        both commits are present to distinguish "no changes" from
-        "not indexed".
+        is `(file_path, name, scope)`; a head symbol is "modified"
+        iff that identity exists at base but no base symbol of that
+        identity has matching content (content-set membership, so a
+        non-unique identity cannot fan out into spurious pairs). A
+        side that is not indexed contributes no rows, so the caller
+        must check both commits are present to distinguish "no
+        changes" from "not indexed".
 
         When *file_paths* is a non-empty list, the diff is scoped to
         those files via the cursor-registered `_file_paths` semi-join

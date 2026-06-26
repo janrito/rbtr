@@ -16,6 +16,7 @@ import dataframely as dy
 import polars as pl
 from pydantic import BaseModel, Field
 
+from rbtr.index.identity import SCOPE_SEPARATOR
 from rbtr.index.models import ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr.index.treesitter import extract_doc_spans
@@ -141,7 +142,7 @@ def queries_for_symbol(
 
     # Name query: skip if name is empty (headingless paragraphs).
     if name:
-        name_text = f"{scope}.{name}" if scope else name
+        name_text = f"{scope}{SCOPE_SEPARATOR}{name}" if scope else name
         queries.append(_row("name", name_text))
 
     # Body query: first sentence of the full content.
@@ -161,6 +162,7 @@ def queries_for_symbol(
                 grammar,
                 reg.query,
                 scope_types=reg.scope_types,
+                class_scope_types=reg.class_scope_types,
                 doc_comment_node_types=reg.doc_comment_node_types,
             ):
                 doc_bytes = b"\n".join(content_bytes[s:e] for s, e in span.ranges)

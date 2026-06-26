@@ -202,12 +202,17 @@ class LanguageRegistration:
                           from `rbtr.languages.hookspec`.  `None` is
                           filled with that default at call time.
         scope_types:      Tree-sitter node types that create a naming
-                          scope (used to detect methods inside classes).
-                          Examples: `{"class_definition"}` for Python,
+                          scope, composed into a symbol's full
+                          enclosing-scope address. Examples:
+                          `{"class_definition"}` for Python,
                           `{"class_declaration"}` for Java/JS,
                           `{"impl_item", "struct_item"}` for Rust.
                           Empty `frozenset()` for languages without
-                          classes (e.g. Bash).
+                          scopes (e.g. Bash).
+        class_scope_types:
+                          Subset of *scope_types* that is class-like,
+                          driving function→method promotion. Defaults
+                          to *scope_types* when unset.
         chunker:          Custom chunking function with signature
                           `(file_path, blob_sha, content, grammar)
                           -> Iterator[Chunk]`.  The grammar is loaded by
@@ -245,6 +250,14 @@ class LanguageRegistration:
     query: str | None = None
     import_extractor: ImportExtractor = None
     scope_types: frozenset[str] = frozenset()
+    class_scope_types: frozenset[str] = frozenset()
+    """Subset of `scope_types` whose nodes are class-like — a function
+    directly inside one is a method. Defaults to `scope_types` when
+    unset, so a language whose every scope is a class needs only
+    `scope_types`. A language that adds non-class scopes (nested
+    functions, namespaces, modules) to `scope_types` for addressing
+    must set this to just its class-like types so method promotion
+    stays correct."""
     chunker: Chunker = None
     doc_comment_node_types: frozenset[str] = frozenset()
     index_files: frozenset[str] = frozenset()
@@ -272,6 +285,8 @@ class LanguageRegistration:
                 f"invalid language id {self.id!r} — must be lowercase ascii, digits, or underscores"
             )
             raise ValueError(msg)
+        if not self.class_scope_types:
+            object.__setattr__(self, "class_scope_types", self.scope_types)
 
 
 # ── Hook specification ───────────────────────────────────────────────

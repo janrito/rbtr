@@ -175,14 +175,14 @@ class Svc:
 
 @case(tags=["symbol"])
 def case_py_nested_class_method() -> SymbolCase:
-    """Method in nested class scoped to inner class."""
+    """Method in a nested class carries the full class path."""
     src = """\
 class Outer:
     class Inner:
         def deep(self):
             pass
 """
-    return "python", src, [("method", "deep", "Inner")]
+    return "python", src, [("method", "deep", "Outer::Inner")]
 
 
 @case(tags=["symbol"])
@@ -208,6 +208,158 @@ class Svc:
         pass
 """
     return "python", src, [("method", "create", "Svc")]
+
+
+@case(tags=["symbol"])
+def case_py_closure_in_function() -> SymbolCase:
+    """A closure is addressed by its enclosing function and stays a function.
+
+    Function nesting must contribute to the address (inner `handler`
+    → scope "make_adder"), and a function nested in a function must
+    remain kind=function — it is not a method.
+    """
+    src = """\
+def make_adder(n):
+    def handler():
+        return n + 1
+    return handler
+"""
+    return "python", src, [("function", "handler", "make_adder")]
+
+
+@case(tags=["symbol"])
+def case_py_closure_in_method_stays_function() -> SymbolCase:
+    """A function nested in a method is addressed fully and NOT promoted.
+
+    The enclosing scope path is "Svc::start" and `cb` must stay
+    kind=function — promotion follows the nearest *enclosing scope
+    node's* type (a class), not merely a non-empty scope.
+    """
+    src = """\
+class Svc:
+    def start(self):
+        def cb():
+            return 1
+        return cb
+"""
+    return "python", src, [("function", "cb", "Svc::start")]
+
+
+@case(tags=["symbol"])
+def case_py_repeated_nested_name() -> SymbolCase:
+    """Repeated scope names compose without collapsing.
+
+    Three classes all named `Node` nest; the innermost method's path
+    keeps every level (`Node::Node::Node`), not a deduplicated one.
+    """
+    src = """\
+class Node:
+    class Node:
+        class Node:
+            def visit(self):
+                pass
+"""
+    return "python", src, [("method", "visit", "Node::Node::Node")]
+
+
+@case(tags=["symbol"])
+def case_py_shadowed_closure() -> SymbolCase:
+    """A closure shadowing its enclosing function's name stays distinct.
+
+    The inner `process` is addressed `process` (its outer namesake);
+    the two share a name but differ in scope, so addressing keeps
+    them apart. The inner one is a function, not a method.
+    """
+    src = """\
+def process():
+    def process():
+        return 1
+    return process
+"""
+    return "python", src, [("function", "process", "process"), ("function", "process", "")]
+
+
+@case(tags=["symbol"])
+def case_py_mixed_deep_nesting() -> SymbolCase:
+    """Mixed class/method/closure/class chain composes the full path.
+
+    `deep` sits in a local class, in a closure, in a method, in a
+    class — so its path mixes every scope kind. Promotion follows the
+    *nearest* scope: `helper` (in a method) is a function, `deep` (in
+    a class) is a method.
+    """
+    src = """\
+class Outer:
+    def run(self):
+        def helper():
+            class Local:
+                def deep(self):
+                    pass
+            return Local
+        return helper
+"""
+    return (
+        "python",
+        src,
+        [
+            ("method", "run", "Outer"),
+            ("function", "helper", "Outer::run"),
+            ("class", "Local", "Outer::run::helper"),
+            ("method", "deep", "Outer::run::helper::Local"),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_py_method_named_like_class() -> SymbolCase:
+    """A method whose name equals its class is addressed `Node::`, not merged.
+
+    The method `Node` inside class `Node` is `(method, Node, Node)` —
+    name and scope segment coincide but are different objects; the
+    address keeps both.
+    """
+    src = """\
+class Node:
+    def Node(self):
+        return 1
+"""
+    return "python", src, [("class", "Node", ""), ("method", "Node", "Node")]
+
+
+@case(tags=["symbol"])
+def case_py_method_named_like_nested_class() -> SymbolCase:
+    """Name equal to a *repeated* scope segment still composes fully.
+
+    A class `Node` in a class `Node` with a method `Node`: the method
+    is `(method, Node, Node::Node)` and the inner class is
+    `(class, Node, Node)`.
+    """
+    src = """\
+class Node:
+    class Node:
+        def Node(self):
+            return 1
+"""
+    return "python", src, [("class", "Node", "Node"), ("method", "Node", "Node::Node")]
+
+
+@case(tags=["symbol"])
+def case_py_function_and_class_same_name() -> SymbolCase:
+    """A function and a class sharing a name at module scope both extract.
+
+    Different objects (`function` and `class`) collide on identity
+    `(name, scope)` = `(Cache, "")` — the residual same-scope
+    collision addressing cannot split (kind is not part of identity).
+    Both must appear; the diff's content-set backstop keeps them apart.
+    """
+    src = """\
+def Cache():
+    return None
+
+class Cache:
+    pass
+"""
+    return "python", src, [("function", "Cache", ""), ("class", "Cache", "")]
 
 
 @case(tags=["symbol"])
@@ -480,6 +632,21 @@ def case_js_class_extends() -> SymbolCase:
     return "javascript", "class Admin extends User {}\n", [("class", "Admin", "")]
 
 
+@case(tags=["symbol"])
+@_skip_js
+def case_js_nested_function() -> SymbolCase:
+    """A function nested in a function is addressed by the outer function."""
+    src = """\
+function outer() {
+  function inner() {
+    return 1;
+  }
+  return inner;
+}
+"""
+    return "javascript", src, [("function", "inner", "outer")]
+
+
 # ── Imports ──────────────────────────────────────────────────────────
 
 
@@ -683,6 +850,35 @@ def case_ts_class() -> SymbolCase:
 def case_ts_class_generics() -> SymbolCase:
     """class Container<T> {}."""
     return "typescript", "class Container<T> {}\n", [("class", "Container", "")]
+
+
+@case(tags=["symbol"])
+@_skip_ts
+def case_ts_namespace_function() -> SymbolCase:
+    """A function in a TS namespace is addressed by the namespace.
+
+    TS `namespace` is not tracked today (`f` → ""); target "N".
+    """
+    src = """\
+namespace N {
+  export function f(): void {}
+}
+"""
+    return "typescript", src, [("function", "f", "N")]
+
+
+@case(tags=["symbol"])
+@_skip_ts
+def case_ts_nested_namespace() -> SymbolCase:
+    """Nested TS namespaces compose."""
+    src = """\
+namespace A {
+  export namespace B {
+    export function f(): void {}
+  }
+}
+"""
+    return "typescript", src, [("function", "f", "A::B")]
 
 
 # ── Imports ──────────────────────────────────────────────────────────
@@ -1130,6 +1326,80 @@ impl Svc {
     return "rust", src, [("method", "start", "Svc"), ("method", "stop", "Svc")]
 
 
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_method_named_like_type() -> SymbolCase:
+    """An impl method whose name equals its type is addressed `Node::`."""
+    src = """\
+struct Node {}
+impl Node {
+    fn Node(&self) {}
+}
+"""
+    return "rust", src, [("method", "Node", "Node")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_fn_in_mod() -> SymbolCase:
+    """A function in a module is addressed by the module.
+
+    Rust `mod` is not tracked today (`bar` → ""); target "outer".
+    """
+    src = """\
+mod outer {
+    fn bar() {}
+}
+"""
+    return "rust", src, [("function", "bar", "outer")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_impl_in_mod() -> SymbolCase:
+    """An impl method inside a module carries module::type."""
+    src = """\
+mod m {
+    struct S {}
+    impl S {
+        fn go(&self) {}
+    }
+}
+"""
+    return "rust", src, [("method", "go", "m::S")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_nested_mod() -> SymbolCase:
+    """Nested modules compose."""
+    src = """\
+mod a {
+    mod b {
+        fn f() {}
+    }
+}
+"""
+    return "rust", src, [("function", "f", "a::b")]
+
+
+@case(tags=["symbol"])
+@_skip_rust
+def case_rust_nested_mod_impl_method() -> SymbolCase:
+    """A method in an impl, nested in two modules, composes `a::b::S`."""
+    src = """\
+mod a {
+    mod b {
+        struct S {}
+        impl S {
+            fn go(&self) {}
+        }
+    }
+}
+"""
+    return "rust", src, [("method", "go", "a::b::S")]
+
+
 # ── Imports ──────────────────────────────────────────────────────────
 
 
@@ -1370,8 +1640,24 @@ class Outer {
     return (
         "java",
         src,
-        [("class", "Outer", ""), ("class", "Inner", "Outer"), ("method", "deep", "Inner")],
+        [("class", "Outer", ""), ("class", "Inner", "Outer"), ("method", "deep", "Outer::Inner")],
     )
+
+
+@case(tags=["symbol"])
+@_skip_java
+def case_java_triple_nested_class() -> SymbolCase:
+    """Three levels of nested class compose the full path."""
+    src = """\
+class Outer {
+    class Mid {
+        class Inner {
+            void deep() {}
+        }
+    }
+}
+"""
+    return "java", src, [("method", "deep", "Outer::Mid::Inner")]
 
 
 # ── Imports ──────────────────────────────────────────────────────────
@@ -1846,6 +2132,71 @@ public:
 
 @case(tags=["symbol"])
 @_skip_cpp
+def case_cpp_namespace_function() -> SymbolCase:
+    """A free function in a namespace is addressed by the namespace.
+
+    C++ `namespace` is not tracked today (`f` → ""); target "ns".
+    """
+    src = """\
+namespace ns {
+void f() { }
+}
+"""
+    return "cpp", src, [("function", "f", "ns")]
+
+
+@case(tags=["symbol"])
+@_skip_cpp
+def case_cpp_namespace_class_method() -> SymbolCase:
+    """A method in a class in a namespace carries the full path."""
+    src = """\
+namespace ns {
+class Widget {
+public:
+    void draw() { }
+};
+}
+"""
+    return "cpp", src, [("class", "Widget", "ns"), ("method", "draw", "ns::Widget")]
+
+
+@case(tags=["symbol"])
+@_skip_cpp
+def case_cpp_nested_namespace() -> SymbolCase:
+    """Nested namespaces compose outermost-first."""
+    src = """\
+namespace a {
+namespace b {
+void f() { }
+}
+}
+"""
+    return "cpp", src, [("function", "f", "a::b")]
+
+
+@case(tags=["symbol"])
+@_skip_cpp
+def case_cpp_namespace_nested_class_method() -> SymbolCase:
+    """A method in nested classes, inside a namespace, composes the full path.
+
+    Mixes a namespace with class nesting — `ns::Outer::Inner`.
+    """
+    src = """\
+namespace ns {
+class Outer {
+public:
+    class Inner {
+    public:
+        void deep() { }
+    };
+};
+}
+"""
+    return "cpp", src, [("method", "deep", "ns::Outer::Inner")]
+
+
+@case(tags=["symbol"])
+@_skip_cpp
 def case_cpp_free_function_not_scoped() -> SymbolCase:
     """Function after class is not scoped."""
     src = """\
@@ -2074,8 +2425,46 @@ end
     return (
         "ruby",
         src,
-        [("class", "Utils", ""), ("class", "Parser", "Utils"), ("method", "parse", "Parser")],
+        [
+            ("class", "Utils", ""),
+            ("class", "Parser", "Utils"),
+            ("method", "parse", "Utils::Parser"),
+        ],
     )
+
+
+@case(tags=["symbol"])
+@_skip_ruby
+def case_ruby_module_in_module() -> SymbolCase:
+    """A method in a module nested in a module carries the full path."""
+    src = """\
+module A
+  module B
+    def f
+      1
+    end
+  end
+end
+"""
+    return "ruby", src, [("method", "f", "A::B")]
+
+
+@case(tags=["symbol"])
+@_skip_ruby
+def case_ruby_module_module_class_method() -> SymbolCase:
+    """A method nested module::module::class carries the full path."""
+    src = """\
+module A
+  module B
+    class C
+      def go
+        1
+      end
+    end
+  end
+end
+"""
+    return "ruby", src, [("method", "go", "A::B::C")]
 
 
 # ── Imports ──────────────────────────────────────────────────────────
@@ -2143,8 +2532,9 @@ def case_ruby_full_file() -> MixedCase:
     declarations.  Comments inside the class body are not
     attached to their methods by the current Ruby grammar (see
     note in `case_docstrings.py`), so only the top-level
-    module, class, and `main` carry docs here.  Expected tuple
-    unchanged.
+    module, class, and `main` carry docs here.  Methods carry the
+    full module::class path now that addressing composes the
+    enclosing-scope chain.
     """
     src = """\
 require "json"
@@ -2178,7 +2568,7 @@ end
         "ruby",
         src,
         {"import", "class", "method", "function"},
-        [("start", "Server"), ("stop", "Server"), ("default", "Server")],
+        [("start", "App::Server"), ("stop", "App::Server"), ("default", "App::Server")],
     )
 
 
@@ -2226,7 +2616,40 @@ def case_md_scope_chain() -> SymbolCase:
 
 Content here.
 """
-    return "markdown", src, [("doc_section", "Deep", "Top > Mid")]
+    return "markdown", src, [("doc_section", "Deep", "Top::Mid")]
+
+
+@case(tags=["symbol"])
+def case_md_same_name_under_different_parents() -> SymbolCase:
+    """Same-named sections under different parents get distinct scopes.
+
+    Two `Overview` subsections — one under `A`, one under `B` — are
+    `(doc_section, Overview, A)` and `(doc_section, Overview, B)`. Without
+    the full heading path they would collide on identity; addressing
+    keeps them apart.
+    """
+    src = """\
+# A
+
+Alpha intro.
+
+## Overview
+
+Alpha overview.
+
+# B
+
+Beta intro.
+
+## Overview
+
+Beta overview.
+"""
+    return (
+        "markdown",
+        src,
+        [("doc_section", "Overview", "A"), ("doc_section", "Overview", "B")],
+    )
 
 
 @case(tags=["symbol"])
@@ -2263,7 +2686,7 @@ Body B.
         "rst",
         src,
         [
-            ("doc_section", "Title", "Title"),
+            ("doc_section", "Title", ""),
             ("doc_section", "Section B", "Title"),
         ],
     )
@@ -2284,10 +2707,42 @@ Deep
 
 Content here.
 """
-    return "rst", src, [("doc_section", "Deep", "Top > Mid")]
-    # Note: RST scope includes self for non-final sections due to
-    # scope_stack push order. Deep is the final section so it
-    # happens to show only parent scope.
+    return "rst", src, [("doc_section", "Deep", "Top::Mid")]
+
+
+@case(tags=["symbol"])
+def case_rst_same_name_under_different_parents() -> SymbolCase:
+    """Same-named RST subsections under different parents stay distinct.
+
+    Both `Overview` subsections are scoped by their parent only — `A`
+    and `B` — never themselves, so they stay distinct.
+    """
+    src = """\
+A
+=
+
+Alpha intro.
+
+Overview
+--------
+
+Alpha overview.
+
+B
+=
+
+Beta intro.
+
+Overview
+--------
+
+Beta overview.
+"""
+    return (
+        "rst",
+        src,
+        [("doc_section", "Overview", "A"), ("doc_section", "Overview", "B")],
+    )
 
 
 @case(tags=["symbol"])

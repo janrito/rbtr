@@ -8,16 +8,17 @@ a missing symbol).
 
 from __future__ import annotations
 
+import dataframely as dy
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.frames import changed_to_symbols
+from rbtr.index.frames import ChangedSymbolRow, changed_to_symbols
 from rbtr.index.models import ChangeKind, Chunk
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
 
 from ..conftest import make_commit
-from .asserts import assert_changes
+from .asserts import assert_changes, assert_no_duplicate_changes
 from .cases_diff import DiffScenario
 
 
@@ -27,7 +28,7 @@ def diff_result(
     scenario: DiffScenario,
     diff_repo: pygit2.Repository,
     store: IndexStore,
-) -> tuple[DiffScenario, list[tuple[Chunk, ChangeKind]]]:
+) -> tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]]:
     base_oid = make_commit(diff_repo, scenario.base_files)
     base_sha = str(base_oid)
     build_index(diff_repo.workdir, base_sha, store, repo_id=1)
@@ -45,16 +46,19 @@ def diff_result(
         build_index(diff_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
 
     frame = store.diff_symbols(base_sha, head_sha, repo_id=1, file_paths=scenario.file_paths)
-    return scenario, changed_to_symbols(frame)
+    return scenario, frame, changed_to_symbols(frame)
 
 
 def test_diff_symbols(
-    diff_result: tuple[DiffScenario, list[tuple[Chunk, ChangeKind]]],
+    diff_result: tuple[
+        DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]
+    ],
 ) -> None:
-    scenario, result = diff_result
+    scenario, frame, result = diff_result
     assert_changes(
         result,
         added=scenario.expected_added,
         modified=scenario.expected_modified,
         removed=scenario.expected_removed,
     )
+    assert_no_duplicate_changes(frame)

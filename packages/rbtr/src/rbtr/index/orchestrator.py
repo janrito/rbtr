@@ -104,6 +104,7 @@ def _extract_file(
                     else build_import_from_captures
                 ),
                 scope_types=reg.scope_types if reg else frozenset(),
+                class_scope_types=reg.class_scope_types if reg else frozenset(),
                 doc_comment_node_types=(reg.doc_comment_node_types if reg else frozenset()),
             )
             return
