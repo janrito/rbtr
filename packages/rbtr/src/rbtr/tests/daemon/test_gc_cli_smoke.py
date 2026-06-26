@@ -146,3 +146,26 @@ def test_gc_watched_only_smoke(
     assert json.loads(r.stdout)["kind"] == "gc"
     store = IndexStore.from_config(writable=True)
     assert store.has_indexed(repo_id, tiny_repo.c2) is True  # HEAD kept
+
+
+def test_gc_all_repos_reclaims_globally(
+    tiny_repo: TinyRepo,
+    seeded_repo_id_both_commits: int,
+) -> None:
+    """`--all-repos` (no --repo-path) routes through the global path and
+    reclaims every indexed repo with the default reclamation."""
+    repo_id = seeded_repo_id_both_commits
+    r = run_cli(["--json", "gc", "--all-repos"])
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["commits_dropped"] == 1  # c1 is not a ref tip
+    store = IndexStore.from_config(writable=True)
+    assert store.has_indexed(repo_id, tiny_repo.c1) is False
+    assert store.has_indexed(repo_id, tiny_repo.c2) is True
+
+
+def test_gc_all_repos_rejects_aggressive_mode() -> None:
+    """Global GC is limited to the default reclamation: combining
+    `--all-repos` with an aggressive mode is refused before any work."""
+    r = run_cli(["gc", "--all-repos", "--watched-only"])
+    assert r.returncode != 0
+    assert "all-repos" in r.stderr

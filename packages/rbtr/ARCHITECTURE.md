@@ -1076,6 +1076,37 @@ way to reclaim refs you no longer index. `HEAD_ONLY`,
 aggressive mode drops a still-watched commit, the watcher
 rebuilds it on the next poll (self-healing).
 
+GC is **per-repo by default**; `rbtr gc --all-repos` reclaims across
+**every** registered repo at once (`GcRequest.repo_path is None` ⇒
+`run_gc_all` loops `run_gc` over `list_repos()`), then the single
+cross-repo sweep reclaims chunks no surviving snapshot references.
+Global GC is **restricted to the default `WATCHED` reclamation** — it
+only drops genuinely-unreferenced commits, never aggressively across
+the whole index, and `KEEP` refs are repo-specific anyway; `handle_gc`
+rejects a global request in any other mode. A repo whose path no longer
+resolves (a removed worktree/clone) is **skipped** — never an error, and
+never purged (forgetting it is a separate, explicit action; see below).
+The chunk sweep is global on *every* gc, so even a single-repo `rbtr gc`
+frees chunks no other repo references.
+
+**Forgetting a repo** removes it entirely from the index — its
+`watched_refs`, `indexed_commits`, `file_snapshots`, `edges`, and the
+`repos` row, in one transaction (`WriteSession.forget_repo`). It is
+**metadata-only**: it deliberately does not sweep chunks, so it reports
+no statistics; the now-orphaned chunks are reclaimed by the next GC (or
+build cleanup), keeping removal cheap and uniform with ref removal.
+`rbtr index --remove` with no refs forgets the current repo, but only
+when HEAD is its sole watched ref; `--remove-stale-repos` forgets every
+repo whose stored path no longer resolves. The latter is
+**daemon-driven enumeration**, not a per-path request: a removed
+checkout's path cannot be normalised into a request, so the handler
+walks `list_repos()` and forgets the unresolvable ones. Forgetting is
+always **explicit** — `poll_watched` skips a vanished path rather than
+purging it, since the absence may be transient (an unmounted volume).
+The wire surface is a dedicated `ForgetRequest`/`ForgetResponse` (the
+response carries only the forgotten paths), kept separate from the
+reclamation-shaped `GcResponse`.
+
 ## Working-tree indexing
 
 The index pipeline was originally git-only: every file

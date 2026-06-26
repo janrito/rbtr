@@ -49,6 +49,11 @@ _UPDATE_EMBEDDINGS_SQL = load_sql("update_embeddings.sql")
 _UPSERT_CHUNKS_SQL = load_sql("upsert_chunks.sql")
 _UPSERT_SNAPSHOTS_SQL = load_sql("upsert_snapshots.sql")
 _REGISTER_REPO_SQL = load_sql("register_repo.sql")
+_FORGET_SNAPSHOTS_SQL = load_sql("delete_snapshots_for_repo.sql")
+_FORGET_EDGES_SQL = load_sql("delete_edges_for_repo.sql")
+_FORGET_INDEXED_COMMITS_SQL = load_sql("delete_indexed_commits_for_repo.sql")
+_FORGET_WATCHED_REFS_SQL = load_sql("delete_watched_refs_for_repo.sql")
+_FORGET_REPO_SQL = load_sql("delete_repo.sql")
 _CREATE_FTS_INDEX_SQL = load_sql("create_fts_index.sql")
 _NEUTRALISE_FTS_IDF_SQL = load_sql("neutralise_fts_idf.sql")
 _SCHEMA_SQL = load_sql("schema.sql")
@@ -414,6 +419,24 @@ class WriteSession:
             ),
             chunks=chunks_deleted,
         )
+
+    def forget_repo(self, repo_id: int) -> None:
+        """Forget a whole repo: delete its references and the `repos` row.
+
+        Metadata-only — removes the repo's `file_snapshots`, `edges`,
+        `indexed_commits`, `watched_refs`, then the `repos` row, in one
+        transaction. Deliberately does **not** sweep chunks: chunks are
+        content-addressed and shared, so reclaiming the now-orphaned ones
+        is global GC's job (it reports freed/kept). See ARCHITECTURE's
+        garbage-collection section.
+        """
+        self._require_active()
+        params = {"repo_id": repo_id}
+        self._cursor.execute(_FORGET_SNAPSHOTS_SQL, params)
+        self._cursor.execute(_FORGET_EDGES_SQL, params)
+        self._cursor.execute(_FORGET_INDEXED_COMMITS_SQL, params)
+        self._cursor.execute(_FORGET_WATCHED_REFS_SQL, params)
+        self._cursor.execute(_FORGET_REPO_SQL, params)
 
     # ── Sweep ────────────────────────────────────────────────────
 

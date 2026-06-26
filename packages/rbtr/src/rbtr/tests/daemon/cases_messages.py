@@ -25,6 +25,8 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
+    ForgetRequest,
+    ForgetResponse,
     GcMode,
     GcRequest,
     GcResponse,
@@ -259,6 +261,39 @@ def case_gc() -> MessageScenario:
     )
 
 
+@case(tags=["request"])
+def case_gc_global() -> MessageScenario:
+    """Global GC: no `repo_path` reclaims across every registered repo."""
+    return MessageScenario(
+        raw=b'{"kind":"gc","mode":"watched"}',
+        adapter=request_adapter,
+        expected_type=GcRequest,
+        checks={"mode": GcMode.WATCHED, "repo_path": None},
+    )
+
+
+@case(tags=["request"])
+def case_forget_repo() -> MessageScenario:
+    """Forget a single HEAD-only repo by path."""
+    return MessageScenario(
+        raw=b'{"kind":"forget","repo_path":"/r"}',
+        adapter=request_adapter,
+        expected_type=ForgetRequest,
+        checks={"repo_path": "/r", "stale": False},
+    )
+
+
+@case(tags=["request"])
+def case_forget_stale() -> MessageScenario:
+    """Forget every repo whose path no longer resolves (no `repo_path`)."""
+    return MessageScenario(
+        raw=b'{"kind":"forget","stale":true}',
+        adapter=request_adapter,
+        expected_type=ForgetRequest,
+        checks={"stale": True, "repo_path": None},
+    )
+
+
 # ── Responses ────────────────────────────────────────────────────────
 
 
@@ -380,13 +415,23 @@ def case_status_response_with_refs() -> MessageScenario:
 def case_gc_response() -> MessageScenario:
     return MessageScenario(
         raw=(
-            b'{"kind":"gc","commits_dropped":2,"snapshots_dropped":5,'
-            b'"edges_dropped":3,"chunks_dropped":10,'
+            b'{"kind":"gc","repos_collected":3,"commits_dropped":2,'
+            b'"snapshots_dropped":5,"edges_dropped":3,"chunks_freed":10,'
             b'"elapsed_seconds":0.42,"dry_run":false}'
         ),
         adapter=response_adapter,
         expected_type=GcResponse,
-        checks={"commits_dropped": 2, "chunks_dropped": 10, "dry_run": False},
+        checks={"commits_dropped": 2, "chunks_freed": 10, "repos_collected": 3, "dry_run": False},
+    )
+
+
+@case(tags=["response"])
+def case_forget_response() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"forget","forgotten":["/a","/b"],"dry_run":false}',
+        adapter=response_adapter,
+        expected_type=ForgetResponse,
+        checks={"forgotten": ["/a", "/b"], "dry_run": False},
     )
 
 

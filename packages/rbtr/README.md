@@ -80,13 +80,22 @@ rbtr index                    # watch HEAD (the default)
 rbtr index main               # watch main, even from another branch
 rbtr index main release       # watch several refs independently
 rbtr index --remove main      # stop watching main (HEAD can't be removed)
-rbtr index --remove-stale     # stop watching refs that no longer exist
+rbtr index --remove            # forget this repo (only when HEAD is all it watches)
+rbtr index --remove-stale-refs # stop watching this repo's deleted branches
+rbtr index --remove-stale-repos # forget every repo whose checkout is gone
 ```
 
 A moving ref (branch) tracks its tip; a bare SHA settles
 after one build. Removing a ref stops watching it; its index
 is reclaimed by `rbtr gc --watched-only` (a plain `rbtr gc`
 keeps every branch/tag regardless).
+
+When you're done with a checkout, `rbtr index --remove` (with no
+refs) forgets the whole repo — its watch set, indexed commits, and
+references. After you've already deleted a worktree or clone, run
+`rbtr index --remove-stale-repos` from anywhere to forget every repo
+whose path no longer exists. Forgetting is metadata-only and reports
+no statistics; run `rbtr gc` to reclaim the freed chunks.
 
 ### `rbtr search <query>`
 
@@ -229,10 +238,18 @@ it permanently deletes indexed commits/chunks. Always preview with
 its own.
 
 ```bash
-rbtr gc                       # default: keep branches/tags + the watch set
+rbtr gc                       # this repo (default: keep branches/tags + watch set)
+rbtr gc --all-repos           # every indexed repo (default reclamation only)
 rbtr gc --watched-only        # keep only HEAD and watched refs
 rbtr gc --dry-run             # preview what would be dropped
 ```
+
+`rbtr gc` collects the current repo by default. `--all-repos` reclaims
+across **every** indexed repo at once — useful because chunks are shared
+between repos — but only with the safe default reclamation; scope an
+aggressive mode (`--watched-only`, `--keep-head-only`, `--keep`) to a
+single repo. (The chunk sweep is global on every gc regardless, so a
+plain `rbtr gc` still frees chunks no other repo references.)
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only

@@ -11,6 +11,7 @@ dirty and not yet indexed.  Scenarios in
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
@@ -194,3 +195,30 @@ def test_poll_worktree(
         assert dirty.tree_sha == worktree_tree_sha(wt_repo)
     else:
         assert result == []
+
+
+def test_poll_watched_never_forgets_a_vanished_repo(tmp_path: Path, sig: pygit2.Signature) -> None:
+    """A repo whose checkout has vanished yields no build target and is
+    **not** purged. Forgetting is always an explicit action — the daemon
+    must never auto-reclaim, since the path may be transiently absent (an
+    unmounted volume)."""
+    repo_dir = tmp_path / "gone"
+    repo_dir.mkdir()
+    repo = pygit2.init_repository(str(repo_dir), bare=False, initial_head="main")
+    sha = str(repo.create_commit("refs/heads/main", sig, sig, "c0", repo.TreeBuilder().write(), []))
+    store = IndexStore(writable=True)
+    try:
+        with store.session() as ws:
+            repo_id = ws.register_repo(str(repo_dir))
+            ws.mark_indexed(repo_id, sha)
+            ws.add_watched_refs(repo_id, ["HEAD"])
+        registered_before = store.list_repos()
+
+        shutil.rmtree(repo_dir)  # the checkout disappears
+        targets = poll_watched(store)
+
+        assert targets == []  # vanished repo yields no build
+        assert store.list_repos() == registered_before  # still registered — not purged
+        assert store.has_indexed(repo_id, sha) is True  # its data is intact
+    finally:
+        store.close()

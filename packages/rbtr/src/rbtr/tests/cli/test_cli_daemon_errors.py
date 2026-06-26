@@ -53,7 +53,8 @@ def test_index_falls_back_to_inline_when_start_fails(
         refs=["HEAD"],
         repo_path=repo_path,
         remove=False,
-        remove_stale=False,
+        remove_stale_refs=False,
+        remove_stale_repos=False,
         daemon=True,
         embed=False,
     ).cli_cmd()

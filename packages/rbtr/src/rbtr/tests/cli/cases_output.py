@@ -145,18 +145,18 @@ def case_status_grouped_by_repo() -> RenderScenario:
 
 
 @case(tags=["gc"])
-def case_gc_splits_chunks_freed_and_kept() -> RenderScenario:
-    """GC output shows chunks freed and chunks kept, beside the per-repo counts."""
+def case_gc_reports_freed_chunks_and_scope() -> RenderScenario:
+    """GC output shows chunks freed and the repo scope, beside per-repo counts."""
     return RenderScenario(
         model=GcResponse(
+            repos_collected=3,
             commits_dropped=2,
             snapshots_dropped=5,
             edges_dropped=3,
-            chunks_dropped=4,
-            chunks_kept_shared=6,
+            chunks_freed=4,
             elapsed_seconds=0.1,
         ),
-        expected=("2 commits", "4 chunks freed", "6 chunks kept"),
+        expected=("2 commits", "freed 4 chunks", "across 3 repos"),
     )
 
 

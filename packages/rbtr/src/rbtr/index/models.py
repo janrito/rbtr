@@ -248,19 +248,16 @@ class IndexStatus(BaseModel):
 class GcCounts:
     """Rows removed by a garbage-collection operation.
 
-    `commits`, `snapshots`, and `edges` are per-repo. The chunk figures
-    are global, since chunks are content-addressed and shared across
-    repos: `chunks` is the count freed by the operation, and
-    `chunks_kept_shared` is the candidate chunks retained because
-    another indexed ref (any repo) still references them. Crash-residue
-    prunes are not counted in either chunk figure.
+    `commits`, `snapshots`, and `edges` are per-repo (summed when a global
+    GC visits several repos). `chunks` is the number of chunks actually
+    freed from the content-addressed pool — a global figure, since a chunk
+    dies only when no `file_snapshots` row in any repo references it.
     """
 
     commits: int = 0
     snapshots: int = 0
     edges: int = 0
     chunks: int = 0
-    chunks_kept_shared: int = 0
 
     def __add__(self, other: GcCounts) -> GcCounts:
         return GcCounts(
@@ -268,7 +265,6 @@ class GcCounts:
             snapshots=self.snapshots + other.snapshots,
             edges=self.edges + other.edges,
             chunks=self.chunks + other.chunks,
-            chunks_kept_shared=self.chunks_kept_shared + other.chunks_kept_shared,
         )
 
 

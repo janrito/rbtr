@@ -298,9 +298,25 @@ class GcMode(StrEnum):
 class GcRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    repo_path: str
+    repo_path: str | None = None  # None => global GC across every registered repo
     mode: GcMode
     refs: list[str] = []
+    dry_run: bool = False
+
+
+class ForgetRequest(BaseModel):
+    """Forget a whole repo's index (metadata-only; GC reclaims chunks).
+
+    `repo_path` set: forget that single repo (used when its only watched
+    ref is HEAD). `stale=True` with `repo_path` None: forget every
+    registered repo whose path no longer resolves — the only way to reach
+    a removed worktree/clone, since its path cannot be normalised.
+    """
+
+    model_config = _STRICT
+    kind: Literal["forget"] = "forget"
+    repo_path: str | None = None
+    stale: bool = False
     dry_run: bool = False
 
 
@@ -313,7 +329,8 @@ Request = Annotated[
     | FindRefsRequest
     | ChangedSymbolsRequest
     | StatusRequest
-    | GcRequest,
+    | GcRequest
+    | ForgetRequest,
     Field(discriminator="kind"),
 ]
 
@@ -446,12 +463,26 @@ class StatusResponse(BaseModel):
 class GcResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
+    repos_collected: int = 1  # 1 for a single repo, N for `--all-repos`
     commits_dropped: int
     snapshots_dropped: int
     edges_dropped: int
-    chunks_dropped: int
-    chunks_kept_shared: int = 0
+    chunks_freed: int  # chunks actually removed from the global pool
     elapsed_seconds: float
+    dry_run: bool = False
+
+
+class ForgetResponse(BaseModel):
+    """Repos forgotten by a `ForgetRequest`.
+
+    Carries only the paths it forgot — forget is metadata-only and reports
+    no reclamation statistics (run `rbtr gc` to reclaim and report freed
+    space).
+    """
+
+    model_config = _STRICT
+    kind: Literal["forget"] = "forget"
+    forgotten: list[str] = []
     dry_run: bool = False
 
 
@@ -465,7 +496,8 @@ Response = Annotated[
     | FindRefsResponse
     | ChangedSymbolsResponse
     | StatusResponse
-    | GcResponse,
+    | GcResponse
+    | ForgetResponse,
     Field(discriminator="kind"),
 ]
 
