@@ -115,7 +115,7 @@ def channel_store(
     with store.session() as ws:
         repo_id = ws.register_repo(fake_repo)
         chunks = [
-            make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}", repo_id=repo_id)
+            make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
             for cid, path, name, content in specs
         ]
         for c in chunks:
@@ -123,7 +123,7 @@ def channel_store(
         # Embeddings are NULL on insert; set them via update_embeddings.
         ids = [c.id for c in chunks]
         embeddings = [_normalise(chunk_vecs[c.name]) for c in chunks]
-        ws.update_embeddings(ids, embeddings, repo_id=repo_id)
+        ws.update_embeddings(ids, embeddings)
         ws.insert_snapshots(
             [Snapshot(commit_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha) for c in chunks],
             repo_id=repo_id,

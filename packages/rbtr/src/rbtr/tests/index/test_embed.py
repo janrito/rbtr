@@ -163,7 +163,7 @@ def test_get_unembedded_chunks_returns_only_nulls(
     chunks = store.get_chunks(commit_sha, repo_id=1)
     first_chunk = chunks[0]
     with store.session() as ws:
-        ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]], repo_id=1)
+        ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]])
 
     unembedded = store.get_unembedded_chunks(repo_id=1, commit_sha=commit_sha)
     assert len(unembedded) == len(chunks) - 1

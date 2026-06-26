@@ -81,17 +81,24 @@ plugin (markdown, HTML, HCL) handles cases where
 query captures can't express the structure. Languages
 without a plugin get line-based chunking.
 
-### Blob dedup and language invalidation
+### Content-addressed chunks and blob dedup
 
-Chunks are keyed by `(repo_id, id)` where `id` is a
-hash of `file_path:name:line_start`. Each chunk also
-carries a `blob_sha` (git blob - the file's content
-hash, path-independent) and a `language` tag.
+Chunks are content-addressed: `id` is a hash of
+`file_path:blob_sha:name:line_start`, a pure function of content
+that carries no `repo_id` (the [Data model](#data-model)
+covers the keying and how a repo reaches its chunks).
+Byte-identical content collapses to a single physical row, which
+is what lets two worktrees or co-located clones of one
+repository — sharing `.git` object SHAs, so their blobs and
+chunk `id`s coincide — share storage and avoid re-embedding and
+re-parsing the same content.
 
 The orchestrator checks `store.has_blob(blob_sha,
-language=detected)` before extracting a file. If
-chunks already exist for that blob with a matching
-language, the file is skipped.
+language=detected)` before extracting a file. The check is
+global, so a blob already chunked by any repo is reused: if
+chunks already exist for that blob with a matching language the
+file is skipped, and only its `file_snapshots` row is written —
+enough to make the shared chunk reachable from this repo.
 
 When a new language plugin is registered, files that
 were previously indexed as plaintext (`language=""`)
@@ -164,16 +171,30 @@ sequenceDiagram
 
 ## Data model
 
-The index is a single DuckDB file with six tables.
+The index is a single DuckDB file. Its central design point is that
+**`chunks` is a content-addressed store**: a chunk row is keyed by `id`
+alone (a content hash) and carries **no `repo_id`**. The only table where
+a repo meets content is **`file_snapshots`**, which maps
+`(repo_id, commit_sha, file_path) -> blob_sha`. So:
+
+- A chunk is reached by joining `file_snapshots` on `(blob_sha,
+  file_path)`; the repo scope and a result row's `repo_id` come from that
+  join, never from the chunk.
+- Byte-identical content in several repos/worktrees/clones is **one**
+  physical `chunks` row, shared. `file_snapshots` rows (one per repo)
+  point at it.
+- `edges` and `indexed_commits` stay per-repo (they carry `repo_id`);
+  only `chunks` is shared.
+
+The tables and their keys:
 
 ```mermaid
 erDiagram
     repos ||--o{ file_snapshots : "repo_id"
-    repos ||--o{ chunks : "repo_id"
     repos ||--o{ edges : "repo_id"
     repos ||--o{ indexed_commits : "repo_id"
 
-    file_snapshots }o--|| chunks : "blob_sha + file_path"
+    file_snapshots }o--|| chunks : "blob_sha + file_path (content-addressed, shared)"
     edges }o--|| chunks : "source_id = id"
     edges }o--|| chunks : "target_id = id"
 
@@ -188,7 +209,6 @@ erDiagram
         text blob_sha
     }
     chunks {
-        int repo_id PK
         text id PK
         text blob_sha
         text file_path
@@ -224,14 +244,14 @@ erDiagram
 
 ### Record identity
 
-| Table             | Natural key                                                                      |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `repos`           | `(id)`, `path` is unique                                                         |
-| `file_snapshots`  | `(repo_id, commit_sha, file_path)`                                               |
-| `chunks`          | `(repo_id, id)` where `id` = `blake2b(file_path:name:line_start, digest_size=8)` |
-| `edges`           | no PK - bag of tuples scoped by `(repo_id, commit_sha)`                          |
-| `indexed_commits` | `(repo_id, commit_sha)`                                                          |
-| `meta`            | `(key)`                                                                          |
+| Table             | Natural key                                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `repos`           | `(id)`, `path` is unique                                                                                       |
+| `file_snapshots`  | `(repo_id, commit_sha, file_path)`                                                                             |
+| `chunks`          | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
+| `edges`           | no PK - bag of tuples scoped by `(repo_id, commit_sha)`                                                        |
+| `indexed_commits` | `(repo_id, commit_sha)`                                                                                        |
+| `meta`            | `(key)`                                                                                                        |
 
 ### Embedding column
 
@@ -260,11 +280,16 @@ commit's file tree:
 ```sql
 FROM chunks c
 JOIN file_snapshots fs
-  ON c.repo_id = fs.repo_id
-  AND c.blob_sha = fs.blob_sha
+  ON c.blob_sha = fs.blob_sha
   AND c.file_path = fs.file_path
-WHERE fs.commit_sha = ?
+WHERE fs.repo_id = ? AND fs.commit_sha = ?
 ```
+
+The repo scope and the result row's `repo_id` both come from
+`file_snapshots` (or `_repo_refs`), never from the chunk — the
+chunk is repo-less. A chunk shared by several repos therefore
+fans out to one result row per repo via this join, preserving
+cross-repo attribution.
 
 ### Registered frames as query inputs
 
@@ -301,7 +326,7 @@ convention lives in the `rbtr-data` skill.
 
 The build loop skips files whose blob SHA is already in
 the store for the same language. See
-[Blob dedup and language invalidation](#blob-dedup-and-language-invalidation)
+[Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)
 for how this interacts with plugin registration.
 
 ### Completion tracking
@@ -1001,7 +1026,7 @@ order:
 
 ### Blob dedup and language awareness
 
-See [Blob dedup and language invalidation](#blob-dedup-and-language-invalidation)
+See [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)
 for the full dedup and re-extraction flow.
 
 External plugins register via the `rbtr.languages` entry
@@ -1019,6 +1044,24 @@ row is orphan. Both operations live on `WriteSession`:
   (snapshots/edges for uncommitted commits) and stale data
   (chunks not referenced by any snapshot, edges whose
   commit has no snapshots).
+
+Because chunks are content-addressed and **shared across repos**,
+the orphan sweep is a cross-repo reference count: a chunk is
+deleted only when **no** `file_snapshots` row in **any** repo
+references its blob. Dropping a commit (or a whole repo) that
+shared content with another repo leaves the shared chunks intact
+until the last referencing snapshot is gone. Consequently the
+chunk count in `GcCounts` is a global figure, not a per-repo one.
+
+This global sweep rests on a **load-bearing atomicity invariant**: a
+build writes a commit's chunks and its `file_snapshots` in one
+transaction, so no committed state ever holds a chunk without its
+snapshot. An unreferenced chunk is therefore genuine garbage, never a
+half-written build. If a build split chunk and snapshot writes across
+transactions, a co-tenant repo's sweep could delete chunks the build
+still needs. `build_index` upholds the invariant and logs
+`orphan_chunks_after_build` if it is ever violated; see the
+`WriteSession` docstring.
 
 The keep-set depends on the `GcMode`. The **default** is
 `WATCHED`: keep HEAD, every local branch / tag / note,

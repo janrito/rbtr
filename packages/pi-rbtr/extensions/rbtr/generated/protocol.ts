@@ -360,6 +360,7 @@ export interface GcResponse {
   snapshots_dropped: number;
   edges_dropped: number;
   chunks_dropped: number;
+  chunks_kept_shared?: number;
   elapsed_seconds: number;
   dry_run?: boolean;
 }

@@ -360,6 +360,7 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
         snapshots=counts.snapshots,
         edges=counts.edges,
         chunks=counts.chunks,
+        chunks_kept=counts.chunks_kept_shared,
         elapsed_ms=round(elapsed * 1000, 1),
     )
     return GcResponse(
@@ -367,6 +368,7 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
         snapshots_dropped=counts.snapshots,
         edges_dropped=counts.edges,
         chunks_dropped=counts.chunks,
+        chunks_kept_shared=counts.chunks_kept_shared,
         elapsed_seconds=elapsed,
         dry_run=request.dry_run,
     )

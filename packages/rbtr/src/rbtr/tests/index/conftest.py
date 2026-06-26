@@ -37,14 +37,17 @@ def make_chunk(
     path: str = "f.py",
     blob: str = "",
     kind: ChunkKind = ChunkKind.FUNCTION,
-    repo_id: int = 1,
 ) -> TokenisedChunk:
-    """Build a minimal `TokenisedChunk` with auto-tokenised fields."""
+    """Build a minimal `TokenisedChunk` with auto-tokenised fields.
+
+    Chunks are content-addressed and carry no `repo_id`; which repo a
+    chunk belongs to is decided by the snapshot that references its
+    blob (see `seed_store`'s `repo_id`).
+    """
     name = name or chunk_id
     content = content or f"def {name}(): pass"
     return TokenisedChunk(
         id=chunk_id,
-        repo_id=repo_id,
         blob_sha=blob or f"blob_{chunk_id}",
         file_path=path,
         kind=kind,
@@ -68,29 +71,53 @@ def seed_store(
     *,
     commit_sha: str = "head",
     mark_indexed: bool = True,
+    repo_id: int = 1,
 ) -> None:
     """Insert chunks + snapshots into a store via session.
 
     Each chunk's own `repo_id` decides where it lands; a mixed-repo
-    list seeds several repos in one call.  Snapshots and
-    `mark_indexed` are derived per repo from the chunks.
+    references the chunks' blobs under *repo_id*.  Seed several repos
+    by calling once per repo; pass the same chunk to two repos to
+    model content shared across worktrees/clones.
     """
     with store.session() as ws:
         for c in chunks:
             ws.add_chunk(c)
-        by_repo: dict[int, list[TokenisedChunk]] = {}
-        for c in chunks:
-            by_repo.setdefault(c.repo_id, []).append(c)
-        for repo_id, repo_chunks in by_repo.items():
-            ws.insert_snapshots(
-                [
-                    Snapshot(commit_sha=commit_sha, file_path=c.file_path, blob_sha=c.blob_sha)
-                    for c in repo_chunks
-                ],
-                repo_id=repo_id,
-            )
-            if mark_indexed:
-                ws.mark_indexed(repo_id, commit_sha)
+        ws.insert_snapshots(
+            [
+                Snapshot(commit_sha=commit_sha, file_path=c.file_path, blob_sha=c.blob_sha)
+                for c in chunks
+            ],
+            repo_id=repo_id,
+        )
+        if mark_indexed:
+            ws.mark_indexed(repo_id, commit_sha)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Cross-repo content sharing
+# ═════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def shared_chunk_store(store: IndexStore) -> IndexStore:
+    """A store where one chunk is shared by repo 1 and repo 2.
+
+    Models byte-identical content in two worktrees/clones of one
+    repository: the blob (and so the chunk `id`) coincides. The chunk
+    is inserted **once**; each repo records a snapshot referencing the
+    same `(blob_sha, file_path)` — mirroring the `has_blob` skip that
+    happens when a second repo indexes already-chunked content.
+    """
+    with store.session() as ws:
+        ws.register_repo("/repo1")
+        ws.register_repo("/repo2")
+        ws.add_chunk(make_chunk("shared_fn", path="x.py", blob="b_shared"))
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=1)
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
+        ws.mark_indexed(1, "head")
+        ws.mark_indexed(2, "head")
+    return store
 
 
 # ═════════════════════════════════════════════════════════════════════

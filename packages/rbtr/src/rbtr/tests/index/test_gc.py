@@ -81,7 +81,6 @@ def gc(
     for i, sha in enumerate((c1, c2, c3)):
         chunk = TokenisedChunk(
             id=f"c{i}",
-            repo_id=repo_id,
             blob_sha=f"b{i}",
             file_path="a.py",
             kind=ChunkKind.FUNCTION,
@@ -209,10 +208,36 @@ def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True
     )
     assert counts.commits == 2
+    # Dry-run now reports the chunk split (read-only graph query): both
+    # dropped commits' chunks are unshared, so all are freed, none kept.
+    assert counts.chunks == 2
+    assert counts.chunks_kept_shared == 0
     # Nothing actually dropped.
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
+
+
+def test_gc_reports_chunks_freed_and_kept(gc: GcFixture) -> None:
+    """GC splits dropped chunks into freed vs kept-because-another-repo-shares.
+
+    A second repo references commit c1's blob, so dropping c1 and c2 in
+    repo 1 frees c2's unshared chunk but keeps c1's — still referenced by
+    the other repo.
+    """
+    with gc.store.session() as ws:
+        other = ws.register_repo("/other")
+        ws.insert_snapshots(
+            [Snapshot(commit_sha="other_head", file_path="a.py", blob_sha="b0")],
+            repo_id=other,
+        )
+        ws.mark_indexed(other, "other_head")
+
+    counts = run_gc(
+        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False
+    )
+    assert counts.chunks == 1
+    assert counts.chunks_kept_shared == 1
 
 
 # ── error handling ──────────────────────────────────────────────────

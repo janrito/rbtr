@@ -72,7 +72,7 @@ class WriteSession:
 
     ```python
     with store.session() as ws:
-        ws.add_chunk(chunk)   # buffered (chunk carries its repo_id)
+        ws.add_chunk(chunk)   # buffered (content-addressed, no repo_id)
         ws.insert_edges(...)  # immediate
     # exit: flush buffer + commit + FTS rebuild
     ```
@@ -81,9 +81,21 @@ class WriteSession:
     `RuntimeError` if called outside a session.  Chunks are
     buffered via `add_chunk` and flushed automatically when
     the buffer fills or before any operation that depends on
-    chunks being in the DB.  Each chunk carries its own `repo_id`,
-    so a single session may safely add chunks for more than one
-    repo — they stay correctly attributed in the flush.
+    chunks being in the DB.  Chunks are content-addressed (keyed
+    by `id`, no `repo_id`); a repo's claim on a chunk is the
+    `file_snapshots` row referencing its blob.
+
+    **Atomicity invariant (load-bearing).** A build must write a
+    commit's chunks **and** its `file_snapshots` in the SAME
+    transaction, so no committed state ever holds a chunk without
+    its snapshot.  The cross-repo orphan sweeps
+    (`sweep_orphan_chunks`, `prune_chunks`) delete any chunk with no
+    referencing snapshot in *any* repo; if a build split chunk and
+    snapshot writes across transactions, a co-tenant repo's sweep
+    could delete chunks this build still needs.  `build_index`
+    upholds this (extraction and `replace_snapshots` share one
+    session) and logs `orphan_chunks_after_build` if it is ever
+    violated.
 
     **Concurrency warning:** in the daemon, `WriteSession`
     instances must only be created on the job worker thread
@@ -95,9 +107,8 @@ class WriteSession:
         self._store = store
         self._active = False
         self._chunks_modified = False
-        # Each chunk carries its own repo_id, so one flush may span
-        # repos — the staging frame and upsert SQL read repo_id per
-        # row.
+        # Chunks are content-addressed (keyed by id, no repo_id); the
+        # buffer holds repo-independent content flushed via upsert.
         self._chunk_buffer: list[TokenisedChunk] = []
 
     @property
@@ -228,14 +239,16 @@ class WriteSession:
         return int(rows[0][0])
 
     def add_chunk(self, chunk: TokenisedChunk) -> None:
-        """Buffer a chunk for insertion under its own `repo_id`.
+        """Buffer a content-addressed chunk for insertion.
 
         Chunks are accumulated and flushed to DuckDB in batches —
         on commit/exit, when the buffer reaches
         `config.insert_batch_size`, or before any operation that
-        depends on chunks being in the DB.  Each chunk carries its
-        `repo_id`, so a single session may add chunks for several
-        repos and they stay correctly attributed.
+        depends on chunks being in the DB.  Chunks carry no `repo_id`
+        (they are keyed by content hash `id` and shared across repos);
+        a repo claims a chunk by inserting a `file_snapshots` row for
+        its blob in the same transaction (see the class atomicity
+        invariant).
         """
         self._require_active()
         self._chunk_buffer.append(chunk)
@@ -250,18 +263,20 @@ class WriteSession:
         self._chunks_modified = True
         self._chunk_buffer.clear()
 
-    def delete_chunks_for_blobs(self, blob_shas: set[str], repo_id: int) -> None:
-        """Delete all chunks for the given blob SHAs.
+    def delete_chunks_for_blobs(self, blob_shas: set[str]) -> None:
+        """Delete all chunks for the given blob SHAs (globally).
 
         Called before re-inserting chunks when the detected
         language changed (e.g. a new plugin was registered).
+        Chunks are content-addressed and shared across repos, so
+        a blob's chunks are deleted globally; chunking is
+        deterministic per plugin version, so every repo sees the
+        same chunks for the blob.
         """
         if not blob_shas:
             return
         self._require_active()
-        self._cursor.execute(
-            _DELETE_CHUNKS_FOR_BLOBS_SQL, {"repo_id": repo_id, "blob_shas": list(blob_shas)}
-        )
+        self._cursor.execute(_DELETE_CHUNKS_FOR_BLOBS_SQL, {"blob_shas": list(blob_shas)})
         self._chunks_modified = True
 
     def add_watched_refs(self, repo_id: int, refs: list[str]) -> None:
@@ -315,10 +330,13 @@ class WriteSession:
         self,
         ids: list[str],
         embeddings: list[list[float]],
-        repo_id: int,
         truncated: list[bool] | None = None,
     ) -> None:
-        """Batch-update embedding vectors via a polars staging frame."""
+        """Batch-update embedding vectors via a polars staging frame.
+
+        Updates by chunk `id` globally — the embedding lives on the
+        shared content-addressed chunk row.
+        """
         if not ids:
             return
         self._require_active()
@@ -328,7 +346,7 @@ class WriteSession:
         frame = embeddings_frame(ids, embeddings, truncated)
         self._cursor.register("_emb_stg", frame)
         try:
-            self._cursor.execute(_UPDATE_EMBEDDINGS_SQL, {"repo_id": repo_id})
+            self._cursor.execute(_UPDATE_EMBEDDINGS_SQL)
         finally:
             self._cursor.unregister("_emb_stg")
 
@@ -351,7 +369,7 @@ class WriteSession:
         edge_row = self._cursor.execute(
             _DELETE_EDGES_SQL, {"repo_id": repo_id, "commit_sha": commit_sha}
         ).fetchone()
-        chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL, {"repo_id": repo_id}).fetchone()
+        chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._chunks_modified = True
@@ -383,7 +401,7 @@ class WriteSession:
         orphan_edge_row = self._cursor.execute(
             _SWEEP_ORPHAN_EDGES_SQL, {"repo_id": repo_id}
         ).fetchone()
-        chunk_row = self._cursor.execute(_PRUNE_CHUNKS_SQL, {"repo_id": repo_id}).fetchone()
+        chunk_row = self._cursor.execute(_PRUNE_CHUNKS_SQL).fetchone()
         stale_edge_row = self._cursor.execute(_PRUNE_EDGES_SQL, {"repo_id": repo_id}).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:

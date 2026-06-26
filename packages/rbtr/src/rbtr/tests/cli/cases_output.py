@@ -14,7 +14,13 @@ from pydantic import BaseModel
 from pytest_cases import case
 
 from rbtr.daemon.dto import SearchHitOut
-from rbtr.daemon.messages import IndexedRef, SearchResponse, StatusResponse, WatchedRef
+from rbtr.daemon.messages import (
+    GcResponse,
+    IndexedRef,
+    SearchResponse,
+    StatusResponse,
+    WatchedRef,
+)
 from rbtr.index.models import ChunkKind
 
 
@@ -135,6 +141,22 @@ def case_status_grouped_by_repo() -> RenderScenario:
         # "indexed repos" header is the cross-repo grouping cue,
         # rendered only in TTY mode — proves the rich path, not JSON.
         expected=("indexed repos", "/projects/one", "/projects/two"),
+    )
+
+
+@case(tags=["gc"])
+def case_gc_splits_chunks_freed_and_kept() -> RenderScenario:
+    """GC output shows chunks freed and chunks kept, beside the per-repo counts."""
+    return RenderScenario(
+        model=GcResponse(
+            commits_dropped=2,
+            snapshots_dropped=5,
+            edges_dropped=3,
+            chunks_dropped=4,
+            chunks_kept_shared=6,
+            elapsed_seconds=0.1,
+        ),
+        expected=("2 commits", "4 chunks freed", "6 chunks kept"),
     )
 
 

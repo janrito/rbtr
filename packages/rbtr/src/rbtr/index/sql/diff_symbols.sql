@@ -17,7 +17,7 @@
 WITH head AS (
   SELECT
     c.id,
-    c.repo_id,
+    fs.repo_id,
     c.blob_sha,
     c.file_path,
     c.kind,
@@ -32,8 +32,7 @@ WITH head AS (
   FROM chunks AS c
   INNER JOIN file_snapshots AS fs
     ON
-      c.repo_id = fs.repo_id
-      AND c.blob_sha = fs.blob_sha
+      c.blob_sha = fs.blob_sha
       AND c.file_path = fs.file_path
   WHERE
     fs.repo_id = $repo_id
@@ -51,7 +50,7 @@ WITH head AS (
 base AS (
   SELECT
     c.id,
-    c.repo_id,
+    fs.repo_id,
     c.blob_sha,
     c.file_path,
     c.kind,
@@ -66,8 +65,7 @@ base AS (
   FROM chunks AS c
   INNER JOIN file_snapshots AS fs
     ON
-      c.repo_id = fs.repo_id
-      AND c.blob_sha = fs.blob_sha
+      c.blob_sha = fs.blob_sha
       AND c.file_path = fs.file_path
   WHERE
     fs.repo_id = $repo_id

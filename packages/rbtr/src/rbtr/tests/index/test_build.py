@@ -206,6 +206,113 @@ def test_build_index_cache_hit(
     assert r2.stats.parsed_files == 0
 
 
+@pytest.fixture
+def linked_worktree(
+    git_repo: pygit2.Repository, tmp_path_factory: pytest.TempPathFactory
+) -> pygit2.Repository:
+    """A linked git worktree of `git_repo` at the same HEAD commit.
+
+    Models a second checkout of one repository: a distinct workdir over
+    the *same* object store, so identical content yields identical blob
+    SHAs — the real-world worktree/clone case the content-addressed
+    store deduplicates.
+    """
+    path = tmp_path_factory.mktemp("linked") / "checkout"
+    git_repo.add_worktree("checkout", str(path))
+    return pygit2.Repository(pygit2.discover_repository(str(path)))
+
+
+def test_build_dedups_across_linked_worktrees(
+    git_repo: pygit2.Repository,
+    linked_worktree: pygit2.Repository,
+    store: IndexStore,
+    commit_sha: str,
+) -> None:
+    """Indexing two real checkouts of one repo reuses chunks and edges.
+
+    Build the main checkout (repo 1) then the linked worktree (repo 2)
+    at the same commit. Because their blobs are identical, repo 2 must
+    reuse every chunk — nothing re-parsed — see the same chunk ids, and
+    have the same edges inferred (from the shared chunks read back via
+    snapshots) even though extraction was skipped.
+    """
+    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    wt = build_index(linked_worktree.workdir, commit_sha, store, repo_id=2)
+
+    ids_1 = sorted(c.id for c in store.get_chunks(commit_sha, repo_id=1))
+    ids_2 = sorted(c.id for c in store.get_chunks(commit_sha, repo_id=2))
+    assert ids_1
+    assert ids_1 == ids_2
+
+    # Second checkout reuses chunks — nothing re-parsed.
+    assert wt.stats.parsed_files == 0
+    assert wt.stats.skipped_files == wt.stats.total_files
+
+    # Edges inferred for repo 2 from the shared chunks, matching repo 1.
+    edges_1 = {(e.source_id, e.target_id, e.kind) for e in store.get_edges(commit_sha, repo_id=1)}
+    edges_2 = {(e.source_id, e.target_id, e.kind) for e in store.get_edges(commit_sha, repo_id=2)}
+    assert edges_1
+    assert edges_1 == edges_2
+
+
+@pytest.fixture
+def divergent_sha(linked_worktree: pygit2.Repository) -> str:
+    """Advance the linked worktree by one commit editing `src/utils.py`.
+
+    Makes the worktree diverge from the main checkout: most files stay
+    byte-identical (shared blobs), but `src/utils.py` differs — so its
+    chunks must be distinct per checkout while the rest deduplicate.
+    Returns the diverging commit's SHA; the worktree itself is the
+    `linked_worktree` fixture.
+    """
+    utils = Path(linked_worktree.workdir) / "src" / "utils.py"
+    utils.write_bytes(b'"""Utility functions."""\n\ndef helper():\n    return 99\n')
+    linked_worktree.index.add("src/utils.py")
+    linked_worktree.index.write()
+    tree_oid = linked_worktree.index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    linked_worktree.create_commit(
+        "HEAD", sig, sig, "Diverge utils", tree_oid, [linked_worktree.head.target]
+    )
+    return str(linked_worktree.head.target)
+
+
+def test_build_dedups_shared_files_across_divergent_worktrees(
+    git_repo: pygit2.Repository,
+    linked_worktree: pygit2.Repository,
+    divergent_sha: str,
+    store: IndexStore,
+    commit_sha: str,
+) -> None:
+    """Worktrees on different branches dedup shared files; diverged file differs.
+
+    Build the main checkout (repo 1) at its commit and the worktree
+    (repo 2) at its diverged commit. Unchanged files share chunk ids
+    across both (one physical row); the edited `src/utils.py` yields a
+    disjoint chunk set per checkout, with neither repo seeing the
+    other's version.
+    """
+    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    build_index(linked_worktree.workdir, divergent_sha, store, repo_id=2)
+
+    # Unchanged file: same chunk ids in both checkouts (deduped).
+    models_1 = sorted(
+        c.id for c in store.get_chunks(commit_sha, file_path="src/models.py", repo_id=1)
+    )
+    models_2 = sorted(
+        c.id for c in store.get_chunks(divergent_sha, file_path="src/models.py", repo_id=2)
+    )
+    assert models_1
+    assert models_1 == models_2
+
+    # Diverged file: disjoint chunk sets, neither repo sees the other's.
+    utils_1 = {c.id for c in store.get_chunks(commit_sha, file_path="src/utils.py", repo_id=1)}
+    utils_2 = {c.id for c in store.get_chunks(divergent_sha, file_path="src/utils.py", repo_id=2)}
+    assert utils_1
+    assert utils_2
+    assert utils_1.isdisjoint(utils_2)
+
+
 def test_build_index_idempotent_edges(
     git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
 ) -> None:

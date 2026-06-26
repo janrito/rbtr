@@ -91,6 +91,7 @@ _SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
 _SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
 _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
 _COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
+_COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
 _INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
 _HAS_BLOB_SQL = load_sql("has_blob.sql")
 _GET_SCHEMA_VERSION_SQL = load_sql("get_schema_version.sql")
@@ -332,10 +333,34 @@ class IndexStore:
         ).fetchone()
         return int(row[0]) if row else 0
 
-    def count_orphan_chunks(self, repo_id: int) -> int:
-        """Count chunks not referenced by any file snapshot."""
-        row = self._cursor.execute(_COUNT_ORPHAN_CHUNKS_SQL, {"repo_id": repo_id}).fetchone()
+    def count_orphan_chunks(self) -> int:
+        """Count chunks not referenced by any file snapshot in any repo.
+
+        The chunk store is content-addressed and shared, so orphan
+        status is global: a chunk is an orphan iff no snapshot
+        anywhere references its `(blob_sha, file_path)`.
+        """
+        row = self._cursor.execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone()
         return int(row[0]) if row else 0
+
+    def count_gc_chunk_split(self, repo_id: int, drop_shas: list[str]) -> tuple[int, int]:
+        """Split a GC drop set's chunks into `(dropped, kept_shared)`.
+
+        *dropped* is the chunks the drop set would free; *kept_shared*
+        is candidate chunks retained because a ref outside the drop set
+        (another ref of this repo, or any other repo) still references
+        their `(blob_sha, file_path)`.  Read-only — it computes the
+        split from the reference graph without simulating the drop, so
+        it serves dry-run and real runs alike.
+        """
+        if not drop_shas:
+            return (0, 0)
+        row = self._cursor.execute(
+            _COUNT_GC_CHUNK_SPLIT_SQL, {"repo_id": repo_id, "drop_shas": drop_shas}
+        ).fetchone()
+        if row is None:
+            return (0, 0)
+        return (int(row[0]), int(row[1]))
 
     # ── Reads ────────────────────────────────────────────────────────
 
@@ -343,7 +368,6 @@ class IndexStore:
         self,
         blob_sha: str,
         *,
-        repo_id: int,
         language: str = "",
         language_plugin_version: int = 1,
     ) -> bool:
@@ -352,7 +376,10 @@ class IndexStore:
         This is the blob-dedup gate: the orchestrator calls it
         before extracting a file.  If True, the file's content
         hasn't changed and the existing chunks are valid — skip.
-        If False, the file needs (re-)extraction.
+        If False, the file needs (re-)extraction.  The check is
+        **global** (the chunk store is content-addressed and
+        shared), so a blob already parsed by any repo is reused —
+        no re-parse when a second repo/worktree indexes it.
 
         The match is exact on `(blob_sha, language,
         language_plugin_version)`.  A mismatch on either
@@ -374,7 +401,6 @@ class IndexStore:
         result = self._cursor.execute(
             _HAS_BLOB_SQL,
             {
-                "repo_id": repo_id,
                 "blob_sha": blob_sha,
                 "language": language,
                 "language_plugin_version": language_plugin_version,

@@ -450,6 +450,7 @@ class GcResponse(BaseModel):
     snapshots_dropped: int
     edges_dropped: int
     chunks_dropped: int
+    chunks_kept_shared: int = 0
     elapsed_seconds: float
     dry_run: bool = False
 

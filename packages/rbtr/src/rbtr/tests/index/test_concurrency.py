@@ -75,9 +75,9 @@ def test_commit_makes_writes_visible_during_concurrent_work(
             )
         first_done.set()
         with store.session() as session:
-            session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]], repo_id=1)
-            session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]], repo_id=1)
-            session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]], repo_id=1)
+            session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
+            session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]])
+            session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]])
 
     t = threading.Thread(target=writer)
     t.start()

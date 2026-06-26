@@ -60,7 +60,6 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
         chunk = TokenisedChunk(
             id=f"c{i}",
-            repo_id=repo_id,
             blob_sha=f"b{i}",
             file_path="a.py",
             kind=ChunkKind.FUNCTION,
@@ -87,7 +86,6 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
         repo_id = ws.register_repo(str(tiny_repo.path))
     chunk = TokenisedChunk(
         id="c0",
-        repo_id=repo_id,
         blob_sha="b0",
         file_path="a.py",
         kind=ChunkKind.FUNCTION,

@@ -30,8 +30,8 @@ def two_repos() -> Generator[tuple[IndexStore, dict[int, str]]]:
     """
     paths = {1: "/cross/repo_one", 2: "/cross/repo_two"}
     chunks = {
-        1: make_chunk("r1_loader", name="load_alpha", path="alpha.py", blob="b_r1", repo_id=1),
-        2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2", repo_id=2),
+        1: make_chunk("r1_loader", name="load_alpha", path="alpha.py", blob="b_r1"),
+        2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
     }
     store = IndexStore(writable=True)
     for repo_id, chunk in chunks.items():

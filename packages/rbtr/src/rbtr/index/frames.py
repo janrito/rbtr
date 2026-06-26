@@ -50,11 +50,12 @@ _METADATA_STRUCT = dy.Struct(
 class ChunkStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `upsert_chunks.sql`.
 
+    No `repo_id` column: the chunk store is content-addressed and
+    shared across repos (repo attribution lives in `file_snapshots`).
     No `embedding` column: embeddings are always NULL on
     initial insert and set later via `update_embedding(s)`.
     """
 
-    repo_id = dy.Int32(nullable=False)
     id = dy.String(nullable=False)
     blob_sha = dy.String(nullable=False)
     file_path = dy.String(nullable=False)
@@ -121,7 +122,7 @@ class RepoRefRow(dy.Schema):
 
     Not an insert target: search/edge SQL joins against this view
     to scope rows to one or more `(repo_id, commit_sha)` snapshots.
-    `repo_id` is `Int32` to match the column on `chunks`/`edges`.
+    `repo_id` is `Int32` to match the column on `file_snapshots`/`edges`.
     """
 
     repo_id = dy.Int32(nullable=False)
@@ -169,7 +170,8 @@ class _SignalColumns(dy.Schema):
 class ChunkResultRow(_ChunkIdentity):
     """Columns projected by every chunk-returning SQL file.
 
-    Adds `repo_id` (so a chunk shared by several repos stays a
+    Sources `repo_id` from the `file_snapshots` join (so a chunk
+    shared by several repos stays a
     distinct row in cross-repo search) and `has_embedding` —
     the existence check that lets `Chunk.embedding` stay a
     sentinel marker without loading the full 1024-float vector.
@@ -272,8 +274,8 @@ class FusedRow(_ChunkIdentity, _SignalColumns):
 def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     """Build a staging frame of tokenised chunks for `_bulk_insert`.
 
-    Each chunk carries its own `repo_id`, so one batch may span
-    repos — `upsert_chunks.sql` reads `repo_id` per row.
+    Chunks are content-addressed (keyed by `id`) and shared across
+    repos; the batch carries no `repo_id`.
     """
     if not chunks:
         return ChunkStagingRow.create_empty()

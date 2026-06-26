@@ -91,7 +91,7 @@ def reopened(
             if before.seeded_embeddings:
                 ids = list(before.seeded_embeddings.keys())
                 vecs = list(before.seeded_embeddings.values())
-                ws.update_embeddings(ids, vecs, repo_id=1)
+                ws.update_embeddings(ids, vecs)
         seed.close()
 
         updates: list[tuple[str, str]] = []

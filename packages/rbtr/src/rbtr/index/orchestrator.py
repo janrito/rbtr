@@ -186,7 +186,6 @@ def _extract_and_store_chunks(
             # Blob dedup gate.
             if store.has_blob(
                 entry.blob_sha,
-                repo_id=repo_id,
                 language=detected_lang,
                 language_plugin_version=version,
             ):
@@ -195,12 +194,11 @@ def _extract_and_store_chunks(
                 try:
                     # Delete old chunks before re-extraction (language may
                     # have changed, producing different chunk IDs).
-                    session.delete_chunks_for_blobs({entry.blob_sha}, repo_id=repo_id)
+                    session.delete_chunks_for_blobs({entry.blob_sha})
                     file_has_chunks = False
                     for chunk in _extract_file(entry, detected_lang, reg):
                         tokenised = TokenisedChunk(
                             **chunk.model_dump(),
-                            repo_id=repo_id,
                             content_tokens=tokenise_code(chunk.content),
                             name_tokens=tokenise_code(chunk.name),
                             language_plugin_version=version,
@@ -277,6 +275,22 @@ def _mark_indexed_and_cleanup(
                 edges=cleaned.edges,
                 chunks=cleaned.chunks,
             )
+    # Invariant guard for the content-addressed store: a build commits a
+    # commit's chunks and snapshots in one transaction, and cleanup has
+    # just pruned unreferenced rows, so no chunk should now lack a
+    # snapshot. A non-zero count means chunk and snapshot writes were
+    # split across transactions somewhere — which would let another
+    # repo's *global* orphan sweep delete chunks this repo still needs.
+    # Warn (don't abort) so the condition is visible without breaking
+    # indexing.
+    orphans = store.count_orphan_chunks()
+    if orphans:
+        log.warning(
+            "orphan_chunks_after_build",
+            orphans=orphans,
+            repo_id=repo_id,
+            sha=commit_sha[:12],
+        )
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -389,7 +403,6 @@ def embed_index(
                 session.update_embeddings(
                     [c.id for c in batch],
                     [r.vector for r in results],
-                    repo_id=repo_id,
                     truncated=[r.truncated for r in results],
                 )
             done += len(batch)

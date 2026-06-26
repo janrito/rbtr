@@ -58,12 +58,8 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
         id_a = ws.register_repo(path_a)
         id_b = ws.register_repo(path_b)
         for repo_id, uniq, head in ((id_a, "alpha", head_a), (id_b, "beta", head_b)):
-            ws.add_chunk(
-                make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py", repo_id=repo_id)
-            )
-            ws.add_chunk(
-                make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py", repo_id=repo_id)
-            )
+            ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
+            ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
                 [
                     Snapshot(commit_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"),
