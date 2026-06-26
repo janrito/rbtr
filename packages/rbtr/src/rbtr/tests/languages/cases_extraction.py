@@ -2789,6 +2789,151 @@ def case_html_empty() -> SymbolCase:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# SQL
+# ═════════════════════════════════════════════════════════════════════
+
+# ── Symbols ──────────────────────────────────────────────────────────
+
+
+@case(tags=["symbol"])
+def case_sql_table() -> SymbolCase:
+    """CREATE TABLE — structural definition, mapped to class."""
+    src = """\
+CREATE TABLE users (id INT, name TEXT);
+"""
+    return "sql", src, [("class", "users", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_view() -> SymbolCase:
+    """CREATE VIEW — mapped to class."""
+    src = """\
+CREATE VIEW active AS SELECT * FROM users;
+"""
+    return "sql", src, [("class", "active", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_materialized_view() -> SymbolCase:
+    """CREATE MATERIALIZED VIEW — mapped to class."""
+    src = """\
+CREATE MATERIALIZED VIEW recent AS SELECT * FROM users;
+"""
+    return "sql", src, [("class", "recent", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_type_enum() -> SymbolCase:
+    """CREATE TYPE ... AS ENUM — the SQL analogue of an enum, mapped to class."""
+    src = """\
+CREATE TYPE mood AS ENUM ('sad', 'happy');
+"""
+    return "sql", src, [("class", "mood", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_type_composite() -> SymbolCase:
+    """CREATE TYPE ... AS (...) — composite type, mapped to class."""
+    src = """\
+CREATE TYPE point AS (x DOUBLE PRECISION, y DOUBLE PRECISION);
+"""
+    return "sql", src, [("class", "point", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_function() -> SymbolCase:
+    """CREATE FUNCTION — routine, mapped to function."""
+    src = """\
+CREATE FUNCTION add(a INT, b INT) RETURNS INT
+LANGUAGE SQL
+AS $$ SELECT a + b; $$;
+"""
+    return "sql", src, [("function", "add", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_index() -> SymbolCase:
+    """CREATE INDEX — standalone named object, mapped to variable."""
+    src = """\
+CREATE INDEX idx_name ON users (name);
+"""
+    return "sql", src, [("variable", "idx_name", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_sequence() -> SymbolCase:
+    """CREATE SEQUENCE — mapped to variable."""
+    src = """\
+CREATE SEQUENCE order_id START 1;
+"""
+    return "sql", src, [("variable", "order_id", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_schema() -> SymbolCase:
+    """CREATE SCHEMA — mapped to variable."""
+    src = """\
+CREATE SCHEMA app;
+"""
+    return "sql", src, [("variable", "app", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_extension() -> SymbolCase:
+    """CREATE EXTENSION — common in migrations, mapped to variable."""
+    src = """\
+CREATE EXTENSION postgis;
+"""
+    return "sql", src, [("variable", "postgis", "")]
+
+
+@case(tags=["symbol"])
+def case_sql_trigger() -> SymbolCase:
+    """CREATE TRIGGER — the trigger name, not the table or function it references."""
+    src = """\
+CREATE TRIGGER audit BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION log_change();
+"""
+    return "sql", src, [("variable", "audit", "")]
+
+
+# ── Mixed ────────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_sql_migration() -> MixedCase:
+    """Realistic migration script producing every SQL chunk kind.
+
+    SQL has no method scoping, so the expected-methods list is
+    empty — definitions are all top-level.
+    """
+    src = """\
+CREATE SCHEMA shop;
+
+CREATE TABLE shop.products (
+    id INT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price NUMERIC
+);
+
+CREATE VIEW in_stock AS
+SELECT * FROM shop.products WHERE price > 0;
+
+CREATE FUNCTION price_with_tax(p NUMERIC) RETURNS NUMERIC
+LANGUAGE SQL
+AS $$ SELECT p * 1.2; $$;
+
+CREATE INDEX idx_products_name ON shop.products (name);
+"""
+    return (
+        "sql",
+        src,
+        {"class", "function", "variable"},
+        [],
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════
 # Module-level variables (cross-language fan-out)
 # ═════════════════════════════════════════════════════════════════════
 

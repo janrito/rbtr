@@ -348,7 +348,7 @@ detection). Everything else gets line-based chunking.
 
 Built-in: bash, c, cpp, css, go, hcl, html, java,
 javascript, json, markdown, python, rst, ruby, rust,
-toml, typescript, yaml.
+sql, toml, typescript, yaml.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
 for how the plugin system works.

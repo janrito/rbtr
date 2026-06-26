@@ -118,6 +118,7 @@ def test_extracts_multi_import(
         pytest.param(("c", "void f(void) { }\n"), id="c"),
         pytest.param(("cpp", "void f() { }\n"), id="cpp"),
         pytest.param(("ruby", "def f\n  1\nend\n"), id="ruby"),
+        pytest.param(("sql", "CREATE TABLE t (id INT);\n"), id="sql"),
     ]
 )
 def lang_and_source(request: pytest.FixtureRequest) -> tuple[str, str]:
@@ -212,6 +213,33 @@ impl Svc {
     chunks = extract_chunks("rust", src)
     svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
     assert len(svc_classes) == 2  # struct + impl
+
+
+def test_sql_procedure_not_extracted() -> None:
+    """CREATE PROCEDURE yields no chunk.
+
+    The tree-sitter-sql 0.3.11 grammar has no `create_procedure`
+    node, so the statement parses to an ERROR and the query
+    matches nothing. If a future grammar adds the node this test
+    flags that the plugin should map it.
+    """
+    src = """\
+CREATE PROCEDURE refresh()
+LANGUAGE SQL
+AS $$ DELETE FROM cache; $$;
+"""
+    assert extract_chunks("sql", src) == []
+
+
+def test_sql_schema_qualified_table_name() -> None:
+    """A schema-qualified table is named by the table, not the schema."""
+    src = """\
+CREATE TABLE app.users (id INT);
+"""
+    chunks = extract_chunks("sql", src)
+    classes = [c for c in chunks if c.kind == ChunkKind.CLASS]
+    assert len(classes) == 1
+    assert classes[0].name == "users"
 
 
 def test_bash_source_and_dot_extracted_as_imports() -> None:
