@@ -102,6 +102,7 @@ class LanguageManager:
         from rbtr.languages.rst import RstPlugin
         from rbtr.languages.ruby import RubyPlugin
         from rbtr.languages.rust import RustPlugin
+        from rbtr.languages.sql import SqlPlugin
         from rbtr.languages.toml import TomlPlugin
         from rbtr.languages.yaml import YamlPlugin
 
@@ -121,6 +122,7 @@ class LanguageManager:
             RstPlugin,
             RubyPlugin,
             RustPlugin,
+            SqlPlugin,
             TomlPlugin,
             YamlPlugin,
         ):
