@@ -62,7 +62,7 @@ class SymbolContext:
 paraphrase_agent: Agent[SymbolContext, ConceptQuery] = Agent(
     output_type=ConceptQuery,
     deps_type=SymbolContext,
-    output_retries=3,
+    retries={"output": 3},
 )
 
 
