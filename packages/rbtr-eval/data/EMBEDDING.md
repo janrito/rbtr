@@ -2,16 +2,16 @@
 
 | metric    | value            |
 | --------- | ---------------- |
-| chunks    | 138,852          |
-| embedded  | 138,852 (100.0%) |
-| truncated | 1,196            |
+| chunks    | 138,762          |
+| embedded  | 138,762 (100.0%) |
+| truncated | 1,194            |
 
 ## Repos
 
 | repo               | chunks | embedded |
 | ------------------ | ------ | -------- |
-| anthropics__skills | 2593   | 2593     |
-| astral-sh__uv      | 28226  | 28226    |
+| anthropics__skills | 2440   | 2440     |
+| astral-sh__uv      | 28271  | 28271    |
 | badlogic__pi-mono  | 17593  | 17593    |
-| django__django     | 84468  | 84468    |
-| rbtr__rbtr         | 5972   | 5972     |
+| django__django     | 84477  | 84477    |
+| rbtr__rbtr         | 5981   | 5981     |

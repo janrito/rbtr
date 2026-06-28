@@ -10,200 +10,208 @@ ablation in `measure` isolates the effect of each channel.
 | field         | value                    |
 | ------------- | ------------------------ |
 | model         | `openai:zai-org/GLM-5.1` |
-| total queries | 2586                     |
-| expanded      | 2586 / 2586 (100%)       |
+| total queries | 2684                     |
+| expanded      | 2684 / 2684 (100%)       |
 
 ## Per-kind breakdown
 
 | query_kind | n    | avg_keywords | avg_variants |
 | ---------- | ---- | ------------ | ------------ |
-| code       | 402  | 5.1          | 2.0          |
-| concept    | 1155 | 5.1          | 2.0          |
-| identifier | 1029 | 5.1          | 2.0          |
+| code       | 414  | 5.1          | 2.0          |
+| concept    | 1181 | 5.1          | 2.0          |
+| identifier | 1089 | 5.1          | 2.0          |
 
 ## Per-repo breakdown
 
 | slug               | total | expanded | rate |
 | ------------------ | ----- | -------- | ---- |
 | anthropics__skills | 224   | 224      | 100% |
-| astral-sh__uv      | 626   | 626      | 100% |
-| badlogic__pi-mono  | 505   | 505      | 100% |
-| django__django     | 807   | 807      | 100% |
-| rbtr__rbtr         | 424   | 424      | 100% |
+| astral-sh__uv      | 628   | 628      | 100% |
+| badlogic__pi-mono  | 504   | 504      | 100% |
+| django__django     | 809   | 809      | 100% |
+| rbtr__rbtr         | 519   | 519      | 100% |
 
 ## Per-provenance breakdown
 
 | provenance | total | expanded | rate |
 | ---------- | ----- | -------- | ---- |
-| body       | 625   | 625      | 100% |
-| concept    | 1122  | 1122     | 100% |
-| docstring  | 214   | 214      | 100% |
-| name       | 625   | 625      | 100% |
+| body       | 650   | 650      | 100% |
+| concept    | 1157  | 1157     | 100% |
+| docstring  | 227   | 227      | 100% |
+| name       | 650   | 650      | 100% |
 
 ## Examples
 
-### concept: `node` (`badlogic__pi-mono`)
-
-````json
-how to set minimum runtime version requirement in package config
-````
-
-- **keywords:** engines, python_requires, requires-python, rust-version, engine-strict
-- **variants:** specify compatible runtime version in package manifest, enforce minimum
-  language version in package metadata
-
-### concept: `Live Documentation Sources` (`anthropics__skills`)
-
-````markdown
-# Live Documentation Sources
-````
-
-- **keywords:** doc_sources, live_docs, documentation_provider, doc_generator,
-  realtime_docs
-- **variants:** where does live documentation pull content from, how are documentation
-  sources loaded dynamically
-
-### concept: `Footer class` (`rbtr__rbtr`)
-
-````markdown
-how does the footer status bar show animation during long-running operations
-````
-
-- **keywords:** progress_bar, status_bar_animation, spinner, loading_indicator,
-  busy_indicator
-- **variants:** how the status bar displays progress feedback for running tasks, what
-  animation plays in the footer while operations are in progress
-
-### concept: `homeassistant.components.rmvtransport` (`astral-sh__uv`)
-
-````markdown
-what Python package does the RMV transport integration depend on
-````
-
-- **keywords:** pyrmv, rmv_transport, manifest.json, requirements, DEPENDENCIES
-- **variants:** which pip package is required by the RMV transport component, Python
-  library dependency for RMV public transit integration
-
-### concept: `makeRelParts` (`django__django`)
+### concept: `ready` (`django__django`)
 
 ````javascript
-split a relationship name into plugin ID and resource ID parts
+run a callback when the DOM is finished loading
 ````
 
-- **keywords:** parse_relationship, split_identifier, plugin_resource, decompose_name,
-  relationship_parser
-- **variants:** how to parse relationship identifiers into plugin and resource
-  components, extracting plugin and resource IDs from a compound relationship name
+- **keywords:** DOMContentLoaded, onload, ready, addEventListener, document.readyState
+- **variants:** execute a function after the page is ready, how to wait for DOM ready
+  before running code
 
-### identifier: `cursor_iter` (`django__django`)
-
-````python
-"""
-    Yield blocks of rows from a cursor and ensure the cursor is closed when
-    done.
-````
-
-- **keywords:** iter_chunks, fetchmany_batches, cursor_generator, chunked_rows,
-  batch_fetch
-- **variants:** yield rows in batches from a database cursor with cleanup, iterate over
-  database cursor results in chunks and close cursor afterward
-
-### identifier: `Fixed` (`badlogic__pi-mono`)
-
-````markdown
-Changelog > [0.52.7] - 2026-02-06.Fixed
-````
-
-- **keywords:** release_notes, version_fix, changelog_fix, patch_notes, bugfix_0_52_7
-- **variants:** fixes in version 0.52.7 release, bug fixes listed in changelog for
-  0.52.7
-
-### identifier: `findVisibleAncestor` (`badlogic__pi-mono`)
-
-````javascript
-// Find nearest visible ancestor for a node
-````
-
-- **keywords:** nearest_visible_ancestor, closest_visible_parent, find_visible_ancestor,
-  get_visible_parent, visible_node_ancestor
-- **variants:** traverse up the DOM tree to find the first ancestor element that is not
-  hidden, find closest displayed parent of a hidden DOM node
-
-### identifier: `Graceful degradation` (`rbtr__rbtr`)
-
-````markdown
-## Graceful degradation
-````
-
-- **keywords:** fallback_handling, degrade_gracefully, graceful_fallback,
-  resilience_pattern, failover_handling
-- **variants:** continue operating with reduced functionality when components fail,
-  design system to maintain partial operation during failures
-
-### identifier: `launcher` (`astral-sh__uv`)
-
-````rust
-/// The name of the launcher shim.
-````
-
-- **keywords:** launcher_shim_name, bootstrap_launcher, launch_wrapper, launcher_stub,
-  shim_identifier
-- **variants:** name of the thin launcher wrapper used to start an application,
-  identifier for the bootstrap shim that launches the main process
-
-### code: `resolveCommand` (`rbtr__rbtr`)
-
-````typescript
-function resolveCommand(command: string): ResolvedCommand {
-  const trimmed = command.trim();
-````
-
-- **keywords:** resolveCommand, ResolvedCommand, command, trimmed, trim
-- **variants:** resolve a command string into a ResolvedCommand, parse and trim a
-  command string before resolution
-
-### code: `django/forms/jinja2/django/forms/errors/list/ul.html` (`django__django`)
+### concept: `tests/admin_views/templates/admin/admin_views/article/change_form_object_tools.html` (`django__django`)
 
 ````html
-{% if errors %}<ul class="{{ error_class }}"{% if errors.field_id %} id="{{ errors.field_id }}_error"{% endif %}>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+how to add an export button to Django change form object tools
 ````
 
-- **keywords:** error_class, errors.field_id, form_errors, error_list, field_id_error
-- **variants:** Django template rendering form field errors as an unordered list with
-  CSS class and ID, Jinja2 macro to display validation error messages in a ul element
+- **keywords:** object_tools, change_form_object_tools, admin_change_form,
+  export_action, ExtraButtonsMixin
+- **variants:** customize Django admin change form toolbar with an export action, insert
+  export link into Django admin object tools block
 
-### code: `publishConfig` (`rbtr__rbtr`)
+### concept: ```DIRS``` (`django__django`)
+
+````rst
+how to configure template search directories in Django
+````
+
+- **keywords:** TEMPLATES, DIRS, APP_DIRS, template_dirs, FileSystemLoader
+- **variants:** where does Django look for template files, customize paths where Django
+  searches for HTML templates
+
+### concept: `area` (`django__django`)
 
 ````json
-"publishConfig": {
-    "access": "public"
-  }
+how to fix JSON parse error expected value at line 1 column 1
 ````
 
-- **keywords:** publishConfig, access, public, npm_publish, scoped_package
-- **variants:** npm package.json publishConfig access public for scoped package,
-  configure npm scoped package for public registry access
+- **keywords:** JSON.parse, json.loads, JSONDecodeError, SyntaxError unexpected token,
+  invalid_json
+- **variants:** empty response body causes json parse failure at position 0, handling
+  malformed json when decoding returns unexpected character at start
 
-### code: `isType` (`django__django`)
+### concept: `test_readonly_stacked_inline_label` (`django__django`)
+
+````python
+Verify that readonly stacked inlines display the correct label in the admin change view
+````
+
+- **keywords:** StackedInline, readonly, InlineModelAdmin, change_view, label_for
+- **variants:** Django admin stacked inline label rendering for read-only fields,
+  correct label text shown on readonly inline in admin change form
+
+### identifier: `len` (`astral-sh__uv`)
+
+````rust
+/// Return the number of `--find-links` entries.
+````
+
+- **keywords:** find_links_count, num_find_links, count_find_links, n_find_links,
+  find_links_len
+- **variants:** count the number of find-links sources, return count of --find-links
+  option entries
+
+### identifier: `renderCopyLinkButton` (`badlogic__pi-mono`)
 
 ````javascript
-function isType(value, type) {
-  return Object.prototype.toString.call(value) === "[object ".concat(type, "]");
-}
+/**
+       * Render the copy-link button HTML for a message.
 ````
 
-- **keywords:** isType, Object.prototype.toString.call, object type check, toString type
-  detection, [object
-- **variants:** check value type using Object.prototype.toString, type guard via
-  toString call and [object] tag comparison
+- **keywords:** renderCopyLinkButton, copy_link_btn, message_link_button,
+  create_share_link_markup, CopyLinkButton
+- **variants:** render a button to copy a message's shareable URL, generate HTML for
+  copying a permalink to a chat message
 
-### code: `TimerPanel` (`badlogic__pi-mono`)
+### identifier: `warn_file_conflict` (`astral-sh__uv`)
 
-````typescript
-class TimerPanel extends BaseOverlay {
-	private seconds = 0;
+````rust
+/// Check if all files are the same size, if so assume they are identical
 ````
 
-- **keywords:** TimerPanel, BaseOverlay, seconds, timer_overlay, countdown_panel
-- **variants:** timer overlay UI panel with seconds counter, class extending BaseOverlay
-  to display a timer with elapsed seconds
+- **keywords:** check_identical_by_size, files_same_size, are_files_identical,
+  compare_file_sizes, size_based_equality
+- **variants:** determine if files are identical by comparing their file sizes, verify
+  all files are duplicates by checking matching sizes
+
+### identifier: `the performance. Learn more at` (`rbtr__rbtr`)
+
+````markdown
+# the performance
+````
+
+- **keywords:** perf_metrics, performance_measurement, benchmark_results, perf_score,
+  performance_eval
+- **variants:** measure execution speed and resource usage, track and report system
+  performance metrics
+
+### identifier: `Consistency` (`django__django`)
+
+````rst
+Consistency
+-----------
+````
+
+- **keywords:** consistency_model, data_consistency, consistency_check,
+  EventualConsistency, consistency_validator
+- **variants:** ensure data remains uniform across distributed systems, validate that
+  replicated state matches across nodes
+
+### code: `audit` (`astral-sh__uv`)
+
+````json
+"audit": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AuditOptions"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+````
+
+- **keywords:** audit, AuditOptions, anyOf, nullable_schema, definitions_ref
+- **variants:** JSON Schema anyOf allowing AuditOptions or null, nullable audit property
+  referencing AuditOptions definition
+
+### code: `Thanh Le Viet <lethanhx2k@gmail.com>, 2013` (`django__django`)
+
+````markdown
+Thanh Le Viet <lethanhx2k@gmail.com>, 2013
+````
+
+- **keywords:** lethanhx2k, Thanh Le Viet, author_attribution, copyright_header, 2013
+- **variants:** author comment header with email and year, source file copyright
+  attribution by Thanh Le Viet
+
+### code: `Filip Cuk <filipcuk2@gmail.com>, 2016` (`django__django`)
+
+````markdown
+# Filip Cuk <filipcuk2@gmail.com>, 2016
+````
+
+- **keywords:** Filip Cuk, filipcuk2, author_comment, copyright_header,
+  translator_credits
+- **variants:** author attribution comment with name and email year, translation file
+  translator credit header
+
+### code: `EmailBackend` (`django__django`)
+
+````python
+class EmailBackend(BaseEmailBackend):
+    def send_messages(self, email_messages):
+        return len(list(email_messages))
+````
+
+- **keywords:** EmailBackend, BaseEmailBackend, send_messages, email_messages,
+  Django_email_backend
+- **variants:** custom Django email backend that counts sent messages, def send_messages
+  returning number of email messages sent
+
+### code: `.ansi-line` (`badlogic__pi-mono`)
+
+````css
+.ansi-line {
+      white-space: pre-wrap;
+    }
+````
+
+- **keywords:** ansi-line, pre-wrap, white-space, terminal_output_css, ansi_formatting
+- **variants:** CSS class for rendering ANSI terminal output with preserved whitespace
+  and wrapping, style rule preserving whitespace formatting for ansi text lines

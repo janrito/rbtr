@@ -11,7 +11,7 @@ outbound AS (
     c.kind,
     COUNT(*) AS outbound_edges
   FROM edges AS e
-  INNER JOIN chunks AS c ON e.source_id = c.id AND e.repo_id = c.repo_id
+  INNER JOIN chunks AS c ON e.source_id = c.id
   GROUP BY c.kind
 ),
 
@@ -20,7 +20,7 @@ inbound AS (
     c.kind,
     COUNT(*) AS inbound_edges
   FROM edges AS e
-  INNER JOIN chunks AS c ON e.target_id = c.id AND e.repo_id = c.repo_id
+  INNER JOIN chunks AS c ON e.target_id = c.id
   GROUP BY c.kind
 )
 

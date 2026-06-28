@@ -11,7 +11,7 @@ outbound AS (
     CASE WHEN c.language = '' THEN '(plaintext)' ELSE c.language END AS lang,
     COUNT(*) AS outbound_edges
   FROM edges AS e
-  INNER JOIN chunks AS c ON e.source_id = c.id AND e.repo_id = c.repo_id
+  INNER JOIN chunks AS c ON e.source_id = c.id
   GROUP BY c.language
 ),
 
@@ -20,7 +20,7 @@ inbound AS (
     CASE WHEN c.language = '' THEN '(plaintext)' ELSE c.language END AS lang,
     COUNT(*) AS inbound_edges
   FROM edges AS e
-  INNER JOIN chunks AS c ON e.target_id = c.id AND e.repo_id = c.repo_id
+  INNER JOIN chunks AS c ON e.target_id = c.id
   GROUP BY c.language
 )
 
