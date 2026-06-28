@@ -19,7 +19,6 @@ htmlcov/
 
 .rbtr/
 .pi/
-!.pi/settings.json
 .envrc
 
 node_modules/

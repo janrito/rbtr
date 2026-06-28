@@ -1,8 +1,0 @@
-{
-  "packages": [
-    "../packages/pi-rbtr"
-  ],
-  "skills": [
-    "../skills/review-github-pr"
-  ]
-}
