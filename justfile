@@ -132,8 +132,12 @@ demo-one tape:
 current_version := `uvx bump-my-version show current_version`
 is_dev := if current_version =~ '.*dev.*' { 'true' } else { 'false' }
 
-# Bump version, branch, commit, tag, and push.
-# The branch name determines which workflow runs (release-* or pre-release-*).
+# Cut a release. Pre-release and stable share the bump/branch/push process;
+# they differ only in trigger:
+#   pre-release — push a pre-release-* branch; the push builds and publishes a
+#                 dev pre-release. Not merged; a throwaway test build.
+#   release     — open a release-* PR; merging it tags the merge commit on
+#                 main and publishes the stable release.
 
 [group('release')]
 bump-pre-release *FLAGS:
@@ -172,15 +176,14 @@ _branch-and-push prefix:
     # Re-read version from disk — just variables are evaluated at
     # load time, before the bump modifies pyproject.toml.
     NEW_VERSION=$(uvx bump-my-version show current_version)
-    git checkout -b "{{ prefix }}-v${NEW_VERSION}"
+    git switch -c "{{ prefix }}-v${NEW_VERSION}"
     git add -A
     git commit -m "v${NEW_VERSION}"
-    git tag "v${NEW_VERSION}"
     git push -u origin HEAD
-    git push origin tag "v${NEW_VERSION}"
 
 [group('release')]
 pre-release *FLAGS: (bump-pre-release FLAGS) (_branch-and-push "pre-release")
 
 [group('release')]
 release *FLAGS: (bump-release FLAGS) (_branch-and-push "release")
+    gh pr create --fill
