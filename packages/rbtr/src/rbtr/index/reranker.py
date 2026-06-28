@@ -25,7 +25,6 @@ from llama_cpp import LLAMA_POOLING_TYPE_RANK, Llama
 
 from rbtr.config import config
 from rbtr.index._gpu_model import GpuModelSlot, install_llama_log_callback, resolve_gguf_path
-from rbtr.index._llama_cpp_compat import fix_embedding_context
 from rbtr.index.frames import FusedRow
 from rbtr.index.search import _normalise_col
 
@@ -74,7 +73,6 @@ def _load_model() -> Llama:
         n_gpu_layers=config.embedding_n_gpu_layers,
         verbose=config.embedding_verbose,
     )
-    fix_embedding_context(model)  # HACK: remove with _llama_cpp_compat
     return model
 
 

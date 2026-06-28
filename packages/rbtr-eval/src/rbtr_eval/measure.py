@@ -239,7 +239,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
             *outcome_keys,
             pl.col("hits"),
         )
-        .explode("hits")
+        .explode("hits", empty_as_null=True)
         .with_columns(
             pl.col("hits").struct.field("file_path").alias("hit_file_path"),
             pl.col("hits").struct.field("scope").alias("hit_scope"),

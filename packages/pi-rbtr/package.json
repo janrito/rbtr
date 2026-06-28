@@ -28,15 +28,15 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
+    "@biomejs/biome": "^2.5.1",
     "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*",
     "json-schema-to-typescript": "^15.0.4",
-    "typescript": "^5.8",
-    "vitest": "^4.1.4"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "zeromq": "^6.5.0"

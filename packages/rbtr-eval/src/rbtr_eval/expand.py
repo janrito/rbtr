@@ -87,7 +87,7 @@ class ExpansionResult(BaseModel):
 expand_agent: Agent[ExpansionContext, ExpansionResult] = Agent(
     output_type=ExpansionResult,
     deps_type=ExpansionContext,
-    output_retries=3,
+    retries={"output": 3},
 )
 
 

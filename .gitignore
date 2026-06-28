@@ -23,7 +23,6 @@ htmlcov/
 .envrc
 
 node_modules/
-bun.lock
 
 .todo/
 tmp/

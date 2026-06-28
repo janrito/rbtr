@@ -15,13 +15,7 @@ dependencies = [
   "duckdb>=1.0",
   "dataframely>=2.9.1",
   "huggingface-hub",
-  # HACK: 0.3.23 needs kv_unified=True for embedding contexts
-  # (PR #2217, merged but unreleased). Without it, batch embedding
-  # of sequences >256 tokens crashes. We apply the fix in
-  # _llama_cpp_compat.py. Remove the compat module and unpin when
-  # a release includes #2217.
-  # https://github.com/abetlen/llama-cpp-python/pull/2217
-  "llama-cpp-python==0.3.23",
+  "llama-cpp-python>=0.3.24",
   "pathspec>=1.0.4",
   "platformdirs>=4.0",
   "pluggy>=1.6",
@@ -63,7 +57,9 @@ rbtr = "rbtr.cli:main"
 [dependency-groups]
 dev = [
   "pyinstrument>=5.0",
-  "pytest",
+  # Held below 9.1: pytest-cases 3.10.1 breaks on pytest 9.1's changed
+  # IdMaker signature. Drop the bound once pytest-cases is compatible.
+  "pytest<9.1",
   "pytest-cases>=3.10.1",
   "pytest-mock",
   "pytest-xdist>=3.8.0",
