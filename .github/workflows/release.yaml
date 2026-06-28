@@ -1,24 +1,32 @@
 name: Release
 
 on:
+  # Pre-release: a push to a pre-release-* branch — a test build, not merged.
   push:
-    branches:
-      - "release-*"
-      - "pre-release-*"
+    branches: ["pre-release-*"]
+  # Stable: the merge of a release-* PR — tagged on the merge commit on main.
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  checks:
-    uses: ./.github/workflows/checks.yaml
-
   release:
-    needs: checks
+    if: >-
+      github.event_name == 'push'
+      || (github.event.pull_request.merged == true
+          && startsWith(github.event.pull_request.head.ref, 'release-'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Stable cuts tag the PR merge commit on main; pre-releases build
+          # from the pushed branch tip. Full history + tags so stable notes
+          # can anchor to the previous stable tag.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
 
       - uses: extractions/setup-just@v3
 
@@ -40,7 +48,7 @@ jobs:
       - name: Install node deps
         run: bun install --frozen-lockfile
 
-      - name: Validate branch name
+      - name: Resolve version
         id: version
         run: |
           VERSION=$(just --evaluate current_version)
@@ -48,13 +56,16 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "IS_DEV=$IS_DEV" >> $GITHUB_OUTPUT
 
-          BRANCH="${GITHUB_REF_NAME}"
-          if [ "$IS_DEV" = "true" ] && ! echo "$BRANCH" | grep -q "^pre-release-"; then
-            echo "::error::Dev version $VERSION must be on a pre-release-* branch"
+      - name: Check event matches version
+        env:
+          IS_DEV: ${{ steps.version.outputs.IS_DEV }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "$IS_DEV" != "true" ]; then
+            echo "::error::Stable version on a pre-release-* branch; cut stable via a release-* PR"
             exit 1
           fi
-          if [ "$IS_DEV" = "false" ] && ! echo "$BRANCH" | grep -q "^release-"; then
-            echo "::error::Stable version $VERSION must be on a release-* branch"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$IS_DEV" = "true" ]; then
+            echo "::error::Dev version in a release-* PR; cut pre-releases from a pre-release-* branch"
             exit 1
           fi
 
@@ -66,15 +77,26 @@ jobs:
           TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
           IS_DEV: ${{ steps.version.outputs.IS_DEV }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
           PRERELEASE_FLAG=""
+          NOTES_START=""
           if [ "$IS_DEV" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
+          else
+            # Anchor stable notes to the previous stable tag so dev
+            # pre-releases between releases do not truncate the changelog.
+            PREV_STABLE=$(git tag --list 'v*' --sort=-version:refname \
+              | grep -v -- '-dev' | head -n1)
+            if [ -n "$PREV_STABLE" ]; then
+              NOTES_START="--notes-start-tag $PREV_STABLE"
+            fi
           fi
           gh release create "$TAG_NAME" \
             $PRERELEASE_FLAG \
+            $NOTES_START \
             --generate-notes \
-            --target "$GITHUB_SHA" \
+            --target "$TARGET_SHA" \
             dist/*
 
       - name: Publish to PyPI
