@@ -17,10 +17,13 @@ Design priorities:
    everything else gets line-based chunking.
 2. **Local and offline.** Embeddings run on-device (GGUF on
    Metal/CPU). The index is a DuckDB file. No API calls.
-3. **Incremental.** Builds are keyed by git blob SHA. Only
-   changed files are re-extracted. Embeddings persist.
+3. **Incremental.** Builds are keyed by git blob SHA, and
+   chunks are content-addressed: only changed files are
+   re-extracted, embeddings persist, and byte-identical content
+   is shared across worktrees, clones, and repos rather than
+   re-indexed.
 
-## Module dependencies
+## Indexing
 
 ### Index pipeline
 
@@ -83,35 +86,43 @@ without a plugin get line-based chunking.
 
 ### Content-addressed chunks and blob dedup
 
-Chunks are content-addressed: `id` is a hash of
-`file_path:blob_sha:name:line_start`, a pure function of content
-that carries no `repo_id` (the [Data model](#data-model)
-covers the keying and how a repo reaches its chunks).
-Byte-identical content collapses to a single physical row, which
-is what lets two worktrees or co-located clones of one
-repository — sharing `.git` object SHAs, so their blobs and
-chunk `id`s coincide — share storage and avoid re-embedding and
-re-parsing the same content.
+Because chunks are content-addressed and shared across repos
+(see [Data model](#data-model) for the keying), a blob already
+chunked by any checkout need not be parsed again: two worktrees
+or co-located clones share `.git` object SHAs, so their blobs
+and chunk `id`s coincide, and the existing chunks are reused —
+no re-parsing, no re-embedding.
 
 The orchestrator checks `store.has_blob(blob_sha,
-language=detected)` before extracting a file. The check is
-global, so a blob already chunked by any repo is reused: if
-chunks already exist for that blob with a matching language the
-file is skipped, and only its `file_snapshots` row is written —
+language=detected, language_plugin_version=version)` before
+extracting a file. The check is global, so a blob already
+chunked by any repo is reused: if chunks already exist for that
+blob with a matching language **and** extractor version, the
+file is skipped and only its `file_snapshots` row is written —
 enough to make the shared chunk reachable from this repo.
 
-When a new language plugin is registered, files that
-were previously indexed as plaintext (`language=""`)
-produce a `has_blob` miss - the stored language
-doesn't match. The orchestrator deletes old chunks
-for the blob (they may have different IDs from the
-new extraction) and re-extracts.
+The match is exact on all three keys, so a mismatch on either
+language or version triggers re-extraction:
 
-Files detected as prose (Markdown/RST) via content
-heuristics have a special case: `has_blob` accepts
-`language IN ('markdown', 'rst')` when the detected
-language is empty, preventing needless re-extraction
-on every build.
+- **Language change.** A file first indexed as plaintext
+  (`language=""`), then covered by a newly-registered plugin,
+  misses on language and is re-extracted. The orchestrator
+  deletes the blob's old chunks first (`delete_chunks_for_blobs`
+  — the new extraction may produce different chunk IDs) before
+  re-inserting.
+- **Extractor version bump.** Each `LanguageRegistration`
+  carries a `language_plugin_version`; bumping it when a query
+  or chunker changes invalidates every chunk stored at the old
+  version, so they re-extract on the next build (see
+  [Versioning](#versioning)).
+
+Language is resolved once per file before the gate, in order:
+file extension → the `detected_language` recorded on an earlier
+`file_snapshots` row for that path (`get_snapshot_language`) →
+a prose content-sniff for never-seen files. Persisting the
+detected language on the snapshot is what lets prose
+(Markdown/RST) identified by content heuristics skip the sniff —
+and the needless re-extraction — on every subsequent build.
 
 ### Write path
 
@@ -151,13 +162,16 @@ this call chain:
 sequenceDiagram
     participant O as orchestrator
     participant M as LanguageManager
+    participant S as IndexStore
     participant T as treesitter.extract_symbols
     participant E as import_extractor
 
     O->>M: detect_language(path)
-    M-->>O: lang_id
+    M-->>O: lang_id (else stored detected_language / prose sniff)
     O->>M: get_registration(lang_id)
-    M-->>O: reg (query, import_extractor, scope_types, ...)
+    M-->>O: reg (query, import_extractor, scope_types, language_plugin_version, ...)
+    O->>S: has_blob(sha, language, language_plugin_version)
+    S-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
     O->>M: load_grammar(lang_id)
     M-->>O: grammar
     O->>T: extract_symbols(path, sha, content, grammar, query, import_extractor=...)
@@ -193,8 +207,9 @@ erDiagram
     repos ||--o{ file_snapshots : "repo_id"
     repos ||--o{ edges : "repo_id"
     repos ||--o{ indexed_commits : "repo_id"
+    repos ||--o{ watched_refs : "repo_id"
 
-    file_snapshots }o--|| chunks : "blob_sha + file_path (content-addressed, shared)"
+    file_snapshots }o--o{ chunks : "blob_sha + file_path (content-addressed, shared)"
     edges }o--|| chunks : "source_id = id"
     edges }o--|| chunks : "target_id = id"
 
@@ -207,6 +222,7 @@ erDiagram
         text commit_sha PK
         text file_path PK
         text blob_sha
+        text detected_language
     }
     chunks {
         text id PK
@@ -216,6 +232,7 @@ erDiagram
         text name
         text scope
         text language
+        int language_plugin_version
         text content
         text content_tokens
         text name_tokens
@@ -223,18 +240,23 @@ erDiagram
         int line_end
         text metadata
         float_array embedding
+        bool embedding_truncated
     }
     edges {
-        int repo_id
-        text source_id
-        text target_id
-        text kind
-        text commit_sha
+        int repo_id PK
+        text source_id PK
+        text target_id PK
+        text kind PK
+        text commit_sha PK
     }
     indexed_commits {
         int repo_id PK
         text commit_sha PK
         timestamp indexed_at
+    }
+    watched_refs {
+        int repo_id PK
+        text ref PK
     }
     meta {
         text key PK
@@ -249,8 +271,9 @@ erDiagram
 | `repos`           | `(id)`, `path` is unique                                                                                       |
 | `file_snapshots`  | `(repo_id, commit_sha, file_path)`                                                                             |
 | `chunks`          | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
-| `edges`           | no PK - bag of tuples scoped by `(repo_id, commit_sha)`                                                        |
+| `edges`           | `(repo_id, commit_sha, source_id, target_id, kind)` — the whole tuple is the key                               |
 | `indexed_commits` | `(repo_id, commit_sha)`                                                                                        |
+| `watched_refs`    | `(repo_id, ref)`                                                                                               |
 | `meta`            | `(key)`                                                                                                        |
 
 ### Embedding column
@@ -270,6 +293,12 @@ is maintained without a stored dimension:
 - The embedding staging frame (`EmbeddingStagingRow`) enforces
   uniform length per write batch via the `embedding_dim_is_uniform`
   rule.
+
+`chunks.embedding_truncated` records whether a chunk's text
+exceeded the model's context window and was truncated before
+embedding (`embeddings.embed` flags it; `update_embeddings.sql`
+persists it). It is a **diagnostic flag only** — written on
+embed, never read by search, ranking, or re-embedding.
 
 ### Commit resolution
 
@@ -322,13 +351,6 @@ schema like any other frame, so the view's column types
 match the table it joins against. The caller-side
 convention lives in the `rbtr-data` skill.
 
-### Blob dedup
-
-The build loop skips files whose blob SHA is already in
-the store for the same language. See
-[Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)
-for how this interacts with plugin registration.
-
 ### Completion tracking
 
 `indexed_commits` records which `(repo, commit)` pairs are
@@ -356,6 +378,13 @@ Three keys:
 
 When the model or version changes, all embeddings are
 cleared and recomputed on the next build.
+
+A fourth versioning axis lives outside `meta`, per chunk:
+`chunks.language_plugin_version`. It is not a global
+compatibility key — it scopes the blob-dedup gate so a plugin
+can invalidate only its own stale extractions (see
+[Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
+without the database-wide wipe a `schema_version` bump forces.
 
 **Additive vs breaking changes.** `schema.sql` is applied
 `CREATE TABLE IF NOT EXISTS` on every writable open, so a
@@ -569,7 +598,7 @@ sequenceDiagram
     participant P as Daemon (PUB)
     participant S as Subscriber
 
-    C->>D: {kind: "search", repo: "...", query: "..."}
+    C->>D: {kind: "search", repo_path: "...", query: "..."}
     D-->>C: {kind: "search", results: [...]}
 
     Note over P,S: Meanwhile, during a build:
@@ -580,7 +609,7 @@ sequenceDiagram
 A concrete search exchange:
 
 ```json
-→ {"kind": "search", "repo": "/path/to/repo", "query": "retry logic", "limit": 10}
+→ {"kind": "search", "repo_path": "/path/to/repo", "query": "retry logic", "limit": 10}
 ← {"kind": "search", "results": [{"name": "retry_with_backoff", "kind": "function",
     "file_path": "src/client.py", "line_start": 12, "line_end": 30, "score": 0.87}]}
 ```
@@ -588,7 +617,7 @@ A concrete search exchange:
 A progress notification (PUB):
 
 ```json
-{"kind": "progress", "repo": "/path/to/repo", "phase": "parsing", "current": 42, "total": 177}
+{"kind": "progress", "repo_path": "/path/to/repo", "phase": "parsing", "current": 42, "total": 177}
 ```
 
 Error responses carry a `code` field:
@@ -715,6 +744,14 @@ or method stays a function.
 Variable chunks cover module-level bindings only; class
 attributes and function-locals stay within their enclosing
 chunk.
+
+Leading documentation: a tree-sitter plugin may list
+`doc_comment_node_types` (the comment node kinds that count as
+docs). When set, `extract_symbols` extends a symbol's chunk
+upwards to cover the consecutive doc-comment nodes immediately
+above it (up to a blank-line boundary), so a chunk carries its
+own documentation; plugins that leave it empty get the bare
+symbol span.
 
 ## Dependency graph
 
@@ -1029,10 +1066,7 @@ order:
    raw chunks (`RAW_CHUNK`, fixed-size overlapping
    windows).
 
-### Blob dedup and language awareness
-
-See [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)
-for the full dedup and re-extraction flow.
+### External plugins
 
 External plugins register via the `rbtr.languages` entry
 point. External registrations override built-in ones. See
@@ -1114,11 +1148,10 @@ reclamation-shaped `GcResponse`.
 
 ## Working-tree indexing
 
-The index pipeline was originally git-only: every file
-came from a committed tree, every blob had a stable SHA,
-and the unit of work was a commit. Working-tree indexing
-extends this to include staged and unstaged changes so
-searches reflect the user's current edits.
+Working-tree indexing extends the commit pipeline to staged,
+unstaged, and untracked changes, so searches reflect the user's
+current edits. The unit of work is no longer only a commit: the
+working tree is indexed as its own git tree SHA.
 
 ### Identity: tree SHAs
 
@@ -1147,7 +1180,7 @@ unstaged, untracked, deleted). Properties:
 Tree SHAs never collide with commit SHAs (different git
 object types), so they coexist safely in `indexed_commits`.
 
-### Data model
+### What a worktree build writes
 
 The working tree is indexed under its tree SHA in the
 same schema as commits — no sentinel, no special columns.
@@ -1158,24 +1191,25 @@ When a worktree build runs, the store receives:
   One row per file in the working tree. Each row's
   `blob_sha` is the git blob hash written by `add_all()`
   (dirty files) or the committed blob SHA (clean files).
-- **`chunks`** keyed by `(repo_id, id)` where
-  `id = blake2b(file_path:blob_sha:name:line_start)`.
-  The `blob_sha` in the ID means a dirty file produces
-  different chunk IDs from the committed version of the
-  same file, even if the symbol name and position are
-  identical.
+- **`chunks`** are content-addressed and carry no `repo_id`
+  (see [Data model](#data-model)). Because `id` includes the
+  `blob_sha`, a dirty file produces different chunk IDs from the
+  committed version of the same file, even when symbol name and
+  position are identical.
 - **`edges`** with `commit_sha = <tree_sha>`.
 - **`indexed_commits`** with `commit_sha = <tree_sha>`.
 
-Queries scope results through `file_snapshots`:
+Queries scope results through `file_snapshots` exactly as for
+commits ([Commit resolution](#commit-resolution)) — the join is
+on `blob_sha + file_path`, with the repo scope coming from the
+snapshot, never the chunk:
 
 ```sql
 FROM chunks c
 JOIN file_snapshots fs
-  ON c.repo_id = fs.repo_id
-  AND c.blob_sha = fs.blob_sha
+  ON c.blob_sha = fs.blob_sha
   AND c.file_path = fs.file_path
-WHERE fs.commit_sha = $commit_sha
+WHERE fs.repo_id = $repo_id AND fs.commit_sha = $commit_sha
 ```
 
 When `$commit_sha` is a tree SHA, the join resolves to
@@ -1205,14 +1239,15 @@ be visible through both paths if the file hasn't changed.
 - **`edges`** — one full set per tree SHA.
 - **`indexed_commits`** — one row per tree SHA.
 
-**Duplicated (per blob):**
+**New content-addressed rows (per dirty blob, not per repo):**
 
 - **Chunks for dirty files.** A modified file has a new
-  `blob_sha`. Since chunk IDs include `blob_sha`, the
-  dirty file's chunks have different IDs from the
-  committed version. Both sets coexist — HEAD snapshots
-  point at committed chunks, worktree snapshots point at
-  dirty chunks.
+  `blob_sha`, so its chunks get new content-addressed IDs
+  distinct from the committed version's. Both sets coexist —
+  HEAD snapshots point at the committed chunks, worktree
+  snapshots at the dirty ones. These rows are still shared:
+  any other repo or worktree holding the same dirty blob
+  reaches the very same chunks (nothing is duplicated per repo).
 
 ### Build lifecycle
 
