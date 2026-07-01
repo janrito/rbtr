@@ -27,44 +27,52 @@ Index a repository, then explore it:
 
 ```text
 rbtr index
-⟳ parsing 177 files… done (1.2s)
-⟳ embedding 380 chunks… done (4.8s)
+Watching: HEAD
+Indexing in background; run `rbtr status` to track.
 
 rbtr search "search fusion"
-0.49  doc_section  Search fusion     ARCHITECTURE.md:447
-0.33  function     classify_query    index/search.py:96
-0.28  doc_section  Fusion weights    templates/tuning.md.j2:3
+ARCHITECTURE.md:447-468  doc_section  Search fusion
+  0.49
+    Three channels fused into one ranked list:
+    …
+
+src/rbtr/index/search.py:96-127  function  classify_query
+  0.33
+    def classify_query(query: str) -> QueryKind:
+    …
 ```
 
 Read the top hit's source:
 
 ```text
 rbtr read-symbol fuse_scores
-packages/rbtr/src/rbtr/index/search.py:298–380  (function)
-def fuse_scores(
-    scored: dy.DataFrame[FusionInputRow],
-    query: str,
-    ...
+src/rbtr/index/search.py:298-380  function  fuse_scores
+ 298 def fuse_scores(
+ 299     scored: dy.DataFrame[FusionInputRow],
+ 300     query: str,
+ 301     ...
 ```
 
 See what changed between two refs:
 
 ```text
 rbtr changed-symbols HEAD~3 HEAD
-doc_section  Architecture           ARCHITECTURE.md:1
-doc_section  CLI integration         ARCHITECTURE.md:44
-function     resolveCommand          exec.ts:34
++ doc_section CLI integration  ARCHITECTURE.md
+~ function   fuse_scores  src/rbtr/index/search.py
+− function   resolveCommand  exec.ts
+
++1  ~1  −1
 ```
 
 List symbols in a file:
 
 ```text
 rbtr list-symbols src/rbtr/index/search.py
-variable  log                          43
-function  _name_score_expr             44–86
-function  _kind_boost_expr             95–127
-function  fuse_scores                  298–380
-function  search                       381–494
+    43-43    variable    log
+    44-86    function    _name_score_expr
+    95-127   function    _kind_boost_expr
+   298-380   function    fuse_scores
+   381-494   function    search
 ```
 
 ## Commands
@@ -129,10 +137,10 @@ repo name:
 
 ```bash
 $ rbtr search "connection pool" --scope all
-ukf/deploy/pgbouncer/settings.env:1-9  config
-  0.84  [a1b2c3d4]
-rbtr/packages/rbtr/src/rbtr/index/store.py  IndexStore.close
-  0.23  [e5f6a7b8]
+ukf/deploy/pgbouncer/settings.env:1-9  config  pgbouncer
+  0.84
+rbtr/packages/rbtr/src/rbtr/index/store.py:118-140  method  IndexStore.close
+  0.23
 ```
 
 Scope defaults to `workspace` (the current repo only).
@@ -204,7 +212,7 @@ shared store, grouped by repo:
 
 ```bash
 $ rbtr status --scope all
-✓  indexed repos
+✓  indexed repos  ~/.local/share/rbtr/index.duckdb
   /home/me/projects/ukf
      a4aa7830ad87 (HEAD, main)  68.8k indexed  68.8k embedded ✓
   /home/me/projects/rbtr
@@ -241,14 +249,17 @@ its own.
 rbtr gc                       # this repo (default: keep branches/tags + watch set)
 rbtr gc --all-repos           # every indexed repo (default reclamation only)
 rbtr gc --watched-only        # keep only HEAD and watched refs
+rbtr gc --keep-head-only      # keep only HEAD
+rbtr gc main release          # keep only HEAD plus these refs
+rbtr gc --orphans             # sweep crashed-build residue only
 rbtr gc --dry-run             # preview what would be dropped
 ```
 
 `rbtr gc` collects the current repo by default. `--all-repos` reclaims
 across **every** indexed repo at once — useful because chunks are shared
 between repos — but only with the safe default reclamation; scope an
-aggressive mode (`--watched-only`, `--keep-head-only`, `--keep`) to a
-single repo. (The chunk sweep is global on every gc regardless, so a
+aggressive mode (`--watched-only`, `--keep-head-only`, or a `keep`
+list) to a single repo. (The chunk sweep is global on every gc regardless, so a
 plain `rbtr gc` still frees chunks no other repo references.)
 
 By default it keeps HEAD, every local branch and tag, and
@@ -258,8 +269,8 @@ discards anything still reachable. `--watched-only` keeps
 just HEAD and the watch set, dropping unwatched branches and
 tags (the way to reclaim refs you no longer index).
 
-The other modes: `head-only` keeps only HEAD; `keep <refs>`
-keeps HEAD plus the listed refs; `orphans` sweeps residue
+The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
+keeps HEAD plus the listed refs; `--orphans` sweeps residue
 from crashed builds.
 
 ## Output modes
@@ -413,6 +424,12 @@ Cross-language imports: `ImportMeta.language_hint` directs
 resolution when the target language differs from the source
 (e.g. HTML `<script src>` → `language_hint="javascript"`).
 
+Leading doc comments: `doc_comment_node_types` lists the AST node
+types that count as documentation (e.g. `{"comment"}` in the Swift
+example above). When set, a symbol's chunk is extended upwards to
+cover the doc comments immediately preceding it; left empty, the
+chunk spans only the symbol itself.
+
 ### Chunker-based plugin
 
 When the language's structural units can't be expressed
@@ -425,7 +442,7 @@ chunker receives the grammar from the manager:
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from tree_sitter import Parser
-from rbtr.index.chunks import make_chunk_id
+from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
@@ -467,6 +484,17 @@ swift = "rbtr_swift:SwiftPlugin"
 
 External registrations override built-in ones for the
 same language ID.
+
+### Re-indexing after a plugin change
+
+When you change a plugin's extraction logic — its query, chunker, or
+anything that shapes the chunks it emits — bump
+`language_plugin_version` on the registration. Indexed chunks are keyed
+by this version, so a bump triggers re-extraction of every blob stored
+at the old version on the next build; leaving it unchanged keeps the
+existing (now stale) chunks. See
+[ARCHITECTURE.md](ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup)
+for the dedup mechanism.
 
 ## Graceful degradation
 
