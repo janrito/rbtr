@@ -20,7 +20,7 @@ jobs:
           && startsWith(github.event.pull_request.head.ref, 'release-'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Stable cuts tag the PR merge commit on main; pre-releases build
           # from the pushed branch tip. Full history + tags so stable notes
