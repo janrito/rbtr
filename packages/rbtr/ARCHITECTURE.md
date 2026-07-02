@@ -124,15 +124,13 @@ real definitions for most files, and a content-less
 *host-presence chunk* for a file that would otherwise produce
 none: an empty file (an empty `__init__.py`), unextractable
 content, or a multi-language file whose host contributes no
-content (a Markdown file that is only a fenced code block).
-This is what makes the
+content (a script-only SFC). This is what makes the
 detected-language check and multi-language dedup reliable.
 
-Multi-language files (an HTML file with inline
-`<script>`/`<style>`, or Markdown with fenced code blocks)
-hold chunks in several languages — HTML's `<script>`
-delegates to JavaScript and its `<style>` to CSS, while the
-host markup is the `html` chunk. Each chunk
+Multi-language files (single-file components: `.svelte`,
+`.vue`) hold chunks in several languages — the `<script>`
+delegates to TypeScript, the `<style>` to CSS/SCSS, and the
+markup template is the host `svelte`/`vue` chunk. Each chunk
 carries *its own* language's plugin version (see
 [Versioning](#versioning)). The map lists the host and every
 embedded language, so such a file dedups like any other: a
@@ -420,8 +418,8 @@ column bumps `schema_version` (and so deletes the database).
 key: each chunk stamps the plugin version of *its own*
 `language`. For single-language files this equals the host
 file's version; for a multi-language file a delegated
-JavaScript chunk carries JavaScript's version, not the host
-HTML plugin's. Its only reader is the `has_blob` dedup
+TypeScript chunk carries TypeScript's version, not the host
+svelte plugin's. Its only reader is the `has_blob` dedup
 gate; see [Content-addressed chunks and blob
 dedup](#content-addressed-chunks-and-blob-dedup).
 
@@ -786,7 +784,7 @@ own documentation; plugins that leave it empty get the bare
 symbol span.
 
 A file can also *embed* another language - a Markdown fenced
-block, or an HTML `<script>`/`<style>`. A host plugin's
+block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
 `injection_query` marks each embedded block; the engine
 delegates the block's byte range to the target's full
 extraction (chunker or query) and recurses into that
@@ -1089,7 +1087,7 @@ capture conventions), see
 
 1. **Primary extraction** - a registered `chunker` if the
    language has one (`chunker(path, sha, content, grammar,
-   ranges)`; markdown, rst), else tree-sitter
+   ranges)`; markdown, rst, svelte, vue), else tree-sitter
    `extract_symbols` for a `grammar` + `query` (python,
    rust, go, ...; json, css, html, toml, yaml, hcl).
 2. **Injection (additive)** - if the registration has an
@@ -1100,7 +1098,7 @@ capture conventions), see
    `injection.priority`, and delegates each range to that
    language's `extract_query`. The target is either a
    static `#set! injection.language` on the pattern
-   (HTML `<script>` / `<style>`) or a
+   (HTML and Svelte/Vue `<script>` / `<style>`) or a
    dynamic
    `@injection.language` capture whose text is resolved to a
    language id (a Markdown fence's info string - `python`,

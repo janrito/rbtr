@@ -40,6 +40,7 @@ dependencies = [
   "tree-sitter-java",
   "tree-sitter-javascript",
   "tree-sitter-json",
+  "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
   "tree-sitter-less",
   "tree-sitter-markdown",
   "tree-sitter-python",
@@ -48,6 +49,7 @@ dependencies = [
   "tree-sitter-rust",
   "tree-sitter-scss",
   "tree-sitter-sql",
+  "tree-sitter-svelte",
   "tree-sitter-toml",
   "tree-sitter-typescript",
   "tree-sitter-yaml",

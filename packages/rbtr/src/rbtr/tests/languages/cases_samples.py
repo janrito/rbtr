@@ -155,6 +155,20 @@ def case_rst() -> SampleCase:
     )
 
 
+@case(id="markdown", tags=["sample"])
+def case_markdown() -> SampleCase:
+    """Markdown: heading hierarchy (as doc sections with `::` scope) and
+    local links (as imports, with `names` from a `#fragment`). External
+    and fragment-only links are skipped. Fenced code blocks delegate to
+    their language: a ```python``` block yields an import and a function,
+    a ```sh``` block a function — proving both hint-resolution paths.
+    """
+    return (
+        "markdown",
+        {ChunkKind.DOC_SECTION, ChunkKind.IMPORT, ChunkKind.FUNCTION},
+    )
+
+
 @case(id="json", tags=["sample"])
 def case_json() -> SampleCase:
     """JSON: every object key becomes a doc section, including nested keys
@@ -207,6 +221,43 @@ def case_less() -> SampleCase:
         {
             ChunkKind.VARIABLE,
             ChunkKind.FUNCTION,
+            ChunkKind.DOC_SECTION,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
+@case(id="svelte", tags=["sample"])
+def case_svelte() -> SampleCase:
+    """Svelte SFC: the `<script lang="ts">` block is delegated to TypeScript
+    (functions, exported variables, imports) and the `<style lang="scss">`
+    block to SCSS ($-variables, rule sets as doc sections). The markup
+    template is extracted as one host `svelte` doc-section chunk.
+    """
+    return (
+        "svelte",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.VARIABLE,
+            ChunkKind.DOC_SECTION,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
+@case(id="vue", tags=["sample"])
+def case_vue() -> SampleCase:
+    """Vue SFC: the `<script setup lang="ts">` block is delegated to
+    TypeScript (functions, consts as variables, imports) and the
+    `<style lang="scss">` block to SCSS ($-variables, rule sets as doc
+    sections), reusing the Svelte chunker. The `<template>` is extracted as
+    one host `vue` doc-section chunk.
+    """
+    return (
+        "vue",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.VARIABLE,
             ChunkKind.DOC_SECTION,
             ChunkKind.IMPORT,
         },

@@ -221,38 +221,38 @@ def case_has_blob_detected_language_changed() -> HasBlobScenario:
 
 @case(tags=["has_blob"])
 def case_has_blob_multilanguage_all_current() -> HasBlobScenario:
-    """Multi-language blob: host + embedded chunks all current → True."""
-    host = make_chunk("tpl", blob="page").model_copy(
-        update={"language": "html", "language_plugin_version": 2}
+    """SFC blob: host + embedded chunks all at current versions → True."""
+    host = make_chunk("tpl", blob="sfc").model_copy(
+        update={"language": "svelte", "language_plugin_version": 2}
     )
-    js = make_chunk("fn", blob="page").model_copy(
-        update={"language": "javascript", "language_plugin_version": 4}
+    ts = make_chunk("fn", blob="sfc").model_copy(
+        update={"language": "typescript", "language_plugin_version": 7}
     )
     return HasBlobScenario(
-        chunks=[host, js],
-        snapshots=[make_snap("head", "page.html", "page")],
-        query_blob="page",
-        query_language="html",
-        version_map={"html": 2, "javascript": 4, "": 1},
+        chunks=[host, ts],
+        snapshots=[make_snap("head", "C.svelte", "sfc")],
+        query_blob="sfc",
+        query_language="svelte",
+        version_map={"svelte": 2, "typescript": 7, "": 1},
         expected=True,
     )
 
 
 @case(tags=["has_blob"])
 def case_has_blob_multilanguage_embedded_bump() -> HasBlobScenario:
-    """Multi-language blob: a delegated chunk stale vs the current version → False."""
-    host = make_chunk("tpl", blob="page").model_copy(
-        update={"language": "html", "language_plugin_version": 2}
+    """SFC blob: a delegated chunk stale vs the current embedded version → False."""
+    host = make_chunk("tpl", blob="sfc").model_copy(
+        update={"language": "svelte", "language_plugin_version": 2}
     )
-    js = make_chunk("fn", blob="page").model_copy(
-        update={"language": "javascript", "language_plugin_version": 4}
+    ts = make_chunk("fn", blob="sfc").model_copy(
+        update={"language": "typescript", "language_plugin_version": 7}
     )
     return HasBlobScenario(
-        chunks=[host, js],
-        snapshots=[make_snap("head", "page.html", "page")],
-        query_blob="page",
-        query_language="html",
-        version_map={"html": 2, "javascript": 5, "": 1},
+        chunks=[host, ts],
+        snapshots=[make_snap("head", "C.svelte", "sfc")],
+        query_blob="sfc",
+        query_language="svelte",
+        version_map={"svelte": 2, "typescript": 8, "": 1},
         expected=False,
     )
 

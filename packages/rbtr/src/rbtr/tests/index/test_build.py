@@ -592,6 +592,66 @@ def test_build_index_version_gated_reextraction(
     assert r2.stats.parsed_files >= 1, "version bump should force re-extraction"
 
 
+@pytest.fixture
+def svelte_repo(tmp_path: Path) -> pygit2.Repository:
+    """Git repo containing the committed `samples/svelte/` project.
+
+    Uses the real sample so these tests stay in step with the extraction
+    they document.
+    """
+    sample = Path(__file__).parents[1] / "languages" / "samples" / "svelte"
+    repo = pygit2.init_repository(str(tmp_path / "sfc"), bare=False, initial_head="main")
+    index = repo.index
+    for src in sorted(sample.glob("*")):
+        (tmp_path / "sfc" / src.name).write_bytes(src.read_bytes())
+        index.add(src.name)
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
+    return repo
+
+
+def test_build_index_dedups_sfc(svelte_repo: pygit2.Repository, store: IndexStore) -> None:
+    """A multi-language SFC is skipped on rebuild, not re-parsed every build.
+
+    Also guards per-language versioning: a delegated chunk stamped with the
+    wrong (host) version would miss the version-map gate and re-extract here.
+    """
+    sha = str(svelte_repo.head.target)
+    build_index(svelte_repo.workdir, sha, store, repo_id=1)
+    rebuild = build_index(svelte_repo.workdir, sha, store, repo_id=1)
+
+    assert rebuild.stats.skipped_files == rebuild.stats.total_files
+    assert rebuild.stats.parsed_files == 0
+
+
+@pytest.mark.parametrize("plugin", ["typescript", "svelte"])
+def test_build_index_reextracts_sfc_on_plugin_bump(
+    svelte_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture, plugin: str
+) -> None:
+    """Bumping any contributor — the embedded language or the host — re-extracts.
+
+    Confirms the version map gates on every language in the file, not just one.
+    """
+    sha = str(svelte_repo.head.target)
+    build_index(svelte_repo.workdir, sha, store, repo_id=1)
+
+    mgr = get_manager()
+    target = mgr.get_registration(plugin)
+    assert target is not None
+    bumped = replace(target, language_plugin_version=target.language_plugin_version + 1)
+    originals = {lid: mgr.get_registration(lid) for lid in mgr.all_language_ids()}
+    mocker.patch.object(
+        mgr,
+        "get_registration",
+        side_effect=lambda lid: bumped if lid == plugin else originals.get(lid),
+    )
+
+    rebuild = build_index(svelte_repo.workdir, sha, store, repo_id=1)
+    assert rebuild.stats.parsed_files >= 1
+
+
 def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> None:
     """An empty file is skipped on rebuild, not re-parsed every time.
 
