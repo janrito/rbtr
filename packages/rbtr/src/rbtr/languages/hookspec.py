@@ -20,6 +20,10 @@ This gives file detection, line-based chunking, and text-search
 import resolution.  Each additional field on `LanguageRegistration`
 unlocks more precise analysis — see the class docstring.
 
+For a worked example per language, see the golden-tested samples in
+`rbtr/tests/languages/samples/` (one source file per language,
+showing the constructs that language's plugin extracts).
+
 External plugins register via setuptools entry points::
 
     [project.entry-points."rbtr.languages"]
@@ -69,7 +73,7 @@ class ModuleStyle(StrEnum):
 
 
 if TYPE_CHECKING:
-    from tree_sitter import Language, Node
+    from tree_sitter import Language, Node, Range
 
 type ImportExtractor = Callable[[Node, dict[str, list[Node]]], ImportMeta] | None
 """Type alias for the import-metadata extractor callback.
@@ -89,11 +93,43 @@ and `@_import_names` from the captures and applies
 delimiter stripping.
 """
 
-type Chunker = Callable[[str, str, str, Language], Iterator[Chunk]] | None
+type NameExtractor = Callable[[str, Node, dict[str, list[Node]]], str] | None
+"""Type alias for the display-name resolver callback.
+
+Signature: `(capture_name, node, captures) -> str`. The default is
+`resolve_name` (the capture-based `@_*_name` convention). Override this only
+as a last resort, when a query cannot express the name — e.g. Bash strips the
+`=` the grammar fuses onto an alias, HTML names an element by its `id`.
+Overrides typically delegate to `resolve_name` for the captures they do not
+special-case, exactly as import extractors delegate to
+`build_import_from_captures`.
+"""
+
+type ScopeExtractor = Callable[[str, Node, dict[str, list[Node]]], list[str]] | None
+"""Type alias for the scope-address resolver callback.
+
+Signature: `(capture_name, node, captures) -> list[str]`, returning
+scope segments outermost-first (`[]` for none) which the engine *appends* to
+any tree-ancestry scope (`scope_types`). The mirror of `NameExtractor`; the
+default is `resolve_scope` (contributes the `@_scope` capture). Override only
+as a last resort, for hierarchies a query and ancestry cannot express — e.g.
+SCSS/Less nested rules (walk ancestor `rule_set` selectors) or TOML dotted
+tables (a dotted-key string with no tree ancestry). The returned segments are
+composed into a `::` address by the `Chunk.scope` validator.
+"""
+
+type Chunker = Callable[[str, str, str, Language, list[Range] | None], Iterator[Chunk]] | None
 """Type alias for the optional custom-chunking callback.
 
-Signature: `(file_path, blob_sha, content, grammar) -> Iterator[Chunk]`.
+Signature:
+`(file_path, blob_sha, content, grammar, ranges) -> Iterator[Chunk]`.
 The grammar is loaded by the manager and passed by the orchestrator.
+`ranges` restricts parsing to those byte/point spans (via
+`parser.included_ranges`) so the chunker can serve as an injection target
+for an embedded block; `None` parses the whole file. A chunker MUST honour
+`ranges` to be usable as a delegation target. Delegating embedded code to
+other languages is the engine's job, via a registration's `injection_query`
+— not the chunker's.
 """
 
 PROJECT_NAME = "rbtr"
@@ -181,6 +217,13 @@ class LanguageRegistration:
                           Override for packages with non-standard names,
                           e.g. `"language_typescript"` for
                           `tree_sitter_typescript`.
+        grammar_factory:  Alternative to *grammar_module*: a callable
+                          returning a ready `Language`.  For bindings
+                          that hand back a `Language` directly (so the
+                          `Language(entry())` module path would double-
+                          wrap), e.g. `tree-sitter-language-pack`'s
+                          `get_language(name)`.  Takes precedence over
+                          *grammar_module* when set.
         query:            Tree-sitter S-expression query for symbol
                           extraction.  Must use these capture-name
                           conventions:
@@ -189,6 +232,11 @@ class LanguageRegistration:
                           - `@class` / `@_cls_name` — classes/types
                           - `@method` / `@_method_name` — methods
                           - `@import` — import statements
+                          - `@_scope` — optional: a node whose text is
+                            the symbol's scope segment, for scopes that
+                            lexical nesting can't reach (e.g. a Go
+                            method's receiver type). Appended as the
+                            innermost scope.
 
                           `None` means no structural extraction even
                           if a grammar is available.
@@ -247,8 +295,17 @@ class LanguageRegistration:
     filenames: frozenset[str] = frozenset()
     grammar_module: str | None = None
     grammar_entry: str = "language"
+    grammar_factory: Callable[[], Language] | None = None
     query: str | None = None
     import_extractor: ImportExtractor = None
+    name_extractor: NameExtractor = None
+    """Custom display-name resolver; `None` uses `resolve_name`. Last resort
+    for names a query cannot express (see `NameExtractor`)."""
+    scope_extractor: ScopeExtractor = None
+    """Custom scope-address resolver; `None` uses the default `resolve_scope`
+    (the `@_scope` capture). Its segments are appended to the tree-ancestry
+    scope. Last resort for hierarchies a query and ancestry cannot express
+    (see `ScopeExtractor`)."""
     scope_types: frozenset[str] = frozenset()
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` whose nodes are class-like — a function
@@ -259,6 +316,15 @@ class LanguageRegistration:
     must set this to just its class-like types so method promotion
     stays correct."""
     chunker: Chunker = None
+    injection_query: str | None = None
+    """Tree-sitter query (against this host grammar) that delegates embedded
+    code to other languages. Capture the embedded code as `@injection.content`
+    and set its language with `(#set! injection.language "<id>")` — to a
+    canonical rbtr language id — plus an optional
+    `(#set! injection.priority "<n>")` (default 0) to disambiguate overlapping
+    matches. The engine runs it after the primary extraction and delegates
+    each captured range via `extract_query`. `None` means no embedded
+    delegation."""
     doc_comment_node_types: frozenset[str] = frozenset()
     index_files: frozenset[str] = frozenset()
     """Directory entry-point files (e.g. `__init__.py`, `index.ts`, `mod.rs`)."""
@@ -405,6 +471,98 @@ def build_import_from_captures(
                 if raw.startswith(open_d) and raw.endswith(close_d):
                     raw = raw[len(open_d) : -len(close_d)]
             setattr(meta, field_name, raw)
+    return meta
+
+
+NAME_CAPTURE_KEY: dict[str, str] = {
+    "function": "_fn_name",
+    "method": "_method_name",
+    "class": "_cls_name",
+    "variable": "_var_name",
+    "doc_section": "_section_name",
+}
+"""Maps a structural capture name to its paired `@_*_name` helper capture."""
+
+
+def resolve_name(
+    capture_name: str,
+    node: Node,
+    captures: dict[str, list[Node]],
+) -> str:
+    """Resolve a captured node's display name from the query captures.
+
+    Default `name_extractor`: for symbol captures (`@function`, `@class`, …)
+    the name is the paired `@_fn_name` / `@_cls_name` helper capture; for
+    `@import` it is the statement text; otherwise `"<anonymous>"`. Plugins
+    that override `name_extractor` typically call this first, then refine.
+    """
+    name_key = NAME_CAPTURE_KEY.get(capture_name)
+    name_nodes = captures.get(name_key, []) if name_key else []
+    first_text = name_nodes[0].text if name_nodes else None
+    if first_text:
+        return first_text.decode()
+    if capture_name == "import" and node.text:
+        return node.text.decode().strip()[:120]
+    return "<anonymous>"
+
+
+def resolve_scope(
+    _capture_name: str,
+    node: Node,
+    captures: dict[str, list[Node]],
+) -> list[str]:
+    """Default `scope_extractor`: the `@_scope` capture as a scope segment.
+
+    Returns the text of an `@_scope` node clipped to *node*'s span as a
+    one-element list, else `[]`. `@_scope` supplies a non-lexical scope that
+    tree ancestry cannot reach — e.g. a Go method's receiver type, a child of
+    the `method_declaration` rather than an enclosing node. Most languages
+    carry no `@_scope`, so this is a no-op returning `[]`; the engine appends
+    the result to the tree-ancestry scope. Overrides return the full scope for
+    hierarchies ancestry cannot express.
+    """
+    for s in captures.get("_scope", []):
+        if node.start_byte <= s.start_byte and s.end_byte <= node.end_byte and s.text:
+            return [s.text.decode()]
+    return []
+
+
+def enclosing_nodes_of_type(node: Node, types: frozenset[str]) -> list[Node]:
+    """Ancestor nodes of *node* whose type is in *types*, outermost-first.
+
+    A building block for ancestry-based `scope_extractor`s (e.g. SCSS/Less
+    nested rules), so they need not re-implement the parent walk. *node*
+    itself is not included.
+    """
+    found: list[Node] = []
+    parent = node.parent
+    while parent is not None:
+        if parent.type in types:
+            found.append(parent)
+        parent = parent.parent
+    found.reverse()
+    return found
+
+
+def build_quoted_import(
+    _node: Node,
+    captures: dict[str, list[Node]],
+) -> ImportMeta:
+    """Build `ImportMeta` from a directly-captured quoted specifier.
+
+    For grammars whose import string is a single node carrying its
+    own quotes with no inner content child (SCSS/Less `string_value`),
+    so the `@_import_module` capture is e.g. `"config"` or `'config'`.
+    Strips one matching surrounding single or double quote and stores
+    the result as `module`.
+    """
+    meta = ImportMeta()
+    cap_nodes = captures.get("_import_module", [])
+    if cap_nodes and cap_nodes[0].text:
+        raw = cap_nodes[0].text.decode()
+        if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
+            raw = raw[1:-1]
+        meta.module = raw
     return meta
 
 

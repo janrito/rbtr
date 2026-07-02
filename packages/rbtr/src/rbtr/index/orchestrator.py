@@ -24,12 +24,14 @@ import itertools
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
+from tree_sitter import Parser, QueryCursor
 
 from rbtr.config import config
 from rbtr.git import FileEntry, changed_files, list_files
-from rbtr.index.chunks import chunk_plaintext, detect_prose_format
+from rbtr.index.chunks import chunk_plaintext, detect_prose_format, host_presence_chunk
 from rbtr.index.edges import build_resolution_map, infer_import_edges, infer_test_edges
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.models import (
@@ -41,11 +43,19 @@ from rbtr.index.models import (
 )
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
-from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import get_manager
-from rbtr.languages.hookspec import LanguageRegistration, build_import_from_captures
+from rbtr.index.treesitter import _get_query, extract_symbols
+from rbtr.languages import LanguageManager, get_manager
+from rbtr.languages.hookspec import (
+    LanguageRegistration,
+    build_import_from_captures,
+    resolve_name,
+    resolve_scope,
+)
 from rbtr.logging import elapsed_ms
 from rbtr.rbtrignore import load_ignore
+
+if TYPE_CHECKING:
+    from tree_sitter import Node, Range
 
 log = structlog.get_logger(__name__)
 
@@ -60,58 +70,200 @@ def _noop_progress(_phase: str, _done: int, _total: int) -> None:
 # ── File extraction ─────────────────────────────────────────────────
 
 
-def _extract_file(
-    entry: FileEntry, language: str, reg: LanguageRegistration | None
+def extract_query(
+    language: str,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    ranges: list[Range] | None = None,
+    doc_comment_node_types: frozenset[str] | None = None,
 ) -> Iterator[Chunk]:
-    """Route a single file to the appropriate extraction strategy.
+    """Run *language*'s tree-sitter query over *content*.
 
-    The caller resolves the language and registration; this
-    function only routes to the correct chunker.
+    The single query-path extraction entry. `ranges=None` parses the
+    whole file; a range list restricts parsing to those spans (an
+    embedded block, e.g. an SFC `<script>`), reporting absolute
+    positions. Yields nothing if *language* has no grammar or query.
+    The injection runner (`extract_injections`) calls this to delegate
+    each embedded block to its language.
 
-    Yields chunks without materialising the full list.  The
-    caller is responsible for blob dedup (`has_blob`) and
-    deleting stale chunks before calling this.
+    *doc_comment_node_types* defaults to the registration's; pass an
+    explicit (possibly empty) set to override leading-comment attachment.
     """
     mgr = get_manager()
+    grammar = mgr.load_grammar(language)
+    query_str = mgr.get_query(language)
+    if grammar is None or query_str is None:
+        return
+    reg = mgr.get_registration(language)
+    doc_types = (
+        doc_comment_node_types
+        if doc_comment_node_types is not None
+        else (reg.doc_comment_node_types if reg else frozenset())
+    )
+    yield from extract_symbols(
+        file_path,
+        blob_sha,
+        content,
+        grammar,
+        query_str,
+        language=language,
+        import_extractor=(
+            reg.import_extractor if reg and reg.import_extractor else build_import_from_captures
+        ),
+        name_extractor=(reg.name_extractor if reg and reg.name_extractor else resolve_name),
+        scope_extractor=(reg.scope_extractor if reg and reg.scope_extractor else resolve_scope),
+        scope_types=reg.scope_types if reg else frozenset(),
+        class_scope_types=reg.class_scope_types if reg else frozenset(),
+        doc_comment_node_types=doc_types,
+        included_ranges=ranges,
+    )
 
-    if reg is not None and reg.chunker is not None:
-        grammar = mgr.load_grammar(language)
-        if grammar is not None:
-            for c in reg.chunker(
-                entry.path,
-                entry.blob_sha,
-                entry.content.decode(errors="replace"),
-                grammar,
-            ):
-                c.language = language
-                yield c
-            return
 
-    if language:
-        grammar = mgr.load_grammar(language)
-        query_str = mgr.get_query(language)
-        if grammar is not None and query_str is not None:
-            yield from extract_symbols(
-                entry.path,
-                entry.blob_sha,
-                entry.content,
-                grammar,
-                query_str,
-                language=language,
-                import_extractor=(
-                    reg.import_extractor
-                    if reg and reg.import_extractor
-                    else build_import_from_captures
-                ),
-                scope_types=reg.scope_types if reg else frozenset(),
-                class_scope_types=reg.class_scope_types if reg else frozenset(),
-                doc_comment_node_types=(reg.doc_comment_node_types if reg else frozenset()),
-            )
-            return
+def extract_primary(
+    language: str,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    ranges: list[Range] | None = None,
+) -> list[Chunk] | None:
+    """Run *language*'s primary extraction (its chunker or query) over *content*.
 
-    # Neither detected nor prose — raw line-based chunks.
+    Restricted to *ranges* when given — an embedded block — so it doubles as
+    the injection delegate: the full target plugin runs on the range. Every
+    returned chunk carries *language* (query extraction sets it already; a
+    chunker's blank chunks are filled here), so a delegated chunker target is
+    labelled correctly. Returns None when the language has neither a chunker
+    nor a query, leaving the caller to fall back to plaintext.
+    """
+    mgr = get_manager()
+    grammar = mgr.load_grammar(language)
+    reg = mgr.get_registration(language)
+    if reg is not None and reg.chunker is not None and grammar is not None:
+        text = content.decode(errors="replace")
+        chunks = list(reg.chunker(file_path, blob_sha, text, grammar, ranges))
+    elif grammar is not None and mgr.get_query(language) is not None:
+        chunks = list(extract_query(language, file_path, blob_sha, content, ranges=ranges))
+    else:
+        return None
+    for chunk in chunks:
+        if not chunk.language:
+            chunk.language = language
+    return chunks
+
+
+def _resolve_injection_hint(mgr: LanguageManager, captures: dict[str, list[Node]]) -> str | None:
+    """Resolve a dynamic `@injection.language` hint to a language id.
+
+    A markdown fence tags its block with a free-form name (` ```python `,
+    ` ```py `). Treat the name as a language id, then as a file extension, so
+    both spellings reach the python plugin. An unknown hint returns None and
+    the block is left unparsed.
+    """
+    nodes = captures.get("injection.language")
+    if not nodes or nodes[0].text is None:
+        return None
+    hint = nodes[0].text.decode().strip().lower()
+    return hint if mgr.get_registration(hint) else mgr.detect_language(f"x.{hint}")
+
+
+_MAX_INJECTION_DEPTH = 5
+"""Recursion cap for nested injection (a host embedded in a host). Insurance
+only — delegation terminates naturally as ranges shrink and a target with no
+`injection_query` stops."""
+
+
+def extract_injections(
+    language: str,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    ranges: list[Range] | None = None,
+    _depth: int = 0,
+) -> Iterator[Chunk]:
+    """Yield chunks for code embedded in *content* via *language*'s injections.
+
+    A host language declares an `injection_query` marking each embedded block
+    and the language to parse it as; each block's range is delegated to that
+    language's *full* primary extraction (`extract_primary` — chunker or
+    query), so a `<script lang="ts">` block yields TypeScript chunks and a
+    fenced ` ```html ` block yields HTML chunks, both at real line numbers.
+    The target is a static `#set! injection.language`, or — for a free-form
+    hint like a markdown fence — a captured `@injection.language` resolved to
+    a language id. A block matching several rules uses the highest priority.
+
+    Delegation recurses: the target's own injection runs on the block too, so
+    an HTML block containing an inline `<script>` also yields its js, bounded
+    by `_MAX_INJECTION_DEPTH`. *ranges* restricts the host parse to a block
+    (used by that recursion); None parses the whole file.
+    """
+    if _depth > _MAX_INJECTION_DEPTH:
+        return
+    mgr = get_manager()
+    reg = mgr.get_registration(language)
+    if reg is None or reg.injection_query is None:
+        return
+    grammar = mgr.load_grammar(language)
+    if grammar is None:
+        return
+
+    query = _get_query(grammar, reg.injection_query)
+    parser = Parser(grammar)
+    if ranges is not None:
+        parser.included_ranges = ranges
+    tree = parser.parse(content)
+
+    winner: dict[tuple[int, int], tuple[int, str, Range]] = {}
+    for pattern, captures in QueryCursor(query).matches(tree.root_node):
+        settings = query.pattern_settings(pattern)
+        target = settings.get("injection.language") or _resolve_injection_hint(mgr, captures)
+        if target is None:
+            continue
+        priority = int(settings.get("injection.priority") or "0")
+        for block in captures.get("injection.content", []):
+            if block.text is None or not block.text.strip():
+                continue
+            span = (block.start_byte, block.end_byte)
+            if span not in winner or priority > winner[span][0]:
+                winner[span] = (priority, target, block.range)
+
+    for _priority, target, block_range in winner.values():
+        delegated = extract_primary(target, file_path, blob_sha, content, ranges=[block_range])
+        if delegated is not None:
+            yield from delegated
+        yield from extract_injections(
+            target, file_path, blob_sha, content, ranges=[block_range], _depth=_depth + 1
+        )
+
+
+def _extract_file(entry: FileEntry, language: str, reg: LanguageRegistration | None) -> list[Chunk]:
+    """Extract a file's chunks, always including one in its own language.
+
+    Picks the primary strategy — a registered chunker, the tree-sitter query,
+    or plaintext line chunks — then adds any embedded-language injections (an
+    SFC's `<script>`/`<style>`) on top. If none of that produced a chunk in
+    the file's own *language*, a content-less host-presence chunk is appended
+    so the dedup gate can skip the file on later builds instead of re-parsing
+    it. The caller handles blob dedup and deletes stale chunks first.
+    """
     text = entry.content.decode(errors="replace")
-    yield from chunk_plaintext(entry.path, entry.blob_sha, text)
+    has_injection = reg is not None and reg.injection_query is not None
+
+    primary = extract_primary(language, entry.path, entry.blob_sha, entry.content)
+    if primary is not None:
+        chunks = primary
+    elif has_injection:
+        chunks = []
+    else:
+        chunks = list(chunk_plaintext(entry.path, entry.blob_sha, text))
+
+    if has_injection:
+        chunks += extract_injections(language, entry.path, entry.blob_sha, entry.content)
+
+    if not any(chunk.language == language for chunk in chunks):
+        chunks.append(host_presence_chunk(entry.path, entry.blob_sha, language))
+
+    return chunks
 
 
 # ── Build phases ─────────────────────────────────────────────────────
@@ -134,6 +286,18 @@ def _extract_and_store_chunks(
     Opens its own session with an explicit sweep.
     """
     mgr = get_manager()
+    # Each chunk is stamped with its OWN language's plugin version, not the
+    # host file's. They coincide for single-language files; they differ for
+    # multi-language files (SFCs), whose delegated chunks carry an embedded
+    # language. Built once from the registry.
+    version_by_language = {
+        lang: reg.language_plugin_version
+        for lang in mgr.all_language_ids()
+        if (reg := mgr.get_registration(lang)) is not None
+    }
+    # The dedup gate checks every stored chunk against its language's current
+    # version; `""` is the plaintext pseudo-language (always version 1).
+    dedup_versions = {**version_by_language, "": 1}
     repo_root = Path(repo_path).resolve()
     ignore = load_ignore(repo_root)
     changed: set[str] | None = None
@@ -185,11 +349,7 @@ def _extract_and_store_chunks(
             version = reg.language_plugin_version if reg else 1
 
             # Blob dedup gate.
-            if store.has_blob(
-                entry.blob_sha,
-                language=detected_lang,
-                language_plugin_version=version,
-            ):
+            if store.has_blob(entry.blob_sha, detected_lang, dedup_versions):
                 result.stats.skipped_files += 1
             else:
                 try:
@@ -202,7 +362,9 @@ def _extract_and_store_chunks(
                             **chunk.model_dump(),
                             content_tokens=tokenise_code(chunk.content),
                             name_tokens=tokenise_code(chunk.name),
-                            language_plugin_version=version,
+                            language_plugin_version=version_by_language.get(
+                                chunk.language, version
+                            ),
                         )
                         session.add_chunk(tokenised)
                         file_has_chunks = True

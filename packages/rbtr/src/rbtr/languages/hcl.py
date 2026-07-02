@@ -1,80 +1,53 @@
 """HCL language plugin.
 
-Splits HCL (HashiCorp Configuration Language) by top-level
-blocks. Block names include the type and labels.
+Extracts each top-level block as a doc section, via a tree-sitter
+query. The block name combines its type and labels.
 
 Extracted chunks::
 
-    resource "aws_instance" "web" {
-      ami = "ami-12345"             → doc_section "resource aws_instance web"
-    }
-    variable "region" {
-      default = "us-east-1"         → doc_section "variable region"
-    }
+    resource "aws_instance" "web" {}  → doc_section "resource aws_instance web"
+    variable "region" {}              → doc_section "variable region"
+    terraform {}                      → doc_section "terraform"
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from tree_sitter import Parser
-
-from rbtr.index.identity import make_chunk_id
-from rbtr.index.models import Chunk, ChunkKind
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.hookspec import LanguageRegistration, hookimpl, resolve_name
 
 if TYPE_CHECKING:
-    from tree_sitter import Language
+    from tree_sitter import Node
 
-# ── Chunking ─────────────────────────────────────────────────────────
-
-
-def chunk_hcl(file_path: str, blob_sha: str, content: str, grammar: Language) -> Iterator[Chunk]:
-    """Split HCL by top-level blocks (resource, variable, output, etc.)."""
-    if not content.strip():
-        return
-    content_bytes = content.encode("utf-8")
-    parser = Parser(grammar)
-    tree = parser.parse(content_bytes)
-    root = tree.root_node
-
-    # HCL: config_file → body → block*
-    for child in root.children:
-        if child.type == "body":
-            for block in child.children:
-                if block.type == "block":
-                    labels: list[str] = []
-                    for gc in block.children:
-                        if gc.type == "identifier" and gc.text:
-                            labels.append(gc.text.decode("utf-8", errors="replace"))
-                        elif gc.type == "string_lit" and gc.text:
-                            labels.append(gc.text.decode("utf-8", errors="replace").strip('"'))
-                    name = " ".join(labels)
-                    text = (
-                        content_bytes[block.start_byte : block.end_byte]
-                        .decode("utf-8", errors="replace")
-                        .strip()
-                    )
-                    if text:
-                        yield Chunk(
-                            id=make_chunk_id(file_path, blob_sha, name, block.start_point[0]),
-                            blob_sha=blob_sha,
-                            file_path=file_path,
-                            kind=ChunkKind.DOC_SECTION,
-                            name=name,
-                            scope="",
-                            content=text,
-                            line_start=block.start_point[0] + 1,
-                            line_end=block.end_point[0] + 1,
-                        )
+# Top-level blocks only: a `block` whose body is the file's own body,
+# not one nested inside another block.
+_QUERY = """\
+(config_file
+  (body
+    (block) @doc_section))
+"""
 
 
-# ── Plugin ───────────────────────────────────────────────────────────
+def hcl_block_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+    """Name a top-level HCL block by its type and labels.
+
+    `resource "aws_instance" "web"` → `"resource aws_instance web"`;
+    a bare `terraform {}` block → `"terraform"`. Non-block captures
+    fall back to the default resolver.
+    """
+    if capture_name != "doc_section":
+        return resolve_name(capture_name, node, captures)
+    labels: list[str] = []
+    for child in node.children:
+        if child.type == "identifier" and child.text:
+            labels.append(child.text.decode("utf-8", errors="replace"))
+        elif child.type == "string_lit" and child.text:
+            labels.append(child.text.decode("utf-8", errors="replace").strip('"'))
+    return " ".join(labels)
 
 
 class HclPlugin:
-    """HCL language support — block-based chunking."""
+    """HCL language support — top-level block extraction via query."""
 
     @hookimpl
     def rbtr_register_languages(self) -> list[LanguageRegistration]:
@@ -83,6 +56,8 @@ class HclPlugin:
                 id="hcl",
                 extensions=frozenset({".hcl", ".tf"}),
                 grammar_module="tree_sitter_hcl",
-                chunker=chunk_hcl,
+                query=_QUERY,
+                name_extractor=hcl_block_name,
+                language_plugin_version=2,
             ),
         ]

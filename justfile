@@ -87,6 +87,12 @@ test-ts:
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
 
+# Regenerate the committed language-extraction snapshots after an
+# intended extraction change. Review the diff before committing.
+snapshots:
+    uv run pytest --snapshot-update \
+        packages/rbtr/src/rbtr/tests/languages/test_samples.py
+
 # ── build ──
 
 build: build-py build-ext

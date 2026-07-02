@@ -1,0 +1,5 @@
+[
+  "css.css::@import \"theme.css\"; -> theme.css::--greeting-color [imports]",
+  "css.css::@import \"theme.css\"; -> theme.css:::root [imports]",
+  "css.css::@import url(\"reset.css\"); -> reset.css::* [imports]"
+]

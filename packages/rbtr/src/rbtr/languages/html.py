@@ -1,217 +1,127 @@
 """HTML language plugin.
 
-Splits HTML by major structural elements inside `<body>` and
-extracts cross-language import references from `<head>`.
+Extracts semantic and structural elements as doc sections and cross-language
+import references, via a tree-sitter query.
 
 Extracted chunks::
 
-    <head>
-      <script src="app.js">         → import, metadata {module: "app.js"}
-      <link href="styles.css">      → import, metadata {module: "styles.css"}
-    </head>
-    <body>
-      <h1>Title</h1>                → doc_section "h1", scope ""
-      <p>Content</p>                → doc_section "p", scope ""
-    </body>
+    <main id="content">…</main>   → doc_section "content" (named by id)
+    <nav>…</nav>                   → doc_section "nav" (named by tag)
+    <script src="app.js">          → import {module: "app.js", hint javascript}
+    <link href="styles.css">       → import {module: "styles.css", hint css}
+
+Element chunks cover `head`, `body`, sectioning content, landmarks, and
+self-contained units; nested elements are each extracted (overlapping, like a
+class and its methods). A file with none of these is left to the engine's
+presence handling. Inline `<script>`/`<style>` delegate to JavaScript/CSS via
+`injection_query`; external `<script src>`/`<link href>` become import edges.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from tree_sitter import Parser
-
-from rbtr.index.identity import make_chunk_id
-from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.index.models import ImportMeta
+from rbtr.languages.hookspec import (
+    LanguageRegistration,
+    build_import_from_captures,
+    hookimpl,
+    resolve_name,
+)
 
 if TYPE_CHECKING:
-    from tree_sitter import Language, Node
+    from tree_sitter import Node
 
-# ── Chunking ─────────────────────────────────────────────────────────
+# Elements that hold meaning of their own: the document containers, HTML5
+# sectioning content and landmarks, and self-contained units. Named by their
+# `id` when present, else by tag.
+_SEMANTIC_TAGS = (
+    '"head" "body" "article" "aside" "nav" "section" "header" "main" "footer" '
+    '"figure" "form" "dialog" "details" "table"'
+)
 
+_QUERY = f"""\
+(element (start_tag (tag_name) @_tag)
+  (#any-of? @_tag {_SEMANTIC_TAGS})) @doc_section
 
-def _find_element(node: Node, tag_name: str) -> Node | None:
-    """Find a named element in the HTML tree."""
-    if node.type == "element":
-        for child in node.children:
-            if child.type == "start_tag":
-                for gc in child.children:
-                    if gc.type == "tag_name" and gc.text == tag_name.encode():
-                        return node
-    for child in node.children:
-        result = _find_element(child, tag_name)
-        if result is not None:
-            return result
-    return None
+(script_element
+  (start_tag
+    (attribute (attribute_name) @_a
+      (quoted_attribute_value (attribute_value) @_import_module))
+    (#eq? @_a "src"))) @import
+
+(element
+  [(start_tag (tag_name) @_lt
+     (attribute (attribute_name) @_h
+       (quoted_attribute_value (attribute_value) @_import_module)))
+   (self_closing_tag (tag_name) @_lt
+     (attribute (attribute_name) @_h
+       (quoted_attribute_value (attribute_value) @_import_module)))]
+  (#eq? @_lt "link")
+  (#eq? @_h "href")) @import
+"""
+
+# Inline <script>/<style> delegate to JavaScript/CSS. External <script src>/
+# <link href> have no raw_text, so they are skipped here and become imports.
+_INJECTIONS = """\
+((script_element (raw_text) @injection.content)
+ (#set! injection.language "javascript"))
+((style_element (raw_text) @injection.content)
+ (#set! injection.language "css"))
+"""
 
 
 def _get_attr(start_tag: Node, attr_name: str) -> str | None:
     """Extract an attribute value from a start_tag node."""
     for child in start_tag.children:
-        if child.type == "attribute":
-            name_node = None
-            value_node = None
-            for gc in child.children:
-                if gc.type == "attribute_name" and gc.text:
-                    name_node = gc
-                elif gc.type == "quoted_attribute_value":
-                    for vg in gc.children:
-                        if vg.type == "attribute_value" and vg.text:
-                            value_node = vg
-            if (
-                name_node is not None
-                and value_node is not None
-                and name_node.text == attr_name.encode()
-            ):
-                text = value_node.text
-                return text.decode("utf-8", errors="replace") if text else None
+        if child.type != "attribute":
+            continue
+        name_node = None
+        value_node = None
+        for gc in child.children:
+            if gc.type == "attribute_name" and gc.text:
+                name_node = gc
+            elif gc.type == "quoted_attribute_value":
+                for vg in gc.children:
+                    if vg.type == "attribute_value" and vg.text:
+                        value_node = vg
+        if (
+            name_node is not None
+            and value_node is not None
+            and name_node.text == attr_name.encode()
+        ):
+            text = value_node.text
+            return text.decode("utf-8", errors="replace") if text else None
     return None
 
 
-def _extract_imports(
-    node: Node,
-    content_bytes: bytes,
-    file_path: str,
-    blob_sha: str,
-) -> Iterator[Chunk]:
-    """Walk the tree and yield <script src> and <link href> as import chunks."""
-    for child in node.children:
-        start_tag = None
-        if child.type == "script_element":
-            for gc in child.children:
-                if gc.type == "start_tag":
-                    start_tag = gc
-                    break
-            if start_tag is not None:
-                src = _get_attr(start_tag, "src")
-                if src:
-                    text = (
-                        content_bytes[child.start_byte : child.end_byte]
-                        .decode("utf-8", errors="replace")
-                        .strip()
-                    )
-                    yield Chunk(
-                        id=make_chunk_id(
-                            file_path, blob_sha, f"script:{src}", child.start_point[0]
-                        ),
-                        blob_sha=blob_sha,
-                        file_path=file_path,
-                        kind=ChunkKind.IMPORT,
-                        name=text,
-                        scope="",
-                        content=text,
-                        metadata=ImportMeta(module=src, language_hint="javascript"),
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                    )
-        elif child.type == "element":
-            for gc in child.children:
-                if gc.type == "start_tag":
-                    start_tag = gc
-                    break
-            if start_tag is not None:
-                for gc in start_tag.children:
-                    if gc.type == "tag_name" and gc.text == b"link":
-                        href = _get_attr(start_tag, "href")
-                        if href:
-                            text = (
-                                content_bytes[child.start_byte : child.end_byte]
-                                .decode("utf-8", errors="replace")
-                                .strip()
-                            )
-                            yield Chunk(
-                                id=make_chunk_id(
-                                    file_path, blob_sha, f"link:{href}", child.start_point[0]
-                                ),
-                                blob_sha=blob_sha,
-                                file_path=file_path,
-                                kind=ChunkKind.IMPORT,
-                                name=text,
-                                scope="",
-                                content=text,
-                                metadata=ImportMeta(module=href, language_hint="css"),
-                                line_start=child.start_point[0] + 1,
-                                line_end=child.end_point[0] + 1,
-                            )
-                        break
-        # Recurse into nested elements.
-        if child.is_named:
-            yield from _extract_imports(child, content_bytes, file_path, blob_sha)
+def _element_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+    """Name a semantic element by its `id`, else its tag; others by default."""
+    if capture_name != "doc_section":
+        return resolve_name(capture_name, node, captures)
+    start_tag = next((c for c in node.children if c.type == "start_tag"), None)
+    if start_tag is not None:
+        elem_id = _get_attr(start_tag, "id")
+        if elem_id:
+            return elem_id
+    tag_nodes = captures.get("_tag")
+    if tag_nodes and tag_nodes[0].text:
+        return tag_nodes[0].text.decode()
+    return "<anonymous>"
 
 
-def chunk_html(file_path: str, blob_sha: str, content: str, grammar: Language) -> Iterator[Chunk]:
-    """Split HTML by major structural elements and extract imports.
-
-    Produces `DOC_SECTION` chunks from `<body>` children and
-    `IMPORT` chunks from `<script src>` and `<link href>` in
-    `<head>`. Falls back to a single chunk if no `<body>` is found.
-    """
-    if not content.strip():
-        return
-    content_bytes = content.encode("utf-8")
-    parser = Parser(grammar)
-    tree = parser.parse(content_bytes)
-
-    # Extract imports from the entire document (script/link in head).
-    import_chunks: list[Chunk] = list(
-        _extract_imports(tree.root_node, content_bytes, file_path, blob_sha)
-    )
-
-    # Extract body elements as doc sections.
-    body = _find_element(tree.root_node, "body")
-    if body is None and not import_chunks:
-        yield Chunk(
-            id=make_chunk_id(file_path, blob_sha, file_path, 0),
-            blob_sha=blob_sha,
-            file_path=file_path,
-            kind=ChunkKind.DOC_SECTION,
-            name=file_path,
-            scope="",
-            content=content.strip(),
-            line_start=1,
-            line_end=tree.root_node.end_point[0] + 1,
-        )
-        return
-
-    yield from import_chunks
-
-    if body is not None:
-        for child in body.children:
-            if child.type == "element":
-                tag = ""
-                for gc in child.children:
-                    if gc.type == "start_tag":
-                        for tg in gc.children:
-                            if tg.type == "tag_name" and tg.text:
-                                tag = tg.text.decode("utf-8", errors="replace")
-                                break
-                        break
-                text = (
-                    content_bytes[child.start_byte : child.end_byte]
-                    .decode("utf-8", errors="replace")
-                    .strip()
-                )
-                if text:
-                    yield Chunk(
-                        id=make_chunk_id(file_path, blob_sha, tag, child.start_point[0]),
-                        blob_sha=blob_sha,
-                        file_path=file_path,
-                        kind=ChunkKind.DOC_SECTION,
-                        name=tag,
-                        scope="",
-                        content=text,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0] + 1,
-                    )
+def _import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+    """Import metadata with a language hint from the element kind."""
+    meta = build_import_from_captures(node, captures)
+    meta.language_hint = "javascript" if node.type == "script_element" else "css"
+    return meta
 
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
 class HtmlPlugin:
-    """HTML language support — body-element chunking + cross-language imports."""
+    """HTML language support — semantic-element chunks + cross-language imports."""
 
     @hookimpl
     def rbtr_register_languages(self) -> list[LanguageRegistration]:
@@ -220,7 +130,11 @@ class HtmlPlugin:
                 id="html",
                 extensions=frozenset({".html", ".htm"}),
                 grammar_module="tree_sitter_html",
-                chunker=chunk_html,
+                query=_QUERY,
+                name_extractor=_element_name,
+                import_extractor=_import_meta,
+                injection_query=_INJECTIONS,
                 import_targets=frozenset({"javascript", "typescript", "css"}),
+                language_plugin_version=2,
             ),
         ]

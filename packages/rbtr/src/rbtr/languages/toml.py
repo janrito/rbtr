@@ -1,77 +1,98 @@
 """TOML language plugin.
 
-Splits TOML by tables. Dotted keys produce hierarchical scope.
+Extracts each table and array-of-tables as a doc section, via a
+tree-sitter query. A dotted table is named by its last key segment
+and scoped under the preceding segments.
 
 Extracted chunks::
 
     [project]                       → doc_section "project", scope ""
-    name = "rbtr"
-
     [tool.ruff]                     → doc_section "ruff", scope "tool"
-    line-length = 99
+    [tool.ruff.lint]                → doc_section "lint", scope "tool::ruff"
+    [[locales]]                     → doc_section "locales", scope ""
+
+The dotted-key hierarchy lives in the key *string*, not tree
+ancestry, so name and scope are derived by walking the key's
+ordered segment nodes (`name_extractor` + `scope_extractor`) —
+robust to quoted segments containing dots (`[a."b.c"]`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from tree_sitter import Parser
-
-from rbtr.index.identity import make_chunk_id
-from rbtr.index.models import Chunk, ChunkKind
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.hookspec import LanguageRegistration, hookimpl, resolve_name
 
 if TYPE_CHECKING:
-    from tree_sitter import Language
+    from tree_sitter import Node
 
-# ── Chunking ─────────────────────────────────────────────────────────
+_QUERY = """\
+(table
+  (bare_key) @_section_name) @doc_section
 
+(table
+  (dotted_key) @_section_name) @doc_section
 
-def chunk_toml(file_path: str, blob_sha: str, content: str, grammar: Language) -> Iterator[Chunk]:
-    """Split TOML by tables."""
-    if not content.strip():
-        return
-    content_bytes = content.encode("utf-8")
-    parser = Parser(grammar)
-    tree = parser.parse(content_bytes)
-    root = tree.root_node
+(table
+  (quoted_key) @_section_name) @doc_section
 
-    for child in root.children:
-        if child.type == "table":
-            key = ""
-            for gc in child.children:
-                if gc.type in ("bare_key", "dotted_key") and gc.text:
-                    key = gc.text.decode("utf-8", errors="replace")
-                    break
-            text = (
-                content_bytes[child.start_byte : child.end_byte]
-                .decode("utf-8", errors="replace")
-                .strip()
-            )
-            if text:
-                parts = key.split(".")
-                name = parts[-1] if parts else key
-                scope = " > ".join(parts[:-1]) if len(parts) > 1 else ""
-                yield Chunk(
-                    id=make_chunk_id(file_path, blob_sha, key, child.start_point[0]),
-                    blob_sha=blob_sha,
-                    file_path=file_path,
-                    kind=ChunkKind.DOC_SECTION,
-                    name=name,
-                    scope=scope,
-                    content=text,
-                    line_start=child.start_point[0] + 1,
-                    line_end=child.end_point[0] + 1,
-                )
-    return
+(table_array_element
+  (bare_key) @_section_name) @doc_section
+
+(table_array_element
+  (dotted_key) @_section_name) @doc_section
+
+(table_array_element
+  (quoted_key) @_section_name) @doc_section
+"""
 
 
-# ── Plugin ───────────────────────────────────────────────────────────
+def _key_text(node: Node) -> str:
+    """Text of a single key node, stripping the quotes off a quoted key."""
+    text = node.text.decode("utf-8", errors="replace") if node.text else ""
+    if node.type == "quoted_key" and len(text) >= 2 and text[0] in "\"'" and text[-1] == text[0]:
+        return text[1:-1]
+    return text
+
+
+def _key_segments(key_node: Node) -> list[str]:
+    """Ordered segments of a table key.
+
+    A `bare_key`/`quoted_key` is one segment; a `dotted_key` is its
+    child segments in order (left-recursive, so an in-order walk yields
+    `[tool, ruff, lint]` for `tool.ruff.lint`).
+    """
+    if key_node.type in ("bare_key", "quoted_key"):
+        return [_key_text(key_node)]
+    if key_node.type == "dotted_key":
+        segments: list[str] = []
+        for child in key_node.children:
+            if child.type in ("bare_key", "quoted_key", "dotted_key"):
+                segments.extend(_key_segments(child))
+        return segments
+    return []
+
+
+def toml_table_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+    """Name a table by its last key segment (`[tool.ruff]` → `"ruff"`)."""
+    key_nodes = captures.get("_section_name", [])
+    if key_nodes:
+        segments = _key_segments(key_nodes[0])
+        if segments:
+            return segments[-1]
+    return resolve_name(capture_name, node, captures)
+
+
+def toml_table_scope(_capture_name: str, _node: Node, captures: dict[str, list[Node]]) -> list[str]:
+    """Scope a table under its leading key segments (`[tool.ruff]` → `["tool"]`)."""
+    key_nodes = captures.get("_section_name", [])
+    if not key_nodes:
+        return []
+    return _key_segments(key_nodes[0])[:-1]
 
 
 class TomlPlugin:
-    """TOML language support — table-based chunking."""
+    """TOML language support — table extraction via query."""
 
     @hookimpl
     def rbtr_register_languages(self) -> list[LanguageRegistration]:
@@ -80,6 +101,9 @@ class TomlPlugin:
                 id="toml",
                 extensions=frozenset({".toml"}),
                 grammar_module="tree_sitter_toml",
-                chunker=chunk_toml,
+                query=_QUERY,
+                name_extractor=toml_table_name,
+                scope_extractor=toml_table_scope,
+                language_plugin_version=2,
             ),
         ]

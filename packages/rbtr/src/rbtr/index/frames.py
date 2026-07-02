@@ -139,6 +139,20 @@ class FilePathRow(dy.Schema):
     file_path = dy.String(nullable=False)
 
 
+class VersionMapRow(dy.Schema):
+    """Backs the cursor-registered `_version_map` join view.
+
+    Not an insert target: `has_blob` left-joins a blob's chunks against
+    this view to check every chunk is at its language's current plugin
+    version. Maps language id -> current version (the full registry, plus
+    `""` for plaintext). `language_plugin_version` is `Int32` to match the
+    column on `chunks`.
+    """
+
+    language = dy.String(nullable=False)
+    language_plugin_version = dy.Int32(nullable=False)
+
+
 # ── Result-row schemas (DuckDB -> Python reads) ──────────────────────
 
 
@@ -326,6 +340,18 @@ def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
     if not file_paths:
         return FilePathRow.create_empty()
     return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
+
+
+def version_map_frame(versions: dict[str, int]) -> dy.DataFrame[VersionMapRow]:
+    """Build the `_version_map` join view from a language -> version map."""
+    if not versions:
+        return VersionMapRow.create_empty()
+    return pl.DataFrame(
+        {
+            "language": list(versions.keys()),
+            "language_plugin_version": list(versions.values()),
+        }
+    ).pipe(VersionMapRow.validate, cast=True)
 
 
 def embeddings_frame(

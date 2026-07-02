@@ -52,6 +52,9 @@ _QUERY = """\
   body: (block
     . (expression_statement (string) @_docstring)?)) @class
 
+(type_alias_statement
+  . (type (identifier) @_cls_name)) @class
+
 (module
   (expression_statement
     (assignment
@@ -173,6 +176,6 @@ class PythonPlugin:
                 source_roots=("", "src"),
                 test_prefix="test_",
                 module_style=ModuleStyle.DOTTED,
-                language_plugin_version=3,
+                language_plugin_version=4,
             ),
         ]

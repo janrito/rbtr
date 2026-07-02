@@ -13,6 +13,9 @@ src = [
   "packages/rbtr/src",
   "packages/rbtr-eval/src",
 ]
+# Language sample fixtures are illustrative, not product code — exempt
+# from linting and formatting (see [tool.mypy] exclude for rationale).
+extend-exclude = ["packages/rbtr/src/rbtr/tests/languages/samples"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -62,7 +65,7 @@ max-complexity = 12
 
 [tool.rumdl]
 respect_gitignore = true
-exclude = ["cov-append.md", "TODO-*"]
+exclude = ["cov-append.md", "TODO-*", "packages/rbtr/src/rbtr/tests/languages/samples"]
 extend-enable = ["MD060"]
 
 [tool.rumdl.MD013]
@@ -94,6 +97,11 @@ param_style = "dollar"
 [tool.mypy]
 python_version = "3.13"
 packages = ["rbtr", "rbtr_eval"]
+# Language sample fixtures are illustrative source for extraction tests,
+# not product modules. They are validated by their own parse-clean and
+# snapshot tests, so they are exempt from type-checking (and likewise
+# from ruff, rumdl, vulture, and sqlfluff below).
+exclude = ["tests/languages/samples/"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
@@ -181,6 +189,8 @@ replace = '"version": "{new_version}"'
 [tool.vulture]
 min_confidence = 80
 paths = ["packages/rbtr/src/rbtr", "packages/rbtr-eval/src/rbtr_eval"]
+# Language sample fixtures are illustrative, not product code.
+exclude = ["*/tests/languages/samples/*"]
 ignore_names = [
   "init_settings",        # pydantic_settings settings_customise_sources
   "dotenv_settings",      # pydantic_settings settings_customise_sources

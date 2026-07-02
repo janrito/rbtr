@@ -1,0 +1,36 @@
+/* Greeter styles.
+ *
+ * The CSS plugin extracts rule sets, @media, @charset, and @keyframes
+ * as doc sections, and @import statements as imports. */
+
+@charset "UTF-8";
+
+@import url("reset.css");
+@import "theme.css";
+
+:root {
+  --greeting-color: #333;
+}
+
+.greeter {
+  color: var(--greeting-color);
+  font-weight: bold;
+  .greeting-label {
+    text-transform: uppercase;
+  }
+}
+
+@media (max-width: 600px) {
+  .greeter {
+    font-size: 14px;
+  }
+}
+
+@keyframes greeting-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

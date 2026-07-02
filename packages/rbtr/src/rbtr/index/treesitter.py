@@ -15,11 +15,16 @@ from collections.abc import Callable, Iterator
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from tree_sitter import Language, Parser, Query, QueryCursor
+from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
 from rbtr.index.identity import compose_scope
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.hookspec import build_import_from_captures
+from rbtr.languages.hookspec import (
+    NAME_CAPTURE_KEY,
+    build_import_from_captures,
+    resolve_name,
+    resolve_scope,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -34,16 +39,6 @@ _CAPTURE_KIND: dict[str, ChunkKind] = {
     "variable": ChunkKind.VARIABLE,
     "import": ChunkKind.IMPORT,
     "doc_section": ChunkKind.DOC_SECTION,
-}
-
-# Maps structural capture names to their paired name-capture key.
-# Queries must use these capture names by convention.
-_NAME_CAPTURE_KEY: dict[str, str] = {
-    "function": "_fn_name",
-    "method": "_method_name",
-    "class": "_cls_name",
-    "variable": "_var_name",
-    "doc_section": "_section_name",
 }
 
 # Helper-capture key: byte ranges covering a symbol's documentation.
@@ -65,31 +60,6 @@ def _get_query(grammar: Language, query_str: str) -> Query:
     language — saves ~0.9 s on a 1 500-file Python repo.
     """
     return Query(grammar, query_str)
-
-
-def _resolve_name(
-    capture_name: str,
-    node: Node,
-    capture_dict: dict[str, list[Node]],
-) -> str:
-    """Resolve the display name for a captured node.
-
-    For symbol captures (`@function`, `@class`, etc.) the name
-    comes from the paired `@_fn_name` / `@_cls_name` helper
-    capture.  For `@import` captures the name is the full
-    statement text (e.g. `import os`).  Falls back to
-    `"<anonymous>"` when no name is found.
-    """
-    name_key = _NAME_CAPTURE_KEY.get(capture_name)
-    name_nodes = capture_dict.get(name_key, []) if name_key else []
-    first_text = name_nodes[0].text if name_nodes else None
-    if first_text:
-        return first_text.decode()
-
-    if capture_name == "import" and node.text:
-        return node.text.decode().strip()[:120]
-
-    return "<anonymous>"
 
 
 def _resolve_kind(
@@ -283,9 +253,12 @@ def extract_symbols(
     import_extractor: Callable[
         [Node, dict[str, list[Node]]], ImportMeta
     ] = build_import_from_captures,
+    name_extractor: Callable[[str, Node, dict[str, list[Node]]], str] = resolve_name,
+    scope_extractor: Callable[[str, Node, dict[str, list[Node]]], list[str]] = resolve_scope,
     scope_types: frozenset[str] = frozenset(),
     class_scope_types: frozenset[str] = frozenset(),
     doc_comment_node_types: frozenset[str] = frozenset(),
+    included_ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
     """Parse *content* and yield structural chunks.
 
@@ -333,11 +306,19 @@ def extract_symbols(
                                 attachment.  When non-empty, each
                                 symbol's span extends backward over
                                 any attached comments.
+        included_ranges:        Byte/point ranges to restrict parsing
+                                to (e.g. a `<script>` block inside an
+                                SFC). When set, the parser sees only
+                                those ranges but reports absolute
+                                positions. `None` parses the whole
+                                content.
     """
     if not content:
         return
 
     parser = Parser(grammar)
+    if included_ranges is not None:
+        parser.included_ranges = included_ranges
     tree = parser.parse(content)
     query = _get_query(grammar, query_str)
     matches = QueryCursor(query).matches(tree.root_node)
@@ -351,7 +332,7 @@ def extract_symbols(
                 continue
 
             for node in nodes:
-                name = _resolve_name(capture_name, node, capture_dict)
+                name = name_extractor(capture_name, node, capture_dict)
 
                 meta = ImportMeta()
                 if capture_name == "import":
@@ -360,6 +341,9 @@ def extract_symbols(
                 scope_names, nearest_is_class = _enclosing_scope_names(
                     node, scope_types, class_scope_types
                 )
+                # The scope_extractor's segments extend the tree-ancestry
+                # scope; the default (`resolve_scope`) contributes `@_scope`.
+                scope_names = [*scope_names, *scope_extractor(capture_name, node, capture_dict)]
                 actual_kind = _resolve_kind(kind, nearest_scope_is_class=nearest_is_class)
 
                 start_byte, line_start = _chunk_line_start(
@@ -448,9 +432,9 @@ def extract_doc_spans(
 
     for _pattern_idx, capture_dict in matches:
         for capture_name, nodes in capture_dict.items():
-            if capture_name not in _NAME_CAPTURE_KEY:
+            if capture_name not in NAME_CAPTURE_KEY:
                 continue
-            name_key = _NAME_CAPTURE_KEY[capture_name]
+            name_key = NAME_CAPTURE_KEY[capture_name]
 
             for node in nodes:
                 doc_ranges = _doc_ranges_for_symbol(

@@ -7,6 +7,17 @@
   Never hard-code behaviour for a single language when a
   general mechanism exists.
 
+## Extraction is comprehensive (the core principle)
+
+**Anything an engineer might search for or navigate to must be
+extracted. Never drop a construct.** Bias to over-capture. If a
+construct can't be cleanly named, extract it as an **anonymous
+chunk** — its definition text is still searchable. Dropping a
+searchable construct is always the wrong answer; a chunk with a
+weak name beats no chunk. "Skip" means only "this is not a
+definition / has no searchable identity", never "naming it is
+awkward".
+
 ## Architecture
 
 - Components must be independent, communicating through
@@ -121,6 +132,8 @@ Boundary rules:
 
 Data handling conventions are in the **`rbtr-data`** skill.
 Testing conventions are in the **`rbtr-testing`** skill.
+Language-plugin conventions (queries, chunkers, captures,
+`tags.scm` policy) are in the **`rbtr-languages`** skill.
 
 ## Git
 
