@@ -1,0 +1,3 @@
+[
+  "ruby.rb::require_relative \"./config\" -> config.rb::DEFAULT_LOCALE [imports]"
+]

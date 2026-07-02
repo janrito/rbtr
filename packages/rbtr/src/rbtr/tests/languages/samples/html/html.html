@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- Greeter page. The HTML plugin extracts <script src>/<link href>
+     as imports (with a language hint) and major <body> elements as
+     doc sections. -->
+<html lang="en">
+  <head>
+    <title>Greeter</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="greeter.js"></script>
+    <style>
+      .greeter {
+        font-family: system-ui;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-header">
+      <h1>Greeter</h1>
+    </header>
+    <main id="content">
+      <section id="intro">
+        <p>Format greetings for named recipients.</p>
+      </section>
+    </main>
+    <footer>
+      <small>Greeter &mdash; a greetings library.</small>
+    </footer>
+    <script>
+      function init() {
+        return greet("world");
+      }
+    </script>
+  </body>
+</html>

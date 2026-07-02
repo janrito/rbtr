@@ -1,0 +1,4 @@
+[
+  "typescript.ts::import type { Formatter } from \"./types\"; -> types.ts::Formatter [imports]",
+  "typescript.ts::import { LOCALE } from \"./config\"; -> config.ts::LOCALE [imports]"
+]

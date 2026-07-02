@@ -27,12 +27,6 @@ type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 # ── Symbols ──────────────────────────────────────────────────────────
 
 
-_xfail_nested = pytest.mark.xfail(
-    reason="nested/chained destructuring unsupported — no query-only recursion",
-    strict=True,
-)
-
-
 @case(tags=["symbol"])
 def case_py_simple_function() -> SymbolCase:
     """Top-level function."""
@@ -560,6 +554,366 @@ def main():
 
 # ═════════════════════════════════════════════════════════════════════
 # JavaScript
+# ═════════════════════════════════════════════════════════════════════
+
+# ── Symbols ──────────────────────────────────────────────────────────
+
+
+@case(tags=["symbol"])
+def case_js_function_declaration() -> SymbolCase:
+    """function greet() {}."""
+    return "javascript", "function greet() {}\n", [("function", "greet", "")]
+
+
+@case(tags=["symbol"])
+def case_js_arrow_function() -> SymbolCase:
+    """const add = (a, b) => a + b."""
+    return "javascript", "const add = (a, b) => a + b;\n", [("function", "add", "")]
+
+
+@case(tags=["symbol"])
+def case_js_arrow_function_block() -> SymbolCase:
+    """Arrow function with block body."""
+    src = """\
+const fetch = () => {
+  return data;
+};
+"""
+    return "javascript", src, [("function", "fetch", "")]
+
+
+@case(tags=["symbol"])
+def case_js_multiple_functions() -> SymbolCase:
+    """Multiple function forms."""
+    src = """\
+function a() {}
+function b() {}
+const c = () => {};
+"""
+    return (
+        "javascript",
+        src,
+        [
+            ("function", "a", ""),
+            ("function", "b", ""),
+            ("function", "c", ""),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_js_class() -> SymbolCase:
+    """class User {}."""
+    return "javascript", "class User {}\n", [("class", "User", "")]
+
+
+@case(tags=["symbol"])
+def case_js_class_extends() -> SymbolCase:
+    """class Admin extends User {}."""
+    return "javascript", "class Admin extends User {}\n", [("class", "Admin", "")]
+
+
+@case(tags=["symbol"])
+def case_js_nested_function() -> SymbolCase:
+    """A function nested in a function is addressed by the outer function."""
+    src = """\
+function outer() {
+  function inner() {
+    return 1;
+  }
+  return inner;
+}
+"""
+    return "javascript", src, [("function", "inner", "outer")]
+
+
+# ── Imports ──────────────────────────────────────────────────────────
+
+
+@case(tags=["import"])
+def case_js_import_named_single() -> ImportCase:
+    """import { foo } from './models'."""
+    return (
+        "javascript",
+        "import { foo } from './models';\n",
+        {"module": "models", "names": "foo", "dots": "1"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_named_multiple() -> ImportCase:
+    """import { foo, bar } from './models'."""
+    return (
+        "javascript",
+        "import { foo, bar } from './models';\n",
+        {"module": "models", "names": "foo,bar", "dots": "1"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_named_parent() -> ImportCase:
+    """import from parent directory."""
+    return (
+        "javascript",
+        "import { Config } from '../config';\n",
+        {"module": "config", "names": "Config", "dots": "2"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_named_grandparent() -> ImportCase:
+    """import from grandparent directory."""
+    return (
+        "javascript",
+        "import { util } from '../../shared/util';\n",
+        {"module": "shared/util", "names": "util", "dots": "3"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_default() -> ImportCase:
+    """import React from 'react'."""
+    return "javascript", "import React from 'react';\n", {"module": "react", "names": "React"}
+
+
+@case(tags=["import"])
+def case_js_import_default_relative() -> ImportCase:
+    """import App from './App'."""
+    return (
+        "javascript",
+        "import App from './App';\n",
+        {"module": "App", "names": "App", "dots": "1"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_namespace() -> ImportCase:
+    """import * as utils from '../utils'."""
+    return (
+        "javascript",
+        "import * as utils from '../utils';\n",
+        {"module": "utils", "names": "utils", "dots": "2"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_side_effect() -> ImportCase:
+    """import './styles.css' — side-effect only."""
+    return "javascript", "import './styles.css';\n", {"module": "styles", "dots": "1"}
+
+
+@case(tags=["import"])
+def case_js_import_side_effect_no_ext() -> ImportCase:
+    """import './polyfills' — no extension."""
+    return "javascript", "import './polyfills';\n", {"module": "polyfills", "dots": "1"}
+
+
+@case(tags=["import"])
+def case_js_import_package() -> ImportCase:
+    """import express from 'express' — absolute."""
+    return (
+        "javascript",
+        "import express from 'express';\n",
+        {"module": "express", "names": "express"},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_scoped_package() -> ImportCase:
+    """import from scoped npm package."""
+    return (
+        "javascript",
+        "import { render } from '@testing-library/react';\n",
+        {"module": "@testing-library/react", "names": "render"},
+    )
+
+
+# ── Multi-import ─────────────────────────────────────────────────────
+
+
+@case(tags=["multi_import"])
+def case_js_multiple_imports() -> MultiImportCase:
+    """Two import statements."""
+    src = """\
+import React from 'react';
+import { useState } from 'react';
+"""
+    return (
+        "javascript",
+        src,
+        2,
+        [
+            {"module": "react", "names": "React"},
+            {"module": "react", "names": "useState"},
+        ],
+    )
+
+
+# ── Mixed ────────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_js_full_module() -> MixedCase:
+    """Realistic JS module with JSDoc on every symbol.
+
+    Adding JSDoc here exercises the production-plugin default
+    (leading-comment attachment on) against the conventional
+    JS documentation style.  The expected-kinds tuple is
+    unchanged — this confirms documentation does not disturb
+    symbol extraction.  Content assertions for docstring
+    presence are covered by `test_docstrings.py`.
+    """
+    src = """\
+import { Model } from './model';
+
+/** Service facade over `Model`. */
+class Service {
+}
+
+/** Create a new service instance. */
+function create() {
+}
+
+/** Tear it down. */
+const destroy = () => {};
+"""
+    return "javascript", src, {"import", "class", "function"}, []
+
+
+# ═════════════════════════════════════════════════════════════════════
+# TypeScript
+# ═════════════════════════════════════════════════════════════════════
+
+# ── Symbols ──────────────────────────────────────────────────────────
+
+
+@case(tags=["symbol"])
+def case_ts_function() -> SymbolCase:
+    """function greet(): void {}."""
+    return "typescript", "function greet(): void {}\n", [("function", "greet", "")]
+
+
+@case(tags=["symbol"])
+def case_ts_arrow_function() -> SymbolCase:
+    """Arrow function with type annotations."""
+    return (
+        "typescript",
+        "const add = (a: number, b: number): number => a + b;\n",
+        [("function", "add", "")],
+    )
+
+
+@case(tags=["symbol"])
+def case_ts_class() -> SymbolCase:
+    """class Service {}."""
+    return "typescript", "class Service {}\n", [("class", "Service", "")]
+
+
+@case(tags=["symbol"])
+def case_ts_class_generics() -> SymbolCase:
+    """class Container<T> {}."""
+    return "typescript", "class Container<T> {}\n", [("class", "Container", "")]
+
+
+@case(tags=["symbol"])
+def case_ts_namespace_function() -> SymbolCase:
+    """A function in a TS namespace is addressed by the namespace.
+
+    TS `namespace` is not tracked today (`f` → ""); target "N".
+    """
+    src = """\
+namespace N {
+  export function f(): void {}
+}
+"""
+    return "typescript", src, [("function", "f", "N")]
+
+
+@case(tags=["symbol"])
+def case_ts_nested_namespace() -> SymbolCase:
+    """Nested TS namespaces compose."""
+    src = """\
+namespace A {
+  export namespace B {
+    export function f(): void {}
+  }
+}
+"""
+    return "typescript", src, [("function", "f", "A::B")]
+
+
+# ── Imports ──────────────────────────────────────────────────────────
+
+
+@case(tags=["import"])
+def case_ts_import_named() -> ImportCase:
+    """import { User } from './types'."""
+    return (
+        "typescript",
+        "import { User } from './types';\n",
+        {"module": "types", "names": "User", "dots": "1"},
+    )
+
+
+@case(tags=["import"])
+def case_ts_import_type() -> ImportCase:
+    """import type { Config } from './config'."""
+    return (
+        "typescript",
+        "import type { Config } from './config';\n",
+        {"module": "config", "names": "Config", "dots": "1"},
+    )
+
+
+@case(tags=["import"])
+def case_ts_import_default() -> ImportCase:
+    """import Express from 'express'."""
+    return (
+        "typescript",
+        "import Express from 'express';\n",
+        {"module": "express", "names": "Express"},
+    )
+
+
+@case(tags=["import"])
+def case_ts_import_namespace() -> ImportCase:
+    """import * as path from 'path'."""
+    return "typescript", "import * as path from 'path';\n", {"module": "path", "names": "path"}
+
+
+@case(tags=["import"])
+def case_ts_import_side_effect() -> ImportCase:
+    """import './setup'."""
+    return "typescript", "import './setup';\n", {"module": "setup", "dots": "1"}
+
+
+# ── Mixed ────────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_ts_full_module() -> MixedCase:
+    """Realistic TS module with JSDoc on every symbol.
+
+    Mirrors the JS variant; expected-kinds tuple unchanged.
+    Content assertions for docstring presence are in
+    `test_docstrings.py`.
+    """
+    src = """\
+import { Model } from './model';
+
+/** Repository over `Model` records. */
+class Repository {
+}
+
+/** Run a query and return the first row. */
+function query(): void {
+}
+"""
+    return "typescript", src, {"import", "class", "function"}, []
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Go
 # ═════════════════════════════════════════════════════════════════════
 
 # ── Symbols ──────────────────────────────────────────────────────────
@@ -1312,6 +1666,133 @@ public class UserService {
 
 
 @case(tags=["symbol"])
+def case_bash_function_keyword() -> SymbolCase:
+    """function deploy { ... }."""
+    src = """\
+function deploy {
+    echo deploying
+}
+"""
+    return "bash", src, [("function", "deploy", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_function_keyword_parens() -> SymbolCase:
+    """function deploy() { ... }."""
+    src = """\
+function deploy() {
+    echo deploying
+}
+"""
+    return "bash", src, [("function", "deploy", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_function_posix() -> SymbolCase:
+    """deploy() { ... } — POSIX syntax."""
+    src = """\
+deploy() {
+    echo deploying
+}
+"""
+    return "bash", src, [("function", "deploy", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_multiple_functions() -> SymbolCase:
+    """Multiple shell functions."""
+    src = """\
+function setup {
+    echo setup
+}
+
+function teardown {
+    echo teardown
+}
+
+run() {
+    echo run
+}
+"""
+    return (
+        "bash",
+        src,
+        [
+            ("function", "setup", ""),
+            ("function", "teardown", ""),
+            ("function", "run", ""),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_bash_alias() -> SymbolCase:
+    """An alias is a variable, named without the `=` the grammar fuses on."""
+    src = """\
+alias ll="ls -l"
+"""
+    return "bash", src, [("variable", "ll", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_function_local_vars() -> SymbolCase:
+    """Function with local variables."""
+    src = """\
+setup() {
+    local dir="/tmp"
+    mkdir -p "$dir"
+}
+"""
+    return "bash", src, [("function", "setup", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_function_conditionals() -> SymbolCase:
+    """Function with conditionals."""
+    src = """\
+check() {
+    if [ -f /tmp/x ]; then
+        echo yes
+    fi
+}
+"""
+    return "bash", src, [("function", "check", "")]
+
+
+# ── Mixed ───────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_bash_full_script() -> MixedCase:
+    """Realistic shell script with doc comments on every
+    function.  Expected-kinds tuple pins symbol extraction;
+    content invariants are in `test_docstrings.py`.
+    """
+    src = """\
+#!/bin/bash
+
+# Deploy the current build to the given environment.
+deploy() {
+    local env="$1"
+    echo "deploying to $env"
+}
+
+# Roll back the last deploy.
+rollback() {
+    echo "rolling back"
+}
+"""
+    return "bash", src, {"function"}, []
+
+
+# ═════════════════════════════════════════════════════════════════════
+# C
+# ═════════════════════════════════════════════════════════════════════
+
+# ── Symbols ──────────────────────────────────────────────────────────
+
+
+@case(tags=["symbol"])
 def case_c_function_basic() -> SymbolCase:
     """int add(int a, int b)."""
     return "c", "int add(int a, int b) { return a + b; }\n", [("function", "add", "")]
@@ -1667,6 +2148,296 @@ void run(Engine& e) {
 # ═════════════════════════════════════════════════════════════════════
 
 # ── Symbols ──────────────────────────────────────────────────────────
+
+
+@case(tags=["symbol"])
+def case_ruby_method_no_args() -> SymbolCase:
+    """def greet — top-level function."""
+    src = """\
+def greet
+  puts "hello"
+end
+"""
+    return "ruby", src, [("function", "greet", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_method_with_args() -> SymbolCase:
+    """def add(a, b) — top-level function."""
+    src = """\
+def add(a, b)
+  a + b
+end
+"""
+    return "ruby", src, [("function", "add", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_multiple_functions() -> SymbolCase:
+    """Multiple top-level functions."""
+    src = """\
+def foo
+  1
+end
+
+def bar
+  2
+end
+"""
+    return "ruby", src, [("function", "foo", ""), ("function", "bar", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_class() -> SymbolCase:
+    """class Shape."""
+    src = """\
+class Shape
+end
+"""
+    return "ruby", src, [("class", "Shape", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_module() -> SymbolCase:
+    """module Utils."""
+    src = """\
+module Utils
+end
+"""
+    return "ruby", src, [("class", "Utils", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_class_superclass() -> SymbolCase:
+    """class Circle < Shape."""
+    src = """\
+class Circle < Shape
+end
+"""
+    return "ruby", src, [("class", "Circle", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_method_scoped_to_class() -> SymbolCase:
+    """Method scoped to class."""
+    src = """\
+class Foo
+  def bar
+    1
+  end
+end
+"""
+    return "ruby", src, [("method", "bar", "Foo")]
+
+
+@case(tags=["symbol"])
+def case_ruby_singleton_method() -> SymbolCase:
+    """def self.build — singleton method."""
+    src = """\
+class Factory
+  def self.build
+    new
+  end
+end
+"""
+    return "ruby", src, [("method", "build", "Factory")]
+
+
+@case(tags=["symbol"])
+def case_ruby_method_scoped_to_module() -> SymbolCase:
+    """Method scoped to module."""
+    src = """\
+module Helpers
+  def format(s)
+    s.strip
+  end
+end
+"""
+    return "ruby", src, [("method", "format", "Helpers")]
+
+
+@case(tags=["symbol"])
+def case_ruby_top_level_not_scoped() -> SymbolCase:
+    """Function after class is not scoped."""
+    src = """\
+class C
+end
+
+def standalone
+  1
+end
+"""
+    return "ruby", src, [("function", "standalone", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_nested_class_in_module() -> SymbolCase:
+    """Class nested in module, method scoped to inner class."""
+    src = """\
+module Utils
+  class Parser
+    def parse(input)
+      input
+    end
+  end
+end
+"""
+    return (
+        "ruby",
+        src,
+        [
+            ("class", "Utils", ""),
+            ("class", "Parser", "Utils"),
+            ("method", "parse", "Utils::Parser"),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_ruby_module_in_module() -> SymbolCase:
+    """A method in a module nested in a module carries the full path."""
+    src = """\
+module A
+  module B
+    def f
+      1
+    end
+  end
+end
+"""
+    return "ruby", src, [("method", "f", "A::B")]
+
+
+@case(tags=["symbol"])
+def case_ruby_module_module_class_method() -> SymbolCase:
+    """A method nested module::module::class carries the full path."""
+    src = """\
+module A
+  module B
+    class C
+      def go
+        1
+      end
+    end
+  end
+end
+"""
+    return "ruby", src, [("method", "go", "A::B::C")]
+
+
+# ── Imports ──────────────────────────────────────────────────────────
+
+
+@case(tags=["import"])
+def case_ruby_require_simple() -> ImportCase:
+    """require "json"."""
+    return "ruby", 'require "json"\n', {"module": "json"}
+
+
+@case(tags=["import"])
+def case_ruby_require_nested() -> ImportCase:
+    """require "net/http"."""
+    return "ruby", 'require "net/http"\n', {"module": "net/http"}
+
+
+@case(tags=["import"])
+def case_ruby_require_relative() -> ImportCase:
+    """require_relative "helpers"."""
+    return "ruby", 'require_relative "helpers"\n', {"module": "helpers", "dots": "1"}
+
+
+@case(tags=["import"])
+def case_ruby_require_relative_nested() -> ImportCase:
+    """require_relative "lib/utils"."""
+    return "ruby", 'require_relative "lib/utils"\n', {"module": "lib/utils", "dots": "1"}
+
+
+@case(tags=["import"])
+def case_ruby_require_relative_dot_prefix() -> ImportCase:
+    """require_relative "./config" — the `./` is stripped into dots."""
+    return "ruby", 'require_relative "./config"\n', {"module": "config", "dots": "1"}
+
+
+@case(tags=["import"])
+def case_ruby_require_relative_parent() -> ImportCase:
+    """require_relative "../lib/utils" — `../` becomes dots=2."""
+    return "ruby", 'require_relative "../lib/utils"\n', {"module": "lib/utils", "dots": "2"}
+
+
+@case(tags=["import"])
+def case_ruby_require_empty_string() -> ImportCase:
+    """require "" — empty string returns empty metadata.
+
+    Covers `ruby.py` lines 53 and 70.
+    """
+    return "ruby", 'require ""\n', {}
+
+
+# ── Multi-import ─────────────────────────────────────────────────────
+
+
+@case(tags=["multi_import"])
+def case_ruby_multiple_requires() -> MultiImportCase:
+    """require + require_relative."""
+    src = """\
+require "json"
+require_relative "helpers"
+"""
+    return "ruby", src, 2, [{"module": "json"}, {"module": "helpers", "dots": "1"}]
+
+
+# ── Mixed ────────────────────────────────────────────────────────────
+
+
+@case(tags=["mixed"])
+def case_ruby_full_file() -> MixedCase:
+    """Realistic Ruby file with doc comments on top-level
+    declarations.  Comments inside the class body are not
+    attached to their methods by the current Ruby grammar (see
+    note in `case_docstrings.py`), so only the top-level
+    module, class, and `main` carry docs here.  Methods carry the
+    full module::class path now that addressing composes the
+    enclosing-scope chain.
+    """
+    src = """\
+require "json"
+require_relative "config"
+
+# Application namespace for the service.
+module App
+  # Server runs the request loop.
+  class Server
+    def start
+      puts "starting"
+    end
+
+    def stop
+      puts "stopping"
+    end
+
+    def self.default
+      new
+    end
+  end
+end
+
+# Entry point used by bin/app.
+def main
+  server = App::Server.new
+  server.start
+end
+"""
+    return (
+        "ruby",
+        src,
+        {"import", "class", "method", "function"},
+        [("start", "App::Server"), ("stop", "App::Server"), ("default", "App::Server")],
+    )
+
+
+# ══════════════��══════════════════════════════════════════════════════
+# Markdown
+# ══════════���═════════════════════════════════════════════════════���════
 
 
 @case(tags=["symbol"])
@@ -2260,6 +3031,24 @@ CREATE INDEX idx_products_name ON shop.products (name);
 
 
 @case(tags=["symbol"])
+def case_js_module_const() -> SymbolCase:
+    """Top-level const."""
+    return "javascript", "const MAX = 100;\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
+def case_js_exported_const() -> SymbolCase:
+    """Exported top-level const."""
+    return "javascript", "export const TIMEOUT = 30;\n", [("variable", "TIMEOUT", "")]
+
+
+@case(tags=["symbol"])
+def case_ts_module_const() -> SymbolCase:
+    """Top-level annotated const."""
+    return "typescript", "const MAX: number = 100;\n", [("variable", "MAX", "")]
+
+
+@case(tags=["symbol"])
 def case_go_package_var() -> SymbolCase:
     """Package-level var."""
     return "go", "package main\nvar MaxSize = 100\n", [("variable", "MaxSize", "")]
@@ -2281,6 +3070,18 @@ def case_rust_const() -> SymbolCase:
 def case_rust_static() -> SymbolCase:
     """Crate-level static."""
     return "rust", 'static NAME: &str = "x";\n', [("variable", "NAME", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_constant() -> SymbolCase:
+    """Top-level constant."""
+    return "ruby", "MAX_SIZE = 100\n", [("variable", "MAX_SIZE", "")]
+
+
+@case(tags=["symbol"])
+def case_bash_assignment() -> SymbolCase:
+    """Top-level variable assignment."""
+    return "bash", "MAX=100\n", [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
@@ -2330,6 +3131,62 @@ def case_py_star_unpack() -> SymbolCase:
 
 
 @case(tags=["symbol"])
+def case_js_object_destructure() -> SymbolCase:
+    """Object destructuring (shorthand)."""
+    return "javascript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+def case_js_object_renamed() -> SymbolCase:
+    """Object destructuring with rename binds the renamed target."""
+    return "javascript", "const {a: ra} = o;\n", [("variable", "ra", "")]
+
+
+@case(tags=["symbol"])
+def case_js_array_destructure() -> SymbolCase:
+    """Array destructuring."""
+    return "javascript", "const [x, y] = arr;\n", [("variable", "x", ""), ("variable", "y", "")]
+
+
+@case(tags=["symbol"])
+def case_js_object_rest() -> SymbolCase:
+    """Object rest element."""
+    return (
+        "javascript",
+        "const {a, ...rest} = o;\n",
+        [("variable", "a", ""), ("variable", "rest", "")],
+    )
+
+
+@case(tags=["symbol"])
+def case_js_exported_destructure() -> SymbolCase:
+    """Exported destructuring."""
+    return (
+        "javascript",
+        "export const {a, b} = o;\n",
+        [("variable", "a", ""), ("variable", "b", "")],
+    )
+
+
+@case(tags=["symbol"])
+def case_ts_object_destructure() -> SymbolCase:
+    """TS object destructuring."""
+    return "typescript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_multiple_assignment() -> SymbolCase:
+    """Ruby multiple assignment of constants."""
+    return "ruby", "A, B = 1, 2\n", [("variable", "A", ""), ("variable", "B", "")]
+
+
+@case(tags=["symbol"])
+def case_ruby_splat_assignment() -> SymbolCase:
+    """Ruby splat target."""
+    return "ruby", "A, *B = list\n", [("variable", "A", ""), ("variable", "B", "")]
+
+
+@case(tags=["symbol"])
 def case_go_grouped_var() -> SymbolCase:
     """Go grouped var block."""
     src = """\
@@ -2374,3 +3231,29 @@ def case_py_nested_unpack_xfail() -> SymbolCase:
 def case_py_chained_assignment_xfail() -> SymbolCase:
     """Chained assignment — only the first target is captured today."""
     return "python", "a = b = f()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+def case_js_nested_array_xfail() -> SymbolCase:
+    """Nested array destructuring — only the outer level captured today."""
+    return (
+        "javascript",
+        "const [a, [b, c]] = x;\n",
+        [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
+    )
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+def case_js_nested_object_xfail() -> SymbolCase:
+    """Nested object destructuring — nothing captured today."""
+    return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
+
+
+@case(tags=["symbol"], marks=_xfail_nested)
+def case_ruby_nested_unpack_xfail() -> SymbolCase:
+    """Ruby nested destructuring — only the outer level captured today."""
+    return (
+        "ruby",
+        "(A, B), C = x\n",
+        [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
+    )

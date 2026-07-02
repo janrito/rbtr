@@ -59,6 +59,24 @@ def case_sql_clickhouse() -> SqlDialectCase:
     return load_sample("sql_clickhouse"), "sql_clickhouse"
 
 
+@case(id="python", tags=["sample"])
+def case_python() -> SampleCase:
+    """Python: sync/async/decorated functions, classes, methods
+    (instance/property/static/class), module variables incl. tuple
+    unpacking, and aliased/relative imports with docstrings.
+    """
+    return (
+        "python",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
 @case(id="go", tags=["sample"])
 def case_go() -> SampleCase:
     """Go: functions, methods (functions with a receiver, scoped to the
@@ -74,6 +92,19 @@ def case_go() -> SampleCase:
             ChunkKind.VARIABLE,
             ChunkKind.IMPORT,
         },
+    )
+
+
+@case(id="html", tags=["sample"])
+def case_html() -> SampleCase:
+    """HTML: <script src> and <link href> as imports (with a language
+    hint, plain and self-closing tags), and major <body> elements as doc
+    sections. Inline <script>/<style> delegate to JavaScript (a function)
+    and CSS (a rule set).
+    """
+    return (
+        "html",
+        {ChunkKind.IMPORT, ChunkKind.DOC_SECTION, ChunkKind.FUNCTION},
     )
 
 
@@ -109,6 +140,18 @@ def case_hcl() -> SampleCase:
     return (
         "hcl",
         {ChunkKind.DOC_SECTION},
+    )
+
+
+@case(id="rst", tags=["sample"])
+def case_rst() -> SampleCase:
+    """reStructuredText: heading hierarchy from adornment order (as doc
+    sections), and :doc:/:func:/:class:/:mod: roles, references, and
+    toctree entries (as imports). External references are skipped.
+    """
+    return (
+        "rst",
+        {ChunkKind.DOC_SECTION, ChunkKind.IMPORT},
     )
 
 
@@ -148,6 +191,59 @@ def case_sql() -> SampleCase:
     )
 
 
+@case(id="typescript", tags=["sample"])
+def case_typescript() -> SampleCase:
+    """TypeScript: function declarations, arrow consts, classes, module
+    variables, and imports (incl. `import type`). Interfaces, enums, type
+    aliases, abstract classes, and namespaces are captured as classes (a
+    namespace also forms a scope for its members); class/interface members
+    (incl. get/set accessors and abstract signatures) as methods scoped to
+    their type; enum members as variables scoped to the enum.
+    """
+    return (
+        "typescript",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
+@case(id="tsx", tags=["sample"])
+def case_tsx() -> SampleCase:
+    """TSX (React): same extraction as TypeScript — function declarations,
+    arrow consts, module variables, imports (incl. `import type`), and
+    interfaces (as classes) — but parsed with the JSX-aware `language_tsx`
+    grammar so JSX bodies parse cleanly.
+    """
+    return (
+        "tsx",
+        {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.VARIABLE, ChunkKind.IMPORT},
+    )
+
+
+@case(id="javascript", tags=["sample"])
+def case_javascript() -> SampleCase:
+    """JavaScript: function declarations, generator functions, arrow
+    functions bound to consts, classes, module const/let variables (incl.
+    destructuring), imports, and methods (class members scoped to the
+    class; object-literal methods without a scope).
+    """
+    return (
+        "javascript",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
 @case(id="java", tags=["sample"])
 def case_java() -> SampleCase:
     """Java: classes (incl. nested), methods (incl. constructors), fields
@@ -177,6 +273,42 @@ def case_rust() -> SampleCase:
             ChunkKind.IMPORT,
         },
     )
+
+
+@case(id="ruby", tags=["sample"])
+def case_ruby() -> SampleCase:
+    """Ruby: top-level defs (as functions), classes and modules (both as
+    classes), defs inside them (as methods, incl. `self.` singletons),
+    constant assignments (as variables), and require/require_relative.
+    """
+    return (
+        "ruby",
+        {
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
+@case(id="bash", tags=["sample"])
+def case_bash() -> SampleCase:
+    """Bash: functions, top-level variable assignments, and source/.
+    imports. No classes or methods — all functions are top-level.
+    """
+    return (
+        "bash",
+        {ChunkKind.FUNCTION, ChunkKind.VARIABLE, ChunkKind.IMPORT},
+    )
+
+
+# ── Known-unsupported constructs (xfail registry) ────────────────────
+#
+# Each asserts the *ideal* chunk a construct should produce; all are
+# xfail(strict) so the suite fails loudly if a plugin upgrade closes the
+# gap. See plan Appendix E.
 
 
 @case(

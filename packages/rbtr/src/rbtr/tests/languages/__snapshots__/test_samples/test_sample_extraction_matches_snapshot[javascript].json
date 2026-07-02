@@ -1,0 +1,290 @@
+[
+  {
+    "id": "ed185e7856f28bea",
+    "blob_sha": "sha1",
+    "file_path": "config.js",
+    "kind": "variable",
+    "name": "LOCALE",
+    "scope": "",
+    "language": "javascript",
+    "content": "LOCALE = \"en\"",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a683e2789941b337",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "import",
+    "name": "import { LOCALE } from \"./config.js\";",
+    "scope": "",
+    "language": "javascript",
+    "content": "import { LOCALE } from \"./config.js\";",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "config",
+      "names": "LOCALE",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "66e05f3e1e7ca7f4",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "import",
+    "name": "import format from \"formatter\";",
+    "scope": "",
+    "language": "javascript",
+    "content": "import format from \"formatter\";",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "formatter",
+      "names": "format",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "86a9451da2a64e89",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "import",
+    "name": "import \"./styles.css\";",
+    "scope": "",
+    "language": "javascript",
+    "content": "import \"./styles.css\";",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "styles",
+      "names": "",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b789ebcbdb4287c8",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "variable",
+    "name": "DEFAULT_GREETING",
+    "scope": "",
+    "language": "javascript",
+    "content": "DEFAULT_GREETING = \"Hello\"",
+    "line_start": 13,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "11797a4abdbe22d4",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "variable",
+    "name": "locale",
+    "scope": "",
+    "language": "javascript",
+    "content": "{ locale, fallback } = LOCALE",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "06d4af685ddb272d",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "variable",
+    "name": "fallback",
+    "scope": "",
+    "language": "javascript",
+    "content": "{ locale, fallback } = LOCALE",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "eb86aa56decac5db",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "function",
+    "name": "formatGreeting",
+    "scope": "",
+    "language": "javascript",
+    "content": "function formatGreeting(name) {\n  return `${DEFAULT_GREETING}, ${name} (${locale ?? fallback})`;\n}",
+    "line_start": 17,
+    "line_end": 19,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "ab431e3cfab877bc",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "function",
+    "name": "cachedDefault",
+    "scope": "",
+    "language": "javascript",
+    "content": "const cachedDefault = () => DEFAULT_GREETING;",
+    "line_start": 21,
+    "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "f3ff69fdbcd02f68",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "javascript",
+    "content": "class Greeter {\n  constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }\n\n  greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }\n}",
+    "line_start": 24,
+    "line_end": 32,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c3f0d09357dc7998",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "method",
+    "name": "constructor",
+    "scope": "Greeter",
+    "language": "javascript",
+    "content": "constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }",
+    "line_start": 25,
+    "line_end": 27,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "3b2d237308fe1de5",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "method",
+    "name": "greet",
+    "scope": "Greeter",
+    "language": "javascript",
+    "content": "greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }",
+    "line_start": 29,
+    "line_end": 31,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "904e23010644b75e",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "function",
+    "name": "recipients",
+    "scope": "",
+    "language": "javascript",
+    "content": "function* recipients(names) {\n  for (const name of names) {\n    yield name;\n  }\n}",
+    "line_start": 35,
+    "line_end": 39,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "44fb39183eba445f",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "variable",
+    "name": "helpers",
+    "scope": "",
+    "language": "javascript",
+    "content": "helpers = {\n  shout(name) {\n    return `${name.toUpperCase()}!`;\n  },\n}",
+    "line_start": 42,
+    "line_end": 46,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "48ddcab0ec2f6cb8",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "method",
+    "name": "shout",
+    "scope": "",
+    "language": "javascript",
+    "content": "shout(name) {\n    return `${name.toUpperCase()}!`;\n  }",
+    "line_start": 43,
+    "line_end": 45,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6a463c4d63411e65",
+    "blob_sha": "sha1",
+    "file_path": "styles.css",
+    "kind": "doc_section",
+    "name": ".greeter",
+    "scope": "",
+    "language": "css",
+    "content": ".greeter {\n  color: #333;\n}",
+    "line_start": 1,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

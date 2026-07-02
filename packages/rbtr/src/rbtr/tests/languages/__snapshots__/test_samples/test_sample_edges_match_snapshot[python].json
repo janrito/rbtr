@@ -1,0 +1,3 @@
+[
+  "python.py::from .config import LOCALE -> config.py::LOCALE [imports]"
+]
