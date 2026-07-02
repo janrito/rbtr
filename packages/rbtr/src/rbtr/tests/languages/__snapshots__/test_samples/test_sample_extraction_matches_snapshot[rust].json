@@ -1,0 +1,398 @@
+[
+  {
+    "id": "e827782ac9b2f8c1",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "import",
+    "name": "use std::collections::HashMap;",
+    "scope": "",
+    "language": "rust",
+    "content": "use std::collections::HashMap;",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "std/collections",
+      "names": "HashMap",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "df57744de91004a8",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "import",
+    "name": "use crate::config::LOCALE;",
+    "scope": "",
+    "language": "rust",
+    "content": "use crate::config::LOCALE;",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "crate/config",
+      "names": "LOCALE",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "2863c322f23a960f",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "import",
+    "name": "use super::util;",
+    "scope": "",
+    "language": "rust",
+    "content": "use super::util;",
+    "line_start": 12,
+    "line_end": 12,
+    "metadata": {
+      "module": "",
+      "names": "util",
+      "dots": "2",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "f31201770bfb8e56",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "variable",
+    "name": "DEFAULT_GREETING",
+    "scope": "",
+    "language": "rust",
+    "content": "/// The default greeting prefix.\nconst DEFAULT_GREETING: &str = \"Hello\";",
+    "line_start": 14,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "df30409b5c7d7250",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "variable",
+    "name": "FALLBACK_LOCALE",
+    "scope": "",
+    "language": "rust",
+    "content": "static FALLBACK_LOCALE: &str = \"en\";",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b815957014d9d617",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "rust",
+    "content": "/// A greeter holding a prefix.\npub struct Greeter {\n    prefix: String,\n    seen: HashMap<String, u32>,\n}",
+    "line_start": 19,
+    "line_end": 23,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "51029ba63112f3dd",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "Locale",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Supported locales.\npub enum Locale {\n    En,\n    Fr,\n}",
+    "line_start": 25,
+    "line_end": 29,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "23fe6fb73d1a4fb7",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "variable",
+    "name": "En",
+    "scope": "Locale",
+    "language": "rust",
+    "content": "En",
+    "line_start": 27,
+    "line_end": 27,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c0ca73138e523cc5",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "variable",
+    "name": "Fr",
+    "scope": "Locale",
+    "language": "rust",
+    "content": "Fr",
+    "line_start": 28,
+    "line_end": 28,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "26415dbef98458bf",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "rust",
+    "content": "impl Greeter {\n    /// Build a greeter with the default prefix.\n    pub fn new() -> Self {\n        Greeter { prefix: DEFAULT_GREETING.to_string(), seen: HashMap::new() }\n    }\n\n    /// Greet a single recipient.\n    pub fn greet(&self, name: &str) -> String {\n        format!(\"{}, {} ({})\", self.prefix, name, LOCALE)\n    }\n}",
+    "line_start": 31,
+    "line_end": 41,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "dfe78191600122e5",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "method",
+    "name": "new",
+    "scope": "Greeter",
+    "language": "rust",
+    "content": "/// Build a greeter with the default prefix.\n    pub fn new() -> Self {\n        Greeter { prefix: DEFAULT_GREETING.to_string(), seen: HashMap::new() }\n    }",
+    "line_start": 32,
+    "line_end": 35,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "fc1e747337f00813",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "method",
+    "name": "greet",
+    "scope": "Greeter",
+    "language": "rust",
+    "content": "/// Greet a single recipient.\n    pub fn greet(&self, name: &str) -> String {\n        format!(\"{}, {} ({})\", self.prefix, name, LOCALE)\n    }",
+    "line_start": 37,
+    "line_end": 40,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6c1de7881619c4f5",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "function",
+    "name": "format_greeting",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Format a greeting via a greeter.\npub fn format_greeting(g: &Greeter, name: &str) -> String {\n    g.greet(name)\n}",
+    "line_start": 43,
+    "line_end": 46,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "0a89d41f43d84335",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "NameList",
+    "scope": "",
+    "language": "rust",
+    "content": "/// A short alias for a list of recipient names.\npub type NameList = Vec<String>;",
+    "line_start": 48,
+    "line_end": 49,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "98d20307a56ea0ac",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "LocaleBytes",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Raw bytes of a locale tag, either packed or split.\npub union LocaleBytes {\n    packed: u32,\n    parts: [u8; 4],\n}",
+    "line_start": 51,
+    "line_end": 55,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "d75a68a3568b9946",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "Greet",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Behaviour shared by anything that can greet.\npub trait Greet {\n    /// Greet a recipient by name (required).\n    fn greet(&self, name: &str) -> String;\n\n    /// Greet the world, with a default implementation.\n    fn greet_world(&self) -> String {\n        self.greet(\"world\")\n    }\n}",
+    "line_start": 57,
+    "line_end": 66,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "946d307176a10214",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "method",
+    "name": "greet",
+    "scope": "Greet",
+    "language": "rust",
+    "content": "/// Greet a recipient by name (required).\n    fn greet(&self, name: &str) -> String;",
+    "line_start": 59,
+    "line_end": 60,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "206443114c9d1d3e",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "method",
+    "name": "greet_world",
+    "scope": "Greet",
+    "language": "rust",
+    "content": "/// Greet the world, with a default implementation.\n    fn greet_world(&self) -> String {\n        self.greet(\"world\")\n    }",
+    "line_start": 62,
+    "line_end": 65,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "861602fb8abd308e",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "function",
+    "name": "shout",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Build the standard exclamatory greeting.\nmacro_rules! shout {\n    ($name:expr) => {\n        format!(\"Hello, {}!\", $name)\n    };\n}",
+    "line_start": 68,
+    "line_end": 73,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "364669fd8aa039b3",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "class",
+    "name": "util",
+    "scope": "",
+    "language": "rust",
+    "content": "/// Locale helpers.\npub mod util {\n    /// Strip surrounding whitespace from a locale tag.\n    pub fn trim(tag: &str) -> &str {\n        tag.trim()\n    }\n}",
+    "line_start": 75,
+    "line_end": 81,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "47852d217f3fbef0",
+    "blob_sha": "sha1",
+    "file_path": "rust.rs",
+    "kind": "function",
+    "name": "trim",
+    "scope": "util",
+    "language": "rust",
+    "content": "/// Strip surrounding whitespace from a locale tag.\n    pub fn trim(tag: &str) -> &str {\n        tag.trim()\n    }",
+    "line_start": 77,
+    "line_end": 80,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "1b474807e5ab3ea5",
+    "blob_sha": "sha1",
+    "file_path": "src/config.rs",
+    "kind": "variable",
+    "name": "LOCALE",
+    "scope": "",
+    "language": "rust",
+    "content": "//! Locale configuration.\npub const LOCALE: &str = \"en\";",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

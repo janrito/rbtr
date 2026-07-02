@@ -1,0 +1,9 @@
+{
+  "name": "greeter",
+  "version": "1.0.0",
+  "defaults": {
+    "greeting": "Hello",
+    "locale": "en"
+  },
+  "locales": ["en", "fr"]
+}

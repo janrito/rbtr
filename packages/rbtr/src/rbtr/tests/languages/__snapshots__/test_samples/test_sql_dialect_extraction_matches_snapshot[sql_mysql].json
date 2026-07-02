@@ -1,0 +1,38 @@
+[
+  {
+    "id": "3932cde1fbfbca37",
+    "blob_sha": "sha1",
+    "file_path": "sql_mysql.sql",
+    "kind": "class",
+    "name": "`users`",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE `users` (\n    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,\n    `email` VARCHAR(255) NOT NULL,\n    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n    PRIMARY KEY (`id`),\n    UNIQUE KEY `uq_email` (`email`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "line_start": 3,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b8db7d106e97f579",
+    "blob_sha": "sha1",
+    "file_path": "sql_mysql.sql",
+    "kind": "variable",
+    "name": "`idx_email`",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE INDEX `idx_email` ON `users` (`email`)",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

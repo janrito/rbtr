@@ -1,0 +1,38 @@
+[
+  {
+    "id": "c78331afa7004964",
+    "blob_sha": "sha1",
+    "file_path": "sql_clickhouse.sql",
+    "kind": "class",
+    "name": "events",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE events (\n    event_date Date,\n    user_id UInt64,\n    name LowCardinality(String),\n    props Array(String),\n    value Nullable(Float64)\n)\nENGINE = MergeTree\nPARTITION BY toYYYYMM(event_date)",
+    "line_start": 3,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "d137cbce96bc3797",
+    "blob_sha": "sha1",
+    "file_path": "sql_clickhouse.sql",
+    "kind": "class",
+    "name": "events_mv",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE MATERIALIZED VIEW events_mv\nENGINE = SummingMergeTree\nORDER BY user_id\nAS SELECT user_id, count() AS c FROM events GROUP BY user_id",
+    "line_start": 14,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

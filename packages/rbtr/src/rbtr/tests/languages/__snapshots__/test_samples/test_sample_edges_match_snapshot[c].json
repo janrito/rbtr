@@ -1,0 +1,6 @@
+[
+  "c.c::#include \"greeter.h\" -> greeter.h::GREETER_H [imports]",
+  "c.c::#include \"greeter.h\" -> greeter.h::Greeter [imports]",
+  "c.c::#include \"greeter.h\" -> greeter.h::Greeter [imports]",
+  "c.c::#include \"greeter.h\" -> greeter.h::MAX_NAME [imports]"
+]

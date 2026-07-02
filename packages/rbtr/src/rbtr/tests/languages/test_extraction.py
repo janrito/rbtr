@@ -126,6 +126,19 @@ def test_empty_source_yields_host_presence(lang: str) -> None:
 # ── Language-specific edge cases ─────────────────────────────────────
 
 
+def test_rust_impl_captures_struct_and_impl() -> None:
+    """Both struct and impl produce class chunks for the same type."""
+    src = """\
+struct Svc {}
+impl Svc {
+    fn new() -> Self { Svc {} }
+}
+"""
+    chunks = extract_chunks("rust", src)
+    svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
+    assert len(svc_classes) == 2  # struct + impl
+
+
 def test_sql_pragma_not_extracted() -> None:
     """A DuckDB PRAGMA yields no definition chunk.
 

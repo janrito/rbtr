@@ -1,0 +1,56 @@
+[
+  {
+    "id": "b270d809f1a25ab0",
+    "blob_sha": "sha1",
+    "file_path": "sql_sqlite.sql",
+    "kind": "class",
+    "name": "users",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE IF NOT EXISTS users (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    email TEXT NOT NULL UNIQUE,\n    created_at TEXT DEFAULT (datetime('now'))\n)",
+    "line_start": 3,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6440e68d7ed6d1fb",
+    "blob_sha": "sha1",
+    "file_path": "sql_sqlite.sql",
+    "kind": "variable",
+    "name": "idx_users_email",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE INDEX idx_users_email ON users (email)",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "fce73faeb18e7213",
+    "blob_sha": "sha1",
+    "file_path": "sql_sqlite.sql",
+    "kind": "class",
+    "name": "active_users",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE VIEW active_users AS SELECT id, email FROM users",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

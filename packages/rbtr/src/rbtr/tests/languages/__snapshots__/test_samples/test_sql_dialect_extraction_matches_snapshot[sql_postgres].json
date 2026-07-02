@@ -1,0 +1,92 @@
+[
+  {
+    "id": "79e1142e41029536",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "variable",
+    "name": "\"uuid-ossp\"",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a0882309ec33ff51",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "class",
+    "name": "mood",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')",
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "ca3e1dc6da71a832",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "class",
+    "name": "users",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    email TEXT UNIQUE NOT NULL,\n    profile JSONB DEFAULT '{}'::jsonb,\n    tags TEXT[],\n    created_at TIMESTAMPTZ DEFAULT now()\n)",
+    "line_start": 7,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "9b90bfa48d47fb35",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "function",
+    "name": "greet",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE FUNCTION greet(name TEXT) RETURNS TEXT\nLANGUAGE sql AS $$ SELECT 'Hello, ' || name $$",
+    "line_start": 15,
+    "line_end": 16,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "766a1d4fccf7a25c",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "variable",
+    "name": "idx_users_email",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE INDEX idx_users_email ON users (email)",
+    "line_start": 18,
+    "line_end": 18,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

@@ -1,0 +1,218 @@
+[
+  {
+    "id": "617a74fefdf94501",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "import",
+    "name": "\"fmt\"",
+    "scope": "",
+    "language": "go",
+    "content": "\"fmt\"",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "fmt",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "22c93a3cd18d6a4e",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "import",
+    "name": "\"greeter/util\"",
+    "scope": "",
+    "language": "go",
+    "content": "\"greeter/util\"",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "greeter/util",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6088984e54e72e54",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "variable",
+    "name": "DefaultGreeting",
+    "scope": "",
+    "language": "go",
+    "content": "DefaultGreeting = \"Hello\"",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8682e0e6778060e5",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "variable",
+    "name": "fallbackLocale",
+    "scope": "",
+    "language": "go",
+    "content": "fallbackLocale = \"en\"",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6d998cbd76a60714",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "class",
+    "name": "Temperature",
+    "scope": "",
+    "language": "go",
+    "content": "// Temperature is an alias for the underlying float type.\ntype Temperature = float64",
+    "line_start": 19,
+    "line_end": 20,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "3f6b670c5127f21d",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "go",
+    "content": "// Greeter holds a greeting prefix.\ntype Greeter struct {\n\tPrefix string\n}",
+    "line_start": 22,
+    "line_end": 25,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "373545cefb441d30",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "class",
+    "name": "Formatter",
+    "scope": "",
+    "language": "go",
+    "content": "// Formatter renders a greeting for a name.\ntype Formatter interface {\n\tFormat(name string) string\n}",
+    "line_start": 27,
+    "line_end": 30,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7c2d2b8469f4c6b9",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "method",
+    "name": "Format",
+    "scope": "Formatter",
+    "language": "go",
+    "content": "Format(name string) string",
+    "line_start": 29,
+    "line_end": 29,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "25a1dc07dbc021b7",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "method",
+    "name": "Greet",
+    "scope": "Greeter",
+    "language": "go",
+    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, util.Trim(name))\n}",
+    "line_start": 32,
+    "line_end": 35,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "61916acdff9f88ee",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "function",
+    "name": "FormatGreeting",
+    "scope": "",
+    "language": "go",
+    "content": "// FormatGreeting formats a greeting via a Greeter.\nfunc FormatGreeting(g Greeter, name string) string {\n\treturn g.Greet(name)\n}",
+    "line_start": 37,
+    "line_end": 40,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "d2279d95b96822bc",
+    "blob_sha": "sha1",
+    "file_path": "greeter/util.go",
+    "kind": "import",
+    "name": "\"strings\"",
+    "scope": "",
+    "language": "go",
+    "content": "\"strings\"",
+    "line_start": 4,
+    "line_end": 4,
+    "metadata": {
+      "module": "strings",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5d95fbaf4ba5f22b",
+    "blob_sha": "sha1",
+    "file_path": "greeter/util.go",
+    "kind": "function",
+    "name": "Trim",
+    "scope": "",
+    "language": "go",
+    "content": "// Trim removes surrounding whitespace from a name.\nfunc Trim(name string) string {\n\treturn strings.TrimSpace(name)\n}",
+    "line_start": 6,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

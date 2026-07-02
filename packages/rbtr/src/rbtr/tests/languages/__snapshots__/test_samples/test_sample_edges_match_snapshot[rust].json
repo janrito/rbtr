@@ -1,0 +1,3 @@
+[
+  "rust.rs::use crate::config::LOCALE; -> src/config.rs::LOCALE [imports]"
+]
