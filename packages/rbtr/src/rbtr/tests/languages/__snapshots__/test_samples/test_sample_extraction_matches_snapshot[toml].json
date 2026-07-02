@@ -1,0 +1,92 @@
+[
+  {
+    "id": "aca44469d96b1a46",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "doc_section",
+    "name": "project",
+    "scope": "",
+    "language": "toml",
+    "content": "[project]\nname = \"greeter\"\nversion = \"1.0.0\"\n\n",
+    "line_start": 3,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "560c0c380ad868c2",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "doc_section",
+    "name": "greeter",
+    "scope": "tool",
+    "language": "toml",
+    "content": "[tool.greeter]\ndefault_greeting = \"Hello\"\nlocale = \"en\"\n\n",
+    "line_start": 7,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "87947a59988f071e",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "doc_section",
+    "name": "limits",
+    "scope": "tool::greeter",
+    "language": "toml",
+    "content": "[tool.greeter.limits]\nmax_length = 280\n\n",
+    "line_start": 11,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "de2aa469858315e0",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "doc_section",
+    "name": "locales",
+    "scope": "",
+    "language": "toml",
+    "content": "[[locales]]\ncode = \"en\"\n\n",
+    "line_start": 14,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5b785d1f1a39b9ad",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "doc_section",
+    "name": "locales",
+    "scope": "",
+    "language": "toml",
+    "content": "[[locales]]\ncode = \"fr\"\n",
+    "line_start": 17,
+    "line_end": 19,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

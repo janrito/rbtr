@@ -26,6 +26,41 @@ type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 type SqlDialectCase = tuple[str, str]
 
 
+@case(id="yaml", tags=["sample"])
+def case_yaml() -> SampleCase:
+    """YAML: each top-level mapping key becomes a doc section (nested keys
+    are part of their parent's content, not separate chunks).
+    """
+    return (
+        "yaml",
+        {ChunkKind.DOC_SECTION},
+    )
+
+
+@case(id="toml", tags=["sample"])
+def case_toml() -> SampleCase:
+    """TOML: standard tables and array-of-tables as doc sections; a dotted
+    table is named by its last segment and scoped under the preceding ones
+    (`[tool.greeter]` -> name `greeter`, scope `tool`).
+    """
+    return (
+        "toml",
+        {ChunkKind.DOC_SECTION},
+    )
+
+
+@case(id="hcl", tags=["sample"])
+def case_hcl() -> SampleCase:
+    """HCL: each top-level block is a doc section, named by its type and
+    labels (`resource "aws_instance" "greeter"` -> `resource aws_instance
+    greeter`; a bare `terraform {}` block by its type alone).
+    """
+    return (
+        "hcl",
+        {ChunkKind.DOC_SECTION},
+    )
+
+
 @case(id="css", tags=["sample"])
 def case_css() -> SampleCase:
     """CSS: rule sets, @media and @charset (as doc sections; @media and
