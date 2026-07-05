@@ -201,7 +201,7 @@ dev = [
     "pytest-cov>=6.2",
     "pytest-env>=1.6.0",
     "ruff>=0.15.13",
-    "rumdl>=0.1.93",
-    "rust-just>=1.51.0",
+    "rumdl>=0.2.28",
+    "rust-just>=1.55.1",
     "sqlfluff>=4.2.1",
 ]
