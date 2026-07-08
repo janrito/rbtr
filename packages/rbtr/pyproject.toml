@@ -29,14 +29,14 @@ dependencies = [
 
   # Default language plugins (required — ship with core).
   "rbtr-lang-bash",
+  "rbtr-lang-c",
+  "rbtr-lang-cpp",
   "rbtr-lang-html",
   "rbtr-lang-javascript",
   "rbtr-lang-python",
 
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
-  "tree-sitter-c",
-  "tree-sitter-cpp",
   "tree-sitter-go",
   "tree-sitter-hcl",
   "tree-sitter-java",
@@ -65,8 +65,6 @@ rbtr = "rbtr.testing"
 # `LanguageRegistration`, named by its language id. As languages are extracted
 # into their own packages, their entry point moves to that package's pyproject.
 [project.entry-points."rbtr.languages"]
-c = "rbtr.languages.c.plugin:c"
-cpp = "rbtr.languages.cpp.plugin:cpp"
 go = "rbtr.languages.go.plugin:go"
 hcl = "rbtr.languages.hcl.plugin:hcl"
 java = "rbtr.languages.java.plugin:java"
@@ -103,6 +101,8 @@ test = [
 # Language-plugin packages resolve to their workspace members.
 [tool.uv.sources]
 rbtr-lang-bash = { workspace = true }
+rbtr-lang-c = { workspace = true }
+rbtr-lang-cpp = { workspace = true }
 rbtr-lang-css = { workspace = true }
 rbtr-lang-html = { workspace = true }
 rbtr-lang-javascript = { workspace = true }

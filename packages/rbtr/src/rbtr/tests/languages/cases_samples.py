@@ -237,36 +237,3 @@ def case_sql_procedure() -> UnsupportedCase:
 # `test_sql_pragma_not_extracted` in test_extraction.py — a `== []`
 # assertion is a better sentinel than a speculative xfail tuple, since
 # what a PRAGMA *should* extract is ill-defined (see plan Q8 / H11).
-
-
-@case(id="c", tags=["sample"])
-def case_c() -> SampleCase:
-    """C: functions, struct/enum/typedef types (as classes), top-level
-    variables, enum constants (as file-scope variables — C enum constants
-    leak into the enclosing scope), and system/local #include imports. A
-    `typedef struct G G;` yields two class chunks (the struct definition and
-    the typedef alias); type references no longer produce spurious class
-    chunks (plan H6).
-    """
-    return (
-        "c",
-        {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.VARIABLE, ChunkKind.IMPORT},
-    )
-
-
-@case(id="cpp", tags=["sample"])
-def case_cpp() -> SampleCase:
-    """C++: free functions, classes, member functions and constructors
-    (as methods), namespace/top-level variables, and #include imports.
-    Scope uses `::` and includes the enclosing namespace.
-    """
-    return (
-        "cpp",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )

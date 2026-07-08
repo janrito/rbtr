@@ -14,6 +14,8 @@ members = [
     "rbtr",
     "rbtr-eval",
     "rbtr-lang-bash",
+    "rbtr-lang-c",
+    "rbtr-lang-cpp",
     "rbtr-lang-css",
     "rbtr-lang-html",
     "rbtr-lang-javascript",
@@ -3227,6 +3229,8 @@ dependencies = [
     { name = "pygit2" },
     { name = "pyzmq" },
     { name = "rbtr-lang-bash" },
+    { name = "rbtr-lang-c" },
+    { name = "rbtr-lang-cpp" },
     { name = "rbtr-lang-html" },
     { name = "rbtr-lang-javascript" },
     { name = "rbtr-lang-python" },
@@ -3234,8 +3238,6 @@ dependencies = [
     { name = "rich-argparse" },
     { name = "structlog" },
     { name = "tree-sitter" },
-    { name = "tree-sitter-c" },
-    { name = "tree-sitter-cpp" },
     { name = "tree-sitter-go" },
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-java" },
@@ -3294,6 +3296,8 @@ requires-dist = [
     { name = "pytest-cases", marker = "extra == 'test'", specifier = ">=3.10.1" },
     { name = "pyzmq", specifier = ">=27.1.0" },
     { name = "rbtr-lang-bash", editable = "packages/rbtr-lang-bash" },
+    { name = "rbtr-lang-c", editable = "packages/rbtr-lang-c" },
+    { name = "rbtr-lang-cpp", editable = "packages/rbtr-lang-cpp" },
     { name = "rbtr-lang-css", marker = "extra == 'css'", editable = "packages/rbtr-lang-css" },
     { name = "rbtr-lang-html", editable = "packages/rbtr-lang-html" },
     { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
@@ -3306,8 +3310,6 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.1" },
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.3.4" },
     { name = "tree-sitter", specifier = ">=0.24" },
-    { name = "tree-sitter-c" },
-    { name = "tree-sitter-cpp" },
     { name = "tree-sitter-go" },
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-java" },
@@ -3397,6 +3399,52 @@ dev = [
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "tree-sitter-bash" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-c"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-c" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-c" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-c" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-cpp"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-cpp" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-cpp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-cpp" },
 ]
 
 [package.metadata.requires-dev]

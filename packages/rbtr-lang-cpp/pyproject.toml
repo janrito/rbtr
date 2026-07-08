@@ -1,0 +1,31 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_cpp"
+# No source-exclude: the plugin's tests, samples, and snapshots ship with
+# the wheel (they are the language's golden record), and cpp.scm ships as
+# package data.
+
+[project]
+name = "rbtr-lang-cpp"
+version = "2026.6.1"
+description = "rbtr — C++ language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "tree-sitter-cpp",
+]
+
+[project.entry-points."rbtr.languages"]
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+cpp = "rbtr_lang_cpp.plugin:cpp"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[test]"]
