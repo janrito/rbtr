@@ -18,18 +18,24 @@ golden record of what extraction produces. Regenerate with
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 from tree_sitter import Parser
 
+from rbtr.git import FileEntry
 from rbtr.index.edges import build_resolution_map, infer_import_edges
-from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages import LanguageManager, get_manager
-from rbtr.languages.testkit import SampleData, extract_chunks, load_project, render_edges
+from rbtr.index.models import Chunk, ChunkKind, Edge, ImportMeta
+from rbtr.index.orchestrator import extract_file
+from rbtr.languages import get_manager
+from rbtr.languages.testing import render_edges
 
-from .conftest import SAMPLES_DIR
+# Core's sample suite iterates every in-core language (via cases), so it
+# bundles the per-language data into one tuple; a single-language plugin
+# package has no such fan-out and just uses small fixtures.
+type SampleData = tuple[str, set[ChunkKind], list[tuple[str, str]], list[Chunk], list[Edge]]
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -46,11 +52,14 @@ def sample(lang: str, expected_kinds: set[ChunkKind]) -> SampleData:
     snapshots and path-derived chunk ids are deterministic.
     """
     manager = get_manager()
-    files = load_project(SAMPLES_DIR, lang)
+    root = Path(__file__).parent / "samples" / lang
+    files = [
+        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
+    ]
     chunks: list[Chunk] = []
     for relpath, text in files:
         file_lang = manager.detect_language(relpath) or lang
-        chunks.extend(extract_chunks(file_lang, text, file_path=relpath))
+        chunks.extend(extract_file(FileEntry(relpath, "sha1", text.encode()), file_lang))
     repo_files = {relpath for relpath, _ in files}
     edges = infer_import_edges(chunks, repo_files, build_resolution_map(manager))
     return lang, expected_kinds, files, chunks, edges
@@ -63,7 +72,7 @@ def _core_sample_langs() -> list[str]:
     once a language is packaged out (e.g. sql → rbtr-lang-sql), its sample
     moves with it and its own package tests cover it.
     """
-    return sorted(p.name for p in SAMPLES_DIR.iterdir() if p.is_dir())
+    return sorted(p.name for p in (Path(__file__).parent / "samples").iterdir() if p.is_dir())
 
 
 @pytest.mark.parametrize("lang", _core_sample_langs())
@@ -74,8 +83,9 @@ def test_every_core_sample_is_registered(lang: str) -> None:
     gaps: a core sample whose language stopped registering fails here rather
     than being quietly skipped by the `sample` fixture.
     """
+    root = Path(__file__).parent / "samples" / lang
     assert get_manager().get_registration(lang) is not None, f"{lang}: not registered"
-    assert load_project(SAMPLES_DIR, lang), f"{lang}: empty samples/{lang}/ project"
+    assert any(p.is_file() for p in root.rglob("*")), f"{lang}: empty samples/{lang}/ project"
 
 
 def test_sample_emits_expected_kinds(sample: SampleData) -> None:
@@ -86,12 +96,12 @@ def test_sample_emits_expected_kinds(sample: SampleData) -> None:
     assert not missing, f"{lang}: sample missing expected kinds {missing} (got {kinds})"
 
 
-def test_sample_parses_cleanly(sample: SampleData, language_manager: LanguageManager) -> None:
+def test_sample_parses_cleanly(sample: SampleData) -> None:
     """Every project file is valid source — no tree-sitter ERROR/MISSING nodes."""
     lang, _expected_kinds, files, _chunks, _edges = sample
     for relpath, text in files:
-        file_lang = language_manager.detect_language(relpath) or lang
-        grammar = language_manager.load_grammar(file_lang)
+        file_lang = get_manager().detect_language(relpath) or lang
+        grammar = get_manager().load_grammar(file_lang)
         assert grammar is not None, f"grammar for {file_lang} not installed"
         tree = Parser(grammar).parse(text.encode())
         assert not tree.root_node.has_error, f"{lang}: {relpath} does not parse cleanly"
@@ -116,15 +126,13 @@ def test_sample_edges_match_snapshot(sample: SampleData, snapshot_json: Snapshot
     assert render_edges(edges, chunks) == snapshot_json
 
 
-def test_sample_chunk_ids_deterministic(
-    sample: SampleData, language_manager: LanguageManager
-) -> None:
+def test_sample_chunk_ids_deterministic(sample: SampleData) -> None:
     """Re-extracting a sample yields identical chunk ids (no nondeterminism)."""
     lang, _kinds, files, chunks, _edges = sample
     again: list[Chunk] = []
     for relpath, text in files:
-        file_lang = language_manager.detect_language(relpath) or lang
-        again.extend(extract_chunks(file_lang, text, file_path=relpath))
+        file_lang = get_manager().detect_language(relpath) or lang
+        again.extend(extract_file(FileEntry(relpath, "sha1", text.encode()), file_lang))
     assert [c.id for c in again] == [c.id for c in chunks]
 
 
@@ -162,9 +170,7 @@ def test_sample_blob_sha_propagated(sample: SampleData) -> None:
     assert all(c.blob_sha == "sha1" for c in chunks)
 
 
-def test_sample_survives_syntax_error(
-    sample: SampleData, language_manager: LanguageManager
-) -> None:
+def test_sample_survives_syntax_error(sample: SampleData) -> None:
     """Appending garbage to any sample file still extracts valid parts.
 
     Tree-sitter error recovery (and each chunker's own tolerance) must keep
@@ -172,9 +178,9 @@ def test_sample_survives_syntax_error(
     """
     lang, _kinds, files, _chunks, _edges = sample
     for relpath, text in files:
-        file_lang = language_manager.detect_language(relpath) or lang
+        file_lang = get_manager().detect_language(relpath) or lang
         broken = text + "\n\x00\x00INVALID{{{[[\n"
-        assert extract_chunks(file_lang, broken, file_path=relpath), (
+        assert extract_file(FileEntry(relpath, "sha1", broken.encode()), file_lang), (
             f"{lang}: {relpath} yielded nothing under trailing garbage"
         )
 
@@ -189,5 +195,5 @@ def test_known_unsupported_construct(
     upgrade starts producing the ideal chunk the suite fails, prompting
     removal of the xfail and an update to the language's sample.
     """
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     assert expected in [(c.kind, c.name, c.scope) for c in chunks]

@@ -1,100 +1,97 @@
-"""SQL sample extraction tests.
+"""SQL sample extraction: the `samples/sql/` project through the real pipeline.
 
-The `sample` fixture runs the real pipeline over `samples/sql/` once and
-feeds the shared behavioural checks from `rbtr.languages.testkit`; the
-two snapshot comparisons stay inline (syrupy). The `sql_dialect` family
-documents how the single generic grammar handles each dialect.
+The snapshots are the golden record of what SQL extraction produces. The
+`dialect` tests document how the single generic grammar handles each major
+dialect. Engine-wide invariants are covered once in core.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from pytest_cases import fixture, parametrize_with_cases
 from tree_sitter import Parser
 
-from rbtr.languages import LanguageManager
-from rbtr.languages.testkit import (
-    SampleData,
-    assert_sample_blob_sha_propagated,
-    assert_sample_chunk_ids_deterministic,
-    assert_sample_content_nonempty,
-    assert_sample_emits_kinds,
-    assert_sample_line_numbers_positive,
-    assert_sample_non_import_metadata_empty,
-    assert_sample_parses_cleanly,
-    assert_sample_survives_syntax_error,
-    build_sample_data,
-    extract_chunks,
-    render_edges,
-)
-
-from .conftest import SAMPLES_DIR
+from rbtr.git import FileEntry
+from rbtr.index.edges import build_resolution_map, infer_import_edges
+from rbtr.index.models import Chunk, ChunkKind, Edge
+from rbtr.index.orchestrator import extract_file
+from rbtr.languages import get_manager
+from rbtr.languages.testing import render_edges
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
 
-@fixture
-@parametrize_with_cases("lang, expected_kinds", cases=".cases_samples", has_tag="sample")
-def sample(lang: str, expected_kinds: set) -> SampleData:
-    """Language id, expected kinds, project files, and extracted chunks + edges."""
-    return build_sample_data(SAMPLES_DIR, lang, expected_kinds)
+@pytest.fixture
+def project() -> list[tuple[str, str]]:
+    """The `(relative path, text)` files of the `samples/sql/` project."""
+    root = Path(__file__).parent / "samples" / "sql"
+    return [
+        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
+    ]
 
 
-def test_sample_emits_expected_kinds(sample: SampleData) -> None:
-    assert_sample_emits_kinds(sample)
+@pytest.fixture
+def chunks(project: list[tuple[str, str]]) -> list[Chunk]:
+    """Chunks from every project file, each via the real `extract_file`."""
+    manager = get_manager()
+    out: list[Chunk] = []
+    for path, text in project:
+        lang = manager.detect_language(path) or "sql"
+        out.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
+    return out
 
 
-def test_sample_parses_cleanly(sample: SampleData) -> None:
-    assert_sample_parses_cleanly(sample)
+@pytest.fixture
+def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
+    """Import edges inferred across the project's files."""
+    manager = get_manager()
+    repo_files = {path for path, _ in project}
+    return infer_import_edges(chunks, repo_files, build_resolution_map(manager))
 
 
-def test_sample_chunk_ids_deterministic(sample: SampleData) -> None:
-    assert_sample_chunk_ids_deterministic(sample)
+def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
+    """The sample exercises SQL's class, function, and variable chunks."""
+    kinds = {c.kind for c in chunks}
+    assert {ChunkKind.CLASS, ChunkKind.FUNCTION, ChunkKind.VARIABLE} <= kinds
 
 
-def test_sample_line_numbers_positive(sample: SampleData) -> None:
-    assert_sample_line_numbers_positive(sample)
+def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
+    """Every project file is valid source — no tree-sitter ERROR/MISSING nodes."""
+    manager = get_manager()
+    for path, text in project:
+        grammar = manager.load_grammar(manager.detect_language(path) or "sql")
+        assert grammar is not None
+        assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
 
 
-def test_sample_content_nonempty(sample: SampleData) -> None:
-    assert_sample_content_nonempty(sample)
-
-
-def test_sample_non_import_metadata_empty(sample: SampleData) -> None:
-    assert_sample_non_import_metadata_empty(sample)
-
-
-def test_sample_blob_sha_propagated(sample: SampleData) -> None:
-    assert_sample_blob_sha_propagated(sample)
-
-
-def test_sample_survives_syntax_error(sample: SampleData) -> None:
-    assert_sample_survives_syntax_error(sample)
-
-
-def test_sample_extraction_matches_snapshot(
-    sample: SampleData, snapshot_json: SnapshotAssertion
-) -> None:
-    """Extracted chunks match the committed golden snapshot."""
-    _lang, _kinds, _files, chunks, _edges = sample
+def test_extraction_matches_snapshot(chunks: list[Chunk], snapshot_json: SnapshotAssertion) -> None:
     assert chunks == snapshot_json
 
 
-def test_sample_edges_match_snapshot(sample: SampleData, snapshot_json: SnapshotAssertion) -> None:
-    """Import edges among the project's files match the golden snapshot."""
-    _lang, _kinds, _files, chunks, edges = sample
+def test_edges_match_snapshot(
+    chunks: list[Chunk], edges: list[Edge], snapshot_json: SnapshotAssertion
+) -> None:
     assert render_edges(edges, chunks) == snapshot_json
 
 
-@parametrize_with_cases("source, dialect", cases=".cases_samples", has_tag="sql_dialect")
+# ── SQL dialects ─────────────────────────────────────────────────────
+# rbtr ships one generic SQL grammar for all `.sql` files. These pin
+# current extraction per dialect; the parse-clean test is a strict-xfail
+# sentinel that fires when the grammar gains full support for a dialect.
+
+
+@pytest.mark.parametrize(
+    "dialect", ["sql_postgres", "sql_mysql", "sql_sqlite", "sql_duckdb", "sql_clickhouse"]
+)
 def test_sql_dialect_extraction_matches_snapshot(
-    source: str, dialect: str, snapshot_json: SnapshotAssertion
+    dialect: str, snapshot_json: SnapshotAssertion
 ) -> None:
     """Current extraction for each SQL dialect under the generic grammar."""
-    chunks = extract_chunks("sql", source, file_path=f"{dialect}.sql")
+    source = (Path(__file__).parent / "samples" / f"{dialect}.sql").read_text()
+    chunks = list(extract_file(FileEntry(f"{dialect}.sql", "sha1", source.encode()), "sql"))
     assert chunks == snapshot_json
 
 
@@ -102,12 +99,12 @@ def test_sql_dialect_extraction_matches_snapshot(
     reason="generic SQL grammar does not fully parse dialect-specific syntax",
     strict=True,
 )
-@parametrize_with_cases("source, dialect", cases=".cases_samples", has_tag="sql_dialect")
-def test_sql_dialect_parses_cleanly(
-    source: str, dialect: str, language_manager: LanguageManager
-) -> None:
+@pytest.mark.parametrize(
+    "dialect", ["sql_postgres", "sql_mysql", "sql_sqlite", "sql_duckdb", "sql_clickhouse"]
+)
+def test_sql_dialect_parses_cleanly(dialect: str) -> None:
     """Sentinel: flips to XPASS (failing) when a dialect parses cleanly."""
-    grammar = language_manager.load_grammar("sql")
+    source = (Path(__file__).parent / "samples" / f"{dialect}.sql").read_text()
+    grammar = get_manager().load_grammar("sql")
     assert grammar is not None
-    tree = Parser(grammar).parse(source.encode())
-    assert not tree.root_node.has_error
+    assert not Parser(grammar).parse(source.encode()).root_node.has_error

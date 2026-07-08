@@ -4,7 +4,7 @@ Two tag-separated families share this file:
 
 - `sample` — one case per language, returning `(lang, expected_kinds)`.
   The fixture loads the committed `samples/<lang>/` mini-project (one or
-  more files) via `load_project` and feeds both the chunk and edge
+  more files) from `samples/<lang>/` and feeds both the chunk and edge
   snapshots.
 - `unsupported` — constructs that *should* extract but do not yet;
   each is `xfail(strict=True)` and returns `(lang, snippet,

@@ -46,7 +46,6 @@ from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import _get_query, extract_symbols
 from rbtr.languages import LanguageManager, get_manager
 from rbtr.languages.hookspec import (
-    LanguageRegistration,
     build_import_from_captures,
     resolve_name,
     resolve_scope,
@@ -236,17 +235,22 @@ def extract_injections(
         )
 
 
-def _extract_file(entry: FileEntry, language: str, reg: LanguageRegistration | None) -> list[Chunk]:
+def extract_file(entry: FileEntry, language: str) -> list[Chunk]:
     """Extract a file's chunks, always including one in its own language.
 
-    Picks the primary strategy — a registered chunker, the tree-sitter query,
-    or plaintext line chunks — then adds any embedded-language injections (an
-    SFC's `<script>`/`<style>`) on top. If none of that produced a chunk in
-    the file's own *language*, a content-less host-presence chunk is appended
-    so the dedup gate can skip the file on later builds instead of re-parsing
-    it. The caller handles blob dedup and deletes stale chunks first.
+    The per-file extraction entry point: the indexer calls this for every
+    file, and it is public so plugin tests (and third-party language
+    packages) drive the *real* pipeline rather than a copy. Given a file's
+    content and language it picks the primary strategy — a registered
+    chunker, the tree-sitter query, or plaintext line chunks — then adds
+    any embedded-language injections (an SFC's `<script>`/`<style>`) on
+    top. If none of that produced a chunk in the file's own *language*, a
+    content-less host-presence chunk is appended so the dedup gate can skip
+    the file on later builds instead of re-parsing it. The caller handles
+    blob dedup and deletes stale chunks first.
     """
     text = entry.content.decode(errors="replace")
+    reg = get_manager().get_registration(language)
     has_injection = reg is not None and reg.injection_query is not None
 
     primary = extract_primary(language, entry.path, entry.blob_sha, entry.content)
@@ -357,7 +361,7 @@ def _extract_and_store_chunks(
                     # have changed, producing different chunk IDs).
                     session.delete_chunks_for_blobs({entry.blob_sha})
                     file_has_chunks = False
-                    for chunk in _extract_file(entry, detected_lang, reg):
+                    for chunk in extract_file(entry, detected_lang):
                         tokenised = TokenisedChunk(
                             **chunk.model_dump(),
                             content_tokens=tokenise_code(chunk.content),
