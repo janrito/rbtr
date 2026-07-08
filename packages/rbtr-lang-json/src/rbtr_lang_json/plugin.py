@@ -1,14 +1,15 @@
 """JSON language plugin.
 
 Splits JSON by top-level keys in the root object via a
-tree-sitter query. Non-object JSON (arrays, scalars) produces
-no structural chunks and falls through to plaintext.
+tree-sitter query, one config-key chunk per key. Non-object JSON
+(arrays, scalars) produces no structural chunks and falls through
+to plaintext.
 
 Extracted chunks::
 
-    {                               → doc_section "name", scope ""
-      "name": "my-project",         → doc_section "version", scope ""
-      "version": "1.0.0",           → doc_section "dependencies", scope ""
+    {                               → config_key "name", scope ""
+      "name": "my-project",         → config_key "version", scope ""
+      "version": "1.0.0",           → config_key "dependencies", scope ""
       "dependencies": { ... }
     }
 """
@@ -24,4 +25,5 @@ json = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "json"),
     ),
+    language_plugin_version=2,
 )

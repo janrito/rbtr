@@ -22,6 +22,7 @@ NAME_CAPTURE_KEY: dict[str, str] = {
     "class": "_cls_name",
     "variable": "_var_name",
     "doc_section": "_section_name",
+    "config_key": "_section_name",
 }
 """Maps a structural capture name to its paired `@_*_name` helper capture."""
 

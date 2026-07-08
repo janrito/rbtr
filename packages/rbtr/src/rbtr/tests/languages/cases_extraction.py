@@ -116,34 +116,6 @@ type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 # ── Mixed ────────────────────────────────────────────────────────────
 
 
-# ═════════════════════��════════════════════════════════════��══════════
-# JSON
-# ════════════════════════════════════════════════���════════════════════
-
-
-@case(tags=["symbol"])
-def case_json_top_level_keys() -> SymbolCase:
-    """JSON splits by top-level keys."""
-    src = """\
-{
-  "name": "my-project",
-  "version": "1.0.0",
-  "dependencies": {
-    "foo": "^1.0"
-  }
-}
-"""
-    return (
-        "json",
-        src,
-        [
-            ("doc_section", "name", ""),
-            ("doc_section", "version", ""),
-            ("doc_section", "dependencies", ""),
-        ],
-    )
-
-
 # ══════════════════════════════════════════════════��══════════════════
 # TOML
 # ════════════��════════════════════════════════════════════════════════

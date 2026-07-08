@@ -40,7 +40,6 @@ dependencies = [
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
   "tree-sitter-hcl",
-  "tree-sitter-json",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
   "tree-sitter-query",
   "tree-sitter-svelte",
@@ -62,7 +61,6 @@ rbtr = "rbtr.testing"
 # into their own packages, their entry point moves to that package's pyproject.
 [project.entry-points."rbtr.languages"]
 hcl = "rbtr.languages.hcl.plugin:hcl"
-json = "rbtr.languages.json.plugin:json"
 query = "rbtr.languages.query.plugin:query"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
@@ -75,6 +73,7 @@ yaml = "rbtr.languages.yaml.plugin:yaml"
 css = ["rbtr-lang-css"]
 go = ["rbtr-lang-go"]
 java = ["rbtr-lang-java"]
+json = ["rbtr-lang-json"]
 less = ["rbtr-lang-less"]
 ruby = ["rbtr-lang-ruby"]
 rust = ["rbtr-lang-rust"]
@@ -102,6 +101,7 @@ rbtr-lang-go = { workspace = true }
 rbtr-lang-html = { workspace = true }
 rbtr-lang-java = { workspace = true }
 rbtr-lang-javascript = { workspace = true }
+rbtr-lang-json = { workspace = true }
 rbtr-lang-less = { workspace = true }
 rbtr-lang-markdown = { workspace = true }
 rbtr-lang-python = { workspace = true }

@@ -72,17 +72,6 @@ def case_query() -> SampleCase:
     )
 
 
-@case(id="json", tags=["sample"])
-def case_json() -> SampleCase:
-    """JSON: every object key becomes a doc section, including nested keys
-    (the query matches all pairs; keys are flat, with no scope).
-    """
-    return (
-        "json",
-        {ChunkKind.DOC_SECTION},
-    )
-
-
 @case(id="svelte", tags=["sample"])
 def case_svelte() -> SampleCase:
     """Svelte SFC: the `<script lang="ts">` block is delegated to TypeScript

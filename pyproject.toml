@@ -115,6 +115,7 @@ packages = [
   "rbtr_lang_html",
   "rbtr_lang_java",
   "rbtr_lang_javascript",
+  "rbtr_lang_json",
   "rbtr_lang_markdown",
   "rbtr_lang_python",
   "rbtr_lang_rst",
