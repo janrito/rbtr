@@ -165,7 +165,6 @@ def queries_for_symbol(
                 extraction.query,
                 scope_types=extraction.scope_types,
                 class_scope_types=extraction.class_scope_types,
-                doc_comment_node_types=extraction.doc_comment_node_types,
             ):
                 doc_bytes = b"\n".join(content_bytes[s:e] for s, e in span.ranges)
                 doc_text = first_sentence(doc_bytes.decode("utf-8", errors="replace"))

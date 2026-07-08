@@ -244,16 +244,16 @@ def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
 
 
 def _build_file_chunks_index(chunks: list[Chunk]) -> dict[str, list[Chunk]]:
-    """Map `file_path` → all non-import chunks in that file.
+    """Map `file_path` → all importable chunks in that file.
 
     Used for bare/whole-file imports where the entire file is
-    brought into scope.  IMPORT chunks are excluded — they
-    describe the file's own dependencies, not content that
-    importers depend on.
+    brought into scope.  IMPORT and COMMENT chunks are excluded —
+    an import describes the file's own dependencies, and a comment
+    is prose, not content that importers depend on.
     """
     index: dict[str, list[Chunk]] = {}
     for c in chunks:
-        if c.kind != ChunkKind.IMPORT:
+        if c.kind not in (ChunkKind.IMPORT, ChunkKind.COMMENT):
             index.setdefault(c.file_path, []).append(c)
     return index
 

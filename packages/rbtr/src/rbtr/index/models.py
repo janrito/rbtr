@@ -24,6 +24,7 @@ class ChunkKind(StrEnum):
     IMPORT = "import"
     DOC_SECTION = "doc_section"
     CONFIG_KEY = "config_key"
+    COMMENT = "comment"
     MIGRATION = "migration"
     TEST_FUNCTION = "test_function"
     API_ENDPOINT = "api_endpoint"

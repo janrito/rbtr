@@ -145,9 +145,6 @@ class QueryExtraction:
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` that is class-like — a function directly inside
     one is promoted to a method. Defaults to `scope_types` when unset."""
-    doc_comment_node_types: frozenset[str] = frozenset()
-    """AST node types treated as leading documentation, folded into a symbol's
-    span (walked back to a blank line). Empty → span is exactly the symbol."""
 
     def __post_init__(self) -> None:
         if not self.class_scope_types:
