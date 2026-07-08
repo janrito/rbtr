@@ -565,7 +565,7 @@ fall back to the engine defaults.
 ### Testing the plugin
 
 Tests exercise the **real** extraction pipeline: they call
-`rbtr.index.orchestrator.extract_file` — the same per-file entry point
+`rbtr.languages.extract.extract_file` — the same per-file entry point
 the indexer uses — so there is no test-only code path. The `rbtr[test]`
 extra (in your `dev` group) provides `syrupy` and `pytest-cases`. Lay
 the tests out beside the code:
@@ -599,7 +599,7 @@ def case_function() -> SymbolCase:
 # test_extraction.py
 from pytest_cases import parametrize_with_cases
 from rbtr.git import FileEntry
-from rbtr.index.orchestrator import extract_file
+from rbtr.languages.extract import extract_file
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(lang, source, expected):
@@ -616,7 +616,7 @@ against drift:
 # test_samples.py
 from pathlib import Path
 from rbtr.git import FileEntry
-from rbtr.index.orchestrator import extract_file
+from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 
 def test_extraction_matches_snapshot(snapshot_json):

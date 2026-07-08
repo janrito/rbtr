@@ -176,30 +176,30 @@ embeddings are absent.
 
 ### Extraction call flow
 
-The tree-sitter path - the most common case - follows
-this call chain:
+The tree-sitter path - the most common case. The build loop calls
+`extract_file` (`rbtr.languages.extract`), which dispatches via
+`extract_primary` → `extract_query` to `extract_symbols`
+(`rbtr.languages.treesitter`); that call chain:
 
 ```mermaid
 sequenceDiagram
-    participant O as orchestrator
+    participant O as build loop
     participant M as LanguageManager
     participant S as IndexStore
-    participant T as treesitter.extract_symbols
-    participant E as import_extractor
+    participant T as languages.treesitter
 
     O->>M: detect_language(path)
     M-->>O: lang_id (else stored detected_language / prose sniff)
     O->>M: get_registration(lang_id)
-    M-->>O: reg (query, import_extractor, scope_types, language_plugin_version, ...)
+    M-->>O: reg (extraction: QueryExtraction, resolve_* overrides, id, plugin_version, ...)
     O->>S: has_blob(sha, language, language_plugin_version)
     S-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
     O->>M: load_grammar(lang_id)
     M-->>O: grammar
-    O->>T: extract_symbols(path, sha, content, grammar, query, import_extractor=...)
-    T->>T: parse + run query
+    O->>T: extract_symbols(reg, path, sha, content, grammar)
+    T->>T: parse + run reg.extraction.query
     loop each @import match
-        T->>E: import_extractor(node, captures)
-        E-->>T: ImportMeta
+        T->>T: reg.resolve_import(node, captures) -> ImportMeta
     end
     T-->>O: Iterator[Chunk]
 ```
@@ -752,6 +752,16 @@ Log behaviour is asserted on captured event dicts via
 
 ## Language decomposition
 
+The extraction engine lives in `rbtr.languages`, beside the
+`LanguageRegistration` contract and the manager that runs it: `treesitter`
+(query execution and doc-span recovery), `extract` (per-file strategy dispatch
+and injection), `edges` (import/doc inference), and `chunks` (the plaintext
+fallback). `rbtr.index` depends on `languages` in just two places — the build
+loop, which composes extraction with storage, and `classify`, which reuses the
+language registry for search — while `languages` reaches back only for the
+shared `models` and `identity` leaves, so the dependency stays
+one-directional.
+
 Each file is routed to one of three extraction strategies
 by the language plugin:
 
@@ -1089,7 +1099,8 @@ capture conventions), see
 
 ### Dispatch chain
 
-`_extract_file` builds each file's chunks in this order:
+`extract_file` (`rbtr.languages.extract`) builds each file's chunks in this
+order:
 
 1. **Primary extraction** - a registered `chunker` if the
    language has one (`chunker(path, sha, content, grammar,
@@ -1180,7 +1191,7 @@ distribution:
   `rbtr.languages._resolvers`.)
 - `rbtr.index.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
 - `rbtr.index.identity.make_chunk_id`.
-- `rbtr.index.chunks.chunk_plaintext`.
+- `rbtr.languages.chunks.chunk_plaintext`.
 
 One dependency crosses *between* plugins rather than to core:
 scss and less import `css_nesting_scope` from the css plugin
@@ -1634,7 +1645,7 @@ embedding model. Tests never touch real data or load the
 fixtures — `index/conftest.py` has git repos, ranking
 dataset, named chunks; `daemon/conftest.py` has seeded
 stores and running servers) → case files (scenarios via
-pytest-cases, e.g. `case_edges.py`, `case_fuse.py`).
+pytest-cases, e.g. `cases_edges.py`, `cases_fuse.py`).
 
 **Real infrastructure, not mocks.** Index tests create
 real `pygit2` repositories with deliberate data shapes.

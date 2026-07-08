@@ -146,8 +146,8 @@ change — the `language_plugin_version` bump rule (below) applies.
 
 ## Capture conventions
 
-The query's capture names drive the chunk kind (see `_CAPTURE_KIND` in
-`index/treesitter.py`):
+The query's capture names drive the chunk kind (see `_CAPTURE_KINDS` in
+`languages/treesitter.py`):
 
 - `@function` / `@_fn_name` — functions
 - `@class` / `@_cls_name` — classes, structs, enums, traits, types

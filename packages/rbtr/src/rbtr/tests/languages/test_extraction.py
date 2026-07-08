@@ -220,7 +220,7 @@ a, b = compute()
 
 
 def test_unknown_capture_name_ignored() -> None:
-    """Captures not in _CAPTURE_KIND are silently skipped."""
+    """Captures not in _CAPTURE_KINDS are silently skipped."""
     grammar = get_manager().load_grammar("python")
     assert grammar is not None
     query_unknown = """\
