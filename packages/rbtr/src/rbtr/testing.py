@@ -1,17 +1,20 @@
-"""Reusable tools for language-plugin tests.
+"""Shipped test tools for rbtr and its language plugins.
 
-Two things a plugin test suite (in- or out-of-tree) can't easily
-re-derive: a pydantic-aware snapshot serialiser and a readable edge
-renderer. Everything else — running extraction, loading samples — is
-plain setup that belongs in each suite's own fixtures, calling the
-production `rbtr.index.orchestrator.extract_file` directly.
+Two things a test suite (in- or out-of-tree) can't easily re-derive: a
+pydantic-aware snapshot serialiser and a readable edge renderer, both keyed
+off `rbtr.index.models`. Everything else — running extraction, loading
+samples — is plain setup that belongs in each suite's own fixtures, calling
+`rbtr.index.orchestrator.extract_file` directly.
 
 Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
 `snapshot_json` fixture, so every plugin test suite gets it with no conftest
 boilerplate.
 
-Public API, but shipped only under the `rbtr[test]` extra (it imports `syrupy`
-and `pytest`), so a plain `import rbtr` never pulls it.
+Always shipped (a normal module); it imports `syrupy` and `pytest`, so it is
+only *importable* with the `rbtr[test]` extra installed — exactly the test
+context that uses it. `render_edges` is a projection feeding a snapshot
+assertion; keep it a projection — do not fold it into an `assert_*` helper,
+which would hide syrupy's snapshot comparison.
 """
 
 from __future__ import annotations

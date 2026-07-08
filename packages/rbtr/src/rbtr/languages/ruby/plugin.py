@@ -27,10 +27,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,
+    QueryExtraction,
+    load_query,
     parse_path_relative,
 )
 
@@ -85,12 +86,14 @@ ruby = LanguageRegistration(
     id="ruby",
     extensions=frozenset({".rb"}),
     grammar_module="tree_sitter_ruby",
-    query=load_query(__package__, "ruby"),
-    scope_types=frozenset({"class", "module"}),
-    # Ruby convention: `#` runs above a `def` or
-    # `class` document it.  Single `comment` node
-    # type.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "ruby"),
+        scope_types=frozenset({"class", "module"}),
+        # Ruby convention: `#` runs above a `def` or
+        # `class` document it.  Single `comment` node
+        # type.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     source_roots=("", "lib"),
     language_plugin_version=4,
 )

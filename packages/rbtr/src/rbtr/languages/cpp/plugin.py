@@ -21,8 +21,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 # ── Query ────────────────────────────────────────────────────────────
 
@@ -34,11 +33,13 @@ cpp = LanguageRegistration(
     id="cpp",
     extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
     grammar_module="tree_sitter_cpp",
-    query=load_query(__package__, "cpp"),
-    scope_types=frozenset({"class_specifier", "struct_specifier", "namespace_definition"}),
-    class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
-    # Same grammar as C — single `comment` node.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "cpp"),
+        scope_types=frozenset({"class_specifier", "struct_specifier", "namespace_definition"}),
+        class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
+        # Same grammar as C — single `comment` node.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     source_roots=("", "include", "src"),
     language_plugin_version=5,
 )

@@ -30,8 +30,8 @@ from rbtr.git import FileEntry
 from rbtr.index.models import ChunkKind, ImportMeta
 from rbtr.index.orchestrator import extract_file
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import get_manager
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.manager import get_manager
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ def test_anonymous_chunk_when_name_capture_missing() -> None:
 def hello():
     pass
 """
-    reg = LanguageRegistration(id="faketest", query=query_no_name)
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query_no_name))
     chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
     assert len(chunks) >= 1
     assert chunks[0].name == "<anonymous>"
@@ -164,7 +164,7 @@ def test_scope_extractor_owns_scope_address() -> None:
     assert grammar is not None
     query = "(function_definition name: (identifier) @_fn_name) @function\n"
     src = b"def hello():\n    pass\n"
-    reg = LanguageRegistration(id="faketest", query=query)
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
     reg.scope_extractor(lambda _resolver, _cap, _node, _caps: ["a", "b"])
     chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
     assert len(chunks) == 1
@@ -235,7 +235,7 @@ def f():
 class C:
     pass
 """
-    reg = LanguageRegistration(id="faketest", query=query_unknown)
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query_unknown))
     chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
     kinds = {c.kind for c in chunks}
     assert "function" in kinds

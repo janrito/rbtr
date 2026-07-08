@@ -762,13 +762,20 @@ by the language plugin:
 - **Plaintext fallback** - fixed-size overlapping line
   chunks.
 
+The first two are a discriminated union on the registration's
+`extraction` field (`QueryExtraction` | `ChunkExtraction` | `None`),
+so a file has exactly one primary strategy — "query and chunker both
+set" is unrepresentable — and `extract_primary` dispatches by type.
+Injection (`injection_query`) is orthogonal and runs in addition.
+
 Scope addressing: each chunk's `scope` is the full path of its
 enclosing named scopes, outermost-first, joined by `::` (e.g.
 `Outer::Inner`, `make_adder::handler`), composed by walking the
-parse tree's scope-bearing nodes (per the plugin's `scope_types`);
-Markdown/RST compose their heading hierarchy the same way. A
-function becomes a `METHOD` only when its nearest enclosing scope
-is class-like (`class_scope_types`), so a closure inside a function
+parse tree's scope-bearing nodes (per the plugin's
+`QueryExtraction.scope_types`); Markdown/RST compose their heading
+hierarchy the same way. A function becomes a `METHOD` only when its
+nearest enclosing scope is class-like
+(`QueryExtraction.class_scope_types`), so a closure inside a function
 or method stays a function.
 
 Variable chunks cover module-level bindings only; class
@@ -776,8 +783,8 @@ attributes and function-locals stay within their enclosing
 chunk.
 
 Leading documentation: a tree-sitter plugin may list
-`doc_comment_node_types` (the comment node kinds that count as
-docs). When set, `extract_symbols` extends a symbol's chunk
+`QueryExtraction.doc_comment_node_types` (the comment node kinds that
+count as docs). When set, `extract_symbols` extends a symbol's chunk
 upwards to cover the consecutive doc-comment nodes immediately
 above it (up to a blank-line boundary), so a chunk carries its
 own documentation; plugins that leave it empty get the bare
@@ -1166,11 +1173,11 @@ distribution:
   (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
   capture/import helpers `collect_scoped_path`,
   `enclosing_nodes_of_type`, `build_quoted_import`,
-  `parse_path_relative`. (Overrides receive the built-in
-  `default_name` / `default_scope` / `default_import` as their wrap
-  resolver argument, so plugins no longer import the defaults.)
-- `rbtr.languages.queries.load_query` — loads the plugin's
-  co-located `.scm` query as package data.
+  `parse_path_relative`, and `load_query` (loads a plugin's co-located
+  `.scm` query as package data). (Overrides receive the built-in resolver
+  as their wrap `resolver` argument and delegate to it, so plugins never
+  import the built-ins; those built-ins live in the private
+  `rbtr.languages._resolvers`.)
 - `rbtr.index.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
 - `rbtr.index.identity.make_chunk_id`.
 - `rbtr.index.chunks.chunk_plaintext`.

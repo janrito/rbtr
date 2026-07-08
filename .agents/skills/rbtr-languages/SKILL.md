@@ -89,7 +89,7 @@ three:
    (svelte, vue). The chunker owns extraction. It takes an optional `ranges`
    and must set `parser.included_ranges` when given it, so it can also serve
    as an injection target for an embedded block (see below).
-2. **Query** — `reg.grammar_module` + `reg.query`: code, plus config/data
+2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
    whose scope a query can express (python, rust, …, json, css, html, toml,
    yaml, hcl, query). Goes through `extract_symbols`.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
@@ -101,8 +101,8 @@ three:
 `extract_symbols` is the query engine: *parse → run query → captures →
 `Chunk`s*. It takes the `LanguageRegistration` and delegates naming,
 scoping, and imports to it (`reg.resolve_name` / `resolve_scope` /
-`resolve_import`), each applying the language's wrap-style override or the
-built-in default (`default_name` / `default_scope` / `default_import`).
+`resolve_import`), each calling the language's resolver — the built-in, or an
+override composed over it.
 
 **Injection (embedded languages)** is an orthogonal capability that runs *in
 addition* to the primary path. To extract code embedded in a host file (an
@@ -129,10 +129,10 @@ ARCHITECTURE “Dispatch chain” for the mechanism and rationale.
 
 ### Where queries live
 
-Every query — `reg.query`, `reg.injection_query`, and any query a chunker
+Every query — `reg.extraction.query`, `reg.injection_query`, and any query a chunker
 compiles — is a `.scm` file co-located in the plugin package
 (`rbtr_lang_<lang>/<name>.scm`), loaded at import via `load_query` (import
-it: `from rbtr.languages.queries import load_query`; call it:
+it: `from rbtr.languages.registration import load_query`; call it:
 `load_query(__package__, "<name>")`). Never inline a query as a Python
 string literal (the house rule against embedding a foreign language). The
 `uv` build backend ships `.scm` as package data with no extra config.
@@ -164,19 +164,19 @@ The query's capture names drive the chunk kind (see `_CAPTURE_KIND` in
 Capture names starting with `_` are read but never become chunks.
 
 The display name comes from the paired `@_*_name` capture via the built-in
-`default_name`. When a query cannot express the name, attach a
+name resolver. When a query cannot express the name, attach a
 `name_extractor` — `@reg.name_extractor` for a single-use local override,
 or `reg.name_extractor(fn)` for a shared/imported one — as a **last
 resort**. It is wrap-style (pydantic `WrapValidator` shape): signature
 `(resolver, capture_name, node, captures) -> str`, where `resolver` is the
-built-in `default_name`; call it to delegate the cases you don't
-special-case, exactly as an `import_extractor` receives `default_import`.
-Bash strips the `=` the grammar fuses onto an alias; HTML names an element
-by its `id`, else its tag.
+built-in resolver handed in; call it to delegate the cases you don't
+special-case, exactly as an `import_extractor` receives the built-in import
+resolver. Bash strips the `=` the grammar fuses onto an alias; HTML names an
+element by its `id`, else its tag.
 
 The scope address comes from tree ancestry (`scope_types`, below) plus the
-`scope_extractor` — the scope twin of `name_extractor`, whose built-in is
-`default_scope` (which contributes the `@_scope` capture). Attach a custom
+`scope_extractor` — the scope twin of `name_extractor`, whose built-in
+resolver contributes the `@_scope` capture. Attach a custom
 one the same way (wrap-style signature
 `(resolver, capture_name, node, captures) -> list[str]`, outermost-first)
 as a **last resort**, for a hierarchy neither ancestry nor `@_scope` can
@@ -203,8 +203,8 @@ reach; its segments are appended to the ancestry scope. Two real cases:
 
 ## Scope, promotion, docs (engine layers — already generic)
 
-Set on `LanguageRegistration`; `extract_symbols` applies them to every
-captured node, so they work for any language:
+Set on the language's `QueryExtraction` (the `extraction` field);
+`extract_symbols` applies them to every captured node:
 
 - `scope_types` — node types that open a naming scope; composed into the
   `::` address. Include nesting containers (classes, namespaces, modules,
@@ -270,8 +270,9 @@ itself a tree-sitter query, so it is **inspiration for ours, not a drop-in**:
 - Running it live would couple extraction to upstream drift. We don't.
 
 Distinct from **rbtr's own** `.scm` files (see *Where queries live*): we load
-those at runtime (`reg.query` / `injection_query`) as the source of truth,
-whereas `tags.scm` we only mine for ideas. And the `query` plugin now
+those at runtime (`reg.extraction.query` / `reg.injection_query`) as the
+source of truth, whereas `tags.scm` we only mine for ideas. And the `query`
+plugin now
 *indexes* `.scm` files found in a repo — including third-party `tags.scm` /
 `highlights.scm` / `injections.scm` — as content, orthogonal to whether we
 run them.

@@ -25,11 +25,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,
     ModuleStyle,
+    QueryExtraction,
+    load_query,
 )
 
 if TYPE_CHECKING:
@@ -105,9 +106,11 @@ python = LanguageRegistration(
     id="python",
     extensions=frozenset({".py", ".pyi"}),
     grammar_module="tree_sitter_python",
-    query=load_query(__package__, "python"),
-    scope_types=frozenset({"class_definition", "function_definition"}),
-    class_scope_types=frozenset({"class_definition"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "python"),
+        scope_types=frozenset({"class_definition", "function_definition"}),
+        class_scope_types=frozenset({"class_definition"}),
+    ),
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
     module_style=ModuleStyle.DOTTED,

@@ -14,7 +14,7 @@ from rbtr.index.models import ChunkKind, EdgeKind, IndexResult, Snapshot
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
 from rbtr.index.treesitter import _get_query
-from rbtr.languages import get_manager
+from rbtr.languages.manager import get_manager
 
 
 @pytest.fixture(scope="module")

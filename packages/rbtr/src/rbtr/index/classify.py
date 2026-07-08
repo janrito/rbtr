@@ -22,7 +22,7 @@ import re
 from functools import cache
 
 from rbtr.index.models import QueryKind
-from rbtr.languages import get_manager
+from rbtr.languages.manager import get_manager
 
 _CONCEPT_MIN_WORDS = 3
 _CODE_THRESHOLD = 2

@@ -15,12 +15,13 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 json = LanguageRegistration(
     id="json",
     extensions=frozenset({".json"}),
     grammar_module="tree_sitter_json",
-    query=load_query(__package__, "json"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "json"),
+    ),
 )

@@ -18,7 +18,8 @@ from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
 from rbtr.index.identity import compose_scope
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.registration import NAME_CAPTURE_KEY
+from rbtr.languages._resolvers import NAME_CAPTURE_KEY
+from rbtr.languages.registration import QueryExtraction
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -261,10 +262,10 @@ def extract_symbols(
     - `@doc_section` / `@_section_name` → `ChunkKind.DOC_SECTION`
 
     Import metadata is built by `registered_language.resolve_import`,
-    which applies the language's import override or the built-in
-    `default_import` (reads `@_import_module`, `@_import_names`, and
-    `@_import_dots` from the captures and strips delimiters).  Languages
-    with richer import structures (Python, JS/TS, Rust) provide
+    which calls the language's import resolver — the built-in (reads
+    `@_import_module`, `@_import_names`, and `@_import_dots` from the
+    captures and strips delimiters), or an override composed over it.
+    Languages with richer import structures (Python, JS/TS, Rust) provide
     their own extractor that reads captures first, then walks
     the node for what the query can't express.
 
@@ -273,9 +274,9 @@ def extract_symbols(
 
     Parameters:
         registered_language:    The language's registration — supplies the
-                                query, scope types, and the name/scope/import
-                                resolution (override-or-default) plus the id
-                                stamped on each chunk.
+                                `QueryExtraction` (query + scope config), the
+                                name/scope/import resolution (override-or-
+                                default), and the id stamped on each chunk.
         file_path:              Repo-relative path for chunk IDs.
         blob_sha:               Git blob SHA for dedup.
         content:                Raw file bytes.
@@ -291,11 +292,12 @@ def extract_symbols(
                                 positions. `None` parses the whole
                                 content.
     """
-    query_str = registered_language.query
-    if not content or query_str is None:
+    extraction = registered_language.extraction
+    if not content or not isinstance(extraction, QueryExtraction):
         return
+    query_str = extraction.query
     doc_types = (
-        registered_language.doc_comment_node_types
+        extraction.doc_comment_node_types
         if doc_comment_node_types is None
         else doc_comment_node_types
     )
@@ -323,7 +325,7 @@ def extract_symbols(
                     meta = registered_language.resolve_import(node, capture_dict)
 
                 scope_names, nearest_is_class = _enclosing_scope_names(
-                    node, registered_language.scope_types, registered_language.class_scope_types
+                    node, extraction.scope_types, extraction.class_scope_types
                 )
                 # The scope override's segments extend the tree-ancestry
                 # scope; the default contributes the `@_scope` capture.

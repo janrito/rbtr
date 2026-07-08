@@ -21,17 +21,20 @@ Extracted chunks::
 from __future__ import annotations
 
 from rbtr.languages.css.plugin import css_nesting_scope
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     LanguageRegistration,
+    QueryExtraction,
     build_quoted_import,
+    load_query,
 )
 
 scss = LanguageRegistration(
     id="scss",
     extensions=frozenset({".scss"}),
     grammar_module="tree_sitter_scss",
-    query=load_query(__package__, "scss"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "scss"),
+    ),
     import_targets=frozenset({"css", "scss", "less"}),
     language_plugin_version=1,
 )

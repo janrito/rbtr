@@ -20,8 +20,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration, NameResolver
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    NameResolver,
+    QueryExtraction,
+    load_query,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -47,9 +51,11 @@ bash = LanguageRegistration(
         }
     ),
     grammar_module="tree_sitter_bash",
-    query=load_query(__package__, "bash"),
-    # Bash: `#` comments above a function attach.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "bash"),
+        # Bash: `#` comments above a function attach.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     language_plugin_version=3,
 )
 
