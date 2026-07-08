@@ -18,6 +18,7 @@ members = [
     "rbtr-lang-html",
     "rbtr-lang-javascript",
     "rbtr-lang-less",
+    "rbtr-lang-python",
     "rbtr-lang-scss",
     "rbtr-lang-sql",
 ]
@@ -3228,6 +3229,7 @@ dependencies = [
     { name = "rbtr-lang-bash" },
     { name = "rbtr-lang-html" },
     { name = "rbtr-lang-javascript" },
+    { name = "rbtr-lang-python" },
     { name = "rich" },
     { name = "rich-argparse" },
     { name = "structlog" },
@@ -3240,7 +3242,6 @@ dependencies = [
     { name = "tree-sitter-json" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-markdown" },
-    { name = "tree-sitter-python" },
     { name = "tree-sitter-query" },
     { name = "tree-sitter-rst" },
     { name = "tree-sitter-ruby" },
@@ -3297,6 +3298,7 @@ requires-dist = [
     { name = "rbtr-lang-html", editable = "packages/rbtr-lang-html" },
     { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
     { name = "rbtr-lang-less", marker = "extra == 'less'", editable = "packages/rbtr-lang-less" },
+    { name = "rbtr-lang-python", editable = "packages/rbtr-lang-python" },
     { name = "rbtr-lang-scss", marker = "extra == 'scss'", editable = "packages/rbtr-lang-scss" },
     { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
     { name = "rich", specifier = ">=13.0" },
@@ -3312,7 +3314,6 @@ requires-dist = [
     { name = "tree-sitter-json" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-markdown" },
-    { name = "tree-sitter-python" },
     { name = "tree-sitter-query" },
     { name = "tree-sitter-rst" },
     { name = "tree-sitter-ruby" },
@@ -3502,6 +3503,29 @@ requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "rbtr-lang-css", editable = "packages/rbtr-lang-css" },
     { name = "tree-sitter-less" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-python"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-python" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-python" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-python" },
 ]
 
 [package.metadata.requires-dev]

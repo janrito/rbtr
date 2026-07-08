@@ -24,24 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="python", tags=["sample"])
-def case_python() -> SampleCase:
-    """Python: sync/async/decorated functions, classes, methods
-    (instance/property/static/class), module variables incl. tuple
-    unpacking, and aliased/relative imports with docstrings.
-    """
-    return (
-        "python",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 @case(id="go", tags=["sample"])
 def case_go() -> SampleCase:
     """Go: functions, methods (functions with a receiver, scoped to the

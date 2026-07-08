@@ -111,6 +111,7 @@ packages = [
   "rbtr_lang_css",
   "rbtr_lang_html",
   "rbtr_lang_javascript",
+  "rbtr_lang_python",
   "rbtr_lang_less",
   "rbtr_lang_scss",
   "rbtr_lang_sql",
