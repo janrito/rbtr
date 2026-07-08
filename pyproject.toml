@@ -1,10 +1,8 @@
 [tool.uv.workspace]
-members = [
-  "packages/rbtr",
-  "packages/rbtr-eval",
-  "packages/rbtr-lang-bash",
-  "packages/rbtr-lang-sql",
-]
+# Glob so new packages/rbtr-lang-* auto-join the workspace. pi-rbtr is a
+# TypeScript package (no pyproject.toml), so it is not a uv/Python member.
+members = ["packages/*"]
+exclude = ["packages/pi-rbtr"]
 
 # -- ruff --
 
@@ -125,12 +123,9 @@ warn_unused_configs = true
 # -- Pytest & Coverage --
 
 [tool.pytest.ini_options]
-testpaths = [
-  "packages/rbtr/src/rbtr/tests",
-  "packages/rbtr-eval/src/rbtr_eval/tests",
-  "packages/rbtr-lang-bash/src/rbtr_lang_bash/tests",
-  "packages/rbtr-lang-sql/src/rbtr_lang_sql/tests",
-]
+# Recurse packages/ so new packages' tests are collected automatically.
+# pytest's default norecursedirs skips node_modules/venv (e.g. pi-rbtr's).
+testpaths = ["packages"]
 minversion = "6.0"
 addopts = ["--strict-markers", "--import-mode=importlib", "-n", "auto"]
 filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
