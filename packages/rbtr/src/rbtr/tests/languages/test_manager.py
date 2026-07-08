@@ -6,11 +6,14 @@ retrieval, and import extraction delegation.
 
 from __future__ import annotations
 
+import importlib.metadata
+from collections.abc import Iterator
+
 import pluggy
 import pytest
 from tree_sitter import Query
 
-from rbtr.languages import LanguageManager
+from rbtr.languages import LanguageManager, get_manager, reset_manager
 from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
 
 # ── detect_language ──────────────────────────────────────────────────
@@ -310,3 +313,97 @@ def test_duplicate_id_in_single_plugin_raises() -> None:
 
     with pytest.raises(ValueError, match="duplicate language id"):
         mgr._collect()
+
+
+# ── Entry-point registration & precedence ────────────────────────
+
+
+class _EntryPointPlugin:
+    @hookimpl
+    def rbtr_register_languages(self) -> list[LanguageRegistration]:
+        return [LanguageRegistration(id="entrypoint_fake", extensions=frozenset({".epfake"}))]
+
+
+# Module-level so the synthetic entry point below can resolve it via
+# `module:attr` (production shape: `load_setuptools_entrypoints` does
+# `getattr(import_module(module), attr)`), not test data.
+ENTRY_POINT_PLUGIN = _EntryPointPlugin()
+
+
+def test_entrypoint_plugin_is_discovered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A plugin exposed via the `rbtr.languages` entry-point group is registered.
+
+    Drives the exact path the manager uses (`load_setuptools_entrypoints`)
+    by injecting a synthetic distribution, so it proves the load-bearing
+    discovery mechanism the whole packaging split depends on.
+    """
+    ep = importlib.metadata.EntryPoint(
+        name="entrypoint_fake",
+        value=f"{__name__}:ENTRY_POINT_PLUGIN",
+        group="rbtr.languages",
+    )
+
+    class _FakeDist:
+        entry_points = (ep,)
+
+    real_distributions = importlib.metadata.distributions
+
+    def fake_distributions() -> Iterator[object]:
+        # pluggy calls `distributions()` with no arguments.
+        yield _FakeDist()
+        yield from real_distributions()
+
+    monkeypatch.setattr(importlib.metadata, "distributions", fake_distributions)
+    reset_manager()
+    try:
+        assert get_manager().detect_language("x.epfake") == "entrypoint_fake"
+    finally:
+        reset_manager()
+
+
+def test_entrypoint_value_must_resolve_to_instance() -> None:
+    """Entry-point values must resolve to a plugin *instance*, not a class.
+
+    `load_setuptools_entrypoints` registers whatever `ep.load()` returns.
+    A bare class leaves the hookimpl unbound, so the hook call fails with
+    a missing `self`. This pins the `plugin:PLUGIN` convention plugins
+    must follow.
+    """
+    pm = pluggy.PluginManager("rbtr")
+    pm.add_hookspecs(LanguageHookspec)
+    pm.register(_EntryPointPlugin)  # the class, as a mis-pointed entry point would load
+    with pytest.raises(TypeError, match="self"):
+        pm.hook.rbtr_register_languages()
+
+
+def test_later_plugin_overrides_earlier() -> None:
+    """When two plugins register the same id, the later-registered one wins.
+
+    Pins precedence for the end state where `_register_builtins` is gone
+    and every plugin arrives via an entry point.
+    """
+
+    class PluginA:
+        @hookimpl
+        def rbtr_register_languages(self) -> list[LanguageRegistration]:
+            return [LanguageRegistration(id="dup", extensions=frozenset({".a"}))]
+
+    class PluginB:
+        @hookimpl
+        def rbtr_register_languages(self) -> list[LanguageRegistration]:
+            return [LanguageRegistration(id="dup", extensions=frozenset({".b"}))]
+
+    mgr = LanguageManager.__new__(LanguageManager)
+    mgr._registrations = {}
+    mgr._ext_map = {}
+    mgr._filename_map = {}
+    mgr._grammar_cache = {}
+    mgr._pm = pluggy.PluginManager("rbtr")
+    mgr._pm.add_hookspecs(LanguageHookspec)
+    mgr._pm.register(PluginA())
+    mgr._pm.register(PluginB())  # registered later — should win
+    mgr._collect()
+
+    reg = mgr.get_registration("dup")
+    assert reg is not None
+    assert reg.extensions == frozenset({".b"})

@@ -63,3 +63,8 @@ class SqlPlugin:
                 language_plugin_version=2,
             ),
         ]
+
+
+# Entry-point target: pluggy registers this instance (see Phase 0 /
+# ARCHITECTURE "External plugins" — a bare class leaves hookimpls unbound).
+PLUGIN = SqlPlugin()

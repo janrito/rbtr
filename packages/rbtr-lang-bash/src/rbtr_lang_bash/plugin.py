@@ -71,3 +71,8 @@ class BashPlugin:
                 language_plugin_version=3,
             ),
         ]
+
+
+# Entry-point target: pluggy registers this instance (see ARCHITECTURE
+# "External plugins").
+PLUGIN = BashPlugin()

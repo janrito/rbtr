@@ -25,16 +25,14 @@ from pytest_cases import fixture, parametrize_with_cases
 from tree_sitter import Parser
 
 from rbtr.index.edges import build_resolution_map, infer_import_edges
-from rbtr.index.models import Chunk, ChunkKind, Edge, ImportMeta
+from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages import LanguageManager, get_manager
+from rbtr.languages.testkit import SampleData, extract_chunks, load_project, render_edges
 
-from .conftest import extract_chunks, load_project, render_edges
+from .conftest import SAMPLES_DIR
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
-
-type ProjectFiles = list[tuple[str, str]]
-type SampleData = tuple[str, set[ChunkKind], ProjectFiles, list[Chunk], list[Edge]]
 
 
 @fixture
@@ -48,7 +46,7 @@ def sample(lang: str, expected_kinds: set[ChunkKind]) -> SampleData:
     snapshots and path-derived chunk ids are deterministic.
     """
     manager = get_manager()
-    files = load_project(lang)
+    files = load_project(SAMPLES_DIR, lang)
     chunks: list[Chunk] = []
     for relpath, text in files:
         file_lang = manager.detect_language(relpath) or lang
@@ -58,15 +56,26 @@ def sample(lang: str, expected_kinds: set[ChunkKind]) -> SampleData:
     return lang, expected_kinds, files, chunks, edges
 
 
-@pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
-def test_every_language_has_a_sample(lang: str) -> None:
-    """Every registered language ships a `samples/<lang>/` project.
+def _core_sample_langs() -> list[str]:
+    """Language ids whose sample project still lives in core.
+
+    Derived from the sample directories present (not `all_language_ids`):
+    once a language is packaged out (e.g. sql → rbtr-lang-sql), its sample
+    moves with it and its own package tests cover it.
+    """
+    return sorted(p.name for p in SAMPLES_DIR.iterdir() if p.is_dir())
+
+
+@pytest.mark.parametrize("lang", _core_sample_langs())
+def test_every_core_sample_is_registered(lang: str) -> None:
+    """Every sample project resident in core maps to a registered language.
 
     Guards the sample-driven invariant battery and snapshots against silent
-    gaps: a new language with no sample fails here rather than being quietly
-    skipped by the `sample` fixture.
+    gaps: a core sample whose language stopped registering fails here rather
+    than being quietly skipped by the `sample` fixture.
     """
-    assert load_project(lang), f"{lang}: no samples/{lang}/ project"
+    assert get_manager().get_registration(lang) is not None, f"{lang}: not registered"
+    assert load_project(SAMPLES_DIR, lang), f"{lang}: empty samples/{lang}/ project"
 
 
 def test_sample_emits_expected_kinds(sample: SampleData) -> None:
@@ -182,36 +191,3 @@ def test_known_unsupported_construct(
     """
     chunks = extract_chunks(lang, source)
     assert expected in [(c.kind, c.name, c.scope) for c in chunks]
-
-
-# ── SQL dialects ───────────────────────────────────────────────
-#
-# rbtr ships one generic SQL grammar for all `.sql` files. These cases
-# document how it handles each major dialect; see TODO-construct-coverage.md
-# Appendix O. The snapshot pins current extraction (partial under error
-# recovery for unsupported syntax); the parse-clean test is a strict-xfail
-# sentinel that fires when the grammar gains full support for a dialect.
-
-
-@parametrize_with_cases("source, dialect", cases=".cases_samples", has_tag="sql_dialect")
-def test_sql_dialect_extraction_matches_snapshot(
-    source: str, dialect: str, snapshot_json: SnapshotAssertion
-) -> None:
-    """Current extraction for each SQL dialect under the generic grammar."""
-    chunks = extract_chunks("sql", source, file_path=f"{dialect}.sql")
-    assert chunks == snapshot_json
-
-
-@pytest.mark.xfail(
-    reason="generic SQL grammar does not fully parse dialect-specific syntax (Appendix O)",
-    strict=True,
-)
-@parametrize_with_cases("source, dialect", cases=".cases_samples", has_tag="sql_dialect")
-def test_sql_dialect_parses_cleanly(
-    source: str, dialect: str, language_manager: LanguageManager
-) -> None:
-    """Sentinel: flips to XPASS (failing) when a dialect parses cleanly."""
-    grammar = language_manager.load_grammar("sql")
-    assert grammar is not None
-    tree = Parser(grammar).parse(source.encode())
-    assert not tree.root_node.has_error

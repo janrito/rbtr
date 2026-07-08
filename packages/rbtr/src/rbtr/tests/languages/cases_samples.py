@@ -9,10 +9,8 @@ Two tag-separated families share this file:
 - `unsupported` — constructs that *should* extract but do not yet;
   each is `xfail(strict=True)` and returns `(lang, snippet,
   expected_symbol)`. Populated from Phase 2 onward.
-- `sql_dialect` — one case per SQL dialect (postgres/mysql/sqlite/
-  duckdb/clickhouse), returning `(source, dialect_id)`. Documents how
-  the single generic SQL grammar handles each dialect today; see
-  `TODO-construct-coverage.md` Appendix O.
+
+SQL sample and dialect cases moved to the `rbtr-lang-sql` package.
 """
 
 from __future__ import annotations
@@ -22,41 +20,8 @@ from pytest_cases import case
 
 from rbtr.index.models import ChunkKind
 
-from .conftest import load_sample
-
 type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
-type SqlDialectCase = tuple[str, str]
-
-
-@case(id="sql_postgres", tags=["sql_dialect"])
-def case_sql_postgres() -> SqlDialectCase:
-    """PostgreSQL: SERIAL, JSONB, arrays, ENUM type, dollar-quoted fn."""
-    return load_sample("sql_postgres"), "sql_postgres"
-
-
-@case(id="sql_mysql", tags=["sql_dialect"])
-def case_sql_mysql() -> SqlDialectCase:
-    """MySQL: backtick identifiers, UNSIGNED AUTO_INCREMENT, ENGINE."""
-    return load_sample("sql_mysql"), "sql_mysql"
-
-
-@case(id="sql_sqlite", tags=["sql_dialect"])
-def case_sql_sqlite() -> SqlDialectCase:
-    """SQLite: AUTOINCREMENT, WITHOUT ROWID, IF NOT EXISTS."""
-    return load_sample("sql_sqlite"), "sql_sqlite"
-
-
-@case(id="sql_duckdb", tags=["sql_dialect"])
-def case_sql_duckdb() -> SqlDialectCase:
-    """DuckDB: LIST/STRUCT types, CTAS, CREATE MACRO."""
-    return load_sample("sql_duckdb"), "sql_duckdb"
-
-
-@case(id="sql_clickhouse", tags=["sql_dialect"])
-def case_sql_clickhouse() -> SqlDialectCase:
-    """ClickHouse: MergeTree engine, ORDER BY/PARTITION BY, special types."""
-    return load_sample("sql_clickhouse"), "sql_clickhouse"
 
 
 @case(id="python", tags=["sample"])
@@ -277,19 +242,6 @@ def case_vue() -> SampleCase:
     )
 
 
-@case(id="sql", tags=["sample"])
-def case_sql() -> SampleCase:
-    """SQL: one chunk per top-level statement — CREATE TABLE/VIEW (as
-    classes), CREATE FUNCTION and DML/CTEs (as functions), and CREATE
-    SCHEMA/INDEX/SEQUENCE (as variables). No imports. CREATE PROCEDURE and
-    PRAGMA do not parse and live in the sql xfail cases.
-    """
-    return (
-        "sql",
-        {ChunkKind.CLASS, ChunkKind.FUNCTION, ChunkKind.VARIABLE},
-    )
-
-
 @case(id="typescript", tags=["sample"])
 def case_typescript() -> SampleCase:
     """TypeScript: function declarations, arrow consts, classes, module
@@ -389,17 +341,6 @@ def case_ruby() -> SampleCase:
             ChunkKind.VARIABLE,
             ChunkKind.IMPORT,
         },
-    )
-
-
-@case(id="bash", tags=["sample"])
-def case_bash() -> SampleCase:
-    """Bash: functions, top-level variable assignments, and source/.
-    imports. No classes or methods — all functions are top-level.
-    """
-    return (
-        "bash",
-        {ChunkKind.FUNCTION, ChunkKind.VARIABLE, ChunkKind.IMPORT},
     )
 
 

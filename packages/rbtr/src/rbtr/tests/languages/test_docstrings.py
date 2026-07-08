@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from .conftest import extract_chunks
+from rbtr.languages.testkit import extract_chunks
 
 
 @parametrize_with_cases(

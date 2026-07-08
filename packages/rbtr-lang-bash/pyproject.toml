@@ -1,0 +1,30 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_bash"
+# No source-exclude: the plugin's tests, samples, and snapshots ship
+# with the wheel, and bash.scm ships as package data.
+
+[project]
+name = "rbtr-lang-bash"
+version = "2026.6.1"
+description = "rbtr — Bash language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "tree-sitter-bash",
+]
+
+[project.entry-points."rbtr.languages"]
+# Value resolves to a plugin instance (not the class) — see the rbtr
+# ARCHITECTURE "External plugins" note.
+bash = "rbtr_lang_bash.plugin:PLUGIN"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[testkit]"]
