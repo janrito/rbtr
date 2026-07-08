@@ -230,8 +230,9 @@ def extract_symbols(
     maximal `_contiguous` run) and routed: a block flush before a symbol
     folds into it (its docstring, possibly nested); a block inside a symbol's
     body is dropped (already carried by that chunk); any other block is a
-    standalone `COMMENT` chunk. Imports are not a documented surface, so a
-    block before one stays standalone.
+    standalone `COMMENT` chunk. A comment trailing code on its line documents
+    that statement, so it never folds into what follows. Imports are not a
+    documented surface, so a block before one stays standalone.
 
     Parameters:
         registered_language:  The language's registration — the

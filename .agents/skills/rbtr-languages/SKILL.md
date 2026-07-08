@@ -39,6 +39,10 @@ it, it should be a chunk. Bias toward **over-capture**, not under-capture.
   for the accessors it generates at runtime; those are not written code.
   (Capturing the written `:name` token as a field is a possible future
   nicety, not a default.)
+- **Comments are content, not decoration.** Top-level comments — banners,
+  licence headers, section notes — and module docstrings are captured as
+  `COMMENT` chunks so their text is searchable, not dropped; a comment above
+  a definition folds into it as documentation. See *Comment handling*.
 - Legitimate skips: truly anonymous nodes with no name a human would search
   (a `tree_sitter_query` pattern with no outer label — captured only as an
   anonymous section), pure metadata (`COMMENT ON`), usage/references (which
@@ -169,6 +173,9 @@ The query's capture names drive the chunk kind (see `_CAPTURE_KINDS` in
 - `@config_key` / `@_section_name` — config/data keys (JSON object keys, TOML
   tables, YAML mapping keys, HCL blocks, CSS `@charset`), reusing the
   `@_section_name` name capture
+- `@comment` — top-level comments and module docstrings; grouped into blocks
+  and either folded into the definition below or emitted as standalone
+  `COMMENT` chunks (see *Comment handling*)
 
 Capture names starting with `_` are read but never become chunks.
 
@@ -210,7 +217,29 @@ reach; its segments are appended to the ancestry scope. Two real cases:
   `scope_extractor` the preceding ones (`[tool.ruff]` → name `ruff`, scope
   `tool`).
 
-## Scope, promotion, docs (engine layers — already generic)
+## Comment handling
+
+Comments are captured, not configured. Give your grammar's comment node(s) a
+**root-scoped `@comment`** capture so only top-level comments match — a comment
+inside a function body stays part of that body's chunk:
+
+- most grammars: `(translation_unit (comment) @comment)`, `(program (comment)
+  @comment)`, `(source_file (comment) @comment)`, `(stylesheet (comment)
+  @comment)` — use the grammar's actual root and comment node type;
+- multiple comment node types go in an alternation: Rust/Java `[(line_comment)
+  (block_comment)]`, SQL `[(comment) (marginalia)]`, SCSS/Less `[(comment)
+  (js_comment)]`;
+- Python also captures its module docstring:
+  `(module (expression_statement (string) @comment))`.
+
+The engine does the rest, identically for every language: it groups top-level
+comment runs into blank-line-delimited blocks, folds a block flush above a
+definition into that definition, leaves interior comments in their body, and
+emits everything else as a standalone `COMMENT` chunk. You only declare the
+node types. A comment trailing code on its line documents that statement and
+never folds forward. The routing rules and their rationale live in ARCHITECTURE.
+
+## Scope & promotion (engine layers — already generic)
 
 Set on the language's `QueryExtraction` (the `extraction` field);
 `extract_symbols` applies them to every captured node:
@@ -220,8 +249,6 @@ Set on the language's `QueryExtraction` (the `extraction` field);
   functions where nested defs matter).
 - `class_scope_types` — the subset that is class-like; a function directly
   inside one is promoted to a method. Defaults to `scope_types`.
-- `doc_comment_node_types` — comment node types attached as leading docs
-  (walked backwards to a blank line). Empty → chunk is exactly the node span.
 - Non-lexical scope comes from `@_scope` (above) or, when even that can't
   reach it, a `scope_extractor` (above), not these.
 
