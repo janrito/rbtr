@@ -40,7 +40,7 @@ it, it should be a chunk. Bias toward **over-capture**, not under-capture.
   (Capturing the written `:name` token as a field is a possible future
   nicety, not a default.)
 - Legitimate skips: truly anonymous nodes with no name a human would search
-  (a bare `@font-face`, an unnamed `@media` block — captured only as an
+  (a `tree_sitter_query` pattern with no outer label — captured only as an
   anonymous section), pure metadata (`COMMENT ON`), usage/references (which
   belong to edges, not symbol chunks), and **runtime-generated symbols**
   (per above).
@@ -91,11 +91,12 @@ three:
    as an injection target for an embedded block (see below).
 2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
    whose scope a query can express (python, rust, …, json, css, html, toml,
-   yaml, hcl, query). Goes through `extract_symbols`.
+   yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
    landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
-   The `query` plugin indexes `.scm` files themselves: each top-level pattern
-   is a `@doc_section`, named by its own outer capture else anonymous.
+   The `tree_sitter_query` plugin indexes `.scm` files themselves: each
+   top-level pattern is a `@doc_section`, named by its own outer capture else
+   anonymous.
 3. **Plaintext fallback** — no grammar/detection: fixed-size raw chunks.
 
 `extract_symbols` is the query engine: *parse → run query → captures →
@@ -133,7 +134,11 @@ Every query — `reg.extraction.query`, `reg.injection_query`, and any query a c
 compiles — is a `.scm` file co-located in the plugin package
 (`rbtr_lang_<lang>/<name>.scm`), loaded at import via `load_query` (import
 it: `from rbtr.languages.registration import load_query`; call it:
-`load_query(__package__, "<name>")`). Never inline a query as a Python
+`load_query(__package__, "<name>")`). Call it directly in the `extraction` or
+`injection_query` field — never hoist it into a module-level `_QUERY` constant;
+`load_query` is cached on `(package, name)`, so a query shared by two
+registrations (svelte and vue's SFC injection query) is read once. Never inline
+a query as a Python
 string literal (the house rule against embedding a foreign language). The
 `uv` build backend ships `.scm` as package data with no extra config.
 
@@ -150,7 +155,8 @@ The query's capture names drive the chunk kind (see `_CAPTURE_KINDS` in
 `languages/treesitter.py`):
 
 - `@function` / `@_fn_name` — functions
-- `@class` / `@_cls_name` — classes, structs, enums, traits, types
+- `@class` / `@_cls_name` — classes, structs, enums, traits, types, and
+  named collections of declarations (CSS rule sets, `@media`, `@keyframes`)
 - `@method` / `@_method_name` — methods (a `@function` whose nearest scope is
   class-like is also promoted to a method)
 - `@variable` / `@_var_name` — module/top-level variables, constants, fields
@@ -160,6 +166,9 @@ The query's capture names drive the chunk kind (see `_CAPTURE_KINDS` in
   receiver type). Strictly additive: absent → no effect.
 - `@_docstring` — interior first-statement docstring (Python)
 - `@doc_section` / `@_section_name` — chunker/data section units
+- `@config_key` / `@_section_name` — config/data keys (JSON object keys, TOML
+  tables, YAML mapping keys, HCL blocks, CSS `@charset`), reusing the
+  `@_section_name` name capture
 
 Capture names starting with `_` are read but never become chunks.
 
@@ -271,10 +280,10 @@ itself a tree-sitter query, so it is **inspiration for ours, not a drop-in**:
 
 Distinct from **rbtr's own** `.scm` files (see *Where queries live*): we load
 those at runtime (`reg.extraction.query` / `reg.injection_query`) as the
-source of truth, whereas `tags.scm` we only mine for ideas. And the `query`
-plugin now
-*indexes* `.scm` files found in a repo — including third-party `tags.scm` /
-`highlights.scm` / `injections.scm` — as content, orthogonal to whether we
+source of truth, whereas `tags.scm` we only mine for ideas. And the
+`tree_sitter_query` plugin now *indexes* `.scm` files found in a repo —
+including third-party `tags.scm` / `highlights.scm` / `injections.scm` — as
+content, orthogonal to whether we
 run them.
 
 Curated per-language verdicts (take / modify / ignore) and the
