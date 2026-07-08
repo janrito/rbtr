@@ -15,6 +15,7 @@ members = [
     "rbtr-eval",
     "rbtr-lang-bash",
     "rbtr-lang-css",
+    "rbtr-lang-javascript",
     "rbtr-lang-less",
     "rbtr-lang-scss",
     "rbtr-lang-sql",
@@ -3224,6 +3225,7 @@ dependencies = [
     { name = "pygit2" },
     { name = "pyzmq" },
     { name = "rbtr-lang-bash" },
+    { name = "rbtr-lang-javascript" },
     { name = "rich" },
     { name = "rich-argparse" },
     { name = "structlog" },
@@ -3234,7 +3236,6 @@ dependencies = [
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-html" },
     { name = "tree-sitter-java" },
-    { name = "tree-sitter-javascript" },
     { name = "tree-sitter-json" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-markdown" },
@@ -3245,7 +3246,6 @@ dependencies = [
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-svelte" },
     { name = "tree-sitter-toml" },
-    { name = "tree-sitter-typescript" },
     { name = "tree-sitter-yaml" },
 ]
 
@@ -3293,6 +3293,7 @@ requires-dist = [
     { name = "pyzmq", specifier = ">=27.1.0" },
     { name = "rbtr-lang-bash", editable = "packages/rbtr-lang-bash" },
     { name = "rbtr-lang-css", marker = "extra == 'css'", editable = "packages/rbtr-lang-css" },
+    { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
     { name = "rbtr-lang-less", marker = "extra == 'less'", editable = "packages/rbtr-lang-less" },
     { name = "rbtr-lang-scss", marker = "extra == 'scss'", editable = "packages/rbtr-lang-scss" },
     { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
@@ -3307,7 +3308,6 @@ requires-dist = [
     { name = "tree-sitter-hcl" },
     { name = "tree-sitter-html" },
     { name = "tree-sitter-java" },
-    { name = "tree-sitter-javascript" },
     { name = "tree-sitter-json" },
     { name = "tree-sitter-language-pack" },
     { name = "tree-sitter-markdown" },
@@ -3318,7 +3318,6 @@ requires-dist = [
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-svelte" },
     { name = "tree-sitter-toml" },
-    { name = "tree-sitter-typescript" },
     { name = "tree-sitter-yaml" },
 ]
 provides-extras = ["css", "less", "scss", "sql", "test"]
@@ -3423,6 +3422,35 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-javascript"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-javascript" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-typescript" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+    { name = "rbtr-lang-css" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-typescript" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "rbtr", extras = ["test"], editable = "packages/rbtr" },
+    { name = "rbtr-lang-css", editable = "packages/rbtr-lang-css" },
+]
 
 [[package]]
 name = "rbtr-lang-less"

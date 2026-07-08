@@ -109,6 +109,7 @@ packages = [
   "rbtr_eval",
   "rbtr_lang_bash",
   "rbtr_lang_css",
+  "rbtr_lang_javascript",
   "rbtr_lang_less",
   "rbtr_lang_scss",
   "rbtr_lang_sql",

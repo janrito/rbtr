@@ -195,59 +195,6 @@ def case_vue() -> SampleCase:
     )
 
 
-@case(id="typescript", tags=["sample"])
-def case_typescript() -> SampleCase:
-    """TypeScript: function declarations, arrow consts, classes, module
-    variables, and imports (incl. `import type`). Interfaces, enums, type
-    aliases, abstract classes, and namespaces are captured as classes (a
-    namespace also forms a scope for its members); class/interface members
-    (incl. get/set accessors and abstract signatures) as methods scoped to
-    their type; enum members as variables scoped to the enum.
-    """
-    return (
-        "typescript",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
-@case(id="tsx", tags=["sample"])
-def case_tsx() -> SampleCase:
-    """TSX (React): same extraction as TypeScript — function declarations,
-    arrow consts, module variables, imports (incl. `import type`), and
-    interfaces (as classes) — but parsed with the JSX-aware `language_tsx`
-    grammar so JSX bodies parse cleanly.
-    """
-    return (
-        "tsx",
-        {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.VARIABLE, ChunkKind.IMPORT},
-    )
-
-
-@case(id="javascript", tags=["sample"])
-def case_javascript() -> SampleCase:
-    """JavaScript: function declarations, generator functions, arrow
-    functions bound to consts, classes, module const/let variables (incl.
-    destructuring), imports, and methods (class members scoped to the
-    class; object-literal methods without a scope).
-    """
-    return (
-        "javascript",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 @case(id="java", tags=["sample"])
 def case_java() -> SampleCase:
     """Java: classes (incl. nested), methods (incl. constructors), fields
