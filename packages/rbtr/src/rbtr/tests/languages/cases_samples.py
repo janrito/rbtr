@@ -24,19 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="query", tags=["sample"])
-def case_query() -> SampleCase:
-    """tree-sitter query (`.scm`): every top-level pattern is a doc section,
-    named by its definition capture (else its matched node type). Exercises
-    named nodes, alternation lists, groupings, predicates, wildcards, negated
-    fields, anchors, quantifiers, supertypes, and a MISSING node.
-    """
-    return (
-        "query",
-        {ChunkKind.DOC_SECTION},
-    )
-
-
 @case(id="svelte", tags=["sample"])
 def case_svelte() -> SampleCase:
     """Svelte SFC: the `<script lang="ts">` block is delegated to TypeScript

@@ -32,6 +32,7 @@ members = [
     "rbtr-lang-scss",
     "rbtr-lang-sql",
     "rbtr-lang-toml",
+    "rbtr-lang-tree-sitter-query",
     "rbtr-lang-yaml",
 ]
 
@@ -3251,7 +3252,6 @@ dependencies = [
     { name = "structlog" },
     { name = "tree-sitter" },
     { name = "tree-sitter-language-pack" },
-    { name = "tree-sitter-query" },
     { name = "tree-sitter-svelte" },
 ]
 
@@ -3293,6 +3293,9 @@ test = [
 ]
 toml = [
     { name = "rbtr-lang-toml" },
+]
+tree-sitter-query = [
+    { name = "rbtr-lang-tree-sitter-query" },
 ]
 yaml = [
     { name = "rbtr-lang-yaml" },
@@ -3340,6 +3343,7 @@ requires-dist = [
     { name = "rbtr-lang-scss", marker = "extra == 'scss'", editable = "packages/rbtr-lang-scss" },
     { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
     { name = "rbtr-lang-toml", marker = "extra == 'toml'", editable = "packages/rbtr-lang-toml" },
+    { name = "rbtr-lang-tree-sitter-query", marker = "extra == 'tree-sitter-query'", editable = "packages/rbtr-lang-tree-sitter-query" },
     { name = "rbtr-lang-yaml", marker = "extra == 'yaml'", editable = "packages/rbtr-lang-yaml" },
     { name = "rich", specifier = ">=13.0" },
     { name = "rich-argparse", specifier = ">=1.7.2" },
@@ -3347,10 +3351,9 @@ requires-dist = [
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.3.4" },
     { name = "tree-sitter", specifier = ">=0.24" },
     { name = "tree-sitter-language-pack" },
-    { name = "tree-sitter-query" },
     { name = "tree-sitter-svelte" },
 ]
-provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "toml", "yaml", "test"]
+provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "toml", "tree-sitter-query", "yaml", "test"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3877,6 +3880,29 @@ dev = [
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "tree-sitter-toml" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-tree-sitter-query"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-tree-sitter-query" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-query" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-query" },
 ]
 
 [package.metadata.requires-dev]

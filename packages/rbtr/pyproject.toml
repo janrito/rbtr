@@ -40,7 +40,6 @@ dependencies = [
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
-  "tree-sitter-query",
   "tree-sitter-svelte",
 ]
 
@@ -57,7 +56,6 @@ rbtr = "rbtr.testing"
 # `LanguageRegistration`, named by its language id. As languages are extracted
 # into their own packages, their entry point moves to that package's pyproject.
 [project.entry-points."rbtr.languages"]
-query = "rbtr.languages.query.plugin:query"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
 
@@ -75,6 +73,7 @@ rust = ["rbtr-lang-rust"]
 scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
 toml = ["rbtr-lang-toml"]
+tree_sitter_query = ["rbtr-lang-tree-sitter-query"]
 yaml = ["rbtr-lang-yaml"]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
@@ -109,6 +108,7 @@ rbtr-lang-rust = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
 rbtr-lang-toml = { workspace = true }
+rbtr-lang-tree-sitter-query = { workspace = true }
 rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
