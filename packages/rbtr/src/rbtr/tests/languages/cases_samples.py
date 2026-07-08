@@ -90,18 +90,6 @@ def case_query() -> SampleCase:
     )
 
 
-@case(id="rst", tags=["sample"])
-def case_rst() -> SampleCase:
-    """reStructuredText: heading hierarchy from adornment order (as doc
-    sections), and :doc:/:func:/:class:/:mod: roles, references, and
-    toctree entries (as imports). External references are skipped.
-    """
-    return (
-        "rst",
-        {ChunkKind.DOC_SECTION, ChunkKind.IMPORT},
-    )
-
-
 @case(id="json", tags=["sample"])
 def case_json() -> SampleCase:
     """JSON: every object key becomes a doc section, including nested keys
