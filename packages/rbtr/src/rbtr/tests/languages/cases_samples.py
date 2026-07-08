@@ -24,18 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="toml", tags=["sample"])
-def case_toml() -> SampleCase:
-    """TOML: standard tables and array-of-tables as doc sections; a dotted
-    table is named by its last segment and scoped under the preceding ones
-    (`[tool.greeter]` -> name `greeter`, scope `tool`).
-    """
-    return (
-        "toml",
-        {ChunkKind.DOC_SECTION},
-    )
-
-
 @case(id="hcl", tags=["sample"])
 def case_hcl() -> SampleCase:
     """HCL: each top-level block is a doc section, named by its type and

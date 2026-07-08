@@ -6,10 +6,10 @@ and scoped under the preceding segments.
 
 Extracted chunks::
 
-    [project]                       → doc_section "project", scope ""
-    [tool.ruff]                     → doc_section "ruff", scope "tool"
-    [tool.ruff.lint]                → doc_section "lint", scope "tool::ruff"
-    [[locales]]                     → doc_section "locales", scope ""
+    [project]                       → config_key "project", scope ""
+    [tool.ruff]                     → config_key "ruff", scope "tool"
+    [tool.ruff.lint]                → config_key "lint", scope "tool::ruff"
+    [[locales]]                     → config_key "locales", scope ""
 
 The dotted-key hierarchy lives in the key *string*, not tree
 ancestry, so name and scope are derived by walking the key's
@@ -66,7 +66,7 @@ toml = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "toml"),
     ),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )
 
 

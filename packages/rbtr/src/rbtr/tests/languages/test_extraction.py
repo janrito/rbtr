@@ -184,17 +184,6 @@ class C:
 # ── Chunker-specific edge cases ──────────────────────────────────────
 
 
-def test_toml_dotted_key_scope() -> None:
-    """A TOML dotted table splits into last-segment name + preceding scope."""
-    src = """\
-[tool.ruff.lint]
-select = ["E"]
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "toml")
-    assert chunks[0].name == "lint"
-    assert chunks[0].scope == "tool::ruff"
-
-
 def test_svelte_template_extracted_as_host_chunk() -> None:
     """The SFC markup template is a searchable host (`svelte`) chunk.
 

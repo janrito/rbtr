@@ -43,7 +43,6 @@ dependencies = [
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
   "tree-sitter-query",
   "tree-sitter-svelte",
-  "tree-sitter-toml",
 ]
 
 [project.scripts]
@@ -63,7 +62,6 @@ hcl = "rbtr.languages.hcl.plugin:hcl"
 query = "rbtr.languages.query.plugin:query"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
-toml = "rbtr.languages.toml.plugin:toml"
 
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
@@ -77,6 +75,7 @@ ruby = ["rbtr-lang-ruby"]
 rust = ["rbtr-lang-rust"]
 scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
+toml = ["rbtr-lang-toml"]
 yaml = ["rbtr-lang-yaml"]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
@@ -109,6 +108,7 @@ rbtr-lang-ruby = { workspace = true }
 rbtr-lang-rust = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
+rbtr-lang-toml = { workspace = true }
 rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]

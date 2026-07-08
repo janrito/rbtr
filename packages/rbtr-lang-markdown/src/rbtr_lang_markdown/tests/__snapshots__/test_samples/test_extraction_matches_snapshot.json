@@ -165,7 +165,7 @@
     "id": "720abd335b592da1",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
-    "kind": "doc_section",
+    "kind": "config_key",
     "name": "service",
     "scope": "",
     "language": "toml",

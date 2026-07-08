@@ -116,31 +116,6 @@ type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 # ── Mixed ────────────────────────────────────────────────────────────
 
 
-# ══════════════════════════════════════════════════��══════════════════
-# TOML
-# ════════════��════════════════════════════════════════════════════════
-
-
-@case(tags=["symbol"])
-def case_toml_splits_by_table() -> SymbolCase:
-    """TOML splits by tables; a dotted table is named by its last segment."""
-    src = """\
-[project]
-name = "rbtr"
-
-[tool.ruff]
-line-length = 99
-"""
-    return (
-        "toml",
-        src,
-        [
-            ("doc_section", "project", ""),
-            ("doc_section", "ruff", "tool"),
-        ],
-    )
-
-
 # ═════���══════���════════════════════════════════════════════════════════
 # HCL
 # ═══��═══════════════════════════════════════���═════════════════════════

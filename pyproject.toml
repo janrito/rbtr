@@ -124,6 +124,7 @@ packages = [
   "rbtr_lang_less",
   "rbtr_lang_scss",
   "rbtr_lang_sql",
+  "rbtr_lang_toml",
   "rbtr_lang_yaml",
 ]
 # Language sample fixtures are illustrative source for extraction tests,

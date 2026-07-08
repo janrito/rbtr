@@ -35,6 +35,7 @@ rbtr-lang-html = { workspace = true }
 rbtr-lang-javascript = { workspace = true }
 rbtr-lang-python = { workspace = true }
 rbtr-lang-scss = { workspace = true }
+rbtr-lang-toml = { workspace = true }
 rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
@@ -46,5 +47,6 @@ dev = [
   "rbtr-lang-javascript",
   "rbtr-lang-python",
   "rbtr-lang-scss",
+  "rbtr-lang-toml",
   "rbtr-lang-yaml",
 ]
