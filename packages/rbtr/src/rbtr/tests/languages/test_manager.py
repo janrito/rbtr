@@ -25,8 +25,6 @@ from rbtr.languages.registration import LanguageRegistration, QueryExtraction
     [
         ("src/app.py", "python"),
         ("stubs/foo.pyi", "python"),
-        ("Makefile", "bash"),
-        ("Dockerfile", "bash"),
         (".bashrc", "bash"),
         ("index.js", "javascript"),
         ("App.jsx", "javascript"),
@@ -51,8 +49,6 @@ from rbtr.languages.registration import LanguageRegistration, QueryExtraction
     ids=[
         "py",
         "pyi",
-        "makefile",
-        "dockerfile",
         "bashrc",
         "js",
         "jsx",
@@ -81,16 +77,25 @@ def test_detect_language(path: str, expected: str) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["README", "data.xyz"],
-    ids=["no-extension", "unknown-extension"],
+    ["README", "data.xyz", "Makefile", "Dockerfile"],
+    ids=["no-extension", "unknown-extension", "makefile", "dockerfile"],
 )
 def test_detect_unknown_returns_none(path: str) -> None:
     assert get_manager().detect_language(path) is None
 
 
-def test_detect_filename_priority_over_extension() -> None:
-    """Filenames are checked before extensions."""
-    assert get_manager().detect_language("Makefile") == "bash"
+def test_detect_filename_priority_over_extension(
+    monkeypatch: pytest.MonkeyPatch, fresh_manager: None
+) -> None:
+    """A claimed filename wins over a language that claims the extension."""
+    by_name = LanguageRegistration(id="byname", filenames=frozenset({"weird.ext"}))
+    by_ext = LanguageRegistration(id="byext", extensions=frozenset({".ext"}))
+    eps = [
+        SimpleNamespace(name="byname", load=lambda: by_name),
+        SimpleNamespace(name="byext", load=lambda: by_ext),
+    ]
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
+    assert get_manager().detect_language("weird.ext") == "byname"
 
 
 # ── get_registration ─────────────────────────────────────────────────

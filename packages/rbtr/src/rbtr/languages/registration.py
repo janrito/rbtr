@@ -253,7 +253,7 @@ class LanguageRegistration:
     `frozenset({".py", ".pyi"})`.  Matched against a file's suffix."""
     filenames: frozenset[str] = frozenset()
     """Exact base filenames claimed regardless of extension, e.g.
-    `frozenset({"Makefile", "Dockerfile"})`."""
+    `frozenset({".bashrc", ".zshrc"})`."""
     grammar_module: str | None = None
     """Python module exposing a tree-sitter grammar factory, e.g.
     `"tree_sitter_python"`.  `None` → no parsing; the file gets line-based
