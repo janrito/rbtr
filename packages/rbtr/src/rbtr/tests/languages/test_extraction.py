@@ -195,12 +195,6 @@ select = ["E"]
     assert chunks[0].scope == "tool::ruff"
 
 
-def test_yaml_no_mapping_fallback() -> None:
-    """YAML without mapping falls back to single chunk."""
-    chunks = extract_file(FileEntry("input", "sha1", b"- item1\n- item2\n"), "yaml")
-    assert len(chunks) == 1
-
-
 def test_svelte_template_extracted_as_host_chunk() -> None:
     """The SFC markup template is a searchable host (`svelte`) chunk.
 

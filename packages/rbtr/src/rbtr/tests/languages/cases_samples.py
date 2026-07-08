@@ -24,17 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="yaml", tags=["sample"])
-def case_yaml() -> SampleCase:
-    """YAML: each top-level mapping key becomes a doc section (nested keys
-    are part of their parent's content, not separate chunks).
-    """
-    return (
-        "yaml",
-        {ChunkKind.DOC_SECTION},
-    )
-
-
 @case(id="toml", tags=["sample"])
 def case_toml() -> SampleCase:
     """TOML: standard tables and array-of-tables as doc sections; a dotted

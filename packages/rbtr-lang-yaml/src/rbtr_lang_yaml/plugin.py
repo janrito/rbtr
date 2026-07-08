@@ -6,9 +6,9 @@ content, not separate chunks.
 
 Extracted chunks::
 
-    name: CI                        → doc_section "name", scope ""
-    on: [push]                      → doc_section "on", scope ""
-    jobs:                           → doc_section "jobs", scope ""
+    name: CI                        → config_key "name", scope ""
+    on: [push]                      → config_key "on", scope ""
+    jobs:                           → config_key "jobs", scope ""
       test:
         runs-on: ubuntu-latest
 """
@@ -28,5 +28,5 @@ yaml = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "yaml"),
     ),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )

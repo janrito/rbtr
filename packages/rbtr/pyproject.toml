@@ -44,7 +44,6 @@ dependencies = [
   "tree-sitter-query",
   "tree-sitter-svelte",
   "tree-sitter-toml",
-  "tree-sitter-yaml",
 ]
 
 [project.scripts]
@@ -65,7 +64,6 @@ query = "rbtr.languages.query.plugin:query"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
 toml = "rbtr.languages.toml.plugin:toml"
-yaml = "rbtr.languages.yaml.plugin:yaml"
 
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
@@ -79,6 +77,7 @@ ruby = ["rbtr-lang-ruby"]
 rust = ["rbtr-lang-rust"]
 scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
+yaml = ["rbtr-lang-yaml"]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
 # The pytest bound lives here (not just in `dev`) so that a plugin whose
@@ -110,6 +109,7 @@ rbtr-lang-ruby = { workspace = true }
 rbtr-lang-rust = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
+rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
 dev = [

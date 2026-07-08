@@ -141,32 +141,6 @@ line-length = 99
     )
 
 
-# ═��═════════════════════════════════════════��═════════════════════════
-# YAML
-# ═══════════════════════════════════════════════════════════��═════════
-
-
-@case(tags=["symbol"])
-def case_yaml_top_level_keys() -> SymbolCase:
-    """YAML splits by top-level mapping keys."""
-    src = """\
-name: CI
-on: [push]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-"""
-    return (
-        "yaml",
-        src,
-        [
-            ("doc_section", "name", ""),
-            ("doc_section", "on", ""),
-            ("doc_section", "jobs", ""),
-        ],
-    )
-
-
 # ═════���══════���════════════════════════════════════════════════════════
 # HCL
 # ═══��═══════════════════════════════════════���═════════════════════════
