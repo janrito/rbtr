@@ -20,31 +20,21 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
 from rbtr.languages.css.plugin import css_nesting_scope
-from rbtr.languages.hookspec import (
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
     LanguageRegistration,
     build_quoted_import,
-    hookimpl,
 )
 
-_QUERY = load_query(__package__, "scss")
+scss = LanguageRegistration(
+    id="scss",
+    extensions=frozenset({".scss"}),
+    grammar_module="tree_sitter_scss",
+    query=load_query(__package__, "scss"),
+    import_targets=frozenset({"css", "scss", "less"}),
+    language_plugin_version=1,
+)
 
-
-class ScssPlugin:
-    """SCSS language support — Sass constructs + @use/@forward edges."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="scss",
-                extensions=frozenset({".scss"}),
-                grammar_module="tree_sitter_scss",
-                query=_QUERY,
-                scope_extractor=css_nesting_scope,
-                import_extractor=build_quoted_import,
-                import_targets=frozenset({"css", "scss", "less"}),
-                language_plugin_version=1,
-            ),
-        ]
+scss.scope_extractor(css_nesting_scope)
+scss.import_extractor(build_quoted_import)

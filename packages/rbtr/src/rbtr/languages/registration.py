@@ -4,17 +4,14 @@ A language plugin provides `rbtr` with the ability to detect,
 parse, and extract structural data from source files in a given
 language.
 
-Minimum implementation::
+Minimum implementation — a module-level `LanguageRegistration` value::
 
-    from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+    from rbtr.languages.registration import LanguageRegistration
 
-    class KotlinPlugin:
-        @hookimpl
-        def rbtr_register_languages(self):
-            return [LanguageRegistration(
-                id="kotlin",
-                extensions=frozenset({".kt", ".kts"}),
-            )]
+    kotlin = LanguageRegistration(
+        id="kotlin",
+        extensions=frozenset({".kt", ".kts"}),
+    )
 
 This gives file detection, line-based chunking, and text-search
 import resolution.  Each additional field on `LanguageRegistration`
@@ -24,10 +21,11 @@ For a worked example per language, see the golden-tested samples in
 `rbtr/tests/languages/samples/` (one source file per language,
 showing the constructs that language's plugin extracts).
 
-External plugins register via setuptools entry points::
+Plugins register via the `rbtr.languages` entry-point group; the value
+is the `LanguageRegistration`, named by its language id::
 
     [project.entry-points."rbtr.languages"]
-    kotlin = "rbtr_kotlin:KotlinPlugin"
+    kotlin = "rbtr_lang_kotlin.plugin:kotlin"
 
 Shared utilities for `import_extractor` implementations:
 
@@ -40,11 +38,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
-
-import pluggy
 
 from rbtr.index.models import Chunk, ImportMeta
 
@@ -75,50 +71,46 @@ class ModuleStyle(StrEnum):
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
 
-type ImportExtractor = Callable[[Node, dict[str, list[Node]]], ImportMeta] | None
-"""Type alias for the import-metadata extractor callback.
+type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
+type ImportExtractor = Callable[[ImportResolver, Node, dict[str, list[Node]]], ImportMeta]
+"""Type alias for the import-metadata extractor override.
 
-Signature: `(node, captures) -> ImportMeta`.
-
-*node* is the `@import` AST node. *captures* is the match
-dict from the tree-sitter query, keyed by capture name.
-Extractors read captures first (fast path from the query),
-then walk the node for what the query couldn't capture
-(e.g. multi-valued import names).
-
-Languages that don't need custom extraction register
-`build_import_from_captures` (exported from
-`rbtr.languages.hookspec`), which reads `@_import_module`
-and `@_import_names` from the captures and applies
-delimiter stripping.
+Signature: `(resolver, node, captures) -> ImportMeta`, where *resolver* is
+the built-in `default_import` (call it to delegate, then refine) — a
+wrap-style callback. *node* is the `@import` AST node; *captures* is the
+match dict from the tree-sitter query. Read captures first (fast path),
+then walk the node for what the query couldn't capture (e.g. multi-valued
+import names). Unset → the engine uses `default_import`, which reads
+`@_import_module` / `@_import_names` and strips delimiters.
 """
 
-type NameExtractor = Callable[[str, Node, dict[str, list[Node]]], str] | None
-"""Type alias for the display-name resolver callback.
+type NameResolver = Callable[[str, Node, dict[str, list[Node]]], str]
+type NameExtractor = Callable[[NameResolver, str, Node, dict[str, list[Node]]], str]
+"""Type alias for the display-name resolver override.
 
-Signature: `(capture_name, node, captures) -> str`. The default is
-`resolve_name` (the capture-based `@_*_name` convention). Override this only
-as a last resort, when a query cannot express the name — e.g. Bash strips the
-`=` the grammar fuses onto an alias, HTML names an element by its `id`.
-Overrides typically delegate to `resolve_name` for the captures they do not
-special-case, exactly as import extractors delegate to
-`build_import_from_captures`.
+Signature: `(resolver, capture_name, node, captures) -> str`, where
+*resolver* is the built-in `default_name` (call it to delegate) — a
+wrap-style callback. Override only as a last resort, when a query cannot
+express the name (e.g. Bash strips the `=` the grammar fuses onto an
+alias; HTML names an element by its `id`); delegate to *resolver* for the
+captures you do not special-case. Unset → the engine uses `default_name`.
 """
 
-type ScopeExtractor = Callable[[str, Node, dict[str, list[Node]]], list[str]] | None
-"""Type alias for the scope-address resolver callback.
+type ScopeResolver = Callable[[str, Node, dict[str, list[Node]]], list[str]]
+type ScopeExtractor = Callable[[ScopeResolver, str, Node, dict[str, list[Node]]], list[str]]
+"""Type alias for the scope-address resolver override.
 
-Signature: `(capture_name, node, captures) -> list[str]`, returning
-scope segments outermost-first (`[]` for none) which the engine *appends* to
-any tree-ancestry scope (`scope_types`). The mirror of `NameExtractor`; the
-default is `resolve_scope` (contributes the `@_scope` capture). Override only
-as a last resort, for hierarchies a query and ancestry cannot express — e.g.
+Signature: `(resolver, capture_name, node, captures) -> list[str]`, where
+*resolver* is the built-in `default_scope` — a wrap-style callback.
+Returns scope segments outermost-first (`[]` for none), which the engine
+*appends* to any tree-ancestry scope (`scope_types`). Override only as a
+last resort, for hierarchies a query and ancestry cannot express — e.g.
 SCSS/Less nested rules (walk ancestor `rule_set` selectors) or TOML dotted
-tables (a dotted-key string with no tree ancestry). The returned segments are
-composed into a `::` address by the `Chunk.scope` validator.
+tables. Segments compose into a `::` address via the `Chunk.scope`
+validator. Unset → the engine uses `default_scope` (the `@_scope` capture).
 """
 
-type Chunker = Callable[[str, str, str, Language, list[Range] | None], Iterator[Chunk]] | None
+type Chunker = Callable[[str, str, str, Language, list[Range] | None], Iterator[Chunk]]
 """Type alias for the optional custom-chunking callback.
 
 Signature:
@@ -131,21 +123,6 @@ for an embedded block; `None` parses the whole file. A chunker MUST honour
 other languages is the engine's job, via a registration's `injection_query`
 — not the chunker's.
 """
-
-PROJECT_NAME = "rbtr"
-
-hookspec = pluggy.HookspecMarker(PROJECT_NAME)
-hookimpl = pluggy.HookimplMarker(PROJECT_NAME)
-
-# Re-export for plugin authors.
-__all__ = [
-    "LanguageHookspec",
-    "LanguageRegistration",
-    "ModuleStyle",
-    "collect_scoped_path",
-    "hookimpl",
-    "parse_path_relative",
-]
 
 
 # ── Registration dataclass ───────────────────────────────────────────
@@ -160,6 +137,11 @@ class LanguageRegistration:
 
     Only `id` is required.  Every other field has a sensible
     default — provide only what your language needs.
+
+    Extraction overrides — a custom name/scope/import resolver or a
+    chunker — are attached via the decorator methods `name_extractor`,
+    `scope_extractor`, `import_extractor`, and `chunker` (each doubles as
+    a plain call), not constructor arguments.
 
     Examples:
 
@@ -240,15 +222,6 @@ class LanguageRegistration:
 
                           `None` means no structural extraction even
                           if a grammar is available.
-        import_extractor: Callable `(node, captures) -> ImportMeta`.
-                          Receives the `@import` AST node and the
-                          match dict from the tree-sitter query.
-                          Read captures first (fast path), then
-                          walk the node for what the query can't
-                          capture.  Languages without custom
-                          logic register `build_import_from_captures`
-                          from `rbtr.languages.hookspec`.  `None` is
-                          filled with that default at call time.
         scope_types:      Tree-sitter node types that create a naming
                           scope, composed into a symbol's full
                           enclosing-scope address. Examples:
@@ -261,19 +234,6 @@ class LanguageRegistration:
                           Subset of *scope_types* that is class-like,
                           driving function→method promotion. Defaults
                           to *scope_types* when unset.
-        chunker:          Custom chunking function with signature
-                          `(file_path, blob_sha, content, grammar)
-                          -> Iterator[Chunk]`.  The grammar is loaded by
-                          the manager and passed by the orchestrator.
-                          When set, the orchestrator calls this instead
-                          of tree-sitter extraction or plaintext
-                          fallback.  Used by formats whose structural
-                          units can't be expressed as query captures
-                          (heading hierarchy, composed block names,
-                          etc.).  `None` uses the default strategy
-                          (tree-sitter if grammar + query, plaintext
-                          otherwise).
-
         doc_comment_node_types:
                           AST node types that count as comments
                           when attaching leading documentation to
@@ -297,15 +257,6 @@ class LanguageRegistration:
     grammar_entry: str = "language"
     grammar_factory: Callable[[], Language] | None = None
     query: str | None = None
-    import_extractor: ImportExtractor = None
-    name_extractor: NameExtractor = None
-    """Custom display-name resolver; `None` uses `resolve_name`. Last resort
-    for names a query cannot express (see `NameExtractor`)."""
-    scope_extractor: ScopeExtractor = None
-    """Custom scope-address resolver; `None` uses the default `resolve_scope`
-    (the `@_scope` capture). Its segments are appended to the tree-ancestry
-    scope. Last resort for hierarchies a query and ancestry cannot express
-    (see `ScopeExtractor`)."""
     scope_types: frozenset[str] = frozenset()
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` whose nodes are class-like — a function
@@ -315,7 +266,6 @@ class LanguageRegistration:
     functions, namespaces, modules) to `scope_types` for addressing
     must set this to just its class-like types so method promotion
     stays correct."""
-    chunker: Chunker = None
     injection_query: str | None = None
     """Tree-sitter query (against this host grammar) that delegates embedded
     code to other languages. Capture the embedded code as `@injection.content`
@@ -345,6 +295,20 @@ class LanguageRegistration:
     module_style: ModuleStyle = ModuleStyle.PATH
     """How module strings map to file paths. See `ModuleStyle`."""
 
+    # Extraction overrides — attached via the decorator methods below, not the
+    # constructor. `None` means "use the engine default" (the orchestrator
+    # substitutes `default_name` / `default_scope` / `default_import`).
+    _name_extractor: NameExtractor | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+    _scope_extractor: ScopeExtractor | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+    _import_extractor: ImportExtractor | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
+    _chunker: Chunker | None = field(default=None, init=False, compare=False, repr=False)
+
     def __post_init__(self) -> None:
         if not _VALID_ID.fullmatch(self.id):
             msg = (
@@ -354,58 +318,73 @@ class LanguageRegistration:
         if not self.class_scope_types:
             object.__setattr__(self, "class_scope_types", self.scope_types)
 
+    # ── Extraction overrides ─────────────────────────────────────────
+    # Each works as a decorator (`@reg.name_extractor`) on a fresh function or
+    # as a call (`reg.name_extractor(fn)`) for a shared/imported one.
 
-# ── Hook specification ───────────────────────────────────────────────
+    def name_extractor(self, fn: NameExtractor) -> NameExtractor:
+        """Register a custom display-name resolver (see `NameExtractor`)."""
+        object.__setattr__(self, "_name_extractor", fn)
+        return fn
 
+    def scope_extractor(self, fn: ScopeExtractor) -> ScopeExtractor:
+        """Register a custom scope-address resolver (see `ScopeExtractor`)."""
+        object.__setattr__(self, "_scope_extractor", fn)
+        return fn
 
-class LanguageHookspec:
-    """Plugin hook specifications for language support.
+    def import_extractor(self, fn: ImportExtractor) -> ImportExtractor:
+        """Register a custom import-metadata extractor (see `ImportExtractor`)."""
+        object.__setattr__(self, "_import_extractor", fn)
+        return fn
 
-    A plugin class implements one or more of these methods and is
-    registered with the plugin manager (built-in) or via the
-    `rbtr.languages` entry-point group (external).
+    def chunker(self, fn: Chunker) -> Chunker:
+        """Register a custom chunker (see `Chunker`)."""
+        object.__setattr__(self, "_chunker", fn)
+        return fn
 
-    Example plugin class::
+    # ── Resolution (called by the engine) ────────────────────────
+    # Apply the override if set (passing the built-in as its wrap `resolver`),
+    # else the built-in directly.
 
-        from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+    def resolve_name(self, capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+        fn = self._name_extractor
+        return (
+            fn(default_name, capture_name, node, captures)
+            if fn
+            else default_name(capture_name, node, captures)
+        )
 
-        class RubyPlugin:
-            @hookimpl
-            def rbtr_register_languages(self):
-                return [LanguageRegistration(
-                    id="ruby",
-                    extensions=frozenset({".rb"}),
-                    grammar_module="tree_sitter_ruby",
-                )]
-    """
+    def resolve_scope(
+        self, capture_name: str, node: Node, captures: dict[str, list[Node]]
+    ) -> list[str]:
+        fn = self._scope_extractor
+        return (
+            fn(default_scope, capture_name, node, captures)
+            if fn
+            else default_scope(capture_name, node, captures)
+        )
 
-    @hookspec
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        """Register one or more languages.
+    def resolve_import(self, node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+        fn = self._import_extractor
+        return fn(default_import, node, captures) if fn else default_import(node, captures)
 
-        Called once at startup.  Return a list of
-        `LanguageRegistration` instances — one per language.
-
-        A single plugin may register multiple languages.  For
-        example, the built-in `JavaScriptPlugin` registers both
-        `"javascript"` and `"typescript"`.
-
-        Example::
-
-            @hookimpl
-            def rbtr_register_languages(self):
-                return [
-                    LanguageRegistration(id="javascript", ...),
-                    LanguageRegistration(id="typescript", ...),
-                ]
-        """
-        return []  # hookspec — never called directly
+    def chunk(
+        self,
+        file_path: str,
+        blob_sha: str,
+        content: str,
+        grammar: Language,
+        ranges: list[Range] | None,
+    ) -> list[Chunk] | None:
+        """Run the custom chunker, or `None` if this language has none."""
+        fn = self._chunker
+        return list(fn(file_path, blob_sha, content, grammar, ranges)) if fn is not None else None
 
 
 # ── Shared utilities for plugin authors ──────────────────────────────
 
 # Maps import-specific capture keys to `ImportMeta` field names.
-# Used by `build_import_from_captures` to read captures into
+# Used by `default_import` to read captures into
 # the metadata fields.  `_import_dots` is excluded because its
 # semantics are language-specific (Python counts dots from
 # `import_prefix`; other languages don't use it).
@@ -424,7 +403,7 @@ _DELIMITER_STRIP: dict[str, tuple[str, str]] = {
 }
 
 
-def build_import_from_captures(
+def default_import(
     _node: Node,
     captures: dict[str, list[Node]],
 ) -> ImportMeta:
@@ -484,7 +463,7 @@ NAME_CAPTURE_KEY: dict[str, str] = {
 """Maps a structural capture name to its paired `@_*_name` helper capture."""
 
 
-def resolve_name(
+def default_name(
     capture_name: str,
     node: Node,
     captures: dict[str, list[Node]],
@@ -506,7 +485,7 @@ def resolve_name(
     return "<anonymous>"
 
 
-def resolve_scope(
+def default_scope(
     _capture_name: str,
     node: Node,
     captures: dict[str, list[Node]],
@@ -545,6 +524,7 @@ def enclosing_nodes_of_type(node: Node, types: frozenset[str]) -> list[Node]:
 
 
 def build_quoted_import(
+    _resolver: ImportResolver,
     _node: Node,
     captures: dict[str, list[Node]],
 ) -> ImportMeta:

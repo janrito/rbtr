@@ -1,17 +1,16 @@
 """Tree-sitter parsing and symbol extraction.
 
 Extracts structural chunks (functions, classes, methods, imports) from
-source files using tree-sitter queries.  Language-specific behaviour
-(queries, import extractors, scope types) is provided by plugins via
-the `LanguageManager`.
-
-This module contains only language-agnostic extraction logic.
+source files using tree-sitter queries. Language-specific behaviour
+(query, scope types, and name/scope/import resolution) is supplied by
+the `LanguageRegistration` passed to `extract_symbols`, which delegates
+resolution back to it.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -19,15 +18,12 @@ from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
 from rbtr.index.identity import compose_scope
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.hookspec import (
-    NAME_CAPTURE_KEY,
-    build_import_from_captures,
-    resolve_name,
-    resolve_scope,
-)
+from rbtr.languages.registration import NAME_CAPTURE_KEY
 
 if TYPE_CHECKING:
     from tree_sitter import Node
+
+    from rbtr.languages.registration import LanguageRegistration
 
 # ── Constants ────────────────────────────────────────────────────────
 
@@ -243,21 +239,13 @@ def _collect_leading_doc_comments(
 
 
 def extract_symbols(
+    registered_language: LanguageRegistration,
     file_path: str,
     blob_sha: str,
     content: bytes,
     grammar: Language,
-    query_str: str,
     *,
-    language: str = "",
-    import_extractor: Callable[
-        [Node, dict[str, list[Node]]], ImportMeta
-    ] = build_import_from_captures,
-    name_extractor: Callable[[str, Node, dict[str, list[Node]]], str] = resolve_name,
-    scope_extractor: Callable[[str, Node, dict[str, list[Node]]], list[str]] = resolve_scope,
-    scope_types: frozenset[str] = frozenset(),
-    class_scope_types: frozenset[str] = frozenset(),
-    doc_comment_node_types: frozenset[str] = frozenset(),
+    doc_comment_node_types: frozenset[str] | None = None,
     included_ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
     """Parse *content* and yield structural chunks.
@@ -272,11 +260,10 @@ def extract_symbols(
     - `@import` / `@_import_module` → `ChunkKind.IMPORT`
     - `@doc_section` / `@_section_name` → `ChunkKind.DOC_SECTION`
 
-    Import metadata is built by the *import_extractor* callback,
-    which receives the `@import` node and the capture dict from
-    the match.  The default (`build_import_from_captures`) reads
-    `@_import_module`, `@_import_names`, and `@_import_dots` from
-    the captures and applies delimiter stripping.  Languages
+    Import metadata is built by `registered_language.resolve_import`,
+    which applies the language's import override or the built-in
+    `default_import` (reads `@_import_module`, `@_import_names`, and
+    `@_import_dots` from the captures and strips delimiters).  Languages
     with richer import structures (Python, JS/TS, Rust) provide
     their own extractor that reads captures first, then walks
     the node for what the query can't express.
@@ -285,27 +272,18 @@ def extract_symbols(
     (see `_resolve_kind`).
 
     Parameters:
+        registered_language:    The language's registration — supplies the
+                                query, scope types, and the name/scope/import
+                                resolution (override-or-default) plus the id
+                                stamped on each chunk.
         file_path:              Repo-relative path for chunk IDs.
         blob_sha:               Git blob SHA for dedup.
         content:                Raw file bytes.
         grammar:                Tree-sitter `Language`.
-        query_str:              S-expression query string.
-        import_extractor:       Callback that builds `ImportMeta`
-                                from an `@import` node and its
-                                capture dict.  Defaults to
-                                `build_import_from_captures`.
-        scope_types:            Node types that define naming
-                                scopes, used to compose the full
-                                enclosing-scope address (classes,
-                                functions, namespaces, modules…).
-        class_scope_types:      Subset of *scope_types* that is
-                                class-like; a function whose nearest
-                                enclosing scope is one of these is a
-                                method (see `_resolve_kind`).
-        doc_comment_node_types: Comment node types for leading-doc
-                                attachment.  When non-empty, each
-                                symbol's span extends backward over
-                                any attached comments.
+        doc_comment_node_types: Override for leading-doc attachment; `None`
+                                uses the registration's. When non-empty, each
+                                symbol's span extends backward over any
+                                attached comments.
         included_ranges:        Byte/point ranges to restrict parsing
                                 to (e.g. a `<script>` block inside an
                                 SFC). When set, the parser sees only
@@ -313,8 +291,14 @@ def extract_symbols(
                                 positions. `None` parses the whole
                                 content.
     """
-    if not content:
+    query_str = registered_language.query
+    if not content or query_str is None:
         return
+    doc_types = (
+        registered_language.doc_comment_node_types
+        if doc_comment_node_types is None
+        else doc_comment_node_types
+    )
 
     parser = Parser(grammar)
     if included_ranges is not None:
@@ -332,25 +316,28 @@ def extract_symbols(
                 continue
 
             for node in nodes:
-                name = name_extractor(capture_name, node, capture_dict)
+                name = registered_language.resolve_name(capture_name, node, capture_dict)
 
                 meta = ImportMeta()
                 if capture_name == "import":
-                    meta = import_extractor(node, capture_dict)
+                    meta = registered_language.resolve_import(node, capture_dict)
 
                 scope_names, nearest_is_class = _enclosing_scope_names(
-                    node, scope_types, class_scope_types
+                    node, registered_language.scope_types, registered_language.class_scope_types
                 )
-                # The scope_extractor's segments extend the tree-ancestry
-                # scope; the default (`resolve_scope`) contributes `@_scope`.
-                scope_names = [*scope_names, *scope_extractor(capture_name, node, capture_dict)]
+                # The scope override's segments extend the tree-ancestry
+                # scope; the default contributes the `@_scope` capture.
+                scope_names = [
+                    *scope_names,
+                    *registered_language.resolve_scope(capture_name, node, capture_dict),
+                ]
                 actual_kind = _resolve_kind(kind, nearest_scope_is_class=nearest_is_class)
 
                 start_byte, line_start = _chunk_line_start(
                     node,
                     content,
                     is_import=capture_name == "import",
-                    doc_comment_node_types=doc_comment_node_types,
+                    doc_comment_node_types=doc_types,
                 )
 
                 text = content[start_byte : node.end_byte].decode("utf-8", errors="replace")
@@ -365,7 +352,7 @@ def extract_symbols(
                         "kind": actual_kind,
                         "name": name,
                         "scope": scope_names,
-                        "language": language,
+                        "language": registered_language.id,
                         "content": text,
                         "line_start": line_start,
                         "line_end": node.end_point[0] + 1,

@@ -19,31 +19,21 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
 from rbtr.languages.css.plugin import css_nesting_scope
-from rbtr.languages.hookspec import (
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
     LanguageRegistration,
     build_quoted_import,
-    hookimpl,
 )
 
-_QUERY = load_query(__package__, "less")
+less = LanguageRegistration(
+    id="less",
+    extensions=frozenset({".less"}),
+    grammar_module="tree_sitter_less",
+    query=load_query(__package__, "less"),
+    import_targets=frozenset({"css", "scss", "less"}),
+    language_plugin_version=1,
+)
 
-
-class LessPlugin:
-    """Less language support — Less constructs + @import edges."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="less",
-                extensions=frozenset({".less"}),
-                grammar_module="tree_sitter_less",
-                query=_QUERY,
-                scope_extractor=css_nesting_scope,
-                import_extractor=build_quoted_import,
-                import_targets=frozenset({"css", "scss", "less"}),
-                language_plugin_version=1,
-            ),
-        ]
+less.scope_extractor(css_nesting_scope)
+less.import_extractor(build_quoted_import)

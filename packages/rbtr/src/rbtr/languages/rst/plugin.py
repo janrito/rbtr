@@ -25,8 +25,8 @@ from tree_sitter import Parser, Query, QueryCursor
 
 from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
@@ -337,17 +337,11 @@ def _extract_references(
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class RstPlugin:
-    """RST language support — heading-hierarchy chunking."""
+rst = LanguageRegistration(
+    id="rst",
+    extensions=frozenset({".rst"}),
+    grammar_module="tree_sitter_rst",
+    language_plugin_version=3,
+)
 
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="rst",
-                extensions=frozenset({".rst"}),
-                grammar_module="tree_sitter_rst",
-                chunker=chunk_rst,
-                language_plugin_version=3,
-            ),
-        ]
+rst.chunker(chunk_rst)

@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import importlib.metadata
 from collections.abc import Iterator
+from types import SimpleNamespace
 
-import pluggy
 import pytest
 from tree_sitter import Query
 
-from rbtr.languages import LanguageManager, get_manager, reset_manager
-from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hookimpl
+from rbtr.errors import RbtrError
+from rbtr.languages import get_manager, reset_manager
+from rbtr.languages.registration import LanguageRegistration
 
 # ── detect_language ──────────────────────────────────────────────────
 
@@ -282,126 +283,47 @@ def test_all_language_ids_contains(lang_id: str) -> None:
     assert lang_id in get_manager().all_language_ids()
 
 
-# ── Duplicate detection ──────────────────────────────────────────────
+# ── Entry-point discovery ────────────────────────────────────────────
+#
+# The manager reads only `ep.name` and `ep.load()`, so each test drives it
+# with an inline entry-point double (a `SimpleNamespace`) instead of a real
+# `module:attr` EntryPoint. The `fresh_manager` fixture rebuilds the cached
+# singleton around the patched discovery and restores it afterwards.
 
 
-def test_duplicate_id_in_single_plugin_raises() -> None:
-    """A plugin returning two registrations with the same ID is an error."""
-
-    class BadPlugin:
-        @hookimpl
-        def rbtr_register_languages(self) -> list[LanguageRegistration]:
-            return [
-                LanguageRegistration(id="dup", extensions=frozenset({".dup1"})),
-                LanguageRegistration(id="dup", extensions=frozenset({".dup2"})),
-            ]
-
-    mgr = LanguageManager.__new__(LanguageManager)
-    mgr._registrations = {}
-    mgr._ext_map = {}
-    mgr._filename_map = {}
-    mgr._grammar_cache = {}
-
-    mgr._pm = pluggy.PluginManager("rbtr")
-
-    # Avoid circular import — import spec directly.
-
-    mgr._pm.add_hookspecs(LanguageHookspec)
-    mgr._pm.register(BadPlugin())
-
-    with pytest.raises(ValueError, match="duplicate language id"):
-        mgr._collect()
-
-
-# ── Entry-point registration & precedence ────────────────────────
-
-
-class _EntryPointPlugin:
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [LanguageRegistration(id="entrypoint_fake", extensions=frozenset({".epfake"}))]
-
-
-# Module-level so the synthetic entry point below can resolve it via
-# `module:attr` (production shape: `load_setuptools_entrypoints` does
-# `getattr(import_module(module), attr)`), not test data.
-ENTRY_POINT_PLUGIN = _EntryPointPlugin()
-
-
-def test_entrypoint_plugin_is_discovered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A plugin exposed via the `rbtr.languages` entry-point group is registered.
-
-    Drives the exact path the manager uses (`load_setuptools_entrypoints`)
-    by injecting a synthetic distribution, so it proves the load-bearing
-    discovery mechanism the whole packaging split depends on.
-    """
-    ep = importlib.metadata.EntryPoint(
-        name="entrypoint_fake",
-        value=f"{__name__}:ENTRY_POINT_PLUGIN",
-        group="rbtr.languages",
-    )
-
-    class _FakeDist:
-        entry_points = (ep,)
-
-    real_distributions = importlib.metadata.distributions
-
-    def fake_distributions() -> Iterator[object]:
-        # pluggy calls `distributions()` with no arguments.
-        yield _FakeDist()
-        yield from real_distributions()
-
-    monkeypatch.setattr(importlib.metadata, "distributions", fake_distributions)
+@pytest.fixture
+def fresh_manager() -> Iterator[None]:
     reset_manager()
-    try:
-        assert get_manager().detect_language("x.epfake") == "entrypoint_fake"
-    finally:
-        reset_manager()
+    yield
+    reset_manager()
 
 
-def test_entrypoint_value_must_resolve_to_instance() -> None:
-    """Entry-point values must resolve to a plugin *instance*, not a class.
-
-    `load_setuptools_entrypoints` registers whatever `ep.load()` returns.
-    A bare class leaves the hookimpl unbound, so the hook call fails with
-    a missing `self`. This pins the `plugin:PLUGIN` convention plugins
-    must follow.
-    """
-    pm = pluggy.PluginManager("rbtr")
-    pm.add_hookspecs(LanguageHookspec)
-    pm.register(_EntryPointPlugin)  # the class, as a mis-pointed entry point would load
-    with pytest.raises(TypeError, match="self"):
-        pm.hook.rbtr_register_languages()
+def test_entrypoint_registration_is_discovered(
+    monkeypatch: pytest.MonkeyPatch, fresh_manager: None
+) -> None:
+    """A `LanguageRegistration` exposed via the entry-point group is registered."""
+    reg = LanguageRegistration(id="entrypoint_fake", extensions=frozenset({".epfake"}))
+    ep = SimpleNamespace(name="entrypoint_fake", load=lambda: reg)
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: [ep])
+    assert get_manager().detect_language("x.epfake") == "entrypoint_fake"
 
 
-def test_later_plugin_overrides_earlier() -> None:
-    """When two plugins register the same id, the later-registered one wins.
+def test_duplicate_id_raises(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) -> None:
+    """Two entry points claiming the same language id is a conflict."""
+    reg = LanguageRegistration(id="dup", extensions=frozenset({".dup"}))
+    eps = [SimpleNamespace(name="a", load=lambda: reg), SimpleNamespace(name="b", load=lambda: reg)]
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
+    with pytest.raises(RbtrError, match="duplicate language id"):
+        get_manager()
 
-    Pins precedence for the end state where `_register_builtins` is gone
-    and every plugin arrives via an entry point.
-    """
 
-    class PluginA:
-        @hookimpl
-        def rbtr_register_languages(self) -> list[LanguageRegistration]:
-            return [LanguageRegistration(id="dup", extensions=frozenset({".a"}))]
+def test_broken_plugin_is_skipped(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) -> None:
+    """An entry point whose module fails to load is skipped, not fatal."""
 
-    class PluginB:
-        @hookimpl
-        def rbtr_register_languages(self) -> list[LanguageRegistration]:
-            return [LanguageRegistration(id="dup", extensions=frozenset({".b"}))]
+    def boom() -> LanguageRegistration:
+        raise ImportError
 
-    mgr = LanguageManager.__new__(LanguageManager)
-    mgr._registrations = {}
-    mgr._ext_map = {}
-    mgr._filename_map = {}
-    mgr._grammar_cache = {}
-    mgr._pm = pluggy.PluginManager("rbtr")
-    mgr._pm.add_hookspecs(LanguageHookspec)
-    mgr._pm.register(PluginA())
-    mgr._pm.register(PluginB())  # registered later — should win
-    mgr._collect()
-
-    reg = mgr.get_registration("dup")
-    assert reg is not None
-    assert reg.extensions == frozenset({".b"})
+    good = LanguageRegistration(id="oklang", extensions=frozenset({".oklang"}))
+    eps = [SimpleNamespace(name="broken", load=boom), SimpleNamespace(name="ok", load=lambda: good)]
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
+    assert get_manager().all_language_ids() == ["oklang"]

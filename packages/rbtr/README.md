@@ -380,8 +380,8 @@ installable package, `rbtr-lang-<lang>`, that registers with rbtr
 through a `rbtr.languages` entry point. Users add one by installing it
 (`pip install rbtr-lang-swift`, or `pip install rbtr[swift]` for the
 languages rbtr bundles as extras — see [Installing the
-plugin](#installing-the-plugin)). A plugin returns
-`LanguageRegistration` instances and provides whatever fields its
+plugin](#installing-the-plugin)). A plugin exposes
+`LanguageRegistration` values and provides whatever fields its
 language needs — there are no tiers or categories.
 
 ### The package
@@ -414,12 +414,10 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = ["rbtr", "tree-sitter-swift"]
 
-# How rbtr discovers the plugin. The value points at a plugin
-# *instance*, not the class: rbtr registers whatever the entry point
-# resolves to and calls the hook on it, and a bare class leaves the
-# hookimpl unbound. So end plugin.py with `PLUGIN = SwiftPlugin()`.
+# How rbtr discovers the plugin: the value points at a module-level
+# `LanguageRegistration`, named by its language id.
 [project.entry-points."rbtr.languages"]
-swift = "rbtr_lang_swift.plugin:PLUGIN"
+swift = "rbtr_lang_swift.plugin:swift"
 
 [dependency-groups]
 dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
@@ -448,24 +446,17 @@ lives in its own `.scm` file, loaded with `load_query`:
 ```python
 # src/rbtr_lang_swift/plugin.py
 from __future__ import annotations
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
-class SwiftPlugin:
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="swift",
-                extensions=frozenset({".swift"}),
-                grammar_module="tree_sitter_swift",
-                query=load_query(__package__, "swift"),
-                scope_types=frozenset({"class_declaration"}),
-                doc_comment_node_types=frozenset({"comment"}),
-            ),
-        ]
-
-PLUGIN = SwiftPlugin()  # the entry-point target
+swift = LanguageRegistration(
+    id="swift",
+    extensions=frozenset({".swift"}),
+    grammar_module="tree_sitter_swift",
+    query=load_query(__package__, "swift"),
+    scope_types=frozenset({"class_declaration"}),
+    doc_comment_node_types=frozenset({"comment"}),
+)
 ```
 
 Capture conventions: `@function`/`@_fn_name`,
@@ -479,21 +470,22 @@ stripping for `<>` (system includes) and `"` (string literals).
 Each `@import` match is passed to the language's
 `import_extractor`, which reads captures first then walks
 the node for what the query can't express (e.g. multi-valued
-import names). Languages that don't need custom logic
-register `build_import_from_captures` as their extractor.
+import names). Languages that don't need custom logic get the
+built-in `default_import`; those that do attach an override with
+`@swift.import_extractor` (see Overrides below).
 
 Cross-language imports: `ImportMeta.language_hint` directs
 resolution when the target language differs from the source
 (e.g. HTML `<script src>` → `language_hint="javascript"`).
 
 Custom names and scopes: when a query cannot express a
-symbol's display name or scope, set a `name_extractor` or
-`scope_extractor` on the registration — last-resort callbacks
-that compute them from the captured node (e.g. an HCL block
-named by its type and labels; a CSS nested rule scoped under
-its parent selector; a TOML dotted table split into a name
-and scope). Each delegates to the default resolver for the
-cases it does not special-case.
+symbol's display name or scope, attach a resolver with the
+`@swift.name_extractor` / `@swift.scope_extractor` decorator methods
+(see Overrides below) — last-resort callbacks that compute them from
+the captured node (e.g. an HCL block named by its type and labels; a
+CSS nested rule scoped under its parent selector; a TOML dotted table
+split into a name and scope). Each delegates to the default resolver
+for the cases it does not special-case.
 
 Leading doc comments: `doc_comment_node_types` lists the AST node
 types that count as documentation (e.g. `{"comment"}` in the Swift
@@ -516,11 +508,18 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser
 from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Range
 
+example = LanguageRegistration(
+    id="example",
+    extensions=frozenset({".ex"}),
+    grammar_module="tree_sitter_example",
+)
+
+@example.chunker
 def chunk_example(
     file_path: str,
     blob_sha: str,
@@ -533,21 +532,30 @@ def chunk_example(
         parser.included_ranges = ranges  # serve as an injection target
     tree = parser.parse(content.encode())
     # ... walk tree, yield Chunk objects ...
-
-class ExamplePlugin:
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="example",
-                extensions=frozenset({".ex"}),
-                grammar_module="tree_sitter_example",
-                chunker=chunk_example,
-            ),
-        ]
-
-PLUGIN = ExamplePlugin()  # the entry-point target
 ```
+
+### Overrides — custom resolvers and chunkers
+
+The four extraction overrides are attached as **methods** on the
+registration, not constructor arguments. Each works as a decorator on a
+fresh function, or as a plain call to reuse a shared/imported one.
+
+The name/scope/import overrides are **wrap-style** (like pydantic's
+`WrapValidator`): the first argument is the built-in `resolver` — call it
+to delegate, then refine — so you never import the default:
+
+```python
+@swift.name_extractor          # fresh, inline
+def swift_name(resolver: NameResolver, capture_name: str, node: Node, caps: dict[str, list[Node]]) -> str:
+    return resolver(capture_name, node, caps).removesuffix("!")   # delegate, then tweak
+
+swift.import_extractor(extract_swift_imports)   # reuse an existing function
+```
+
+The methods are `name_extractor`, `scope_extractor`, `import_extractor`
+(all wrap-style, `resolver` first), and `chunker` (no resolver). An
+override that doesn't delegate simply ignores its `resolver`. Unset ones
+fall back to the engine defaults.
 
 ### Testing the plugin
 
@@ -627,8 +635,8 @@ ids into readable `file::name -> file::name [kind]` lines.
 
 ### Installing the plugin
 
-Installing the package is all it takes — the entry point auto-registers
-and external registrations override built-ins for the same language id:
+Installing the package is all it takes — the entry point auto-registers.
+(Two packages claiming the same language id is a conflict and raises.)
 
 - **Any third-party language:** `pip install rbtr-lang-swift` (it
   depends on `rbtr`).

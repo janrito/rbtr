@@ -36,35 +36,20 @@ extracted — the grammar has no node for them (they parse to `ERROR`).
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
-
-_QUERY = load_query(__package__, "sql")
-
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class SqlPlugin:
-    """SQL language support — DDL definitions, DML statements, and CTEs."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="sql",
-                extensions=frozenset({".sql"}),
-                grammar_module="tree_sitter_sql",
-                query=_QUERY,
-                # SQL `--` line comments and `/* */` blocks both parse to
-                # `comment`; attach a leading run to its statement, as the
-                # Go/Ruby plugins do.
-                doc_comment_node_types=frozenset({"comment"}),
-                language_plugin_version=2,
-            ),
-        ]
-
-
-# Entry-point target: pluggy registers this instance (see Phase 0 /
-# ARCHITECTURE "External plugins" — a bare class leaves hookimpls unbound).
-PLUGIN = SqlPlugin()
+sql = LanguageRegistration(
+    id="sql",
+    extensions=frozenset({".sql"}),
+    grammar_module="tree_sitter_sql",
+    query=load_query(__package__, "sql"),
+    # SQL `--` line comments and `/* */` blocks both parse to
+    # `comment`; attach a leading run to its statement, as the
+    # Go/Ruby plugins do.
+    doc_comment_node_types=frozenset({"comment"}),
+    language_plugin_version=2,
+)

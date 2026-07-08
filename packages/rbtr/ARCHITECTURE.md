@@ -1070,14 +1070,13 @@ chunks.
 
 ## Language plugins
 
-[pluggy]-based. Each plugin is a package under
-`rbtr/languages/<lang>/` (a `plugin.py` plus its tree-sitter
-queries as sibling `.scm` files, loaded via `load_query`)
-that returns `LanguageRegistration` instances. A plugin
+Each plugin is a package (a `plugin.py` plus its tree-sitter
+queries as sibling `.scm` files, loaded via `load_query`) that
+exposes module-level `LanguageRegistration` values. A plugin
 provides whatever combination of fields its language needs -
-there are no tiers or categories.
-
-[pluggy]: https://pluggy.readthedocs.io/
+there are no tiers or categories. Discovery is by entry point
+(see below); there is no hook framework — the domain is
+single-dispatch by language id, so a plain registry suffices.
 
 For the plugin author's API (field reference, examples,
 capture conventions), see
@@ -1144,14 +1143,18 @@ and host-presence trace — is not re-run per block.
 
 ### External plugins
 
-External plugins register via the `rbtr.languages` entry
-point. External registrations override built-in ones. See
-the README for a step-by-step guide to writing a plugin.
+All languages — the ones bundled in core and external
+`rbtr-lang-*` packages alike — register via the `rbtr.languages`
+entry-point group; core declares entry points for its bundled
+languages in its own `pyproject.toml`. See the README for a
+step-by-step guide to writing a plugin.
 
-The entry-point *value* must resolve to a plugin **instance**
-(`my_pkg.plugin:PLUGIN`, where `PLUGIN = MyPlugin()`), not the
-bare class: [pluggy] registers whatever `ep.load()` returns and
-calls the hookimpl on it, so a class leaves the method unbound.
+The entry-point *value* resolves to a module-level
+`LanguageRegistration`, named by its language id
+(`my_pkg.plugin:swift`, where `swift = LanguageRegistration(...)`).
+The manager (`rbtr.languages.LanguageManager`) collects them via
+`importlib.metadata.entry_points`; a duplicate language id raises,
+and a plugin whose module fails to import is logged and skipped.
 
 ### Plugin → core contract
 
@@ -1160,12 +1163,15 @@ on a small, stable surface of core symbols. This is the
 contract that survives packaging each language as its own
 distribution:
 
-- `rbtr.languages.hookspec` — `hookimpl`, `LanguageRegistration`,
-  `ModuleStyle`, and the capture/import helpers `resolve_name`,
-  `collect_scoped_path`, `enclosing_nodes_of_type`,
-  `build_import_from_captures`, `build_quoted_import`,
-  `parse_path_relative`.
-- `rbtr.languages._queries.load_query` — loads the plugin's
+- `rbtr.languages.registration` — `LanguageRegistration`,
+  `ModuleStyle`, the wrap-override resolver type aliases
+  (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
+  capture/import helpers `collect_scoped_path`,
+  `enclosing_nodes_of_type`, `build_quoted_import`,
+  `parse_path_relative`. (Overrides receive the built-in
+  `default_name` / `default_scope` / `default_import` as their wrap
+  resolver argument, so plugins no longer import the defaults.)
+- `rbtr.languages.queries.load_query` — loads the plugin's
   co-located `.scm` query as package data.
 - `rbtr.index.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
 - `rbtr.index.identity.make_chunk_id`.
@@ -1546,8 +1552,12 @@ embeddings, bulk insert performance.
 **pygit2 over git CLI.** Direct object-store access; no
 subprocess per file.
 
-**pluggy for plugins.** Hook-based discovery, precedence,
-entry-point registration.
+**Entry-point registry for language plugins.** Languages are
+discovered from the `rbtr.languages` entry-point group via
+`importlib.metadata`, each resolving to a `LanguageRegistration`.
+No hook framework (pluggy): the domain is single-dispatch by
+language id, where a plain registry is simpler and a
+multi-dispatch hook loop buys nothing (YAGNI).
 
 **pydantic-settings for CLI + config.** Config fields are
 CLI flags. TOML, env, and CLI args merge in one framework.

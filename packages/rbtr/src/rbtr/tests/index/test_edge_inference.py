@@ -21,7 +21,7 @@ from rbtr.index.edges import (
     infer_test_edges,
 )
 from rbtr.index.models import Chunk, Edge, EdgeKind
-from rbtr.languages.hookspec import ModuleStyle
+from rbtr.languages.registration import ModuleStyle
 
 from .cases_edges import EdgeScenario, InferFn
 

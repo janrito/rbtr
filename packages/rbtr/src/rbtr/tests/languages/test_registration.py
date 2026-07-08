@@ -1,4 +1,4 @@
-"""Tests for hookspec utilities and LanguageRegistration."""
+"""Tests for `LanguageRegistration` and the plugin-author utilities."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ import pytest
 from tree_sitter import Node
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.hookspec import (
+from rbtr.languages.registration import (
+    ImportResolver,
     LanguageRegistration,
+    NameResolver,
     parse_path_relative,
 )
 
@@ -57,8 +59,12 @@ def test_registration_defaults() -> None:
     assert reg.grammar_module is None
     assert reg.grammar_entry == "language"
     assert reg.query is None
-    assert reg.import_extractor is None
     assert reg.scope_types == frozenset()
+    # No overrides set — slots are None; the engine substitutes defaults.
+    assert reg._name_extractor is None
+    assert reg._scope_extractor is None
+    assert reg._import_extractor is None
+    assert reg._chunker is None
 
 
 def test_registration_is_frozen() -> None:
@@ -81,7 +87,9 @@ def test_registration_scope_types(scope_types: frozenset[str]) -> None:
 
 
 def test_registration_with_all_fields() -> None:
-    def dummy_extractor(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+    def dummy_extractor(
+        resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+    ) -> ImportMeta:
         return ImportMeta()
 
     reg = LanguageRegistration(
@@ -91,17 +99,31 @@ def test_registration_with_all_fields() -> None:
         grammar_module="tree_sitter_test",
         grammar_entry="language_test",
         query="(test) @function",
-        import_extractor=dummy_extractor,
         scope_types=frozenset({"test_scope"}),
     )
+    reg.import_extractor(dummy_extractor)  # attach via the method
     assert reg.id == "test"
     assert reg.extensions == frozenset({".tst"})
     assert reg.filenames == frozenset({"Testfile"})
     assert reg.grammar_module == "tree_sitter_test"
     assert reg.grammar_entry == "language_test"
     assert reg.query == "(test) @function"
-    assert reg.import_extractor is dummy_extractor
+    assert reg._import_extractor is dummy_extractor
     assert reg.scope_types == frozenset({"test_scope"})
+
+
+def test_registration_override_decorator() -> None:
+    """The override methods work as decorators and set the matching slot."""
+    reg = LanguageRegistration(id="test")
+
+    @reg.name_extractor
+    def _name(
+        resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+    ) -> str:
+        return "custom"
+
+    assert reg._name_extractor is _name
+    assert reg._scope_extractor is None  # untouched
 
 
 # ── ID validation ────────────────────────────────────────────────────

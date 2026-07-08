@@ -15,22 +15,12 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
-_QUERY = load_query(__package__, "json")
-
-
-class JsonPlugin:
-    """JSON language support — top-level key extraction."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="json",
-                extensions=frozenset({".json"}),
-                grammar_module="tree_sitter_json",
-                query=_QUERY,
-            ),
-        ]
+json = LanguageRegistration(
+    id="json",
+    extensions=frozenset({".json"}),
+    grammar_module="tree_sitter_json",
+    query=load_query(__package__, "json"),
+)

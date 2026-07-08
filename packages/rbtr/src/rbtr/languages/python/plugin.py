@@ -25,12 +25,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import (
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
+    ImportResolver,
     LanguageRegistration,
     ModuleStyle,
-    build_import_from_captures,
-    hookimpl,
 )
 
 if TYPE_CHECKING:
@@ -42,12 +41,13 @@ if TYPE_CHECKING:
 # docstring for doc-range detection (used by `extract_doc_spans`
 # and the eval query sampler).  It is optional in the match
 # (`?`), so functions/classes without a docstring still match.
-_QUERY = load_query(__package__, "python")
 
 # ── Import extractor ─────────────────────────────────────────────────
 
 
-def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+def extract_import_meta(
+    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+) -> ImportMeta:
     """Extract structured import data from a Python import node.
 
     Reads query captures (`@_import_module`, `@_import_dots`)
@@ -71,7 +71,7 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
         `from . import utils`:
             dots="1", names="utils"
     """
-    meta = build_import_from_captures(node, captures)
+    meta = resolver(node, captures)
 
     # Convert @_import_dots from raw import_prefix (e.g. "..")
     # to a count string.
@@ -101,29 +101,18 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class PythonPlugin:
-    """Python language support.
+python = LanguageRegistration(
+    id="python",
+    extensions=frozenset({".py", ".pyi"}),
+    grammar_module="tree_sitter_python",
+    query=load_query(__package__, "python"),
+    scope_types=frozenset({"class_definition", "function_definition"}),
+    class_scope_types=frozenset({"class_definition"}),
+    index_files=frozenset({"__init__.py"}),
+    source_roots=("", "src"),
+    test_prefix="test_",
+    module_style=ModuleStyle.DOTTED,
+    language_plugin_version=4,
+)
 
-    Registers `.py` and `.pyi` files.  Uses
-    `class_definition` for scope detection (Python's AST uses
-    `class_definition`, not `class_declaration`).
-    """
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="python",
-                extensions=frozenset({".py", ".pyi"}),
-                grammar_module="tree_sitter_python",
-                query=_QUERY,
-                import_extractor=extract_import_meta,
-                scope_types=frozenset({"class_definition", "function_definition"}),
-                class_scope_types=frozenset({"class_definition"}),
-                index_files=frozenset({"__init__.py"}),
-                source_roots=("", "src"),
-                test_prefix="test_",
-                module_style=ModuleStyle.DOTTED,
-                language_plugin_version=4,
-            ),
-        ]
+python.import_extractor(extract_import_meta)

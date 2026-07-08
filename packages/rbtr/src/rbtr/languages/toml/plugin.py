@@ -21,13 +21,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl, resolve_name
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration, NameResolver, ScopeResolver
 
 if TYPE_CHECKING:
     from tree_sitter import Node
-
-_QUERY = load_query(__package__, "toml")
 
 
 def _key_text(node: Node) -> str:
@@ -56,37 +54,34 @@ def _key_segments(key_node: Node) -> list[str]:
     return []
 
 
-def toml_table_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+toml = LanguageRegistration(
+    id="toml",
+    extensions=frozenset({".toml"}),
+    grammar_module="tree_sitter_toml",
+    query=load_query(__package__, "toml"),
+    language_plugin_version=2,
+)
+
+
+@toml.name_extractor
+def toml_table_name(
+    resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+) -> str:
     """Name a table by its last key segment (`[tool.ruff]` → `"ruff"`)."""
     key_nodes = captures.get("_section_name", [])
     if key_nodes:
         segments = _key_segments(key_nodes[0])
         if segments:
             return segments[-1]
-    return resolve_name(capture_name, node, captures)
+    return resolver(capture_name, node, captures)
 
 
-def toml_table_scope(_capture_name: str, _node: Node, captures: dict[str, list[Node]]) -> list[str]:
+@toml.scope_extractor
+def toml_table_scope(
+    _resolver: ScopeResolver, _capture_name: str, _node: Node, captures: dict[str, list[Node]]
+) -> list[str]:
     """Scope a table under its leading key segments (`[tool.ruff]` → `["tool"]`)."""
     key_nodes = captures.get("_section_name", [])
     if not key_nodes:
         return []
     return _key_segments(key_nodes[0])[:-1]
-
-
-class TomlPlugin:
-    """TOML language support — table extraction via query."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="toml",
-                extensions=frozenset({".toml"}),
-                grammar_module="tree_sitter_toml",
-                query=_QUERY,
-                name_extractor=toml_table_name,
-                scope_extractor=toml_table_scope,
-                language_plugin_version=2,
-            ),
-        ]

@@ -21,35 +21,25 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 # ── Query ────────────────────────────────────────────────────────────
 
-_QUERY = load_query(__package__, "cpp")
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class CppPlugin:
-    """C++ language support — functions, classes, methods, includes."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="cpp",
-                extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
-                grammar_module="tree_sitter_cpp",
-                query=_QUERY,
-                scope_types=frozenset(
-                    {"class_specifier", "struct_specifier", "namespace_definition"}
-                ),
-                class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
-                # Same grammar as C — single `comment` node.
-                doc_comment_node_types=frozenset({"comment"}),
-                source_roots=("", "include", "src"),
-                test_prefix="test_",
-                language_plugin_version=5,
-            ),
-        ]
+cpp = LanguageRegistration(
+    id="cpp",
+    extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
+    grammar_module="tree_sitter_cpp",
+    query=load_query(__package__, "cpp"),
+    scope_types=frozenset({"class_specifier", "struct_specifier", "namespace_definition"}),
+    class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
+    # Same grammar as C — single `comment` node.
+    doc_comment_node_types=frozenset({"comment"}),
+    source_roots=("", "include", "src"),
+    test_prefix="test_",
+    language_plugin_version=5,
+)

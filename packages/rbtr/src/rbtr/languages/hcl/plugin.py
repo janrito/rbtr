@@ -14,18 +14,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl, resolve_name
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration, NameResolver
 
 if TYPE_CHECKING:
     from tree_sitter import Node
 
 # Top-level blocks only: a `block` whose body is the file's own body,
 # not one nested inside another block.
-_QUERY = load_query(__package__, "hcl")
 
 
-def hcl_block_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+hcl = LanguageRegistration(
+    id="hcl",
+    extensions=frozenset({".hcl", ".tf"}),
+    grammar_module="tree_sitter_hcl",
+    query=load_query(__package__, "hcl"),
+    language_plugin_version=2,
+)
+
+
+@hcl.name_extractor
+def hcl_block_name(
+    resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+) -> str:
     """Name a top-level HCL block by its type and labels.
 
     `resource "aws_instance" "web"` → `"resource aws_instance web"`;
@@ -33,7 +44,7 @@ def hcl_block_name(capture_name: str, node: Node, captures: dict[str, list[Node]
     fall back to the default resolver.
     """
     if capture_name != "doc_section":
-        return resolve_name(capture_name, node, captures)
+        return resolver(capture_name, node, captures)
     labels: list[str] = []
     for child in node.children:
         if child.type == "identifier" and child.text:
@@ -41,20 +52,3 @@ def hcl_block_name(capture_name: str, node: Node, captures: dict[str, list[Node]
         elif child.type == "string_lit" and child.text:
             labels.append(child.text.decode("utf-8", errors="replace").strip('"'))
     return " ".join(labels)
-
-
-class HclPlugin:
-    """HCL language support — top-level block extraction via query."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="hcl",
-                extensions=frozenset({".hcl", ".tf"}),
-                grammar_module="tree_sitter_hcl",
-                query=_QUERY,
-                name_extractor=hcl_block_name,
-                language_plugin_version=2,
-            ),
-        ]

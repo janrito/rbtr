@@ -28,8 +28,8 @@ from tree_sitter import Language, Parser, Query, QueryCursor
 from rbtr.index.chunks import chunk_plaintext
 from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Range
@@ -43,7 +43,6 @@ _SECTION_QUERY = load_query(__package__, "sections")
 # Injection query: a fenced code block delegates its content to the language
 # named in the fence's info string (```python, ```sh). The info-string name
 # is captured dynamically and resolved to a language id by the runner.
-_INJECTIONS = load_query(__package__, "injections")
 
 
 # ── Chunking ─────────────────────────────────────────────────────────
@@ -251,18 +250,12 @@ def _extract_links(
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class MarkdownPlugin:
-    """Markdown language support — heading-hierarchy chunking."""
+markdown = LanguageRegistration(
+    id="markdown",
+    extensions=frozenset({".md"}),
+    grammar_module="tree_sitter_markdown",
+    injection_query=load_query(__package__, "injections"),
+    language_plugin_version=4,
+)
 
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="markdown",
-                extensions=frozenset({".md"}),
-                grammar_module="tree_sitter_markdown",
-                chunker=chunk_markdown,
-                injection_query=_INJECTIONS,
-                language_plugin_version=4,
-            ),
-        ]
+markdown.chunker(chunk_markdown)

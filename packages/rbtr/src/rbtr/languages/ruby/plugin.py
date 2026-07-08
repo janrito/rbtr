@@ -27,11 +27,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import (
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
+    ImportResolver,
     LanguageRegistration,
-    build_import_from_captures,
-    hookimpl,
     parse_path_relative,
 )
 
@@ -40,12 +39,13 @@ if TYPE_CHECKING:
 
 # ── Query ────────────────────────────────────────────────────────────
 
-_QUERY = load_query(__package__, "ruby")
 
 # ── Import extractor ─────────────────────────────────────────────────
 
 
-def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+def extract_import_meta(
+    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+) -> ImportMeta:
     """Extract import data from a Ruby `require` / `require_relative` node.
 
     Reads `@_import_module` from captures (the query captures
@@ -66,7 +66,7 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
         `require_relative "../lib/utils"`:
             module="lib/utils", dots="2"
     """
-    meta = build_import_from_captures(node, captures)
+    meta = resolver(node, captures)
     method = node.child_by_field_name("method")
     if method and method.text == b"require_relative":
         # `require_relative` is always relative to the current file. Strip any
@@ -81,25 +81,19 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class RubyPlugin:
-    """Ruby language support — methods, classes, modules, requires."""
+ruby = LanguageRegistration(
+    id="ruby",
+    extensions=frozenset({".rb"}),
+    grammar_module="tree_sitter_ruby",
+    query=load_query(__package__, "ruby"),
+    scope_types=frozenset({"class", "module"}),
+    # Ruby convention: `#` runs above a `def` or
+    # `class` document it.  Single `comment` node
+    # type.
+    doc_comment_node_types=frozenset({"comment"}),
+    source_roots=("", "lib"),
+    test_prefix="test_",
+    language_plugin_version=4,
+)
 
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="ruby",
-                extensions=frozenset({".rb"}),
-                grammar_module="tree_sitter_ruby",
-                query=_QUERY,
-                import_extractor=extract_import_meta,
-                scope_types=frozenset({"class", "module"}),
-                # Ruby convention: `#` runs above a `def` or
-                # `class` document it.  Single `comment` node
-                # type.
-                doc_comment_node_types=frozenset({"comment"}),
-                source_roots=("", "lib"),
-                test_prefix="test_",
-                language_plugin_version=4,
-            ),
-        ]
+ruby.import_extractor(extract_import_meta)
