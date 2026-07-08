@@ -15,7 +15,7 @@ from __future__ import annotations
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
-from rbtr.index.orchestrator import extract_file, extract_query
+from rbtr.languages.extract import extract_file, extract_query
 
 
 @parametrize_with_cases(

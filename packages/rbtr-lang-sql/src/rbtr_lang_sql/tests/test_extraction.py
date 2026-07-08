@@ -10,7 +10,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
 from rbtr.index.models import ChunkKind
-from rbtr.index.orchestrator import extract_file
+from rbtr.languages.extract import extract_file
 
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")

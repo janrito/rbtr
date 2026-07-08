@@ -3,7 +3,7 @@
 Each is a callable null-object (à la pydantic-ai's `NoOpTracer`): a
 `LanguageRegistration` slot defaults to one, `resolve_*` calls it directly, and
 an override composes over it. Private module — imported by `registration` (for
-the slot defaults) and by `index.treesitter` (for `NAME_CAPTURE_KEY`).
+the slot defaults) and by `languages.treesitter` (for `NAME_CAPTURE_KEY`).
 """
 
 from __future__ import annotations

@@ -15,11 +15,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rbtr.index.edges import ImportResolution
 from rbtr.index.models import ChunkKind, EdgeKind, ImportMeta
+from rbtr.languages.edges import ImportResolution
 from rbtr.languages.registration import ModuleStyle
 
-from .cases_common import ChunkSpec
+from ..index.cases_common import ChunkSpec
 
 
 @dataclass(frozen=True)
