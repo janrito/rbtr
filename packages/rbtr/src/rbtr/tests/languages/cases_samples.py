@@ -60,19 +60,6 @@ def case_go() -> SampleCase:
     )
 
 
-@case(id="html", tags=["sample"])
-def case_html() -> SampleCase:
-    """HTML: <script src> and <link href> as imports (with a language
-    hint, plain and self-closing tags), and major <body> elements as doc
-    sections. Inline <script>/<style> delegate to JavaScript (a function)
-    and CSS (a rule set).
-    """
-    return (
-        "html",
-        {ChunkKind.IMPORT, ChunkKind.DOC_SECTION, ChunkKind.FUNCTION},
-    )
-
-
 @case(id="yaml", tags=["sample"])
 def case_yaml() -> SampleCase:
     """YAML: each top-level mapping key becomes a doc section (nested keys

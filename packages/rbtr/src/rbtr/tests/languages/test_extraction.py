@@ -385,17 +385,6 @@ select = ["E"]
     assert chunks[0].scope == "tool::ruff"
 
 
-def test_html_non_semantic_only_emits_presence() -> None:
-    """HTML with no head/body/semantic element yields only a presence chunk.
-
-    A non-semantic wrapper (`<div>`) is not elevated, so no searchable
-    doc_section is produced; the engine appends one content-less host chunk.
-    """
-    chunks = extract_file(FileEntry("input", "sha1", b"<div>hello</div>"), "html")
-    assert [c.kind for c in chunks if c.content] == []
-    assert [c.language for c in chunks] == ["html"]
-
-
 def test_yaml_no_mapping_fallback() -> None:
     """YAML without mapping falls back to single chunk."""
     chunks = extract_file(FileEntry("input", "sha1", b"- item1\n- item2\n"), "yaml")
@@ -432,50 +421,6 @@ def test_svelte_without_template_still_emits_host_chunk() -> None:
     host = [c for c in chunks if c.language == "svelte"]
     assert len(host) == 1
     assert host[0].content == ""
-
-
-def test_html_script_src_produces_import() -> None:
-    """HTML <script src> produces an import chunk."""
-    src = """\
-<html>
-<head><script src="app.js"></script></head>
-<body><p>hello</p></body>
-</html>
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 1
-    assert imports[0].metadata.module == "app.js"
-    assert imports[0].metadata.language_hint == "javascript"
-
-
-def test_html_link_href_produces_import() -> None:
-    """HTML <link href> produces an import chunk."""
-    src = """\
-<html>
-<head><link rel="stylesheet" href="styles.css"></head>
-<body><p>hello</p></body>
-</html>
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 1
-    assert imports[0].metadata.module == "styles.css"
-    assert imports[0].metadata.language_hint == "css"
-
-
-def test_html_self_closing_link_produces_import() -> None:
-    """An XHTML-style self-closing `<link ... />` produces an import."""
-    src = """\
-<html>
-<head><link rel="stylesheet" href="styles.css" /></head>
-<body><p>hello</p></body>
-</html>
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 1
-    assert imports[0].metadata.module == "styles.css"
 
 
 # ── Markdown link extraction ──────────────────────────────────────────

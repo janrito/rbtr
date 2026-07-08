@@ -1,0 +1,36 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_html"
+# No source-exclude: the plugin's tests, samples, and snapshots ship
+# with the wheel (they are the language's golden record), and the .scm
+# queries ship as package data.
+
+[project]
+name = "rbtr-lang-html"
+version = "2026.6.1"
+description = "rbtr — HTML language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "tree-sitter-html",
+]
+
+[project.entry-points."rbtr.languages"]
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+html = "rbtr_lang_html.plugin:html"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+# The html sample embeds JavaScript and CSS (inline <script>/<style> and a
+# linked .js/.css), so the sample test needs those plugins to extract the
+# injected/linked chunks and snapshot the cross edges.
+rbtr-lang-css = { workspace = true }
+rbtr-lang-javascript = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[test]", "rbtr-lang-css", "rbtr-lang-javascript"]
