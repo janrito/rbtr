@@ -33,6 +33,7 @@ dependencies = [
   "rbtr-lang-cpp",
   "rbtr-lang-html",
   "rbtr-lang-javascript",
+  "rbtr-lang-markdown",
   "rbtr-lang-python",
 
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
@@ -42,7 +43,6 @@ dependencies = [
   "tree-sitter-java",
   "tree-sitter-json",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
-  "tree-sitter-markdown",
   "tree-sitter-query",
   "tree-sitter-rst",
   "tree-sitter-ruby",
@@ -69,7 +69,6 @@ go = "rbtr.languages.go.plugin:go"
 hcl = "rbtr.languages.hcl.plugin:hcl"
 java = "rbtr.languages.java.plugin:java"
 json = "rbtr.languages.json.plugin:json"
-markdown = "rbtr.languages.markdown.plugin:markdown"
 query = "rbtr.languages.query.plugin:query"
 rst = "rbtr.languages.rst.plugin:rst"
 ruby = "rbtr.languages.ruby.plugin:ruby"
@@ -107,6 +106,7 @@ rbtr-lang-css = { workspace = true }
 rbtr-lang-html = { workspace = true }
 rbtr-lang-javascript = { workspace = true }
 rbtr-lang-less = { workspace = true }
+rbtr-lang-markdown = { workspace = true }
 rbtr-lang-python = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }

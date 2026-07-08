@@ -102,20 +102,6 @@ def case_rst() -> SampleCase:
     )
 
 
-@case(id="markdown", tags=["sample"])
-def case_markdown() -> SampleCase:
-    """Markdown: heading hierarchy (as doc sections with `::` scope) and
-    local links (as imports, with `names` from a `#fragment`). External
-    and fragment-only links are skipped. Fenced code blocks delegate to
-    their language: a ```python``` block yields an import and a function,
-    a ```sh``` block a function — proving both hint-resolution paths.
-    """
-    return (
-        "markdown",
-        {ChunkKind.DOC_SECTION, ChunkKind.IMPORT, ChunkKind.FUNCTION},
-    )
-
-
 @case(id="json", tags=["sample"])
 def case_json() -> SampleCase:
     """JSON: every object key becomes a doc section, including nested keys
