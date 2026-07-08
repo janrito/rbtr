@@ -145,7 +145,6 @@ rust = LanguageRegistration(
     doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
     index_files=frozenset({"mod.rs"}),
     path_substitutions=(("crate/", "src/"),),
-    test_prefix="test_",
     language_plugin_version=4,
 )
 

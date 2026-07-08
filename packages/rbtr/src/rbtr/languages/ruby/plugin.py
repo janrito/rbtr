@@ -92,7 +92,6 @@ ruby = LanguageRegistration(
     # type.
     doc_comment_node_types=frozenset({"comment"}),
     source_roots=("", "lib"),
-    test_prefix="test_",
     language_plugin_version=4,
 )
 

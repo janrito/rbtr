@@ -40,6 +40,5 @@ cpp = LanguageRegistration(
     # Same grammar as C — single `comment` node.
     doc_comment_node_types=frozenset({"comment"}),
     source_roots=("", "include", "src"),
-    test_prefix="test_",
     language_plugin_version=5,
 )

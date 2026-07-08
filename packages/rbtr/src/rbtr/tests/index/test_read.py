@@ -115,7 +115,7 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
 def test_get_edges_returns_all(store: IndexStore) -> None:
     """Edges inserted for a commit are all returned."""
     e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.TESTS)
+    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
 
     with store.session() as ws:
         ws.insert_edges([e1, e2], "head", repo_id=1)
@@ -127,7 +127,7 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
 def test_get_edges_filter_by_kind(store: IndexStore) -> None:
     """Filtering edges by kind returns only matching."""
     e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.TESTS)
+    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
 
     with store.session() as ws:
         ws.insert_edges([e1, e2], "head", repo_id=1)

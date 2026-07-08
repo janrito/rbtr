@@ -146,8 +146,7 @@ class LanguageRegistration:
     - **Import resolution** (feeds the edge graph) — `index_files`,
       `import_targets`, `source_roots`, `path_substitutions`,
       `module_style`.
-    - **Housekeeping** — `test_prefix`, `test_suffix`,
-      `language_plugin_version`.
+    - **Housekeeping** — `language_plugin_version`.
 
     Extraction overrides — a custom name/scope/import resolver or a
     chunker — are *not* constructor arguments; attach them with the
@@ -302,12 +301,6 @@ class LanguageRegistration:
     before resolution (first matching prefix wins), for alias prefixes that
     don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
     `crate::` resolves under `src/`.  Empty → no rewriting."""
-    test_prefix: str = ""
-    """Filename prefix marking a test file, e.g. `"test_"` (Python), used to
-    link a test back to the module it exercises.  Empty → none."""
-    test_suffix: str = ""
-    """Filename suffix (before the extension) marking a test file, e.g.
-    `".test"` (JS/TS), `"_test"` (Go).  Empty → none."""
     language_plugin_version: int = 1
     """Extractor version.  Bump on any extraction change (query, chunker,
     override, or scope config) — it triggers re-extraction of every blob

@@ -799,8 +799,6 @@ for the dispatch chain.
 
 - **Import edges** - structural (tree-sitter import
   extractor) or text-search fallback.
-- **Test edges** - `test_foo.py` → `foo.py` by naming
-  convention and import analysis.
 - **Doc edges** - markdown sections mentioning symbol names.
 
 Import resolution maps a module string to a repo file:

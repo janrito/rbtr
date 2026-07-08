@@ -38,6 +38,5 @@ go = LanguageRegistration(
     # link).  The grammar uses a single `comment`
     # type for both line and block forms.
     doc_comment_node_types=frozenset({"comment"}),
-    test_suffix="_test",
     language_plugin_version=3,
 )

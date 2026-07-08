@@ -1,4 +1,4 @@
-"""Edge inference — imports, tests, docs relationships.
+"""Edge inference — imports and docs relationships.
 
 All public functions are pure: chunks in, edges out.  No I/O, no
 store access.  The orchestrator feeds them chunks and writes
@@ -47,10 +47,6 @@ class ImportResolution:
     """Directories to prepend when resolving absolute imports."""
     path_substitutions: tuple[tuple[str, str], ...]
     """Module path prefix replacements (e.g. `("crate/", "src/")`)."""
-    test_prefix: str = ""
-    """Test file name prefix (e.g. `test_`)."""
-    test_suffix: str = ""
-    """Test file name suffix (e.g. `.test`, `_test`)."""
     module_style: ModuleStyle = ModuleStyle.PATH
     """How module strings map to file paths. See `ModuleStyle`."""
     own_extensions: frozenset[str] = frozenset()
@@ -78,8 +74,6 @@ def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
             index_files=tuple(idxs),
             source_roots=reg.source_roots,
             path_substitutions=reg.path_substitutions,
-            test_prefix=reg.test_prefix,
-            test_suffix=reg.test_suffix,
             module_style=reg.module_style,
             own_extensions=reg.extensions,
         )
@@ -158,8 +152,8 @@ def _suffix_matches(
     """Collect repo files matching *name* as a full-path suffix.
 
     A file matches when it equals `name{ext}` or ends with `/name{ext}` for
-    some extension. Shared by the import resolver's Tier 3 and the test-edge
-    `_find_source_file` last resort so both apply one suffix-matching policy.
+    some extension. Used by the import resolver's Tier 3 (drop rather than
+    guess on ambiguity).
     """
     matches: list[str] = []
     for ext in extensions:
@@ -428,185 +422,5 @@ def infer_import_edges(
         else:
             # Text search fallback: scan for repo file stems.
             edges.extend(_text_search_import_edges(imp, file_symbols, stem_index))
-
-    return edges
-
-
-# ── Test↔code edges ─────────────────────────────────────────────────
-#
-# Strategy: file-naming heuristic + import analysis (structural or
-# text-search depending on what's available in the import chunks).
-
-
-def _strip_test_affix(
-    file_path: str,
-    *,
-    test_prefix: str = "test_",
-    test_suffix: str = "",
-) -> str | None:
-    """Extract the base name from a test file path.
-
-    Tries the language's prefix first, then suffix::
-
-        test_prefix="test_": tests/test_foo.py → foo
-        test_suffix=".test": src/models.test.ts → models
-        test_suffix="_test": pkg/foo_test.go → foo
-        test_suffix="Test":  FooTest.java → Foo
-    """
-    name = PurePosixPath(file_path).stem
-    if test_prefix and name.startswith(test_prefix):
-        return name[len(test_prefix) :]
-    if test_suffix and name.endswith(test_suffix):
-        return name[: -len(test_suffix)]
-    return None
-
-
-def _find_source_file(
-    base_name: str,
-    test_path: str,
-    repo_files: set[str],
-    resolution: ImportResolution | None = None,
-) -> str | None:
-    """Find a source file matching *base_name*.
-
-    Uses language-aware resolution when available, falling back
-    to `.py` heuristics.
-    """
-    extensions = resolution.extensions if resolution else (".py",)
-    source_roots = resolution.source_roots if resolution else ("", "src")
-
-    # Direct matches: source_root/base_name + ext.
-    for root in source_roots:
-        for ext in extensions:
-            candidate = f"{root}/{base_name}{ext}" if root else f"{base_name}{ext}"
-            if candidate in repo_files:
-                return candidate
-
-    # Sibling of test directory: tests/test_foo → ../foo + ext.
-    test_dir = PurePosixPath(test_path).parent
-    if test_dir.name in ("tests", "test"):
-        parent = test_dir.parent
-        for root in ("", "src"):
-            for ext in extensions:
-                candidate = (
-                    str(parent / root / f"{base_name}{ext}")
-                    if root
-                    else str(parent / f"{base_name}{ext}")
-                )
-                if candidate in repo_files:
-                    return candidate
-
-    # Underscore-to-slash expansion (Python convention: test_foo_bar → foo/bar).
-    if "_" in base_name:
-        nested = base_name.replace("_", "/")
-        for root in source_roots:
-            for ext in extensions:
-                candidate = f"{root}/{nested}{ext}" if root else f"{nested}{ext}"
-                if candidate in repo_files:
-                    return candidate
-
-    # Last resort: full-path suffix search, unique-match-only (same policy as
-    # the import resolver's Tier 3 — drop rather than guess on ambiguity).
-    candidates = _suffix_matches(base_name, repo_files, extensions)
-    if len(candidates) == 1:
-        return candidates[0]
-
-    return None
-
-
-def _imported_names_from_file(
-    test_chunks: list[Chunk],
-    source_file: str,
-    repo_files: set[str],
-    resolution: ImportResolution | None = None,
-) -> list[str]:
-    """Extract symbol names imported from *source_file* by the test.
-
-    Reads `chunk.metadata` — no language-specific parsing.
-    """
-    names: list[str] = []
-    for c in test_chunks:
-        if c.kind != ChunkKind.IMPORT or not c.metadata:
-            continue
-
-        resolved = _resolve_import_to_file(c.metadata, c.file_path, repo_files, resolution)
-        if resolved != source_file:
-            continue
-
-        names_str = c.metadata.names
-        if names_str:
-            names.extend(names_str.split(","))
-
-    return names
-
-
-def infer_test_edges(
-    chunks: list[Chunk],
-    repo_files: set[str],
-    resolution_map: dict[str, ImportResolution] | None = None,
-) -> list[Edge]:
-    """Infer `TESTS` edges from test files.
-
-    Links test functions to the source symbols they test, using
-    file naming conventions and import analysis.  When
-    *resolution_map* is provided, uses language-aware test-file
-    detection and file resolution.
-    """
-    by_file: dict[str, list[Chunk]] = {}
-    # Track per-file language for resolution lookup.
-    file_language: dict[str, str] = {}
-    for c in chunks:
-        by_file.setdefault(c.file_path, []).append(c)
-        if c.language and c.file_path not in file_language:
-            file_language[c.file_path] = c.language
-
-    symbol_index = _build_symbol_index(chunks)
-    edges: list[Edge] = []
-
-    for file_path, file_chunks in by_file.items():
-        lang = file_language.get(file_path, "")
-        resolution = resolution_map.get(lang) if resolution_map else None
-
-        base_name = _strip_test_affix(
-            file_path,
-            test_prefix=resolution.test_prefix if resolution else "test_",
-            test_suffix=resolution.test_suffix if resolution else "",
-        )
-        if base_name is None:
-            continue
-
-        source_file = _find_source_file(base_name, file_path, repo_files, resolution)
-        if source_file is None:
-            continue
-
-        test_fns = [c for c in file_chunks if c.kind in (ChunkKind.FUNCTION, ChunkKind.METHOD)]
-        if not test_fns:
-            continue
-
-        imported_names = _imported_names_from_file(file_chunks, source_file, repo_files, resolution)
-
-        if imported_names:
-            for test_fn in test_fns:
-                for name in imported_names:
-                    target = symbol_index.get((source_file, name))
-                    if target is not None:
-                        edges.append(
-                            Edge(source_id=test_fn.id, target_id=target.id, kind=EdgeKind.TESTS)
-                        )
-        else:
-            source_symbols = [
-                c
-                for c in by_file.get(source_file, [])
-                if c.kind in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD)
-            ]
-            if source_symbols:
-                for test_fn in test_fns:
-                    edges.append(
-                        Edge(
-                            source_id=test_fn.id,
-                            target_id=source_symbols[0].id,
-                            kind=EdgeKind.TESTS,
-                        )
-                    )
 
     return edges
