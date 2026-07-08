@@ -1,16 +1,20 @@
-"""Single-file-component (SFC) language plugin.
+"""Svelte plugin, plus the single-file-component (SFC) machinery shared with Vue.
 
-Svelte and Vue components embed code in several languages in one
+A Svelte (or Vue) component embeds code in several languages in one
 file: a `<script>` block (JavaScript/TypeScript), a `<style>`
 block (CSS/SCSS/Less), and a markup template. The `<script>` and
 `<style>` blocks are delegated to their embedded language by the
-engine's injection mechanism (`injection_query`, `_SFC_INJECTIONS`
-below); the chunker emits only the markup template, as a host chunk
-so component markup is searchable.
+engine's injection mechanism (`injection_query`); the chunker emits
+only the markup template, as a host chunk so component markup is
+searchable.
 
 The template chunk's `language` is left blank for the orchestrator
 to fill with the host language (svelte/vue); delegated chunks carry
 their embedded language, set by the target's extractor.
+
+`chunk_sfc` and `injections.scm` are shared: the `rbtr-lang-vue`
+package reuses both for `.vue` files, which expose the same
+`<script>`/`<style>` shape.
 """
 
 from __future__ import annotations
@@ -28,12 +32,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from tree_sitter import Language, Node, Range
-
-# Injection query shared by both SFC grammars — svelte and vue expose the
-# same `script_element`/`style_element` → `raw_text` shape. Each block's
-# `lang` attribute picks the embedded language; a `lang`-tagged rule outranks
-# the bare fallback by priority, and the hint→id mapping is spelled out below.
-_SFC_INJECTIONS = load_query(__package__, "injections")
 
 
 def _template_chunk(
@@ -96,27 +94,12 @@ def chunk_sfc(
         yield template
 
 
-def _vue_grammar() -> Language:
-    """Load the Vue grammar from the bundled language pack."""
-    import tree_sitter_language_pack  # deferred: heavy bundled native grammars
-
-    return tree_sitter_language_pack.get_language("vue")
-
-
 svelte = LanguageRegistration(
     id="svelte",
     extensions=frozenset({".svelte"}),
     grammar_module="tree_sitter_svelte",
-    injection_query=_SFC_INJECTIONS,
-    language_plugin_version=1,
-)
-vue = LanguageRegistration(
-    id="vue",
-    extensions=frozenset({".vue"}),
-    grammar_factory=_vue_grammar,
-    injection_query=_SFC_INJECTIONS,
+    injection_query=load_query(__package__, "injections"),
     language_plugin_version=1,
 )
 
 svelte.chunker(chunk_sfc)
-vue.chunker(chunk_sfc)

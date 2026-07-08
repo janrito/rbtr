@@ -31,8 +31,10 @@ members = [
     "rbtr-lang-rust",
     "rbtr-lang-scss",
     "rbtr-lang-sql",
+    "rbtr-lang-svelte",
     "rbtr-lang-toml",
     "rbtr-lang-tree-sitter-query",
+    "rbtr-lang-vue",
     "rbtr-lang-yaml",
 ]
 
@@ -3251,8 +3253,6 @@ dependencies = [
     { name = "rich-argparse" },
     { name = "structlog" },
     { name = "tree-sitter" },
-    { name = "tree-sitter-language-pack" },
-    { name = "tree-sitter-svelte" },
 ]
 
 [package.optional-dependencies]
@@ -3286,6 +3286,9 @@ scss = [
 sql = [
     { name = "rbtr-lang-sql" },
 ]
+svelte = [
+    { name = "rbtr-lang-svelte" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-cases" },
@@ -3296,6 +3299,9 @@ toml = [
 ]
 tree-sitter-query = [
     { name = "rbtr-lang-tree-sitter-query" },
+]
+vue = [
+    { name = "rbtr-lang-vue" },
 ]
 yaml = [
     { name = "rbtr-lang-yaml" },
@@ -3342,18 +3348,18 @@ requires-dist = [
     { name = "rbtr-lang-rust", marker = "extra == 'rust'", editable = "packages/rbtr-lang-rust" },
     { name = "rbtr-lang-scss", marker = "extra == 'scss'", editable = "packages/rbtr-lang-scss" },
     { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
+    { name = "rbtr-lang-svelte", marker = "extra == 'svelte'", editable = "packages/rbtr-lang-svelte" },
     { name = "rbtr-lang-toml", marker = "extra == 'toml'", editable = "packages/rbtr-lang-toml" },
     { name = "rbtr-lang-tree-sitter-query", marker = "extra == 'tree-sitter-query'", editable = "packages/rbtr-lang-tree-sitter-query" },
+    { name = "rbtr-lang-vue", marker = "extra == 'vue'", editable = "packages/rbtr-lang-vue" },
     { name = "rbtr-lang-yaml", marker = "extra == 'yaml'", editable = "packages/rbtr-lang-yaml" },
     { name = "rich", specifier = ">=13.0" },
     { name = "rich-argparse", specifier = ">=1.7.2" },
     { name = "structlog", specifier = ">=24.1" },
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.3.4" },
     { name = "tree-sitter", specifier = ">=0.24" },
-    { name = "tree-sitter-language-pack" },
-    { name = "tree-sitter-svelte" },
 ]
-provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "toml", "tree-sitter-query", "yaml", "test"]
+provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "test"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3695,6 +3701,7 @@ dev = [
     { name = "rbtr-lang-javascript" },
     { name = "rbtr-lang-python" },
     { name = "rbtr-lang-scss" },
+    { name = "rbtr-lang-svelte" },
     { name = "rbtr-lang-toml" },
     { name = "rbtr-lang-yaml" },
 ]
@@ -3714,6 +3721,7 @@ dev = [
     { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
     { name = "rbtr-lang-python", editable = "packages/rbtr-lang-python" },
     { name = "rbtr-lang-scss", editable = "packages/rbtr-lang-scss" },
+    { name = "rbtr-lang-svelte", editable = "packages/rbtr-lang-svelte" },
     { name = "rbtr-lang-toml", editable = "packages/rbtr-lang-toml" },
     { name = "rbtr-lang-yaml", editable = "packages/rbtr-lang-yaml" },
 ]
@@ -3863,6 +3871,35 @@ requires-dist = [
 dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
 
 [[package]]
+name = "rbtr-lang-svelte"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-svelte" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-svelte" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+    { name = "rbtr-lang-javascript" },
+    { name = "rbtr-lang-scss" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-svelte" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "rbtr", extras = ["test"], editable = "packages/rbtr" },
+    { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
+    { name = "rbtr-lang-scss", editable = "packages/rbtr-lang-scss" },
+]
+
+[[package]]
 name = "rbtr-lang-toml"
 version = "2026.6.1"
 source = { editable = "packages/rbtr-lang-toml" }
@@ -3907,6 +3944,37 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "rbtr", extras = ["test"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-vue"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-vue" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "rbtr-lang-svelte" },
+    { name = "tree-sitter-language-pack" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["test"] },
+    { name = "rbtr-lang-javascript" },
+    { name = "rbtr-lang-scss" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "rbtr-lang-svelte", editable = "packages/rbtr-lang-svelte" },
+    { name = "tree-sitter-language-pack" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "rbtr", extras = ["test"], editable = "packages/rbtr" },
+    { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
+    { name = "rbtr-lang-scss", editable = "packages/rbtr-lang-scss" },
+]
 
 [[package]]
 name = "rbtr-lang-yaml"

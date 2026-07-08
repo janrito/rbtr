@@ -593,18 +593,25 @@ def test_build_index_version_gated_reextraction(
 
 
 @pytest.fixture
-def svelte_repo(tmp_path: Path) -> pygit2.Repository:
-    """Git repo containing the committed `samples/svelte/` project.
+def multilang_repo(tmp_path: Path) -> pygit2.Repository:
+    """Git repo with a Markdown file that embeds a Python fence.
 
-    Uses the real sample so these tests stay in step with the extraction
-    they document.
+    A multi-language host file (Markdown host + delegated Python) exercises
+    the orchestrator's per-language version-map gating using only default
+    plugins — no optional plugin required.
     """
-    sample = Path(__file__).parents[1] / "languages" / "samples" / "svelte"
-    repo = pygit2.init_repository(str(tmp_path / "sfc"), bare=False, initial_head="main")
+    content = (
+        "# API\n\n"
+        "The handler entry point:\n\n"
+        "```python\n"
+        "def handle(request):\n"
+        "    return 200\n"
+        "```\n"
+    )
+    repo = pygit2.init_repository(str(tmp_path / "docs"), bare=False, initial_head="main")
+    (tmp_path / "docs" / "api.md").write_text(content)
     index = repo.index
-    for src in sorted(sample.glob("*")):
-        (tmp_path / "sfc" / src.name).write_bytes(src.read_bytes())
-        index.add(src.name)
+    index.add("api.md")
     index.write()
     tree_oid = index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
@@ -612,30 +619,32 @@ def svelte_repo(tmp_path: Path) -> pygit2.Repository:
     return repo
 
 
-def test_build_index_dedups_sfc(svelte_repo: pygit2.Repository, store: IndexStore) -> None:
-    """A multi-language SFC is skipped on rebuild, not re-parsed every build.
+def test_build_index_dedups_multilang_file(
+    multilang_repo: pygit2.Repository, store: IndexStore
+) -> None:
+    """A multi-language file is skipped on rebuild, not re-parsed every build.
 
     Also guards per-language versioning: a delegated chunk stamped with the
     wrong (host) version would miss the version-map gate and re-extract here.
     """
-    sha = str(svelte_repo.head.target)
-    build_index(svelte_repo.workdir, sha, store, repo_id=1)
-    rebuild = build_index(svelte_repo.workdir, sha, store, repo_id=1)
+    sha = str(multilang_repo.head.target)
+    build_index(multilang_repo.workdir, sha, store, repo_id=1)
+    rebuild = build_index(multilang_repo.workdir, sha, store, repo_id=1)
 
     assert rebuild.stats.skipped_files == rebuild.stats.total_files
     assert rebuild.stats.parsed_files == 0
 
 
-@pytest.mark.parametrize("plugin", ["typescript", "svelte"])
-def test_build_index_reextracts_sfc_on_plugin_bump(
-    svelte_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture, plugin: str
+@pytest.mark.parametrize("plugin", ["python", "markdown"])
+def test_build_index_reextracts_on_contributor_bump(
+    multilang_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture, plugin: str
 ) -> None:
     """Bumping any contributor — the embedded language or the host — re-extracts.
 
     Confirms the version map gates on every language in the file, not just one.
     """
-    sha = str(svelte_repo.head.target)
-    build_index(svelte_repo.workdir, sha, store, repo_id=1)
+    sha = str(multilang_repo.head.target)
+    build_index(multilang_repo.workdir, sha, store, repo_id=1)
 
     mgr = get_manager()
     target = mgr.get_registration(plugin)
@@ -648,7 +657,7 @@ def test_build_index_reextracts_sfc_on_plugin_bump(
         side_effect=lambda lid: bumped if lid == plugin else originals.get(lid),
     )
 
-    rebuild = build_index(svelte_repo.workdir, sha, store, repo_id=1)
+    rebuild = build_index(multilang_repo.workdir, sha, store, repo_id=1)
     assert rebuild.stats.parsed_files >= 1
 
 

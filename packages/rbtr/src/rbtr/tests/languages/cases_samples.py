@@ -24,43 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="svelte", tags=["sample"])
-def case_svelte() -> SampleCase:
-    """Svelte SFC: the `<script lang="ts">` block is delegated to TypeScript
-    (functions, exported variables, imports) and the `<style lang="scss">`
-    block to SCSS ($-variables, rule sets as doc sections). The markup
-    template is extracted as one host `svelte` doc-section chunk.
-    """
-    return (
-        "svelte",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.VARIABLE,
-            ChunkKind.DOC_SECTION,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
-@case(id="vue", tags=["sample"])
-def case_vue() -> SampleCase:
-    """Vue SFC: the `<script setup lang="ts">` block is delegated to
-    TypeScript (functions, consts as variables, imports) and the
-    `<style lang="scss">` block to SCSS ($-variables, rule sets as doc
-    sections), reusing the Svelte chunker. The `<template>` is extracted as
-    one host `vue` doc-section chunk.
-    """
-    return (
-        "vue",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.VARIABLE,
-            ChunkKind.DOC_SECTION,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 # ── Known-unsupported constructs (xfail registry) ────────────────────
 #
 # Each asserts the *ideal* chunk a construct should produce; all are
