@@ -1,3 +1,7 @@
+; Top-level comments (Go uses one `comment` type for `//` and `/* */`).
+; The engine groups these and folds a block flush before a symbol into it.
+(comment) @comment
+
 (function_declaration
   name: (identifier) @_fn_name) @function
 

@@ -51,10 +51,8 @@ bash = LanguageRegistration(
     grammar_module="tree_sitter_bash",
     extraction=QueryExtraction(
         query=load_query(__package__, "bash"),
-        # Bash: `#` comments above a function attach.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
-    language_plugin_version=3,
+    language_plugin_version=4,
 )
 
 

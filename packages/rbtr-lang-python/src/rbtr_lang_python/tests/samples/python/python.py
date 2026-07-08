@@ -1,11 +1,14 @@
+# Top-of-file banner comment, attached to nothing.
+# Second banner line, same block.
+
 """Greeter — formats greetings for named recipients.
 
 A sample module exercising the constructs the python plugin extracts:
 functions (sync, async, decorated), classes, methods (instance, property,
 static, class), module-level variables (including tuple unpacking and
 annotated assignments), nested functions (scoped to their parent), PEP 695
-`type` aliases (as classes), and the import styles that carry distinct
-metadata.
+`type` aliases (as classes), the import styles that carry distinct
+metadata, and standalone / leading comments.
 """
 
 from __future__ import annotations
@@ -20,9 +23,13 @@ type GreetingList = list[str]
 
 DEFAULT_GREETING = "Hello"
 LOCALES, FALLBACK = ("en", "fr"), "en"
-MAX_RECIPIENTS: int = 100
+MAX_RECIPIENTS: int = 100  # trailing comment: not folded, its own chunk
+
+# Section: greeting helpers.
+# A standalone block between definitions.
 
 
+# Leading doc comment folded into format_greeting.
 def format_greeting(name: str) -> str:
     """Return a greeting for ``name`` in the configured locale."""
 

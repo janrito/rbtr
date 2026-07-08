@@ -89,13 +89,9 @@ ruby = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "ruby"),
         scope_types=frozenset({"class", "module"}),
-        # Ruby convention: `#` runs above a `def` or
-        # `class` document it.  Single `comment` node
-        # type.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     source_roots=("", "lib"),
-    language_plugin_version=4,
+    language_plugin_version=5,
 )
 
 ruby.import_extractor(extract_import_meta)

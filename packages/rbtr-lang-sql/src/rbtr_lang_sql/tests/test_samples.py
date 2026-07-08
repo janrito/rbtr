@@ -55,7 +55,12 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     """The sample exercises SQL's class, function, and variable chunks."""
     kinds = {c.kind for c in chunks}
-    assert {ChunkKind.CLASS, ChunkKind.FUNCTION, ChunkKind.VARIABLE} <= kinds
+    assert {
+        ChunkKind.CLASS,
+        ChunkKind.FUNCTION,
+        ChunkKind.VARIABLE,
+        ChunkKind.COMMENT,
+    } <= kinds
 
 
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:

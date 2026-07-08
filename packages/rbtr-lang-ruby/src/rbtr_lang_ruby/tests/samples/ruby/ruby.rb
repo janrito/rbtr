@@ -11,7 +11,10 @@
 require "json"
 require_relative "./config"
 
-DEFAULT_GREETING = "Hello"
+DEFAULT_GREETING = "Hello" # trailing comment: its own chunk
+
+# Standalone note, separated by blank lines from any definition.
+# Second line of the same block.
 
 # Mixin providing a shout helper.
 module Shoutable

@@ -47,7 +47,7 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     """Each top-level query pattern is a doc-section chunk."""
     kinds = {c.kind for c in chunks}
-    assert {ChunkKind.DOC_SECTION} <= kinds
+    assert {ChunkKind.DOC_SECTION, ChunkKind.COMMENT} <= kinds
 
 
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:

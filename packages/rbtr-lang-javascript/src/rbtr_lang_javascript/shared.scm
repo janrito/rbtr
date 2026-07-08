@@ -1,4 +1,7 @@
 ; Shared patterns — identical across the JS and TS grammars.
+; Comments (JS/TS: single `comment` type for `//` and `/* */`, incl. JSDoc).
+(comment) @comment
+
 ; method_definition covers class and object-literal members, generators,
 ; and get/set accessors; inside a class it promotes to a method scoped to
 ; the class, elsewhere it is a scope-less method.

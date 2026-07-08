@@ -1,3 +1,6 @@
+; Comments (`<!-- -->`).
+(comment) @comment
+
 (element (start_tag (tag_name) @_tag)
   (#any-of? @_tag "head" "body" "article" "aside" "nav" "section" "header" "main" "footer" "figure" "form" "dialog" "details" "table")) @doc_section
 

@@ -59,7 +59,7 @@ css = LanguageRegistration(
         query=load_query(__package__, "css"),
     ),
     import_targets=frozenset({"css"}),
-    language_plugin_version=3,
+    language_plugin_version=4,
 )
 
 css.scope_extractor(css_nesting_scope)

@@ -1,5 +1,23 @@
 [
   {
+    "id": "897ac2fbef604138",
+    "blob_sha": "sha1",
+    "file_path": "config.scss",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "scss",
+    "content": "// Imported by scss.scss via `@use \"config\"`.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "39312074cb776ca1",
     "blob_sha": "sha1",
     "file_path": "config.scss",
@@ -18,6 +36,24 @@
     }
   },
   {
+    "id": "c5c1d3e1ed13e889",
+    "blob_sha": "sha1",
+    "file_path": "reset.scss",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "scss",
+    "content": "// Imported by scss.scss via `@import \"reset\"`.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "ca618b519a5d17c6",
     "blob_sha": "sha1",
     "file_path": "reset.scss",
@@ -28,6 +64,24 @@
     "content": "* {\n  margin: 0;\n  padding: 0;\n}",
     "line_start": 3,
     "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "4a217db49a2b17b5",
+    "blob_sha": "sha1",
+    "file_path": "scss.scss",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "scss",
+    "content": "// Greeter theme (SCSS).\n//\n// The SCSS plugin extracts $-variables, @mixin and @function definitions,\n// rule sets (including %placeholders and nested rules), @media/@charset/\n// @keyframes as doc sections, and @use/@forward/@import as imports.",
+    "line_start": 1,
+    "line_end": 5,
     "metadata": {
       "module": "",
       "names": "",
@@ -280,6 +334,24 @@
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
     "line_start": 46,
     "line_end": 53,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "ea49b7b51ccc2830",
+    "blob_sha": "sha1",
+    "file_path": "theme.scss",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "scss",
+    "content": "// Re-exported by scss.scss via `@forward \"theme\"`.",
+    "line_start": 1,
+    "line_end": 1,
     "metadata": {
       "module": "",
       "names": "",

@@ -30,7 +30,6 @@ tree_sitter_query = LanguageRegistration(
     grammar_module="tree_sitter_query",
     extraction=QueryExtraction(
         query=load_query(__package__, "tree_sitter_query"),
-        doc_comment_node_types=frozenset({"comment"}),
     ),
-    language_plugin_version=1,
+    language_plugin_version=2,
 )

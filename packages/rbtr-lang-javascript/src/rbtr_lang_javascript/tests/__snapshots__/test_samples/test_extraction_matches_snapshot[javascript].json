@@ -1,5 +1,23 @@
 [
   {
+    "id": "53b72079a2046bd7",
+    "blob_sha": "sha1",
+    "file_path": "config.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "// Locale configuration for the greeter.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "ed185e7856f28bea",
     "blob_sha": "sha1",
     "file_path": "config.js",
@@ -10,6 +28,24 @@
     "content": "LOCALE = \"en\"",
     "line_start": 2,
     "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "4cb0a01bbf0e96fe",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "// Greeter — format greetings for named recipients.\n//\n// The JavaScript plugin extracts function declarations, generator\n// functions, arrow functions bound to consts, classes, module-level\n// const/let variables (including destructuring), imports, and methods\n// (class members, including get/set accessors; object-literal methods are\n// captured without a scope).",
+    "line_start": 1,
+    "line_end": 7,
     "metadata": {
       "module": "",
       "names": "",
@@ -126,6 +162,24 @@
     }
   },
   {
+    "id": "9996400dfb3c2175",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "/** Format a greeting for a name. */",
+    "line_start": 16,
+    "line_end": 16,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "eb86aa56decac5db",
     "blob_sha": "sha1",
     "file_path": "javascript.js",
@@ -154,6 +208,24 @@
     "content": "const cachedDefault = () => DEFAULT_GREETING;",
     "line_start": 21,
     "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c008bd88085174e9",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "/** Stateful greeter holding a prefix. */",
+    "line_start": 23,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
@@ -216,6 +288,24 @@
     }
   },
   {
+    "id": "f92140f2eef6d729",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "/** Yield each recipient name in turn. */",
+    "line_start": 34,
+    "line_end": 34,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "904e23010644b75e",
     "blob_sha": "sha1",
     "file_path": "javascript.js",
@@ -226,6 +316,24 @@
     "content": "function* recipients(names) {\n  for (const name of names) {\n    yield name;\n  }\n}",
     "line_start": 35,
     "line_end": 39,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "30e2b248f5ddb680",
+    "blob_sha": "sha1",
+    "file_path": "javascript.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "/** Greeting helpers grouped as an object literal. */",
+    "line_start": 41,
+    "line_end": 41,
     "metadata": {
       "module": "",
       "names": "",

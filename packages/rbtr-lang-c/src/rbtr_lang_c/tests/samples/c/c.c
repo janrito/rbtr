@@ -11,8 +11,11 @@
 #define MAX_NAME 64
 #define SQUARE(x) ((x) * (x))
 
-int greeter_count = 0;
+int greeter_count = 0; // trailing comment: its own chunk, not folded
 const char *default_prefix = "Hello";
+
+/* Standalone note, separated by blank lines from any definition. */
+/* Second line of the same block. */
 
 /* A greeter holding a prefix string. */
 struct Greeter {

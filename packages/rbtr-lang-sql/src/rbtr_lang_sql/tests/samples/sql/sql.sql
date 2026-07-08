@@ -6,7 +6,10 @@
 -- concept. CREATE PROCEDURE and PRAGMA do not parse and live in the
 -- xfail registry instead.
 
-CREATE SCHEMA greet;
+CREATE SCHEMA greet; -- trailing comment: its own chunk
+
+-- Standalone note, separated by blank lines from any statement.
+-- Second line of the same block.
 
 CREATE TABLE greeters (
     id INTEGER PRIMARY KEY,

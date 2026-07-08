@@ -47,10 +47,6 @@ sql = LanguageRegistration(
     grammar_module="tree_sitter_sql",
     extraction=QueryExtraction(
         query=load_query(__package__, "sql"),
-        # SQL `--` line comments and `/* */` blocks both parse to
-        # `comment`; attach a leading run to its statement, as the
-        # Go/Ruby plugins do.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )

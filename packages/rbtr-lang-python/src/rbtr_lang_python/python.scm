@@ -1,3 +1,10 @@
+; Comments and the module docstring. The engine groups comments into
+; blank-line-delimited blocks and either folds a block into the symbol flush
+; after it (its docstring, possibly nested), drops it if interior, or emits
+; it as a standalone COMMENT chunk.
+(comment) @comment
+(module (expression_statement (string) @comment))
+
 (function_definition
   name: (identifier) @_fn_name
   body: (block

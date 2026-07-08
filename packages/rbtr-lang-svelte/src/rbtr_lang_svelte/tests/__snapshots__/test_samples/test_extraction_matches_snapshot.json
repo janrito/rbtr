@@ -108,6 +108,24 @@
     }
   },
   {
+    "id": "96694b004c39e452",
+    "blob_sha": "sha1",
+    "file_path": "greeter.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Imported by Greeting.svelte's <script> block.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "1dec2aba4e6ac565",
     "blob_sha": "sha1",
     "file_path": "greeter.ts",

@@ -1,5 +1,23 @@
 [
   {
+    "id": "59824b79f9115833",
+    "blob_sha": "sha1",
+    "file_path": "labels.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Default UI labels.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "9eda4ff1fcf8b613",
     "blob_sha": "sha1",
     "file_path": "labels.ts",
@@ -10,6 +28,24 @@
     "content": "INITIAL_LABEL = \"Click\"",
     "line_start": 2,
     "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "d8aa0f5124441a8e",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "tsx",
+    "content": "// Counter — a small React component rendering a clickable count.\n//\n// The tsx plugin uses the `language_tsx` grammar, not\n// `language_typescript`, which cannot parse JSX (a `.tsx` file parses\n// with errors under the plain TypeScript grammar). It runs the same\n// query as the typescript plugin against the JSX-aware grammar, so it\n// extracts function declarations, arrow-function consts, module\n// variables, imports, and interfaces (as classes — the CounterProps\n// interface below).",
+    "line_start": 1,
+    "line_end": 9,
     "metadata": {
       "module": "",
       "names": "",
@@ -100,6 +136,24 @@
     "content": "/** Props for the Counter component. */\ninterface CounterProps {\n  label: string;\n}",
     "line_start": 17,
     "line_end": 20,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "1d5235346ee98118",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "tsx",
+    "content": "/** A button that increments a counter on each click. */",
+    "line_start": 22,
+    "line_end": 22,
     "metadata": {
       "module": "",
       "names": "",

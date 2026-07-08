@@ -1,5 +1,23 @@
 [
   {
+    "id": "0f7331db8376dc51",
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "toml",
+    "content": "# Greeter configuration.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "aca44469d96b1a46",
     "blob_sha": "sha1",
     "file_path": "toml.toml",

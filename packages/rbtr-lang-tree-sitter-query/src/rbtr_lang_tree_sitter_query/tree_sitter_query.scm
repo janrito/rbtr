@@ -5,6 +5,9 @@
 ; and structural wrappers carry no label of their own and stay anonymous.
 ; Captures, predicates, and matched node types inside remain full-text
 ; searchable within the section either way.
+; Comments: a `;` block folds into the pattern it precedes, else standalone.
+(comment) @comment
+
 (program (named_node (capture (identifier) @_section_name)?) @doc_section)
 (program (list (capture (identifier) @_section_name)?) @doc_section)
 (program (grouping (capture (identifier) @_section_name)?) @doc_section)

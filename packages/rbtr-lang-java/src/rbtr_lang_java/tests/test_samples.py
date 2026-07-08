@@ -46,7 +46,13 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
 
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     kinds = {c.kind for c in chunks}
-    assert {ChunkKind.CLASS, ChunkKind.METHOD, ChunkKind.VARIABLE, ChunkKind.IMPORT} <= kinds
+    assert {
+        ChunkKind.CLASS,
+        ChunkKind.METHOD,
+        ChunkKind.VARIABLE,
+        ChunkKind.IMPORT,
+        ChunkKind.COMMENT,
+    } <= kinds
 
 
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:

@@ -47,7 +47,7 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     """The sample exercises TOML's config-key chunks."""
     kinds = {c.kind for c in chunks}
-    assert {ChunkKind.CONFIG_KEY} <= kinds
+    assert {ChunkKind.CONFIG_KEY, ChunkKind.COMMENT} <= kinds
 
 
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:

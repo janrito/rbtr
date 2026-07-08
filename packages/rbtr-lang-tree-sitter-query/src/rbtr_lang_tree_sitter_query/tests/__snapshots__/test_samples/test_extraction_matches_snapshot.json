@@ -1,5 +1,23 @@
 [
   {
+    "id": "e48159540e402421",
+    "blob_sha": "sha1",
+    "file_path": "highlights.scm",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "tree_sitter_query",
+    "content": "; A tree-sitter query file exercising every construct rbtr should index:\n; named nodes with fields, anonymous nodes, alternation lists, groupings,\n; predicates, wildcards, negated fields, anchors, quantifiers, supertypes,\n; and a MISSING-node pattern. Every top-level pattern is one doc section.",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "95bcbb40fa68e03d",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",

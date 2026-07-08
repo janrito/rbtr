@@ -14,7 +14,7 @@ import (
 // DefaultGreeting is the fallback prefix.
 const DefaultGreeting = "Hello"
 
-var fallbackLocale = "en"
+var fallbackLocale = "en" // trailing comment: its own chunk, not folded
 
 // Temperature is an alias for the underlying float type.
 type Temperature = float64
@@ -28,6 +28,9 @@ type Greeter struct {
 type Formatter interface {
 	Format(name string) string
 }
+
+// Standalone note, separated by blank lines from any definition.
+// Second line of the same block.
 
 // Greet greets a single recipient.
 func (g Greeter) Greet(name string) string {

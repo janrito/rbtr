@@ -1,5 +1,23 @@
 [
   {
+    "id": "3963b43236cb6eca",
+    "blob_sha": "sha1",
+    "file_path": "sql_postgres.sql",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "sql",
+    "content": "-- PostgreSQL dialect sample — SERIAL, JSONB, arrays, ENUM type, plpgsql.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "79e1142e41029536",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",

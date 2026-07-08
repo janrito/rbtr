@@ -1,5 +1,23 @@
 [
   {
+    "id": "4395dcbea3f3eab1",
+    "blob_sha": "sha1",
+    "file_path": "sql_sqlite.sql",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "sql",
+    "content": "-- SQLite dialect sample — AUTOINCREMENT, WITHOUT ROWID, IF NOT EXISTS.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "b270d809f1a25ab0",
     "blob_sha": "sha1",
     "file_path": "sql_sqlite.sql",

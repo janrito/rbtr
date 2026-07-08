@@ -1,3 +1,6 @@
+; Comments (SQL: `--` line is `comment`, `/* */` block is `marginalia`).
+[(comment) (marginalia)] @comment
+
 ; DDL/ALTER/DROP verbs, grouped by chunk kind and name location.
 ;
 ; object_reference names are left unanchored: each verb has exactly one

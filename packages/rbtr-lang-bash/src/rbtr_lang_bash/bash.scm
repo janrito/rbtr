@@ -1,3 +1,6 @@
+; Top-level comments (Bash: single `comment` type).
+(comment) @comment
+
 (function_definition
   name: (word) @_fn_name) @function
 

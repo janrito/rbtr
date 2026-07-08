@@ -36,6 +36,24 @@
     }
   },
   {
+    "id": "71ecb390e7b4b164",
+    "blob_sha": "sha1",
+    "file_path": "java.java",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "java",
+    "content": "// Greeter — format greetings for named recipients.\n//\n// The Java plugin extracts classes, methods (including constructors),\n// fields (as variables), and imports. Interfaces, enums, and records are\n// captured as classes, and their members scope to them.",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "496c3cb5ac915731",
     "blob_sha": "sha1",
     "file_path": "java.java",
@@ -90,7 +108,25 @@
     }
   },
   {
-    "id": "d9c845a3bc9c65c7",
+    "id": "680cae9e7fb01702",
+    "blob_sha": "sha1",
+    "file_path": "java.java",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "java",
+    "content": "// Standalone note at top level, separated by blank lines.\n// Second line of the same block.",
+    "line_start": 13,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "9f228cd99b8a722d",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -98,8 +134,8 @@
     "scope": "",
     "language": "java",
     "content": "/** Formats greetings with a configurable prefix. */\npublic class Greeter implements Formatter {\n    private final String prefix;\n\n    public Greeter(String prefix) {\n        this.prefix = prefix;\n    }\n\n    /** Format a greeting (implements the Formatter contract). */\n    @Override\n    public String format(String name) {\n        return greet(name);\n    }\n\n    /** Greet a single recipient. */\n    public String greet(String name) {\n        return prefix + \", \" + name;\n    }\n\n    /** Build a greeter with the default prefix. */\n    public static Greeter withDefault() {\n        return new Greeter(\"Hello\");\n    }\n\n    /** A nested formatter. */\n    static class Formatter {\n        String format(String name) {\n            return name.trim();\n        }\n    }\n}",
-    "line_start": 13,
-    "line_end": 43,
+    "line_start": 16,
+    "line_end": 46,
     "metadata": {
       "module": "",
       "names": "",
@@ -108,7 +144,7 @@
     }
   },
   {
-    "id": "ebe409e1917807b5",
+    "id": "bb5b1c7efa17f676",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "variable",
@@ -116,8 +152,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "private final String prefix;",
-    "line_start": 15,
-    "line_end": 15,
+    "line_start": 18,
+    "line_end": 18,
     "metadata": {
       "module": "",
       "names": "",
@@ -126,7 +162,7 @@
     }
   },
   {
-    "id": "64ff860665aa2fdc",
+    "id": "b175d0c46cc7da3a",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -134,8 +170,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "public Greeter(String prefix) {\n        this.prefix = prefix;\n    }",
-    "line_start": 17,
-    "line_end": 19,
+    "line_start": 20,
+    "line_end": 22,
     "metadata": {
       "module": "",
       "names": "",
@@ -144,7 +180,7 @@
     }
   },
   {
-    "id": "5ca834b2da80cb33",
+    "id": "4bc1972beed0cee5",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -152,8 +188,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "/** Format a greeting (implements the Formatter contract). */\n    @Override\n    public String format(String name) {\n        return greet(name);\n    }",
-    "line_start": 21,
-    "line_end": 25,
+    "line_start": 24,
+    "line_end": 28,
     "metadata": {
       "module": "",
       "names": "",
@@ -162,7 +198,7 @@
     }
   },
   {
-    "id": "0f516c251118aa91",
+    "id": "d158fb2366c6f729",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -170,8 +206,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "/** Greet a single recipient. */\n    public String greet(String name) {\n        return prefix + \", \" + name;\n    }",
-    "line_start": 27,
-    "line_end": 30,
+    "line_start": 30,
+    "line_end": 33,
     "metadata": {
       "module": "",
       "names": "",
@@ -180,7 +216,7 @@
     }
   },
   {
-    "id": "23cf65afeb2d3f82",
+    "id": "a430bbda70683d09",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -188,8 +224,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "/** Build a greeter with the default prefix. */\n    public static Greeter withDefault() {\n        return new Greeter(\"Hello\");\n    }",
-    "line_start": 32,
-    "line_end": 35,
+    "line_start": 35,
+    "line_end": 38,
     "metadata": {
       "module": "",
       "names": "",
@@ -198,7 +234,7 @@
     }
   },
   {
-    "id": "8f597d0e5133bdea",
+    "id": "aa7f19020a4a06cf",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -206,8 +242,8 @@
     "scope": "Greeter",
     "language": "java",
     "content": "/** A nested formatter. */\n    static class Formatter {\n        String format(String name) {\n            return name.trim();\n        }\n    }",
-    "line_start": 37,
-    "line_end": 42,
+    "line_start": 40,
+    "line_end": 45,
     "metadata": {
       "module": "",
       "names": "",
@@ -216,7 +252,7 @@
     }
   },
   {
-    "id": "4eafc1c9d9166f6d",
+    "id": "1345e44e8cd717a6",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -224,8 +260,8 @@
     "scope": "Greeter::Formatter",
     "language": "java",
     "content": "String format(String name) {\n            return name.trim();\n        }",
-    "line_start": 39,
-    "line_end": 41,
+    "line_start": 42,
+    "line_end": 44,
     "metadata": {
       "module": "",
       "names": "",
@@ -234,7 +270,7 @@
     }
   },
   {
-    "id": "cb54ec79f9fcf5f6",
+    "id": "877bfd5e977208c1",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -242,8 +278,8 @@
     "scope": "",
     "language": "java",
     "content": "/** A greeting strategy contract. */\ninterface Strategy {\n    String render(String name);\n}",
-    "line_start": 45,
-    "line_end": 48,
+    "line_start": 48,
+    "line_end": 51,
     "metadata": {
       "module": "",
       "names": "",
@@ -252,7 +288,7 @@
     }
   },
   {
-    "id": "956d8747d6749e45",
+    "id": "0b7ec1f5873ad261",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -260,8 +296,8 @@
     "scope": "Strategy",
     "language": "java",
     "content": "String render(String name);",
-    "line_start": 47,
-    "line_end": 47,
+    "line_start": 50,
+    "line_end": 50,
     "metadata": {
       "module": "",
       "names": "",
@@ -270,7 +306,7 @@
     }
   },
   {
-    "id": "61666f709a75dff2",
+    "id": "9fc1d873760c9177",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -278,8 +314,8 @@
     "scope": "",
     "language": "java",
     "content": "/** Supported greeting tones. */\nenum Tone {\n    FORMAL,\n    CASUAL;\n\n    /** Human-readable label for this tone. */\n    String label() {\n        return name().toLowerCase();\n    }\n}",
-    "line_start": 50,
-    "line_end": 59,
+    "line_start": 53,
+    "line_end": 62,
     "metadata": {
       "module": "",
       "names": "",
@@ -288,7 +324,7 @@
     }
   },
   {
-    "id": "d1aed1ffeb16fe05",
+    "id": "be3519be22988025",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "variable",
@@ -296,8 +332,8 @@
     "scope": "Tone",
     "language": "java",
     "content": "FORMAL",
-    "line_start": 52,
-    "line_end": 52,
+    "line_start": 55,
+    "line_end": 55,
     "metadata": {
       "module": "",
       "names": "",
@@ -306,7 +342,7 @@
     }
   },
   {
-    "id": "9606956d4335efd6",
+    "id": "1a5686337ef56a40",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "variable",
@@ -314,8 +350,8 @@
     "scope": "Tone",
     "language": "java",
     "content": "CASUAL",
-    "line_start": 53,
-    "line_end": 53,
+    "line_start": 56,
+    "line_end": 56,
     "metadata": {
       "module": "",
       "names": "",
@@ -324,7 +360,7 @@
     }
   },
   {
-    "id": "a9a3b82b57f70619",
+    "id": "9d6647628805f6cd",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -332,8 +368,8 @@
     "scope": "Tone",
     "language": "java",
     "content": "/** Human-readable label for this tone. */\n    String label() {\n        return name().toLowerCase();\n    }",
-    "line_start": 55,
-    "line_end": 58,
+    "line_start": 58,
+    "line_end": 61,
     "metadata": {
       "module": "",
       "names": "",
@@ -342,7 +378,7 @@
     }
   },
   {
-    "id": "99b52ff8e8ccaa49",
+    "id": "7f673931d7852ccf",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -350,8 +386,8 @@
     "scope": "",
     "language": "java",
     "content": "/** An immutable named recipient. */\nrecord Recipient(String name, String locale) {\n    /** Full display name including locale. */\n    String display() {\n        return name + \" (\" + locale + \")\";\n    }\n}",
-    "line_start": 61,
-    "line_end": 67,
+    "line_start": 64,
+    "line_end": 70,
     "metadata": {
       "module": "",
       "names": "",
@@ -360,7 +396,7 @@
     }
   },
   {
-    "id": "de7afe597ec60dd1",
+    "id": "47fb3098b5c5bbe0",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "variable",
@@ -368,8 +404,8 @@
     "scope": "Recipient",
     "language": "java",
     "content": "String name",
-    "line_start": 62,
-    "line_end": 62,
+    "line_start": 65,
+    "line_end": 65,
     "metadata": {
       "module": "",
       "names": "",
@@ -378,7 +414,7 @@
     }
   },
   {
-    "id": "590d08fd4798ab12",
+    "id": "e1c6599ad1ee4d57",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "variable",
@@ -386,8 +422,8 @@
     "scope": "Recipient",
     "language": "java",
     "content": "String locale",
-    "line_start": 62,
-    "line_end": 62,
+    "line_start": 65,
+    "line_end": 65,
     "metadata": {
       "module": "",
       "names": "",
@@ -396,7 +432,7 @@
     }
   },
   {
-    "id": "a79e4dbe97bd63ff",
+    "id": "e2ebf0a0194fd190",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -404,8 +440,8 @@
     "scope": "Recipient",
     "language": "java",
     "content": "/** Full display name including locale. */\n    String display() {\n        return name + \" (\" + locale + \")\";\n    }",
-    "line_start": 63,
-    "line_end": 66,
+    "line_start": 66,
+    "line_end": 69,
     "metadata": {
       "module": "",
       "names": "",
@@ -414,7 +450,7 @@
     }
   },
   {
-    "id": "c0c07f309ecbfeb5",
+    "id": "3f07497ccd429eea",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "class",
@@ -422,8 +458,8 @@
     "scope": "",
     "language": "java",
     "content": "/** Marks a greeter method as audited. */\n@interface Audited {\n    String value();\n}",
-    "line_start": 69,
-    "line_end": 72,
+    "line_start": 72,
+    "line_end": 75,
     "metadata": {
       "module": "",
       "names": "",
@@ -432,7 +468,7 @@
     }
   },
   {
-    "id": "64e8b790ad4fddc5",
+    "id": "8f7a02443382b322",
     "blob_sha": "sha1",
     "file_path": "java.java",
     "kind": "method",
@@ -440,8 +476,8 @@
     "scope": "Audited",
     "language": "java",
     "content": "String value();",
-    "line_start": 71,
-    "line_end": 71,
+    "line_start": 74,
+    "line_end": 74,
     "metadata": {
       "module": "",
       "names": "",

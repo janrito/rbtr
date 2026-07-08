@@ -1,5 +1,23 @@
 [
   {
+    "id": "e03b0b6a01be78d0",
+    "blob_sha": "sha1",
+    "file_path": "base.less",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "less",
+    "content": "// Imported by less.less via `@import \"base\"`.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "8f10aa0b97fda5ea",
     "blob_sha": "sha1",
     "file_path": "base.less",
@@ -10,6 +28,24 @@
     "content": "@bg: #ffffff;",
     "line_start": 3,
     "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "214b26100f73bc2c",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "less",
+    "content": "// Greeter theme (Less).\n//\n// The Less plugin extracts @-variables, .mixin() definitions, rule sets\n// and @media/@charset/@keyframes as doc sections, and @import as imports.\n// Mixin calls (e.g. `.rounded(8px)`) are references, not definitions.",
+    "line_start": 1,
+    "line_end": 5,
     "metadata": {
       "module": "",
       "names": "",
