@@ -73,6 +73,26 @@ toml = ["rbtr-lang-toml"]
 tree_sitter_query = ["rbtr-lang-tree-sitter-query"]
 vue = ["rbtr-lang-vue"]
 yaml = ["rbtr-lang-yaml"]
+# Convenience aggregate: `all` pulls every optional plugin (the defaults are
+# already required deps, so `rbtr[all]` installs every language). No `web`
+# grouping — html and javascript are defaults, so it would only add css.
+all = [
+  "rbtr-lang-css",
+  "rbtr-lang-scss",
+  "rbtr-lang-less",
+  "rbtr-lang-json",
+  "rbtr-lang-toml",
+  "rbtr-lang-yaml",
+  "rbtr-lang-hcl",
+  "rbtr-lang-go",
+  "rbtr-lang-java",
+  "rbtr-lang-ruby",
+  "rbtr-lang-rust",
+  "rbtr-lang-sql",
+  "rbtr-lang-tree-sitter-query",
+  "rbtr-lang-svelte",
+  "rbtr-lang-vue",
+]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
 # The pytest bound lives here (not just in `dev`) so that a plugin whose

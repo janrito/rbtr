@@ -3256,6 +3256,23 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "rbtr-lang-css" },
+    { name = "rbtr-lang-go" },
+    { name = "rbtr-lang-hcl" },
+    { name = "rbtr-lang-java" },
+    { name = "rbtr-lang-json" },
+    { name = "rbtr-lang-less" },
+    { name = "rbtr-lang-ruby" },
+    { name = "rbtr-lang-rust" },
+    { name = "rbtr-lang-scss" },
+    { name = "rbtr-lang-sql" },
+    { name = "rbtr-lang-svelte" },
+    { name = "rbtr-lang-toml" },
+    { name = "rbtr-lang-tree-sitter-query" },
+    { name = "rbtr-lang-vue" },
+    { name = "rbtr-lang-yaml" },
+]
 css = [
     { name = "rbtr-lang-css" },
 ]
@@ -3333,25 +3350,40 @@ requires-dist = [
     { name = "rbtr-lang-bash", editable = "packages/rbtr-lang-bash" },
     { name = "rbtr-lang-c", editable = "packages/rbtr-lang-c" },
     { name = "rbtr-lang-cpp", editable = "packages/rbtr-lang-cpp" },
+    { name = "rbtr-lang-css", marker = "extra == 'all'", editable = "packages/rbtr-lang-css" },
     { name = "rbtr-lang-css", marker = "extra == 'css'", editable = "packages/rbtr-lang-css" },
+    { name = "rbtr-lang-go", marker = "extra == 'all'", editable = "packages/rbtr-lang-go" },
     { name = "rbtr-lang-go", marker = "extra == 'go'", editable = "packages/rbtr-lang-go" },
+    { name = "rbtr-lang-hcl", marker = "extra == 'all'", editable = "packages/rbtr-lang-hcl" },
     { name = "rbtr-lang-hcl", marker = "extra == 'hcl'", editable = "packages/rbtr-lang-hcl" },
     { name = "rbtr-lang-html", editable = "packages/rbtr-lang-html" },
+    { name = "rbtr-lang-java", marker = "extra == 'all'", editable = "packages/rbtr-lang-java" },
     { name = "rbtr-lang-java", marker = "extra == 'java'", editable = "packages/rbtr-lang-java" },
     { name = "rbtr-lang-javascript", editable = "packages/rbtr-lang-javascript" },
+    { name = "rbtr-lang-json", marker = "extra == 'all'", editable = "packages/rbtr-lang-json" },
     { name = "rbtr-lang-json", marker = "extra == 'json'", editable = "packages/rbtr-lang-json" },
+    { name = "rbtr-lang-less", marker = "extra == 'all'", editable = "packages/rbtr-lang-less" },
     { name = "rbtr-lang-less", marker = "extra == 'less'", editable = "packages/rbtr-lang-less" },
     { name = "rbtr-lang-markdown", editable = "packages/rbtr-lang-markdown" },
     { name = "rbtr-lang-python", editable = "packages/rbtr-lang-python" },
     { name = "rbtr-lang-rst", editable = "packages/rbtr-lang-rst" },
+    { name = "rbtr-lang-ruby", marker = "extra == 'all'", editable = "packages/rbtr-lang-ruby" },
     { name = "rbtr-lang-ruby", marker = "extra == 'ruby'", editable = "packages/rbtr-lang-ruby" },
+    { name = "rbtr-lang-rust", marker = "extra == 'all'", editable = "packages/rbtr-lang-rust" },
     { name = "rbtr-lang-rust", marker = "extra == 'rust'", editable = "packages/rbtr-lang-rust" },
+    { name = "rbtr-lang-scss", marker = "extra == 'all'", editable = "packages/rbtr-lang-scss" },
     { name = "rbtr-lang-scss", marker = "extra == 'scss'", editable = "packages/rbtr-lang-scss" },
+    { name = "rbtr-lang-sql", marker = "extra == 'all'", editable = "packages/rbtr-lang-sql" },
     { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
+    { name = "rbtr-lang-svelte", marker = "extra == 'all'", editable = "packages/rbtr-lang-svelte" },
     { name = "rbtr-lang-svelte", marker = "extra == 'svelte'", editable = "packages/rbtr-lang-svelte" },
+    { name = "rbtr-lang-toml", marker = "extra == 'all'", editable = "packages/rbtr-lang-toml" },
     { name = "rbtr-lang-toml", marker = "extra == 'toml'", editable = "packages/rbtr-lang-toml" },
+    { name = "rbtr-lang-tree-sitter-query", marker = "extra == 'all'", editable = "packages/rbtr-lang-tree-sitter-query" },
     { name = "rbtr-lang-tree-sitter-query", marker = "extra == 'tree-sitter-query'", editable = "packages/rbtr-lang-tree-sitter-query" },
+    { name = "rbtr-lang-vue", marker = "extra == 'all'", editable = "packages/rbtr-lang-vue" },
     { name = "rbtr-lang-vue", marker = "extra == 'vue'", editable = "packages/rbtr-lang-vue" },
+    { name = "rbtr-lang-yaml", marker = "extra == 'all'", editable = "packages/rbtr-lang-yaml" },
     { name = "rbtr-lang-yaml", marker = "extra == 'yaml'", editable = "packages/rbtr-lang-yaml" },
     { name = "rich", specifier = ">=13.0" },
     { name = "rich-argparse", specifier = ">=1.7.2" },
@@ -3359,7 +3391,7 @@ requires-dist = [
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.3.4" },
     { name = "tree-sitter", specifier = ">=0.24" },
 ]
-provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "test"]
+provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "all", "test"]
 
 [package.metadata.requires-dev]
 dev = [
