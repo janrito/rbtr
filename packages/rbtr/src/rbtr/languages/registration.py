@@ -44,6 +44,9 @@ from typing import TYPE_CHECKING
 
 from rbtr.index.models import Chunk, ImportMeta
 
+if TYPE_CHECKING:
+    from tree_sitter import Language, Node, Range
+
 
 class ModuleStyle(StrEnum):
     """How import module strings map to file paths.
@@ -67,9 +70,6 @@ class ModuleStyle(StrEnum):
     PATH = "path"
     DOTTED = "dotted"
 
-
-if TYPE_CHECKING:
-    from tree_sitter import Language, Node, Range
 
 type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
 type ImportExtractor = Callable[[ImportResolver, Node, dict[str, list[Node]]], ImportMeta]

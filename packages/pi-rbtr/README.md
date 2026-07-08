@@ -41,7 +41,7 @@ Seven tools, registered automatically on session start:
 | `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Optional `keywords`/`variants` for query expansion. |
 | `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                      |
 | `rbtr_list_symbols`    | Structural table of contents for a file                                                                                  |
-| `rbtr_find_refs`       | Find references via the dependency graph (imports, tests, docs)                                                          |
+| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                 |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
 | `rbtr_index`           | Index the repository (background, incremental)                                                                           |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |

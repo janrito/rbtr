@@ -171,7 +171,7 @@ rbtr list-symbols src/rbtr/index/search.py
 ### `rbtr find-refs <symbol>`
 
 Symbols that reference a given symbol via the dependency
-graph (imports, tests, docs).
+graph (imports, docs).
 
 ```bash
 rbtr find-refs IndexStore
