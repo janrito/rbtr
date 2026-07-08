@@ -116,33 +116,6 @@ type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 # ── Mixed ────────────────────────────────────────────────────────────
 
 
-# ═════���══════���════════════════════════════════════════════════════════
-# HCL
-# ═══��═══════════════════════════════════════���═════════════════════════
-
-
-@case(tags=["symbol"])
-def case_hcl_splits_by_blocks() -> SymbolCase:
-    """HCL splits by top-level blocks."""
-    src = """\
-resource "aws_instance" "web" {
-  ami = "ami-12345"
-}
-
-variable "region" {
-  default = "us-east-1"
-}
-"""
-    return (
-        "hcl",
-        src,
-        [
-            ("doc_section", "resource aws_instance web", ""),
-            ("doc_section", "variable region", ""),
-        ],
-    )
-
-
 # ═════════════════════════════════════════════════════════════════════
 # Module-level variables (cross-language fan-out)
 # ═════════════════════════════════════════════════════════════════════

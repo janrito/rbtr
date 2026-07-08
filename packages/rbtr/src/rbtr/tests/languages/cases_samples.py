@@ -24,18 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="hcl", tags=["sample"])
-def case_hcl() -> SampleCase:
-    """HCL: each top-level block is a doc section, named by its type and
-    labels (`resource "aws_instance" "greeter"` -> `resource aws_instance
-    greeter`; a bare `terraform {}` block by its type alone).
-    """
-    return (
-        "hcl",
-        {ChunkKind.DOC_SECTION},
-    )
-
-
 @case(id="query", tags=["sample"])
 def case_query() -> SampleCase:
     """tree-sitter query (`.scm`): every top-level pattern is a doc section,

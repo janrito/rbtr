@@ -1,13 +1,13 @@
 """HCL language plugin.
 
-Extracts each top-level block as a doc section, via a tree-sitter
-query. The block name combines its type and labels.
+Extracts each top-level block as a config-key chunk, via a
+tree-sitter query. The block name combines its type and labels.
 
 Extracted chunks::
 
-    resource "aws_instance" "web" {}  → doc_section "resource aws_instance web"
-    variable "region" {}              → doc_section "variable region"
-    terraform {}                      → doc_section "terraform"
+    resource "aws_instance" "web" {}  → config_key "resource aws_instance web"
+    variable "region" {}              → config_key "variable region"
+    terraform {}                      → config_key "terraform"
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ hcl = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "hcl"),
     ),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )
 
 
@@ -49,7 +49,7 @@ def hcl_block_name(
     a bare `terraform {}` block → `"terraform"`. Non-block captures
     fall back to the default resolver.
     """
-    if capture_name != "doc_section":
+    if capture_name != "config_key":
         return resolver(capture_name, node, captures)
     labels: list[str] = []
     for child in node.children:
