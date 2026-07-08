@@ -2,25 +2,26 @@
 
 Extends CSS extraction with the Sass preprocessor constructs,
 via a tree-sitter query. Rule sets (incl. `%placeholder`
-selectors), `@media`/`@charset`/`@keyframes` are captured as
-doc sections; `$`-prefixed declarations as variables; `@mixin`
-and `@function` definitions as functions; `@use`/`@forward`/
-`@import` as imports for cross-file edges.
+selectors) and `@media`/`@keyframes` blocks are captured as
+classes; `@charset` as a config key; `$`-prefixed declarations
+as variables; `@mixin` and `@function` definitions as functions;
+`@use`/`@forward`/`@import` as imports for cross-file edges.
 
 Extracted chunks::
 
     $primary: #333;              → variable "$primary"
     @mixin flex($dir) { ... }    → function "flex"
     @function rem($px) { ... }   → function "rem"
-    %card { ... }                → doc_section "%card"
-    .btn { ... }                 → doc_section ".btn"
-    @keyframes slide { ... }     → doc_section "slide"
+    %card { ... }                → class "%card"
+    .btn { ... }                 → class ".btn"
+    @keyframes slide { ... }     → class "slide"
     @use "config";               → import, metadata {module: "config"}
 """
 
 from __future__ import annotations
 
-from rbtr.languages.css.plugin import css_nesting_scope
+from rbtr_lang_css.plugin import css_nesting_scope
+
 from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,
@@ -36,7 +37,7 @@ scss = LanguageRegistration(
         query=load_query(__package__, "scss"),
     ),
     import_targets=frozenset({"css", "scss", "less"}),
-    language_plugin_version=1,
+    language_plugin_version=2,
 )
 
 scss.scope_extractor(css_nesting_scope)

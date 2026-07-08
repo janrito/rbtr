@@ -158,53 +158,6 @@ def case_json() -> SampleCase:
     )
 
 
-@case(id="css", tags=["sample"])
-def case_css() -> SampleCase:
-    """CSS: rule sets, @media and @charset (as doc sections; @media and
-    @charset are named `<anonymous>`), @import statements (as imports), and
-    custom properties (`--name`, as variables).
-    """
-    return (
-        "css",
-        {ChunkKind.DOC_SECTION, ChunkKind.IMPORT, ChunkKind.VARIABLE},
-    )
-
-
-@case(id="scss", tags=["sample"])
-def case_scss() -> SampleCase:
-    """SCSS: `$`-variables, @mixin and @function definitions (as functions),
-    rule sets incl. `%placeholders` and nested rules (as doc sections),
-    @media/@charset/@keyframes (as doc sections), and @use/@forward/@import
-    (as imports).
-    """
-    return (
-        "scss",
-        {
-            ChunkKind.VARIABLE,
-            ChunkKind.FUNCTION,
-            ChunkKind.DOC_SECTION,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
-@case(id="less", tags=["sample"])
-def case_less() -> SampleCase:
-    """Less: `@`-variables, `.mixin()` definitions (as functions), rule sets
-    and @media/@charset/@keyframes (as doc sections), and @import (as
-    imports). Mixin calls are references and are not captured.
-    """
-    return (
-        "less",
-        {
-            ChunkKind.VARIABLE,
-            ChunkKind.FUNCTION,
-            ChunkKind.DOC_SECTION,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 @case(id="svelte", tags=["sample"])
 def case_svelte() -> SampleCase:
     """Svelte SFC: the `<script lang="ts">` block is delegated to TypeScript

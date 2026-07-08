@@ -1,0 +1,31 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_css"
+# No source-exclude: the plugin's tests, samples, and snapshots ship
+# with the wheel (they are the language's golden record), and css.scm
+# ships as package data.
+
+[project]
+name = "rbtr-lang-css"
+version = "2026.6.1"
+description = "rbtr — CSS language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "tree-sitter-css",
+]
+
+[project.entry-points."rbtr.languages"]
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+css = "rbtr_lang_css.plugin:css"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[test]"]

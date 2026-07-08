@@ -478,18 +478,6 @@ def test_html_self_closing_link_produces_import() -> None:
     assert imports[0].metadata.module == "styles.css"
 
 
-def test_css_import_produces_import_chunk() -> None:
-    """CSS @import url(...) produces an import chunk."""
-    src = """\
-@import url("reset.css");
-body { color: #333; }
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "css")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 1
-    assert imports[0].metadata.module == "reset.css"
-
-
 # ── Markdown link extraction ──────────────────────────────────────────
 
 

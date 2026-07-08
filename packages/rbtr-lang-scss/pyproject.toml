@@ -1,0 +1,34 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_scss"
+# No source-exclude: the plugin's tests, samples, and snapshots ship
+# with the wheel (they are the language's golden record), and scss.scm
+# ships as package data.
+
+[project]
+name = "rbtr-lang-scss"
+version = "2026.6.1"
+description = "rbtr — SCSS/Sass language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  # Reuses css_nesting_scope from the css plugin (CSS-family nesting).
+  "rbtr-lang-css==2026.6.1",
+  "tree-sitter-scss",
+]
+
+[project.entry-points."rbtr.languages"]
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+scss = "rbtr_lang_scss.plugin:scss"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+rbtr-lang-css = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[test]"]

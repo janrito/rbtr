@@ -93,7 +93,7 @@
     "id": "4f5676d9f6c78505",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "doc_section",
+    "kind": "class",
     "name": ".counter",
     "scope": "",
     "language": "scss",

@@ -34,7 +34,6 @@ dependencies = [
   "tree-sitter>=0.24",
   "tree-sitter-c",
   "tree-sitter-cpp",
-  "tree-sitter-css",
   "tree-sitter-go",
   "tree-sitter-hcl",
   "tree-sitter-html",
@@ -42,14 +41,12 @@ dependencies = [
   "tree-sitter-javascript",
   "tree-sitter-json",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
-  "tree-sitter-less",
   "tree-sitter-markdown",
   "tree-sitter-python",
   "tree-sitter-query",
   "tree-sitter-rst",
   "tree-sitter-ruby",
   "tree-sitter-rust",
-  "tree-sitter-scss",
   "tree-sitter-svelte",
   "tree-sitter-toml",
   "tree-sitter-typescript",
@@ -71,7 +68,6 @@ rbtr = "rbtr.testing"
 [project.entry-points."rbtr.languages"]
 c = "rbtr.languages.c.plugin:c"
 cpp = "rbtr.languages.cpp.plugin:cpp"
-css = "rbtr.languages.css.plugin:css"
 go = "rbtr.languages.go.plugin:go"
 hcl = "rbtr.languages.hcl.plugin:hcl"
 html = "rbtr.languages.html.plugin:html"
@@ -80,14 +76,12 @@ javascript = "rbtr.languages.javascript.plugin:javascript"
 typescript = "rbtr.languages.javascript.plugin:typescript"
 tsx = "rbtr.languages.javascript.plugin:tsx"
 json = "rbtr.languages.json.plugin:json"
-less = "rbtr.languages.less.plugin:less"
 markdown = "rbtr.languages.markdown.plugin:markdown"
 python = "rbtr.languages.python.plugin:python"
 query = "rbtr.languages.query.plugin:query"
 rst = "rbtr.languages.rst.plugin:rst"
 ruby = "rbtr.languages.ruby.plugin:ruby"
 rust = "rbtr.languages.rust.plugin:rust"
-scss = "rbtr.languages.scss.plugin:scss"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
 toml = "rbtr.languages.toml.plugin:toml"
@@ -96,6 +90,9 @@ yaml = "rbtr.languages.yaml.plugin:yaml"
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
 [project.optional-dependencies]
+css = ["rbtr-lang-css"]
+less = ["rbtr-lang-less"]
+scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
@@ -112,6 +109,9 @@ test = [
 # Language-plugin packages resolve to their workspace members.
 [tool.uv.sources]
 rbtr-lang-bash = { workspace = true }
+rbtr-lang-css = { workspace = true }
+rbtr-lang-less = { workspace = true }
+rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
 
 [dependency-groups]

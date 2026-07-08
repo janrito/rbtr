@@ -309,7 +309,7 @@
     "id": "ff44cea1c6365f3c",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
-    "kind": "doc_section",
+    "kind": "class",
     "name": "h1",
     "scope": "",
     "language": "scss",

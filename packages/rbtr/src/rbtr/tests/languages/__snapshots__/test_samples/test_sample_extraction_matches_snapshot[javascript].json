@@ -273,7 +273,7 @@
     "id": "6a463c4d63411e65",
     "blob_sha": "sha1",
     "file_path": "styles.css",
-    "kind": "doc_section",
+    "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "css",

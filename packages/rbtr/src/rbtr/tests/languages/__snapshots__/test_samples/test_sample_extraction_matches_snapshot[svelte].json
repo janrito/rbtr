@@ -93,7 +93,7 @@
     "id": "e4fe5d777434ea58",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "doc_section",
+    "kind": "class",
     "name": ".greeting",
     "scope": "",
     "language": "scss",

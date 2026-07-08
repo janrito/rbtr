@@ -7,14 +7,14 @@
   (class_name) @_fn_name) @function
 
 (rule_set
-  (selectors) @_section_name) @doc_section
+  (selectors) @_cls_name) @class
 
-(media_statement) @doc_section
+(media_statement) @class
 
-(charset_statement) @doc_section
+(charset_statement) @config_key
 
 (keyframes_statement
-  (keyframes_name) @_section_name) @doc_section
+  (keyframes_name) @_cls_name) @class
 
 (import_statement
   (string_value) @_import_module) @import

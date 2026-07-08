@@ -1,16 +1,18 @@
 """CSS language plugin.
 
-Splits CSS by rule sets using their selectors as the chunk
-name, via a tree-sitter query. At-rules (`@media`,
-`@charset`) are captured as doc sections. `@import`
-statements are captured as imports for cross-language edges.
+Splits CSS into `class` chunks — one per rule set (named by its
+selector) and one per `@media` / `@keyframes` block — via a
+tree-sitter query. `@charset` is captured as a config key,
+`@import` statements as imports for cross-language edges, and
+custom properties as variables.
 
 Extracted chunks::
 
-    body { color: #333; }           → doc_section "body", scope ""
-    .header { background: blue; }   → doc_section ".header", scope ""
-    @media (max-width: 600px) {}    → doc_section "", scope ""
-    @keyframes slide { ... }        → doc_section "slide", scope ""
+    body { color: #333; }           → class "body", scope ""
+    .header { background: blue; }   → class ".header", scope ""
+    @media (max-width: 600px) {}    → class "<anonymous>", scope ""
+    @keyframes slide { ... }        → class "slide", scope ""
+    @charset "utf-8";               → config_key "<anonymous>"
     @import url("reset.css");       → import, metadata {module: "reset.css"}
 """
 
@@ -57,7 +59,7 @@ css = LanguageRegistration(
         query=load_query(__package__, "css"),
     ),
     import_targets=frozenset({"css"}),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )
 
 css.scope_extractor(css_nesting_scope)
