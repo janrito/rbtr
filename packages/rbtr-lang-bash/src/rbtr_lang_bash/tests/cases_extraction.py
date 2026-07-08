@@ -109,6 +109,12 @@ check() {
 # ── Mixed ───────────────────────────────────────────────────────────
 
 
+@case(tags=["symbol"])
+def case_bash_assignment() -> SymbolCase:
+    """Top-level variable assignment."""
+    return "bash", "MAX=100\n", [("variable", "MAX", "")]
+
+
 @case(tags=["mixed"])
 def case_bash_full_script() -> MixedCase:
     """Realistic shell script with doc comments on every

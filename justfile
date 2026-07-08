@@ -89,9 +89,10 @@ test-cov:
 
 # Regenerate the committed language-extraction snapshots after an
 # intended extraction change. Review the diff before committing.
+# Each language plugin owns its sample suite under
+# packages/rbtr-lang-*/.../tests/test_samples.py.
 snapshots:
-    uv run pytest --snapshot-update \
-        packages/rbtr/src/rbtr/tests/languages/test_samples.py
+    uv run pytest --snapshot-update packages/*/src/*/tests/test_samples.py
 
 # ── build ──
 
