@@ -41,28 +41,28 @@ from pathlib import PurePosixPath
 import pluggy
 from tree_sitter import Language
 
-from rbtr.languages.bash import BashPlugin
-from rbtr.languages.c import CPlugin
-from rbtr.languages.cpp import CppPlugin
-from rbtr.languages.css import CssPlugin
-from rbtr.languages.go import GoPlugin
-from rbtr.languages.hcl import HclPlugin
+from rbtr.languages.bash.plugin import BashPlugin
+from rbtr.languages.c.plugin import CPlugin
+from rbtr.languages.cpp.plugin import CppPlugin
+from rbtr.languages.css.plugin import CssPlugin
+from rbtr.languages.go.plugin import GoPlugin
+from rbtr.languages.hcl.plugin import HclPlugin
 from rbtr.languages.hookspec import PROJECT_NAME, LanguageHookspec, LanguageRegistration
-from rbtr.languages.html import HtmlPlugin
-from rbtr.languages.java import JavaPlugin
-from rbtr.languages.javascript import JavaScriptPlugin
-from rbtr.languages.json import JsonPlugin
-from rbtr.languages.less import LessPlugin
-from rbtr.languages.markdown import MarkdownPlugin
-from rbtr.languages.python import PythonPlugin
-from rbtr.languages.rst import RstPlugin
-from rbtr.languages.ruby import RubyPlugin
-from rbtr.languages.rust import RustPlugin
-from rbtr.languages.scss import ScssPlugin
-from rbtr.languages.sfc import SveltePlugin, VuePlugin
-from rbtr.languages.sql import SqlPlugin
-from rbtr.languages.toml import TomlPlugin
-from rbtr.languages.yaml import YamlPlugin
+from rbtr.languages.html.plugin import HtmlPlugin
+from rbtr.languages.java.plugin import JavaPlugin
+from rbtr.languages.javascript.plugin import JavaScriptPlugin
+from rbtr.languages.json.plugin import JsonPlugin
+from rbtr.languages.less.plugin import LessPlugin
+from rbtr.languages.markdown.plugin import MarkdownPlugin
+from rbtr.languages.python.plugin import PythonPlugin
+from rbtr.languages.rst.plugin import RstPlugin
+from rbtr.languages.ruby.plugin import RubyPlugin
+from rbtr.languages.rust.plugin import RustPlugin
+from rbtr.languages.scss.plugin import ScssPlugin
+from rbtr.languages.sfc.plugin import SveltePlugin, VuePlugin
+from rbtr.languages.sql.plugin import SqlPlugin
+from rbtr.languages.toml.plugin import TomlPlugin
+from rbtr.languages.yaml.plugin import YamlPlugin
 
 
 class LanguageManager:

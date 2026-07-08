@@ -1,0 +1,1 @@
+"""Bash language plugin package."""

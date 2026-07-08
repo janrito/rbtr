@@ -1,0 +1,1 @@
+"""JSON language plugin package."""
