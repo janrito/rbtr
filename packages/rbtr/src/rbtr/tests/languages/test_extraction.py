@@ -130,19 +130,6 @@ def test_empty_source_yields_host_presence(lang: str) -> None:
 # ── Language-specific edge cases ─────────────────────────────────────
 
 
-def test_rust_impl_captures_struct_and_impl() -> None:
-    """Both struct and impl produce class chunks for the same type."""
-    src = """\
-struct Svc {}
-impl Svc {
-    fn new() -> Self { Svc {} }
-}
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rust")
-    svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
-    assert len(svc_classes) == 2  # struct + impl
-
-
 def test_anonymous_chunk_when_name_capture_missing() -> None:
     """Chunks get name='<anonymous>' when the query omits the name capture."""
     grammar = get_manager().load_grammar("python")

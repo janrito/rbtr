@@ -24,24 +24,6 @@ type SampleCase = tuple[str, set[ChunkKind]]
 type UnsupportedCase = tuple[str, str, tuple[ChunkKind, str, str]]
 
 
-@case(id="go", tags=["sample"])
-def case_go() -> SampleCase:
-    """Go: functions, methods (functions with a receiver, scoped to the
-    receiver type via @_scope), struct and interface types (as classes),
-    const/var (as variables), and grouped imports (one chunk per spec).
-    """
-    return (
-        "go",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.METHOD,
-            ChunkKind.CLASS,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 @case(id="yaml", tags=["sample"])
 def case_yaml() -> SampleCase:
     """YAML: each top-level mapping key becomes a doc section (nested keys
@@ -133,37 +115,6 @@ def case_vue() -> SampleCase:
             ChunkKind.FUNCTION,
             ChunkKind.VARIABLE,
             ChunkKind.DOC_SECTION,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
-@case(id="java", tags=["sample"])
-def case_java() -> SampleCase:
-    """Java: classes (incl. nested), methods (incl. constructors), fields
-    and enum constants (as variables scoped to the enum), and imports (incl.
-    static). No top-level functions.
-    """
-    return (
-        "java",
-        {ChunkKind.CLASS, ChunkKind.METHOD, ChunkKind.VARIABLE, ChunkKind.IMPORT},
-    )
-
-
-@case(id="rust", tags=["sample"])
-def case_rust() -> SampleCase:
-    """Rust: functions, struct/enum/impl (all as classes — a struct and
-    its impl both yield one), methods inside impl (scoped to the type),
-    enum variants and const/static (as variables; variants scoped to the
-    enum), and `use` imports incl. `super::` dots.
-    """
-    return (
-        "rust",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
             ChunkKind.IMPORT,
         },
     )

@@ -39,14 +39,11 @@ dependencies = [
 
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
-  "tree-sitter-go",
   "tree-sitter-hcl",
-  "tree-sitter-java",
   "tree-sitter-json",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
   "tree-sitter-query",
   "tree-sitter-ruby",
-  "tree-sitter-rust",
   "tree-sitter-svelte",
   "tree-sitter-toml",
   "tree-sitter-yaml",
@@ -65,13 +62,10 @@ rbtr = "rbtr.testing"
 # `LanguageRegistration`, named by its language id. As languages are extracted
 # into their own packages, their entry point moves to that package's pyproject.
 [project.entry-points."rbtr.languages"]
-go = "rbtr.languages.go.plugin:go"
 hcl = "rbtr.languages.hcl.plugin:hcl"
-java = "rbtr.languages.java.plugin:java"
 json = "rbtr.languages.json.plugin:json"
 query = "rbtr.languages.query.plugin:query"
 ruby = "rbtr.languages.ruby.plugin:ruby"
-rust = "rbtr.languages.rust.plugin:rust"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
 toml = "rbtr.languages.toml.plugin:toml"
@@ -81,7 +75,10 @@ yaml = "rbtr.languages.yaml.plugin:yaml"
 # language-plugin-packaging migration.
 [project.optional-dependencies]
 css = ["rbtr-lang-css"]
+go = ["rbtr-lang-go"]
+java = ["rbtr-lang-java"]
 less = ["rbtr-lang-less"]
+rust = ["rbtr-lang-rust"]
 scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
 # Test-support extra for `rbtr.testing`: what a plugin package
@@ -102,12 +99,15 @@ rbtr-lang-bash = { workspace = true }
 rbtr-lang-c = { workspace = true }
 rbtr-lang-cpp = { workspace = true }
 rbtr-lang-css = { workspace = true }
+rbtr-lang-go = { workspace = true }
 rbtr-lang-html = { workspace = true }
+rbtr-lang-java = { workspace = true }
 rbtr-lang-javascript = { workspace = true }
 rbtr-lang-less = { workspace = true }
 rbtr-lang-markdown = { workspace = true }
 rbtr-lang-python = { workspace = true }
 rbtr-lang-rst = { workspace = true }
+rbtr-lang-rust = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
 
