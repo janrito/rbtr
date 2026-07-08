@@ -20,8 +20,8 @@ dependencies = [
 ]
 
 [project.entry-points."rbtr.languages"]
-# Value resolves to a plugin instance (not the class) — see the rbtr
-# ARCHITECTURE "External plugins" note.
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
 sql = "rbtr_lang_sql.plugin:sql"
 
 [tool.uv.sources]
