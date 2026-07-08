@@ -44,6 +44,7 @@ dependencies = [
   "tree-sitter-less",
   "tree-sitter-markdown",
   "tree-sitter-python",
+  "tree-sitter-query",
   "tree-sitter-rst",
   "tree-sitter-ruby",
   "tree-sitter-rust",

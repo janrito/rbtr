@@ -55,6 +55,7 @@ from rbtr.languages.json.plugin import JsonPlugin
 from rbtr.languages.less.plugin import LessPlugin
 from rbtr.languages.markdown.plugin import MarkdownPlugin
 from rbtr.languages.python.plugin import PythonPlugin
+from rbtr.languages.query.plugin import QueryPlugin
 from rbtr.languages.rst.plugin import RstPlugin
 from rbtr.languages.ruby.plugin import RubyPlugin
 from rbtr.languages.rust.plugin import RustPlugin
@@ -120,6 +121,7 @@ class LanguageManager:
             LessPlugin,
             MarkdownPlugin,
             PythonPlugin,
+            QueryPlugin,
             RstPlugin,
             RubyPlugin,
             RustPlugin,
