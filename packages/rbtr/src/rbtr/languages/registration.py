@@ -17,9 +17,9 @@ This gives file detection, line-based chunking, and text-search
 import resolution.  Each additional field on `LanguageRegistration`
 unlocks more precise analysis — see the class docstring.
 
-For a worked example per language, see the golden-tested samples in
-`rbtr/tests/languages/samples/` (one source file per language,
-showing the constructs that language's plugin extracts).
+For a worked example per language, see each plugin package's
+golden-tested sample under its `tests/samples/` (one source file per
+language, showing the constructs that language's plugin extracts).
 
 Plugins register via the `rbtr.languages` entry-point group; the value
 is the `LanguageRegistration`, named by its language id::
@@ -135,137 +135,132 @@ _VALID_ID = re.compile(r"[a-z][a-z0-9_]*")
 class LanguageRegistration:
     """Describes a language plugin's capabilities.
 
-    Only `id` is required.  Every other field has a sensible
-    default — provide only what your language needs.
+    Only `id` is required.  Every other field has a sensible default —
+    provide only what your language needs.  Each field is documented
+    inline below, grouped as:
+
+    - **Detection** — `id`, `extensions`, `filenames`.
+    - **Grammar** — `grammar_module`, `grammar_entry`, `grammar_factory`.
+    - **Extraction** — `query`, `scope_types`, `class_scope_types`,
+      `doc_comment_node_types`, `injection_query`.
+    - **Import resolution** (feeds the edge graph) — `index_files`,
+      `import_targets`, `source_roots`, `path_substitutions`,
+      `module_style`.
+    - **Housekeeping** — `test_prefix`, `test_suffix`,
+      `language_plugin_version`.
 
     Extraction overrides — a custom name/scope/import resolver or a
-    chunker — are attached via the decorator methods `name_extractor`,
-    `scope_extractor`, `import_extractor`, and `chunker` (each doubles as
-    a plain call), not constructor arguments.
+    chunker — are *not* constructor arguments; attach them with the
+    decorator methods `name_extractor`, `scope_extractor`,
+    `import_extractor`, and `chunker` (each also works as a plain call for
+    a shared function).  See those methods and the `*Extractor` type
+    aliases for signatures.
 
     Examples:
 
         Detection only (line-based chunking, text-search imports)::
 
-            LanguageRegistration(
+            csv = LanguageRegistration(
                 id="csv",
                 extensions=frozenset({".csv"}),
             )
 
-        Custom chunker without tree-sitter (prose, or languages
-        without a grammar — regex-based extraction, indentation-
-        aware splitting, etc.)::
+        Custom chunker without tree-sitter (prose, or a language with no
+        grammar)::
 
-            LanguageRegistration(
+            markdown = LanguageRegistration(
                 id="markdown",
                 extensions=frozenset({".md"}),
-                chunker=chunk_markdown,
             )
 
-        Grammar but no queries (tree-sitter parse tree available,
-        but no symbol extraction yet)::
+            @markdown.chunker
+            def chunk_markdown(file_path, blob_sha, content, grammar, ranges):
+                ...
 
-            LanguageRegistration(
+        Grammar but no query (parse tree available, no symbol extraction
+        yet)::
+
+            ruby = LanguageRegistration(
                 id="ruby",
                 extensions=frozenset({".rb"}),
                 grammar_module="tree_sitter_ruby",
             )
 
-        Full support with queries and import extractor::
+        Full support with a query and an import override::
 
-            LanguageRegistration(
+            python = LanguageRegistration(
                 id="python",
                 extensions=frozenset({".py", ".pyi"}),
                 grammar_module="tree_sitter_python",
-                query='(function_definition ...) @function',
-                import_extractor=extract_python_import_meta,
+                query=load_query(__package__, "python"),
                 scope_types=frozenset({"class_definition"}),
+                module_style=ModuleStyle.DOTTED,
             )
 
-    Attributes:
-        id:               Unique language identifier (e.g. `"python"`).
-                          Must be lowercase, no spaces.
-        extensions:       File extensions handled, including the leading
-                          dot (e.g. `frozenset({".py", ".pyi"})`).
-        filenames:        Exact filenames handled without extension
-                          matching (e.g.
-                          `frozenset({"Makefile", "Dockerfile"})`).
-        grammar_module:   Python module exposing a grammar factory
-                          function (e.g. `"tree_sitter_python"`).
-                          `None` means no tree-sitter parsing — the
-                          file will get line-based chunking only.
-        grammar_entry:    Name of the grammar factory function on
-                          *grammar_module*.  Defaults to `"language"`.
-                          Override for packages with non-standard names,
-                          e.g. `"language_typescript"` for
-                          `tree_sitter_typescript`.
-        grammar_factory:  Alternative to *grammar_module*: a callable
-                          returning a ready `Language`.  For bindings
-                          that hand back a `Language` directly (so the
-                          `Language(entry())` module path would double-
-                          wrap), e.g. `tree-sitter-language-pack`'s
-                          `get_language(name)`.  Takes precedence over
-                          *grammar_module* when set.
-        query:            Tree-sitter S-expression query for symbol
-                          extraction.  Must use these capture-name
-                          conventions:
-
-                          - `@function` / `@_fn_name` — functions
-                          - `@class` / `@_cls_name` — classes/types
-                          - `@method` / `@_method_name` — methods
-                          - `@import` — import statements
-                          - `@_scope` — optional: a node whose text is
-                            the symbol's scope segment, for scopes that
-                            lexical nesting can't reach (e.g. a Go
-                            method's receiver type). Appended as the
-                            innermost scope.
-
-                          `None` means no structural extraction even
-                          if a grammar is available.
-        scope_types:      Tree-sitter node types that create a naming
-                          scope, composed into a symbol's full
-                          enclosing-scope address. Examples:
-                          `{"class_definition"}` for Python,
-                          `{"class_declaration"}` for Java/JS,
-                          `{"impl_item", "struct_item"}` for Rust.
-                          Empty `frozenset()` for languages without
-                          scopes (e.g. Bash).
-        class_scope_types:
-                          Subset of *scope_types* that is class-like,
-                          driving function→method promotion. Defaults
-                          to *scope_types* when unset.
-        doc_comment_node_types:
-                          AST node types that count as comments
-                          when attaching leading documentation to
-                          a captured symbol.  Default empty means
-                          *no leading-comment attachment* — the
-                          chunk covers exactly the symbol node's
-                          byte span.  When
-                          non-empty, `extract_symbols` walks each
-                          symbol's `prev_named_sibling` chain,
-                          collecting consecutive nodes of these
-                          types up to a blank-line boundary, and
-                          extends the chunk's byte span to cover
-                          them.  See `_collect_leading_doc_comments`
-                          in `treesitter.py` for the walk algorithm.
+            @python.import_extractor
+            def _py_import(resolver, node, captures):
+                ...
     """
 
     id: str
+    """Unique language id, e.g. `"python"`.  Lowercase ascii, digits, or
+    underscores (validated in `__post_init__`).  Stamped on every chunk as
+    its `language`, and the name the entry point resolves to."""
     extensions: frozenset[str] = frozenset()
+    """File extensions this plugin claims, leading dot included, e.g.
+    `frozenset({".py", ".pyi"})`.  Matched against a file's suffix."""
     filenames: frozenset[str] = frozenset()
+    """Exact base filenames claimed regardless of extension, e.g.
+    `frozenset({"Makefile", "Dockerfile"})`."""
     grammar_module: str | None = None
+    """Python module exposing a tree-sitter grammar factory, e.g.
+    `"tree_sitter_python"`.  `None` → no parsing; the file gets line-based
+    chunking only.  Paired with `grammar_entry`, or bypassed by
+    `grammar_factory`."""
     grammar_entry: str = "language"
+    """Name of the factory function on `grammar_module`, called as
+    `Language(getattr(module, grammar_entry)())`.  Defaults to `"language"`;
+    override for non-standard names, e.g. `"language_typescript"` in
+    `tree_sitter_typescript`."""
     grammar_factory: Callable[[], Language] | None = None
+    """Alternative to `grammar_module`: a callable returning a ready
+    `Language`.  For bindings that hand one back directly (so the
+    `Language(entry())` path would double-wrap), e.g.
+    `tree-sitter-language-pack`'s `get_language(name)`.  Takes precedence
+    over `grammar_module` when set."""
     query: str | None = None
+    """Tree-sitter S-expression query for symbol extraction, loaded from a
+    co-located `.scm` via `load_query` (never inline — house rule).  Capture
+    names drive the chunk kind:
+
+    - `@function` / `@_fn_name` — functions
+    - `@class` / `@_cls_name` — classes, structs, enums, traits, types
+    - `@method` / `@_method_name` — methods (a `@function` whose nearest
+      scope is class-like is also promoted)
+    - `@variable` / `@_var_name` — top-level data
+    - `@import` — import statements (metadata via the import override)
+    - `@_scope` — optional: a node whose *text* becomes the innermost scope
+      segment, for scopes lexical nesting can't reach (e.g. a Go method's
+      receiver type)
+
+    `None` → no structural extraction even if a grammar is present.  Refine
+    a `@_*_name` display name with a `name_extractor` only as a last
+    resort."""
     scope_types: frozenset[str] = frozenset()
+    """Tree-sitter node types that open a naming scope, composed into a
+    symbol's `::` address — e.g. `{"class_definition"}` (Python),
+    `{"impl_item", "struct_item"}` (Rust).  Include every nesting container
+    that should appear in an address (classes, namespaces, modules, and
+    functions where nested defs matter).  Empty for languages without
+    scopes (e.g. Bash)."""
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` whose nodes are class-like — a function
-    directly inside one is a method. Defaults to `scope_types` when
-    unset, so a language whose every scope is a class needs only
-    `scope_types`. A language that adds non-class scopes (nested
-    functions, namespaces, modules) to `scope_types` for addressing
-    must set this to just its class-like types so method promotion
-    stays correct."""
+    directly inside one is promoted to a method.  Defaults to `scope_types`
+    when unset, so a language whose every scope is a class needs only
+    `scope_types`.  A language that also puts non-class scopes (nested
+    functions, namespaces, modules) in `scope_types` for addressing must
+    set this to just its class-like types so method promotion stays
+    correct."""
     injection_query: str | None = None
     """Tree-sitter query (against this host grammar) that delegates embedded
     code to other languages. Capture the embedded code as `@injection.content`
@@ -276,24 +271,52 @@ class LanguageRegistration:
     each captured range via `extract_query`. `None` means no embedded
     delegation."""
     doc_comment_node_types: frozenset[str] = frozenset()
+    """AST node types treated as leading documentation for a captured symbol.
+    Empty (default) → the chunk covers exactly the symbol's byte span, no
+    comment attachment.  When non-empty, `extract_symbols` walks each
+    symbol's `prev_named_sibling` chain, gathering consecutive nodes of
+    these types up to a blank-line boundary, and extends the chunk to cover
+    them (see `_collect_leading_doc_comments` in `treesitter.py`).  Left
+    empty by languages whose docs are interior rather than leading (Python,
+    captured via `@_docstring`)."""
     index_files: frozenset[str] = frozenset()
-    """Directory entry-point files (e.g. `__init__.py`, `index.ts`, `mod.rs`)."""
+    """Directory entry-point filenames: an import of a *directory* resolves
+    to one of these inside it — e.g. `{"__init__.py"}` (Python),
+    `{"index.ts", "index.js"}` (JS/TS), `{"mod.rs"}` (Rust).  Empty → a
+    directory import does not resolve to a file."""
     import_targets: frozenset[str] | None = None
-    """Languages this language can import from. `None` = same language only."""
+    """Language ids this language's imports may resolve to, for cross-language
+    edges.  The resolver looks up each target's `extensions` and
+    `index_files` to find the imported file, so e.g. HTML sets
+    `{"javascript", "typescript", "css"}` to link `<script src>` / `<link>`,
+    and CSS sets `{"css"}` for `@import`.  `None` (default) → same-language
+    only.  Each target's plugin must be installed for those edges to
+    materialise."""
     source_roots: tuple[str, ...] = ("",)
-    """Directories to prepend when resolving absolute imports."""
+    """Directory prefixes tried, in order, when resolving an absolute import
+    — each is prepended to the module path before the file search.  `("",)`
+    (default) resolves from the repo root; add roots for a configured source
+    dir, e.g. `("", "src")`."""
     path_substitutions: tuple[tuple[str, str], ...] = ()
-    """Module path prefix replacements (e.g. `("crate/", "src/")` for Rust)."""
+    """Ordered `(prefix, replacement)` rewrites applied to a module path
+    before resolution (first matching prefix wins), for alias prefixes that
+    don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
+    `crate::` resolves under `src/`.  Empty → no rewriting."""
     test_prefix: str = ""
-    """Test file name prefix (e.g. `test_` for Python)."""
+    """Filename prefix marking a test file, e.g. `"test_"` (Python), used to
+    link a test back to the module it exercises.  Empty → none."""
     test_suffix: str = ""
-    """Test file name suffix (e.g. `.test` for JS/TS, `_test` for Go)."""
+    """Filename suffix (before the extension) marking a test file, e.g.
+    `".test"` (JS/TS), `"_test"` (Go).  Empty → none."""
     language_plugin_version: int = 1
-    """Extractor version. Bump when the query, chunker, or any
-    extraction logic changes — triggers re-extraction of all
-    blobs stored at older versions."""
+    """Extractor version.  Bump on any extraction change (query, chunker,
+    override, or scope config) — it triggers re-extraction of every blob
+    stored at an older version.  A pure package *move* is not an extraction
+    change; do not bump it then."""
     module_style: ModuleStyle = ModuleStyle.PATH
-    """How module strings map to file paths. See `ModuleStyle`."""
+    """How import module strings map to file paths — `PATH` (slash-separated
+    or bare) or `DOTTED` (dot-separated, e.g. Python/Java).  See
+    `ModuleStyle`."""
 
     # Extraction overrides — attached via the decorator methods below, not the
     # constructor. `None` means "use the engine default" (the orchestrator
