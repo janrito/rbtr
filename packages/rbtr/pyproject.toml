@@ -49,12 +49,6 @@ rbtr = "rbtr.cli:main"
 [project.entry-points.pytest11]
 rbtr = "rbtr.testing"
 
-# Languages bundled in core, discovered via the `rbtr.languages` entry-point
-# group (same mechanism external `rbtr-lang-*` packages use). Each value is a
-# `LanguageRegistration`, named by its language id. As languages are extracted
-# into their own packages, their entry point moves to that package's pyproject.
-[project.entry-points."rbtr.languages"]
-
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
 [project.optional-dependencies]
