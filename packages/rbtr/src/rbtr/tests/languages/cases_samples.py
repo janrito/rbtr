@@ -120,24 +120,6 @@ def case_vue() -> SampleCase:
     )
 
 
-@case(id="ruby", tags=["sample"])
-def case_ruby() -> SampleCase:
-    """Ruby: top-level defs (as functions), classes and modules (both as
-    classes), defs inside them (as methods, incl. `self.` singletons),
-    constant assignments (as variables), and require/require_relative.
-    """
-    return (
-        "ruby",
-        {
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            ChunkKind.IMPORT,
-        },
-    )
-
-
 # ── Known-unsupported constructs (xfail registry) ────────────────────
 #
 # Each asserts the *ideal* chunk a construct should produce; all are

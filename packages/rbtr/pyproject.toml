@@ -43,7 +43,6 @@ dependencies = [
   "tree-sitter-json",
   "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
   "tree-sitter-query",
-  "tree-sitter-ruby",
   "tree-sitter-svelte",
   "tree-sitter-toml",
   "tree-sitter-yaml",
@@ -65,7 +64,6 @@ rbtr = "rbtr.testing"
 hcl = "rbtr.languages.hcl.plugin:hcl"
 json = "rbtr.languages.json.plugin:json"
 query = "rbtr.languages.query.plugin:query"
-ruby = "rbtr.languages.ruby.plugin:ruby"
 svelte = "rbtr.languages.sfc.plugin:svelte"
 vue = "rbtr.languages.sfc.plugin:vue"
 toml = "rbtr.languages.toml.plugin:toml"
@@ -78,6 +76,7 @@ css = ["rbtr-lang-css"]
 go = ["rbtr-lang-go"]
 java = ["rbtr-lang-java"]
 less = ["rbtr-lang-less"]
+ruby = ["rbtr-lang-ruby"]
 rust = ["rbtr-lang-rust"]
 scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
@@ -107,6 +106,7 @@ rbtr-lang-less = { workspace = true }
 rbtr-lang-markdown = { workspace = true }
 rbtr-lang-python = { workspace = true }
 rbtr-lang-rst = { workspace = true }
+rbtr-lang-ruby = { workspace = true }
 rbtr-lang-rust = { workspace = true }
 rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }

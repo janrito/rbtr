@@ -118,6 +118,7 @@ packages = [
   "rbtr_lang_markdown",
   "rbtr_lang_python",
   "rbtr_lang_rst",
+  "rbtr_lang_ruby",
   "rbtr_lang_rust",
   "rbtr_lang_less",
   "rbtr_lang_scss",
