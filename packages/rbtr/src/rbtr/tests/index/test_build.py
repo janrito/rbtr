@@ -561,10 +561,10 @@ Description here.
     assert r2.stats.parsed_files == 0
 
 
-def test_build_index_version_gated_reextraction(
+def test_build_index_serial_gated_reextraction(
     tmp_path: Path, store: IndexStore, mocker: MockerFixture
 ) -> None:
-    """Bumping `language_plugin_version` forces re-extraction."""
+    """Bumping `extraction_serial` forces re-extraction."""
     repo = pygit2.init_repository(str(tmp_path / "ver"), bare=False, initial_head="main")
 
     (tmp_path / "ver" / "doc.md").write_text("# Hello\n\nWorld.\n")
@@ -579,17 +579,17 @@ def test_build_index_version_gated_reextraction(
     r1 = build_index(repo.workdir, sha, store, repo_id=1)
     assert r1.stats.parsed_files >= 1
 
-    # Bump the markdown registration's version.
+    # Bump the markdown registration's serial.
     mgr = get_manager()
     orig_reg = mgr.get_registration("markdown")
     assert orig_reg is not None
-    bumped = replace(orig_reg, language_plugin_version=99)
+    bumped = replace(orig_reg, extraction_serial=99)
     mocker.patch.object(
         mgr, "get_registration", side_effect=lambda lid: bumped if lid == "markdown" else orig_reg
     )
 
     r2 = build_index(repo.workdir, sha, store, repo_id=1)
-    assert r2.stats.parsed_files >= 1, "version bump should force re-extraction"
+    assert r2.stats.parsed_files >= 1, "serial bump should force re-extraction"
 
 
 @pytest.fixture
@@ -597,7 +597,7 @@ def multilang_repo(tmp_path: Path) -> pygit2.Repository:
     """Git repo with a Markdown file that embeds a Python fence.
 
     A multi-language host file (Markdown host + delegated Python) exercises
-    the orchestrator's per-language version-map gating using only default
+    the orchestrator's per-language serial-map gating using only default
     plugins — no optional plugin required.
     """
     content = (
@@ -624,8 +624,8 @@ def test_build_index_dedups_multilang_file(
 ) -> None:
     """A multi-language file is skipped on rebuild, not re-parsed every build.
 
-    Also guards per-language versioning: a delegated chunk stamped with the
-    wrong (host) version would miss the version-map gate and re-extract here.
+    Also guards per-language serials: a delegated chunk stamped with the
+    wrong (host) serial would miss the serial-map gate and re-extract here.
     """
     sha = str(multilang_repo.head.target)
     build_index(multilang_repo.workdir, sha, store, repo_id=1)
@@ -641,7 +641,7 @@ def test_build_index_reextracts_on_contributor_bump(
 ) -> None:
     """Bumping any contributor — the embedded language or the host — re-extracts.
 
-    Confirms the version map gates on every language in the file, not just one.
+    Confirms the serial map gates on every language in the file, not just one.
     """
     sha = str(multilang_repo.head.target)
     build_index(multilang_repo.workdir, sha, store, repo_id=1)
@@ -649,7 +649,7 @@ def test_build_index_reextracts_on_contributor_bump(
     mgr = get_manager()
     target = mgr.get_registration(plugin)
     assert target is not None
-    bumped = replace(target, language_plugin_version=target.language_plugin_version + 1)
+    bumped = replace(target, extraction_serial=target.extraction_serial + 1)
     originals = {lid: mgr.get_registration(lid) for lid in mgr.all_language_ids()}
     mocker.patch.object(
         mgr,

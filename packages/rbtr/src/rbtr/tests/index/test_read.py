@@ -63,7 +63,7 @@ def test_has_blob_matches(
     blob_query: tuple[IndexStore, HasBlobScenario],
 ) -> None:
     store, s = blob_query
-    assert store.has_blob(s.query_blob, s.query_language, s.version_map) == s.expected
+    assert store.has_blob(s.query_blob, s.query_language, s.serial_map) == s.expected
 
 
 # ── Chunk upsert ────────────────────────────────────────────────────
@@ -289,13 +289,13 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     """Re-chunking a shared blob updates the content for every repo.
 
     A plugin upgrade re-chunks a blob globally (delete its chunks, then
-    re-insert at the new version). Because the chunk is content-addressed
+    re-insert at the new serial). Because the chunk is content-addressed
     and shared, every repo referencing the blob — not just the one that
     triggered the re-chunk — sees the new chunks, without re-indexing.
     """
     store = shared_chunk_store  # repos 1 and 2 reference blob "b_shared"
     rechunked = make_chunk("shared_fn_v2", path="x.py", blob="b_shared").model_copy(
-        update={"language_plugin_version": 2}
+        update={"extraction_serial": 2}
     )
     with store.session() as ws:
         ws.delete_chunks_for_blobs({"b_shared"})

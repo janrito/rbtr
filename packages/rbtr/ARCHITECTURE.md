@@ -94,16 +94,16 @@ and chunk `id`s coincide, and the existing chunks are reused —
 no re-parsing, no re-embedding.
 
 The orchestrator checks `store.has_blob(blob_sha, language,
-versions)` before extracting a file, where `language` is the
-file's detected host language and `versions` is the current
-`{language: plugin version}` registry map (plus `""` for
+serials)` before extracting a file, where `language` is the
+file's detected host language and `serials` is the current
+`{language: extraction serial}` registry map (plus `""` for
 plaintext). The check is global, so a blob already chunked by
 any repo is reused. A blob is **up to date** — the file skipped
 and only its `file_snapshots` row written — iff it has at least
 one chunk in the detected `language` *and* every stored chunk
-is at its language's current plugin version. Both are matched
-in one query against a registered `_version_map` view (a
-`LEFT JOIN`; a chunk with no matching version row is stale).
+is at its language's current extraction serial. Both are matched
+in one query against a registered `_serial_map` view (a
+`LEFT JOIN`; a chunk with no matching serial row is stale).
 
 Two things force re-extraction; on a miss the orchestrator
 deletes the blob's old chunks first (the new extraction may
@@ -115,8 +115,8 @@ produce different IDs the upsert can't reconcile):
   (Markdown/RST) is detected by extension or content sniff and
   persisted on the snapshot, so the gate sees its real
   language and dedups normally.
-- **A plugin version bumped.** Chunks stored at the old version
-  no longer match the map → re-extract.
+- **A plugin's extraction serial bumped.** Chunks stored at the
+  old serial no longer match the map → re-extract.
 
 **Every file leaves a host-language chunk.** Extraction
 guarantees at least one chunk in the file's own language — the
@@ -131,7 +131,7 @@ Multi-language files (single-file components: `.svelte`,
 `.vue`) hold chunks in several languages — the `<script>`
 delegates to TypeScript, the `<style>` to CSS/SCSS, and the
 markup template is the host `svelte`/`vue` chunk. Each chunk
-carries *its own* language's plugin version (see
+carries *its own* language's extraction serial (see
 [Versioning](#versioning)). The map lists the host and every
 embedded language, so such a file dedups like any other: a
 bump to *any* contributor (the host or a delegated language)
@@ -192,7 +192,7 @@ sequenceDiagram
     M-->>O: lang_id (else stored detected_language / prose sniff)
     O->>M: get_registration(lang_id)
     M-->>O: reg (extraction: QueryExtraction, resolve_* overrides, id, plugin_version, ...)
-    O->>S: has_blob(sha, language, language_plugin_version)
+    O->>S: has_blob(sha, language, serials)
     S-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
     O->>M: load_grammar(lang_id)
     M-->>O: grammar
@@ -253,7 +253,7 @@ erDiagram
         text name
         text scope
         text language
-        int language_plugin_version
+        int extraction_serial
         text content
         text content_tokens
         text name_tokens
@@ -400,8 +400,8 @@ Three keys:
 When the model or version changes, all embeddings are
 cleared and recomputed on the next build.
 
-A fourth versioning axis lives outside `meta`, per chunk:
-`chunks.language_plugin_version`. It is not a global
+A fourth invalidation axis lives outside `meta`, per chunk:
+`chunks.extraction_serial`. It is not a global
 compatibility key — it scopes the blob-dedup gate so a plugin
 can invalidate only its own stale extractions (see
 [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
@@ -414,11 +414,11 @@ existing databases in place — no `schema_version` bump, no
 wipe. Only a **breaking** change to an existing table or
 column bumps `schema_version` (and so deletes the database).
 
-`language_plugin_version` is a per-chunk column, not a `meta`
-key: each chunk stamps the plugin version of *its own*
+`extraction_serial` is a per-chunk column, not a `meta`
+key: each chunk stamps the extraction serial of *its own*
 `language`. For single-language files this equals the host
-file's version; for a multi-language file a delegated
-TypeScript chunk carries TypeScript's version, not the host
+file's serial; for a multi-language file a delegated
+TypeScript chunk carries TypeScript's serial, not the host
 svelte plugin's. Its only reader is the `has_blob` dedup
 gate; see [Content-addressed chunks and blob
 dedup](#content-addressed-chunks-and-blob-dedup).

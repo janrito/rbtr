@@ -151,7 +151,7 @@ no `#include`: js/ts concatenate shared fragment files with `+`
 (`load_query(pkg, "javascript") + load_query(pkg, "shared") + …`); SQL groups
 its DDL verbs into `[...]` alternations within one `sql.scm`. Prefer these to
 generating query text from Python data. Editing a `.scm` is an extraction
-change — the `language_plugin_version` bump rule (below) applies.
+change — the `extraction_serial` bump rule (below) applies.
 
 ## Capture conventions
 
@@ -264,8 +264,10 @@ Set on the language's `QueryExtraction` (the `extraction` field);
 3. Add the construct to that language's sample in the package's
    `tests/samples/` and regenerate the snapshot with `just snapshots`;
    review the diff.
-4. Bump `language_plugin_version` — any extraction change triggers
-   re-extraction of stored blobs.
+4. Bump `extraction_serial` — any extraction change triggers
+   re-extraction of stored blobs. It is independent of the package
+   version: bump it during development (before any release) when output
+   changes, and never bump it for a package-only release or pure move.
 5. `just check`. (Samples are exempt from lint/type/format — see below.)
 
 ## Gotchas (all learned the hard way; verified)

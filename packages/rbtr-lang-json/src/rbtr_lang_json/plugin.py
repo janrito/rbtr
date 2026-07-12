@@ -25,5 +25,5 @@ json = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "json"),
     ),
-    language_plugin_version=2,
+    extraction_serial=2,
 )

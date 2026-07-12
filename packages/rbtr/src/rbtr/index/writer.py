@@ -275,7 +275,7 @@ class WriteSession:
         language changed (e.g. a new plugin was registered).
         Chunks are content-addressed and shared across repos, so
         a blob's chunks are deleted globally; chunking is
-        deterministic per plugin version, so every repo sees the
+        deterministic per extraction serial, so every repo sees the
         same chunks for the blob.
         """
         if not blob_shas:

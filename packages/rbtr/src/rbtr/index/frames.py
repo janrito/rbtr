@@ -69,7 +69,7 @@ class ChunkStagingRow(dy.Schema):
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
     metadata = _METADATA_STRUCT
-    language_plugin_version = dy.Int32(nullable=False)
+    extraction_serial = dy.Int32(nullable=False)
 
 
 class EdgeStagingRow(dy.Schema):
@@ -139,18 +139,18 @@ class FilePathRow(dy.Schema):
     file_path = dy.String(nullable=False)
 
 
-class VersionMapRow(dy.Schema):
-    """Backs the cursor-registered `_version_map` join view.
+class SerialMapRow(dy.Schema):
+    """Backs the cursor-registered `_serial_map` join view.
 
     Not an insert target: `has_blob` left-joins a blob's chunks against
-    this view to check every chunk is at its language's current plugin
-    version. Maps language id -> current version (the full registry, plus
-    `""` for plaintext). `language_plugin_version` is `Int32` to match the
-    column on `chunks`.
+    this view to check every chunk is at its language's current
+    extraction serial. Maps language id -> current serial (the full
+    registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
+    match the column on `chunks`.
     """
 
     language = dy.String(nullable=False)
-    language_plugin_version = dy.Int32(nullable=False)
+    extraction_serial = dy.Int32(nullable=False)
 
 
 # ── Result-row schemas (DuckDB -> Python reads) ──────────────────────
@@ -342,16 +342,16 @@ def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
     return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
 
 
-def version_map_frame(versions: dict[str, int]) -> dy.DataFrame[VersionMapRow]:
-    """Build the `_version_map` join view from a language -> version map."""
-    if not versions:
-        return VersionMapRow.create_empty()
+def serial_map_frame(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
+    """Build the `_serial_map` join view from a language -> serial map."""
+    if not serials:
+        return SerialMapRow.create_empty()
     return pl.DataFrame(
         {
-            "language": list(versions.keys()),
-            "language_plugin_version": list(versions.values()),
+            "language": list(serials.keys()),
+            "extraction_serial": list(serials.values()),
         }
-    ).pipe(VersionMapRow.validate, cast=True)
+    ).pipe(SerialMapRow.validate, cast=True)
 
 
 def embeddings_frame(

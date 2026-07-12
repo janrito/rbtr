@@ -659,10 +659,12 @@ Installing the package is all it takes — the entry point auto-registers.
 
 When you change a plugin's extraction logic — its query, chunker, or
 anything that shapes the chunks it emits — bump
-`language_plugin_version` on the registration. Indexed chunks are keyed
-by this version, so a bump triggers re-extraction of every blob stored
-at the old version on the next build; leaving it unchanged keeps the
-existing (now stale) chunks. See
+`extraction_serial` on the registration. Indexed chunks are keyed
+by this serial, so a bump triggers re-extraction of every blob stored
+at a different serial on the next build; leaving it unchanged keeps the
+existing (now stale) chunks. It is independent of the package version —
+bump it whenever extraction output changes, including during development
+before a release. See
 [ARCHITECTURE.md](ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup)
 for the dedup mechanism.
 

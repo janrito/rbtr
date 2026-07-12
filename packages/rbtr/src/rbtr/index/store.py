@@ -72,7 +72,7 @@ from rbtr.index.frames import (
     frame_to_chunks,
     repo_refs_frame,
     scored_to_chunks,
-    version_map_frame,
+    serial_map_frame,
 )
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, RepoRef, ScoredChunk
 from rbtr.index.reranker import Reranker
@@ -365,7 +365,7 @@ class IndexStore:
 
     # ── Reads ────────────────────────────────────────────────────────
 
-    def has_blob(self, blob_sha: str, language: str, versions: dict[str, int]) -> bool:
+    def has_blob(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
         """Check whether *blob_sha* is up to date for host *language*.
 
         This is the blob-dedup gate: the orchestrator calls it
@@ -377,19 +377,19 @@ class IndexStore:
         repo/worktree indexes it.
 
         *language* is the file's currently detected host language;
-        *versions* maps language id → current plugin version (the
+        *serials* maps language id → current extraction serial (the
         full registry, plus `""` for plaintext).  The blob is up to
         date iff it has ≥1 chunk in *language* **and** every chunk's
-        `(language, language_plugin_version)` matches a row in
-        *versions*.  Either condition failing triggers re-extraction:
+        `(language, extraction_serial)` matches a row in
+        *serials*.  Either condition failing triggers re-extraction:
 
         - Detected language changed — a blob indexed as plaintext
           (`language=""`), then a plugin registered for the
           extension → no chunk in the new language → re-extract.
           (Every file leaves a host-language chunk, so this check
           is reliable.)
-        - A plugin's version is bumped → chunks stored at the old
-          version no longer match → re-extracted.
+        - A language's extraction serial is bumped → chunks stored at
+          the old serial no longer match → re-extracted.
         - A multi-language file (SFC) lists every embedded language
           plus the host, so bumping *any* contributor (the svelte
           host or the delegated typescript) re-extracts the file;
@@ -401,13 +401,13 @@ class IndexStore:
         may produce different chunk IDs that the upsert can't
         reconcile.
         """
-        self._cursor.register("_version_map", version_map_frame(versions))
+        self._cursor.register("_serial_map", serial_map_frame(serials))
         try:
             row = self._cursor.execute(
                 _HAS_BLOB_SQL, {"blob_sha": blob_sha, "language": language}
             ).fetchone()
         finally:
-            self._cursor.unregister("_version_map")
+            self._cursor.unregister("_serial_map")
         return bool(row[0]) if row and row[0] is not None else False
 
     def get_snapshot_language(self, file_path: str, *, repo_id: int) -> str:

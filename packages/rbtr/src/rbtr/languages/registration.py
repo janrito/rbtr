@@ -184,7 +184,7 @@ class LanguageRegistration:
     - **Import resolution** (feeds the edge graph) — `index_files`,
       `import_targets`, `source_roots`, `path_substitutions`,
       `module_style`.
-    - **Housekeeping** — `language_plugin_version`.
+    - **Housekeeping** — `extraction_serial`.
 
     Extraction overrides — a custom name/scope/import resolver or a
     chunker — are *not* constructor arguments; attach them with the
@@ -304,11 +304,19 @@ class LanguageRegistration:
     before resolution (first matching prefix wins), for alias prefixes that
     don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
     `crate::` resolves under `src/`.  Empty → no rewriting."""
-    language_plugin_version: int = 1
-    """Extractor version.  Bump on any extraction change (query, chunker,
-    override, or scope config) — it triggers re-extraction of every blob
-    stored at an older version.  A pure package *move* is not an extraction
-    change; do not bump it then."""
+    extraction_serial: int = 1
+    """Extraction cache key: a manually-bumped stamp that invalidates a
+    language's stored chunks.  Every chunk records its language's serial;
+    the blob-dedup gate re-extracts a blob whenever a chunk's serial does
+    not equal the registry's current one (an equality check — a lower
+    value re-extracts too, not just a higher one).  Bump it on any change
+    to *extraction output*: the query, chunker, scope config, or a
+    name/scope/import override — an import-resolver change included, since
+    a matching serial skips the blob and would otherwise leave its edges
+    stale.  It is **independent of the package version**: bump it during
+    development, before any release, when output changes; and do *not*
+    bump it for a package-only release or a pure move that leaves output
+    identical."""
     module_style: ModuleStyle = ModuleStyle.PATH
     """How import module strings map to file paths — `PATH` (slash-separated
     or bare) or `DOTTED` (dot-separated, e.g. Python/Java).  See

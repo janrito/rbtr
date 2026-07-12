@@ -91,7 +91,7 @@ ruby = LanguageRegistration(
         scope_types=frozenset({"class", "module"}),
     ),
     source_roots=("", "lib"),
-    language_plugin_version=5,
+    extraction_serial=5,
 )
 
 ruby.import_extractor(extract_import_meta)

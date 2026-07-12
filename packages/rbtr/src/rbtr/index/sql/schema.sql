@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   name TEXT NOT NULL,
   scope TEXT NOT NULL DEFAULT '',
   language TEXT NOT NULL DEFAULT '',
-  language_plugin_version INTEGER NOT NULL DEFAULT 1,
+  extraction_serial INTEGER NOT NULL DEFAULT 1,
   content TEXT NOT NULL,
   content_tokens TEXT NOT NULL DEFAULT '',
   name_tokens TEXT NOT NULL DEFAULT '',

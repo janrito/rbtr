@@ -254,7 +254,7 @@ markdown = LanguageRegistration(
     extensions=frozenset({".md"}),
     grammar_module="tree_sitter_markdown",
     injection_query=load_query(__package__, "injections"),
-    language_plugin_version=4,
+    extraction_serial=4,
 )
 
 markdown.chunker(chunk_markdown)

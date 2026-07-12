@@ -34,5 +34,5 @@ go = LanguageRegistration(
         query=load_query(__package__, "go"),
         scope_types=frozenset({"type_spec"}),
     ),
-    language_plugin_version=4,
+    extraction_serial=4,
 )
