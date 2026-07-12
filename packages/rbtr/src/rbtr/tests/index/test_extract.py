@@ -11,9 +11,8 @@ from pytest_mock import MockerFixture
 from rbtr.git import FileEntry
 from rbtr.index.chunks import detect_prose_format
 from rbtr.index.models import ChunkKind
-from rbtr.index.orchestrator import _extract_file, build_index
+from rbtr.index.orchestrator import build_index, extract_file
 from rbtr.index.store import IndexStore
-from rbtr.languages import get_manager
 
 # ── Prose format detection ────────────────────────────────────────────
 
@@ -205,11 +204,9 @@ def test_extract_file_routes_correctly(
     expected_name: str | None,
     min_chunks: int,
 ) -> None:
-    """_extract_file routes each file type to the correct chunker."""
-    mgr = get_manager()
-    reg = mgr.get_registration(expected_language) if expected_language else None
+    """extract_file routes each file type to the correct chunker."""
     entry = FileEntry(path=file_path, blob_sha="sha1", content=file_content.encode())
-    chunks = list(_extract_file(entry, expected_language, reg))
+    chunks = list(extract_file(entry, expected_language))
     assert len(chunks) >= min_chunks
     if not chunks:
         return
@@ -245,15 +242,15 @@ def test_build_index_extraction_error_is_nonfatal(
     sha = str(repo.head.target)
 
     # Make extraction fail for bad.py only.
-    original_extract = _extract_file
+    original_extract = extract_file
 
-    def _patched_extract(entry: FileEntry, language: str, reg: object) -> list:
+    def _patched_extract(entry: FileEntry, language: str) -> list:
         if entry.path == "bad.py":
             msg = "parse error"
             raise RuntimeError(msg)
-        return list(original_extract(entry, language, reg))  # type: ignore[arg-type]  # test shim
+        return list(original_extract(entry, language))
 
-    mocker.patch("rbtr.index.orchestrator._extract_file", side_effect=_patched_extract)
+    mocker.patch("rbtr.index.orchestrator.extract_file", side_effect=_patched_extract)
 
     result = build_index(repo.workdir, sha, store, repo_id=1)
 

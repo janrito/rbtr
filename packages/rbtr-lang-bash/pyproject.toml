@@ -27,4 +27,4 @@ bash = "rbtr_lang_bash.plugin:PLUGIN"
 rbtr = { workspace = true }
 
 [dependency-groups]
-dev = ["rbtr[testkit]"]
+dev = ["rbtr[test]"]

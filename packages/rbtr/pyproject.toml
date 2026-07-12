@@ -60,15 +60,20 @@ dependencies = [
 [project.scripts]
 rbtr = "rbtr.cli:main"
 
+# Ships the `snapshot_json` fixture (from the shared test harness) to every
+# plugin test suite with no per-package conftest boilerplate.
+[project.entry-points.pytest11]
+rbtr = "rbtr.languages.testing"
+
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
 [project.optional-dependencies]
 sql = ["rbtr-lang-sql"]
-# Test-support extra for `rbtr.languages.testkit`: what a plugin package
+# Test-support extra for `rbtr.languages.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
 # The pytest bound lives here (not just in `dev`) so that a plugin whose
-# only test dep is `rbtr[testkit]` still gets it.
-testkit = [
+# only test dep is `rbtr[test]` still gets it.
+test = [
   # Held below 9.1: pytest-cases 3.10.1 breaks on pytest 9.1's changed
   # IdMaker signature. Drop the bound once pytest-cases is compatible.
   "pytest<9.1",
@@ -86,5 +91,5 @@ dev = [
   "pyinstrument>=5.0",
   "pytest-mock",
   "pytest-xdist>=3.8.0",
-  "rbtr[testkit]",
+  "rbtr[test]",
 ]

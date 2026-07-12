@@ -375,13 +375,60 @@ for how the plugin system works.
 
 ## Writing a language plugin
 
-Every plugin is a package under `rbtr/languages/<lang>/` — a
-`plugin.py` with a pluggy hook that returns
-`LanguageRegistration` instances, plus its tree-sitter query
-in a sibling `.scm` file. A plugin provides whatever fields
-its language needs.
+rbtr's core ships no languages of its own — each is a separate,
+installable package, `rbtr-lang-<lang>`, that registers with rbtr
+through a `rbtr.languages` entry point. Users add one by installing it
+(`pip install rbtr-lang-swift`, or `pip install rbtr[swift]` for the
+languages rbtr bundles as extras — see [Installing the
+plugin](#installing-the-plugin)). A plugin returns
+`LanguageRegistration` instances and provides whatever fields its
+language needs — there are no tiers or categories.
 
-### Query-based plugin (preferred)
+### The package
+
+Lay the package out as a standard `src` distribution:
+
+```text
+rbtr-lang-swift/
+  pyproject.toml
+  README.md
+  src/rbtr_lang_swift/
+    __init__.py
+    plugin.py
+    swift.scm       # tree-sitter query, shipped as package data
+    py.typed
+```
+
+```toml
+# pyproject.toml
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_swift"
+
+[project]
+name = "rbtr-lang-swift"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["rbtr", "tree-sitter-swift"]
+
+# How rbtr discovers the plugin. The value points at a plugin
+# *instance*, not the class: rbtr registers whatever the entry point
+# resolves to and calls the hook on it, and a bare class leaves the
+# hookimpl unbound. So end plugin.py with `PLUGIN = SwiftPlugin()`.
+[project.entry-points."rbtr.languages"]
+swift = "rbtr_lang_swift.plugin:PLUGIN"
+
+[dependency-groups]
+dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
+```
+
+Nothing else registers the plugin — installing the package is enough for
+rbtr to find it.
+
+### The plugin — query-based (preferred)
 
 Most languages need only a tree-sitter query. The generic
 `extract_symbols` pipeline handles parsing, capture
@@ -389,7 +436,7 @@ matching, scope detection, and chunk construction. The query
 lives in its own `.scm` file, loaded with `load_query`:
 
 ```scm
-; rbtr/languages/swift/swift.scm
+; src/rbtr_lang_swift/swift.scm
 (function_declaration
   name: (identifier) @_fn_name) @function
 (class_declaration
@@ -399,7 +446,7 @@ lives in its own `.scm` file, loaded with `load_query`:
 ```
 
 ```python
-# rbtr/languages/swift/plugin.py
+# src/rbtr_lang_swift/plugin.py
 from __future__ import annotations
 from rbtr.languages._queries import load_query
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
@@ -417,6 +464,8 @@ class SwiftPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
             ),
         ]
+
+PLUGIN = SwiftPlugin()  # the entry-point target
 ```
 
 Capture conventions: `@function`/`@_fn_name`,
@@ -460,7 +509,7 @@ content-minus-children), write a custom chunker. The
 chunker receives the grammar from the manager:
 
 ```python
-# rbtr/languages/example/plugin.py
+# src/rbtr_lang_example/plugin.py
 from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
@@ -496,23 +545,98 @@ class ExamplePlugin:
                 chunker=chunk_example,
             ),
         ]
+
+PLUGIN = ExamplePlugin()  # the entry-point target
 ```
 
-### Registration
+### Testing the plugin
 
-Built-in plugins: add the `<lang>/` package (a `plugin.py`
-and any `.scm` files), then import the class at the top of
-`rbtr/languages/__init__.py` and list it in `_register_builtins`.
+Tests exercise the **real** extraction pipeline: they call
+`rbtr.index.orchestrator.extract_file` — the same per-file entry point
+the indexer uses — so there is no test-only code path. The `rbtr[test]`
+extra (in your `dev` group) provides `syrupy` and `pytest-cases`. Lay
+the tests out beside the code:
 
-External plugins: register via setuptools entry points:
-
-```toml
-[project.entry-points."rbtr.languages"]
-swift = "rbtr_swift:SwiftPlugin"
+```text
+src/rbtr_lang_swift/tests/
+  __init__.py
+  cases_extraction.py
+  test_extraction.py
+  test_samples.py
+  samples/swift/swift.swift
+  __snapshots__/
 ```
 
-External registrations override built-in ones for the
-same language ID.
+The `snapshot_json` fixture — which serialises chunks to canonical JSON for
+snapshots — is provided automatically by the `rbtr[test]` pytest plugin, so a
+test just takes it as an argument; no `conftest.py` is needed.
+
+Construct tests keep the data (source → expected symbols) in `@case`
+functions and run the pipeline in the test body:
+
+```python
+# cases_extraction.py
+from pytest_cases import case
+type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+
+@case(tags=["symbol"])
+def case_function() -> SymbolCase:
+    return "swift", "func greet() {}\n", [("function", "greet", "")]
+
+# test_extraction.py
+from pytest_cases import parametrize_with_cases
+from rbtr.git import FileEntry
+from rbtr.index.orchestrator import extract_file
+
+@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
+def test_extracts_expected_symbols(lang, source, expected):
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
+    got = [(c.kind, c.name, c.scope) for c in chunks]
+    for exp in expected:
+        assert exp in got
+```
+
+A sample test snapshots a committed example project, guarding extraction
+against drift:
+
+```python
+# test_samples.py
+from pathlib import Path
+from rbtr.git import FileEntry
+from rbtr.index.orchestrator import extract_file
+from rbtr.languages import get_manager
+
+def test_extraction_matches_snapshot(snapshot_json):
+    root = Path(__file__).parent / "samples" / "swift"
+    files = [
+        (str(p.relative_to(root)), p.read_text())
+        for p in sorted(root.rglob("*")) if p.is_file()
+    ]
+    manager = get_manager()
+    chunks = []
+    for path, text in files:
+        lang = manager.detect_language(path) or "swift"
+        chunks.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
+    assert chunks == snapshot_json
+```
+
+Regenerate the golden files after an intended change with
+`pytest --snapshot-update`. For edge snapshots,
+`rbtr.languages.testing.render_edges(edges, chunks)` turns opaque edge
+ids into readable `file::name -> file::name [kind]` lines.
+
+### Installing the plugin
+
+Installing the package is all it takes — the entry point auto-registers
+and external registrations override built-ins for the same language id:
+
+- **Any third-party language:** `pip install rbtr-lang-swift` (it
+  depends on `rbtr`).
+- **A language rbtr blesses as an extra:** rbtr lists
+  `swift = ["rbtr-lang-swift"]` in its own `[project.optional-dependencies]`,
+  so `pip install rbtr[swift]` works.
+- **A default language:** rbtr lists the package in its own
+  `[project.dependencies]`, so plain `pip install rbtr` pulls it.
 
 ### Re-indexing after a plugin change
 

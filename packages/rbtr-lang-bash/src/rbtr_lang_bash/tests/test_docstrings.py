@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.languages.testkit import extract_chunks
+from rbtr.git import FileEntry
+from rbtr.index.orchestrator import extract_file, extract_query
 
 
 @parametrize_with_cases(
@@ -19,7 +20,7 @@ def test_documented_chunk_includes_doc_text(
     lang: str, source: str, name: str, snippet: str
 ) -> None:
     """By default the chunk content carries the symbol's docs."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     chunk = next(c for c in chunks if c.name == name)
     assert snippet in chunk.content, (
         f"expected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
@@ -31,7 +32,7 @@ def test_documented_chunk_includes_doc_text(
 )
 def test_no_phantom_documentation(lang: str, source: str, name: str, snippet: str) -> None:
     """Symbols without documentation do not gain any in content."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"unexpected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
@@ -46,7 +47,9 @@ def test_no_leading_attachment_drops_exterior_docs(
 ) -> None:
     """Forcing `doc_comment_node_types=frozenset()` disables the sibling walk,
     so the leading-comment snippet is now absent."""
-    chunks = extract_chunks(lang, source, no_leading_attachment=True)
+    chunks = list(
+        extract_query(lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset())
+    )
     chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"expected {snippet!r} absent from {lang}.{name} when leading-comment "
@@ -62,9 +65,12 @@ def test_attachment_shifts_line_start_for_exterior_docs(
 ) -> None:
     """When sibling-walk attachment fires, `line_start` moves up to cover the
     earliest attached comment; suppressing it shifts the start back."""
-    default = next(c for c in extract_chunks(lang, source) if c.name == name)
-    no_attach = next(
-        c for c in extract_chunks(lang, source, no_leading_attachment=True) if c.name == name
+    default = next(
+        c for c in extract_file(FileEntry("input", "sha1", source.encode()), lang) if c.name == name
     )
+    suppressed = extract_query(
+        lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset()
+    )
+    no_attach = next(c for c in suppressed if c.name == name)
     assert default.line_start < no_attach.line_start
     assert default.id != no_attach.id

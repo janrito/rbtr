@@ -28,4 +28,4 @@ sql = "rbtr_lang_sql.plugin:PLUGIN"
 rbtr = { workspace = true }
 
 [dependency-groups]
-dev = ["rbtr[testkit]"]
+dev = ["rbtr[test]"]

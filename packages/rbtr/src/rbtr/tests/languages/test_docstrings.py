@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.languages.testkit import extract_chunks
+from rbtr.git import FileEntry
+from rbtr.index.orchestrator import extract_file, extract_query
 
 
 @parametrize_with_cases(
@@ -23,10 +24,13 @@ from rbtr.languages.testkit import extract_chunks
     has_tag="documented",
 )
 def test_documented_chunk_includes_doc_text(
-    lang: str, source: str, name: str, snippet: str
+    lang: str,
+    source: str,
+    name: str,
+    snippet: str,
 ) -> None:
     """By default the chunk content carries the symbol's docs."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     chunk = next(c for c in chunks if c.name == name)
     assert snippet in chunk.content, (
         f"expected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
@@ -44,7 +48,7 @@ def test_no_phantom_documentation(lang: str, source: str, name: str, snippet: st
     For `invalid` cases, the snippet marks text that *looks*
     like documentation but must not be swept into the chunk.
     """
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"unexpected {snippet!r} in {lang}.{name} content; got:\n{chunk.content!r}"
@@ -72,7 +76,9 @@ def test_no_leading_attachment_drops_exterior_docs(
     sibling walk.  For exterior-doc plugins the snippet comes
     from a leading comment, which is now absent.
     """
-    chunks = extract_chunks(lang, source, no_leading_attachment=True)
+    chunks = list(
+        extract_query(lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset())
+    )
     chunk = next(c for c in chunks if c.name == name)
     assert snippet not in chunk.content, (
         f"expected {snippet!r} to be absent from {lang}.{name} "
@@ -93,7 +99,9 @@ def test_no_leading_attachment_preserves_interior_docs(
     capture, which is orthogonal to leading-comment attachment.
     Forcing the override has no effect.
     """
-    chunks = extract_chunks(lang, source, no_leading_attachment=True)
+    chunks = list(
+        extract_query(lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset())
+    )
     chunk = next(c for c in chunks if c.name == name)
     assert snippet in chunk.content
 
@@ -104,17 +112,23 @@ def test_no_leading_attachment_preserves_interior_docs(
     has_tag="exterior_doc",
 )
 def test_attachment_shifts_line_start_for_exterior_docs(
-    lang: str, source: str, name: str, snippet: str
+    lang: str,
+    source: str,
+    name: str,
+    snippet: str,
 ) -> None:
     """When sibling-walk attachment fires, `line_start` moves
     up to cover the earliest attached comment.  Compared
     against the override-empty extraction: exterior plugins
     shift, interior plugins do not.
     """
-    default = next(c for c in extract_chunks(lang, source) if c.name == name)
-    no_attach = next(
-        c for c in extract_chunks(lang, source, no_leading_attachment=True) if c.name == name
+    default = next(
+        c for c in extract_file(FileEntry("input", "sha1", source.encode()), lang) if c.name == name
     )
+    suppressed = extract_query(
+        lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset()
+    )
+    no_attach = next(c for c in suppressed if c.name == name)
     assert default.line_start < no_attach.line_start
     assert default.id != no_attach.id
 
@@ -125,15 +139,21 @@ def test_attachment_shifts_line_start_for_exterior_docs(
     has_tag="interior_doc",
 )
 def test_attachment_does_not_shift_line_start_for_interior_docs(
-    lang: str, source: str, name: str, snippet: str
+    lang: str,
+    source: str,
+    name: str,
+    snippet: str,
 ) -> None:
     """Interior-doc plugins (Python) do not run the sibling
     walk; `line_start` is identical with or without the
     override.
     """
-    default = next(c for c in extract_chunks(lang, source) if c.name == name)
-    no_attach = next(
-        c for c in extract_chunks(lang, source, no_leading_attachment=True) if c.name == name
+    default = next(
+        c for c in extract_file(FileEntry("input", "sha1", source.encode()), lang) if c.name == name
     )
+    suppressed = extract_query(
+        lang, "input", "sha1", source.encode(), doc_comment_node_types=frozenset()
+    )
+    no_attach = next(c for c in suppressed if c.name == name)
     assert default.line_start == no_attach.line_start
     assert default.id == no_attach.id

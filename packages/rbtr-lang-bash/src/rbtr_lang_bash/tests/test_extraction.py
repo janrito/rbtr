@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
+from rbtr.git import FileEntry
 from rbtr.index.models import ChunkKind
-from rbtr.languages.testkit import extract_chunks
+from rbtr.index.orchestrator import extract_file
 
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the output."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     symbols = [(c.kind, c.name, c.scope) for c in chunks]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -31,7 +32,7 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     kinds = {c.kind for c in chunks}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -46,7 +47,7 @@ def test_bash_source_and_dot_extracted_as_imports() -> None:
 source ./env.sh
 . /etc/profile
 """
-    chunks = extract_chunks("bash", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "bash")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 2
     modules = {c.metadata.module for c in imports}

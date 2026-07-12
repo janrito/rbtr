@@ -26,10 +26,11 @@ from __future__ import annotations
 import pytest
 from pytest_cases import parametrize_with_cases
 
+from rbtr.git import FileEntry
 from rbtr.index.models import ChunkKind, ImportMeta
+from rbtr.index.orchestrator import extract_file
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import LanguageManager, get_manager
-from rbtr.languages.testkit import extract_chunks
+from rbtr.languages import get_manager
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ from rbtr.languages.testkit import extract_chunks
 )
 def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the output."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     symbols = [(c.kind, c.name, c.scope) for c in chunks]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -62,7 +63,7 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     kinds = {c.kind for c in chunks}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -81,7 +82,7 @@ def test_extracts_all_expected_kinds(
 )
 def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> None:
     """First import chunk has the expected metadata."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) >= 1, f"no import chunks extracted from {source!r}"
     assert imports[0].metadata == ImportMeta(**expected)
@@ -93,10 +94,13 @@ def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> Non
     has_tag="multi_import",
 )
 def test_extracts_multi_import(
-    lang: str, source: str, count: int, metadata_list: list[dict]
+    lang: str,
+    source: str,
+    count: int,
+    metadata_list: list[dict],
 ) -> None:
     """Multiple imports have correct count and per-import metadata."""
-    chunks = extract_chunks(lang, source)
+    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == count
     for imp, expected in zip(imports, metadata_list, strict=True):
@@ -116,7 +120,7 @@ def test_empty_source_yields_host_presence(lang: str) -> None:
     cross-language invariants (determinism, line numbers, content, metadata,
     error recovery) run over the committed samples in `test_samples.py`.
     """
-    chunks = extract_chunks(lang, "")
+    chunks = extract_file(FileEntry("input", "sha1", b""), lang)
     assert len(chunks) == 1
     assert chunks[0].content == ""
     assert chunks[0].language == lang
@@ -133,16 +137,14 @@ impl Svc {
     fn new() -> Self { Svc {} }
 }
 """
-    chunks = extract_chunks("rust", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rust")
     svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
     assert len(svc_classes) == 2  # struct + impl
 
 
-def test_anonymous_chunk_when_name_capture_missing(
-    language_manager: LanguageManager,
-) -> None:
+def test_anonymous_chunk_when_name_capture_missing() -> None:
     """Chunks get name='<anonymous>' when the query omits the name capture."""
-    grammar = language_manager.load_grammar("python")
+    grammar = get_manager().load_grammar("python")
     assert grammar is not None
     query_no_name = "(function_definition) @function\n"
     src = b"""\
@@ -154,11 +156,9 @@ def hello():
     assert chunks[0].name == "<anonymous>"
 
 
-def test_scope_extractor_owns_scope_address(
-    language_manager: LanguageManager,
-) -> None:
+def test_scope_extractor_owns_scope_address() -> None:
     """A `scope_extractor` overrides the default scope with its own segments."""
-    grammar = language_manager.load_grammar("python")
+    grammar = get_manager().load_grammar("python")
     assert grammar is not None
     query = "(function_definition name: (identifier) @_fn_name) @function\n"
     src = b"def hello():\n    pass\n"
@@ -181,7 +181,7 @@ def test_py_module_variable_content_is_whole_statement() -> None:
     src = """\
 MAX_SIZE = 100
 """
-    chunks = extract_chunks("python", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "python")
     variables = [c for c in chunks if c.kind == ChunkKind.VARIABLE]
     assert len(variables) == 1
     assert variables[0].name == "MAX_SIZE"
@@ -195,7 +195,7 @@ def f():
     tmp = 1
     return tmp
 """
-    chunks = extract_chunks("python", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "python")
     assert [c for c in chunks if c.kind == ChunkKind.VARIABLE] == []
 
 
@@ -205,7 +205,7 @@ def test_py_class_attribute_not_captured_as_variable() -> None:
 class Config:
     DEFAULT = 30
 """
-    chunks = extract_chunks("python", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "python")
     assert [c for c in chunks if c.kind == ChunkKind.VARIABLE] == []
 
 
@@ -218,17 +218,15 @@ def test_py_tuple_unpacking_captured_as_variables() -> None:
     src = """\
 a, b = compute()
 """
-    chunks = extract_chunks("python", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "python")
     variables = [c for c in chunks if c.kind == ChunkKind.VARIABLE]
     assert {c.name for c in variables} == {"a", "b"}
     assert all(c.content.strip() == "a, b = compute()" for c in variables)
 
 
-def test_unknown_capture_name_ignored(
-    language_manager: LanguageManager,
-) -> None:
+def test_unknown_capture_name_ignored() -> None:
     """Captures not in _CAPTURE_KIND are silently skipped."""
-    grammar = language_manager.load_grammar("python")
+    grammar = get_manager().load_grammar("python")
     assert grammar is not None
     query_unknown = """\
 (function_definition
@@ -262,7 +260,7 @@ Parent body.
 
 Child body.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     parent = next(c for c in chunks if c.name == "Parent")
     assert "Child body" not in parent.content
     assert "Parent body" in parent.content
@@ -275,7 +273,7 @@ First paragraph.
 
 Second paragraph.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     assert len(chunks) >= 1
     assert all(c.kind == ChunkKind.RAW_CHUNK for c in chunks)
 
@@ -293,7 +291,7 @@ def test_md_chunker_target_extracted() -> None:
 service: greeter
 ```
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     yaml_sections = [c for c in chunks if c.language == "yaml"]
     assert [c.name for c in yaml_sections] == ["service"]
     assert yaml_sections[0].line_start == 4
@@ -320,7 +318,7 @@ def test_md_nested_injection_extracts_inner_js() -> None:
 </body>
 ```
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     assert "html" in {c.language for c in chunks}
     js = [c for c in chunks if c.language == "javascript" and c.kind == ChunkKind.FUNCTION]
     assert [c.name for c in js] == ["boot"]
@@ -336,7 +334,7 @@ def test_md_unknown_fence_left_unparsed() -> None:
 some content here
 ```
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     assert {c.language for c in chunks} == {"markdown"}
 
 
@@ -354,7 +352,7 @@ Deep
 
 Content.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     deep = next(c for c in chunks if c.name == "Deep")
     # Deep is the final section; scope shows parent chain.
     assert deep.scope == "Top::Mid"
@@ -375,7 +373,7 @@ Subsection
 
 Body.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     sub = next(c for c in chunks if c.name == "Subsection")
     assert sub.scope == "Title"
 
@@ -386,7 +384,7 @@ def test_toml_dotted_key_scope() -> None:
 [tool.ruff.lint]
 select = ["E"]
 """
-    chunks = extract_chunks("toml", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "toml")
     assert chunks[0].name == "lint"
     assert chunks[0].scope == "tool::ruff"
 
@@ -397,14 +395,14 @@ def test_html_non_semantic_only_emits_presence() -> None:
     A non-semantic wrapper (`<div>`) is not elevated, so no searchable
     doc_section is produced; the engine appends one content-less host chunk.
     """
-    chunks = extract_chunks("html", "<div>hello</div>")
+    chunks = extract_file(FileEntry("input", "sha1", b"<div>hello</div>"), "html")
     assert [c.kind for c in chunks if c.content] == []
     assert [c.language for c in chunks] == ["html"]
 
 
 def test_yaml_no_mapping_fallback() -> None:
     """YAML without mapping falls back to single chunk."""
-    chunks = extract_chunks("yaml", "- item1\n- item2\n")
+    chunks = extract_file(FileEntry("input", "sha1", b"- item1\n- item2\n"), "yaml")
     assert len(chunks) == 1
 
 
@@ -421,7 +419,7 @@ def test_svelte_template_extracted_as_host_chunk() -> None:
 
 <h1 class="greeting">Hello {name}</h1>
 """
-    chunks = extract_chunks("svelte", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "svelte")
     host = [c for c in chunks if c.language == "svelte"]
     assert host, "expected a svelte-language chunk for the template markup"
     assert "greeting" in host[0].content
@@ -434,7 +432,7 @@ def test_svelte_without_template_still_emits_host_chunk() -> None:
     svelte-plugin bump invalidates the file even with no template markup.
     """
     src = '<script lang="ts">\n  export const x = 1;\n</script>\n'
-    chunks = extract_chunks("svelte", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "svelte")
     host = [c for c in chunks if c.language == "svelte"]
     assert len(host) == 1
     assert host[0].content == ""
@@ -448,7 +446,7 @@ def test_html_script_src_produces_import() -> None:
 <body><p>hello</p></body>
 </html>
 """
-    chunks = extract_chunks("html", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "app.js"
@@ -463,7 +461,7 @@ def test_html_link_href_produces_import() -> None:
 <body><p>hello</p></body>
 </html>
 """
-    chunks = extract_chunks("html", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "styles.css"
@@ -478,7 +476,7 @@ def test_html_self_closing_link_produces_import() -> None:
 <body><p>hello</p></body>
 </html>
 """
-    chunks = extract_chunks("html", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "styles.css"
@@ -490,7 +488,7 @@ def test_css_import_produces_import_chunk() -> None:
 @import url("reset.css");
 body { color: #333; }
 """
-    chunks = extract_chunks("css", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "css")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "reset.css"
@@ -506,7 +504,7 @@ def test_md_local_link_produces_import() -> None:
 
 See [other doc](other.md) for details.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "other.md"
@@ -519,7 +517,7 @@ def test_md_link_with_fragment_sets_names() -> None:
 
 See [API section](api.md#my-function) for the API.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "api.md"
@@ -533,7 +531,7 @@ def test_md_relative_link_produces_import() -> None:
 
 See [source](../src/foo.py) for details.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "../src/foo.py"
@@ -546,7 +544,7 @@ def test_md_external_link_skipped() -> None:
 
 See [example](https://example.com) and [mail](mailto:a@b.com).
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert imports == []
 
@@ -558,7 +556,7 @@ def test_md_fragment_only_link_skipped() -> None:
 
 See [below](#details) for more.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert imports == []
 
@@ -570,7 +568,7 @@ def test_md_multiple_links_in_one_section() -> None:
 
 See [a](one.md) and [b](two.py) here.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     modules = {c.metadata.module for c in imports}
     assert modules == {"one.md", "two.py"}
@@ -583,7 +581,7 @@ def test_md_bare_mention_no_import() -> None:
 
 Call do_stuff to process the data.
 """
-    chunks = extract_chunks("markdown", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert imports == []
 
@@ -599,7 +597,7 @@ Title
 
 See :func:`do_stuff` for details.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.names == "do_stuff"
@@ -614,7 +612,7 @@ Title
 
 See :class:`User` for the model.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.names == "User"
@@ -628,7 +626,7 @@ Title
 
 See :meth:`User.save` for persistence.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.names == "User.save"
@@ -642,7 +640,7 @@ Title
 
 See :func:`~mypackage.utils.do_stuff` for details.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.names == "do_stuff"
@@ -656,7 +654,7 @@ Title
 
 See :doc:`api/module` for the API.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "api/module"
@@ -670,7 +668,7 @@ Title
 
 See :mod:`mypackage.utils` for helpers.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "mypackage.utils"
@@ -688,7 +686,7 @@ Title
    intro
    api/index
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     modules = {c.metadata.module for c in imports}
     assert modules == {"intro", "api/index"}
@@ -702,7 +700,7 @@ Title
 
 See `the guide <other.rst>`_ for details.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) == 1
     assert imports[0].metadata.module == "other.rst"
@@ -716,7 +714,7 @@ Title
 
 See `example <https://example.com>`_ for details.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert imports == []
 
@@ -729,6 +727,6 @@ Title
 
 Call do_stuff to process the data.
 """
-    chunks = extract_chunks("rst", src)
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert imports == []
