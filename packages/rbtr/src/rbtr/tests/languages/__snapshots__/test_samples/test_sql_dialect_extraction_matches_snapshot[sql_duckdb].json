@@ -1,0 +1,56 @@
+[
+  {
+    "id": "589702d5e5e39965",
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "kind": "class",
+    "name": "users",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE users (\n    id BIGINT PRIMARY KEY,\n    email VARCHAR NOT NULL,\n    tags VARCHAR[],\n    profile STRUCT(name VARCHAR, age INTEGER)",
+    "line_start": 3,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "2b82cab5b30ccb16",
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "kind": "class",
+    "name": "recent",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE TABLE recent AS SELECT * FROM users LIMIT 10",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "39ca92738c80678e",
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "kind": "class",
+    "name": "emails",
+    "scope": "",
+    "language": "sql",
+    "content": "CREATE VIEW emails AS SELECT email FROM users",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

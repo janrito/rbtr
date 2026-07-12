@@ -1,0 +1,3 @@
+[
+  "go.go::\"greeter/util\" -> greeter/util.go::Trim [imports]"
+]

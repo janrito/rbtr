@@ -27,20 +27,35 @@ _QUERY = """\
   name: (identifier) @_fn_name) @function
 
 (method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: [
+        (type_identifier) @_scope
+        (pointer_type (type_identifier) @_scope)
+      ]))
   name: (field_identifier) @_method_name) @method
 
 (type_declaration
   (type_spec
     name: (type_identifier) @_cls_name)) @class
 
+(type_spec
+  (interface_type
+    (method_elem
+      name: (field_identifier) @_method_name) @method))
+
+(type_declaration
+  (type_alias
+    name: (type_identifier) @_cls_name)) @class
+
 (import_declaration
   (import_spec
-    path: (interpreted_string_literal) @_import_module)) @import
+    path: (interpreted_string_literal) @_import_module) @import)
 
 (import_declaration
   (import_spec_list
     (import_spec
-      path: (interpreted_string_literal) @_import_module))) @import
+      path: (interpreted_string_literal) @_import_module) @import))
 
 (source_file
   (var_declaration
@@ -85,6 +100,6 @@ class GoPlugin:
                 # type for both line and block forms.
                 doc_comment_node_types=frozenset({"comment"}),
                 test_suffix="_test",
-                language_plugin_version=2,
+                language_plugin_version=3,
             ),
         ]

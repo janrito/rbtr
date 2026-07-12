@@ -1,0 +1,344 @@
+[
+  {
+    "id": "ed19bac9e8771016",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "import",
+    "name": "#include <stdio.h>",
+    "scope": "",
+    "language": "c",
+    "content": "#include <stdio.h>\n",
+    "line_start": 8,
+    "line_end": 9,
+    "metadata": {
+      "module": "stdio.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "f3bd03d43786cbdd",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "import",
+    "name": "#include \"greeter.h\"",
+    "scope": "",
+    "language": "c",
+    "content": "#include \"greeter.h\"\n",
+    "line_start": 9,
+    "line_end": 10,
+    "metadata": {
+      "module": "greeter.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "66295f4469f588b6",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "MAX_NAME",
+    "scope": "",
+    "language": "c",
+    "content": "#define MAX_NAME 64\n",
+    "line_start": 11,
+    "line_end": 12,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "94c70ffbbc25dd51",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "function",
+    "name": "SQUARE",
+    "scope": "",
+    "language": "c",
+    "content": "#define SQUARE(x) ((x) * (x))\n",
+    "line_start": 12,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "93f2130c32943142",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "greeter_count",
+    "scope": "",
+    "language": "c",
+    "content": "int greeter_count = 0;",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "0032d098456ec45a",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "default_prefix",
+    "scope": "",
+    "language": "c",
+    "content": "const char *default_prefix = \"Hello\";",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c68a55864ff1c117",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "c",
+    "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
+    "line_start": 17,
+    "line_end": 20,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "708bcb1d74f719e6",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "c",
+    "content": "typedef struct Greeter Greeter;",
+    "line_start": 22,
+    "line_end": 22,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "60ca0a89de47f169",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "GreetCallback",
+    "scope": "",
+    "language": "c",
+    "content": "/* A callback invoked for each formatted greeting. */\ntypedef void (*GreetCallback)(const char *line);",
+    "line_start": 24,
+    "line_end": 25,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "d33d057a13615dc1",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "Payload",
+    "scope": "",
+    "language": "c",
+    "content": "/* A tagged greeting payload. */\nunion Payload {\n    int code;\n    const char *text;\n}",
+    "line_start": 27,
+    "line_end": 31,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "0764f0598b8100d1",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "Locale",
+    "scope": "",
+    "language": "c",
+    "content": "enum Locale { LOCALE_EN, LOCALE_FR }",
+    "line_start": 33,
+    "line_end": 33,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6e1045e7b406fce0",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "LOCALE_EN",
+    "scope": "",
+    "language": "c",
+    "content": "LOCALE_EN",
+    "line_start": 33,
+    "line_end": 33,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8cae2eb37fc333f4",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "LOCALE_FR",
+    "scope": "",
+    "language": "c",
+    "content": "LOCALE_FR",
+    "line_start": 33,
+    "line_end": 33,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "bd2b58cb9ede59b8",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "function",
+    "name": "greeter_default",
+    "scope": "",
+    "language": "c",
+    "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
+    "line_start": 35,
+    "line_end": 36,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7d45e9f4b5418390",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "function",
+    "name": "format_greeting",
+    "scope": "",
+    "language": "c",
+    "content": "/* Format a greeting for `name` into `buf`. */\nint format_greeting(const Greeter *g, const char *name, char *buf, int n) {\n    return snprintf(buf, (size_t)n, \"%s, %s\", g->prefix, name);\n}",
+    "line_start": 38,
+    "line_end": 41,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "ab72e4cd48b2ee81",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "variable",
+    "name": "GREETER_H",
+    "scope": "",
+    "language": "c",
+    "content": "#define GREETER_H\n",
+    "line_start": 6,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c1960555fd4c603c",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "variable",
+    "name": "MAX_NAME",
+    "scope": "",
+    "language": "c",
+    "content": "#define MAX_NAME 64\n",
+    "line_start": 8,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7d79f841f33998db",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "c",
+    "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
+    "line_start": 10,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b262681e99ffd26f",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "c",
+    "content": "typedef struct Greeter Greeter;",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

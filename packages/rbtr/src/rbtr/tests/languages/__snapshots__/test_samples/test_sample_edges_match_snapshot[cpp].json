@@ -1,0 +1,7 @@
+[
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::Greeting [imports]",
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::Greeting [imports]",
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::greet [imports]",
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::render [imports]",
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::withDefault [imports]"
+]
