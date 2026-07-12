@@ -7,22 +7,12 @@ Hit@k / MRR / NDCG@10 for queries against the rbtr index. See
 
 Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.
 
-| field         | value                               |
-| ------------- | ----------------------------------- |
-| seed          | 0                                   |
-| sample target | 25 per (repo, language, provenance) |
-| total queries | 2357                                |
-| elapsed       | 38295 s                             |
-
-## Repos
-
-| slug                 | sha            | symbols | sampled queries |
-| -------------------- | -------------- | ------- | --------------- |
-| `anthropics__skills` | `5128e1865d67` | 1913    | 264             |
-| `astral-sh__uv`      | `cfe5277bc422` | 19007   | 200             |
-| `badlogic__pi-mono`  | `a0a16c7762e6` | 9238    | 262             |
-| `django__django`     | `e78a46a8fb29` | 59123   | 375             |
-| `rbtr__rbtr`         | `d6ebe41d8953` | 2192    | 263             |
+| field         | value                                     |
+| ------------- | ----------------------------------------- |
+| seed          | 0                                         |
+| sample target | 10 per (repo, language, kind, provenance) |
+| total queries | 3621                                      |
+| elapsed       | 55660 s                                   |
 
 ## Headline metrics
 
@@ -31,12 +21,12 @@ ablation is in the section below.
 
 | repo                 | n    | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 | median rank | not found |
 | -------------------- | ---- | ----- | ----- | ------ | ----- | ------- | ----------- | --------- |
-| **all repos**        | 2357 | 55.2% | 71.2% | 81.5%  | 0.644 | 0.686   | 1           | 18.5%     |
-| `anthropics__skills` | 438  | 71.2% | 86.8% | 94.1%  | 0.796 | 0.832   | 1           | 5.9%      |
-| `astral-sh__uv`      | 359  | 47.6% | 66.3% | 76.9%  | 0.581 | 0.627   | 1           | 23.1%     |
-| `badlogic__pi-mono`  | 460  | 61.5% | 73.0% | 81.5%  | 0.684 | 0.716   | 1           | 18.5%     |
-| `django__django`     | 672  | 45.4% | 57.7% | 70.1%  | 0.533 | 0.573   | 1           | 29.9%     |
-| `rbtr__rbtr`         | 428  | 53.7% | 78.7% | 90.2%  | 0.675 | 0.731   | 1           | 9.8%      |
+| **all repos**        | 3621 | 50.6% | 68.4% | 80.8%  | 0.608 | 0.657   | 1           | 19.2%     |
+| `anthropics__skills` | 737  | 62.4% | 81.1% | 91.9%  | 0.728 | 0.775   | 1           | 8.1%      |
+| `astral-sh__uv`      | 894  | 48.8% | 66.1% | 78.9%  | 0.589 | 0.638   | 1           | 21.1%     |
+| `badlogic__pi-mono`  | 659  | 51.0% | 67.4% | 80.7%  | 0.607 | 0.656   | 1           | 19.3%     |
+| `django__django`     | 769  | 40.4% | 55.1% | 67.1%  | 0.489 | 0.533   | 1           | 32.9%     |
+| `rbtr__rbtr`         | 562  | 51.4% | 74.6% | 88.3%  | 0.644 | 0.703   | 1           | 11.7%     |
 
 ## Expansion ablation
 
@@ -47,24 +37,58 @@ effect of each channel.
 
 | arm      | query kind   | n    | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 |
 | -------- | ------------ | ---- | ----- | ----- | ------ | ----- | ------- |
-| both     | **all**      | 2357 | 54.0% | 70.0% | 80.3%  | 0.632 | 0.674   |
-| keywords | **all**      | 2357 | 54.4% | 70.5% | 80.6%  | 0.636 | 0.678   |
-| none     | **all**      | 2357 | 55.2% | 71.2% | 81.5%  | 0.644 | 0.686   |
-| variants | **all**      | 2357 | 54.9% | 70.9% | 81.0%  | 0.641 | 0.682   |
-| both     | `code`       | 419  | 77.6% | 88.3% | 92.6%  | 0.835 | 0.857   |
-| keywords | `code`       | 419  | 77.6% | 88.3% | 92.6%  | 0.835 | 0.858   |
-| none     | `code`       | 419  | 78.0% | 88.3% | 92.6%  | 0.838 | 0.86    |
-| variants | `code`       | 419  | 77.8% | 88.3% | 92.6%  | 0.836 | 0.859   |
-| both     | `concept`    | 999  | 42.8% | 61.3% | 76.2%  | 0.538 | 0.592   |
-| keywords | `concept`    | 999  | 43.3% | 62.0% | 76.7%  | 0.544 | 0.598   |
-| none     | `concept`    | 999  | 43.2% | 61.3% | 75.6%  | 0.541 | 0.593   |
-| variants | `concept`    | 999  | 42.7% | 60.8% | 74.9%  | 0.535 | 0.587   |
-| both     | `identifier` | 939  | 55.3% | 71.2% | 79.2%  | 0.643 | 0.68    |
-| keywords | `identifier` | 939  | 55.8% | 71.6% | 79.3%  | 0.646 | 0.682   |
-| none     | `identifier` | 939  | 57.7% | 74.2% | 82.7%  | 0.668 | 0.707   |
-| variants | `identifier` | 939  | 57.5% | 73.9% | 82.4%  | 0.667 | 0.705   |
+| both     | **all**      | 3621 | 48.3% | 66.3% | 79.0%  | 0.586 | 0.636   |
+| keywords | **all**      | 3621 | 48.7% | 66.6% | 79.2%  | 0.59  | 0.639   |
+| none     | **all**      | 3621 | 50.6% | 68.4% | 80.8%  | 0.608 | 0.657   |
+| variants | **all**      | 3621 | 50.2% | 68.1% | 81.0%  | 0.606 | 0.655   |
+| both     | `code`       | 541  | 74.5% | 90.2% | 93.7%  | 0.824 | 0.852   |
+| keywords | `code`       | 541  | 74.9% | 90.0% | 93.9%  | 0.826 | 0.854   |
+| none     | `code`       | 541  | 76.9% | 90.4% | 94.6%  | 0.84  | 0.866   |
+| variants | `code`       | 541  | 76.5% | 90.6% | 94.5%  | 0.838 | 0.865   |
+| both     | `concept`    | 1566 | 37.6% | 58.4% | 74.4%  | 0.497 | 0.557   |
+| keywords | `concept`    | 1566 | 38.2% | 58.8% | 74.8%  | 0.502 | 0.561   |
+| none     | `concept`    | 1566 | 39.3% | 59.4% | 74.6%  | 0.509 | 0.566   |
+| variants | `concept`    | 1566 | 38.7% | 58.9% | 74.8%  | 0.504 | 0.563   |
+| both     | `identifier` | 1514 | 50.0% | 66.1% | 78.4%  | 0.594 | 0.64    |
+| keywords | `identifier` | 1514 | 50.3% | 66.2% | 78.5%  | 0.597 | 0.642   |
+| none     | `identifier` | 1514 | 52.9% | 69.8% | 82.3%  | 0.628 | 0.675   |
+| variants | `identifier` | 1514 | 52.8% | 69.7% | 82.6%  | 0.628 | 0.676   |
 
 ![MRR by repo](mrr_by_repo.png)
+
+## Per-kind breakdown
+
+Retrieval quality for each target chunk kind (`symbol_kind`),
+aggregated across repos, languages and provenances.
+
+| symbol_kind   | n   | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 | not found |
+| ------------- | --- | ----- | ----- | ------ | ----- | ------- | --------- |
+| `function`    | 627 | 73.5% | 87.9% | 94.6%  | 0.813 | 0.846   | 5.4%      |
+| `class`       | 630 | 70.6% | 86.8% | 93.0%  | 0.794 | 0.828   | 7.0%      |
+| `method`      | 427 | 53.4% | 77.5% | 92.7%  | 0.671 | 0.734   | 7.3%      |
+| `variable`    | 722 | 51.5% | 72.6% | 87.4%  | 0.635 | 0.693   | 12.6%     |
+| `comment`     | 331 | 38.1% | 60.7% | 78.2%  | 0.515 | 0.579   | 21.8%     |
+| `config_key`  | 335 | 26.3% | 40.6% | 50.1%  | 0.344 | 0.382   | 49.9%     |
+| `doc_section` | 272 | 22.8% | 34.2% | 48.9%  | 0.299 | 0.344   | 51.1%     |
+| `raw_chunk`   | 277 | 18.1% | 33.6% | 57.8%  | 0.29  | 0.358   | 42.2%     |
+
+![MRR by target kind](mrr_by_kind.png)
+
+## Target × request shape
+
+MRR for each target kind sliced by request shape (`query_kind`) —
+which kinds search finds well, and via which kind of query.
+
+| symbol_kind   | concept | identifier | code  |
+| ------------- | ------- | ---------- | ----- |
+| `class`       | 0.736   | 0.795      | 0.896 |
+| `comment`     | 0.446   | 0.615      | 0.333 |
+| `config_key`  | 0.267   | 0.38       | 0.614 |
+| `doc_section` | 0.191   | 0.356      | 0.639 |
+| `function`    | 0.745   | 0.814      | 0.941 |
+| `method`      | 0.59    | 0.633      | 0.896 |
+| `raw_chunk`   | 0.241   | 0.31       | 0.49  |
+| `variable`    | 0.507   | 0.708      | 0.797 |
 
 ## Search latency
 
@@ -72,25 +96,12 @@ Shared index home size: **1.9 GiB**.
 
 | repo                 | search P50 | search P95 |
 | -------------------- | ---------- | ---------- |
-| **all repos**        | 3194 ms    | 8007 ms    |
-| `anthropics__skills` | 3173 ms    | 7029 ms    |
-| `astral-sh__uv`      | 3180 ms    | 9955 ms    |
-| `badlogic__pi-mono`  | 2894 ms    | 7778 ms    |
-| `django__django`     | 3558 ms    | 7347 ms    |
-| `rbtr__rbtr`         | 3156 ms    | 7815 ms    |
-
-## Classification
-
-Cross-tabulation of query provenance (where the query was sampled
-from) against online `QueryKind` (how `classify_query` routes it
-for expansion).
-
-| provenance  | CONCEPT | IDENTIFIER | CODE  | n    |
-| ----------- | ------- | ---------- | ----- | ---- |
-| `body`      | 1.5%    | 26.9%      | 71.6% | 2100 |
-| `concept`   | 97.8%   | 2.1%       | 0.1%  | 3972 |
-| `docstring` | 2.5%    | 91.1%      | 6.4%  | 1256 |
-| `name`      | 2.3%    | 93.5%      | 4.2%  | 2100 |
+| **all repos**        | 3093 ms    | 7619 ms    |
+| `anthropics__skills` | 2959 ms    | 7237 ms    |
+| `astral-sh__uv`      | 3264 ms    | 9369 ms    |
+| `badlogic__pi-mono`  | 2734 ms    | 7182 ms    |
+| `django__django`     | 3380 ms    | 6971 ms    |
+| `rbtr__rbtr`         | 3001 ms    | 6908 ms    |
 
 ## Per-language breakdown
 
@@ -98,26 +109,31 @@ Aggregated across all repos for each language present in the sample.
 
 | language     | n   | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 | median rank | not found |
 | ------------ | --- | ----- | ----- | ------ | ----- | ------- | ----------- | --------- |
-| `css`        | 344 | 85.5% | 94.5% | 98.0%  | 0.903 | 0.922   | 1           | 2.0%      |
-| `html`       | 84  | 25.0% | 33.3% | 47.6%  | 0.31  | 0.349   | 1           | 52.4%     |
-| `javascript` | 358 | 74.9% | 88.3% | 92.5%  | 0.82  | 0.847   | 1           | 7.5%      |
-| `markdown`   | 490 | 23.3% | 39.4% | 52.4%  | 0.327 | 0.374   | 2           | 47.6%     |
-| `python`     | 504 | 62.9% | 82.1% | 93.1%  | 0.739 | 0.786   | 1           | 6.9%      |
-| `rst`        | 98  | 19.4% | 22.4% | 45.9%  | 0.246 | 0.294   | 4           | 54.1%     |
-| `rust`       | 138 | 54.3% | 74.6% | 87.0%  | 0.659 | 0.711   | 1           | 13.0%     |
-| `sql`        | 92  | 51.1% | 69.6% | 93.5%  | 0.635 | 0.706   | 1           | 6.5%      |
-| `typescript` | 249 | 58.6% | 85.9% | 94.4%  | 0.733 | 0.785   | 1           | 5.6%      |
+| ``           | 110 | 21.8% | 44.5% | 67.3%  | 0.36  | 0.436   | 2           | 32.7%     |
+| `bash`       | 234 | 71.8% | 85.5% | 95.7%  | 0.798 | 0.837   | 1           | 4.3%      |
+| `css`        | 355 | 62.5% | 79.7% | 92.1%  | 0.725 | 0.772   | 1           | 7.9%      |
+| `html`       | 59  | 23.7% | 35.6% | 47.5%  | 0.308 | 0.348   | 1           | 52.5%     |
+| `javascript` | 431 | 62.6% | 80.0% | 87.5%  | 0.716 | 0.755   | 1           | 12.5%     |
+| `json`       | 198 | 17.2% | 30.8% | 42.9%  | 0.253 | 0.295   | 2           | 57.1%     |
+| `markdown`   | 282 | 24.1% | 36.5% | 56.0%  | 0.326 | 0.382   | 2           | 44.0%     |
+| `python`     | 902 | 60.2% | 77.9% | 88.1%  | 0.701 | 0.745   | 1           | 11.9%     |
+| `rst`        | 40  | 7.5%  | 20.0% | 37.5%  | 0.151 | 0.203   | 3           | 62.5%     |
+| `rust`       | 247 | 46.2% | 70.0% | 83.8%  | 0.595 | 0.654   | 1           | 16.2%     |
+| `sql`        | 78  | 52.6% | 76.9% | 94.9%  | 0.663 | 0.732   | 1           | 5.1%      |
+| `toml`       | 73  | 39.7% | 47.9% | 58.9%  | 0.453 | 0.485   | 1           | 41.1%     |
+| `typescript` | 521 | 52.2% | 74.1% | 88.5%  | 0.65  | 0.707   | 1           | 11.5%     |
+| `yaml`       | 91  | 33.0% | 53.8% | 63.7%  | 0.441 | 0.489   | 1           | 36.3%     |
 
 ## Per-provenance breakdown
 
 Aggregated across all repos and languages for each provenance.
 
-| provenance  | n   | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 | median rank | not found |
-| ----------- | --- | ----- | ----- | ------ | ----- | ------- | ----------- | --------- |
-| `body`      | 525 | 69.1% | 82.7% | 88.0%  | 0.764 | 0.793   | 1           | 12.0%     |
-| `concept`   | 993 | 43.4% | 61.6% | 75.5%  | 0.542 | 0.594   | 1           | 24.5%     |
-| `docstring` | 314 | 77.7% | 92.4% | 94.6%  | 0.85  | 0.875   | 1           | 5.4%      |
-| `name`      | 525 | 50.1% | 65.3% | 78.3%  | 0.594 | 0.64    | 1           | 21.7%     |
+| provenance  | n    | Hit@1 | Hit@3 | Hit@10 | MRR   | NDCG@10 | median rank | not found |
+| ----------- | ---- | ----- | ----- | ------ | ----- | ------- | ----------- | --------- |
+| `body`      | 913  | 64.7% | 82.1% | 89.2%  | 0.74  | 0.778   | 1           | 10.8%     |
+| `concept`   | 1526 | 38.6% | 58.7% | 73.9%  | 0.502 | 0.559   | 1           | 26.1%     |
+| `docstring` | 389  | 71.2% | 85.6% | 90.0%  | 0.788 | 0.816   | 1           | 10.0%     |
+| `name`      | 793  | 47.3% | 62.8% | 79.9%  | 0.572 | 0.627   | 1           | 20.1%     |
 
 ![MRR by provenance](mrr_by_provenance.png)
 
@@ -126,7 +142,7 @@ Aggregated across all repos and languages for each provenance.
 MRR breakdown by whether the target chunk's embedding was truncated
 to fit the context window.
 
-| embedding | n    | MRR   |
-| --------- | ---- | ----- |
-| full      | 9304 | 79.1% |
-| truncated | 124  | 49.4% |
+| embedding | n     | MRR   |
+| --------- | ----- | ----- |
+| full      | 14300 | 74.8% |
+| truncated | 184   | 52.4% |

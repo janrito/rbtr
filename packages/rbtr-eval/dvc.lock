@@ -38,91 +38,159 @@ stages:
   extract@0:
     cmd: python -m rbtr_eval extract --slug rbtr__rbtr --data-dir data/index 
       --out-dir data/per-repo --headers-dir data/headers --seed 0 
-      --queries-per-cell 25
+      --queries-per-cell 10
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/extract.py
       hash: md5
-      md5: e06a156c1e7a66d0feecabd4baae070f
-      size: 9642
+      md5: 6f25f4ed513c99e685b48cabb921630c
+      size: 10504
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     outs:
     - path: data/headers/rbtr__rbtr.parquet
       hash: md5
-      md5: 7766472690bdb5214f9922b9cea8f011
-      size: 2476
+      md5: 3562b32af670a27c4a8bb97515eacc2b
+      size: 3437
     - path: data/per-repo/rbtr__rbtr.parquet
       hash: md5
-      md5: 7322e950d66c2c0e63321126c664c665
-      size: 15529
+      md5: 22882ef268fc76a2ac3347e3d60af461
+      size: 18018
   extract@1:
     cmd: python -m rbtr_eval extract --slug django__django --data-dir data/index
       --out-dir data/per-repo --headers-dir data/headers --seed 0 
-      --queries-per-cell 25
+      --queries-per-cell 10
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/extract.py
       hash: md5
-      md5: e06a156c1e7a66d0feecabd4baae070f
-      size: 9642
+      md5: 6f25f4ed513c99e685b48cabb921630c
+      size: 10504
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     outs:
     - path: data/headers/django__django.parquet
       hash: md5
-      md5: 8bbf990cbb08695deaaf56f6c5a2e8ab
-      size: 2513
+      md5: 98e57b09579f4040ca928d3822d52588
+      size: 3428
     - path: data/per-repo/django__django.parquet
       hash: md5
-      md5: fb077e625daef461a0785ba0ecb20c09
-      size: 24711
+      md5: 1472a65960aaf5d56930e8811e8b1231
+      size: 27144
   extract@2:
     cmd: python -m rbtr_eval extract --slug badlogic__pi-mono --data-dir 
       data/index --out-dir data/per-repo --headers-dir data/headers --seed 0 
-      --queries-per-cell 25
+      --queries-per-cell 10
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/extract.py
       hash: md5
-      md5: e06a156c1e7a66d0feecabd4baae070f
-      size: 9642
+      md5: 6f25f4ed513c99e685b48cabb921630c
+      size: 10504
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     outs:
     - path: data/headers/badlogic__pi-mono.parquet
       hash: md5
-      md5: 0feffaad8a83864189a1787554bb5e0d
-      size: 2540
+      md5: d535a10dbd5bee67c8904f1996835624
+      size: 3477
     - path: data/per-repo/badlogic__pi-mono.parquet
       hash: md5
-      md5: f6074138d56d466fb56014d92f13a81d
-      size: 15895
+      md5: f77806f27e5c36c3787166b33061506e
+      size: 20865
   extract@3:
     cmd: python -m rbtr_eval extract --slug astral-sh__uv --data-dir data/index 
       --out-dir data/per-repo --headers-dir data/headers --seed 0 
-      --queries-per-cell 25
+      --queries-per-cell 10
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/extract.py
       hash: md5
-      md5: e06a156c1e7a66d0feecabd4baae070f
-      size: 9642
+      md5: 6f25f4ed513c99e685b48cabb921630c
+      size: 10504
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     outs:
     - path: data/headers/astral-sh__uv.parquet
       hash: md5
-      md5: 7c295ad3983ae5ee34d417a54fd8b335
-      size: 2504
+      md5: 2127f347a58147e54b5141b5864f4529
+      size: 3422
     - path: data/per-repo/astral-sh__uv.parquet
       hash: md5
-      md5: 3e2962ec27efa426f34965370407bb07
-      size: 13886
+      md5: ed01c600b10c09bbf81188e17e685f4f
+      size: 28226
   index:
     cmd: python -m rbtr_eval index --no-embed --data-dir data/index --config-dir
       data/config --log-dir data/logs --repos-dir data/repos --sentinel 
@@ -131,8 +199,8 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 25e217d8c1c55f723e40d9617db53f09.dir
-      size: 5327963
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
       nfiles: 520
     - path: data/rendered_config.json
       hash: md5
@@ -147,14 +215,23 @@ stages:
       hash: md5
       md5: 9878e5e2bc2e43d16be2d0231738aa0b
       size: 6595
+    - path: src/rbtr_eval/rbtr_cli.py
+      hash: md5
+      md5: 80abdf1439aca55113a4251c8556b023
+      size: 3338
+    - path: src/rbtr_eval/rbtrignore
+      hash: md5
+      md5: 2c867da91a8f59f365caaa1856e0b195.dir
+      size: 56
+      nfiles: 2
     outs:
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/INDEX.md
       hash: md5
-      md5: a1877e9d9c03cd42d803e54cfd21ae1b
+      md5: a63deb157a17d7a5c9ea3b2d1767787a
       size: 2191
   measure:
     cmd: python -m rbtr_eval measure --per-repo-dir data/per-repo --concept-dir 
@@ -165,62 +242,110 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 25e217d8c1c55f723e40d9617db53f09.dir
-      size: 5327963
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
       nfiles: 520
     - path: data/.embed-ready
       hash: md5
-      md5: 2e530ac3a45a02513ef2c5ce0bcc6e87
+      md5: 0e890fdb2f5b3a730baf93e33aa0146c
       size: 64
     - path: data/concept
       hash: md5
-      md5: 5699f6ce7a4dcafa6958b2ab6f94e0ab.dir
-      size: 78044
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
     - path: data/expansion
       hash: md5
-      md5: 4e0dcfd4818fd5e47e99bdd1dd655e40.dir
-      size: 212858
+      md5: c67881f48b775e0baf690385afb22982.dir
+      size: 325379
       nfiles: 2
     - path: data/headers
       hash: md5
-      md5: 262db67f04b087d3fd2a3c85c6d11898.dir
-      size: 12582
+      md5: 83779ba5041ac832529c2056190ef270.dir
+      size: 17260
       nfiles: 5
     - path: data/per-repo
       hash: md5
-      md5: 3b62fa8f9b50f7d38fbe7ad14842a2cb.dir
-      size: 85676
+      md5: 5031103dcd973b1e25d9397d4bcb74b6.dir
+      size: 114709
       nfiles: 5
     - path: data/rendered_config.json
       hash: md5
       md5: 0f3214bae457f7f1a051a57b17bc22c3
       size: 5219
+    - path: src/rbtr_eval/agg.py
+      hash: md5
+      md5: ae3381d15d88e242d107daa40359b0bf
+      size: 1088
+    - path: src/rbtr_eval/charts.py
+      hash: md5
+      md5: cc8d778eaa395059b5396a6e2727a54e
+      size: 413
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/measure.py
       hash: md5
-      md5: b760c1ba67b0d2a8dfd56f84c9295d92
-      size: 30967
+      md5: f8ad40aebedfeef21292bdc72cf9c77c
+      size: 31265
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/rbtr_cli.py
+      hash: md5
+      md5: 80abdf1439aca55113a4251c8556b023
+      size: 3338
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/truncated_chunks.sql
+      hash: md5
+      md5: 481961a432c16260a1036ea651a76cf2
+      size: 266
     - path: src/rbtr_eval/templates/benchmarks.md.j2
       hash: md5
-      md5: 82f488d2c1556b4fd09b8fedf4626b17
-      size: 1421
+      md5: b96ef7b8bc2dd7f1560cba2ea60f16a4
+      size: 1576
+    - path: src/rbtr_eval/templates/mrr_by_kind.vl.json
+      hash: md5
+      md5: 985ea8d42118efed56a00f7a4f0d9d49
+      size: 632
+    - path: src/rbtr_eval/templates/mrr_by_provenance.vl.json
+      hash: md5
+      md5: 848503bf20f6c93328370d6c1b38f4b6
+      size: 627
+    - path: src/rbtr_eval/templates/mrr_by_repo.vl.json
+      hash: md5
+      md5: 1f4d9bc41af8d10594dec1c94344c3f8
+      size: 603
     outs:
     - path: data/BENCHMARKS.md
       hash: md5
-      md5: 8f78ce25a7a09669f2e441fb1e3a965e
-      size: 6615
+      md5: 3ef34c7dc844b98997dc4884c80324c2
+      size: 7745
     - path: data/metrics.json
       hash: md5
-      md5: f708f601e7d4f197527f62de5247b216
-      size: 299455
+      md5: 9f80dae7484c20ce1ede0cfa4347f743
+      size: 603893
+    - path: data/mrr_by_kind.png
+      hash: md5
+      md5: 71b53978ef5a6ae68fd4864815ed8ed2
+      size: 93483
     - path: data/mrr_by_provenance.png
       hash: md5
-      md5: 4739a1f41aa845f06929543edc86e157
-      size: 72167
+      md5: 6edbcc7fda1cf870d23c019eaf94089f
+      size: 71225
     - path: data/mrr_by_repo.png
       hash: md5
-      md5: ae284fbbf2bb029055deb2da7432f6fd
-      size: 82567
+      md5: 5cbb0b1b8860b494340b913ef93fa7c2
+      size: 81202
   tune:
     cmd: python -m rbtr_eval tune --per-repo-dir data/per-repo --concept-dir 
       data/concept --repos-dir data/repos --data-dir data/index --config-dir 
@@ -229,86 +354,172 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: d639476dff62ec4e3c9f057d292c54d0.dir
-      size: 5267625
-      nfiles: 508
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.embed-ready
       hash: md5
-      md5: 2e530ac3a45a02513ef2c5ce0bcc6e87
+      md5: 0e890fdb2f5b3a730baf93e33aa0146c
       size: 64
     - path: data/concept
       hash: md5
-      md5: 2be0e31c4b9e23a169dd10dffb2eb60e.dir
-      size: 78460
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
     - path: data/per-repo
       hash: md5
-      md5: ae473933f72eb7b133552f381371cf89.dir
-      size: 87671
+      md5: 5031103dcd973b1e25d9397d4bcb74b6.dir
+      size: 114709
       nfiles: 5
+    - path: data/rendered_config.json
+      hash: md5
+      md5: 0f3214bae457f7f1a051a57b17bc22c3
+      size: 5219
+    - path: src/rbtr_eval/agg.py
+      hash: md5
+      md5: ae3381d15d88e242d107daa40359b0bf
+      size: 1088
+    - path: src/rbtr_eval/charts.py
+      hash: md5
+      md5: cc8d778eaa395059b5396a6e2727a54e
+      size: 413
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/rbtr_cli.py
+      hash: md5
+      md5: 80abdf1439aca55113a4251c8556b023
+      size: 3338
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/templates/convergence.vl.json
+      hash: md5
+      md5: 4584399caa1631aac606aa32e4fef9d9
+      size: 1294
+    - path: src/rbtr_eval/templates/simplex.vl.json
+      hash: md5
+      md5: a12f9387c50c53ff43711309381086f6
+      size: 1663
+    - path: src/rbtr_eval/templates/tuning.md.j2
+      hash: md5
+      md5: d405ac3c0e42922d2c983d6fdb4eca3c
+      size: 844
     - path: src/rbtr_eval/tune.py
       hash: md5
-      md5: d148e2382c6e77754e376d50197cd92d
-      size: 22301
+      md5: b2bd90519263b49b9d1a9a0132abe4f4
+      size: 21865
     outs:
     - path: data/TUNING.md
       hash: md5
-      md5: 89e6e4e47cceaecfc90b3bc5f6f6c0e2
-      size: 10478
+      md5: ada16d9226c4e494ac56a1be842b8f5b
+      size: 13536
     - path: data/convergence.png
       hash: md5
-      md5: 21924bb87e7480f27805d150958f0f1e
-      size: 339634
+      md5: d44ad38773eb7822fd84e6c96d32b7e4
+      size: 414518
     - path: data/simplex.png
       hash: md5
-      md5: b4cfc76805a08e09c08aa1cb2af1fefb
-      size: 214412
+      md5: ac74c47ec8b5f96b951da6fb22c00e25
+      size: 213906
   paraphrase@0:
     cmd: python -m rbtr_eval paraphrase --slug rbtr__rbtr --symbols 
       data/per-repo/rbtr__rbtr.parquet --repo-path data/repos/rbtr__rbtr 
       --data-dir data/index --out data/concept/rbtr__rbtr.parquet --model 
       openai-chat:zai-org/GLM-5.2 --concurrency 20
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/per-repo/rbtr__rbtr.parquet
       hash: md5
-      md5: 7322e950d66c2c0e63321126c664c665
-      size: 15529
+      md5: 22882ef268fc76a2ac3347e3d60af461
+      size: 18018
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
     outs:
     - path: data/concept/rbtr__rbtr.parquet
       hash: md5
-      md5: 0841cb3e26d98552963f38a04b204d9e
-      size: 13851
+      md5: e78a7d6496b86a8714c74123fb3dd094
+      size: 16007
   paraphrase@1:
     cmd: python -m rbtr_eval paraphrase --slug django__django --symbols 
       data/per-repo/django__django.parquet --repo-path data/repos/django__django
       --data-dir data/index --out data/concept/django__django.parquet --model 
       openai-chat:zai-org/GLM-5.2 --concurrency 20
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/per-repo/django__django.parquet
       hash: md5
-      md5: fb077e625daef461a0785ba0ecb20c09
-      size: 24711
+      md5: 1472a65960aaf5d56930e8811e8b1231
+      size: 27144
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
     outs:
     - path: data/concept/django__django.parquet
       hash: md5
-      md5: cb1d644dd844614fae3de54fcf1b3ab4
-      size: 21535
+      md5: 9a3ff63c74695e503c74ec009af7fb41
+      size: 23946
   paraphrase@2:
     cmd: python -m rbtr_eval paraphrase --slug badlogic__pi-mono --symbols 
       data/per-repo/badlogic__pi-mono.parquet --repo-path 
@@ -316,46 +527,88 @@ stages:
       data/concept/badlogic__pi-mono.parquet --model openai-chat:zai-org/GLM-5.2
       --concurrency 20
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/per-repo/badlogic__pi-mono.parquet
       hash: md5
-      md5: f6074138d56d466fb56014d92f13a81d
-      size: 15895
+      md5: f77806f27e5c36c3787166b33061506e
+      size: 20865
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
     outs:
     - path: data/concept/badlogic__pi-mono.parquet
       hash: md5
-      md5: 8527c049ae6202967cc36a41dbe8e670
-      size: 14849
+      md5: c08a3b5becc1788ae3afc41c184f1316
+      size: 18214
   paraphrase@3:
     cmd: python -m rbtr_eval paraphrase --slug astral-sh__uv --symbols 
       data/per-repo/astral-sh__uv.parquet --repo-path data/repos/astral-sh__uv 
       --data-dir data/index --out data/concept/astral-sh__uv.parquet --model 
       openai-chat:zai-org/GLM-5.2 --concurrency 20
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/per-repo/astral-sh__uv.parquet
       hash: md5
-      md5: 3e2962ec27efa426f34965370407bb07
-      size: 13886
+      md5: ed01c600b10c09bbf81188e17e685f4f
+      size: 28226
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
     outs:
     - path: data/concept/astral-sh__uv.parquet
       hash: md5
-      md5: dd441cc7fc07a1299395ef4e55e5bb42
-      size: 13503
+      md5: 36dda8a8dfe7d58626259e2fec8de454
+      size: 24183
   clone@4:
     cmd: git clone --depth 1 https://github.com/anthropics/skills 
       data/repos/anthropics__skills
@@ -368,25 +621,42 @@ stages:
   extract@4:
     cmd: python -m rbtr_eval extract --slug anthropics__skills --data-dir 
       data/index --out-dir data/per-repo --headers-dir data/headers --seed 0 
-      --queries-per-cell 25
+      --queries-per-cell 10
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: src/rbtr_eval/extract.py
       hash: md5
-      md5: e06a156c1e7a66d0feecabd4baae070f
-      size: 9642
+      md5: 6f25f4ed513c99e685b48cabb921630c
+      size: 10504
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     outs:
     - path: data/headers/anthropics__skills.parquet
       hash: md5
-      md5: 71509b47aeaed7bbd45526cb290bfd58
-      size: 2549
+      md5: 7baf5be2552a23e884408fc891bc16e8
+      size: 3496
     - path: data/per-repo/anthropics__skills.parquet
       hash: md5
-      md5: b04931dd8cc73f380e6590cd2197bec9
-      size: 15655
+      md5: 4e9112b1576bd51c855219a86a1f3b29
+      size: 20456
   paraphrase@4:
     cmd: python -m rbtr_eval paraphrase --slug anthropics__skills --symbols 
       data/per-repo/anthropics__skills.parquet --repo-path 
@@ -394,46 +664,92 @@ stages:
       data/concept/anthropics__skills.parquet --model 
       openai-chat:zai-org/GLM-5.2 --concurrency 20
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/per-repo/anthropics__skills.parquet
       hash: md5
-      md5: b04931dd8cc73f380e6590cd2197bec9
-      size: 15655
+      md5: 4e9112b1576bd51c855219a86a1f3b29
+      size: 20456
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
     outs:
     - path: data/concept/anthropics__skills.parquet
       hash: md5
-      md5: 22473907cf864a0ae32e65f736a498cd
-      size: 14306
+      md5: 01d9517b9b325692422280115ac71a29
+      size: 18325
   paraphrase-report:
     cmd: python -m rbtr_eval paraphrase-report --concept-dir data/concept 
       --data-dir data/index --model openai-chat:zai-org/GLM-5.2 --report 
       data/PARAPHRASE.md && uv run rumdl fmt data/PARAPHRASE.md
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/concept
       hash: md5
-      md5: 5699f6ce7a4dcafa6958b2ab6f94e0ab.dir
-      size: 78044
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/paraphrase.py
       hash: md5
-      md5: 6006b97501b48ebe4d5f82eaf59ac332
-      size: 14063
+      md5: 852fba0be16cd61c8a0795927142a6c6
+      size: 14990
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/sql/all_chunk_content.sql
+      hash: md5
+      md5: feb3f17b8853486f79e3233db7eae1af
+      size: 64
+    - path: src/rbtr_eval/templates/paraphrase.md.j2
+      hash: md5
+      md5: 42cd2fd88c33fff672fa35baa14bf5d8
+      size: 798
     outs:
     - path: data/PARAPHRASE.md
       hash: md5
-      md5: 13a14dd2e9b0093853adbee549269b8b
-      size: 6876
+      md5: ada3ff3eeec8c07d0d4874c1b3a32168
+      size: 6116
   embed:
     cmd: python -m rbtr_eval index --data-dir data/index --config-dir 
       data/config --log-dir data/logs --repos-dir data/repos --sentinel 
@@ -442,12 +758,12 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: 25e217d8c1c55f723e40d9617db53f09.dir
-      size: 5327963
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
       nfiles: 520
     - path: data/.chunks-ready
       hash: md5
-      md5: 7d198f0b2d76d09061120389d6a42c47
+      md5: 3e68690f3e93ee4a1e22c1fca2142f1f
       size: 64
     - path: data/rendered_config.json
       hash: md5
@@ -457,10 +773,14 @@ stages:
       hash: md5
       md5: 9878e5e2bc2e43d16be2d0231738aa0b
       size: 6595
+    - path: src/rbtr_eval/rbtr_cli.py
+      hash: md5
+      md5: 80abdf1439aca55113a4251c8556b023
+      size: 3338
     outs:
     - path: data/.embed-ready
       hash: md5
-      md5: 2e530ac3a45a02513ef2c5ce0bcc6e87
+      md5: 0e890fdb2f5b3a730baf93e33aa0146c
       size: 64
     - path: data/EMBEDDING.md
       hash: md5
@@ -476,61 +796,118 @@ stages:
     deps:
     - path: ../rbtr/src/rbtr
       hash: md5
-      md5: d639476dff62ec4e3c9f057d292c54d0.dir
-      size: 5267625
-      nfiles: 508
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/.embed-ready
       hash: md5
-      md5: 2e530ac3a45a02513ef2c5ce0bcc6e87
+      md5: 0e890fdb2f5b3a730baf93e33aa0146c
       size: 64
     - path: data/concept
       hash: md5
-      md5: 2be0e31c4b9e23a169dd10dffb2eb60e.dir
-      size: 78460
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
     - path: data/per-repo
       hash: md5
-      md5: ae473933f72eb7b133552f381371cf89.dir
-      size: 87671
+      md5: 5031103dcd973b1e25d9397d4bcb74b6.dir
+      size: 114709
       nfiles: 5
+    - path: data/rendered_config.json
+      hash: md5
+      md5: 0f3214bae457f7f1a051a57b17bc22c3
+      size: 5219
+    - path: src/rbtr_eval/agg.py
+      hash: md5
+      md5: ae3381d15d88e242d107daa40359b0bf
+      size: 1088
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/rbtr_cli.py
+      hash: md5
+      md5: 80abdf1439aca55113a4251c8556b023
+      size: 3338
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/templates/reranker_tuning.md.j2
+      hash: md5
+      md5: a13c4e2d723483e9877b6c8c052fe4be
+      size: 919
     - path: src/rbtr_eval/tune_reranker.py
       hash: md5
-      md5: d8908b0ed0fdd22631345015f1d6b634
-      size: 17790
+      md5: 309c1cd2f810713a32edd867eaadab66
+      size: 17655
     outs:
     - path: data/RERANKER_TUNING.md
       hash: md5
-      md5: f7795ffc48732409d662ba9f30360cd4
-      size: 18925
+      md5: 75221f94ef504c5e0b544c544a72a378
+      size: 21806
   expand:
     cmd: python -m rbtr_eval expand --per-repo-dir data/per-repo --concept-dir 
       data/concept --out data/expansion/expansions.parquet --model 
       openai-chat:zai-org/GLM-5.2 --concurrency 20 --report data/EXPANSION.md &&
       uv run rumdl fmt data/EXPANSION.md
     deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
     - path: data/concept
       hash: md5
-      md5: 5699f6ce7a4dcafa6958b2ab6f94e0ab.dir
-      size: 78044
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
     - path: data/per-repo
       hash: md5
-      md5: 3b62fa8f9b50f7d38fbe7ad14842a2cb.dir
-      size: 85676
+      md5: 5031103dcd973b1e25d9397d4bcb74b6.dir
+      size: 114709
       nfiles: 5
     - path: src/rbtr_eval/expand.py
       hash: md5
-      md5: b163cce28b73096cfcbeb44b3b08f78e
-      size: 16506
+      md5: e9a70837ce27df53ee02bed5bd23946e
+      size: 17293
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
+    - path: src/rbtr_eval/templates/expansion.md.j2
+      hash: md5
+      md5: 8e9c835771e2e109eea59abe30c4ecb4
+      size: 726
     outs:
     - path: data/EXPANSION.md
       hash: md5
-      md5: dfe7634b2eb06670bb50c2dccac6062d
-      size: 7438
+      md5: e1d0e7e16919d2d3b07cf352d27aca4d
+      size: 7099
     - path: data/expansion/expansions.parquet
       hash: md5
-      md5: 16405d3e390a89fb28577f78ea8e01e7
-      size: 212838
+      md5: ac2a660bc4e0cda63167631e8094f193
+      size: 325359
   config:
     cmd: python -m rbtr --json --data-dir data/index --config-dir data/config 
       --log-dir data/logs config | jq 'del(.config.runtime_dir, 
@@ -553,41 +930,45 @@ stages:
       nfiles: 520
     - path: data/concept
       hash: md5
-      md5: 5699f6ce7a4dcafa6958b2ab6f94e0ab.dir
-      size: 78044
+      md5: 37796f6a6185a092779b63b8a5c6dfb2.dir
+      size: 100675
       nfiles: 5
     - path: data/headers
       hash: md5
-      md5: 262db67f04b087d3fd2a3c85c6d11898.dir
-      size: 12582
+      md5: 83779ba5041ac832529c2056190ef270.dir
+      size: 17260
       nfiles: 5
     - path: data/per-repo
       hash: md5
-      md5: 3b62fa8f9b50f7d38fbe7ad14842a2cb.dir
-      size: 85676
+      md5: 5031103dcd973b1e25d9397d4bcb74b6.dir
+      size: 114709
       nfiles: 5
     - path: src/rbtr_eval/formatting.py
       hash: md5
       md5: fadd5e5c3147d3d8c02c26364bc71bde
       size: 1275
+    - path: src/rbtr_eval/kinds.py
+      hash: md5
+      md5: 2ce77cd1177f901dd3190b9a905a5f18
+      size: 701
     - path: src/rbtr_eval/profile.py
       hash: md5
-      md5: 5ce66aaaa03bdbfb20964e289e222eff
-      size: 7207
+      md5: e1a1bfdd11961590417eba47af290ef5
+      size: 8108
     - path: src/rbtr_eval/queries.py
       hash: md5
       md5: 2e94b316b39fe1dbee1a6c09550d97dd
       size: 2740
     - path: src/rbtr_eval/schemas.py
       hash: md5
-      md5: 281c2ad49c72f5fa02bcaf5a8ceb52eb
-      size: 11398
+      md5: 8a816f8cf61305ae137f7c3a621d5e35
+      size: 10827
     - path: src/rbtr_eval/templates/dataset.md.j2
       hash: md5
-      md5: da2a0a619a8721b6d5aea6e1c4a88b88
-      size: 1467
+      md5: e2bcf68636be57ad810e9ea2e3d8946a
+      size: 1664
     outs:
     - path: data/DATASET.md
       hash: md5
-      md5: 46bcc65e05eafb29258a4d7a09f8720c
-      size: 5006
+      md5: 78db7fa8399f73b0e08f850320368c80
+      size: 6437

@@ -10,226 +10,213 @@ developer searches with different words than the code uses.
 | metric          | value                         |
 | --------------- | ----------------------------- |
 | model           | `openai-chat:zai-org/GLM-5.2` |
-| concept queries | 993                           |
+| concept queries | 1526                          |
 
 ## Per repo
 
 | slug               | n   |
 | ------------------ | --- |
-| anthropics__skills | 174 |
-| astral-sh__uv      | 159 |
-| badlogic__pi-mono  | 198 |
-| django__django     | 297 |
-| rbtr__rbtr         | 165 |
+| anthropics__skills | 303 |
+| astral-sh__uv      | 384 |
+| badlogic__pi-mono  | 274 |
+| django__django     | 341 |
+| rbtr__rbtr         | 224 |
 
 ## Per language
 
 | language   | n   |
 | ---------- | --- |
-| markdown   | 240 |
-| python     | 204 |
-| javascript | 145 |
-| css        | 131 |
-| typescript | 99  |
-| rust       | 63  |
-| rst        | 48  |
-| html       | 34  |
+| python     | 371 |
+| typescript | 205 |
+| javascript | 171 |
+| css        | 148 |
+| markdown   | 128 |
+| rust       | 117 |
+| json       | 96  |
+| bash       | 93  |
+|            | 50  |
+| yaml       | 38  |
+| toml       | 33  |
 | sql        | 29  |
+| html       | 27  |
+| rst        | 20  |
 
 ## Examples
 
 Randomly sampled symbols showing the source code (LLM input)
 and the generated concept query (LLM output).
 
-### `find_runs` (`anthropics__skills`)
+### `handleApiError` (`anthropics__skills`)
 
-````python
-def find_runs(workspace: Path) -> list[dict]:
-    """Recursively find directories that contain an outputs/ subdirectory."""
-    runs: list[dict] = []
-    _find_runs_recursive(workspace, workspace, runs)
-    runs.sort(key=lambda r: (r.get("eval_id", float("inf")), r["id"]))
-    return runs
-````
-
-> **concept:** find all directories containing an outputs subdirectory in a workspace
-
-### `Build backend for uv` (`astral-sh__uv`)
-
-````markdown
-# Build backend for uv
-
-This package is a slimmed down version of uv containing only the build backend. See
-https://pypi.org/project/uv/ and https://docs.astral.sh/uv/ for the main project package and
-documentation.
-````
-
-> **concept:** uv build backend package for Python projects
-
-### `parse_changelog` (`astral-sh__uv`)
-
-````python
-def parse_changelog(content):
-    """Parse the changelog content into individual version blocks."""
-    # Use regex to split the content by version headers
-    version_pattern = r"(?=## \d+\.\d+\.\d+)"
-    version_blocks = re.split(version_pattern, content)
-
-    # First item in the list is the header, which we want to preserve
-    header = version_blocks[0]
-    version_blocks = version_blocks[1:]
-
-    return header, version_blocks
-````
-
-> **concept:** Split changelog text into individual version sections using regex
-
-### `.aligned .form-row > div` (`django__django`)
-
-````css
-.aligned .form-row > div {
-        width: calc(100vw - 30px);
+````typescript
+function handleApiError(error: unknown): string {
+  if (error instanceof AxiosError) {
+    if (error.response) {
+      switch (error.response.status) {
+        case 404:
+          return "Error: Resource not found. Please check the ID is correct.";
+        case 403:
+          return "Error: Permission denied. You don't have access to this resource.";
+        case 429:
+          return "Error: Rate limit exceeded. Please wait before making more requests.";
+        default:
+          return `Error: API request failed with status ${error.response.status}`;
+      }
+    } else if (error.code === "ECONNABORTED") {
+      return "Error: Request timed out. Please try again.";
     }
-````
-
-> **concept:** Make form row child elements fill the viewport width minus padding
-
-### `findPosX` (`django__django`)
-
-````javascript
-// ----------------------------------------------------------------------------
-// Find-position functions by PPK
-// See https://www.quirksmode.org/js/findpos.html
-// ----------------------------------------------------------------------------
-function findPosX(obj) {
-    let curleft = 0;
-    if (obj.offsetParent) {
-        while (obj.offsetParent) {
-            curleft += obj.offsetLeft - obj.scrollLeft;
-            obj = obj.offsetParent;
-        }
-    } else if (obj.x) {
-        curleft += obj.x;
-    }
-    return curleft;
+  }
+  return `Error: Unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`;
 }
 ````
 
-> **concept:** Calculate the horizontal pixel position of an element relative to the
-> page
+> **concept:** Convert HTTP and network errors into human-readable error messages
 
-### `Jure Cuhalev <gandalf@owca.info>, 2012` (`django__django`)
+### `.github/renovate.json5:181-196` (`astral-sh__uv`)
 
-````markdown
-# Jure Cuhalev <gandalf@owca.info>, 2012
+````text
+customType: "regex",
+      managerFilePatterns: ["/(^|/)rust-toolchain\\.toml?$/"],
+      matchStrings: [
+        'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+(\\.\\d+)?)"',
+      ],
+      depNameTemplate: "rust",
+      packageNameTemplate: "rust-lang/rust",
+      datasourceTemplate: "github-releases",
+    },
+  ],
+  vulnerabilityAlerts: {
+    commitMessageSuffix: "",
+    labels: ["internal", "security"],
+  },
+}
 ````
 
-> **concept:** how to find the maintainer information and contact for this project
+> **concept:** how to configure custom regex pattern matching for rust toolchain version
+> updates
 
-### `Consistency` (`django__django`)
+### `with_cache_on_nocow_fs` (`astral-sh__uv`)
 
-````rst
-Consistency
------------
-
-The framework should be consistent at all levels. Consistency applies to
-everything from low-level (the Python coding style used) to high-level (the
-"experience" of using Django).
+````rust
+/// Use a cache directory on the filesystem specified by
+    /// [`EnvVars::UV_INTERNAL__TEST_NOCOW_FS`].
+    ///
+    /// Returns `Ok(None)` if the environment variable is not set.
+    pub fn with_cache_on_nocow_fs(self) -> anyhow::Result<Option<Self>> {
+        let Some(dir) = env::var(EnvVars::UV_INTERNAL__TEST_NOCOW_FS).ok() else {
+            return Ok(None);
+        };
+        self.with_cache_on_fs(&dir, "NOCOW_FS").map(Some)
+    }
 ````
 
-> **concept:** principles for keeping a framework consistent across coding conventions
-> and developer experience
+> **concept:** Configure cache to use a filesystem directory specified by an environment
+> variable for no copy-on-write testing
 
-### `test_password_changed_with_custom_validator` (`django__django`)
+### `SocketModeClient` (`badlogic__pi-mono`)
 
-````python
-def test_password_changed_with_custom_validator(self):
-        class Validator:
-            def password_changed(self, password, user):
-                self.password = password
-                self.user = user
-
-        user = object()
-        validator = Validator()
-        password_changed("password", user=user, password_validators=(validator,))
-        self.assertIs(validator.user, user)
-        self.assertEqual(validator.password, "password")
+````javascript
+{ SocketModeClient } = require('@slack/socket-mode')
 ````
 
-> **concept:** verify custom password validator is called with correct user and password
-> when password is changed
+> **concept:** how to import the Slack socket mode client using require
 
-### `send` (`rbtr__rbtr`)
+### `processOutput` (`badlogic__pi-mono`)
 
 ````typescript
-/**
-   * Send a request through the cached RPC endpoint.
-   *
-   * Re-queries once on transport failure (covers daemon restart
-   * with a new endpoint) before giving up with
-   * ``DaemonUnavailableError``.  ``RbtrDaemonError`` from the
-   * daemon itself is propagated as-is — the caller decides what
-   * to do with it.
-   */
-  async send<R extends Request>(request: R): Promise<ResponseFor<R["kind"]>> {
-    if (!this.rpcEndpoint) {
-      await this.refresh();
-      if (!this.rpcEndpoint) {
-        throw new DaemonUnavailableError("no rpc endpoint");
-      }
-    }
+// Process log output line by line
+	const processOutput = (data: Buffer) => {
+		const lines = data.toString().split("\n");
+		for (const line of lines) {
+			if (line) {
+				console.log(line); // Echo the line to console
 
-    try {
-      return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
-    } catch (err) {
-      if (err instanceof Error && err.name === "RbtrDaemonError") {
-        throw err;
-      }
-      // Transport failure — try one refresh + retry before
-      // giving up.  Covers daemon restart with a new endpoint.
-      this.status = null;
-      await this.refresh();
-      if (!this.rpcEndpoint) {
-        throw new DaemonUnavailableError(err);
-      }
-      try {
-        return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
-      } catch (err2) {
-        if (err2 instanceof Error && err2.name === "RbtrDaemonError") {
-          throw err2;
-        }
-        throw new DaemonUnavailableError(err2);
-      }
-    }
-  }
+				// Check for startup complete message
+				if (line.includes("Application startup complete")) {
+					startupComplete = true;
+					logProcess.kill(); // Stop tailing logs
+				}
+
+				// Check for failure indicators
+				if (line.includes("Model runner exiting with code") && !line.includes("code 0")) {
+					startupFailed = true;
+					failureReason = "Model runner failed to start";
+					logProcess.kill();
+				}
+				if (line.includes("Script exited with code") && !line.includes("code 0")) {
+					startupFailed = true;
+					failureReason = "Script failed to execute";
+					logProcess.kill();
+				}
+				if (line.includes("torch.OutOfMemoryError") || line.includes("CUDA out of memory")) {
+					startupFailed = true;
+					failureReason = "Out of GPU memory (OOM)";
+					// Don't kill immediately - let it show more error context
+				}
+				if (line.includes("RuntimeError: Engine core initialization failed")) {
+					startupFailed = true;
+					failureReason = "vLLM engine initialization failed";
+					logProcess.kill();
+				}
+			}
+		}
+	};
 ````
 
-> **concept:** Dispatch an RPC request to the daemon with one automatic retry on
-> transport failure before giving up
+> **concept:** Parse log output line by line to detect startup success or failure
+> conditions like OOM errors and exit codes
 
-### `make_content_response` (`rbtr__rbtr`)
+### `--selected-row` (`django__django`)
+
+````css
+--selected-row: #00363a;
+````
+
+> **concept:** how to set custom theme variable for highlighted table row color
+
+### `ImportedModelBackend` (`django__django`)
 
 ````python
-def make_content_response(content: str = "") -> CreateChatCompletionResponse:
-    """Build a plain chat-completion response with text content only."""
-    return {
-        "id": "stub",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "stub",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content,
-                },
-                "logprobs": None,
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
+class ImportedModelBackend(ModelBackend):
+    pass
 ````
 
-> **concept:** Create a mock chat completion response with simple text content
+> **concept:** Django model authentication backend imported from external module
+
+### `tests/fixtures_regress/fixtures/sequence_extra_yaml.yaml` (`django__django`)
+
+````yaml
+
+````
+
+> **concept:** how to configure settings using YAML format
+
+### `EmbedJob` (`rbtr__rbtr`)
+
+````python
+class EmbedJob(BaseModel):
+    """An embed-index job for the unified work queue."""
+
+    model_config = _STRICT
+    kind: Literal["embed"] = "embed"
+    path: str
+    repo_id: int
+    ref: str
+
+    @property
+    def dedupe_key(self) -> Hashable:
+        return (self.repo_id, self.ref)
+````
+
+> **concept:** Queue job definition for embedding repository content at a specific ref
+
+### `meta` (`rbtr__rbtr`)
+
+````sql
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)
+````
+
+> **concept:** create a simple key-value configuration table in the database

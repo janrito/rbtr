@@ -1,8 +1,8 @@
 # rbtr search-quality dataset
 
 Characterisation of the query set **before** measurement — the input
-to the benchmark, not its results. 2357 queries across
-5 repos and 9 languages.
+to the benchmark, not its results. 3621 queries across
+5 repos and 14 languages.
 
 The three axes are independent: `symbol_kind` is the target chunk,
 `provenance` is how the query was generated, and `query_kind` is
@@ -14,25 +14,30 @@ The indexed commit and sampled sizes per repo.
 
 | slug                 | sha            | symbols | sampled queries |
 | -------------------- | -------------- | ------- | --------------- |
-| `anthropics__skills` | `5128e1865d67` | 1913    | 264             |
-| `astral-sh__uv`      | `cfe5277bc422` | 19007   | 200             |
-| `badlogic__pi-mono`  | `a0a16c7762e6` | 9238    | 262             |
-| `django__django`     | `e78a46a8fb29` | 59123   | 375             |
-| `rbtr__rbtr`         | `d6ebe41d8953` | 2192    | 263             |
+| `anthropics__skills` | `5128e1865d67` | 4155    | 434             |
+| `astral-sh__uv`      | `cfe5277bc422` | 28197   | 510             |
+| `badlogic__pi-mono`  | `a0a16c7762e6` | 23980   | 385             |
+| `django__django`     | `e78a46a8fb29` | 67009   | 428             |
+| `rbtr__rbtr`         | `d6ebe41d8953` | 5922    | 338             |
 
 ## Queries per language
 
 | language   | n   |
 | ---------- | --- |
-| python     | 504 |
-| markdown   | 490 |
-| javascript | 358 |
-| css        | 344 |
-| typescript | 249 |
-| rust       | 138 |
-| rst        | 98  |
-| sql        | 92  |
-| html       | 84  |
+| python     | 902 |
+| typescript | 521 |
+| javascript | 431 |
+| css        | 355 |
+| markdown   | 282 |
+| rust       | 247 |
+| bash       | 234 |
+| json       | 198 |
+|            | 110 |
+| yaml       | 91  |
+| sql        | 78  |
+| toml       | 73  |
+| html       | 59  |
+| rst        | 40  |
 
 ## Target coverage — `symbol_kind` × `provenance`
 
@@ -41,10 +46,14 @@ generation strategies. A kind absent here is not measured.
 
 | symbol_kind | body | concept | docstring | name | total |
 | ----------- | ---- | ------- | --------- | ---- | ----- |
-| function    | 154  | 319     | 175       | 153  | 801   |
-| doc_section | 175  | 322     | 0         | 175  | 672   |
-| class       | 118  | 213     | 99        | 117  | 547   |
-| method      | 78   | 139     | 40        | 80   | 337   |
+| variable    | 174  | 295     | 76        | 177  | 722   |
+| class       | 136  | 247     | 110       | 137  | 630   |
+| function    | 130  | 245     | 122       | 130  | 627   |
+| method      | 100  | 167     | 60        | 100  | 427   |
+| config_key  | 80   | 154     | 21        | 80   | 335   |
+| comment     | 167  | 164     | 0         | 0    | 331   |
+| raw_chunk   | 56   | 122     | 0         | 99   | 277   |
+| doc_section | 70   | 132     | 0         | 70   | 272   |
 
 ## Target × request shape — `symbol_kind` × `query_kind`
 
@@ -53,10 +62,46 @@ axes are independent of provenance.
 
 | symbol_kind | concept | identifier | code | total |
 | ----------- | ------- | ---------- | ---- | ----- |
-| function    | 323     | 323        | 155  | 801   |
-| doc_section | 327     | 269        | 76   | 672   |
-| class       | 209     | 219        | 119  | 547   |
-| method      | 140     | 128        | 69   | 337   |
+| variable    | 311     | 298        | 113  | 722   |
+| class       | 244     | 252        | 134  | 630   |
+| function    | 246     | 251        | 130  | 627   |
+| method      | 166     | 172        | 89   | 427   |
+| config_key  | 155     | 157        | 23   | 335   |
+| comment     | 181     | 141        | 9    | 331   |
+| raw_chunk   | 123     | 138        | 16   | 277   |
+| doc_section | 140     | 105        | 27   | 272   |
+
+## Not measured
+
+No queries are generated for these chunk kinds: `import`.
+
+Languages skipped for having fewer measurable chunks than the
+threshold:
+
+| slug                 | language     | n_chunks |
+| -------------------- | ------------ | -------- |
+| `anthropics__skills` | `go`         | 44       |
+| `anthropics__skills` | `html`       | 10       |
+| `anthropics__skills` | `java`       | 48       |
+| `anthropics__skills` | `rst`        | 27       |
+| `anthropics__skills` | `ruby`       | 35       |
+| `astral-sh__uv`      | `c`          | 3        |
+| `astral-sh__uv`      | `javascript` | 41       |
+| `astral-sh__uv`      | `rst`        | 5        |
+| `badlogic__pi-mono`  | ``           | 10       |
+| `badlogic__pi-mono`  | `c`          | 14       |
+| `badlogic__pi-mono`  | `html`       | 6        |
+| `badlogic__pi-mono`  | `python`     | 7        |
+| `badlogic__pi-mono`  | `yaml`       | 32       |
+| `django__django`     | `bash`       | 22       |
+| `django__django`     | `toml`       | 9        |
+| `rbtr__rbtr`         | ``           | 36       |
+| `rbtr__rbtr`         | `bash`       | 28       |
+| `rbtr__rbtr`         | `css`        | 2        |
+| `rbtr__rbtr`         | `javascript` | 1        |
+| `rbtr__rbtr`         | `rust`       | 1        |
+| `rbtr__rbtr`         | `toml`       | 45       |
+| `rbtr__rbtr`         | `yaml`       | 13       |
 
 ## Classification — `provenance` × `query_kind`
 
@@ -64,94 +109,93 @@ How each generation strategy's text classifies as a request shape
 (row-normalised). Provenance and query_kind are different axes: the
 scatter here is that difference made visible.
 
-| provenance  | concept | identifier | code  | n   |
-| ----------- | ------- | ---------- | ----- | --- |
-| `body`      | 1.5%    | 26.9%      | 71.6% | 525 |
-| `concept`   | 97.8%   | 2.1%       | 0.1%  | 993 |
-| `docstring` | 2.5%    | 91.1%      | 6.4%  | 314 |
-| `name`      | 2.3%    | 93.5%      | 4.2%  | 525 |
+| provenance  | concept | identifier | code  | n    |
+| ----------- | ------- | ---------- | ----- | ---- |
+| `body`      | 3.5%    | 40.0%      | 56.5% | 913  |
+| `concept`   | 98.5%   | 1.4%       | 0.1%  | 1526 |
+| `docstring` | 5.9%    | 90.0%      | 4.1%  | 389  |
+| `name`      | 1.0%    | 98.0%      | 1.0%  | 793  |
 
 ## Examples
 
 Sampled queries per provenance — the actual text fed to search,
 verbatim.
 
-**`body` → code** · rust · `method` · fmt
+**`body` → code** · python · `class` · PyodideFinder
 
 ````text
-fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // Note that even though we have nested error types here, since we
-        // don't expose them through std::error::Error::sour
+class PyodideFinder(Finder):
+    implementation = ImplementationName.CPYTHON
 ````
 
-**`body` → code** · css · `class` · .message-timestamp + .thinking-block .thinking-text,
-…
+**`body` → code** · rust · `class` · RevisionId
 
 ````text
-.message-timestamp + .thinking-block .thinking-text,
-    .message-timestamp + .thinking-block .thinking-collapsed {
-      padding-top: 0;
+impl AsRef<Path> for RevisionId {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
     }
+}
 ````
 
-**`body` → code** · javascript · `function` · _fd_write
+**`body` → identifier** · python · `comment` · <anonymous>
 
 ````text
-function _fd_write(fd,iov,iovcnt,pnum){try{var stream=SYSCALLS.getStreamFromFD(fd);var num=doWritev(stream,iov,iovcnt);HEAPU32[pnum>>2]=num;return 0}catch(e){if(typeof FS=="undefined"||!(e.name==="Err
+# via
+    #   -c requirements.txt
+    #   pydantic
 ````
 
-**`concept` → concept** · python · `function` · create_trusted_publisher
+**`concept` → concept** · python · `method` · load_module
 
 ````text
-Configure a crates.io trusted publishing GitHub integration for a crate
+Patch distutils module loading to apply compatibility patches when importing modules
 ````
 
-**`concept` → concept** · typescript · `function` · blockIndex
+**`concept` → concept** · python · `comment` · <anonymous>
 
 ````text
-get the index of the last block in a list
+what packages depend on pydantic and pydantic-core
 ````
 
-**`concept` → concept** · typescript · `class` · OAuthProviderInterface
+**`concept` → concept** · bash · `variable` · artifact_count
 
 ````text
-Interface defining an authentication provider's login flow, token refresh, and API key conversion
+how to count downloaded artifacts in a directory using shell commands
 ````
 
-**`docstring` → identifier** · rust · `method` · from_workspace
+**`docstring` → identifier** · python · `variable` · USE_UV_EXECUTABLE
 
 ````text
-/// Lower the `build-system.requires` field from a `pyproject.toml` file.
+# Use the `uv build-backend` command rather than `uv-build`.
 ````
 
-**`docstring` → identifier** · rust · `class` · ResolvedRequirements
+**`docstring` → identifier** · rust · `function` · extra_build_requires_for
 
 ````text
-/// Instantiate a [`ResolvedRequirements`] with the given [`Resolution`] and [`HashStrategy`].
+/// Determine the extra build requirements for the given package name.
 ````
 
-**`docstring` → identifier** · css · `class` · .model-change
+**`docstring` → identifier** · rust · `class` · PrioritizedDist
 
 ````text
-/* Model change */
+/// Create a new [`PrioritizedDist`] from the given wheel distribution.
 ````
 
-**`name` → identifier** · rust · `class` · Err
+**`name` → identifier** · python · `method` · key
 
 ````text
-VersionSpecifier::Err
+PythonDownload::key
 ````
 
-**`name` → identifier** · css · `class` · .message-timestamp + .thinking-block
-.thinking-text, …
+**`name` → identifier** · rust · `class` · Username
 
 ````text
-.message-timestamp + .thinking-block .thinking-text,
-    .message-timestamp + .thinking-block .thinking-collapsed
+Username
 ````
 
-**`name` → identifier** · javascript · `function` · _fd_write
+**`name` → identifier** · rust · `method` · fmt
 
 ````text
-_fd_write
+MarkerValue::fmt
 ````
