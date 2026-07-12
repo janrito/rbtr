@@ -1,0 +1,18 @@
+# Greeter configuration.
+
+[project]
+name = "greeter"
+version = "1.0.0"
+
+[tool.greeter]
+default_greeting = "Hello"
+locale = "en"
+
+[tool.greeter.limits]
+max_length = 280
+
+[[locales]]
+code = "en"
+
+[[locales]]
+code = "fr"

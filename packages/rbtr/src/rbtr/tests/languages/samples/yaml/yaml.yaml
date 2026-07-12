@@ -1,0 +1,14 @@
+# Greeter CI workflow.
+
+name: greeter
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: just check
