@@ -143,6 +143,19 @@ def case_hcl() -> SampleCase:
     )
 
 
+@case(id="query", tags=["sample"])
+def case_query() -> SampleCase:
+    """tree-sitter query (`.scm`): every top-level pattern is a doc section,
+    named by its definition capture (else its matched node type). Exercises
+    named nodes, alternation lists, groupings, predicates, wildcards, negated
+    fields, anchors, quantifiers, supertypes, and a MISSING node.
+    """
+    return (
+        "query",
+        {ChunkKind.DOC_SECTION},
+    )
+
+
 @case(id="rst", tags=["sample"])
 def case_rst() -> SampleCase:
     """reStructuredText: heading hierarchy from adornment order (as doc

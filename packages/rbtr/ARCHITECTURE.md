@@ -1091,7 +1091,8 @@ capture conventions), see
    language has one (`chunker(path, sha, content, grammar,
    ranges)`; markdown, rst, svelte, vue), else tree-sitter
    `extract_symbols` for a `grammar` + `query` (python,
-   rust, go, ...; json, css, html, toml, yaml, hcl).
+   rust, go, ...; json, css, html, toml, yaml, hcl; and
+   `query` itself, indexing `.scm` files).
 2. **Injection (additive)** - if the registration has an
    `injection_query`, the engine *also* runs
    `extract_injections`: it matches embedded blocks

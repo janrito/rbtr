@@ -358,9 +358,9 @@ extraction (symbol-level chunks, import metadata, scope
 detection). Everything else gets line-based chunking.
 
 Built-in: bash, c, cpp, css, go, hcl, html, java,
-javascript, json, less, markdown, python, rst, ruby,
-rust, scss, sql, svelte, toml, tsx, typescript, vue,
-yaml.
+javascript, json, less, markdown, python, query, rst,
+ruby, rust, scss, sql, svelte, toml, tsx, typescript,
+vue, yaml.
 
 Code embedded in another file is indexed in its own
 language. A fenced code block in Markdown is extracted as

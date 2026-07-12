@@ -84,9 +84,11 @@ The orchestrator's primary path is one of three:
    as an injection target for an embedded block (see below).
 2. **Query** — `reg.grammar_module` + `reg.query`: code, plus config/data
    whose scope a query can express (python, rust, …, json, css, html, toml,
-   yaml, hcl). Goes through `extract_symbols`.
+   yaml, hcl, query). Goes through `extract_symbols`.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
    landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
+   The `query` plugin indexes `.scm` files themselves: each top-level pattern
+   is a `@doc_section`, named by its own outer capture else anonymous.
 3. **Plaintext fallback** — no grammar/detection: fixed-size raw chunks.
 
 `extract_symbols` is the query engine: *parse → run query → captures →
@@ -252,7 +254,10 @@ itself a tree-sitter query, so it is **inspiration for ours, not a drop-in**:
 
 Distinct from **rbtr's own** `.scm` files (see *Where queries live*): we load
 those at runtime (`reg.query` / `injection_query`) as the source of truth,
-whereas `tags.scm` we only mine for ideas.
+whereas `tags.scm` we only mine for ideas. And the `query` plugin now
+*indexes* `.scm` files found in a repo — including third-party `tags.scm` /
+`highlights.scm` / `injections.scm` — as content, orthogonal to whether we
+run them.
 
 Curated per-language verdicts (take / modify / ignore) and the
 `@definition.* → ChunkKind` mapping live in
