@@ -1,0 +1,27 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "description": "MRR by symbol kind",
+  "title": "MRR by target kind",
+  "width": 400,
+  "height": 250,
+  "data": {"values": []},
+  "mark": {"type": "bar"},
+  "encoding": {
+    "x": {
+      "field": "symbol_kind",
+      "type": "nominal",
+      "title": "Target kind",
+      "sort": "-y"
+    },
+    "y": {
+      "field": "mrr",
+      "type": "quantitative",
+      "title": "MRR",
+      "scale": {"domain": [0, 1]}
+    },
+    "tooltip": [
+      {"field": "symbol_kind", "type": "nominal"},
+      {"field": "mrr", "type": "quantitative", "format": ".3f"}
+    ]
+  }
+}

@@ -59,6 +59,7 @@ def case_rescore_target_at_rank_one() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "name",
+                "query_kind": "identifier",
                 "file_path": "target.py",
                 "scope": "",
                 "name": "fn",
@@ -117,6 +118,7 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "name",
+                "query_kind": "identifier",
                 "file_path": "target.py",
                 "scope": "",
                 "name": "fn",
@@ -177,6 +179,7 @@ def case_rescore_target_outside_top_10() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "name",
+                "query_kind": "identifier",
                 "file_path": "target.py",
                 "scope": "",
                 "name": "fn",
@@ -184,8 +187,8 @@ def case_rescore_target_outside_top_10() -> tuple[
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
-    # MRR = 0 for the only provenance; hmean floors to 1e-9.
-    return candidates, meta, (0.4, 0.4, 0.2), [None], 1e-9
+    # The only query misses; micro-mean MRR is 0.0.
+    return candidates, meta, (0.4, 0.4, 0.2), [None], 0.0
 
 
 @case(tags=["rescore"])
@@ -207,6 +210,7 @@ def case_rescore_empty_candidates() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "name",
+                "query_kind": "identifier",
                 "file_path": "target.py",
                 "scope": "",
                 "name": "fn",
@@ -214,8 +218,8 @@ def case_rescore_empty_candidates() -> tuple[
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
-    # MRR = 0 for the only provenance; hmean floors to 1e-9.
-    return candidates, meta, (0.5, 0.3, 0.2), [None], 1e-9
+    # No candidates, so the query misses; micro-mean MRR is 0.0.
+    return candidates, meta, (0.5, 0.3, 0.2), [None], 0.0
 
 
 @case(tags=["rescore"])
@@ -226,11 +230,11 @@ def case_rescore_multiple_queries() -> tuple[
     list[int | None],
     float,
 ]:
-    """Two queries, different provenances -> hmean of per-provenance MRRs.
+    """Two queries -> micro-mean MRR over queries.
 
-    name provenance: rank 1 -> MRR 1.0
-    body provenance: rank 3 -> MRR 1/3
-    hmean = 2 / (1/1.0 + 1/(1/3)) = 0.5
+    query 0: rank 1 -> reciprocal 1.0
+    query 1: rank 3 -> reciprocal 1/3
+    micro-mean = (1.0 + 1/3) / 2 = 0.667 (a miss would add 0, not collapse)
     """
     candidates = pl.DataFrame(
         [
@@ -315,6 +319,7 @@ def case_rescore_multiple_queries() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "name",
+                "query_kind": "identifier",
                 "file_path": "target0.py",
                 "scope": "",
                 "name": "fn",
@@ -325,6 +330,7 @@ def case_rescore_multiple_queries() -> tuple[
                 "slug": "repo",
                 "language": "python",
                 "provenance": "body",
+                "query_kind": "code",
                 "file_path": "target1.py",
                 "scope": "",
                 "name": "fn",
@@ -332,4 +338,4 @@ def case_rescore_multiple_queries() -> tuple[
             },
         ]
     ).pipe(QueryMeta.validate, cast=True)
-    return candidates, meta, (0.5, 0.3, 0.2), [1, 3], 0.5
+    return candidates, meta, (0.5, 0.3, 0.2), [1, 3], (1 + 1 / 3) / 2

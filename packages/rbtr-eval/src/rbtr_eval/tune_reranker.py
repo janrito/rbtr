@@ -25,10 +25,9 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import PROVENANCE_TO_KIND, load_all_queries, sample_distribution, subsample
+from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import QueryMeta, QueryRow, RerankerCandidate
 
@@ -96,12 +95,14 @@ def _collect_candidates(
     )
 
     meta = (
-        queries.with_row_index("query_idx")
+        with_query_kind(queries)
+        .with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "file_path",
             "scope",
             "name",
@@ -130,7 +131,7 @@ def _rank_all_blends(
 
     Returns one row per `(pool, blend_weight, query_idx)` with
     columns: `pool, blend_weight, slug, language, provenance,
-    rank, latency_ms`.
+    query_kind, rank, latency_ms`.
     """
     blend_frame = pl.DataFrame(
         {"blend_weight": blend_values},
@@ -183,7 +184,7 @@ def _rank_all_blends(
             how="left",
         )
         .join(
-            meta.select("query_idx", "slug", "language", "provenance"),
+            meta.select("query_idx", "slug", "language", "provenance", "query_kind"),
             on="query_idx",
             how="left",
         )
@@ -193,6 +194,7 @@ def _rank_all_blends(
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "rank",
             "latency_ms",
         )
@@ -221,10 +223,13 @@ def _aggregate_grid(results: pl.DataFrame) -> pl.DataFrame:
 
 
 def _aggregate_by_dimension(results: pl.DataFrame, key: str) -> pl.DataFrame:
-    """Aggregate per `(pool, blend_weight, key)`."""
+    """Aggregate per `(pool, blend_weight, key)`, carrying p50 latency."""
     return (
         results.group_by("pool", "blend_weight", key)
-        .agg(*search_metric_aggs())
+        .agg(
+            *search_metric_aggs(),
+            pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
+        )
         .sort(key, "mrr", "pool", descending=[False, True, False])
     )
 
@@ -232,34 +237,56 @@ def _aggregate_by_dimension(results: pl.DataFrame, key: str) -> pl.DataFrame:
 # ── Report rendering ────────────────────────────────────────────────────────
 
 
-def _recommend_per_kind(by_kind: pl.DataFrame) -> pl.DataFrame:
-    """Best `(pool, blend_weight)` per query kind.
+_TOLERANCES = (0.005, 0.01, 0.02, 0.03, 0.05)
 
-    For each kind, pick the row with the highest MRR.
-    Returns a frame with columns `query_kind, pool,
-    blend_weight, n_queries, mrr, ndcg_at_10`.
+
+def _cheapest_within_tolerance(configs: pl.DataFrame, tol: float) -> dict[str, float | int]:
+    """Smallest-pool config whose MRR is within `tol` (relative) of the best.
+
+    `configs` holds one row per `(pool, blend_weight)` with `mrr` and
+    `search_p50_ms`.  Latency is monotonic in pool, so the smallest pool
+    clearing the threshold is the fastest acceptable config; ties within
+    a pool break to the highest MRR (best blend).
     """
-    return (
-        by_kind.sort("query_kind", "mrr", descending=[False, True])
-        .group_by("query_kind", maintain_order=True)
-        .first()
-        .select(
-            "query_kind",
-            "pool",
-            "blend_weight",
-            "n_queries",
-            "mrr",
-            "ndcg_at_10",
-        )
-        .sort("query_kind")
+    best = float(configs.select(pl.col("mrr").max()).item())
+    chosen = (
+        configs.filter(pl.col("mrr") >= best * (1.0 - tol))
+        .sort("pool", "mrr", descending=[False, True])
+        .row(0, named=True)
     )
+    return {
+        "pool": chosen["pool"],
+        "blend_weight": chosen["blend_weight"],
+        "mrr": chosen["mrr"],
+        "search_p50_ms": chosen["search_p50_ms"],
+        "mrr_forgone": best - chosen["mrr"],
+    }
+
+
+def _tolerance_sweep(by_kind: pl.DataFrame, grid: pl.DataFrame) -> pl.DataFrame:
+    """Cheapest pool within each tolerance, per query kind and overall.
+
+    Surfaces the MRR/latency trade-off so the pool is chosen manually.
+    Rows: `(scope, tolerance_pct, pool, blend_weight, mrr,
+    search_p50_ms, mrr_forgone)`.
+    """
+    scopes: list[tuple[str, pl.DataFrame]] = [
+        (kind, by_kind.filter(pl.col("query_kind") == kind))
+        for kind in by_kind.get_column("query_kind").unique().sort().to_list()
+    ]
+    scopes.append(("all", grid))
+    rows: list[dict[str, float | int | str]] = [
+        {"scope": scope, "tolerance_pct": tol * 100.0, **_cheapest_within_tolerance(configs, tol)}
+        for scope, configs in scopes
+        for tol in _TOLERANCES
+    ]
+    return pl.DataFrame(rows)
 
 
 def _render_report(
     grid: pl.DataFrame,
     by_provenance: pl.DataFrame,
     by_kind: pl.DataFrame,
-    kind_rec: pl.DataFrame,
     by_slug: pl.DataFrame,
     by_language: pl.DataFrame,
     dist: pl.DataFrame,
@@ -327,26 +354,19 @@ def _render_report(
         pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
         (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
         (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
+        pl.col("search_p50_ms").round(0).cast(pl.Int64).alias("p50 ms"),
     )
 
-    # ── Per-kind recommendation + TOML block ───────────────
-    kind_rec_display = kind_rec.select(
-        pl.col("query_kind").alias("kind"),
+    # ── Latency-aware tolerance sweep (manual pick) ──────
+    tolerance_display = _tolerance_sweep(by_kind, grid).select(
+        pl.col("scope").alias("kind"),
+        pl.col("tolerance_pct").round(1).alias("tol %"),
         pl.col("pool"),
         pl.col("blend_weight").alias("blend"),
-        pl.col("n_queries"),
         pl.col("mrr").round(4).alias("MRR"),
-        pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
+        pl.col("search_p50_ms").round(0).cast(pl.Int64).alias("p50 ms"),
+        pl.col("mrr_forgone").round(4).alias("MRR vs best"),
     )
-
-    kind_toml_lines = []
-    for row in kind_rec.iter_rows(named=True):
-        kind_toml_lines.append(
-            f"[reranker_settings.{row['query_kind']}]\n"
-            f"pool = {row['pool']}\n"
-            f"blend_weight = {row['blend_weight']}"
-        )
-    kind_toml = "\n\n".join(kind_toml_lines)
 
     # ── Per-slug / per-language tables (best config only) ──
     best_pool = best["pool"]
@@ -372,8 +392,7 @@ def _render_report(
         grid_table=md_table(grid_display),
         provenance_table=md_table(prov_display),
         kind_table=md_table(kind_display),
-        kind_rec_table=md_table(kind_rec_display),
-        kind_toml=kind_toml,
+        tolerance_table=md_table(tolerance_display),
         slug_table=md_table(_dimension_display(by_slug, "slug")),
         language_table=md_table(_dimension_display(by_language, "language")),
         sample_table=md_table(dist),
@@ -456,18 +475,12 @@ class TuneRerankerCmd(BaseModel):
             )
 
         ranked = _rank_all_blends(candidates, meta, blends)
-        ranked = ranked.with_columns(
-            pl.col("provenance")
-            .replace_strict(PROVENANCE_TO_KIND, default=QueryKind.CONCEPT.value)
-            .alias("query_kind"),
-        )
         elapsed = time.monotonic() - t0
         grid = _aggregate_grid(ranked)
         by_provenance = _aggregate_by_dimension(ranked, "provenance")
         by_kind = _aggregate_by_dimension(ranked, "query_kind")
         by_slug = _aggregate_by_dimension(ranked, "slug")
         by_language = _aggregate_by_dimension(ranked, "language")
-        kind_rec = _recommend_per_kind(by_kind)
         dist = sample_distribution(
             queries,
             strat_keys=("slug", "language", "provenance"),
@@ -477,7 +490,6 @@ class TuneRerankerCmd(BaseModel):
             grid,
             by_provenance,
             by_kind,
-            kind_rec,
             by_slug,
             by_language,
             dist,

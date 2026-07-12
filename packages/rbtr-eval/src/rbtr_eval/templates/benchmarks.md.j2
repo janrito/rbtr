@@ -9,10 +9,6 @@ Reproduce: `cd packages/rbtr-eval && uv run dvc repro`.
 
 {{ run_table }}
 
-## Repos
-
-{{ repos_table }}
-
 ## Headline metrics
 
 No-expansion baseline (arm `none`) per repo. The expansion
@@ -31,19 +27,27 @@ effect of each channel.
 
 ![MRR by repo](mrr_by_repo.png)
 
+## Per-kind breakdown
+
+Retrieval quality for each target chunk kind (`symbol_kind`),
+aggregated across repos, languages and provenances.
+
+{{ kind_table }}
+
+![MRR by target kind](mrr_by_kind.png)
+
+## Target × request shape
+
+MRR for each target kind sliced by request shape (`query_kind`) —
+which kinds search finds well, and via which kind of query.
+
+{{ target_shape_table }}
+
 ## Search latency
 
 Shared index home size: **{{ shared_home_bytes_human }}**.
 
 {{ latency_table }}
-
-## Classification
-
-Cross-tabulation of query provenance (where the query was sampled
-from) against online `QueryKind` (how `classify_query` routes it
-for expansion).
-
-{{ classification_table }}
 
 ## Per-language breakdown
 

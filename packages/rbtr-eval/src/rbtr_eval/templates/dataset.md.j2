@@ -1,0 +1,63 @@
+# rbtr search-quality dataset
+
+Characterisation of the query set **before** measurement — the input
+to the benchmark, not its results. {{ total }} queries across
+{{ n_repos }} repos and {{ n_languages }} languages.
+
+The three axes are independent: `symbol_kind` is the target chunk,
+`provenance` is how the query was generated, and `query_kind` is
+`classify_query(text)` — the request shape search routes on.
+
+## Repos
+
+The indexed commit and sampled sizes per repo.
+
+{{ repos_table }}
+
+## Queries per language
+
+{{ language_table }}
+
+## Target coverage — `symbol_kind` × `provenance`
+
+Which kinds of chunk the queries target, and how each splits across
+generation strategies. A kind absent here is not measured.
+
+{{ symbol_kind_table }}
+
+## Target × request shape — `symbol_kind` × `query_kind`
+
+For each target kind, the request shapes generated against it. Both
+axes are independent of provenance.
+
+{{ target_shape_table }}
+
+## Not measured
+
+No queries are generated for these chunk kinds: {{ excluded_kinds }}.
+
+Languages skipped for having fewer measurable chunks than the
+threshold:
+
+{{ dropped_languages_table }}
+
+## Classification — `provenance` × `query_kind`
+
+How each generation strategy's text classifies as a request shape
+(row-normalised). Provenance and query_kind are different axes: the
+scatter here is that difference made visible.
+
+{{ classification_table }}
+
+## Examples
+
+Sampled queries per provenance — the actual text fed to search,
+verbatim.
+
+{% for ex in examples %}
+**`{{ ex.provenance }}` → {{ ex.query_kind }}** · {{ ex.language }} · `{{ ex.symbol_kind }}` · {{ ex.label }}
+
+````text
+{{ ex.text }}
+````
+{% endfor %}

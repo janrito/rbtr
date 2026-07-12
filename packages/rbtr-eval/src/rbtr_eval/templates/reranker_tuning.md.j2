@@ -23,29 +23,23 @@
 
 {{ kind_table }}
 
-## Per-kind recommendation
+## Latency-aware selection
 
-{{ kind_rec_table }}
+MRR rises with pool size, but so does latency (p50 is a function of
+pool only). For each kind and overall, the cheapest (smallest-pool)
+config whose MRR is within a tolerance of that scope's best, and the
+MRR given up for it. Choose a pool per your latency budget; the config
+is applied manually.
 
-```toml
-{{ kind_toml }}
-```
+{{ tolerance_table }}
 
-## Per-slug breakdown (best config)
+## Per-slug breakdown (highest-MRR config: pool {{ best_pool }}, blend {{ best_blend }})
 
 {{ slug_table }}
 
-## Per-language breakdown (best config)
+## Per-language breakdown (highest-MRR config: pool {{ best_pool }}, blend {{ best_blend }})
 
 {{ language_table }}
-
-## Recommended config (flat)
-
-```toml
-[reranker]
-pool = {{ best_pool }}
-blend_weight = {{ best_blend }}
-```
 
 ## Run metadata
 

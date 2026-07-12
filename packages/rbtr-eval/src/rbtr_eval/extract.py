@@ -1,10 +1,11 @@
 """`rbtr-eval extract` subcommand.
 
-Reads function/class/method/doc_section chunks from the
-index, generates name/body/docstring queries for all
-documented symbols, subsamples per `(slug, provenance)`
-to a target count, and writes one queries parquet plus
-a header.
+Reads every measurable chunk kind from the index (all of
+`ChunkKind` except the eval's `EXCLUDED_KINDS`), generates
+name / body / docstring queries — each strategy self-gating on
+the chunk's content — subsamples per `(slug, language,
+provenance)` to a target count, and writes one queries parquet
+plus a header.
 """
 
 from __future__ import annotations
@@ -17,11 +18,11 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.index.identity import SCOPE_SEPARATOR
-from rbtr.index.models import ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
 from rbtr.languages.treesitter import extract_doc_spans
+from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import subsample
 from rbtr_eval.schemas import QueryRow, RepoHeader
 
@@ -141,8 +142,10 @@ def queries_for_symbol(
             "text": text,
         }
 
-    # Name query: skip if name is empty (headingless paragraphs).
-    if name:
+    # Name query for chunks with a real name; anonymous chunks
+    # (comments, raw chunks) and heading-less paragraphs yield
+    # body / docstring only.
+    if name and name != "<anonymous>":
         name_text = f"{scope}{SCOPE_SEPARATOR}{name}" if scope else name
         queries.append(_row("name", name_text))
 
@@ -175,11 +178,6 @@ def queries_for_symbol(
     return queries
 
 
-_SYMBOL_KINDS = frozenset(
-    {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD, ChunkKind.DOC_SECTION}
-)
-
-
 def resolve_repo(store: IndexStore, slug: str) -> tuple[int, str]:
     """Find a repo in the store by slug; return `(repo_id, sha)`."""
     for rid, path in store.list_repos():
@@ -198,22 +196,35 @@ def extract_queries(
     sha: str,
     *,
     min_per_language: int = 50,
-) -> tuple[dy.DataFrame[QueryRow], int]:
-    """Generate queries for all documented symbols.
+) -> tuple[dy.DataFrame[QueryRow], int, list[dict[str, str | int]]]:
+    """Generate queries for every measurable chunk.
 
-    Languages with fewer than *min_per_language* documented
-    symbols are dropped (too few for stable MRR).
+    Chunks of any `ChunkKind` except `EXCLUDED_KINDS` are
+    used; each of the name / body / docstring strategies emits a
+    query only when the chunk supports it (a real name, a usable
+    first sentence, a doc span).  Languages with fewer than
+    *min_per_language* measurable chunks are dropped (too few for
+    a stable MRR).
 
-    Returns `(queries_frame, n_total_symbols)`.
+    Returns `(queries_frame, n_measurable_chunks, dropped_languages)`,
+    where `dropped_languages` lists the skipped languages and their
+    chunk counts.
     """
     chunks = store.get_chunks(sha, repo_id=repo_id)
-    symbols = [c for c in chunks if c.kind in _SYMBOL_KINDS and c.name != "<anonymous>"]
+    symbols = [c for c in chunks if c.kind not in EXCLUDED_KINDS]
 
-    # Drop languages with too few symbols.
-    lang_counts: dict[str, int] = {}
-    for c in symbols:
-        lang_counts[c.language] = lang_counts.get(c.language, 0) + 1
-    keep_langs = {lang for lang, n in lang_counts.items() if n >= min_per_language}
+    lang_counts = (
+        pl.DataFrame({"language": [c.language for c in symbols]}).group_by("language").len()
+    )
+    keep_langs = set(
+        lang_counts.filter(pl.col("len") >= min_per_language).get_column("language").to_list()
+    )
+    dropped = (
+        lang_counts.filter(pl.col("len") < min_per_language)
+        .rename({"len": "n_chunks"})
+        .sort("language")
+        .to_dicts()
+    )
 
     rows: list[dict[str, str | int]] = []
     for c in symbols:
@@ -232,7 +243,7 @@ def extract_queries(
             )
         )
 
-    return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True), len(symbols)
+    return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True), len(symbols), dropped
 
 
 class ExtractCmd(BaseModel):
@@ -245,7 +256,7 @@ class ExtractCmd(BaseModel):
     seed: int = Field(0, description="Deterministic-sampling RNG seed.")
     queries_per_cell: int = Field(
         50,
-        description="Target queries per (slug, language, provenance) cell.",
+        description="Target queries per (slug, language, symbol_kind, provenance) cell.",
     )
     min_per_language: int = Field(
         50,
@@ -256,7 +267,7 @@ class ExtractCmd(BaseModel):
         store = IndexStore(str(self.data_dir / "index.duckdb"), writable=True)
         repo_id, sha = resolve_repo(store, self.slug)
 
-        all_queries, n_symbols = extract_queries(
+        all_queries, n_symbols, dropped = extract_queries(
             store,
             self.slug,
             repo_id,
@@ -267,7 +278,7 @@ class ExtractCmd(BaseModel):
             all_queries,
             queries_per_cell=self.queries_per_cell,
             seed=self.seed,
-            strat_keys=("slug", "language", "provenance"),
+            strat_keys=("slug", "language", "symbol_kind", "provenance"),
         )
 
         header = pl.DataFrame(
@@ -278,6 +289,12 @@ class ExtractCmd(BaseModel):
                 "queries_per_cell": [self.queries_per_cell],
                 "n_documented": [n_symbols],
                 "n_queries": [sampled.height],
+                "dropped_languages": [dropped],
+            },
+            schema_overrides={
+                "dropped_languages": pl.List(
+                    pl.Struct({"language": pl.String, "n_chunks": pl.UInt32})
+                )
             },
         ).pipe(RepoHeader.validate, cast=True)
 

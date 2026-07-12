@@ -1,0 +1,221 @@
+{
+  "kind": "daemon_config",
+  "rbtr_version": "2026.6.1",
+  "config": {
+    "data_dir": "data/index",
+    "config_dir": "data/config",
+    "log_dir": "data/logs",
+    "db_name": "index.duckdb",
+    "max_file_size": 524288,
+    "chunk_lines": 50,
+    "chunk_overlap": 5,
+    "embedding_model": "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
+    "query_instruction": "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:",
+    "embedding_pooling_type": 3,
+    "embedding_n_ctx": 2048,
+    "embedding_n_gpu_layers": -1,
+    "embedding_verbose": false,
+    "embedding_batch_size": 32,
+    "insert_batch_size": 512,
+    "reranker_model": "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",
+    "reranker_settings": {
+      "concept": {
+        "pool": 50,
+        "blend_weight": 0.25
+      },
+      "identifier": {
+        "pool": 20,
+        "blend_weight": 0.5
+      },
+      "code": {
+        "pool": 20,
+        "blend_weight": 0.25
+      }
+    },
+    "reranker_idle_timeout": 300,
+    "json_output": true,
+    "log_level": "INFO",
+    "log_format": "auto",
+    "log_max_bytes": 10485760,
+    "log_backup_count": 5,
+    "embed_idle_timeout": 300,
+    "idle_poll_interval": 5.0,
+    "busy_poll_interval": 30.0,
+    "daemon_recv_timeout_ms": 30000,
+    "warmup": true,
+    "retrieval_multiplier_lexical": 5,
+    "retrieval_multiplier_semantic": 10,
+    "max_expansion_keywords": 10,
+    "search_weights": {
+      "concept": {
+        "alpha": 0.5,
+        "beta": 0.4,
+        "gamma": 0.1
+      },
+      "identifier": {
+        "alpha": 0.05,
+        "beta": 0.2,
+        "gamma": 0.75
+      },
+      "code": {
+        "alpha": 0.05,
+        "beta": 0.3,
+        "gamma": 0.65
+      }
+    },
+    "db_path": "data/index/index.duckdb",
+    "daemon_log": "data/logs/daemon.log"
+  },
+  "plugins": [
+    {
+      "language": "bash",
+      "package": "rbtr-lang-bash",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "c",
+      "package": "rbtr-lang-c",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "cpp",
+      "package": "rbtr-lang-cpp",
+      "version": "2026.6.1",
+      "extraction_serial": 6
+    },
+    {
+      "language": "css",
+      "package": "rbtr-lang-css",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "go",
+      "package": "rbtr-lang-go",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "hcl",
+      "package": "rbtr-lang-hcl",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "html",
+      "package": "rbtr-lang-html",
+      "version": "2026.6.1",
+      "extraction_serial": 3
+    },
+    {
+      "language": "java",
+      "package": "rbtr-lang-java",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "javascript",
+      "package": "rbtr-lang-javascript",
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "json",
+      "package": "rbtr-lang-json",
+      "version": "2026.6.1",
+      "extraction_serial": 2
+    },
+    {
+      "language": "less",
+      "package": "rbtr-lang-less",
+      "version": "2026.6.1",
+      "extraction_serial": 3
+    },
+    {
+      "language": "markdown",
+      "package": "rbtr-lang-markdown",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "python",
+      "package": "rbtr-lang-python",
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "rst",
+      "package": "rbtr-lang-rst",
+      "version": "2026.6.1",
+      "extraction_serial": 3
+    },
+    {
+      "language": "ruby",
+      "package": "rbtr-lang-ruby",
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "rust",
+      "package": "rbtr-lang-rust",
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "scss",
+      "package": "rbtr-lang-scss",
+      "version": "2026.6.1",
+      "extraction_serial": 3
+    },
+    {
+      "language": "sql",
+      "package": "rbtr-lang-sql",
+      "version": "2026.6.1",
+      "extraction_serial": 3
+    },
+    {
+      "language": "svelte",
+      "package": "rbtr-lang-svelte",
+      "version": "2026.6.1",
+      "extraction_serial": 1
+    },
+    {
+      "language": "toml",
+      "package": "rbtr-lang-toml",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    },
+    {
+      "language": "tree_sitter_query",
+      "package": "rbtr-lang-tree-sitter-query",
+      "version": "2026.6.1",
+      "extraction_serial": 2
+    },
+    {
+      "language": "tsx",
+      "package": "rbtr-lang-javascript",
+      "version": "2026.6.1",
+      "extraction_serial": 2
+    },
+    {
+      "language": "typescript",
+      "package": "rbtr-lang-javascript",
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "vue",
+      "package": "rbtr-lang-vue",
+      "version": "2026.6.1",
+      "extraction_serial": 1
+    },
+    {
+      "language": "yaml",
+      "package": "rbtr-lang-yaml",
+      "version": "2026.6.1",
+      "extraction_serial": 4
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 """Behaviour tests and invariant guards for the tune objective.
 
-The objective `_rescore_and_rank |> _mrr_per_provenance |> _hmean_mrr`
-is what Bayesian optimisation drives; the tests prove a better weight
-triple scores higher than a worse one, and guard the invariants that
+The objective `_rescore_and_rank |> _mean_mrr` is what Bayesian
+optimisation drives; the tests prove a better weight triple scores
+higher than a worse one, and guard the invariants that
 keep the search well-formed (a valid probability simplex, a complete
 provenance→kind mapping, and a paste-able TOML report).
 """
@@ -16,11 +16,10 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.queries import PROVENANCE_TO_KIND
-from rbtr_eval.schemas import QueryMeta, ScoredCandidate, TuneReport
+from rbtr_eval.queries import with_query_kind
+from rbtr_eval.schemas import QueryMeta, QueryRow, ScoredCandidate, TuneReport
 from rbtr_eval.tune import (
-    _hmean_mrr,
-    _mrr_per_provenance,
+    _mean_mrr,
     _rescore_and_rank,
     _simplex_from_unit_square,
     _toml_snippet,
@@ -47,12 +46,12 @@ def test_objective_scores_weight_triples(
     pair where semantic-heavy vs lexical-heavy weights flip the target
     between rank 1 (MRR 1.0) and rank 2 (MRR 0.5) — the behaviour that
     makes tuning worthwhile — plus the empty-candidates and
-    outside-top-10 guards (null rank, floored MRR, no crash).
+    outside-top-10 guards (null rank, zero MRR, no crash).
     """
     ranks = _rescore_and_rank(candidates, queries, weights)
     assert ranks["rank"].to_list() == expected_ranks
 
-    mrr = ranks.pipe(_mrr_per_provenance).pipe(_hmean_mrr)
+    mrr = _mean_mrr(ranks)
     assert mrr == pytest.approx(expected_mrr, abs=1e-6)
 
 
@@ -81,13 +80,73 @@ def test_simplex_maps_unit_square_to_valid_triple(
     assert all(0.0 <= c <= 1.0 for c in result)
 
 
-def test_every_provenance_has_a_query_kind() -> None:
-    """Every eval provenance maps to a query kind.
+@pytest.fixture
+def query_kind_rows() -> dy.DataFrame[QueryRow]:
+    """Queries whose text shape disagrees with their provenance.
 
-    Guards against adding a provenance without a mapping entry, which
-    would silently misclassify or drop those queries during tuning.
+    The same concept-shaped text appears under two provenances, and
+    an identifier- and a code-shaped query carry provenances a
+    provenance-based mapping would have labelled differently.
     """
-    assert set(PROVENANCE_TO_KIND.keys()) == {"name", "body", "docstring", "concept"}
+    base = {"slug": "r", "scope": "", "symbol_kind": "function", "language": "python"}
+    rows = [
+        {
+            **base,
+            "file_path": "a.py",
+            "name": "a",
+            "line_start": 1,
+            "provenance": "body",
+            "text": "how does the config loader resolve paths",
+        },
+        {
+            **base,
+            "file_path": "a.py",
+            "name": "a",
+            "line_start": 1,
+            "provenance": "docstring",
+            "text": "how does the config loader resolve paths",
+        },
+        {
+            **base,
+            "file_path": "b.py",
+            "name": "b",
+            "line_start": 1,
+            "provenance": "docstring",
+            "text": "fuse_scores",
+        },
+        {
+            **base,
+            "file_path": "c.py",
+            "name": "c",
+            "line_start": 1,
+            "provenance": "name",
+            "text": "def fuse_scores(candidates, query, *, alpha):",
+        },
+    ]
+    return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
+
+
+def test_query_kind_follows_text_not_provenance(
+    query_kind_rows: dy.DataFrame[QueryRow],
+) -> None:
+    """A query's kind is a function of its request text, not its provenance.
+
+    Tuning must partition queries the way production routes them — by
+    `classify_query(text)` — so the same text gets the same kind
+    regardless of how the query was generated, and the kind tracks the
+    text's shape (concept / identifier / code), not the provenance.
+    """
+    tagged = with_query_kind(query_kind_rows)
+    by_text = dict(zip(tagged["text"], tagged["query_kind"], strict=True))
+
+    # Provenance-independence: same text under body and docstring agrees.
+    concept_rows = tagged.filter(pl.col("text") == "how does the config loader resolve paths")
+    assert concept_rows["query_kind"].n_unique() == 1
+
+    # Kind tracks the text's shape, not the provenance.
+    assert by_text["how does the config loader resolve paths"] == "concept"
+    assert by_text["fuse_scores"] == "identifier"
+    assert by_text["def fuse_scores(candidates, query, *, alpha):"] == "code"
 
 
 def test_toml_snippet_is_valid_toml() -> None:

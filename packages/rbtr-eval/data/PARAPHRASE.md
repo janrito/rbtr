@@ -7,299 +7,216 @@ developer searches with different words than the code uses.
 
 ## Summary
 
-| metric          | value                    |
-| --------------- | ------------------------ |
-| model           | `openai:zai-org/GLM-5.1` |
-| concept queries | 1157                     |
+| metric          | value                         |
+| --------------- | ----------------------------- |
+| model           | `openai-chat:zai-org/GLM-5.2` |
+| concept queries | 1526                          |
 
 ## Per repo
 
 | slug               | n   |
 | ------------------ | --- |
-| anthropics__skills | 99  |
-| astral-sh__uv      | 278 |
-| badlogic__pi-mono  | 212 |
-| django__django     | 359 |
-| rbtr__rbtr         | 209 |
+| anthropics__skills | 303 |
+| astral-sh__uv      | 384 |
+| badlogic__pi-mono  | 274 |
+| django__django     | 341 |
+| rbtr__rbtr         | 224 |
 
 ## Per language
 
 | language   | n   |
 | ---------- | --- |
-| markdown   | 244 |
-| python     | 193 |
-| json       | 189 |
-| javascript | 99  |
-| typescript | 89  |
-| rust       | 68  |
-| yaml       | 66  |
-| css        | 50  |
-| rst        | 49  |
-| html       | 45  |
-| toml       | 34  |
-| sql        | 31  |
+| python     | 371 |
+| typescript | 205 |
+| javascript | 171 |
+| css        | 148 |
+| markdown   | 128 |
+| rust       | 117 |
+| json       | 96  |
+| bash       | 93  |
+|            | 50  |
+| yaml       | 38  |
+| toml       | 33  |
+| sql        | 29  |
+| html       | 27  |
+| rst        | 20  |
 
 ## Examples
 
 Randomly sampled symbols showing the source code (LLM input)
 and the generated concept query (LLM output).
 
-### `test_alter_text_field_to_date_field` (`django__django`)
+### `handleApiError` (`anthropics__skills`)
 
-````python
-def test_alter_text_field_to_date_field(self):
-        """
-        #25002 - Test conversion of text field to date field.
-        """
-        with connection.schema_editor() as editor:
-            editor.create_model(Note)
-        Note.objects.create(info="1988-05-05")
-        old_field = Note._meta.get_field("info")
-        new_field = DateField(blank=True)
-        new_field.set_attributes_from_name("info")
-        with connection.schema_editor() as editor:
-            editor.alter_field(Note, old_field, new_field, strict=True)
-        # Make sure the field isn't nullable
-        columns = self.column_classes(Note)
-        self.assertFalse(columns["info"][1][6])
-````
-
-> **concept:** test converting a text field to a date field during database migration
-
-### `const` (`astral-sh__uv`)
-
-````json
-"const": "aarch64-manylinux_2_37"
-````
-
-> **concept:** how to set the platform target for aarch64 manylinux builds
-
-### `match_by_text` (`rbtr__rbtr`)
-
-````python
-def match_by_text(
-        self,
-        commit_sha: str,
-        query: str,
-        top_k: int = 10,
-        *,
-        repo_id: int,
-        embedder: Embedder | None = None,
-    ) -> list[tuple[Chunk, float]]:
-        """Semantic search: embed *query* then find similar chunks."""
-        return scored_to_chunks(
-            self._match_by_text(commit_sha, query, top_k, repo_id=repo_id, embedder=embedder)
-        )
-````
-
-> **concept:** find semantically similar text chunks using a query embedder
-
-### `django/forms/templates/django/forms/p.html` (`django__django`)
-
-````html
-{{ errors }}
-{% if errors and not fields %}
-  <p>{% for field in hidden_fields %}{{ field }}{% endfor %}</p>
-{% endif %}
-{% for field, errors in fields %}
-  {{ errors }}
-  <p{% with classes=field.css_classes %}{% if classes %} class="{{ classes }}"{% endif %}{% endwith %}>
-    {% if field.label %}{{ field.label_tag }}{% endif %}
-    {{ field }}
-    {% if field.help_text %}
-      <span class="helptext"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ field.help_text|safe }}</span>
-    {% endif %}
-    {% if forloop.last %}
-      {% for field in hidden_fields %}{{ field }}{% endfor %}
-    {% endif %}
-  </p>
-{% endfor %}
-{% if not fields and not errors %}
-  {% for field in hidden_fields %}{{ field }}{% endfor %}
-{% endif %}
-````
-
-> **concept:** how to render widget fields with error messages labels and help text
-> inside paragraph tags
-
-### `test_formset_with_ordering_and_deletion` (`django__django`)
-
-````python
-def test_formset_with_ordering_and_deletion(self):
-        """FormSets with ordering + deletion."""
-        ChoiceFormSet = formset_factory(Choice, can_order=True, can_delete=True)
-        initial = [
-            {"choice": "Calexico", "votes": 100},
-            {"choice": "Fergie", "votes": 900},
-            {"choice": "The Decemberists", "votes": 500},
-        ]
-        formset = ChoiceFormSet(initial=initial, auto_id=False, prefix="choices")
-        self.assertHTMLEqual(
-            "\n".join(form.as_ul() for form in formset.forms),
-            '<li>Choice: <input type="text" name="choices-0-choice" value="Calexico">'
-            "</li>"
-            '<li>Votes: <input type="number" name="choices-0-votes" value="100"></li>'
-            '<li>Order: <input type="number" name="choices-0-ORDER" value="1"></li>'
-            '<li>Delete: <input type="checkbox" name="choices-0-DELETE"></li>'
-            '<li>Choice: <input type="text" name="choices-1-choice" value="Fergie">'
-            "</li>"
-            '<li>Votes: <input type="number" name="choices-1-votes" value="900"></li>'
-            '<li>Order: <input type="number" name="choices-1-ORDER" value="2"></li>'
-            '<li>Delete: <input type="checkbox" name="choices-1-DELETE"></li>'
-            '<li>Choice: <input type="text" name="choices-2-choice" '
-            'value="The Decemberists"></li>'
-            '<li>Votes: <input type="number" name="choices-2-votes" value="500"></li>'
-            '<li>Order: <input type="number" name="choices-2-ORDER" value="3"></li>'
-            '<li>Delete: <input type="checkbox" name="choices-2-DELETE"></li>'
-            '<li>Choice: <input type="text" name="choices-3-choice"></li>'
-            '<li>Votes: <input type="number" name="choices-3-votes"></li>'
-            '<li>Order: <input type="number" name="choices-3-ORDER"></li>'
-            '<li>Delete: <input type="checkbox" name="choices-3-DELETE"></li>',
-        )
-        # Let's delete Fergie, and put The Decemberists ahead of Calexico.
-        data = {
-            "choices-TOTAL_FORMS": "4",  # the number of forms rendered
-            "choices-INITIAL_FORMS": "3",  # the number of forms with initial data
-            "choices-MIN_NUM_FORMS": "0",  # min number of forms
-            "choices-MAX_NUM_FORMS": "0",  # max number of forms
-            "choices-0-choice": "Calexico",
-            "choices-0-votes": "100",
-            "choices-0-ORDER": "1",
-            "choices-0-DELETE": "",
-            "choices-1-choice": "Fergie",
-            "choices-1-votes": "900",
-            "choices-1-ORDER": "2",
-            "choices-1-DELETE": "on",
-            "choices-2-choice": "The Decemberists",
-            "choices-2-votes": "500",
-            "choices-2-ORDER": "0",
-            "choices-2-DELETE": "",
-            "choices-3-choice": "",
-            "choices-3-votes": "",
-            "choices-3-ORDER": "",
-            "choices-3-DELETE": "",
-        }
-        formset = ChoiceFormSet(data, auto_id=False, prefix="choices")
-        self.assertTrue(formset.is_valid())
-        self.assertEqual(
-            [form.cleaned_data for form in formset.ordered_forms],
-            [
-                {
-                    "votes": 500,
-                    "DELETE": False,
-                    "ORDER": 0,
-                    "choice": "The Decemberists",
-                },
-                {"votes": 100, "DELETE": False, "ORDER": 1, "choice": "Calexico"},
-            ],
-        )
-        self.assertEqual(
-            [form.cleaned_data for form in formset.deleted_forms],
-            [{"votes": 900, "DELETE": True, "ORDER": 2, "choice": "Fergie"}],
-        )
-````
-
-> **concept:** Django formset supporting both ordering and deletion of form entries
-
-### `#toolbar form #searchbar` (`django__django`)
-
-````css
-#toolbar form #searchbar {
-        flex: 1 0 auto;
-        width: 0;
-        height: 1.375rem;
-        margin: 0 10px 0 6px;
+````typescript
+function handleApiError(error: unknown): string {
+  if (error instanceof AxiosError) {
+    if (error.response) {
+      switch (error.response.status) {
+        case 404:
+          return "Error: Resource not found. Please check the ID is correct.";
+        case 403:
+          return "Error: Permission denied. You don't have access to this resource.";
+        case 429:
+          return "Error: Rate limit exceeded. Please wait before making more requests.";
+        default:
+          return `Error: API request failed with status ${error.response.status}`;
+      }
+    } else if (error.code === "ECONNABORTED") {
+      return "Error: Request timed out. Please try again.";
     }
-````
-
-> **concept:** how to make a search bar expand to fill available space in a toolbar
-> using flexbox
-
-### `dist` (`astral-sh__uv`)
-
-````toml
-[profile.dist]
-inherits = "release"
-````
-
-> **concept:** how to create a custom build configuration that inherits release settings
-
-### `createDisabledPseudo` (`django__django`)
-
-````javascript
-/**
- * Returns a function to use in pseudos for :enabled/:disabled
- * @param {Boolean} disabled true for :disabled; false for :enabled
- */
-function createDisabledPseudo( disabled ) {
-
-	// Known :disabled false positives: fieldset[disabled] > legend:nth-of-type(n+2) :can-disable
-	return function( elem ) {
-
-		// Only certain elements can match :enabled or :disabled
-		// https://html.spec.whatwg.org/multipage/scripting.html#selector-enabled
-		// https://html.spec.whatwg.org/multipage/scripting.html#selector-disabled
-		if ( "form" in elem ) {
-
-			// Check for inherited disabledness on relevant non-disabled elements:
-			// * listed form-associated elements in a disabled fieldset
-			//   https://html.spec.whatwg.org/multipage/forms.html#category-listed
-			//   https://html.spec.whatwg.org/multipage/forms.html#concept-fe-disabled
-			// * option elements in a disabled optgroup
-			//   https://html.spec.whatwg.org/multipage/forms.html#concept-option-disabled
-			// All such elements have a "form" property.
-			if ( elem.parentNode && elem.disabled === false ) {
-
-				// Option elements defer to a parent optgroup if present
-				if ( "label" in elem ) {
-					if ( "label" in elem.parentNode ) {
-						return elem.parentNode.disabled === disabled;
-					} else {
-						return elem.disabled === disabled;
-					}
-				}
-
-				// Support: IE 6 - 11+
-				// Use the isDisabled shortcut property to check for disabled fieldset ancestors
-				return elem.isDisabled === disabled ||
-
-					// Where there is no isDisabled, check manually
-					elem.isDisabled !== !disabled &&
-						inDisabledFieldset( elem ) === disabled;
-			}
-
-			return elem.disabled === disabled;
-
-		// Try to winnow out elements that can't be disabled before trusting the disabled property.
-		// Some victims get caught in our net (label, legend, menu, track), but it shouldn't
-		// even exist on them, let alone have a boolean value.
-		} else if ( "label" in elem ) {
-			return elem.disabled === disabled;
-		}
-
-		// Remaining elements are neither :enabled nor :disabled
-		return false;
-	};
+  }
+  return `Error: Unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`;
 }
 ````
 
-> **concept:** check if a form element is enabled or disabled for CSS pseudo-selector
-> matching
+> **concept:** Convert HTTP and network errors into human-readable error messages
 
-### `partial_cmp` (`astral-sh__uv`)
+### `.github/renovate.json5:181-196` (`astral-sh__uv`)
+
+````text
+customType: "regex",
+      managerFilePatterns: ["/(^|/)rust-toolchain\\.toml?$/"],
+      matchStrings: [
+        'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+(\\.\\d+)?)"',
+      ],
+      depNameTemplate: "rust",
+      packageNameTemplate: "rust-lang/rust",
+      datasourceTemplate: "github-releases",
+    },
+  ],
+  vulnerabilityAlerts: {
+    commitMessageSuffix: "",
+    labels: ["internal", "security"],
+  },
+}
+````
+
+> **concept:** how to configure custom regex pattern matching for rust toolchain version
+> updates
+
+### `with_cache_on_nocow_fs` (`astral-sh__uv`)
 
 ````rust
-fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+/// Use a cache directory on the filesystem specified by
+    /// [`EnvVars::UV_INTERNAL__TEST_NOCOW_FS`].
+    ///
+    /// Returns `Ok(None)` if the environment variable is not set.
+    pub fn with_cache_on_nocow_fs(self) -> anyhow::Result<Option<Self>> {
+        let Some(dir) = env::var(EnvVars::UV_INTERNAL__TEST_NOCOW_FS).ok() else {
+            return Ok(None);
+        };
+        self.with_cache_on_fs(&dir, "NOCOW_FS").map(Some)
     }
 ````
 
-> **concept:** Compare two values for partial ordering
+> **concept:** Configure cache to use a filesystem directory specified by an environment
+> variable for no copy-on-write testing
 
-### `mrr` (`rbtr__rbtr`)
+### `SocketModeClient` (`badlogic__pi-mono`)
 
-````json
-"mrr": 0.4622014177839421
+````javascript
+{ SocketModeClient } = require('@slack/socket-mode')
 ````
 
-> **concept:** how to evaluate search ranking quality using reciprocal rank scores
+> **concept:** how to import the Slack socket mode client using require
+
+### `processOutput` (`badlogic__pi-mono`)
+
+````typescript
+// Process log output line by line
+	const processOutput = (data: Buffer) => {
+		const lines = data.toString().split("\n");
+		for (const line of lines) {
+			if (line) {
+				console.log(line); // Echo the line to console
+
+				// Check for startup complete message
+				if (line.includes("Application startup complete")) {
+					startupComplete = true;
+					logProcess.kill(); // Stop tailing logs
+				}
+
+				// Check for failure indicators
+				if (line.includes("Model runner exiting with code") && !line.includes("code 0")) {
+					startupFailed = true;
+					failureReason = "Model runner failed to start";
+					logProcess.kill();
+				}
+				if (line.includes("Script exited with code") && !line.includes("code 0")) {
+					startupFailed = true;
+					failureReason = "Script failed to execute";
+					logProcess.kill();
+				}
+				if (line.includes("torch.OutOfMemoryError") || line.includes("CUDA out of memory")) {
+					startupFailed = true;
+					failureReason = "Out of GPU memory (OOM)";
+					// Don't kill immediately - let it show more error context
+				}
+				if (line.includes("RuntimeError: Engine core initialization failed")) {
+					startupFailed = true;
+					failureReason = "vLLM engine initialization failed";
+					logProcess.kill();
+				}
+			}
+		}
+	};
+````
+
+> **concept:** Parse log output line by line to detect startup success or failure
+> conditions like OOM errors and exit codes
+
+### `--selected-row` (`django__django`)
+
+````css
+--selected-row: #00363a;
+````
+
+> **concept:** how to set custom theme variable for highlighted table row color
+
+### `ImportedModelBackend` (`django__django`)
+
+````python
+class ImportedModelBackend(ModelBackend):
+    pass
+````
+
+> **concept:** Django model authentication backend imported from external module
+
+### `tests/fixtures_regress/fixtures/sequence_extra_yaml.yaml` (`django__django`)
+
+````yaml
+
+````
+
+> **concept:** how to configure settings using YAML format
+
+### `EmbedJob` (`rbtr__rbtr`)
+
+````python
+class EmbedJob(BaseModel):
+    """An embed-index job for the unified work queue."""
+
+    model_config = _STRICT
+    kind: Literal["embed"] = "embed"
+    path: str
+    repo_id: int
+    ref: str
+
+    @property
+    def dedupe_key(self) -> Hashable:
+        return (self.repo_id, self.ref)
+````
+
+> **concept:** Queue job definition for embedding repository content at a specific ref
+
+### `meta` (`rbtr__rbtr`)
+
+````sql
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)
+````
+
+> **concept:** create a simple key-value configuration table in the database

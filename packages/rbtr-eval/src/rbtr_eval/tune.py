@@ -33,7 +33,7 @@ from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import PROVENANCE_TO_KIND, load_all_queries, sample_distribution, subsample
+from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
     DetailedOutcome,
@@ -43,18 +43,6 @@ from rbtr_eval.schemas import (
     ScoredCandidate,
     TuneReport,
 )
-
-# ── Provenance → QueryKind mapping ───────────────────────────────────────────
-
-
-def _with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:
-    """Add a `query_kind` column mapped from `provenance`."""
-    return queries.with_columns(
-        pl.col("provenance")
-        .replace_strict(PROVENANCE_TO_KIND, default=QueryKind.CONCEPT.value)
-        .alias("query_kind"),
-    )
-
 
 # ── Scored-candidate collection ──────────────────────────────────────────────
 
@@ -116,12 +104,14 @@ def _collect_scored_candidates(
     )
 
     meta = (
-        queries.with_row_index("query_idx")
+        with_query_kind(queries)
+        .with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "file_path",
             "scope",
             "name",
@@ -198,11 +188,14 @@ def _mrr_per_provenance(
     )
 
 
-def _hmean_mrr(per_provenance: pl.DataFrame) -> float:
-    """Harmonic mean of the `mrr` column, floored at 1e-9."""
-    return per_provenance.select(
-        pl.len().cast(pl.Float64) / (1.0 / pl.col("mrr").clip(lower_bound=1e-9)).sum()
-    ).item()
+def _mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
+    """Micro-averaged MRR over all queries, reusing `search_metric_aggs`.
+
+    One value per query kind's whole query set — the mean reciprocal
+    rank, matching the `mrr` the benchmark reports. Unlike a harmonic
+    mean over buckets, a single weak bucket cannot collapse it.
+    """
+    return ranks.select(*search_metric_aggs()).get_column("mrr").item()
 
 
 # ── Simplex parameterisation ─────────────────────────────────────────────────
@@ -435,7 +428,7 @@ def _run_study(
 
         trial_ranks = _rescore_and_rank(candidates, meta, weights)
         per_prov = trial_ranks.pipe(_mrr_per_provenance)
-        mrr = per_prov.pipe(_hmean_mrr)
+        mrr = _mean_mrr(trial_ranks)
 
         study.tell(trial, mrr)
 
@@ -491,7 +484,7 @@ class TuneCmd(BaseModel):
         all_queries: dy.DataFrame[QueryRow],
         t0: float,
     ) -> None:
-        tagged = _with_query_kind(all_queries)
+        tagged = with_query_kind(all_queries)
         kinds = [k.value for k in QueryKind]
 
         # Pre-compute per-kind subsampled query sets.
@@ -539,7 +532,7 @@ class TuneCmd(BaseModel):
 
                 t = rbtr_config.search_weights[QueryKind(kind)]
                 baseline_ranks = _rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
-                baseline_mrr = baseline_ranks.pipe(_mrr_per_provenance).pipe(_hmean_mrr)
+                baseline_mrr = _mean_mrr(baseline_ranks)
 
                 best_weights, best_mrr, best_ranks, trials_data = _run_study(
                     candidates,

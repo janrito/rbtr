@@ -2,47 +2,52 @@
 
 | metric | value   |
 | ------ | ------- |
-| chunks | 138,762 |
-| edges  | 31,337  |
+| chunks | 162,295 |
+| edges  | 32,485  |
 
 ## Repos
 
 | repo               | chunks | edges |
 | ------------------ | ------ | ----- |
-| anthropics__skills | 2440   | 599   |
-| astral-sh__uv      | 28271  | 4006  |
-| badlogic__pi-mono  | 17593  | 2590  |
-| django__django     | 84477  | 23015 |
-| rbtr__rbtr         | 5981   | 1127  |
+| anthropics__skills | 4692   | 1145  |
+| astral-sh__uv      | 35610  | 9950  |
+| badlogic__pi-mono  | 27381  | 4211  |
+| django__django     | 87749  | 16307 |
+| rbtr__rbtr         | 6863   | 872   |
 
 ## Chunk kinds
 
 | kind        | n     | outbound_edges | inbound_edges |
 | ----------- | ----- | -------------- | ------------- |
-| doc_section | 38389 | 0              | 4067          |
-| method      | 35211 | 6248           | 2634          |
-| import      | 32544 | 24162          | 0             |
-| class       | 15094 | 0              | 14719         |
-| function    | 12002 | 927            | 7016          |
-| variable    | 4385  | 0              | 2894          |
-| raw_chunk   | 1137  | 0              | 7             |
+| method      | 38164 | 0              | 3214          |
+| import      | 33032 | 32485          | 0             |
+| doc_section | 22231 | 0              | 6747          |
+| class       | 18959 | 0              | 13015         |
+| config_key  | 16665 | 0              | 2016          |
+| function    | 12145 | 0              | 4751          |
+| comment     | 11009 | 0              | 0             |
+| variable    | 8279  | 0              | 2722          |
+| raw_chunk   | 1811  | 0              | 20            |
 
 ## Languages
 
 | lang        | n     | outbound_edges | inbound_edges |
 | ----------- | ----- | -------------- | ------------- |
-| python      | 61893 | 19562          | 23944         |
-| rust        | 20790 | 1168           | 1167          |
-| markdown    | 16049 | 4347           | 3918          |
-| rst         | 15509 | 4403           | 2             |
-| json        | 13545 | 0              | 147           |
-| typescript  | 6076  | 1708           | 1981          |
-| css         | 1493  | 0              | 0             |
-| (plaintext) | 1117  | 0              | 7             |
-| javascript  | 710   | 4              | 171           |
-| toml        | 685   | 0              | 0             |
-| html        | 438   | 145            | 0             |
-| yaml        | 271   | 0              | 0             |
-| bash        | 101   | 0              | 0             |
-| sql         | 69    | 0              | 0             |
-| c           | 16    | 0              | 0             |
+| python      | 64584 | 12576          | 17266         |
+| rust        | 27331 | 2438           | 2412          |
+| markdown    | 16143 | 10375          | 6749          |
+| rst         | 15509 | 4404           | 4             |
+| json        | 15386 | 0              | 510           |
+| typescript  | 14411 | 2533           | 3722          |
+| javascript  | 2941  | 4              | 181           |
+| css         | 2053  | 0              | 1             |
+| (plaintext) | 1130  | 0              | 14            |
+| toml        | 989   | 0              | 1420          |
+| bash        | 686   | 0              | 120           |
+| html        | 498   | 155            | 0             |
+| yaml        | 310   | 0              | 86            |
+| java        | 131   | 0              | 0             |
+| sql         | 73    | 0              | 0             |
+| go          | 59    | 0              | 0             |
+| ruby        | 39    | 0              | 0             |
+| c           | 22    | 0              | 0             |

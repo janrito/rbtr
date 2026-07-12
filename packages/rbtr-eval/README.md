@@ -68,18 +68,18 @@ flowchart TD
 
 ### Stages
 
-| Stage               | What it does                                             | Output                                                       |
-| ------------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
-| `clone@<slug>`      | `git clone --depth 1` each repo                          | `data/repos/<slug>/`                                         |
-| `extract@<slug>`    | sample docstring-derived queries from one repo           | `data/per-repo/<slug>.parquet`, `data/headers/<slug>.parquet`|
-| `paraphrase@<slug>` | LLM-generate concept queries per repo                    | `data/concept/<slug>.parquet`                                |
-| `paraphrase-report` | summarise paraphrase quality                             |                                                              |
-| `expand`            | LLM-generate keywords/variants for all queries           | `data/expansion/expansions.parquet`                          |
-| `index`             | chunk repos into the DuckDB index (no embeddings)        | `data/index/`                                                |
-| `embed`             | embed all chunks                                         | `data/index/`                                                |
-| `measure`           | replay every query under each expansion arm; aggregate   | `data/metrics.json`                                          |
-| `tune`              | Bayesian-optimise fusion weights                         |                                                              |
-| `tune-reranker`     | grid-search reranker pool size and blend weight per kind |                                                              |
+| Stage               | What it does                                                        | Output                                                        |
+| ------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `clone@<slug>`      | `git clone --depth 1` each repo                                     | `data/repos/<slug>/`                                          |
+| `extract@<slug>`    | sample name/body/docstring queries from every measurable chunk kind | `data/per-repo/<slug>.parquet`, `data/headers/<slug>.parquet` |
+| `paraphrase@<slug>` | LLM-generate concept queries per repo                               | `data/concept/<slug>.parquet`                                 |
+| `paraphrase-report` | summarise paraphrase quality                                        |                                                               |
+| `expand`            | LLM-generate keywords/variants for all queries                      | `data/expansion/expansions.parquet`                           |
+| `index`             | chunk repos into the DuckDB index (no embeddings)                   | `data/index/`                                                 |
+| `embed`             | embed all chunks                                                    | `data/index/`                                                 |
+| `measure`           | replay every query under each expansion arm; aggregate              | `data/metrics.json`                                           |
+| `tune`              | Bayesian-optimise fusion weights                                    |                                                               |
+| `tune-reranker`     | grid-search reranker pool size and blend weight per kind            |                                                               |
 
 Indexing is split into `index` (chunking) and `embed`
 (embedding) so that `extract` and `paraphrase` can run in

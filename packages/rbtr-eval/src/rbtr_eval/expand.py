@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.index.classify import classify_query
@@ -42,6 +43,9 @@ from rbtr_eval.queries import load_all_queries
 from rbtr_eval.schemas import ExpansionRow, QueryRow
 
 log = logging.getLogger(__name__)
+
+# Fail the stage rather than write a dataset gutted by endpoint errors.
+_MIN_YIELD = 0.5
 
 
 # ── Deps ─────────────────────────────────────────────────────────────
@@ -88,6 +92,11 @@ expand_agent: Agent[ExpansionContext, ExpansionResult] = Agent(
     output_type=ExpansionResult,
     deps_type=ExpansionContext,
     retries={"output": 3},
+    # Generating keywords/variants needs no reasoning pass, so turn it
+    # off (reasoning tokens only add latency and cost, and can crowd
+    # out the answer).  Bound each request too, so a stalled endpoint
+    # can't hang the stage.
+    model_settings=ModelSettings(timeout=60, extra_body={"reasoning_effort": "none"}),
 )
 
 
@@ -336,6 +345,14 @@ class ExpandCmd(BaseModel):
                 on_progress=on_progress,
             )
 
+        if queries.height and result.height < _MIN_YIELD * queries.height:
+            msg = (
+                f"expand yielded {result.height}/{queries.height} expansions "
+                f"({result.height / queries.height:.0%}), below the "
+                f"{_MIN_YIELD:.0%} floor — likely endpoint connection errors"
+            )
+            raise SystemExit(msg)
+
         self.out.parent.mkdir(parents=True, exist_ok=True)
         result.write_parquet(self.out)
         log.info("Wrote %d rows to %s", result.height, self.out)
@@ -430,7 +447,7 @@ def _render_expansion_report(
     # Sampled examples: up to 5 per kind. Show the actual query
     # text (the fragment the model expanded), not the name.
     examples: list[dict[str, str]] = []
-    for kind in (QueryKind.CONCEPT, QueryKind.IDENTIFIER, QueryKind.CODE):
+    for kind in QueryKind:
         # Unique by name so the sample never repeats a symbol
         # (e.g. many GitHub workflows share the name `on`).
         subset = expanded.filter(pl.col("query_kind") == kind.value).unique(
