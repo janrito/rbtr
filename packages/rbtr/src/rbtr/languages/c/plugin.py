@@ -21,33 +21,25 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 # ── Query ────────────────────────────────────────────────────────────
 
-_QUERY = load_query(__package__, "c")
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class CPlugin:
-    """C language support — functions, structs, enums, includes."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="c",
-                extensions=frozenset({".c", ".h"}),
-                grammar_module="tree_sitter_c",
-                query=_QUERY,
-                # C grammar uses a single `comment` node for
-                # both `//` and `/* */` (and `/** */`).  Attach
-                # any leading run.
-                doc_comment_node_types=frozenset({"comment"}),
-                source_roots=("", "include", "src"),
-                test_prefix="test_",
-                language_plugin_version=3,
-            ),
-        ]
+c = LanguageRegistration(
+    id="c",
+    extensions=frozenset({".c", ".h"}),
+    grammar_module="tree_sitter_c",
+    query=load_query(__package__, "c"),
+    # C grammar uses a single `comment` node for
+    # both `//` and `/* */` (and `/** */`).  Attach
+    # any leading run.
+    doc_comment_node_types=frozenset({"comment"}),
+    source_roots=("", "include", "src"),
+    test_prefix="test_",
+    language_plugin_version=3,
+)

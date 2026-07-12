@@ -22,8 +22,8 @@ from tree_sitter import Parser
 
 from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -104,42 +104,20 @@ def _vue_grammar() -> Language:
     return tree_sitter_language_pack.get_language("vue")
 
 
-class SveltePlugin:
-    """Svelte SFC support — template chunk + script/style injection."""
+svelte = LanguageRegistration(
+    id="svelte",
+    extensions=frozenset({".svelte"}),
+    grammar_module="tree_sitter_svelte",
+    injection_query=_SFC_INJECTIONS,
+    language_plugin_version=1,
+)
+vue = LanguageRegistration(
+    id="vue",
+    extensions=frozenset({".vue"}),
+    grammar_factory=_vue_grammar,
+    injection_query=_SFC_INJECTIONS,
+    language_plugin_version=1,
+)
 
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="svelte",
-                extensions=frozenset({".svelte"}),
-                grammar_module="tree_sitter_svelte",
-                chunker=chunk_sfc,
-                injection_query=_SFC_INJECTIONS,
-                language_plugin_version=1,
-            ),
-        ]
-
-
-class VuePlugin:
-    """Vue SFC support — same template chunk + injection as Svelte.
-
-    Vue's grammar is loaded from `tree-sitter-language-pack`, which
-    returns a ready `Language` (hence `grammar_factory`, not
-    `grammar_module`). Its `<script>`/`<style>`/`raw_text` node shapes
-    match Svelte's (its template is a `template_element`), so it reuses
-    `chunk_sfc` and `_SFC_INJECTIONS`.
-    """
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="vue",
-                extensions=frozenset({".vue"}),
-                grammar_factory=_vue_grammar,
-                chunker=chunk_sfc,
-                injection_query=_SFC_INJECTIONS,
-                language_plugin_version=1,
-            ),
-        ]
+svelte.chunker(chunk_sfc)
+vue.chunker(chunk_sfc)

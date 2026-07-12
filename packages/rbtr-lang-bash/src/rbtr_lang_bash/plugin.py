@@ -20,59 +20,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl, resolve_name
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration, NameResolver
 
 if TYPE_CHECKING:
     from tree_sitter import Node
 
 
-def _strip_alias_eq(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
-    """Default name, with the `=` the grammar fuses onto an alias removed."""
-    return resolve_name(capture_name, node, captures).rstrip("=")
-
-
 # ── Query ────────────────────────────────────────────────────────────
 
-_QUERY = load_query(__package__, "bash")
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class BashPlugin:
-    """Bash / shell language support.
-
-    Provides function extraction only.  `scope_types` is empty
-    because Bash has no class-like scoping constructs — all
-    functions are top-level.
-    """
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="bash",
-                extensions=frozenset({".sh", ".bash", ".zsh"}),
-                filenames=frozenset(
-                    {
-                        "Makefile",
-                        "Dockerfile",
-                        "Bashrc",
-                        ".bashrc",
-                        ".bash_profile",
-                        ".zshrc",
-                    }
-                ),
-                grammar_module="tree_sitter_bash",
-                query=_QUERY,
-                # Bash: `#` comments above a function attach.
-                doc_comment_node_types=frozenset({"comment"}),
-                name_extractor=_strip_alias_eq,
-                language_plugin_version=3,
-            ),
-        ]
+bash = LanguageRegistration(
+    id="bash",
+    extensions=frozenset({".sh", ".bash", ".zsh"}),
+    filenames=frozenset(
+        {
+            "Makefile",
+            "Dockerfile",
+            "Bashrc",
+            ".bashrc",
+            ".bash_profile",
+            ".zshrc",
+        }
+    ),
+    grammar_module="tree_sitter_bash",
+    query=load_query(__package__, "bash"),
+    # Bash: `#` comments above a function attach.
+    doc_comment_node_types=frozenset({"comment"}),
+    language_plugin_version=3,
+)
 
 
-# Entry-point target: pluggy registers this instance (see ARCHITECTURE
-# "External plugins").
-PLUGIN = BashPlugin()
+@bash.name_extractor
+def _strip_alias_eq(
+    resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+) -> str:
+    """Default name, with the `=` the grammar fuses onto an alias removed."""
+    return resolver(capture_name, node, captures).rstrip("=")

@@ -15,25 +15,17 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import LanguageRegistration
 
 # Top-level keys only: pairs of the document's own block mapping.
 # Nested pairs sit in a value's block mapping and do not match.
-_QUERY = load_query(__package__, "yaml")
 
 
-class YamlPlugin:
-    """YAML language support — top-level key extraction via query."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="yaml",
-                extensions=frozenset({".yaml", ".yml"}),
-                grammar_module="tree_sitter_yaml",
-                query=_QUERY,
-                language_plugin_version=2,
-            ),
-        ]
+yaml = LanguageRegistration(
+    id="yaml",
+    extensions=frozenset({".yaml", ".yml"}),
+    grammar_module="tree_sitter_yaml",
+    query=load_query(__package__, "yaml"),
+    language_plugin_version=2,
+)

@@ -27,15 +27,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, collect_scoped_path, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
+    ImportResolver,
+    LanguageRegistration,
+    collect_scoped_path,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
 
 # ── Query ────────────────────────────────────────────────────────────
 
-_QUERY = load_query(__package__, "rust")
 
 # ── Import extractor ─────────────────────────────────────────────────
 
@@ -59,7 +62,9 @@ def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
         meta.module = "/".join(parts)
 
 
-def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+def extract_import_meta(
+    _resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+) -> ImportMeta:
     """Extract import data from a Rust `use_declaration` node.
 
     Walks the node's `argument` field for module path and names.
@@ -124,37 +129,24 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
 # ── Plugin ───────────────────────────────────────────────────────────
 
 
-class RustPlugin:
-    """Rust language support.
+rust = LanguageRegistration(
+    id="rust",
+    extensions=frozenset({".rs"}),
+    grammar_module="tree_sitter_rust",
+    query=load_query(__package__, "rust"),
+    scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
+    class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
+    # Rust splits doc comments (`///`, `//!`) from
+    # regular line/block comments at parse time by
+    # wrapping them in distinct grammar rules, but
+    # the containing sibling type is always
+    # `line_comment` or `block_comment`.  Include
+    # both so any leading comment run attaches.
+    doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
+    index_files=frozenset({"mod.rs"}),
+    path_substitutions=(("crate/", "src/"),),
+    test_prefix="test_",
+    language_plugin_version=4,
+)
 
-    Uses `impl_item` and `struct_item` for scope detection
-    because Rust methods are defined inside `impl` blocks, not
-    directly inside `struct` definitions.
-    """
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="rust",
-                extensions=frozenset({".rs"}),
-                grammar_module="tree_sitter_rust",
-                query=_QUERY,
-                import_extractor=extract_import_meta,
-                scope_types=frozenset(
-                    {"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}
-                ),
-                class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
-                # Rust splits doc comments (`///`, `//!`) from
-                # regular line/block comments at parse time by
-                # wrapping them in distinct grammar rules, but
-                # the containing sibling type is always
-                # `line_comment` or `block_comment`.  Include
-                # both so any leading comment run attaches.
-                doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
-                index_files=frozenset({"mod.rs"}),
-                path_substitutions=(("crate/", "src/"),),
-                test_prefix="test_",
-                language_plugin_version=4,
-            ),
-        ]
+rust.import_extractor(extract_import_meta)

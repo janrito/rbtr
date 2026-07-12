@@ -22,12 +22,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import (
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
+    ImportResolver,
     LanguageRegistration,
-    build_import_from_captures,
-    hookimpl,
-    resolve_name,
+    NameResolver,
 )
 
 if TYPE_CHECKING:
@@ -37,11 +36,9 @@ if TYPE_CHECKING:
 # sectioning content and landmarks, and self-contained units. Named by their
 # `id` when present, else by tag.
 
-_QUERY = load_query(__package__, "html")
 
 # Inline <script>/<style> delegate to JavaScript/CSS. External <script src>/
 # <link href> have no raw_text, so they are skipped here and become imports.
-_INJECTIONS = load_query(__package__, "injections")
 
 
 def _get_attr(start_tag: Node, attr_name: str) -> str | None:
@@ -68,10 +65,27 @@ def _get_attr(start_tag: Node, attr_name: str) -> str | None:
     return None
 
 
-def _element_name(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
+# ── Plugin ───────────────────────────────────────────────────────────
+
+
+html = LanguageRegistration(
+    id="html",
+    extensions=frozenset({".html", ".htm"}),
+    grammar_module="tree_sitter_html",
+    query=load_query(__package__, "html"),
+    injection_query=load_query(__package__, "injections"),
+    import_targets=frozenset({"javascript", "typescript", "css"}),
+    language_plugin_version=2,
+)
+
+
+@html.name_extractor
+def _element_name(
+    resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+) -> str:
     """Name a semantic element by its `id`, else its tag; others by default."""
     if capture_name != "doc_section":
-        return resolve_name(capture_name, node, captures)
+        return resolver(capture_name, node, captures)
     start_tag = next((c for c in node.children if c.type == "start_tag"), None)
     if start_tag is not None:
         elem_id = _get_attr(start_tag, "id")
@@ -83,31 +97,11 @@ def _element_name(capture_name: str, node: Node, captures: dict[str, list[Node]]
     return "<anonymous>"
 
 
-def _import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
+@html.import_extractor
+def _import_meta(
+    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+) -> ImportMeta:
     """Import metadata with a language hint from the element kind."""
-    meta = build_import_from_captures(node, captures)
+    meta = resolver(node, captures)
     meta.language_hint = "javascript" if node.type == "script_element" else "css"
     return meta
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
-class HtmlPlugin:
-    """HTML language support — semantic-element chunks + cross-language imports."""
-
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="html",
-                extensions=frozenset({".html", ".htm"}),
-                grammar_module="tree_sitter_html",
-                query=_QUERY,
-                name_extractor=_element_name,
-                import_extractor=_import_meta,
-                injection_query=_INJECTIONS,
-                import_targets=frozenset({"javascript", "typescript", "css"}),
-                language_plugin_version=2,
-            ),
-        ]

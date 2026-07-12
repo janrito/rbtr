@@ -18,16 +18,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages._queries import load_query
-from rbtr.languages.hookspec import LanguageRegistration, enclosing_nodes_of_type, hookimpl
+from rbtr.languages.queries import load_query
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    ScopeResolver,
+    enclosing_nodes_of_type,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-_QUERY = load_query(__package__, "css")
 
-
-def css_nesting_scope(capture_name: str, node: Node, captures: dict[str, list[Node]]) -> list[str]:
+def css_nesting_scope(
+    _resolver: ScopeResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
+) -> list[str]:
     """Scope a chunk under its ancestor rule-set selectors.
 
     Shared by the CSS family (CSS/SCSS/Less), whose rule sets nest:
@@ -44,19 +48,13 @@ def css_nesting_scope(capture_name: str, node: Node, captures: dict[str, list[No
     return segments
 
 
-class CssPlugin:
-    """CSS language support — rule-set extraction + @import edges."""
+css = LanguageRegistration(
+    id="css",
+    extensions=frozenset({".css"}),
+    grammar_module="tree_sitter_css",
+    query=load_query(__package__, "css"),
+    import_targets=frozenset({"css"}),
+    language_plugin_version=2,
+)
 
-    @hookimpl
-    def rbtr_register_languages(self) -> list[LanguageRegistration]:
-        return [
-            LanguageRegistration(
-                id="css",
-                extensions=frozenset({".css"}),
-                grammar_module="tree_sitter_css",
-                query=_QUERY,
-                scope_extractor=css_nesting_scope,
-                import_targets=frozenset({"css"}),
-                language_plugin_version=2,
-            ),
-        ]
+css.scope_extractor(css_nesting_scope)

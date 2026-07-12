@@ -4,10 +4,9 @@ Collects `LanguageRegistration` instances from all plugins,
 builds lookup tables, and provides the public API for language
 detection, grammar loading, and import metadata extraction.
 
-The manager is a singleton accessed via `get_manager`.
-Built-in plugins are registered in precedence order (defaults
-first, then specific languages), and external plugins discovered
-via the `rbtr.languages` entry-point group override both.
+The manager is a singleton accessed via `get_manager`. All
+languages are discovered from the `rbtr.languages` entry-point
+group; each entry point resolves to a `LanguageRegistration`.
 
 Example usage::
 
@@ -35,33 +34,17 @@ Example usage::
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 from functools import lru_cache
 from pathlib import PurePosixPath
 
-import pluggy
+import structlog
 from tree_sitter import Language
 
-from rbtr.languages.c.plugin import CPlugin
-from rbtr.languages.cpp.plugin import CppPlugin
-from rbtr.languages.css.plugin import CssPlugin
-from rbtr.languages.go.plugin import GoPlugin
-from rbtr.languages.hcl.plugin import HclPlugin
-from rbtr.languages.hookspec import PROJECT_NAME, LanguageHookspec, LanguageRegistration
-from rbtr.languages.html.plugin import HtmlPlugin
-from rbtr.languages.java.plugin import JavaPlugin
-from rbtr.languages.javascript.plugin import JavaScriptPlugin
-from rbtr.languages.json.plugin import JsonPlugin
-from rbtr.languages.less.plugin import LessPlugin
-from rbtr.languages.markdown.plugin import MarkdownPlugin
-from rbtr.languages.python.plugin import PythonPlugin
-from rbtr.languages.query.plugin import QueryPlugin
-from rbtr.languages.rst.plugin import RstPlugin
-from rbtr.languages.ruby.plugin import RubyPlugin
-from rbtr.languages.rust.plugin import RustPlugin
-from rbtr.languages.scss.plugin import ScssPlugin
-from rbtr.languages.sfc.plugin import SveltePlugin, VuePlugin
-from rbtr.languages.toml.plugin import TomlPlugin
-from rbtr.languages.yaml.plugin import YamlPlugin
+from rbtr.errors import RbtrError
+from rbtr.languages.registration import LanguageRegistration
+
+log = structlog.get_logger(__name__)
 
 
 class LanguageManager:
@@ -70,11 +53,9 @@ class LanguageManager:
     Use `get_manager` to obtain the cached singleton instead
     of constructing directly.
 
-    Precedence order (later overrides earlier):
-
-    1. Built-in language plugins (registered by `_register_builtins`).
-    2. External plugins via `rbtr.languages` entry points, which
-       override built-ins.
+    Languages are discovered from the `rbtr.languages` entry-point
+    group; each entry point resolves to a `LanguageRegistration`, and
+    a duplicate language id raises `RbtrError`.
 
     Example — checking what's registered::
 
@@ -86,71 +67,34 @@ class LanguageManager:
     """
 
     def __init__(self) -> None:
-        self._pm = pluggy.PluginManager(PROJECT_NAME)
-        self._pm.add_hookspecs(LanguageHookspec)
-
-        # Register built-in plugins: defaults first (lowest priority),
-        # then specific language plugins (override defaults).
-        self._register_builtins()
-
-        # External plugins via entry points (highest priority).
-        self._pm.load_setuptools_entrypoints("rbtr.languages")
-
-        # Build lookup tables.
         self._registrations: dict[str, LanguageRegistration] = {}
         self._ext_map: dict[str, str] = {}
         self._filename_map: dict[str, str] = {}
         self._grammar_cache: dict[str, Language | None] = {}
         self._collect()
 
-    def _register_builtins(self) -> None:
-        """Register built-in plugins in precedence order."""
-        for plugin_cls in (
-            CPlugin,
-            CppPlugin,
-            CssPlugin,
-            GoPlugin,
-            HclPlugin,
-            HtmlPlugin,
-            JavaPlugin,
-            JavaScriptPlugin,
-            JsonPlugin,
-            LessPlugin,
-            MarkdownPlugin,
-            PythonPlugin,
-            QueryPlugin,
-            RstPlugin,
-            RubyPlugin,
-            RustPlugin,
-            ScssPlugin,
-            SveltePlugin,
-            VuePlugin,
-            TomlPlugin,
-            YamlPlugin,
-        ):
-            self._pm.register(plugin_cls())
-
     def _collect(self) -> None:
-        """Collect registrations from all plugins and build maps.
+        """Discover registrations from the `rbtr.languages` entry-point group.
 
-        Later registrations override earlier ones (specific plugins
-        override defaults, external plugins override built-ins).
-
-        Raises `ValueError` if a single plugin returns duplicate IDs.
+        Each entry point resolves to a `LanguageRegistration` value. A
+        plugin whose module fails to import is logged and skipped, so one
+        broken plugin cannot disable the rest. Two plugins claiming the
+        same language id is a conflict and raises `RbtrError`.
         """
-        results: list[list[LanguageRegistration]] = self._pm.hook.rbtr_register_languages()
-        for batch in reversed(results):
-            seen: set[str] = set()
-            for reg in batch:
-                if reg.id in seen:
-                    msg = f"plugin returned duplicate language id {reg.id!r}"
-                    raise ValueError(msg)
-                seen.add(reg.id)
-                self._registrations[reg.id] = reg
-                for ext in reg.extensions:
-                    self._ext_map[ext] = reg.id
-                for name in reg.filenames:
-                    self._filename_map[name] = reg.id
+        for ep in importlib.metadata.entry_points(group="rbtr.languages"):
+            try:
+                reg = ep.load()
+            except Exception:  # noqa: BLE001  # a broken plugin must not sink the rest
+                log.warning("language_plugin_load_failed", entry_point=ep.name, exc_info=True)
+                continue
+            if reg.id in self._registrations:
+                msg = f"duplicate language id {reg.id!r} (entry point {ep.name!r})"
+                raise RbtrError(msg)
+            self._registrations[reg.id] = reg
+            for ext in reg.extensions:
+                self._ext_map[ext] = reg.id
+            for name in reg.filenames:
+                self._filename_map[name] = reg.id
 
     # ── Public API ───────────────────────────────────────────────────
 

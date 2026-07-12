@@ -45,11 +45,6 @@ from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import _get_query, extract_symbols
 from rbtr.languages import LanguageManager, get_manager
-from rbtr.languages.hookspec import (
-    build_import_from_captures,
-    resolve_name,
-    resolve_scope,
-)
 from rbtr.logging import elapsed_ms
 from rbtr.rbtrignore import load_ignore
 
@@ -95,26 +90,15 @@ def extract_query(
     if grammar is None or query_str is None:
         return
     reg = mgr.get_registration(language)
-    doc_types = (
-        doc_comment_node_types
-        if doc_comment_node_types is not None
-        else (reg.doc_comment_node_types if reg else frozenset())
-    )
+    if reg is None:  # unreachable: query_str above came from reg
+        return
     yield from extract_symbols(
+        reg,
         file_path,
         blob_sha,
         content,
         grammar,
-        query_str,
-        language=language,
-        import_extractor=(
-            reg.import_extractor if reg and reg.import_extractor else build_import_from_captures
-        ),
-        name_extractor=(reg.name_extractor if reg and reg.name_extractor else resolve_name),
-        scope_extractor=(reg.scope_extractor if reg and reg.scope_extractor else resolve_scope),
-        scope_types=reg.scope_types if reg else frozenset(),
-        class_scope_types=reg.class_scope_types if reg else frozenset(),
-        doc_comment_node_types=doc_types,
+        doc_comment_node_types=doc_comment_node_types,
         included_ranges=ranges,
     )
 
@@ -138,9 +122,13 @@ def extract_primary(
     mgr = get_manager()
     grammar = mgr.load_grammar(language)
     reg = mgr.get_registration(language)
-    if reg is not None and reg.chunker is not None and grammar is not None:
-        text = content.decode(errors="replace")
-        chunks = list(reg.chunker(file_path, blob_sha, text, grammar, ranges))
+    chunked = (
+        reg.chunk(file_path, blob_sha, content.decode(errors="replace"), grammar, ranges)
+        if reg is not None and grammar is not None
+        else None
+    )
+    if chunked is not None:
+        chunks = chunked
     elif grammar is not None and mgr.get_query(language) is not None:
         chunks = list(extract_query(language, file_path, blob_sha, content, ranges=ranges))
     else:

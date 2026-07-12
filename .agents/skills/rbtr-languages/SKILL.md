@@ -3,8 +3,9 @@ name: rbtr-languages
 description: >-
   Conventions for authoring and extending rbtr language plugins — the
   tree-sitter queries, chunkers, capture conventions, and extraction-engine
-  layers. Use when writing or modifying a file under rbtr/languages/, editing
-  a `_QUERY`, a `LanguageRegistration`, an `import_extractor`, or a chunker;
+  layers. Use when writing or modifying a language plugin (an `rbtr-lang-*`
+  package or core's bundled `rbtr/languages/`), editing a `.scm` query, a
+  `LanguageRegistration`, an `import_extractor`, or a chunker;
   when adding support for a new construct or language; or when reviewing
   extraction behaviour. Also trigger on tree-sitter queries, `extract_symbols`,
   `tags.scm`, or `@definition`/`@function`/`@_scope` captures.
@@ -75,10 +76,16 @@ data definitions invisible.
 
 ## Architecture
 
-A plugin is a file under `rbtr/languages/` returning `LanguageRegistration`s.
-The orchestrator's primary path is one of three:
+A plugin is a package (`rbtr-lang-<lang>`) exposing one or more
+module-level `LanguageRegistration` values — each named by its language id
+— through the `rbtr.languages` entry-point group; the `LanguageManager`
+discovers them via `importlib.metadata` (no pluggy — languages are
+single-dispatch by id). Core's bundled languages register the same way,
+from core's own `pyproject`. The orchestrator's primary path is one of
+three:
 
-1. **Chunker** — `reg.chunker` set: prose (markdown, rst) and SFCs' markup
+1. **Chunker** — a chunker attached via `@reg.chunker`: prose (markdown,
+   rst) and SFCs' markup
    (svelte, vue). The chunker owns extraction. It takes an optional `ranges`
    and must set `parser.included_ranges` when given it, so it can also serve
    as an injection target for an embedded block (see below).
@@ -92,7 +99,10 @@ The orchestrator's primary path is one of three:
 3. **Plaintext fallback** — no grammar/detection: fixed-size raw chunks.
 
 `extract_symbols` is the query engine: *parse → run query → captures →
-`Chunk`s*. It is generic; per-language behaviour is data on the registration.
+`Chunk`s*. It takes the `LanguageRegistration` and delegates naming,
+scoping, and imports to it (`reg.resolve_name` / `resolve_scope` /
+`resolve_import`), each applying the language's wrap-style override or the
+built-in default (`default_name` / `default_scope` / `default_import`).
 
 **Injection (embedded languages)** is an orthogonal capability that runs *in
 addition* to the primary path. To extract code embedded in a host file (an
@@ -120,11 +130,12 @@ ARCHITECTURE “Dispatch chain” for the mechanism and rationale.
 ### Where queries live
 
 Every query — `reg.query`, `reg.injection_query`, and any query a chunker
-compiles — is a `.scm` file in the plugin's own package
-(`languages/<lang>/<name>.scm`), loaded at import via
-`load_query(__package__, "<name>")`. Never inline a query as a Python string
-literal (the house rule against embedding a foreign language). The `uv`
-build backend ships `.scm` as package data with no extra config.
+compiles — is a `.scm` file co-located in the plugin package
+(`rbtr_lang_<lang>/<name>.scm`), loaded at import via `load_query` (import
+it: `from rbtr.languages.queries import load_query`; call it:
+`load_query(__package__, "<name>")`). Never inline a query as a Python
+string literal (the house rule against embedding a foreign language). The
+`uv` build backend ships `.scm` as package data with no extra config.
 
 Compose in Python when a query is built from parts — the query language has
 no `#include`: js/ts concatenate shared fragment files with `+`
@@ -152,18 +163,22 @@ The query's capture names drive the chunk kind (see `_CAPTURE_KIND` in
 
 Capture names starting with `_` are read but never become chunks.
 
-The display name comes from the paired `@_*_name` capture via the default
-`resolve_name`. When a query cannot express the name, set a `name_extractor`
-on the registration (signature `(capture_name, node, captures) -> str`) as a
-**last resort** — it delegates to `resolve_name` for the cases it does not
-special-case, mirroring how `import_extractor` delegates to
-`build_import_from_captures`. Bash strips the `=` the grammar fuses onto an
-alias; HTML names an element by its `id`, else its tag.
+The display name comes from the paired `@_*_name` capture via the built-in
+`default_name`. When a query cannot express the name, attach a
+`name_extractor` — `@reg.name_extractor` for a single-use local override,
+or `reg.name_extractor(fn)` for a shared/imported one — as a **last
+resort**. It is wrap-style (pydantic `WrapValidator` shape): signature
+`(resolver, capture_name, node, captures) -> str`, where `resolver` is the
+built-in `default_name`; call it to delegate the cases you don't
+special-case, exactly as an `import_extractor` receives `default_import`.
+Bash strips the `=` the grammar fuses onto an alias; HTML names an element
+by its `id`, else its tag.
 
 The scope address comes from tree ancestry (`scope_types`, below) plus the
-`scope_extractor` — the scope twin of `name_extractor`, defaulting to
-`resolve_scope` (which contributes the `@_scope` capture). Set a custom one
-(signature `(capture_name, node, captures) -> list[str]`, outermost-first)
+`scope_extractor` — the scope twin of `name_extractor`, whose built-in is
+`default_scope` (which contributes the `@_scope` capture). Attach a custom
+one the same way (wrap-style signature
+`(resolver, capture_name, node, captures) -> list[str]`, outermost-first)
 as a **last resort**, for a hierarchy neither ancestry nor `@_scope` can
 reach; its segments are appended to the ancestry scope. Two real cases:
 
@@ -171,7 +186,7 @@ reach; its segments are appended to the ancestry scope. Two real cases:
   `.card { .title { … } }` scopes `.title` under `.card`:
 
   ```python
-  def css_nesting_scope(capture_name, node, captures):
+  def css_nesting_scope(_resolver, capture_name, node, captures):
       segments: list[str] = []
       for rule_set in enclosing_nodes_of_type(node, frozenset({"rule_set"})):
           for child in rule_set.children:
@@ -207,10 +222,12 @@ captured node, so they work for any language:
    see the tags reference) **and** the real node structure (parse a snippet,
    print the tree). Never guess node types.
 2. Edit the language's `.scm` query file (or chunker) — queries live in
-   `languages/<lang>/*.scm`, loaded via `load_query`, never inline (see
-   *Where queries live*). Verify against a parsed snippet.
-3. Add the construct to that language's sample in `tests/languages/samples/`
-   and regenerate the snapshot with `just snapshots`; review the diff.
+   the plugin package (`rbtr_lang_<lang>/*.scm`), loaded via `load_query`,
+   never inline (see *Where queries live*). Verify against a parsed
+   snippet.
+3. Add the construct to that language's sample in the package's
+   `tests/samples/` and regenerate the snapshot with `just snapshots`;
+   review the diff.
 4. Bump `language_plugin_version` — any extraction change triggers
    re-extraction of stored blobs.
 5. `just check`. (Samples are exempt from lint/type/format — see below.)
@@ -265,7 +282,7 @@ Curated per-language verdicts (take / modify / ignore) and the
 
 ## Testing
 
-Each language has a sample mini-project under `tests/languages/samples/<lang>/`
+Each language has a sample mini-project under its package's `tests/samples/`
 (one or more files), golden-snapshotted (full `model_dump_json`),
 coverage-checked, and parse-clean-checked. See **rbtr-testing**. Samples are
 exempt from the repo's linters/type-checker (they're fixtures) — validated

@@ -19,7 +19,7 @@ from enum import StrEnum
 
 from rbtr.index.edges import ImportResolution
 from rbtr.index.models import ChunkKind, EdgeKind, ImportMeta
-from rbtr.languages.hookspec import ModuleStyle
+from rbtr.languages.registration import ModuleStyle
 
 from .cases_common import ChunkSpec
 

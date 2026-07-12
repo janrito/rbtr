@@ -19,9 +19,9 @@ dependencies = [
 ]
 
 [project.entry-points."rbtr.languages"]
-# Value resolves to a plugin instance (not the class) — see the rbtr
-# ARCHITECTURE "External plugins" note.
-bash = "rbtr_lang_bash.plugin:PLUGIN"
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+bash = "rbtr_lang_bash.plugin:bash"
 
 [tool.uv.sources]
 rbtr = { workspace = true }
