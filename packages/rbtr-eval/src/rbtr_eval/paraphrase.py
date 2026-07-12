@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.git import read_head
@@ -39,6 +40,9 @@ from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.schemas import ConceptQuery, QueryRow
 
 log = logging.getLogger(__name__)
+
+# Fail the stage rather than write a dataset gutted by endpoint errors.
+_MIN_YIELD = 0.5
 
 _ALL_CHUNK_CONTENT_SQL = (
     resources.files("rbtr_eval.sql").joinpath("all_chunk_content.sql").read_text()
@@ -63,6 +67,11 @@ paraphrase_agent: Agent[SymbolContext, ConceptQuery] = Agent(
     output_type=ConceptQuery,
     deps_type=SymbolContext,
     retries={"output": 3},
+    # Generating a one-sentence paraphrase needs no reasoning pass, so
+    # turn it off (reasoning tokens only add latency and cost, and can
+    # crowd out the answer).  Bound each request too, so a stalled
+    # endpoint can't hang the stage.
+    model_settings=ModelSettings(timeout=60, extra_body={"reasoning_effort": "none"}),
 )
 
 
@@ -388,6 +397,15 @@ class ParaphraseCmd(BaseModel):
                 concurrency=self.concurrency,
                 on_progress=on_progress,
             )
+
+        attempted = query_df.unique(subset=["file_path", "scope", "name", "line_start"]).height
+        if attempted and result.height < _MIN_YIELD * attempted:
+            msg = (
+                f"paraphrase yielded {result.height}/{attempted} concept queries "
+                f"({result.height / attempted:.0%}), below the {_MIN_YIELD:.0%} "
+                "floor — likely endpoint connection errors"
+            )
+            raise SystemExit(msg)
 
         self.out.parent.mkdir(parents=True, exist_ok=True)
         result.write_parquet(self.out)

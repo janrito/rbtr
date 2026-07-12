@@ -18,15 +18,23 @@ from pathlib import Path
 import dataframely as dy
 import polars as pl
 
-from rbtr.index.models import QueryKind
+from rbtr.index.classify import classify_query
 from rbtr_eval.schemas import QueryRow
 
-PROVENANCE_TO_KIND: dict[str, str] = {
-    "name": QueryKind.IDENTIFIER.value,
-    "body": QueryKind.CODE.value,
-    "docstring": QueryKind.CONCEPT.value,
-    "concept": QueryKind.CONCEPT.value,
-}
+
+def with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:
+    """Add a `query_kind` column from `classify_query(text)`.
+
+    Classifies each query by its request text — the axis production
+    routes on — so tuning and reporting partition queries the way
+    search does at runtime, independent of how the query was
+    generated (`provenance`) or which kind of chunk it targets.
+    """
+    return queries.with_columns(
+        pl.col("text")
+        .map_elements(lambda q: classify_query(q).value, return_dtype=pl.String)
+        .alias("query_kind"),
+    )
 
 
 def load_all_queries(

@@ -22,6 +22,7 @@ def outcome_row(
     query_line_start: int = 1,
     language: str = "python",
     provenance: str = "docstring",
+    symbol_kind: str = "function",
     arm: str = "none",
     query_kind: str = "concept",
 ) -> dict[str, str | int | float | list[dict[str, str | int]] | None]:
@@ -35,6 +36,7 @@ def outcome_row(
         "query_name": target,
         "query_line_start": query_line_start,
         "provenance": provenance,
+        "symbol_kind": symbol_kind,
         "query_kind": query_kind,
         "query_text": f"doc of {target}",
         "latency_ms": latency_ms,

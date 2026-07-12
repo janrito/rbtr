@@ -25,10 +25,9 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import PROVENANCE_TO_KIND, load_all_queries, sample_distribution, subsample
+from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import QueryMeta, QueryRow, RerankerCandidate
 
@@ -96,12 +95,14 @@ def _collect_candidates(
     )
 
     meta = (
-        queries.with_row_index("query_idx")
+        with_query_kind(queries)
+        .with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "file_path",
             "scope",
             "name",
@@ -130,7 +131,7 @@ def _rank_all_blends(
 
     Returns one row per `(pool, blend_weight, query_idx)` with
     columns: `pool, blend_weight, slug, language, provenance,
-    rank, latency_ms`.
+    query_kind, rank, latency_ms`.
     """
     blend_frame = pl.DataFrame(
         {"blend_weight": blend_values},
@@ -183,7 +184,7 @@ def _rank_all_blends(
             how="left",
         )
         .join(
-            meta.select("query_idx", "slug", "language", "provenance"),
+            meta.select("query_idx", "slug", "language", "provenance", "query_kind"),
             on="query_idx",
             how="left",
         )
@@ -193,6 +194,7 @@ def _rank_all_blends(
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "rank",
             "latency_ms",
         )
@@ -456,11 +458,6 @@ class TuneRerankerCmd(BaseModel):
             )
 
         ranked = _rank_all_blends(candidates, meta, blends)
-        ranked = ranked.with_columns(
-            pl.col("provenance")
-            .replace_strict(PROVENANCE_TO_KIND, default=QueryKind.CONCEPT.value)
-            .alias("query_kind"),
-        )
         elapsed = time.monotonic() - t0
         grid = _aggregate_grid(ranked)
         by_provenance = _aggregate_by_dimension(ranked, "provenance")

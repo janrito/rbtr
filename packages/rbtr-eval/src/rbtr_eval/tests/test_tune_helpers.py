@@ -16,8 +16,8 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.queries import PROVENANCE_TO_KIND
-from rbtr_eval.schemas import QueryMeta, ScoredCandidate, TuneReport
+from rbtr_eval.queries import with_query_kind
+from rbtr_eval.schemas import QueryMeta, QueryRow, ScoredCandidate, TuneReport
 from rbtr_eval.tune import (
     _hmean_mrr,
     _mrr_per_provenance,
@@ -81,13 +81,73 @@ def test_simplex_maps_unit_square_to_valid_triple(
     assert all(0.0 <= c <= 1.0 for c in result)
 
 
-def test_every_provenance_has_a_query_kind() -> None:
-    """Every eval provenance maps to a query kind.
+@pytest.fixture
+def query_kind_rows() -> dy.DataFrame[QueryRow]:
+    """Queries whose text shape disagrees with their provenance.
 
-    Guards against adding a provenance without a mapping entry, which
-    would silently misclassify or drop those queries during tuning.
+    The same concept-shaped text appears under two provenances, and
+    an identifier- and a code-shaped query carry provenances a
+    provenance-based mapping would have labelled differently.
     """
-    assert set(PROVENANCE_TO_KIND.keys()) == {"name", "body", "docstring", "concept"}
+    base = {"slug": "r", "scope": "", "symbol_kind": "function", "language": "python"}
+    rows = [
+        {
+            **base,
+            "file_path": "a.py",
+            "name": "a",
+            "line_start": 1,
+            "provenance": "body",
+            "text": "how does the config loader resolve paths",
+        },
+        {
+            **base,
+            "file_path": "a.py",
+            "name": "a",
+            "line_start": 1,
+            "provenance": "docstring",
+            "text": "how does the config loader resolve paths",
+        },
+        {
+            **base,
+            "file_path": "b.py",
+            "name": "b",
+            "line_start": 1,
+            "provenance": "docstring",
+            "text": "fuse_scores",
+        },
+        {
+            **base,
+            "file_path": "c.py",
+            "name": "c",
+            "line_start": 1,
+            "provenance": "name",
+            "text": "def fuse_scores(candidates, query, *, alpha):",
+        },
+    ]
+    return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
+
+
+def test_query_kind_follows_text_not_provenance(
+    query_kind_rows: dy.DataFrame[QueryRow],
+) -> None:
+    """A query's kind is a function of its request text, not its provenance.
+
+    Tuning must partition queries the way production routes them — by
+    `classify_query(text)` — so the same text gets the same kind
+    regardless of how the query was generated, and the kind tracks the
+    text's shape (concept / identifier / code), not the provenance.
+    """
+    tagged = with_query_kind(query_kind_rows)
+    by_text = dict(zip(tagged["text"], tagged["query_kind"], strict=True))
+
+    # Provenance-independence: same text under body and docstring agrees.
+    concept_rows = tagged.filter(pl.col("text") == "how does the config loader resolve paths")
+    assert concept_rows["query_kind"].n_unique() == 1
+
+    # Kind tracks the text's shape, not the provenance.
+    assert by_text["how does the config loader resolve paths"] == "concept"
+    assert by_text["fuse_scores"] == "identifier"
+    assert by_text["def fuse_scores(candidates, query, *, alpha):"] == "code"
 
 
 def test_toml_snippet_is_valid_toml() -> None:

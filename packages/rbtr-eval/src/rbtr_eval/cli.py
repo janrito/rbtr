@@ -25,6 +25,7 @@ from rbtr_eval.extract import ExtractCmd
 from rbtr_eval.index_stage import IndexCmd
 from rbtr_eval.measure import MeasureCmd
 from rbtr_eval.paraphrase import ParaphraseCmd, ParaphraseReportCmd
+from rbtr_eval.profile import ProfileCmd
 from rbtr_eval.tune import TuneCmd
 from rbtr_eval.tune_reranker import TuneRerankerCmd
 
@@ -42,6 +43,7 @@ class RbtrEval(
     index: CliSubCommand[IndexCmd]
     paraphrase: CliSubCommand[ParaphraseCmd]
     paraphrase_report: CliSubCommand[ParaphraseReportCmd]
+    profile: CliSubCommand[ProfileCmd]
     measure: CliSubCommand[MeasureCmd]
     tune: CliSubCommand[TuneCmd]
     tune_reranker: CliSubCommand[TuneRerankerCmd]

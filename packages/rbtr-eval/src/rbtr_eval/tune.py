@@ -33,7 +33,7 @@ from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import PROVENANCE_TO_KIND, load_all_queries, sample_distribution, subsample
+from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
     DetailedOutcome,
@@ -43,18 +43,6 @@ from rbtr_eval.schemas import (
     ScoredCandidate,
     TuneReport,
 )
-
-# ── Provenance → QueryKind mapping ───────────────────────────────────────────
-
-
-def _with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:
-    """Add a `query_kind` column mapped from `provenance`."""
-    return queries.with_columns(
-        pl.col("provenance")
-        .replace_strict(PROVENANCE_TO_KIND, default=QueryKind.CONCEPT.value)
-        .alias("query_kind"),
-    )
-
 
 # ── Scored-candidate collection ──────────────────────────────────────────────
 
@@ -116,12 +104,14 @@ def _collect_scored_candidates(
     )
 
     meta = (
-        queries.with_row_index("query_idx")
+        with_query_kind(queries)
+        .with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
+            "query_kind",
             "file_path",
             "scope",
             "name",
@@ -491,7 +481,7 @@ class TuneCmd(BaseModel):
         all_queries: dy.DataFrame[QueryRow],
         t0: float,
     ) -> None:
-        tagged = _with_query_kind(all_queries)
+        tagged = with_query_kind(all_queries)
         kinds = [k.value for k in QueryKind]
 
         # Pre-compute per-kind subsampled query sets.

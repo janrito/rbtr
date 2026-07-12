@@ -16,6 +16,7 @@ import dataframely as dy
 from pydantic import BaseModel, Field
 
 from rbtr.index.models import ChunkKind
+from rbtr_eval.kinds import EXCLUDED_KINDS
 
 
 class ArmKind(StrEnum):
@@ -55,9 +56,8 @@ class QueryRow(dy.Schema):
     The per-repo `<slug>.parquet` file is the
     persisted form of this schema.  `measure` and `tune`
     read those files via `pl.read_parquet` + `QueryRow.validate`.
-    `symbol_kind` is narrowed to the three `ChunkKind` values
-    rbtr-eval samples; the filter on the extract side must
-    stay in sync with this whitelist.
+    `symbol_kind` is any `ChunkKind` the eval measures — every kind
+    except `EXCLUDED_KINDS`.
     """
 
     slug = dy.String(primary_key=True)
@@ -65,10 +65,7 @@ class QueryRow(dy.Schema):
     scope = dy.String(primary_key=True)
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
-    symbol_kind = dy.Enum(
-        k.value
-        for k in (ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD, ChunkKind.DOC_SECTION)
-    )
+    symbol_kind = dy.Enum(k.value for k in ChunkKind if k not in EXCLUDED_KINDS)
     language = dy.String()
     provenance = dy.String(primary_key=True)
     text = dy.String()
@@ -99,8 +96,10 @@ class RepoHeader(dy.Schema):
 
     `sha` is the resolved HEAD SHA at extract time.  `seed` /
     `queries_per_cell` are stage parameters; `n_documented`
-    is the total symbol count; `n_queries` is the post-subsample
-    query count.
+    is the total measurable-chunk count; `n_queries` is the
+    post-subsample query count.  `dropped_languages` records the
+    languages skipped for having fewer than `min_per_language`
+    measurable chunks, with their chunk counts.
     """
 
     slug = dy.String(primary_key=True)
@@ -109,17 +108,17 @@ class RepoHeader(dy.Schema):
     queries_per_cell = dy.UInt32(min=1)
     n_documented = dy.UInt32(min=0)
     n_queries = dy.UInt32(min=0)
+    dropped_languages = dy.List(dy.Struct({"language": dy.String(), "n_chunks": dy.UInt32()}))
 
 
-class SearchOutcome(dy.Schema):
-    """One row per `(arm, slug, query)` search executed by `measure`.
+class SearchQuery(dy.Schema):
+    """Identity and classification of one measured query.
 
-    Records the rank the target landed at, the wall-clock
-    latency of the search, and the top-1 hit's location for
-    diagnostics.  `rank` / `top_*` are nullable when the
-    target does not appear in the top 10.  `arm` is the
-    expansion configuration; `query_kind` is the heuristic
-    `QueryKind` of the query.
+    The `(arm, slug, language, query_file, query_scope, query_name,
+    query_line_start, provenance)` key identifies the search; `arm` is
+    the expansion configuration, `symbol_kind` the target chunk's kind,
+    `query_kind` the `classify_query` shape.  `SearchBatch` and
+    `SearchOutcome` extend this with the raw hits and the scored rank.
     """
 
     arm = dy.String(primary_key=True)
@@ -130,40 +129,37 @@ class SearchOutcome(dy.Schema):
     query_name = dy.String(primary_key=True)
     query_line_start = dy.UInt32(primary_key=True)
     provenance = dy.String(primary_key=True)
+    symbol_kind = dy.String()
     query_kind = dy.String()
     query_text = dy.String()
-    rank = dy.UInt8(nullable=True, min=1, max=10)
     latency_ms = dy.Float64(min=0.0)
-    top_file = dy.String(nullable=True)
-    top_line = dy.UInt32(nullable=True)
-    top_name = dy.String(nullable=True)
-    target_truncated = dy.Bool()
 
 
-class SearchBatch(dy.Schema):
+class SearchBatch(SearchQuery):
     """Raw output of `_run_searches` before `_score_outcomes` runs.
 
-    One row per `(arm, slug, query)` search.  `hits` carries
-    the top-10 results from the daemon as a list-of-struct;
-    ranking turns this into `SearchOutcome` with scalar
-    `rank` / `top_*` columns.
+    `hits` carries the top-10 results from the daemon as a
+    list-of-struct; ranking turns this into `SearchOutcome` with
+    scalar `rank` / `top_*` columns.
     """
 
-    arm = dy.String(primary_key=True)
-    slug = dy.String(primary_key=True)
-    language = dy.String(primary_key=True)
-    query_file = dy.String(primary_key=True)
-    query_scope = dy.String(primary_key=True)
-    query_name = dy.String(primary_key=True)
-    query_line_start = dy.UInt32(primary_key=True)
-    provenance = dy.String(primary_key=True)
-    query_kind = dy.String()
-    query_text = dy.String()
-    latency_ms = dy.Float64(min=0.0)
     hits = dy.List(dy.Struct(_HIT_COLUMNS))
     expansion_kind = dy.String(nullable=True)
     expansion_n_keywords = dy.UInt8(nullable=True)
     expansion_n_variants = dy.UInt8(nullable=True)
+
+
+class SearchOutcome(SearchQuery):
+    """One scored search: the rank the target landed at and the top-1
+    hit for diagnostics.  `rank` / `top_*` are null when the target
+    does not appear in the top 10.
+    """
+
+    rank = dy.UInt8(nullable=True, min=1, max=10)
+    top_file = dy.String(nullable=True)
+    top_line = dy.UInt32(nullable=True)
+    top_name = dy.String(nullable=True)
+    target_truncated = dy.Bool()
 
 
 class Metrics(dy.Schema):
@@ -171,25 +167,28 @@ class Metrics(dy.Schema):
 
     Every level is partitioned by `arm` (always a real
     `ArmKind` value, never a sentinel).  Within an arm, the
-    `slug` / `language` / `provenance` / `query_kind` levels
-    use the `'__all__'` sentinel:
+    `slug` / `language` / `symbol_kind` / `provenance` /
+    `query_kind` dimensions use the `'__all__'` sentinel for the
+    dimensions a level does not span:
 
-    * per group           → slug, language, provenance real; query_kind '__all__'
+    * per group           → slug, language, provenance real
     * per repo+lang       → provenance == '__all__'
     * per language        → slug == '__all__', provenance == '__all__'
     * per provenance      → slug == '__all__', language == '__all__'
-    * per query_kind      → slug/language/provenance == '__all__'
+    * per symbol_kind      → slug/language/provenance == '__all__'
+    * per query_kind      → slug/language/symbol_kind/provenance == '__all__'
+    * per (symbol_kind, query_kind) → slug/language/provenance == '__all__'
     * global              → all '__all__'
 
-    The `(arm, query_kind)` and `(arm)` levels carry the
-    expansion ablation.  `median_rank` is null when every
-    query missed.  `search_p50_ms` / `search_p95_ms` come
-    from the latency column on `SearchOutcome`.
+    `median_rank` is null when every query missed.
+    `search_p50_ms` / `search_p95_ms` come from the latency column
+    on `SearchOutcome`.
     """
 
     arm = dy.String(primary_key=True)
     slug = dy.String(primary_key=True)
     language = dy.String(primary_key=True)
+    symbol_kind = dy.String(primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String(primary_key=True)
     n_queries = dy.UInt32(min=0)
@@ -204,30 +203,14 @@ class Metrics(dy.Schema):
     search_p95_ms = dy.Float64(min=0.0)
 
 
-class MetricsFile(dy.Schema):
+class MetricsFile(Metrics):
     """Shape of the on-disk `metrics.json` file.
 
-    `Metrics` columns, joined with per-slug SHA on `slug`
-    (`__all__` rows stay null on `sha`), with run metadata
-    repeated as literal columns so the JSON file carries
-    everything DVC's metrics parser might want.
+    `Metrics` joined with per-slug SHA on `slug` (`__all__` rows stay
+    null on `sha`), plus run metadata as literal columns so the JSON
+    file carries everything DVC's metrics parser might want.
     """
 
-    arm = dy.String(primary_key=True)
-    slug = dy.String(primary_key=True)
-    language = dy.String(primary_key=True)
-    provenance = dy.String(primary_key=True)
-    query_kind = dy.String(primary_key=True)
-    n_queries = dy.UInt32(min=0)
-    hit_at_1 = dy.Float64(min=0.0, max=1.0)
-    hit_at_3 = dy.Float64(min=0.0, max=1.0)
-    hit_at_10 = dy.Float64(min=0.0, max=1.0)
-    mrr = dy.Float64(min=0.0, max=1.0)
-    ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
-    median_rank = dy.Float64(nullable=True, min=1.0, max=10.0)
-    not_found_pct = dy.Float64(min=0.0, max=1.0)
-    search_p50_ms = dy.Float64(min=0.0)
-    search_p95_ms = dy.Float64(min=0.0)
     sha = dy.String(nullable=True)
     seed = dy.UInt32()
     queries_per_cell = dy.UInt32(min=1)
@@ -259,14 +242,18 @@ class ScoredCandidate(dy.Schema):
 class QueryMeta(dy.Schema):
     """Query identity columns, indexed by `query_idx`.
 
-    Produced alongside `ScoredCandidate` by
-    `tune._collect_scored_candidates`.
+    Produced alongside the scored-candidate frame by
+    `tune._collect_scored_candidates` and
+    `tune_reranker._collect_candidates`.  `query_kind` is the
+    request classification from `classify_query(text)` — the same
+    axis production routes on.
     """
 
     query_idx = dy.UInt32()
     slug = dy.String()
     language = dy.String()
     provenance = dy.String()
+    query_kind = dy.String()
     file_path = dy.String()
     scope = dy.String()
     name = dy.String()

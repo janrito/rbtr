@@ -19,9 +19,10 @@ vars:
   - reranker_blend_steps: 5
   - expansion_report: data/EXPANSION.md
   - paraphrase_report: data/PARAPHRASE.md
+  - dataset_report: data/DATASET.md
   - paraphrase_concurrency: 20
   - seed: 0
-  - queries_per_cell: 25
+  - queries_per_cell: 10
   - n_trials: 50
   - tune_queries_per_cell: 10
   # Local clone (`../..`) gets HEAD via `git clone`; remotes get
@@ -85,6 +86,10 @@ stages:
         --queries-per-cell ${queries_per_cell}
       deps:
         - src/rbtr_eval/extract.py
+        - src/rbtr_eval/kinds.py
+        - src/rbtr_eval/queries.py
+        - src/rbtr_eval/schemas.py
+        - ../rbtr/src/rbtr
         - data/.chunks-ready
       outs:
         - ${per_repo_dir}/${item.slug}.parquet
@@ -104,6 +109,11 @@ stages:
         --concurrency ${paraphrase_concurrency}
       deps:
         - src/rbtr_eval/paraphrase.py
+        - src/rbtr_eval/schemas.py
+        - src/rbtr_eval/kinds.py
+        - src/rbtr_eval/formatting.py
+        - src/rbtr_eval/sql/all_chunk_content.sql
+        - ../rbtr/src/rbtr
         - ${per_repo_dir}/${item.slug}.parquet
         - data/.chunks-ready
       outs:
@@ -119,10 +129,40 @@ stages:
       && uv run rumdl fmt ${paraphrase_report}
     deps:
       - src/rbtr_eval/paraphrase.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/kinds.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/sql/all_chunk_content.sql
+      - src/rbtr_eval/templates/paraphrase.md.j2
+      - ../rbtr/src/rbtr
       - ${concept_dir}
       - data/.chunks-ready
     outs:
       - ${paraphrase_report}:
+          cache: false
+
+  profile:
+    cmd: >-
+      python -m rbtr_eval profile
+      --per-repo-dir ${per_repo_dir}
+      --concept-dir ${concept_dir}
+      --headers-dir ${headers_dir}
+      --seed ${seed}
+      --report ${dataset_report}
+      && uv run rumdl fmt ${dataset_report}
+    deps:
+      - src/rbtr_eval/profile.py
+      - src/rbtr_eval/kinds.py
+      - src/rbtr_eval/queries.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/templates/dataset.md.j2
+      - ../rbtr/src/rbtr
+      - ${per_repo_dir}
+      - ${concept_dir}
+      - ${headers_dir}
+    outs:
+      - ${dataset_report}:
           cache: false
 
   expand:
@@ -137,6 +177,12 @@ stages:
       && uv run rumdl fmt ${expansion_report}
     deps:
       - src/rbtr_eval/expand.py
+      - src/rbtr_eval/queries.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/kinds.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/templates/expansion.md.j2
+      - ../rbtr/src/rbtr
       - ${per_repo_dir}
       - ${concept_dir}
     outs:
@@ -163,6 +209,8 @@ stages:
       && uv run rumdl fmt data/INDEX.md
     deps:
       - src/rbtr_eval/index_stage.py
+      - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/rbtrignore
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${repos_dir}
@@ -184,6 +232,7 @@ stages:
       && uv run rumdl fmt data/EMBEDDING.md
     deps:
       - src/rbtr_eval/index_stage.py
+      - src/rbtr_eval/rbtr_cli.py
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - data/.chunks-ready
@@ -209,7 +258,18 @@ stages:
       && uv run rumdl fmt ${report}
     deps:
       - src/rbtr_eval/measure.py
+      - src/rbtr_eval/agg.py
+      - src/rbtr_eval/charts.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/queries.py
+      - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/benchmarks.md.j2
+      - src/rbtr_eval/templates/mrr_by_repo.vl.json
+      - src/rbtr_eval/templates/mrr_by_provenance.vl.json
+      - src/rbtr_eval/templates/mrr_by_kind.vl.json
+      - src/rbtr_eval/sql/truncated_chunks.sql
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${per_repo_dir}
@@ -223,6 +283,8 @@ stages:
       - data/mrr_by_repo.png:
           cache: false
       - data/mrr_by_provenance.png:
+          cache: false
+      - data/mrr_by_kind.png:
           cache: false
     metrics:
       - ${metrics}:
@@ -244,6 +306,16 @@ stages:
       && uv run rumdl fmt ${tuning_report}
     deps:
       - src/rbtr_eval/tune.py
+      - src/rbtr_eval/agg.py
+      - src/rbtr_eval/charts.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/queries.py
+      - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/kinds.py
+      - src/rbtr_eval/templates/tuning.md.j2
+      - src/rbtr_eval/templates/convergence.vl.json
+      - src/rbtr_eval/templates/simplex.vl.json
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${per_repo_dir}
@@ -278,6 +350,13 @@ stages:
       && uv run rumdl fmt ${reranker_tuning_report}
     deps:
       - src/rbtr_eval/tune_reranker.py
+      - src/rbtr_eval/agg.py
+      - src/rbtr_eval/formatting.py
+      - src/rbtr_eval/queries.py
+      - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/kinds.py
+      - src/rbtr_eval/templates/reranker_tuning.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${per_repo_dir}

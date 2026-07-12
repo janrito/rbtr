@@ -541,3 +541,53 @@ stages:
       hash: md5
       md5: 0f3214bae457f7f1a051a57b17bc22c3
       size: 5219
+  profile:
+    cmd: python -m rbtr_eval profile --per-repo-dir data/per-repo --concept-dir 
+      data/concept --headers-dir data/headers --seed 0 --report data/DATASET.md 
+      && uv run rumdl fmt data/DATASET.md
+    deps:
+    - path: ../rbtr/src/rbtr
+      hash: md5
+      md5: 1e8614895b33311f41f0b424c16a15e5.dir
+      size: 5332684
+      nfiles: 520
+    - path: data/concept
+      hash: md5
+      md5: 5699f6ce7a4dcafa6958b2ab6f94e0ab.dir
+      size: 78044
+      nfiles: 5
+    - path: data/headers
+      hash: md5
+      md5: 262db67f04b087d3fd2a3c85c6d11898.dir
+      size: 12582
+      nfiles: 5
+    - path: data/per-repo
+      hash: md5
+      md5: 3b62fa8f9b50f7d38fbe7ad14842a2cb.dir
+      size: 85676
+      nfiles: 5
+    - path: src/rbtr_eval/formatting.py
+      hash: md5
+      md5: fadd5e5c3147d3d8c02c26364bc71bde
+      size: 1275
+    - path: src/rbtr_eval/profile.py
+      hash: md5
+      md5: 5ce66aaaa03bdbfb20964e289e222eff
+      size: 7207
+    - path: src/rbtr_eval/queries.py
+      hash: md5
+      md5: 2e94b316b39fe1dbee1a6c09550d97dd
+      size: 2740
+    - path: src/rbtr_eval/schemas.py
+      hash: md5
+      md5: 281c2ad49c72f5fa02bcaf5a8ceb52eb
+      size: 11398
+    - path: src/rbtr_eval/templates/dataset.md.j2
+      hash: md5
+      md5: da2a0a619a8721b6d5aea6e1c4a88b88
+      size: 1467
+    outs:
+    - path: data/DATASET.md
+      hash: md5
+      md5: 46bcc65e05eafb29258a4d7a09f8720c
+      size: 5006
