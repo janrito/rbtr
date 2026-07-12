@@ -1,0 +1,4 @@
+[
+  "html.html::<link rel=\"stylesheet\" href=\"styles.css\"> -> styles.css::.greeter [imports]",
+  "html.html::<script src=\"greeter.js\"></script> -> greeter.js::greet [imports]"
+]

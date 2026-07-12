@@ -1,0 +1,3 @@
+[
+  "tsx.tsx::import { INITIAL_LABEL } from \"./labels\"; -> labels.ts::INITIAL_LABEL [imports]"
+]

@@ -1,0 +1,146 @@
+[
+  {
+    "id": "9eda4ff1fcf8b613",
+    "blob_sha": "sha1",
+    "file_path": "labels.ts",
+    "kind": "variable",
+    "name": "INITIAL_LABEL",
+    "scope": "",
+    "language": "typescript",
+    "content": "INITIAL_LABEL = \"Click\"",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "00949e6667d737dd",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "import",
+    "name": "import { useState } from \"react\";",
+    "scope": "",
+    "language": "tsx",
+    "content": "import { useState } from \"react\";",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "react",
+      "names": "useState",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8220d10bba33f28b",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "import",
+    "name": "import type { ReactNode } from \"react\";",
+    "scope": "",
+    "language": "tsx",
+    "content": "import type { ReactNode } from \"react\";",
+    "line_start": 12,
+    "line_end": 12,
+    "metadata": {
+      "module": "react",
+      "names": "ReactNode",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5cadb51ac810019c",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "import",
+    "name": "import { INITIAL_LABEL } from \"./labels\";",
+    "scope": "",
+    "language": "tsx",
+    "content": "import { INITIAL_LABEL } from \"./labels\";",
+    "line_start": 13,
+    "line_end": 13,
+    "metadata": {
+      "module": "labels",
+      "names": "INITIAL_LABEL",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "45fac1ec4bc2cbc1",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "variable",
+    "name": "INITIAL_COUNT",
+    "scope": "",
+    "language": "tsx",
+    "content": "INITIAL_COUNT: number = 0",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "3e6c2336a2c128c6",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "class",
+    "name": "CounterProps",
+    "scope": "",
+    "language": "tsx",
+    "content": "/** Props for the Counter component. */\ninterface CounterProps {\n  label: string;\n}",
+    "line_start": 17,
+    "line_end": 20,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "4d394e5eaf569e94",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "function",
+    "name": "Counter",
+    "scope": "",
+    "language": "tsx",
+    "content": "function Counter({ label }: CounterProps): ReactNode {\n  const [count, setCount] = useState(INITIAL_COUNT);\n  return (\n    <button onClick={() => setCount(count + 1)}>\n      {label}: {count}\n    </button>\n  );\n}",
+    "line_start": 23,
+    "line_end": 30,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c9822de44bf5114b",
+    "blob_sha": "sha1",
+    "file_path": "tsx.tsx",
+    "kind": "function",
+    "name": "Badge",
+    "scope": "",
+    "language": "tsx",
+    "content": "/** Render a static badge as a span. */\nconst Badge = (text: string): ReactNode => <span className=\"badge\">{text}</span>;",
+    "line_start": 32,
+    "line_end": 33,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

@@ -1,0 +1,6 @@
+[
+  "rst.rst:::class:`Greeter` -> helpers.py::Greeter [documents]",
+  "rst.rst:::doc:`config` -> config.rst::Config [documents]",
+  "rst.rst:::func:`format_greeting` -> helpers.py::format_greeting [documents]",
+  "rst.rst::`the guide <guide.rst>`_ -> guide.rst::Guide [documents]"
+]

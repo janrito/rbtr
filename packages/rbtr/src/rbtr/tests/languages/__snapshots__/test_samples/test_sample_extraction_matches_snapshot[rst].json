@@ -1,0 +1,254 @@
+[
+  {
+    "id": "e427cebaa92e1469",
+    "blob_sha": "sha1",
+    "file_path": "config.rst",
+    "kind": "doc_section",
+    "name": "Config",
+    "scope": "",
+    "language": "rst",
+    "content": "Config\n======\n\nGreeter configuration.",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "9d22be669a962880",
+    "blob_sha": "sha1",
+    "file_path": "guide.rst",
+    "kind": "doc_section",
+    "name": "Guide",
+    "scope": "",
+    "language": "rst",
+    "content": "Guide\n=====\n\nUsage guide.",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "22ef1c98dd975c9d",
+    "blob_sha": "sha1",
+    "file_path": "helpers.py",
+    "kind": "function",
+    "name": "format_greeting",
+    "scope": "",
+    "language": "python",
+    "content": "def format_greeting(name):\n    \"\"\"Format a greeting.\"\"\"\n    return f\"Hello, {name}\"",
+    "line_start": 4,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "fb0901dc09b6e72c",
+    "blob_sha": "sha1",
+    "file_path": "helpers.py",
+    "kind": "class",
+    "name": "Greeter",
+    "scope": "",
+    "language": "python",
+    "content": "class Greeter:\n    \"\"\"A greeter.\"\"\"",
+    "line_start": 9,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "113a16cf15831e88",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "doc_section",
+    "name": "Greeter",
+    "scope": "",
+    "language": "rst",
+    "content": "Greeter\n=======\n\nA small library for formatting greetings for named recipients.",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6c517daf9c1a46ca",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "doc_section",
+    "name": "Usage",
+    "scope": "Greeter",
+    "language": "rst",
+    "content": "Usage\n-----\n\nConfigure via :doc:`config` and call :func:`format_greeting`.\nSee the :class:`Greeter` class and `the guide <guide.rst>`_ for more,\nor `an external page <https://example.com>`_ (not a cross-reference).\n\n.. toctree::\n   :maxdepth: 2\n\n   intro\n   api/index",
+    "line_start": 6,
+    "line_end": 18,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6156a6e14cfd6c2e",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "doc_section",
+    "name": "Locales",
+    "scope": "Greeter::Usage",
+    "language": "rst",
+    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.",
+    "line_start": 19,
+    "line_end": 22,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "1cb3043f0203726d",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": ":doc:`config`",
+    "scope": "",
+    "language": "rst",
+    "content": ":doc:`config`",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "config",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b7444adbea13a208",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": ":func:`format_greeting`",
+    "scope": "",
+    "language": "rst",
+    "content": ":func:`format_greeting`",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "format_greeting",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "b95654a01c4cdabd",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": ":class:`Greeter`",
+    "scope": "",
+    "language": "rst",
+    "content": ":class:`Greeter`",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "Greeter",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "bf88cb37be1cc1e6",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": "`the guide <guide.rst>`_",
+    "scope": "",
+    "language": "rst",
+    "content": "`the guide <guide.rst>`_",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "guide.rst",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "07d1f8ed929c6c7c",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": "toctree:intro",
+    "scope": "",
+    "language": "rst",
+    "content": "intro",
+    "line_start": 16,
+    "line_end": 17,
+    "metadata": {
+      "module": "intro",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5858cff8eacd9ad3",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": "toctree:api/index",
+    "scope": "",
+    "language": "rst",
+    "content": "api/index",
+    "line_start": 16,
+    "line_end": 17,
+    "metadata": {
+      "module": "api/index",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "db58c4e127226aec",
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": ":mod:`greeter.locales`",
+    "scope": "",
+    "language": "rst",
+    "content": ":mod:`greeter.locales`",
+    "line_start": 22,
+    "line_end": 22,
+    "metadata": {
+      "module": "greeter.locales",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

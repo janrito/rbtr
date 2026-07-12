@@ -1,7 +1,11 @@
 """Ruby language plugin.
 
-Provides symbol extraction (methods, classes, modules) and
-structured import metadata from `require` / `require_relative`.
+Provides symbol extraction (methods, classes, modules, constants,
+and the RSpec `describe`/`context`/`it` DSL) and structured import
+metadata from `require` / `require_relative`.  Constants scope to
+their enclosing class/module.  RSpec groups (`describe`/`context`/
+`feature`) are classes and examples (`it`/`specify`/`example`) are
+functions, named by their description string.
 
 Extracted chunks::
 
@@ -23,7 +27,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.hookspec import LanguageRegistration, build_import_from_captures, hookimpl
+from rbtr.languages.hookspec import (
+    LanguageRegistration,
+    build_import_from_captures,
+    hookimpl,
+    parse_path_relative,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -55,17 +64,29 @@ _QUERY = """
     (string) @_import_module)
   (#eq? @_call_name "require_relative"))  @import
 
-(program
-  (assignment
-    left: (constant) @_var_name) @variable)
+(assignment
+  left: (constant) @_var_name) @variable
 
-(program
-  (assignment
-    left: (left_assignment_list (constant) @_var_name)) @variable)
+(assignment
+  left: (left_assignment_list (constant) @_var_name)) @variable
 
-(program
-  (assignment
-    left: (left_assignment_list (rest_assignment (constant) @_var_name))) @variable)
+(assignment
+  left: (left_assignment_list (rest_assignment (constant) @_var_name))) @variable
+
+(call
+  method: (identifier) @_call_name
+  arguments: (argument_list . (string (string_content) @_cls_name))
+  (#any-of? @_call_name "describe" "context" "feature" "shared_examples" "shared_context")) @class
+
+(call
+  method: (identifier) @_call_name
+  arguments: (argument_list . (constant) @_cls_name)
+  (#any-of? @_call_name "describe" "context" "feature")) @class
+
+(call
+  method: (identifier) @_call_name
+  arguments: (argument_list . (string (string_content) @_fn_name))
+  (#any-of? @_call_name "it" "specify" "example" "scenario")) @function
 """
 
 # ── Import extractor ─────────────────────────────────────────────────
@@ -85,11 +106,22 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
 
         `require_relative "helpers"`:
             module="helpers", dots="1"
+
+        `require_relative "./config"`:
+            module="config", dots="1"
+
+        `require_relative "../lib/utils"`:
+            module="lib/utils", dots="2"
     """
     meta = build_import_from_captures(node, captures)
     method = node.child_by_field_name("method")
     if method and method.text == b"require_relative":
-        meta.dots = "1"
+        # `require_relative` is always relative to the current file. Strip any
+        # `./`/`../` prefix into `dots` (a bare path is the current dir, dots=1)
+        # so the resolver doesn't see a leftover `./` it can't match.
+        dots, cleaned = parse_path_relative(meta.module)
+        meta.module = cleaned
+        meta.dots = str(dots or 1)
     return meta
 
 
@@ -115,6 +147,6 @@ class RubyPlugin:
                 doc_comment_node_types=frozenset({"comment"}),
                 source_roots=("", "lib"),
                 test_prefix="test_",
-                language_plugin_version=3,
+                language_plugin_version=4,
             ),
         ]

@@ -1,8 +1,11 @@
 """JavaScript and TypeScript language plugins.
 
-Registers two languages (one per tree-sitter grammar) sharing a
-common import extractor.  The only query difference is the class
-name node type: JS uses `identifier`, TS uses `type_identifier`.
+Registers three languages (one per tree-sitter grammar) sharing a
+common import extractor and a shared core query (classes, functions,
+generators, variables, imports, and methods — class/object members
+including get/set accessors).  TS additionally captures interfaces,
+enums, type aliases, abstract classes, and interface/abstract method
+signatures.
 
 Extracted chunks::
 
@@ -37,8 +40,14 @@ if TYPE_CHECKING:
 # ── Queries ──────────────────────────────────────────────────────────
 
 # Shared patterns — identical across JS and TS grammars.
+# `method_definition` covers class and object-literal members, generators,
+# and get/set accessors; inside a class it promotes to a method scoped to
+# the class, elsewhere it is a scope-less method.
 _SHARED = """\
 (function_declaration
+  name: (identifier) @_fn_name) @function
+
+(generator_function_declaration
   name: (identifier) @_fn_name) @function
 
 (import_statement
@@ -48,6 +57,9 @@ _SHARED = """\
   (variable_declarator
     name: (identifier) @_fn_name
     value: (arrow_function))) @function
+
+(method_definition
+  name: (property_identifier) @_method_name) @method
 """
 
 # Module-level const/let bindings with a non-function value become
@@ -114,15 +126,49 @@ _JS_QUERY = (
     + _VARIABLES
 )
 
-_TS_QUERY = (
-    """\
+# TypeScript adds type-level declarations (interface, enum, type alias,
+# abstract class) as classes, and class/interface members as methods.
+# `method_definition` covers regular methods, constructors, and get/set
+# accessors; `method_signature` covers interface methods;
+# `abstract_method_signature` covers abstract declarations.
+_TS_ONLY = """\
 (class_declaration
   name: (type_identifier) @_cls_name) @class
 
+(abstract_class_declaration
+  name: (type_identifier) @_cls_name) @class
+
+(interface_declaration
+  name: (type_identifier) @_cls_name) @class
+
+(enum_declaration
+  name: (identifier) @_cls_name) @class
+
+(enum_body
+  (property_identifier) @_var_name @variable)
+
+(enum_body
+  (enum_assignment
+    name: (property_identifier) @_var_name) @variable)
+
+(type_alias_declaration
+  name: (type_identifier) @_cls_name) @class
+
+(internal_module
+  name: (identifier) @_cls_name) @class
+
+(module
+  name: (identifier) @_cls_name) @class
+
+(method_signature
+  name: (property_identifier) @_method_name) @method
+
+(abstract_method_signature
+  name: (property_identifier) @_method_name) @method
+
 """
-    + _SHARED
-    + _VARIABLES
-)
+
+_TS_QUERY = _TS_ONLY + _SHARED + _VARIABLES
 
 # ── Import extractor (shared by JS and TS) ───────────────────────────
 
@@ -196,17 +242,19 @@ def extract_import_meta(node: Node, captures: dict[str, list[Node]]) -> ImportMe
 class JavaScriptPlugin:
     """JavaScript and TypeScript language support.
 
-    Registers two languages with separate grammars but a shared
-    import extractor.  TypeScript requires `grammar_entry=
-    "language_typescript"` because the `tree_sitter_typescript`
-    package exposes `language_typescript()` instead of the
-    standard `language()`.
+    Registers three languages with separate grammars but a shared
+    import extractor.  The `tree_sitter_typescript` package ships two
+    grammars: `language_typescript()` for `.ts` and `language_tsx()`
+    for `.tsx`.  They are registered separately because the TypeScript
+    grammar cannot parse JSX (a `.tsx` file parses with errors under
+    `language_typescript`, cleanly under `language_tsx`).
 
     Example registration output::
 
         [
             LanguageRegistration(id="javascript", ...),
             LanguageRegistration(id="typescript", grammar_entry="language_typescript", ...),
+            LanguageRegistration(id="tsx", grammar_entry="language_tsx", ...),
         ]
     """
 
@@ -228,24 +276,62 @@ class JavaScriptPlugin:
                 import_targets=frozenset({"javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
-                language_plugin_version=3,
+                language_plugin_version=4,
             ),
             LanguageRegistration(
                 id="typescript",
-                extensions=frozenset({".ts", ".tsx"}),
+                extensions=frozenset({".ts"}),
                 grammar_module="tree_sitter_typescript",
                 grammar_entry="language_typescript",
                 query=_TS_QUERY,
                 import_extractor=extract_import_meta,
                 scope_types=frozenset(
-                    {"class_declaration", "function_declaration", "internal_module"}
+                    {
+                        "class_declaration",
+                        "abstract_class_declaration",
+                        "interface_declaration",
+                        "function_declaration",
+                        "internal_module",
+                        "module",
+                        "enum_declaration",
+                    }
                 ),
-                class_scope_types=frozenset({"class_declaration"}),
+                class_scope_types=frozenset(
+                    {"class_declaration", "abstract_class_declaration", "interface_declaration"}
+                ),
                 doc_comment_node_types=frozenset({"comment"}),
                 index_files=frozenset({"index.ts", "index.js"}),
-                import_targets=frozenset({"typescript", "javascript", "css"}),
+                import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
                 source_roots=("", "src"),
                 test_suffix=".test",
-                language_plugin_version=3,
+                language_plugin_version=4,
+            ),
+            LanguageRegistration(
+                id="tsx",
+                extensions=frozenset({".tsx"}),
+                grammar_module="tree_sitter_typescript",
+                grammar_entry="language_tsx",
+                query=_TS_QUERY,
+                import_extractor=extract_import_meta,
+                scope_types=frozenset(
+                    {
+                        "class_declaration",
+                        "abstract_class_declaration",
+                        "interface_declaration",
+                        "function_declaration",
+                        "internal_module",
+                        "module",
+                        "enum_declaration",
+                    }
+                ),
+                class_scope_types=frozenset(
+                    {"class_declaration", "abstract_class_declaration", "interface_declaration"}
+                ),
+                doc_comment_node_types=frozenset({"comment"}),
+                index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
+                import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
+                source_roots=("", "src"),
+                test_suffix=".test",
+                language_plugin_version=1,
             ),
         ]

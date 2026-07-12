@@ -168,6 +168,19 @@ DROP TABLE a;
     ]
 
 
+def test_bash_source_and_dot_extracted_as_imports() -> None:
+    """source/. commands are captured as imports."""
+    src = """\
+source ./env.sh
+. /etc/profile
+"""
+    chunks = extract_chunks("bash", src)
+    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert len(imports) == 2
+    modules = {c.metadata.module for c in imports}
+    assert modules == {"./env.sh", "/etc/profile"}
+
+
 def test_anonymous_chunk_when_name_capture_missing(
     language_manager: LanguageManager,
 ) -> None:
@@ -327,6 +340,34 @@ service: greeter
     yaml_sections = [c for c in chunks if c.language == "yaml"]
     assert [c.name for c in yaml_sections] == ["service"]
     assert yaml_sections[0].line_start == 4
+
+
+def test_md_nested_injection_extracts_inner_js() -> None:
+    """Delegation recurses: markdown -> html -> its inline js.
+
+    An HTML block whose HTML contains an inline `<script>` yields both the
+    html chunks and the js function, each at absolute line numbers.
+    """
+    src = """\
+# Doc
+
+```html
+<body>
+  <main>
+    <script>
+      function boot() {
+        return 1;
+      }
+    </script>
+  </main>
+</body>
+```
+"""
+    chunks = extract_chunks("markdown", src)
+    assert "html" in {c.language for c in chunks}
+    js = [c for c in chunks if c.language == "javascript" and c.kind == ChunkKind.FUNCTION]
+    assert [c.name for c in js] == ["boot"]
+    assert js[0].line_start == 7
 
 
 def test_md_unknown_fence_left_unparsed() -> None:
