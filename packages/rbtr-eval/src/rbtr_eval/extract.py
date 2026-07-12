@@ -19,9 +19,9 @@ from pydantic import BaseModel, Field
 from rbtr.index.identity import SCOPE_SEPARATOR
 from rbtr.index.models import ChunkKind
 from rbtr.index.store import IndexStore
-from rbtr.index.treesitter import extract_doc_spans
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
+from rbtr.languages.treesitter import extract_doc_spans
 from rbtr_eval.queries import subsample
 from rbtr_eval.schemas import QueryRow, RepoHeader
 

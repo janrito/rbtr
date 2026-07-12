@@ -28,15 +28,20 @@ if TYPE_CHECKING:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-# Capture name → ChunkKind mapping (excludes _ prefixed helper captures).
-_CAPTURE_KIND: dict[str, ChunkKind] = {
-    "function": ChunkKind.FUNCTION,
-    "method": ChunkKind.METHOD,
-    "class": ChunkKind.CLASS,
-    "variable": ChunkKind.VARIABLE,
-    "import": ChunkKind.IMPORT,
-    "doc_section": ChunkKind.DOC_SECTION,
-}
+# The chunk kinds produced by a structural query capture. The capture name
+# equals the `ChunkKind` value (a `StrEnum`), so `ChunkKind(capture_name)` is
+# the reverse map; this set is the whitelist that keeps non-capture kinds
+# (`CONFIG_KEY`, `RAW_CHUNK`, …) out.
+_CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
+    {
+        ChunkKind.FUNCTION,
+        ChunkKind.METHOD,
+        ChunkKind.CLASS,
+        ChunkKind.VARIABLE,
+        ChunkKind.IMPORT,
+        ChunkKind.DOC_SECTION,
+    }
+)
 
 # Helper-capture key: byte ranges covering a symbol's documentation.
 # Used by `_doc_ranges_for_symbol` and `extract_doc_spans` to locate
@@ -123,25 +128,23 @@ def _enclosing_scopes(node: Node, scope_types: frozenset[str]) -> list[Node]:
     return scopes
 
 
-def _enclosing_scope_names(
-    node: Node,
-    scope_types: frozenset[str],
-    class_scope_types: frozenset[str],
-) -> tuple[list[str], bool]:
-    """Return *(scope_names, nearest_scope_is_class)* for a symbol node.
+def _scope_names(scopes: list[Node]) -> list[str]:
+    """Names of enclosing scopes, outermost-first, for the `::` address.
 
-    *scope_names* are the enclosing naming scopes outermost-first
-    (e.g. `["Outer", "Inner"]`, `["Svc", "start"]`) — discovery only,
-    not composed; the `Chunk.scope` validator forms the `::` address
-    (via `compose_scope`) and drops empty/anonymous segments.  The
-    boolean reports whether the *nearest* enclosing scope is
-    class-like, which drives function→method promotion in
-    `_resolve_kind`.
+    E.g. `["Outer", "Inner"]`, `["Svc", "start"]` — discovery only, not
+    composed; the `Chunk.scope` validator forms the `::` address (via
+    `compose_scope`) and drops empty/anonymous segments.
     """
-    scopes = _enclosing_scopes(node, scope_types)
-    names = [_scope_name(s) for s in reversed(scopes)]
-    nearest_is_class = bool(scopes) and scopes[0].type in class_scope_types
-    return names, nearest_is_class
+    return [_scope_name(s) for s in reversed(scopes)]
+
+
+def _nearest_scope_is_class(scopes: list[Node], class_scope_types: frozenset[str]) -> bool:
+    """Whether the *nearest* enclosing scope is class-like.
+
+    Drives function→method promotion in `_resolve_kind`. *scopes* is
+    nearest-first (as returned by `_enclosing_scopes`).
+    """
+    return bool(scopes) and scopes[0].type in class_scope_types
 
 
 def _doc_ranges_for_symbol(
@@ -313,8 +316,11 @@ def extract_symbols(
         for capture_name, nodes in capture_dict.items():
             if capture_name.startswith("_"):
                 continue
-            kind = _CAPTURE_KIND.get(capture_name)
-            if kind is None:
+            try:
+                kind = ChunkKind(capture_name)
+            except ValueError:
+                continue
+            if kind not in _CAPTURE_KINDS:
                 continue
 
             for node in nodes:
@@ -324,9 +330,9 @@ def extract_symbols(
                 if capture_name == "import":
                     meta = registered_language.resolve_import(node, capture_dict)
 
-                scope_names, nearest_is_class = _enclosing_scope_names(
-                    node, extraction.scope_types, extraction.class_scope_types
-                )
+                scopes = _enclosing_scopes(node, extraction.scope_types)
+                scope_names = _scope_names(scopes)
+                nearest_is_class = _nearest_scope_is_class(scopes, extraction.class_scope_types)
                 # The scope override's segments extend the tree-ancestry
                 # scope; the default contributes the `@_scope` capture.
                 scope_names = [
@@ -440,12 +446,12 @@ def extract_doc_spans(
                     continue
 
                 name = name_nodes[0].text.decode()
-                scope_names, nearest_is_class = _enclosing_scope_names(
-                    node, scope_types, class_scope_types
-                )
+                scopes = _enclosing_scopes(node, scope_types)
+                scope_names = _scope_names(scopes)
+                nearest_is_class = _nearest_scope_is_class(scopes, class_scope_types)
                 scope = compose_scope(scope_names)
                 kind = _resolve_kind(
-                    _CAPTURE_KIND[capture_name], nearest_scope_is_class=nearest_is_class
+                    ChunkKind(capture_name), nearest_scope_is_class=nearest_is_class
                 )
 
                 _, line_start = _chunk_line_start(

@@ -4,7 +4,7 @@ Two things a test suite (in- or out-of-tree) can't easily re-derive: a
 pydantic-aware snapshot serialiser and a readable edge renderer, both keyed
 off `rbtr.index.models`. Everything else — running extraction, loading
 samples — is plain setup that belongs in each suite's own fixtures, calling
-`rbtr.index.orchestrator.extract_file` directly.
+`rbtr.languages.extract.extract_file` directly.
 
 Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
 `snapshot_json` fixture, so every plugin test suite gets it with no conftest

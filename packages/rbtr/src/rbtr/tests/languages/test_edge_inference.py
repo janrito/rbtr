@@ -11,12 +11,12 @@ from __future__ import annotations
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.edges import (
+from rbtr.index.models import Chunk, Edge, EdgeKind
+from rbtr.languages.edges import (
     ImportResolution,
     _resolve_module_to_file,
     infer_import_edges,
 )
-from rbtr.index.models import Chunk, Edge, EdgeKind
 from rbtr.languages.registration import ModuleStyle
 
 from .cases_edges import EdgeScenario

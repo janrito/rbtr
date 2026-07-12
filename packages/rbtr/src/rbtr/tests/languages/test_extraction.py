@@ -28,10 +28,10 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
 from rbtr.index.models import ChunkKind, ImportMeta
-from rbtr.index.orchestrator import extract_file
-from rbtr.index.treesitter import extract_symbols
+from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
+from rbtr.languages.treesitter import extract_symbols
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ a, b = compute()
 
 
 def test_unknown_capture_name_ignored() -> None:
-    """Captures not in _CAPTURE_KIND are silently skipped."""
+    """Captures not in _CAPTURE_KINDS are silently skipped."""
     grammar = get_manager().load_grammar("python")
     assert grammar is not None
     query_unknown = """\

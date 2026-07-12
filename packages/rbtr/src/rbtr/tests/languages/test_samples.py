@@ -26,9 +26,9 @@ from pytest_cases import fixture, parametrize_with_cases
 from tree_sitter import Parser
 
 from rbtr.git import FileEntry
-from rbtr.index.edges import build_resolution_map, infer_import_edges
 from rbtr.index.models import Chunk, ChunkKind, Edge, ImportMeta
-from rbtr.index.orchestrator import extract_file
+from rbtr.languages.edges import build_resolution_map, infer_import_edges
+from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.testing import render_edges
 
