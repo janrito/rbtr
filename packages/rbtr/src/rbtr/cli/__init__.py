@@ -42,7 +42,6 @@ from rbtr.cli.output import (
     print_err,
     print_json_schema,
     progress_reporter,
-    render_config,
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
@@ -54,6 +53,7 @@ from rbtr.daemon.client import (
 )
 from rbtr.daemon.handlers import (
     handle_changed_symbols,
+    handle_daemon_config,
     handle_find_refs,
     handle_forget,
     handle_gc,
@@ -67,6 +67,8 @@ from rbtr.daemon.messages import (
     BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
+    DaemonConfigRequest,
+    DaemonConfigResponse,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
@@ -875,10 +877,26 @@ class SchemaDump(BaseModel):
 
 
 class ConfigCmd(BaseModel):
-    """Show the rendered rbtr configuration."""
+    """Show the rbtr configuration and loaded language plugins.
+
+    Reports the running daemon's live config when one is up; otherwise
+    the locally resolved config (what a daemon would load), noted on
+    stderr.
+    """
 
     def cli_cmd(self) -> None:
-        render_config()
+        match try_daemon(DaemonConfigRequest()):
+            case DaemonConfigResponse() as resp:
+                emit(resp)
+            case None:
+                print_err("[dim]daemon not running — showing local config[/]")
+                emit(handle_daemon_config(DaemonConfigRequest()))
+            case ErrorResponse(message=msg):
+                print_err(f"[red]error:[/] {msg}")
+                sys.exit(1)
+            case resp:
+                print_err(f"[red]error:[/] unexpected response: {resp}")
+                sys.exit(1)
 
 
 # ── Root command ─────────────────────────────────────────────────────

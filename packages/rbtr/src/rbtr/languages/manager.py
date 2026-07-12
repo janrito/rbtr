@@ -70,6 +70,7 @@ class LanguageManager:
         self._ext_map: dict[str, str] = {}
         self._filename_map: dict[str, str] = {}
         self._grammar_cache: dict[str, Language | None] = {}
+        self._distributions: dict[str, tuple[str, str]] = {}
         self._collect()
 
     def _collect(self) -> None:
@@ -94,6 +95,9 @@ class LanguageManager:
                 self._ext_map[ext] = reg.id
             for name in reg.filenames:
                 self._filename_map[name] = reg.id
+            dist = getattr(ep, "dist", None)
+            if dist is not None:
+                self._distributions[reg.id] = (dist.name, dist.version)
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -197,6 +201,16 @@ class LanguageManager:
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs."""
         return list(self._registrations)
+
+    def distribution(self, language_id: str) -> tuple[str, str] | None:
+        """Return the `(package, version)` that ships *language_id*, or `None`.
+
+        Read from the `rbtr.languages` entry point at discovery time — the
+        packaging complement to the registration (which carries
+        `extraction_serial`). `None` for a registration injected without
+        distribution metadata (e.g. in tests), never for a real install.
+        """
+        return self._distributions.get(language_id)
 
 
 @lru_cache(1)

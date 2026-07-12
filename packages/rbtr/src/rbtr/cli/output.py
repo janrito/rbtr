@@ -15,6 +15,7 @@ import os
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
@@ -31,6 +32,7 @@ from rbtr.daemon.messages import (
     BuildIndexResponse,
     ChangedSymbol,
     ChangedSymbolsResponse,
+    DaemonConfigResponse,
     FindRefsResponse,
     GcResponse,
     IndexedRef,
@@ -100,28 +102,6 @@ def print_json_schema(schema: JsonSchemaValue) -> None:
     """
     sys.stdout.write(to_json(schema, indent=2).decode())
     sys.stdout.write("\n")
-
-
-def render_config() -> None:
-    """Render the resolved configuration.
-
-    Piped / `--json`: the full config as indented JSON (a human reads
-    this; unlike protocol responses it isn't machine-consumed). TTY: a
-    settings table plus the config-file location.
-    """
-    if _json_output():
-        sys.stdout.write(config.model_dump_json(indent=2))
-        sys.stdout.write("\n")
-        return
-    table = Table(title="rbtr configuration")
-    table.add_column("Setting", style="bold")
-    table.add_column("Value")
-    for key, value in sorted(config.model_dump(mode="json").items()):
-        table.add_row(key, str(value))
-    _out.print(table)
-    toml_path = config.config_dir / "config.toml"
-    exists = "(exists)" if toml_path.exists() else "(not found)"
-    _out.print(f"[dim]config file:[/] {toml_path} {exists}")
 
 
 def print_banner() -> None:
@@ -219,6 +199,8 @@ def _print_rich(model: BaseModel) -> None:
             _render_status_response(model)
         case DaemonStatusReport():
             _render_daemon_status_report(model)
+        case DaemonConfigResponse():
+            _render_daemon_config_response(model)
         case GcResponse():
             _render_gc_response(model)
         case _:
@@ -431,6 +413,30 @@ def _render_daemon_status_report(m: DaemonStatusReport) -> None:
         _out.print(f"   [dim]rpc:[/] {m.rpc}")
     if m.pub is not None:
         _out.print(f"   [dim]pub:[/] {m.pub}")
+
+
+def _render_daemon_config_response(m: DaemonConfigResponse) -> None:
+    settings = Table(title=f"rbtr configuration  (rbtr {m.rbtr_version})")
+    settings.add_column("Setting", style="bold")
+    settings.add_column("Value")
+    for key, value in sorted(m.config.items()):
+        settings.add_row(key, str(value))
+    _out.print(settings)
+
+    config_dir = m.config.get("config_dir")
+    if isinstance(config_dir, str):
+        toml_path = Path(config_dir) / "config.toml"
+        exists = "(exists)" if toml_path.exists() else "(not found)"
+        _out.print(f"[dim]config file:[/] {toml_path} {exists}")
+
+    plugins = Table(title="language plugins")
+    plugins.add_column("Language", style="bold")
+    plugins.add_column("Package")
+    plugins.add_column("Version")
+    plugins.add_column("Extraction Serial")
+    for p in m.plugins:
+        plugins.add_row(p.language, p.package, p.version, str(p.extraction_serial))
+    _out.print(plugins)
 
 
 def _render_status_response(m: StatusResponse) -> None:

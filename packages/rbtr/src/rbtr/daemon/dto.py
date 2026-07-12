@@ -154,3 +154,19 @@ class RefOut(BaseModel):
 
 RefOuts = TypeAdapter(list[RefOut])
 """Bulk validator for a `find-refs` result frame (one call, not per row)."""
+
+
+class PluginInfo(BaseModel):
+    """One installed language plugin, per language it registers.
+
+    Package and version repeat across a package's languages; the
+    `extraction_serial` is the language's own extraction-invalidation
+    stamp, so it can differ between registrations of one package.
+    """
+
+    model_config = _STRICT
+
+    language: str
+    package: str
+    version: str
+    extraction_serial: int

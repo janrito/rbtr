@@ -23,6 +23,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    JsonValue,
     TypeAdapter,
     ValidationInfo,
     field_validator,
@@ -31,7 +32,7 @@ from pydantic.json_schema import JsonSchemaValue, models_json_schema
 from pydantic_core import from_json
 
 from rbtr.config import WeightTriple, config
-from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.index.models import ChangeKind, IndexStats, QueryKind
 
@@ -285,6 +286,17 @@ class StatusRequest(BaseModel):
     scope: Scope = Scope.WORKSPACE
 
 
+class DaemonConfigRequest(BaseModel):
+    """Ask the daemon for its live config and loaded plugins.
+
+    Global, not repo-scoped — carries no `repo_path`, so `_dispatch`
+    skips repo normalisation.
+    """
+
+    model_config = _STRICT
+    kind: Literal["daemon_config"] = "daemon_config"
+
+
 class GcMode(StrEnum):
     """What a `rbtr gc` invocation is allowed to delete."""
 
@@ -329,6 +341,7 @@ Request = Annotated[
     | FindRefsRequest
     | ChangedSymbolsRequest
     | StatusRequest
+    | DaemonConfigRequest
     | GcRequest
     | ForgetRequest,
     Field(discriminator="kind"),
@@ -460,6 +473,22 @@ class StatusResponse(BaseModel):
     active_embed: ActiveJob | None = None
 
 
+class DaemonConfigResponse(BaseModel):
+    """The daemon's live config plus the language plugins it loaded.
+
+    `config` is `config.model_dump(mode="json")` transported as data —
+    never the `Config` model, whose `BaseSettings` validation would
+    re-read the client's own environment. `rbtr_version` is the version
+    of the process that answered.
+    """
+
+    model_config = _STRICT
+    kind: Literal["daemon_config"] = "daemon_config"
+    rbtr_version: str
+    config: dict[str, JsonValue]
+    plugins: list[PluginInfo]
+
+
 class GcResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
@@ -496,6 +525,7 @@ Response = Annotated[
     | FindRefsResponse
     | ChangedSymbolsResponse
     | StatusResponse
+    | DaemonConfigResponse
     | GcResponse
     | ForgetResponse,
     Field(discriminator="kind"),

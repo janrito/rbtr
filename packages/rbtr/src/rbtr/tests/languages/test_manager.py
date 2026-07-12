@@ -342,3 +342,19 @@ def test_broken_plugin_is_skipped(monkeypatch: pytest.MonkeyPatch, fresh_manager
     eps = [SimpleNamespace(name="broken", load=boom), SimpleNamespace(name="ok", load=lambda: good)]
     monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
     assert get_manager().all_language_ids() == ["oklang"]
+
+
+# ── Distributions ─────────────────────────────────────────────────────
+
+
+def test_distribution_reports_providing_package() -> None:
+    """A bundled language resolves to its `rbtr-lang-*` distribution."""
+    dist = get_manager().distribution("python")
+    assert dist is not None
+    package, version = dist
+    assert package == "rbtr-lang-python"
+    assert version
+
+
+def test_distribution_unknown_language_is_none() -> None:
+    assert get_manager().distribution("nonesuch") is None
