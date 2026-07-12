@@ -62,7 +62,6 @@ class EdgeKind(StrEnum):
     CALLS = "calls"
     IMPORTS = "imports"
     INHERITS = "inherits"
-    TESTS = "tests"
     DOCUMENTS = "documents"
     CONFIGURES = "configures"
 

@@ -362,7 +362,7 @@ def ranking_edges() -> list[Edge]:
     """Edge graph used by importance / structural ranking tests.
 
     `config_class` receives 2 inbound edges (import, start_server).
-    `load_config` receives 3 inbound edges (import, test, doc).
+    `load_config` receives 3 inbound edges (import, call, doc).
     `start_server` receives 0.
     """
     return [
@@ -384,7 +384,7 @@ def ranking_edges() -> list[Edge]:
         Edge(
             source_id="test_config",
             target_id="load_config",
-            kind=EdgeKind.TESTS,
+            kind=EdgeKind.CALLS,
         ),
         Edge(
             source_id="doc_config",

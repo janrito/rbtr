@@ -71,7 +71,7 @@ export type QueryKind = "concept" | "identifier" | "code";
 /**
  * Kind of relationship between chunks.
  */
-export type EdgeKind = "calls" | "imports" | "inherits" | "tests" | "documents" | "configures";
+export type EdgeKind = "calls" | "imports" | "inherits" | "documents" | "configures";
 /**
  * How a symbol changed between two indexed commits.
  */

@@ -458,7 +458,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         "It understands meaning, not just substrings.\n" +
         "- Known symbol by name → rbtr_read_symbol. No file path needed.\n" +
         "- File outline before loading → rbtr_list_symbols.\n" +
-        "- Callers / tests / doc mentions of a symbol → rbtr_find_refs.\n" +
+        "- Callers / doc mentions of a symbol → rbtr_find_refs.\n" +
         "- Structural diff between refs (for PR review) → rbtr_changed_symbols.\n" +
         "Keep grep for literal strings (error messages, config keys, regexes) and use `read` for full-file reads; " +
         "rbtr_* tools are for structure. When a concept-question arises, reach for rbtr_search first.",
@@ -848,7 +848,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Prefer rbtr_search over grep for concept-shaped questions: 'how does X work', 'where is Y handled', 'find the code that does Z'. It understands meaning, not just substrings — 'retry logic' finds 'backoff' and 'reconnect attempts', grep would miss them.",
       "Use grep when the user gives you a literal string or identifier that must match exactly (an error message, a regex, a configuration key, an import path).",
       "Use rbtr_read_symbol (not rbtr_search) when you already know a symbol name and want its full source.",
-      "Chain: rbtr_search finds candidates → pass the `name` field from a hit as the `symbol` parameter to rbtr_read_symbol for the full source → rbtr_find_refs for callers / tests.",
+      "Chain: rbtr_search finds candidates → pass the `name` field from a hit as the `symbol` parameter to rbtr_read_symbol for the full source → rbtr_find_refs for callers and docs.",
       "Scores are meaningful relative to the top result. A big drop-off after the first few hits means the tail is probably noise.",
       "For concept queries (natural language like 'how does idle unload work'): provide `keywords` (3-5 synonym identifiers or alternative terms, e.g. ['timeout', 'evict', 'unload_model']) and `variants` (1-2 rephrases using different terminology, e.g. ['when does the model get released from memory']).",
       "For identifier queries (symbol names like `fuse_scores`): optionally provide `keywords` only (alternative names the symbol might have, e.g. ['merge_scores', 'combine_results']). Omit `variants`.",
@@ -1010,11 +1010,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_find_refs",
     label: "rbtr find-refs",
     description:
-      "Walk the dependency graph to find every place a symbol is imported, called from tests, or mentioned in docs. Takes a `symbol` string (same format as rbtr_read_symbol). Returns structural edges (source → target, kind=imports|tests|docs), not text matches.",
-    promptSnippet: "Find who imports / tests / documents a symbol via the index's dependency graph",
+      "Walk the dependency graph to find every place a symbol is imported or mentioned in docs. Takes a `symbol` string (same format as rbtr_read_symbol). Returns structural edges (source → target, kind=imports|docs), not text matches.",
+    promptSnippet: "Find who imports / documents a symbol via the index's dependency graph",
     promptGuidelines: [
-      "Use rbtr_find_refs for impact analysis: 'what would break if I change X', 'which tests cover X', 'is X documented anywhere'.",
-      "This is structural, not textual: edge kinds ('imports', 'tests', 'docs') give you intent, not raw string occurrences. Prefer this to grep when asking a graph-shaped question.",
+      "Use rbtr_find_refs for impact analysis: 'what would break if I change X', 'is X documented anywhere'.",
+      "This is structural, not textual: edge kinds ('imports', 'docs') give you intent, not raw string occurrences. Prefer this to grep when asking a graph-shaped question.",
       "Use grep when you need every raw occurrence of an identifier including inside strings / comments / unsupported file types.",
       "Chain after rbtr_search or rbtr_read_symbol: you've identified the symbol, now find who depends on it.",
       "Pass file_paths to disambiguate a name that exists in several files — references are resolved only against symbols defined in the listed files.",

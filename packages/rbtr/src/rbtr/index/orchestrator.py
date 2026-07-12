@@ -32,7 +32,7 @@ from tree_sitter import Parser, QueryCursor
 from rbtr.config import config
 from rbtr.git import FileEntry, changed_files, list_files
 from rbtr.index.chunks import chunk_plaintext, detect_prose_format, host_presence_chunk
-from rbtr.index.edges import build_resolution_map, infer_import_edges, infer_test_edges
+from rbtr.index.edges import build_resolution_map, infer_import_edges
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.models import (
     Chunk,
@@ -406,7 +406,6 @@ def _infer_and_store_edges(
     resolution_map = build_resolution_map(mgr)
     edges: list[Edge] = []
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
-    edges.extend(infer_test_edges(chunks, repo_files, resolution_map))
 
     with store.session() as session:
         session.replace_edges(commit_sha, edges, repo_id=repo_id)

@@ -45,7 +45,6 @@ java = LanguageRegistration(
     # directly above a method or class.
     doc_comment_node_types=frozenset({"block_comment", "line_comment"}),
     source_roots=("", "src/main/java"),
-    test_suffix="Test",
     module_style=ModuleStyle.DOTTED,
     language_plugin_version=3,
 )

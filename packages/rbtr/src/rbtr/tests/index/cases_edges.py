@@ -1,10 +1,9 @@
 """Scenarios for the edge-inference functions.
 
 Each case returns an `EdgeScenario` describing the chunks present,
-the repo's file set, the inference function to call, and the
-expected edge IDs.  Tests in `test_edges_inference.py` dispatch
-on `EdgeScenario.fn` to the matching `infer_*` function and assert
-the result.
+the repo's file set, and the expected edge IDs.  Tests in
+`test_edge_inference.py` run `infer_import_edges` and assert the
+result.
 
 Chunks are declared as `ChunkSpec` tuples of the fields that
 matter for edge inference.  The fixture fills in pydantic-required
@@ -15,7 +14,6 @@ boilerplate (`blob_sha`, `line_start`, `line_end`, empty
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 
 from rbtr.index.edges import ImportResolution
 from rbtr.index.models import ChunkKind, EdgeKind, ImportMeta
@@ -24,14 +22,8 @@ from rbtr.languages.registration import ModuleStyle
 from .cases_common import ChunkSpec
 
 
-class InferFn(StrEnum):
-    IMPORT = "import"
-    TEST = "test"
-
-
 @dataclass(frozen=True)
 class EdgeScenario:
-    fn: InferFn
     chunks: list[ChunkSpec]
     repo_files: frozenset[str] = frozenset()
     # Expected set of (source_id, target_id) pairs in the result,
@@ -59,7 +51,6 @@ _PYTHON_MAP: dict[str, ImportResolution] = {"python": _PYTHON_RESOLUTION}
 def case_import_from_import() -> EdgeScenario:
     """from src.models import User — module + names → exact target."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -85,7 +76,6 @@ def case_import_from_import() -> EdgeScenario:
 def case_import_variable_target() -> EdgeScenario:
     """from src.config import config — named import of a module-level VARIABLE."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp_cfg",
@@ -111,7 +101,6 @@ def case_import_variable_target() -> EdgeScenario:
 def case_import_destructured_variable_target() -> EdgeScenario:
     """from src.config import a — `a` came from `a, b = load()`, still links."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp_a",
@@ -137,7 +126,6 @@ def case_import_destructured_variable_target() -> EdgeScenario:
 def case_import_bare_module() -> EdgeScenario:
     """import src.models — bare import → edges to all non-import chunks."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -169,7 +157,6 @@ def case_import_bare_module() -> EdgeScenario:
 def case_import_relative() -> EdgeScenario:
     """from .models import Chunk — dots=1 + module + names."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -195,7 +182,6 @@ def case_import_relative() -> EdgeScenario:
 def case_import_relative_dot_only_unresolved() -> EdgeScenario:
     """from . import utils — dots=1 only; package __init__ missing."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -221,7 +207,6 @@ def case_import_relative_dot_only_unresolved() -> EdgeScenario:
 def case_import_stdlib_module_skipped() -> EdgeScenario:
     """import os — module doesn't resolve to a repo file."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -241,7 +226,6 @@ def case_import_stdlib_module_skipped() -> EdgeScenario:
 def case_import_target_symbol_missing() -> EdgeScenario:
     """Named import but symbol doesn't exist in target file."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -267,7 +251,6 @@ def case_import_target_symbol_missing() -> EdgeScenario:
 def case_import_multiple_names() -> EdgeScenario:
     """from src.models import Chunk, Edge — names list parsed."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -299,7 +282,6 @@ def case_import_multiple_names() -> EdgeScenario:
 def case_import_monorepo_absolute_suffix() -> EdgeScenario:
     """Absolute import resolves across a packages/*/src layout via suffix."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -330,7 +312,6 @@ def case_import_monorepo_absolute_suffix() -> EdgeScenario:
 def case_import_suffix_helpers_non_collision() -> EdgeScenario:
     """Full-path suffix resolves to the right file, not a same-named stem."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -368,7 +349,6 @@ def case_import_suffix_helpers_non_collision() -> EdgeScenario:
 def case_import_suffix_collision_dropped() -> EdgeScenario:
     """Same full-path suffix in two packages is ambiguous → no edge."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -406,7 +386,6 @@ def case_import_suffix_collision_dropped() -> EdgeScenario:
 def case_import_suffix_single_segment_guard() -> EdgeScenario:
     """A single-segment module never matches a nested file via suffix."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -435,7 +414,6 @@ def case_import_suffix_single_segment_guard() -> EdgeScenario:
 def case_import_text_fallback_file_stem_match() -> EdgeScenario:
     """No metadata → text search matches repo file stem."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -458,7 +436,6 @@ def case_import_text_fallback_file_stem_match() -> EdgeScenario:
 def case_import_text_fallback_no_match() -> EdgeScenario:
     """No metadata + no file stem match."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -475,7 +452,6 @@ def case_import_text_fallback_no_match() -> EdgeScenario:
 def case_import_text_fallback_short_stem_skipped() -> EdgeScenario:
     """File stems shorter than 3 chars are ignored by text search."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -501,7 +477,6 @@ def case_import_text_fallback_short_stem_skipped() -> EdgeScenario:
 def case_import_relative_overflow() -> EdgeScenario:
     """Relative import with more dots than path depth."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -527,7 +502,6 @@ def case_import_relative_overflow() -> EdgeScenario:
 def case_import_metadata_without_module_or_dots() -> EdgeScenario:
     """Metadata only has `names` — no way to resolve."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -547,183 +521,6 @@ def case_import_metadata_without_module_or_dots() -> EdgeScenario:
         repo_files=frozenset({"src/app.py", "src/foo.py"}),
         resolution_map=_PYTHON_MAP,
         expected=frozenset(),
-    )
-
-
-# ── test edges ──────────────────────────────────────────────────────
-
-
-def case_test_edges_with_import() -> EdgeScenario:
-    """Test file imports source — edge links test_fn to imported symbol."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="src/foo.py",
-            ),
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from src.foo import do_stuff",
-                file_path="tests/test_foo.py",
-                metadata=ImportMeta(module="src.foo", names="do_stuff"),
-            ),
-            ChunkSpec(
-                id="tf1",
-                kind=ChunkKind.FUNCTION,
-                name="test_do_stuff",
-                file_path="tests/test_foo.py",
-            ),
-        ],
-        repo_files=frozenset({"src/foo.py", "tests/test_foo.py"}),
-        expected=frozenset({("tf1", "fn1")}),
-    )
-
-
-def case_test_edges_fallback_no_import() -> EdgeScenario:
-    """No import in test file — fall back to file-name convention."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="foo.py",
-            ),
-            ChunkSpec(
-                id="tf1",
-                kind=ChunkKind.FUNCTION,
-                name="test_do_stuff",
-                file_path="test_foo.py",
-            ),
-        ],
-        repo_files=frozenset({"foo.py", "test_foo.py"}),
-        expected=frozenset({("tf1", "fn1")}),
-    )
-
-
-def case_test_edges_no_source_file() -> EdgeScenario:
-    """Test file exists but the source it would test doesn't."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="tf1",
-                kind=ChunkKind.FUNCTION,
-                name="test_stuff",
-                file_path="tests/test_foo.py",
-            ),
-        ],
-        repo_files=frozenset({"tests/test_foo.py"}),
-        expected=frozenset(),
-    )
-
-
-def case_test_edges_non_test_file_skipped() -> EdgeScenario:
-    """A plain source file never yields test edges."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="foo",
-                file_path="src/foo.py",
-            ),
-        ],
-        repo_files=frozenset({"src/foo.py"}),
-        expected=frozenset(),
-    )
-
-
-def case_test_edges_multiple_test_fns() -> EdgeScenario:
-    """Several tests in the same file all link to the same source fn."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="foo.py",
-            ),
-            ChunkSpec(
-                id="tf1",
-                kind=ChunkKind.FUNCTION,
-                name="test_a",
-                file_path="test_foo.py",
-            ),
-            ChunkSpec(
-                id="tf2",
-                kind=ChunkKind.FUNCTION,
-                name="test_b",
-                file_path="test_foo.py",
-            ),
-        ],
-        repo_files=frozenset({"foo.py", "test_foo.py"}),
-        expected=frozenset({("tf1", "fn1"), ("tf2", "fn1")}),
-    )
-
-
-def case_test_edges_imports_without_functions() -> EdgeScenario:
-    """Test file has only imports, no test functions — no edges."""
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from src.foo import do_stuff",
-                file_path="tests/test_foo.py",
-                metadata=ImportMeta(module="src.foo", names="do_stuff"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="src/foo.py",
-            ),
-        ],
-        repo_files=frozenset({"src/foo.py", "tests/test_foo.py"}),
-        expected=frozenset(),
-    )
-
-
-def case_test_edges_monorepo_suffix() -> EdgeScenario:
-    """Test resolves its source by full-path suffix across a monorepo.
-
-    The source is neither at a root nor a sibling of the test directory, so
-    only `_find_source_file`'s last-resort suffix match locates it.
-    """
-    return EdgeScenario(
-        fn=InferFn.TEST,
-        chunks=[
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="build_widget",
-                file_path="packages/core/src/core/factory.py",
-                language="python",
-            ),
-            ChunkSpec(
-                id="tf1",
-                kind=ChunkKind.FUNCTION,
-                name="test_build_widget",
-                file_path="packages/app/tests/test_factory.py",
-                language="python",
-            ),
-        ],
-        repo_files=frozenset(
-            {
-                "packages/core/src/core/factory.py",
-                "packages/app/tests/test_factory.py",
-            }
-        ),
-        expected=frozenset({("tf1", "fn1")}),
     )
 
 
@@ -749,7 +546,6 @@ _DOC_RESOLUTION: dict[str, ImportResolution] = {
 def case_doc_md_link_to_code() -> EdgeScenario:
     """MD [link](../src/foo.py) → DOCUMENTS edges to all symbols."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -782,7 +578,6 @@ def case_doc_md_link_to_code() -> EdgeScenario:
 def case_doc_md_link_to_doc() -> EdgeScenario:
     """MD [link](other.md) → DOCUMENTS edges to all DOC_SECTIONs."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -817,7 +612,6 @@ def case_doc_md_link_to_doc() -> EdgeScenario:
 def case_doc_md_link_with_fragment() -> EdgeScenario:
     """MD [link](other.md#details) → targeted DOCUMENTS edge."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -852,7 +646,6 @@ def case_doc_md_link_with_fragment() -> EdgeScenario:
 def case_doc_rst_func_role() -> EdgeScenario:
     """RST :func:`do_stuff` → targeted DOCUMENTS edge to function."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -879,7 +672,6 @@ def case_doc_rst_func_role() -> EdgeScenario:
 def case_doc_rst_doc_role() -> EdgeScenario:
     """RST :doc:`api/module` → DOCUMENTS edges to all chunks."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -907,7 +699,6 @@ def case_doc_rst_doc_role() -> EdgeScenario:
 def case_doc_md_bare_mention_no_edge() -> EdgeScenario:
     """Prose mentions do_stuff without a link → no edge."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="doc1",
@@ -931,7 +722,6 @@ def case_doc_md_bare_mention_no_edge() -> EdgeScenario:
 def case_doc_no_references_no_edges() -> EdgeScenario:
     """DOC_SECTION only, no IMPORT chunks → no edges."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="doc1",
@@ -952,7 +742,6 @@ def case_doc_no_references_no_edges() -> EdgeScenario:
 def case_import_html_script_src_relative() -> EdgeScenario:
     """HTML <script src="./app.js"> → JS function via language_hint."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -986,7 +775,6 @@ def case_import_html_script_src_relative() -> EdgeScenario:
 def case_import_html_script_src_parent() -> EdgeScenario:
     """HTML <script src="../lib/core.js"> → all chunks in JS file via ../."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -1020,7 +808,6 @@ def case_import_html_script_src_parent() -> EdgeScenario:
 def case_import_js_css_via_language_hint() -> EdgeScenario:
     """JS import './styles.css' → edges to all DOC_SECTION chunks in CSS file."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -1068,7 +855,6 @@ def case_import_js_css_via_language_hint() -> EdgeScenario:
 def case_import_html_link_href_css() -> EdgeScenario:
     """HTML <link href="styles.css"> → edges to all chunks in CSS file."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -1109,7 +895,6 @@ def case_import_html_link_href_css() -> EdgeScenario:
 def case_import_bare_excludes_import_chunks() -> EdgeScenario:
     """Bare import fans out to all chunks except IMPORT chunks in target."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",
@@ -1152,7 +937,6 @@ def case_import_bare_excludes_import_chunks() -> EdgeScenario:
 def case_import_bash_source() -> EdgeScenario:
     """source ./lib/utils.sh → edges to all functions in target."""
     return EdgeScenario(
-        fn=InferFn.IMPORT,
         chunks=[
             ChunkSpec(
                 id="imp1",

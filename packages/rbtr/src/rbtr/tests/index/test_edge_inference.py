@@ -1,9 +1,8 @@
 """Tests for cross-file edge inference.
 
 Private helpers that are difficult to reach through the public
-`infer_*` functions (e.g. `_resolve_module_to_file`,
-`_strip_test_affix`, `_find_source_file`) are tested directly
-because the project AGENTS permit it when doing so avoids
+`infer_*` functions (e.g. `_resolve_module_to_file`) are tested
+directly because the project AGENTS permit it when doing so avoids
 mocking the full pipeline.
 """
 
@@ -14,16 +13,13 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.index.edges import (
     ImportResolution,
-    _find_source_file,
     _resolve_module_to_file,
-    _strip_test_affix,
     infer_import_edges,
-    infer_test_edges,
 )
 from rbtr.index.models import Chunk, Edge, EdgeKind
 from rbtr.languages.registration import ModuleStyle
 
-from .cases_edges import EdgeScenario, InferFn
+from .cases_edges import EdgeScenario
 
 # ── _resolve_module_to_file ──────────────────────────────────────────
 
@@ -116,66 +112,6 @@ def test_resolve_module_to_file_with_resolution(
     assert _resolve_module_to_file(module, files, resolution) == expected
 
 
-# ── _strip_test_affix ���───────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("path", "prefix", "suffix", "expected"),
-    [
-        ("tests/test_foo.py", "test_", "", "foo"),
-        ("src/tests/test_bar.py", "test_", "", "bar"),
-        ("src/foo.py", "test_", "", None),
-        ("test_baz.py", "test_", "", "baz"),
-        ("src/models.test.ts", "", ".test", "models"),
-        ("pkg/foo_test.go", "", "_test", "foo"),
-        ("FooTest.java", "", "Test", "Foo"),
-        ("src/app.ts", "", ".test", None),
-    ],
-    ids=[
-        "py-simple",
-        "py-nested",
-        "py-no-match",
-        "py-root",
-        "ts-suffix",
-        "go-suffix",
-        "java-suffix",
-        "ts-no-match",
-    ],
-)
-def test_strip_test_affix(path: str, prefix: str, suffix: str, expected: str | None) -> None:
-    assert _strip_test_affix(path, test_prefix=prefix, test_suffix=suffix) == expected
-
-
-# ── _find_source_file ────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("symbol", "test_file", "files", "expected"),
-    [
-        ("foo", "tests/test_foo.py", {"foo.py", "tests/test_foo.py"}, "foo.py"),
-        ("foo", "tests/test_foo.py", {"src/foo.py"}, "src/foo.py"),
-        ("foo", "src/tests/test_foo.py", {"src/foo.py"}, "src/foo.py"),
-        ("foo_bar", "tests/test_foo_bar.py", {"src/foo/bar.py"}, "src/foo/bar.py"),
-        ("foo", "tests/test_foo.py", {"deep/nested/foo.py"}, "deep/nested/foo.py"),
-        ("foo", "tests/test_foo.py", {"bar.py"}, None),
-        ("foo", "tests/test_foo.py", {"a/foo.py", "b/foo.py"}, None),
-    ],
-    ids=[
-        "direct",
-        "in_src",
-        "sibling_of_tests",
-        "underscore_to_path",
-        "suffix_fallback",
-        "not_found",
-        "ambiguous_dropped",
-    ],
-)
-def test_find_source_file(
-    symbol: str, test_file: str, files: set[str], expected: str | None
-) -> None:
-    assert _find_source_file(symbol, test_file, files) == expected
-
-
 # ── infer_* scenarios ────────────────────────────────────────────────
 
 
@@ -198,10 +134,7 @@ def inferred(scenario: EdgeScenario) -> tuple[EdgeScenario, list[Edge]]:
         )
         for spec in scenario.chunks
     ]
-    if scenario.fn is InferFn.IMPORT:
-        edges = infer_import_edges(chunks, set(scenario.repo_files), scenario.resolution_map)
-    else:
-        edges = infer_test_edges(chunks, set(scenario.repo_files))
+    edges = infer_import_edges(chunks, set(scenario.repo_files), scenario.resolution_map)
     return scenario, edges
 
 
@@ -219,13 +152,7 @@ def test_inference_edge_kind_is_correct(
     scenario, edges = inferred
     if not edges:
         return
-    expected_kind = (
-        scenario.expected_edge_kind
-        or {
-            InferFn.IMPORT: EdgeKind.IMPORTS,
-            InferFn.TEST: EdgeKind.TESTS,
-        }[scenario.fn]
-    )
+    expected_kind = scenario.expected_edge_kind or EdgeKind.IMPORTS
     for e in edges:
         assert e.kind == expected_kind
 

@@ -126,7 +126,6 @@ javascript = LanguageRegistration(
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    test_suffix=".test",
     language_plugin_version=4,
 )
 typescript = LanguageRegistration(
@@ -153,7 +152,6 @@ typescript = LanguageRegistration(
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    test_suffix=".test",
     language_plugin_version=4,
 )
 tsx = LanguageRegistration(
@@ -180,7 +178,6 @@ tsx = LanguageRegistration(
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    test_suffix=".test",
     language_plugin_version=1,
 )
 

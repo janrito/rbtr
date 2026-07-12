@@ -110,7 +110,6 @@ python = LanguageRegistration(
     class_scope_types=frozenset({"class_definition"}),
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
-    test_prefix="test_",
     module_style=ModuleStyle.DOTTED,
     language_plugin_version=4,
 )
