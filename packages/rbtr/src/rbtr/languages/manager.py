@@ -100,13 +100,13 @@ class LanguageManager:
     def detect_language(self, file_path: str) -> str | None:
         """Detect the language of a file from its extension or filename.
 
-        Tries filename first (for files like `Makefile`), then
+        Tries filename first (for files like `.bashrc`), then
         falls back to extension.
 
         Examples:
 
             `detect_language("src/app.py")` → `"python"`
-            `detect_language("Makefile")` → `"bash"`
+            `detect_language(".bashrc")` → `"bash"`
             `detect_language("styles.css")` → `"css"`
             `detect_language("README")` → `None`
         """

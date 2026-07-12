@@ -42,8 +42,6 @@ bash = LanguageRegistration(
     extensions=frozenset({".sh", ".bash", ".zsh"}),
     filenames=frozenset(
         {
-            "Makefile",
-            "Dockerfile",
             "Bashrc",
             ".bashrc",
             ".bash_profile",

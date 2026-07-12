@@ -23,7 +23,7 @@ from rbtr.languages.extract import extract_file
             "pkg.json",
             '{"name": "test", "version": "1.0"}',
             "json",
-            ChunkKind.DOC_SECTION,
+            ChunkKind.CONFIG_KEY,
             None,
             1,
             id="json",

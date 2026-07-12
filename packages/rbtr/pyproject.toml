@@ -29,31 +29,16 @@ dependencies = [
 
   # Default language plugins (required — ship with core).
   "rbtr-lang-bash",
+  "rbtr-lang-c",
+  "rbtr-lang-cpp",
+  "rbtr-lang-html",
+  "rbtr-lang-javascript",
+  "rbtr-lang-markdown",
+  "rbtr-lang-python",
+  "rbtr-lang-rst",
 
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
-  "tree-sitter-c",
-  "tree-sitter-cpp",
-  "tree-sitter-css",
-  "tree-sitter-go",
-  "tree-sitter-hcl",
-  "tree-sitter-html",
-  "tree-sitter-java",
-  "tree-sitter-javascript",
-  "tree-sitter-json",
-  "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
-  "tree-sitter-less",
-  "tree-sitter-markdown",
-  "tree-sitter-python",
-  "tree-sitter-query",
-  "tree-sitter-rst",
-  "tree-sitter-ruby",
-  "tree-sitter-rust",
-  "tree-sitter-scss",
-  "tree-sitter-svelte",
-  "tree-sitter-toml",
-  "tree-sitter-typescript",
-  "tree-sitter-yaml",
 ]
 
 [project.scripts]
@@ -64,39 +49,44 @@ rbtr = "rbtr.cli:main"
 [project.entry-points.pytest11]
 rbtr = "rbtr.testing"
 
-# Languages bundled in core, discovered via the `rbtr.languages` entry-point
-# group (same mechanism external `rbtr-lang-*` packages use). Each value is a
-# `LanguageRegistration`, named by its language id. As languages are extracted
-# into their own packages, their entry point moves to that package's pyproject.
-[project.entry-points."rbtr.languages"]
-c = "rbtr.languages.c.plugin:c"
-cpp = "rbtr.languages.cpp.plugin:cpp"
-css = "rbtr.languages.css.plugin:css"
-go = "rbtr.languages.go.plugin:go"
-hcl = "rbtr.languages.hcl.plugin:hcl"
-html = "rbtr.languages.html.plugin:html"
-java = "rbtr.languages.java.plugin:java"
-javascript = "rbtr.languages.javascript.plugin:javascript"
-typescript = "rbtr.languages.javascript.plugin:typescript"
-tsx = "rbtr.languages.javascript.plugin:tsx"
-json = "rbtr.languages.json.plugin:json"
-less = "rbtr.languages.less.plugin:less"
-markdown = "rbtr.languages.markdown.plugin:markdown"
-python = "rbtr.languages.python.plugin:python"
-query = "rbtr.languages.query.plugin:query"
-rst = "rbtr.languages.rst.plugin:rst"
-ruby = "rbtr.languages.ruby.plugin:ruby"
-rust = "rbtr.languages.rust.plugin:rust"
-scss = "rbtr.languages.scss.plugin:scss"
-svelte = "rbtr.languages.sfc.plugin:svelte"
-vue = "rbtr.languages.sfc.plugin:vue"
-toml = "rbtr.languages.toml.plugin:toml"
-yaml = "rbtr.languages.yaml.plugin:yaml"
-
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
 [project.optional-dependencies]
+css = ["rbtr-lang-css"]
+go = ["rbtr-lang-go"]
+hcl = ["rbtr-lang-hcl"]
+java = ["rbtr-lang-java"]
+json = ["rbtr-lang-json"]
+less = ["rbtr-lang-less"]
+ruby = ["rbtr-lang-ruby"]
+rust = ["rbtr-lang-rust"]
+scss = ["rbtr-lang-scss"]
 sql = ["rbtr-lang-sql"]
+svelte = ["rbtr-lang-svelte"]
+toml = ["rbtr-lang-toml"]
+tree_sitter_query = ["rbtr-lang-tree-sitter-query"]
+vue = ["rbtr-lang-vue"]
+yaml = ["rbtr-lang-yaml"]
+# Convenience aggregate: `all` pulls every optional plugin (the defaults are
+# already required deps, so `rbtr[all]` installs every language). No `web`
+# grouping — html and javascript are defaults, so it would only add css.
+all = [
+  "rbtr-lang-css",
+  "rbtr-lang-scss",
+  "rbtr-lang-less",
+  "rbtr-lang-json",
+  "rbtr-lang-toml",
+  "rbtr-lang-yaml",
+  "rbtr-lang-hcl",
+  "rbtr-lang-go",
+  "rbtr-lang-java",
+  "rbtr-lang-ruby",
+  "rbtr-lang-rust",
+  "rbtr-lang-sql",
+  "rbtr-lang-tree-sitter-query",
+  "rbtr-lang-svelte",
+  "rbtr-lang-vue",
+]
 # Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
 # The pytest bound lives here (not just in `dev`) so that a plugin whose
@@ -112,7 +102,28 @@ test = [
 # Language-plugin packages resolve to their workspace members.
 [tool.uv.sources]
 rbtr-lang-bash = { workspace = true }
+rbtr-lang-c = { workspace = true }
+rbtr-lang-cpp = { workspace = true }
+rbtr-lang-css = { workspace = true }
+rbtr-lang-go = { workspace = true }
+rbtr-lang-hcl = { workspace = true }
+rbtr-lang-html = { workspace = true }
+rbtr-lang-java = { workspace = true }
+rbtr-lang-javascript = { workspace = true }
+rbtr-lang-json = { workspace = true }
+rbtr-lang-less = { workspace = true }
+rbtr-lang-markdown = { workspace = true }
+rbtr-lang-python = { workspace = true }
+rbtr-lang-rst = { workspace = true }
+rbtr-lang-ruby = { workspace = true }
+rbtr-lang-rust = { workspace = true }
+rbtr-lang-scss = { workspace = true }
 rbtr-lang-sql = { workspace = true }
+rbtr-lang-svelte = { workspace = true }
+rbtr-lang-toml = { workspace = true }
+rbtr-lang-tree-sitter-query = { workspace = true }
+rbtr-lang-vue = { workspace = true }
+rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
 dev = [

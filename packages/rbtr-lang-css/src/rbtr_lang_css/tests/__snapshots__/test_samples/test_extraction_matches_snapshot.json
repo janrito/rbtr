@@ -1,0 +1,236 @@
+[
+  {
+    "id": "d38c6f13e7d1f1f6",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "config_key",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "css",
+    "content": "@charset \"UTF-8\";",
+    "line_start": 6,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "57227f716d5abf82",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "import",
+    "name": "@import url(\"reset.css\");",
+    "scope": "",
+    "language": "css",
+    "content": "@import url(\"reset.css\");",
+    "line_start": 8,
+    "line_end": 8,
+    "metadata": {
+      "module": "reset.css",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8e8cf908ddfdc18a",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "import",
+    "name": "@import \"theme.css\";",
+    "scope": "",
+    "language": "css",
+    "content": "@import \"theme.css\";",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "theme.css",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "643120e24579e242",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": ":root",
+    "scope": "",
+    "language": "css",
+    "content": ":root {\n  --greeting-color: #333;\n}",
+    "line_start": 11,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7927be2ae9966e1c",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "variable",
+    "name": "--greeting-color",
+    "scope": ":root",
+    "language": "css",
+    "content": "--greeting-color: #333;",
+    "line_start": 12,
+    "line_end": 12,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5d0ae5edc801e00b",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": ".greeter",
+    "scope": "",
+    "language": "css",
+    "content": ".greeter {\n  color: var(--greeting-color);\n  font-weight: bold;\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
+    "line_start": 15,
+    "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "bde2f382ecc89b91",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": ".greeting-label",
+    "scope": ".greeter",
+    "language": "css",
+    "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
+    "line_start": 18,
+    "line_end": 20,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "c5c45e34a7d10d24",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "css",
+    "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
+    "line_start": 23,
+    "line_end": 27,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "901cf6a2b4f1e93a",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": ".greeter",
+    "scope": "",
+    "language": "css",
+    "content": ".greeter {\n    font-size: 14px;\n  }",
+    "line_start": 24,
+    "line_end": 26,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "0a3a01fd3738a147",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "class",
+    "name": "greeting-fade",
+    "scope": "",
+    "language": "css",
+    "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
+    "line_start": 29,
+    "line_end": 36,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8d3da5c38b0da34b",
+    "blob_sha": "sha1",
+    "file_path": "reset.css",
+    "kind": "class",
+    "name": "*",
+    "scope": "",
+    "language": "css",
+    "content": "* {\n  margin: 0;\n}",
+    "line_start": 1,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "99f917f38f753e71",
+    "blob_sha": "sha1",
+    "file_path": "theme.css",
+    "kind": "class",
+    "name": ":root",
+    "scope": "",
+    "language": "css",
+    "content": ":root {\n  --greeting-color: #333;\n}",
+    "line_start": 1,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "5e10cca1e6d1f2eb",
+    "blob_sha": "sha1",
+    "file_path": "theme.css",
+    "kind": "variable",
+    "name": "--greeting-color",
+    "scope": ":root",
+    "language": "css",
+    "content": "--greeting-color: #333;",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

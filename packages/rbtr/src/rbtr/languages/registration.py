@@ -253,7 +253,7 @@ class LanguageRegistration:
     `frozenset({".py", ".pyi"})`.  Matched against a file's suffix."""
     filenames: frozenset[str] = frozenset()
     """Exact base filenames claimed regardless of extension, e.g.
-    `frozenset({"Makefile", "Dockerfile"})`."""
+    `frozenset({".bashrc", ".zshrc"})`."""
     grammar_module: str | None = None
     """Python module exposing a tree-sitter grammar factory, e.g.
     `"tree_sitter_python"`.  `None` → no parsing; the file gets line-based
@@ -387,6 +387,7 @@ class LanguageRegistration:
 # ── Shared utilities for plugin authors ──────────────────────────────
 
 
+@functools.cache
 def load_query(package: str, name: str) -> str:
     """Return the text of a `<name>.scm` query file in *package*.
 
@@ -394,6 +395,11 @@ def load_query(package: str, name: str) -> str:
     (never inlined as a Python string — house rule). *package* is normally the
     caller's own `__package__`; *name* omits the `.scm` extension (e.g.
     `"python"`, `"injections"`). See ARCHITECTURE "Where queries live".
+
+    Cached on `(package, name)`: a query shared by two registrations (e.g. the
+    SFC injection query used by svelte and vue) is read once, so authors can
+    inline the call in each registration rather than hoisting a module
+    constant.
     """
     return (files(package) / f"{name}.scm").read_text(encoding="utf-8")
 

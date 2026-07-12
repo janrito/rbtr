@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # The chunk kinds produced by a structural query capture. The capture name
 # equals the `ChunkKind` value (a `StrEnum`), so `ChunkKind(capture_name)` is
 # the reverse map; this set is the whitelist that keeps non-capture kinds
-# (`CONFIG_KEY`, `RAW_CHUNK`, …) out.
+# (`RAW_CHUNK`, `MIGRATION`, …) out.
 _CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
     {
         ChunkKind.FUNCTION,
@@ -40,6 +40,7 @@ _CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.VARIABLE,
         ChunkKind.IMPORT,
         ChunkKind.DOC_SECTION,
+        ChunkKind.CONFIG_KEY,
     }
 )
 

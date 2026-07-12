@@ -104,7 +104,33 @@ param_style = "dollar"
 
 [tool.mypy]
 python_version = "3.13"
-packages = ["rbtr", "rbtr_eval", "rbtr_lang_bash", "rbtr_lang_sql"]
+packages = [
+  "rbtr",
+  "rbtr_eval",
+  "rbtr_lang_bash",
+  "rbtr_lang_c",
+  "rbtr_lang_cpp",
+  "rbtr_lang_css",
+  "rbtr_lang_go",
+  "rbtr_lang_hcl",
+  "rbtr_lang_html",
+  "rbtr_lang_java",
+  "rbtr_lang_javascript",
+  "rbtr_lang_json",
+  "rbtr_lang_markdown",
+  "rbtr_lang_python",
+  "rbtr_lang_rst",
+  "rbtr_lang_ruby",
+  "rbtr_lang_rust",
+  "rbtr_lang_less",
+  "rbtr_lang_scss",
+  "rbtr_lang_sql",
+  "rbtr_lang_svelte",
+  "rbtr_lang_toml",
+  "rbtr_lang_tree_sitter_query",
+  "rbtr_lang_vue",
+  "rbtr_lang_yaml",
+]
 # Language sample fixtures are illustrative source for extraction tests,
 # not product modules. They are validated by their own parse-clean and
 # snapshot tests, so they are exempt from type-checking (and likewise

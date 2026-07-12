@@ -1,0 +1,182 @@
+[
+  {
+    "id": "8f10aa0b97fda5ea",
+    "blob_sha": "sha1",
+    "file_path": "base.less",
+    "kind": "variable",
+    "name": "@bg",
+    "scope": "",
+    "language": "less",
+    "content": "@bg: #ffffff;",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "14b448311d1139b8",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "import",
+    "name": "@import \"base\";",
+    "scope": "",
+    "language": "less",
+    "content": "@import \"base\";",
+    "line_start": 7,
+    "line_end": 7,
+    "metadata": {
+      "module": "base",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8d9441ee2a311c25",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "variable",
+    "name": "@primary",
+    "scope": "",
+    "language": "less",
+    "content": "@primary: #333;",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7c7b0d1e3f708b87",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "variable",
+    "name": "@spacing",
+    "scope": "",
+    "language": "less",
+    "content": "@spacing: 8px;",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "70cc768af8829886",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "function",
+    "name": "rounded",
+    "scope": "",
+    "language": "less",
+    "content": ".rounded(@radius: 4px) {\n  border-radius: @radius;\n}",
+    "line_start": 12,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "787412e930624b62",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "class",
+    "name": ".greeter",
+    "scope": "",
+    "language": "less",
+    "content": ".greeter {\n  color: @primary;\n  padding: @spacing;\n  .rounded(8px);\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
+    "line_start": 16,
+    "line_end": 23,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a21acf50441166ff",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "class",
+    "name": ".greeting-label",
+    "scope": ".greeter",
+    "language": "less",
+    "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
+    "line_start": 20,
+    "line_end": 22,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "289a7c82bd01f03c",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "class",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "less",
+    "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
+    "line_start": 25,
+    "line_end": 29,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a4d6c82c63beab1c",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "class",
+    "name": ".greeter",
+    "scope": "",
+    "language": "less",
+    "content": ".greeter {\n    font-size: 14px;\n  }",
+    "line_start": 26,
+    "line_end": 28,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "4d89902ee8dcd396",
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "class",
+    "name": "greeting-fade",
+    "scope": "",
+    "language": "less",
+    "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
+    "line_start": 31,
+    "line_end": 38,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

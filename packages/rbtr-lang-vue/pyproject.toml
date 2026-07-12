@@ -1,0 +1,35 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_vue"
+# No source-exclude: the plugin's tests, samples, and snapshots ship with
+# the wheel (they are the language's golden record).
+
+[project]
+name = "rbtr-lang-vue"
+version = "2026.6.1"
+description = "rbtr — Vue language plugin (thin; reuses rbtr-lang-svelte's SFC machinery)"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "rbtr-lang-svelte==2026.6.1",
+  "tree-sitter-language-pack",  # Vue grammar (bundled, hermetic)
+]
+
+[project.entry-points."rbtr.languages"]
+# The value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note.
+vue = "rbtr_lang_vue.plugin:vue"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+rbtr-lang-svelte = { workspace = true }
+rbtr-lang-javascript = { workspace = true }
+rbtr-lang-scss = { workspace = true }
+
+[dependency-groups]
+# The sample embeds lang="ts" and lang="scss" blocks (scss pulls css).
+dev = ["rbtr[test]", "rbtr-lang-javascript", "rbtr-lang-scss"]

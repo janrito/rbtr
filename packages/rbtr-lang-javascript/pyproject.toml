@@ -1,0 +1,38 @@
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rbtr_lang_javascript"
+# No source-exclude: the plugin's tests, samples, and snapshots ship
+# with the wheel (they are the language's golden record), and the .scm
+# queries ship as package data.
+
+[project]
+name = "rbtr-lang-javascript"
+version = "2026.6.1"
+description = "rbtr — JavaScript / TypeScript / TSX language plugin"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+  "rbtr==2026.6.1",
+  "tree-sitter-javascript",
+  "tree-sitter-typescript",
+]
+
+[project.entry-points."rbtr.languages"]
+# Each value resolves to the language's `LanguageRegistration` (named by its
+# id) — see the rbtr ARCHITECTURE "External plugins" note. One package, three
+# ids across two grammars.
+javascript = "rbtr_lang_javascript.plugin:javascript"
+typescript = "rbtr_lang_javascript.plugin:typescript"
+tsx = "rbtr_lang_javascript.plugin:tsx"
+
+[tool.uv.sources]
+rbtr = { workspace = true }
+# The javascript sample project includes a styles.css, so the sample test
+# needs the css plugin available to extract it and snapshot the cross edges.
+rbtr-lang-css = { workspace = true }
+
+[dependency-groups]
+dev = ["rbtr[test]", "rbtr-lang-css"]

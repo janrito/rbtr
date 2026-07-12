@@ -1,0 +1,110 @@
+[
+  {
+    "id": "0b774143d92e16f9",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "name",
+    "scope": "",
+    "language": "json",
+    "content": "\"name\": \"greeter\"",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "54a915ff53825252",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "version",
+    "scope": "",
+    "language": "json",
+    "content": "\"version\": \"1.0.0\"",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "cfbbdfe2bde40fed",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "defaults",
+    "scope": "",
+    "language": "json",
+    "content": "\"defaults\": {\n    \"greeting\": \"Hello\",\n    \"locale\": \"en\"\n  }",
+    "line_start": 4,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "29b185429b752875",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "greeting",
+    "scope": "",
+    "language": "json",
+    "content": "\"greeting\": \"Hello\"",
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "09a53d90a2485af8",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "locale",
+    "scope": "",
+    "language": "json",
+    "content": "\"locale\": \"en\"",
+    "line_start": 6,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "228dee714cb21401",
+    "blob_sha": "sha1",
+    "file_path": "json.json",
+    "kind": "config_key",
+    "name": "locales",
+    "scope": "",
+    "language": "json",
+    "content": "\"locales\": [\"en\", \"fr\"]",
+    "line_start": 8,
+    "line_end": 8,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  }
+]

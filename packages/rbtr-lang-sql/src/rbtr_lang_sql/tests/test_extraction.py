@@ -6,6 +6,7 @@ the two functions at the end pin SQL-specific edge behaviour.
 
 from __future__ import annotations
 
+import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
@@ -52,6 +53,21 @@ def test_sql_pragma_not_extracted() -> None:
     src = "PRAGMA create_fts_index('chunks', 'id', 'body');\n"
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "sql")
     assert [c for c in chunks if c.content] == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="tree-sitter-sql has no create_procedure node — parses to ERROR",
+)
+def test_stored_procedure_unsupported() -> None:
+    """A SQL stored procedure should ideally extract as a function (grammar gap).
+
+    Strict xfail: when the grammar gains `create_procedure` this fails, prompting
+    removal of the xfail and a sample update.
+    """
+    src = "CREATE PROCEDURE refresh()\nLANGUAGE SQL\nAS $$ DELETE FROM cache; $$;\n"
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "sql")
+    assert (ChunkKind.FUNCTION, "refresh", "") in [(c.kind, c.name, c.scope) for c in chunks]
 
 
 def test_sql_multi_statement_one_chunk_each() -> None:
