@@ -100,7 +100,10 @@ jobs:
             dist/*
 
       - name: Publish to PyPI
-        run: uv publish dist/*.whl dist/*.tar.gz
+        # Publish core (rbtr-*) and every language plugin (rbtr_lang_*).
+        # rbtr-eval is internal (Private :: Do Not Upload) and is excluded by
+        # these globs; the classifier is the belt-and-braces guarantee.
+        run: uv publish dist/rbtr-*.whl dist/rbtr_lang_*.whl dist/rbtr-*.tar.gz dist/rbtr_lang_*.tar.gz
 
       - uses: actions/setup-node@v6
         with:

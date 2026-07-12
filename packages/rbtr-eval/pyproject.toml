@@ -10,6 +10,7 @@ source-exclude = ["**/tests"]
 name = "rbtr-eval"
 version = "2026.6.1"
 description = "rbtr — search-quality evaluation harness"
+classifiers = ["Private :: Do Not Upload"]
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
