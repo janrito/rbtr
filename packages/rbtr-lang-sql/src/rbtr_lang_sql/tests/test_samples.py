@@ -67,7 +67,7 @@ def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
     """Every project file is valid source — no tree-sitter ERROR/MISSING nodes."""
     manager = get_manager()
     for path, text in project:
-        grammar = manager.load_grammar(manager.detect_language(path) or "sql")
+        grammar = manager.grammar(manager.detect_language(path) or "sql")
         assert grammar is not None
         assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
 
@@ -110,6 +110,6 @@ def test_sql_dialect_extraction_matches_snapshot(
 def test_sql_dialect_parses_cleanly(dialect: str) -> None:
     """Sentinel: flips to XPASS (failing) when a dialect parses cleanly."""
     source = (Path(__file__).parent / "samples" / f"{dialect}.sql").read_text()
-    grammar = get_manager().load_grammar("sql")
+    grammar = get_manager().grammar("sql")
     assert grammar is not None
     assert not Parser(grammar).parse(source.encode()).root_node.has_error

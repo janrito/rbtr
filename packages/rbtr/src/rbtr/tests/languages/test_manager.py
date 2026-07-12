@@ -111,7 +111,7 @@ def test_get_registration_none_for_unknown() -> None:
     assert get_manager().get_registration("nonexistent") is None
 
 
-# ── load_grammar ─────────────────────────────────────────────────────
+# ── grammar ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -119,8 +119,8 @@ def test_get_registration_none_for_unknown() -> None:
     ["python", "bash", "json", "yaml", "toml"],
     ids=["python", "bash", "json", "yaml", "toml"],
 )
-def test_load_grammar_base(lang_id: str) -> None:
-    assert get_manager().load_grammar(lang_id) is not None
+def test_grammar_base(lang_id: str) -> None:
+    assert get_manager().grammar(lang_id) is not None
 
 
 @pytest.mark.parametrize(
@@ -128,14 +128,14 @@ def test_load_grammar_base(lang_id: str) -> None:
     ["nonexistent"],
     ids=["unknown"],
 )
-def test_load_grammar_returns_none(lang_id: str) -> None:
-    assert get_manager().load_grammar(lang_id) is None
+def test_grammar_returns_none(lang_id: str) -> None:
+    assert get_manager().grammar(lang_id) is None
 
 
-def test_load_grammar_cached() -> None:
+def test_grammar_cached() -> None:
     """Same object returned on repeated calls."""
-    g1 = get_manager().load_grammar("python")
-    g2 = get_manager().load_grammar("python")
+    g1 = get_manager().grammar("python")
+    g2 = get_manager().grammar("python")
     assert g1 is g2
 
 
@@ -189,7 +189,7 @@ def test_every_query_compiles_against_its_grammar() -> None:
     """
     for lang_id in get_manager().all_language_ids():
         reg = get_manager().get_registration(lang_id)
-        grammar = get_manager().load_grammar(lang_id)
+        grammar = get_manager().grammar(lang_id)
         if reg is None or not isinstance(reg.extraction, QueryExtraction) or grammar is None:
             continue
         Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
@@ -215,34 +215,6 @@ def test_scope_types_empty(lang_id: str) -> None:
     extraction = reg.extraction if reg else None
     scope_types = extraction.scope_types if isinstance(extraction, QueryExtraction) else frozenset()
     assert scope_types == frozenset()
-
-
-# ── get_language ─────────────────────────────────────────────────────
-
-
-def test_get_language_python() -> None:
-    result = get_manager().get_language("app.py")
-    assert result is not None
-    lang_id, grammar = result
-    assert lang_id == "python"
-    assert grammar is not None
-
-
-def test_get_language_bash() -> None:
-    result = get_manager().get_language("script.sh")
-    assert result is not None
-    assert result[0] == "bash"
-
-
-@pytest.mark.parametrize(
-    ("path", "reason"),
-    [
-        ("data.xyz", "unknown extension"),
-    ],
-    ids=["unknown"],
-)
-def test_get_language_returns_none(path: str, reason: str) -> None:
-    assert get_manager().get_language(path) is None
 
 
 # ── missing_grammar ──────────────────────────────────────────────────

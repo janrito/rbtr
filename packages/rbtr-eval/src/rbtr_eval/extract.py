@@ -156,7 +156,7 @@ def queries_for_symbol(
     reg = mgr.get_registration(language)
     extraction = reg.extraction if reg is not None else None
     if isinstance(extraction, QueryExtraction):
-        grammar = mgr.load_grammar(language)
+        grammar = mgr.grammar(language)
         if grammar is not None:
             content_bytes = content.encode("utf-8")
             for span in extract_doc_spans(

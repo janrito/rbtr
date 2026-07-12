@@ -208,66 +208,66 @@ def _print_rich(model: BaseModel) -> None:
             raise TypeError(msg)
 
 
-def _render_build_index_response(m: BuildIndexResponse) -> None:
-    s = m.stats
+def _render_build_index_response(response: BuildIndexResponse) -> None:
+    s = response.stats
     t = Text()
     t.append("refs=", style="dim")
-    t.append(", ".join(m.resolved_refs), style="bold")
+    t.append(", ".join(response.resolved_refs), style="bold")
     t.append(f"  {s.parsed_files}/{s.total_files} files", style="bold")
     t.append(f" ({s.skipped_files} skipped)", style="dim")
     t.append(f"  {s.total_chunks} chunks", style="cyan")
     t.append(f"  {s.total_edges} edges", style="cyan")
     t.append(f"  {s.elapsed_seconds}s", style="dim")
     _out.print(t)
-    for e in m.errors:
+    for e in response.errors:
         print_err(f"  [red]error:[/] {e}")
 
 
-def _render_search_response(m: SearchResponse) -> None:
-    for r in m.results:
+def _render_search_response(response: SearchResponse) -> None:
+    for r in response.results:
         _render_scored_result(r)
 
 
-def _render_read_symbol_response(m: ReadSymbolResponse) -> None:
-    for c in m.chunks:
+def _render_read_symbol_response(response: ReadSymbolResponse) -> None:
+    for c in response.chunks:
         _render_chunk(c)
 
 
-def _render_list_symbols_response(m: ListSymbolsResponse) -> None:
-    for c in m.chunks:
+def _render_list_symbols_response(response: ListSymbolsResponse) -> None:
+    for c in response.chunks:
         _render_chunk(c, compact=True)
 
 
-def _render_find_refs_response(m: FindRefsResponse) -> None:
-    for r in m.refs:
+def _render_find_refs_response(response: FindRefsResponse) -> None:
+    for r in response.refs:
         _render_ref(r)
 
 
-def _render_scored_result(m: SearchHitOut) -> None:
-    path = _short_path(m.file_path)
-    if m.repo_path is not None:
-        path = f"{os.path.basename(m.repo_path.rstrip('/'))}/{path}"
+def _render_scored_result(search_hit: SearchHitOut) -> None:
+    path = _short_path(search_hit.file_path)
+    if search_hit.repo_path is not None:
+        path = f"{os.path.basename(search_hit.repo_path.rstrip('/'))}/{path}"
 
     # Header — same layout as _render_chunk
     t = Text()
     t.append(path, style="bold")
-    t.append(f":{m.line_start}-{m.line_end}", style="dim")
-    t.append(f"  {m.kind}", style="dim")
-    t.append(f"  {m.name}")
+    t.append(f":{search_hit.line_start}-{search_hit.line_end}", style="dim")
+    t.append(f"  {search_hit.kind}", style="dim")
+    t.append(f"  {search_hit.name}")
     _out.print(t)
 
     # Score line
     s = Text("  ")
-    s.append(f"{m.score:.2f}", style=_score_style(m.score))
+    s.append(f"{search_hit.score:.2f}", style=_score_style(search_hit.score))
     _out.print(s)
 
     # Code preview — skip for single-line chunks (header is enough).
     # Split on "\n" (not splitlines) so offsets agree with the pi
     # renderer and with `match_line_offset`.
-    lines = m.content.split("\n")
+    lines = search_hit.content.split("\n")
     if len(lines) > 1:
         max_preview = 4
-        anchor = m.match_line_offset
+        anchor = search_hit.match_line_offset
         # Scroll the window to the anchor only when it falls past the
         # first window; otherwise keep the natural first-N preview.
         start = anchor - 1 if anchor is not None and anchor >= max_preview else 0
@@ -280,7 +280,7 @@ def _render_scored_result(m: SearchHitOut) -> None:
             _out.print(
                 Syntax(
                     lines[0],
-                    m.language,
+                    search_hit.language,
                     theme="monokai",
                     line_numbers=False,
                     padding=(0, 4),
@@ -290,7 +290,7 @@ def _render_scored_result(m: SearchHitOut) -> None:
         _out.print(
             Syntax(
                 "\n".join(window),
-                m.language,
+                search_hit.language,
                 theme="monokai",
                 line_numbers=False,
                 padding=(0, 4),
@@ -303,36 +303,36 @@ def _render_scored_result(m: SearchHitOut) -> None:
     _out.print()  # blank line between results
 
 
-def _render_chunk(m: SymbolOut, *, compact: bool = False) -> None:
-    path = _short_path(m.file_path)
+def _render_chunk(symbol: SymbolOut, *, compact: bool = False) -> None:
+    path = _short_path(symbol.file_path)
 
     if compact:
         # One-line summary for list-symbols / changed-symbols
         t = Text()
-        t.append(f"  {m.line_start:>4}-{m.line_end:<4}", style="dim")
-        t.append(f"  {m.kind:<10}", style="cyan")
-        t.append(m.name)
-        if m.scope:
-            t.append(f"  ({m.scope})", style="dim")
+        t.append(f"  {symbol.line_start:>4}-{symbol.line_end:<4}", style="dim")
+        t.append(f"  {symbol.kind:<10}", style="cyan")
+        t.append(symbol.name)
+        if symbol.scope:
+            t.append(f"  ({symbol.scope})", style="dim")
         _out.print(t)
         return
 
     # Full view for read-symbol — same header structure as search
     t = Text()
     t.append(path, style="bold")
-    t.append(f":{m.line_start}-{m.line_end}", style="dim")
-    t.append(f"  {m.kind}", style="dim")
-    t.append(f"  {m.name}")
+    t.append(f":{symbol.line_start}-{symbol.line_end}", style="dim")
+    t.append(f"  {symbol.kind}", style="dim")
+    t.append(f"  {symbol.name}")
     _out.print(t)
 
     # Detail line — scope and metadata
-    if m.scope or m.metadata:
+    if symbol.scope or symbol.metadata:
         d = Text("  ")
-        if m.scope:
-            d.append(m.scope, style="dim")
-        if m.metadata:
-            meta = m.metadata
-            if m.scope:
+        if symbol.scope:
+            d.append(symbol.scope, style="dim")
+        if symbol.metadata:
+            meta = symbol.metadata
+            if symbol.scope:
                 d.append("  ", style="dim")
             if meta.module:
                 d.append(meta.module, style="dim")
@@ -344,11 +344,11 @@ def _render_chunk(m: SymbolOut, *, compact: bool = False) -> None:
 
     _out.print(
         Syntax(
-            m.content,
-            m.language,
+            symbol.content,
+            symbol.language,
             theme="monokai",
             line_numbers=True,
-            start_line=m.line_start,
+            start_line=symbol.line_start,
         )
     )
     _out.print()  # blank line between results
@@ -372,12 +372,12 @@ def _render_changed_symbol(item: ChangedSymbol) -> None:
     _out.print(t)
 
 
-def _render_changed_symbols_response(m: ChangedSymbolsResponse) -> None:
-    if not m.changes:
+def _render_changed_symbols_response(response: ChangedSymbolsResponse) -> None:
+    if not response.changes:
         _out.print("[dim]No changed symbols.[/]")
         return
     counts: dict[ChangeKind, int] = dict.fromkeys(ChangeKind, 0)
-    for item in sorted(m.changes, key=lambda i: _CHANGE_ORDER[i.change]):
+    for item in sorted(response.changes, key=lambda i: _CHANGE_ORDER[i.change]):
         _render_changed_symbol(item)
         counts[item.change] += 1
     summary = Text("\n")
@@ -387,43 +387,43 @@ def _render_changed_symbols_response(m: ChangedSymbolsResponse) -> None:
     _out.print(summary)
 
 
-def _render_ref(m: RefOut) -> None:
-    path = _short_path(m.file_path)
+def _render_ref(ref: RefOut) -> None:
+    path = _short_path(ref.file_path)
     t = Text()
     t.append(f"  {path}", style="bold")
-    t.append(f":{m.line_start}", style="dim")
-    t.append(f"  {m.kind}", style="dim")
-    t.append(f"  {m.name}")
-    t.append(f"  ({m.edge})", style="dim")
+    t.append(f":{ref.line_start}", style="dim")
+    t.append(f"  {ref.kind}", style="dim")
+    t.append(f"  {ref.name}")
+    t.append(f"  ({ref.edge})", style="dim")
     _out.print(t)
 
 
-def _render_daemon_status_report(m: DaemonStatusReport) -> None:
-    if not m.running:
+def _render_daemon_status_report(response: DaemonStatusReport) -> None:
+    if not response.running:
         _out.print("[red]✗[/]  Daemon not running")
         return
     t = Text.from_markup("[green]✓[/]  Daemon running")
-    t.append(f"  pid={m.pid}", style="dim")
-    if m.version is not None:
-        t.append(f"  v{m.version}", style="dim")
-    if m.uptime_seconds is not None:
-        t.append(f"  up {m.uptime_seconds:.1f}s", style="dim")
+    t.append(f"  pid={response.pid}", style="dim")
+    if response.version is not None:
+        t.append(f"  v{response.version}", style="dim")
+    if response.uptime_seconds is not None:
+        t.append(f"  up {response.uptime_seconds:.1f}s", style="dim")
     _out.print(t)
-    if m.rpc is not None:
-        _out.print(f"   [dim]rpc:[/] {m.rpc}")
-    if m.pub is not None:
-        _out.print(f"   [dim]pub:[/] {m.pub}")
+    if response.rpc is not None:
+        _out.print(f"   [dim]rpc:[/] {response.rpc}")
+    if response.pub is not None:
+        _out.print(f"   [dim]pub:[/] {response.pub}")
 
 
-def _render_daemon_config_response(m: DaemonConfigResponse) -> None:
-    settings = Table(title=f"rbtr configuration  (rbtr {m.rbtr_version})")
+def _render_daemon_config_response(response: DaemonConfigResponse) -> None:
+    settings = Table(title=f"rbtr configuration  (rbtr {response.rbtr_version})")
     settings.add_column("Setting", style="bold")
     settings.add_column("Value")
-    for key, value in sorted(m.config.items()):
+    for key, value in sorted(response.config.items()):
         settings.add_row(key, str(value))
     _out.print(settings)
 
-    config_dir = m.config.get("config_dir")
+    config_dir = response.config.get("config_dir")
     if isinstance(config_dir, str):
         toml_path = Path(config_dir) / "config.toml"
         exists = "(exists)" if toml_path.exists() else "(not found)"
@@ -434,45 +434,45 @@ def _render_daemon_config_response(m: DaemonConfigResponse) -> None:
     plugins.add_column("Package")
     plugins.add_column("Version")
     plugins.add_column("Extraction Serial")
-    for p in m.plugins:
+    for p in response.plugins:
         plugins.add_row(p.language, p.package, p.version, str(p.extraction_serial))
     _out.print(plugins)
 
 
-def _render_status_response(m: StatusResponse) -> None:
+def _render_status_response(response: StatusResponse) -> None:
     # Output is derived solely from the response model.
     print_banner()
-    if not m.indexed_refs:
+    if not response.indexed_refs:
         _out.print("[red]✗[/]  No index found")
-    elif len({ref.repo_path for ref in m.indexed_refs}) > 1:
+    elif len({ref.repo_path for ref in response.indexed_refs}) > 1:
         # Cross-repo: group refs under their repo.
-        _out.print(f"[green]✓[/]  indexed repos  [dim]{m.db_path}[/]")
+        _out.print(f"[green]✓[/]  indexed repos  [dim]{response.db_path}[/]")
         by_repo: dict[str, list[IndexedRef]] = {}
-        for ref in m.indexed_refs:
+        for ref in response.indexed_refs:
             by_repo.setdefault(ref.repo_path or "?", []).append(ref)
         for repo_path, refs in by_repo.items():
             _out.print(f"  [bold]{repo_path}[/]")
             for ref in refs:
                 _out.print(f"     {_fmt_ref(ref)}")
     else:
-        total = m.indexed_refs[0].total
-        _out.print(f"[green]✓[/]  {_human(total)} chunks  [dim]{m.db_path}[/]")
-        for ref in m.indexed_refs:
+        total = response.indexed_refs[0].total
+        _out.print(f"[green]✓[/]  {_human(total)} chunks  [dim]{response.db_path}[/]")
+        for ref in response.indexed_refs:
             _out.print(f"   {_fmt_ref(ref)}")
-    if m.watched:
+    if response.watched:
         _out.print("[dim]watching:[/]")
-        for w in m.watched:
+        for w in response.watched:
             _out.print(f"   {_fmt_watched(w)}")
-    if m.active_build is not None:
-        job = m.active_build
+    if response.active_build is not None:
+        job = response.active_build
         pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
         elapsed = _format_elapsed(job.elapsed_seconds)
         _out.print(
             f"[cyan]⟳[/]  Building: {job.ref[:12]} — "
             f"{job.phase} {job.current}/{job.total}{pct} — {elapsed}"
         )
-    if m.active_embed is not None:
-        ej = m.active_embed
+    if response.active_embed is not None:
+        ej = response.active_embed
         pct = f" ({100 * ej.current / ej.total:.0f}%)" if ej.total > 0 else ""
         elapsed = _format_elapsed(ej.elapsed_seconds)
         _out.print(
@@ -520,16 +520,16 @@ def _format_elapsed(seconds: float) -> str:
     return f"{m}m{s:02d}s"
 
 
-def _render_gc_response(m: GcResponse) -> None:
-    drop = "would remove" if m.dry_run else "removed"
-    free = "would free" if m.dry_run else "freed"
-    repos = "1 repo" if m.repos_collected == 1 else f"{m.repos_collected} repos"
+def _render_gc_response(response: GcResponse) -> None:
+    drop = "would remove" if response.dry_run else "removed"
+    free = "would free" if response.dry_run else "freed"
+    repos = "1 repo" if response.repos_collected == 1 else f"{response.repos_collected} repos"
     t = Text.from_markup(
-        f"[green]{drop}[/]  {m.commits_dropped} commits, "
-        f"{m.snapshots_dropped} snapshots, "
-        f"{m.edges_dropped} edges; "
-        f"{free} {m.chunks_freed} chunks "
+        f"[green]{drop}[/]  {response.commits_dropped} commits, "
+        f"{response.snapshots_dropped} snapshots, "
+        f"{response.edges_dropped} edges; "
+        f"{free} {response.chunks_freed} chunks "
         f"(across {repos})"
     )
-    t.append(f"  ({m.elapsed_seconds:.2f}s)", style="dim")
+    t.append(f"  ({response.elapsed_seconds:.2f}s)", style="dim")
     _out.print(t)

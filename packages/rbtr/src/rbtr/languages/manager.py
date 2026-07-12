@@ -18,16 +18,12 @@ Example usage::
     lang_id = mgr.detect_language("src/app.py")  # "python"
 
     # Load the tree-sitter grammar.
-    grammar = mgr.load_grammar("python")
+    grammar = mgr.grammar("python")
 
     # Get the registration for inspection.
     reg = mgr.get_registration("python")
     assert reg is not None
     assert reg.extraction is not None
-
-    # One-step detect + load.
-    result = mgr.get_language("src/app.py")
-    # result is ("python", <Language ...>) or None
 """
 
 from __future__ import annotations
@@ -123,10 +119,10 @@ class LanguageManager:
         """Return the registration for *language_id*, or `None`."""
         return self._registrations.get(language_id)
 
-    def load_grammar(self, language_id: str) -> Language | None:
-        """Load the tree-sitter grammar for *language_id*.
+    def grammar(self, language_id: str) -> Language | None:
+        """Return the tree-sitter grammar (`Language`) for *language_id*.
 
-        Returns the `Language` object, or `None` if:
+        `None` if:
 
         - No registration exists for *language_id*.
         - The registration has no `grammar_module`.
@@ -136,8 +132,8 @@ class LanguageManager:
 
         Examples:
 
-            `load_grammar("python")` → `Language` (if installed)
-            `load_grammar("markdown")` → `None` (no grammar)
+            `grammar("python")` → `Language` (if installed)
+            `grammar("markdown")` → `None` (no grammar)
         """
         if language_id in self._grammar_cache:
             return self._grammar_cache[language_id]
@@ -161,25 +157,6 @@ class LanguageManager:
 
         return self._grammar_cache[language_id]
 
-    def get_language(self, file_path: str) -> tuple[str, Language] | None:
-        """Detect language and load grammar in one step.
-
-        Returns `(language_id, grammar)` or `None` if the file
-        type is unrecognised or the grammar is not installed.
-
-        Examples:
-
-            `get_language("app.py")` → `("python", Language)`
-            `get_language("data.xyz")` → `None`
-        """
-        lang_id = self.detect_language(file_path)
-        if lang_id is None:
-            return None
-        grammar = self.load_grammar(lang_id)
-        if grammar is None:
-            return None
-        return lang_id, grammar
-
     def missing_grammar(self, language_id: str) -> bool:
         """Check whether a language *expects* a grammar but it's not installed.
 
@@ -196,7 +173,7 @@ class LanguageManager:
         reg = self._registrations.get(language_id)
         if reg is None or reg.grammar_module is None:
             return False
-        return self.load_grammar(language_id) is None
+        return self.grammar(language_id) is None
 
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs."""

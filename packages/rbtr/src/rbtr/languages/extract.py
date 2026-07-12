@@ -45,7 +45,7 @@ def extract_query(
     """
     mgr = get_manager()
     reg = mgr.get_registration(language)
-    grammar = mgr.load_grammar(language)
+    grammar = mgr.grammar(language)
     if reg is None or not isinstance(reg.extraction, QueryExtraction) or grammar is None:
         return
     yield from extract_symbols(
@@ -75,7 +75,7 @@ def extract_primary(
     nor a query, leaving the caller to fall back to plaintext.
     """
     mgr = get_manager()
-    grammar = mgr.load_grammar(language)
+    grammar = mgr.grammar(language)
     reg = mgr.get_registration(language)
     extraction = reg.extraction if reg is not None else None
     if isinstance(extraction, ChunkExtraction) and grammar is not None:
@@ -145,7 +145,7 @@ def extract_injections(
     reg = mgr.get_registration(language)
     if reg is None or reg.injection_query is None:
         return
-    grammar = mgr.load_grammar(language)
+    grammar = mgr.grammar(language)
     if grammar is None:
         return
 

@@ -53,7 +53,7 @@ def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
     manager = get_manager()
     for path, text in project:
-        grammar = manager.load_grammar(manager.detect_language(path) or "yaml")
+        grammar = manager.grammar(manager.detect_language(path) or "yaml")
         assert grammar is not None
         assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
 
