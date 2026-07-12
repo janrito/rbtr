@@ -417,21 +417,21 @@ stages:
       size: 844
     - path: src/rbtr_eval/tune.py
       hash: md5
-      md5: b2bd90519263b49b9d1a9a0132abe4f4
-      size: 21865
+      md5: 57def7dc48e45a2a2dcb4acc52f384aa
+      size: 22001
     outs:
     - path: data/TUNING.md
       hash: md5
-      md5: ada16d9226c4e494ac56a1be842b8f5b
-      size: 13536
+      md5: 5bed67b4ff7c93664dea2f01036d4567
+      size: 13510
     - path: data/convergence.png
       hash: md5
-      md5: d44ad38773eb7822fd84e6c96d32b7e4
-      size: 414518
+      md5: 49b1f9ae9aa365404b30d37c45d5c2d8
+      size: 381009
     - path: data/simplex.png
       hash: md5
-      md5: ac74c47ec8b5f96b951da6fb22c00e25
-      size: 213906
+      md5: bd14ce1fa9584d01e1f4b1e0ff9408e8
+      size: 212469
   paraphrase@0:
     cmd: python -m rbtr_eval paraphrase --slug rbtr__rbtr --symbols 
       data/per-repo/rbtr__rbtr.parquet --repo-path data/repos/rbtr__rbtr 
@@ -843,17 +843,17 @@ stages:
       size: 10827
     - path: src/rbtr_eval/templates/reranker_tuning.md.j2
       hash: md5
-      md5: a13c4e2d723483e9877b6c8c052fe4be
-      size: 919
+      md5: 4d9ebcfd44c575833a4f79684b98ef86
+      size: 1186
     - path: src/rbtr_eval/tune_reranker.py
       hash: md5
-      md5: 309c1cd2f810713a32edd867eaadab66
-      size: 17655
+      md5: a750a70868eb2a761d4cb03ea7f6646d
+      size: 18633
     outs:
     - path: data/RERANKER_TUNING.md
       hash: md5
-      md5: 75221f94ef504c5e0b544c544a72a378
-      size: 21806
+      md5: 8e470e7107efdbd4999569ab06c61171
+      size: 23547
   expand:
     cmd: python -m rbtr_eval expand --per-repo-dir data/per-repo --concept-dir 
       data/concept --out data/expansion/expansions.parquet --model 
