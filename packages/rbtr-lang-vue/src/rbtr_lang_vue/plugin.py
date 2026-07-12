@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr_lang_svelte.plugin import chunk_sfc
-
 from rbtr.languages.registration import LanguageRegistration, load_query
+from rbtr_lang_svelte.plugin import chunk_sfc
 
 if TYPE_CHECKING:
     from tree_sitter import Language

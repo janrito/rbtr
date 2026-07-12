@@ -9,14 +9,10 @@ exclude = ["packages/pi-rbtr"]
 [tool.ruff]
 target-version = "py313"
 line-length = 100
-src = [
-  "packages/rbtr/src",
-  "packages/rbtr-eval/src",
-]
+src = ["packages/*/src"]
 # Language sample fixtures are illustrative, not product code — exempt
 # from linting and formatting (see [tool.mypy] exclude for rationale).
 extend-exclude = [
-  "packages/rbtr/src/rbtr/tests/languages/samples",
   "packages/rbtr-lang-*/src/*/tests/samples",
 ]
 
@@ -71,7 +67,6 @@ respect_gitignore = true
 exclude = [
   "cov-append.md",
   "TODO-*",
-  "packages/rbtr/src/rbtr/tests/languages/samples",
   "packages/rbtr-lang-*/src/*/tests/samples",
 ]
 extend-enable = ["MD060"]
@@ -135,7 +130,7 @@ packages = [
 # not product modules. They are validated by their own parse-clean and
 # snapshot tests, so they are exempt from type-checking (and likewise
 # from ruff, rumdl, vulture, and sqlfluff below).
-exclude = ["tests/languages/samples/", "tests/samples/"]
+exclude = ["tests/samples/"]
 disallow_incomplete_defs = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
@@ -153,7 +148,9 @@ warn_unused_configs = true
 # pytest's default norecursedirs skips node_modules/venv (e.g. pi-rbtr's).
 testpaths = ["packages"]
 minversion = "6.0"
-addopts = ["--strict-markers", "--import-mode=importlib", "-n", "auto"]
+# rbtr-eval clones whole repos into data/ (gitignored); pytest does not
+# respect gitignore, so ignore that tree to avoid collecting their tests.
+addopts = ["--strict-markers", "--import-mode=importlib", "-n", "auto", "--ignore=packages/rbtr-eval/data"]
 filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 
 [tool.pytest_env]
@@ -223,7 +220,7 @@ replace = '"version": "{new_version}"'
 min_confidence = 80
 paths = ["packages/rbtr/src/rbtr", "packages/rbtr-eval/src/rbtr_eval"]
 # Language sample fixtures are illustrative, not product code.
-exclude = ["*/tests/languages/samples/*", "*/tests/samples/*"]
+exclude = ["*/tests/samples/*"]
 ignore_names = [
   "init_settings",        # pydantic_settings settings_customise_sources
   "dotenv_settings",      # pydantic_settings settings_customise_sources

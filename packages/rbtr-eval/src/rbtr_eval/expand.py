@@ -320,7 +320,7 @@ class ExpandCmd(BaseModel):
     concept_dir: Path = Field(description="Directory with concept parquets.")
     out: Path = Field(description="Output path for expansion parquet.")
     model: str = Field(
-        description="pydantic-ai model string (e.g. openai:zai-org/GLM-5.1).",
+        description="pydantic-ai model string (e.g. openai-chat:zai-org/GLM-5.1).",
     )
     concurrency: int = Field(10, description="Max concurrent LLM requests.")
     report: Path = Field(description="Output path for EXPANSION.md report.")
