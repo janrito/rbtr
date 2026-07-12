@@ -188,11 +188,14 @@ def _mrr_per_provenance(
     )
 
 
-def _hmean_mrr(per_provenance: pl.DataFrame) -> float:
-    """Harmonic mean of the `mrr` column, floored at 1e-9."""
-    return per_provenance.select(
-        pl.len().cast(pl.Float64) / (1.0 / pl.col("mrr").clip(lower_bound=1e-9)).sum()
-    ).item()
+def _mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
+    """Micro-averaged MRR over all queries, reusing `search_metric_aggs`.
+
+    One value per query kind's whole query set — the mean reciprocal
+    rank, matching the `mrr` the benchmark reports. Unlike a harmonic
+    mean over buckets, a single weak bucket cannot collapse it.
+    """
+    return ranks.select(*search_metric_aggs()).get_column("mrr").item()
 
 
 # ── Simplex parameterisation ─────────────────────────────────────────────────
@@ -425,7 +428,7 @@ def _run_study(
 
         trial_ranks = _rescore_and_rank(candidates, meta, weights)
         per_prov = trial_ranks.pipe(_mrr_per_provenance)
-        mrr = per_prov.pipe(_hmean_mrr)
+        mrr = _mean_mrr(trial_ranks)
 
         study.tell(trial, mrr)
 
@@ -529,7 +532,7 @@ class TuneCmd(BaseModel):
 
                 t = rbtr_config.search_weights[QueryKind(kind)]
                 baseline_ranks = _rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
-                baseline_mrr = baseline_ranks.pipe(_mrr_per_provenance).pipe(_hmean_mrr)
+                baseline_mrr = _mean_mrr(baseline_ranks)
 
                 best_weights, best_mrr, best_ranks, trials_data = _run_study(
                     candidates,
