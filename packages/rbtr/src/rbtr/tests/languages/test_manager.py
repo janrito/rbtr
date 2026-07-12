@@ -14,8 +14,8 @@ import pytest
 from tree_sitter import Query
 
 from rbtr.errors import RbtrError
-from rbtr.languages import get_manager, reset_manager
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.manager import get_manager, reset_manager
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
 # ── detect_language ──────────────────────────────────────────────────
 
@@ -134,17 +134,18 @@ def test_load_grammar_cached() -> None:
     assert g1 is g2
 
 
-# ── get_query ────────────────────────────────────────────────────────
+# ── query content ────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
     "lang_id",
     ["python", "bash"],
 )
-def test_get_query_has_function(lang_id: str) -> None:
-    q = get_manager().get_query(lang_id)
-    assert q is not None
-    assert "@function" in q
+def test_query_has_function(lang_id: str) -> None:
+    reg = get_manager().get_registration(lang_id)
+    assert reg is not None
+    assert isinstance(reg.extraction, QueryExtraction)
+    assert "@function" in reg.extraction.query
 
 
 @pytest.mark.parametrize(
@@ -152,23 +153,26 @@ def test_get_query_has_function(lang_id: str) -> None:
     ["markdown", "nonexistent"],
     ids=["chunker-no-query", "unknown"],
 )
-def test_get_query_returns_none(lang_id: str) -> None:
-    assert get_manager().get_query(lang_id) is None
+def test_query_none_for_chunker_or_unknown(lang_id: str) -> None:
+    reg = get_manager().get_registration(lang_id)
+    assert reg is None or not isinstance(reg.extraction, QueryExtraction)
 
 
 def test_python_query_has_import_and_class() -> None:
-    q = get_manager().get_query("python")
-    assert q is not None
-    assert "@import" in q
-    assert "@class" in q
+    reg = get_manager().get_registration("python")
+    assert reg is not None
+    assert isinstance(reg.extraction, QueryExtraction)
+    assert "@import" in reg.extraction.query
+    assert "@class" in reg.extraction.query
 
 
 def test_bash_query_has_function_and_import() -> None:
-    q = get_manager().get_query("bash")
-    assert q is not None
-    assert "@function" in q
-    assert "@import" in q
-    assert "@class" not in q
+    reg = get_manager().get_registration("bash")
+    assert reg is not None
+    assert isinstance(reg.extraction, QueryExtraction)
+    assert "@function" in reg.extraction.query
+    assert "@import" in reg.extraction.query
+    assert "@class" not in reg.extraction.query
 
 
 def test_every_query_compiles_against_its_grammar() -> None:
@@ -179,18 +183,21 @@ def test_every_query_compiles_against_its_grammar() -> None:
     turns that into one located failure rather than scattered index errors.
     """
     for lang_id in get_manager().all_language_ids():
-        query_str = get_manager().get_query(lang_id)
+        reg = get_manager().get_registration(lang_id)
         grammar = get_manager().load_grammar(lang_id)
-        if query_str is None or grammar is None:
+        if reg is None or not isinstance(reg.extraction, QueryExtraction) or grammar is None:
             continue
-        Query(grammar, query_str)  # raises QueryError on an unknown node type
+        Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
 
 
-# ── get_scope_types ──────────────────────────────────────────────────
+# ── scope_types ──────────────────────────────────────────────────
 
 
 def test_scope_types_python() -> None:
-    assert "class_definition" in get_manager().get_scope_types("python")
+    reg = get_manager().get_registration("python")
+    assert reg is not None
+    assert isinstance(reg.extraction, QueryExtraction)
+    assert "class_definition" in reg.extraction.scope_types
 
 
 @pytest.mark.parametrize(
@@ -199,7 +206,10 @@ def test_scope_types_python() -> None:
     ids=["no-scope-types", "unknown"],
 )
 def test_scope_types_empty(lang_id: str) -> None:
-    assert get_manager().get_scope_types(lang_id) == frozenset()
+    reg = get_manager().get_registration(lang_id)
+    extraction = reg.extraction if reg else None
+    scope_types = extraction.scope_types if isinstance(extraction, QueryExtraction) else frozenset()
+    assert scope_types == frozenset()
 
 
 # ── get_language ─────────────────────────────────────────────────────

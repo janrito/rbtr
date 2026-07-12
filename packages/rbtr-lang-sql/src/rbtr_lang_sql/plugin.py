@@ -36,8 +36,7 @@ extracted — the grammar has no node for them (they parse to `ERROR`).
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 # ── Plugin ───────────────────────────────────────────────────────────
 
@@ -46,10 +45,12 @@ sql = LanguageRegistration(
     id="sql",
     extensions=frozenset({".sql"}),
     grammar_module="tree_sitter_sql",
-    query=load_query(__package__, "sql"),
-    # SQL `--` line comments and `/* */` blocks both parse to
-    # `comment`; attach a leading run to its statement, as the
-    # Go/Ruby plugins do.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "sql"),
+        # SQL `--` line comments and `/* */` blocks both parse to
+        # `comment`; attach a leading run to its statement, as the
+        # Go/Ruby plugins do.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     language_plugin_version=2,
 )

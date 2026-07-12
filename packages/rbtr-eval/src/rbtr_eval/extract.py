@@ -20,7 +20,8 @@ from rbtr.index.identity import SCOPE_SEPARATOR
 from rbtr.index.models import ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr.index.treesitter import extract_doc_spans
-from rbtr.languages import get_manager
+from rbtr.languages.manager import get_manager
+from rbtr.languages.registration import QueryExtraction
 from rbtr_eval.queries import subsample
 from rbtr_eval.schemas import QueryRow, RepoHeader
 
@@ -153,17 +154,18 @@ def queries_for_symbol(
     # Docstring query: parse with tree-sitter to find doc spans.
     mgr = get_manager()
     reg = mgr.get_registration(language)
-    if reg is not None and reg.query is not None:
+    extraction = reg.extraction if reg is not None else None
+    if isinstance(extraction, QueryExtraction):
         grammar = mgr.load_grammar(language)
         if grammar is not None:
             content_bytes = content.encode("utf-8")
             for span in extract_doc_spans(
                 content_bytes,
                 grammar,
-                reg.query,
-                scope_types=reg.scope_types,
-                class_scope_types=reg.class_scope_types,
-                doc_comment_node_types=reg.doc_comment_node_types,
+                extraction.query,
+                scope_types=extraction.scope_types,
+                class_scope_types=extraction.class_scope_types,
+                doc_comment_node_types=extraction.doc_comment_node_types,
             ):
                 doc_bytes = b"\n".join(content_bytes[s:e] for s, e in span.ranges)
                 doc_text = first_sentence(doc_bytes.decode("utf-8", errors="replace"))

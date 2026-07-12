@@ -27,10 +27,11 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,
+    QueryExtraction,
+    load_query,
     parse_path_relative,
 )
 
@@ -117,12 +118,14 @@ javascript = LanguageRegistration(
     id="javascript",
     extensions=frozenset({".js", ".jsx", ".mjs"}),
     grammar_module="tree_sitter_javascript",
-    query=_JS_QUERY,
-    scope_types=frozenset({"class_declaration", "function_declaration"}),
-    class_scope_types=frozenset({"class_declaration"}),
-    # Both `/** */` JSDoc and `//` comments land in
-    # the grammar as a single `comment` node type.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=_JS_QUERY,
+        scope_types=frozenset({"class_declaration", "function_declaration"}),
+        class_scope_types=frozenset({"class_declaration"}),
+        # Both `/** */` JSDoc and `//` comments land in
+        # the grammar as a single `comment` node type.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
@@ -133,22 +136,24 @@ typescript = LanguageRegistration(
     extensions=frozenset({".ts"}),
     grammar_module="tree_sitter_typescript",
     grammar_entry="language_typescript",
-    query=_TS_QUERY,
-    scope_types=frozenset(
-        {
-            "class_declaration",
-            "abstract_class_declaration",
-            "interface_declaration",
-            "function_declaration",
-            "internal_module",
-            "module",
-            "enum_declaration",
-        }
+    extraction=QueryExtraction(
+        query=_TS_QUERY,
+        scope_types=frozenset(
+            {
+                "class_declaration",
+                "abstract_class_declaration",
+                "interface_declaration",
+                "function_declaration",
+                "internal_module",
+                "module",
+                "enum_declaration",
+            }
+        ),
+        class_scope_types=frozenset(
+            {"class_declaration", "abstract_class_declaration", "interface_declaration"}
+        ),
+        doc_comment_node_types=frozenset({"comment"}),
     ),
-    class_scope_types=frozenset(
-        {"class_declaration", "abstract_class_declaration", "interface_declaration"}
-    ),
-    doc_comment_node_types=frozenset({"comment"}),
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
@@ -159,22 +164,24 @@ tsx = LanguageRegistration(
     extensions=frozenset({".tsx"}),
     grammar_module="tree_sitter_typescript",
     grammar_entry="language_tsx",
-    query=_TS_QUERY,
-    scope_types=frozenset(
-        {
-            "class_declaration",
-            "abstract_class_declaration",
-            "interface_declaration",
-            "function_declaration",
-            "internal_module",
-            "module",
-            "enum_declaration",
-        }
+    extraction=QueryExtraction(
+        query=_TS_QUERY,
+        scope_types=frozenset(
+            {
+                "class_declaration",
+                "abstract_class_declaration",
+                "interface_declaration",
+                "function_declaration",
+                "internal_module",
+                "module",
+                "enum_declaration",
+            }
+        ),
+        class_scope_types=frozenset(
+            {"class_declaration", "abstract_class_declaration", "interface_declaration"}
+        ),
+        doc_comment_node_types=frozenset({"comment"}),
     ),
-    class_scope_types=frozenset(
-        {"class_declaration", "abstract_class_declaration", "interface_declaration"}
-    ),
-    doc_comment_node_types=frozenset({"comment"}),
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),

@@ -15,8 +15,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 # Top-level keys only: pairs of the document's own block mapping.
 # Nested pairs sit in a value's block mapping and do not match.
@@ -26,6 +25,8 @@ yaml = LanguageRegistration(
     id="yaml",
     extensions=frozenset({".yaml", ".yml"}),
     grammar_module="tree_sitter_yaml",
-    query=load_query(__package__, "yaml"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "yaml"),
+    ),
     language_plugin_version=2,
 )

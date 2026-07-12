@@ -21,8 +21,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration, NameResolver, ScopeResolver
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    NameResolver,
+    QueryExtraction,
+    ScopeResolver,
+    load_query,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -58,7 +63,9 @@ toml = LanguageRegistration(
     id="toml",
     extensions=frozenset({".toml"}),
     grammar_module="tree_sitter_toml",
-    query=load_query(__package__, "toml"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "toml"),
+    ),
     language_plugin_version=2,
 )
 

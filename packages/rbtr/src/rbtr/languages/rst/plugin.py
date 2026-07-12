@@ -25,8 +25,7 @@ from tree_sitter import Parser, Query, QueryCursor
 
 from rbtr.index.identity import make_chunk_id
 from rbtr.index.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range

@@ -27,11 +27,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from rbtr.index.models import ImportMeta
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,
+    QueryExtraction,
     collect_scoped_path,
+    load_query,
 )
 
 if TYPE_CHECKING:
@@ -133,16 +134,18 @@ rust = LanguageRegistration(
     id="rust",
     extensions=frozenset({".rs"}),
     grammar_module="tree_sitter_rust",
-    query=load_query(__package__, "rust"),
-    scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
-    class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
-    # Rust splits doc comments (`///`, `//!`) from
-    # regular line/block comments at parse time by
-    # wrapping them in distinct grammar rules, but
-    # the containing sibling type is always
-    # `line_comment` or `block_comment`.  Include
-    # both so any leading comment run attaches.
-    doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "rust"),
+        scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
+        class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
+        # Rust splits doc comments (`///`, `//!`) from
+        # regular line/block comments at parse time by
+        # wrapping them in distinct grammar rules, but
+        # the containing sibling type is always
+        # `line_comment` or `block_comment`.  Include
+        # both so any leading comment run attaches.
+        doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
+    ),
     index_files=frozenset({"mod.rs"}),
     path_substitutions=(("crate/", "src/"),),
     language_plugin_version=4,

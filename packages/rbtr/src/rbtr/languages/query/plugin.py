@@ -22,14 +22,15 @@ their nested captures stay full-text-searchable.
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 query = LanguageRegistration(
     id="query",
     extensions=frozenset({".scm"}),
     grammar_module="tree_sitter_query",
-    query=load_query(__package__, "query"),
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "query"),
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     language_plugin_version=1,
 )

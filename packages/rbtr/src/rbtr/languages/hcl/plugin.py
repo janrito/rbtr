@@ -14,8 +14,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration, NameResolver
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    NameResolver,
+    QueryExtraction,
+    load_query,
+)
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -28,7 +32,9 @@ hcl = LanguageRegistration(
     id="hcl",
     extensions=frozenset({".hcl", ".tf"}),
     grammar_module="tree_sitter_hcl",
-    query=load_query(__package__, "hcl"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "hcl"),
+    ),
     language_plugin_version=2,
 )
 

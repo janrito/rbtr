@@ -20,17 +20,20 @@ Extracted chunks::
 from __future__ import annotations
 
 from rbtr.languages.css.plugin import css_nesting_scope
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     LanguageRegistration,
+    QueryExtraction,
     build_quoted_import,
+    load_query,
 )
 
 less = LanguageRegistration(
     id="less",
     extensions=frozenset({".less"}),
     grammar_module="tree_sitter_less",
-    query=load_query(__package__, "less"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "less"),
+    ),
     import_targets=frozenset({"css", "scss", "less"}),
     language_plugin_version=1,
 )

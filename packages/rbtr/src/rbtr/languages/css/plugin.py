@@ -18,11 +18,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.languages.queries import load_query
 from rbtr.languages.registration import (
     LanguageRegistration,
+    QueryExtraction,
     ScopeResolver,
     enclosing_nodes_of_type,
+    load_query,
 )
 
 if TYPE_CHECKING:
@@ -52,7 +53,9 @@ css = LanguageRegistration(
     id="css",
     extensions=frozenset({".css"}),
     grammar_module="tree_sitter_css",
-    query=load_query(__package__, "css"),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "css"),
+    ),
     import_targets=frozenset({"css"}),
     language_plugin_version=2,
 )

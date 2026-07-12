@@ -18,8 +18,8 @@ from rbtr.git import FileEntry
 from rbtr.index.edges import build_resolution_map, infer_import_edges
 from rbtr.index.models import Chunk, ChunkKind, Edge
 from rbtr.index.orchestrator import extract_file
-from rbtr.languages import get_manager
-from rbtr.languages.testing import render_edges
+from rbtr.languages.manager import get_manager
+from rbtr.testing import render_edges
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion

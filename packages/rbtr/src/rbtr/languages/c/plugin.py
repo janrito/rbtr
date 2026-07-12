@@ -21,8 +21,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 # ── Query ────────────────────────────────────────────────────────────
 
@@ -34,11 +33,13 @@ c = LanguageRegistration(
     id="c",
     extensions=frozenset({".c", ".h"}),
     grammar_module="tree_sitter_c",
-    query=load_query(__package__, "c"),
-    # C grammar uses a single `comment` node for
-    # both `//` and `/* */` (and `/** */`).  Attach
-    # any leading run.
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "c"),
+        # C grammar uses a single `comment` node for
+        # both `//` and `/* */` (and `/** */`).  Attach
+        # any leading run.
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
     source_roots=("", "include", "src"),
     language_plugin_version=3,
 )

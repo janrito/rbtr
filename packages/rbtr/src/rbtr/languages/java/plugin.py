@@ -17,8 +17,12 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration, ModuleStyle
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    ModuleStyle,
+    QueryExtraction,
+    load_query,
+)
 
 # ── Query ────────────────────────────────────────────────────────────
 
@@ -30,20 +34,22 @@ java = LanguageRegistration(
     id="java",
     extensions=frozenset({".java"}),
     grammar_module="tree_sitter_java",
-    query=load_query(__package__, "java"),
-    scope_types=frozenset(
-        {
-            "class_declaration",
-            "interface_declaration",
-            "enum_declaration",
-            "record_declaration",
-            "annotation_type_declaration",
-        }
+    extraction=QueryExtraction(
+        query=load_query(__package__, "java"),
+        scope_types=frozenset(
+            {
+                "class_declaration",
+                "interface_declaration",
+                "enum_declaration",
+                "record_declaration",
+                "annotation_type_declaration",
+            }
+        ),
+        # Javadoc uses `block_comment`; `//` runs use
+        # `line_comment`.  Attach either when they sit
+        # directly above a method or class.
+        doc_comment_node_types=frozenset({"block_comment", "line_comment"}),
     ),
-    # Javadoc uses `block_comment`; `//` runs use
-    # `line_comment`.  Attach either when they sit
-    # directly above a method or class.
-    doc_comment_node_types=frozenset({"block_comment", "line_comment"}),
     source_roots=("", "src/main/java"),
     module_style=ModuleStyle.DOTTED,
     language_plugin_version=3,

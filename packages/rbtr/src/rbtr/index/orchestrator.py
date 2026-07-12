@@ -44,7 +44,8 @@ from rbtr.index.models import (
 from rbtr.index.store import IndexStore
 from rbtr.index.tokenise import tokenise_code
 from rbtr.index.treesitter import _get_query, extract_symbols
-from rbtr.languages import LanguageManager, get_manager
+from rbtr.languages.manager import LanguageManager, get_manager
+from rbtr.languages.registration import ChunkExtraction, QueryExtraction
 from rbtr.logging import elapsed_ms
 from rbtr.rbtrignore import load_ignore
 
@@ -85,12 +86,9 @@ def extract_query(
     explicit (possibly empty) set to override leading-comment attachment.
     """
     mgr = get_manager()
-    grammar = mgr.load_grammar(language)
-    query_str = mgr.get_query(language)
-    if grammar is None or query_str is None:
-        return
     reg = mgr.get_registration(language)
-    if reg is None:  # unreachable: query_str above came from reg
+    grammar = mgr.load_grammar(language)
+    if reg is None or not isinstance(reg.extraction, QueryExtraction) or grammar is None:
         return
     yield from extract_symbols(
         reg,
@@ -122,14 +120,14 @@ def extract_primary(
     mgr = get_manager()
     grammar = mgr.load_grammar(language)
     reg = mgr.get_registration(language)
-    chunked = (
-        reg.chunk(file_path, blob_sha, content.decode(errors="replace"), grammar, ranges)
-        if reg is not None and grammar is not None
-        else None
-    )
-    if chunked is not None:
-        chunks = chunked
-    elif grammar is not None and mgr.get_query(language) is not None:
+    extraction = reg.extraction if reg is not None else None
+    if isinstance(extraction, ChunkExtraction) and grammar is not None:
+        chunks = list(
+            extraction.chunker(
+                file_path, blob_sha, content.decode(errors="replace"), grammar, ranges
+            )
+        )
+    elif isinstance(extraction, QueryExtraction) and grammar is not None:
         chunks = list(extract_query(language, file_path, blob_sha, content, ranges=ranges))
     else:
         return None

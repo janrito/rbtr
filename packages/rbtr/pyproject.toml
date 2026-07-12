@@ -62,7 +62,7 @@ rbtr = "rbtr.cli:main"
 # Ships the `snapshot_json` fixture (from the shared test harness) to every
 # plugin test suite with no per-package conftest boilerplate.
 [project.entry-points.pytest11]
-rbtr = "rbtr.languages.testing"
+rbtr = "rbtr.testing"
 
 # Languages bundled in core, discovered via the `rbtr.languages` entry-point
 # group (same mechanism external `rbtr-lang-*` packages use). Each value is a
@@ -97,7 +97,7 @@ yaml = "rbtr.languages.yaml.plugin:yaml"
 # language-plugin-packaging migration.
 [project.optional-dependencies]
 sql = ["rbtr-lang-sql"]
-# Test-support extra for `rbtr.languages.testing`: what a plugin package
+# Test-support extra for `rbtr.testing`: what a plugin package
 # needs to run its extraction/snapshot tests against the shared harness.
 # The pytest bound lives here (not just in `dev`) so that a plugin whose
 # only test dep is `rbtr[test]` still gets it.

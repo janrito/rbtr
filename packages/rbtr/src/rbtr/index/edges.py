@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
-from rbtr.languages import LanguageManager
+from rbtr.languages.manager import LanguageManager
 from rbtr.languages.registration import ModuleStyle, parse_path_relative
 
 

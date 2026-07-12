@@ -446,16 +446,21 @@ lives in its own `.scm` file, loaded with `load_query`:
 ```python
 # src/rbtr_lang_swift/plugin.py
 from __future__ import annotations
-from rbtr.languages.queries import load_query
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    QueryExtraction,
+    load_query,
+)
 
 swift = LanguageRegistration(
     id="swift",
     extensions=frozenset({".swift"}),
     grammar_module="tree_sitter_swift",
-    query=load_query(__package__, "swift"),
-    scope_types=frozenset({"class_declaration"}),
-    doc_comment_node_types=frozenset({"comment"}),
+    extraction=QueryExtraction(
+        query=load_query(__package__, "swift"),
+        scope_types=frozenset({"class_declaration"}),
+        doc_comment_node_types=frozenset({"comment"}),
+    ),
 )
 ```
 
@@ -471,7 +476,7 @@ Each `@import` match is passed to the language's
 `import_extractor`, which reads captures first then walks
 the node for what the query can't express (e.g. multi-valued
 import names). Languages that don't need custom logic get the
-built-in `default_import`; those that do attach an override with
+built-in import resolver; those that do attach an override with
 `@swift.import_extractor` (see Overrides below).
 
 Cross-language imports: `ImportMeta.language_hint` directs
@@ -487,8 +492,8 @@ CSS nested rule scoped under its parent selector; a TOML dotted table
 split into a name and scope). Each delegates to the default resolver
 for the cases it does not special-case.
 
-Leading doc comments: `doc_comment_node_types` lists the AST node
-types that count as documentation (e.g. `{"comment"}` in the Swift
+Leading doc comments: `QueryExtraction.doc_comment_node_types` lists the AST
+node types that count as documentation (e.g. `{"comment"}` in the Swift
 example above). When set, a symbol's chunk is extended upwards to
 cover the doc comments immediately preceding it; left empty, the
 chunk spans only the symbol itself.
@@ -612,7 +617,7 @@ against drift:
 from pathlib import Path
 from rbtr.git import FileEntry
 from rbtr.index.orchestrator import extract_file
-from rbtr.languages import get_manager
+from rbtr.languages.manager import get_manager
 
 def test_extraction_matches_snapshot(snapshot_json):
     root = Path(__file__).parent / "samples" / "swift"
@@ -630,7 +635,7 @@ def test_extraction_matches_snapshot(snapshot_json):
 
 Regenerate the golden files after an intended change with
 `pytest --snapshot-update`. For edge snapshots,
-`rbtr.languages.testing.render_edges(edges, chunks)` turns opaque edge
+`rbtr.testing.render_edges(edges, chunks)` turns opaque edge
 ids into readable `file::name -> file::name [kind]` lines.
 
 ### Installing the plugin
