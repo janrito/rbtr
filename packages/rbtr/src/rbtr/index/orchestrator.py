@@ -80,18 +80,18 @@ def _extract_and_store_chunks(
     Opens its own session with an explicit sweep.
     """
     mgr = get_manager()
-    # Each chunk is stamped with its OWN language's plugin version, not the
-    # host file's. They coincide for single-language files; they differ for
-    # multi-language files (SFCs), whose delegated chunks carry an embedded
-    # language. Built once from the registry.
-    version_by_language = {
-        lang: reg.language_plugin_version
+    # Each chunk is stamped with its OWN language's extraction serial, not
+    # the host file's. They coincide for single-language files; they differ
+    # for multi-language files (SFCs), whose delegated chunks carry an
+    # embedded language. Built once from the registry.
+    serial_by_language = {
+        lang: reg.extraction_serial
         for lang in mgr.all_language_ids()
         if (reg := mgr.get_registration(lang)) is not None
     }
     # The dedup gate checks every stored chunk against its language's current
-    # version; `""` is the plaintext pseudo-language (always version 1).
-    dedup_versions = {**version_by_language, "": 1}
+    # serial; `""` is the plaintext pseudo-language (always serial 1).
+    dedup_serials = {**serial_by_language, "": 1}
     repo_root = Path(repo_path).resolve()
     ignore = load_ignore(repo_root)
     changed: set[str] | None = None
@@ -138,12 +138,12 @@ def _extract_and_store_chunks(
                 if fmt:
                     detected_lang = fmt
 
-            # Resolve version from registration.
+            # Resolve the serial from registration.
             reg = mgr.get_registration(detected_lang) if detected_lang else None
-            version = reg.language_plugin_version if reg else 1
+            serial = reg.extraction_serial if reg else 1
 
             # Blob dedup gate.
-            if store.has_blob(entry.blob_sha, detected_lang, dedup_versions):
+            if store.has_blob(entry.blob_sha, detected_lang, dedup_serials):
                 result.stats.skipped_files += 1
             else:
                 try:
@@ -156,9 +156,7 @@ def _extract_and_store_chunks(
                             **chunk.model_dump(),
                             content_tokens=tokenise_code(chunk.content),
                             name_tokens=tokenise_code(chunk.name),
-                            language_plugin_version=version_by_language.get(
-                                chunk.language, version
-                            ),
+                            extraction_serial=serial_by_language.get(chunk.language, serial),
                         )
                         session.add_chunk(tokenised)
                         file_has_chunks = True

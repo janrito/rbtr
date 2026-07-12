@@ -199,7 +199,7 @@ class TokenisedChunk(Chunk):
     from the model — they exist only to flow into DuckDB.
     The added fields split by role: `content_tokens` and
     `name_tokens` are the code-aware tokenisations BM25/FTS
-    queries against; `language_plugin_version` is a storage
+    queries against; `extraction_serial` is a storage
     column, not part of chunk identity, which is derived from
     file/blob/name/line only.  Chunks carry no `repo_id` — the
     store is content-addressed and repo attribution lives in
@@ -208,7 +208,7 @@ class TokenisedChunk(Chunk):
 
     content_tokens: str = ""
     name_tokens: str = ""
-    language_plugin_version: int = 1
+    extraction_serial: int = 1
 
 
 class Snapshot(BaseModel):

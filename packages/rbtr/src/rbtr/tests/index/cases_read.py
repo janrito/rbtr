@@ -32,13 +32,13 @@ class ChunkQueryScenario:
 
 @dataclass(frozen=True)
 class HasBlobScenario:
-    """Seed data + has_blob(version map) query + expected result."""
+    """Seed data + has_blob(serial map) query + expected result."""
 
     chunks: list[TokenisedChunk]
     snapshots: list[Snapshot]
     query_blob: str
     query_language: str
-    version_map: dict[str, int]
+    serial_map: dict[str, int]
     expected: bool
 
 
@@ -138,7 +138,7 @@ def case_has_blob_same_language() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="",
-        version_map={"": 1},
+        serial_map={"": 1},
         expected=True,
     )
 
@@ -152,13 +152,13 @@ def case_has_blob_different_language() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="swift",
-        version_map={"swift": 1},
+        serial_map={"swift": 1},
         expected=False,
     )
 
 
 @case(tags=["has_blob"])
-def case_has_blob_same_language_and_version() -> HasBlobScenario:
+def case_has_blob_same_language_and_serial() -> HasBlobScenario:
     """Blob stored as 'markdown' v1, queried with same → True."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
     c = c.model_copy(update={"language": "markdown"})
@@ -167,14 +167,14 @@ def case_has_blob_same_language_and_version() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="markdown",
-        version_map={"markdown": 1},
+        serial_map={"markdown": 1},
         expected=True,
     )
 
 
 @case(tags=["has_blob"])
-def case_has_blob_different_version() -> HasBlobScenario:
-    """Blob stored at version 1, queried with version 2 → False."""
+def case_has_blob_different_serial() -> HasBlobScenario:
+    """Blob stored at serial 1, queried with serial 2 → False."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
     c = c.model_copy(update={"language": "markdown"})
     return HasBlobScenario(
@@ -182,7 +182,7 @@ def case_has_blob_different_version() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="markdown",
-        version_map={"markdown": 2},
+        serial_map={"markdown": 2},
         expected=False,
     )
 
@@ -196,7 +196,7 @@ def case_has_blob_nonexistent() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob="no_such_blob",
         query_language="",
-        version_map={"": 1},
+        serial_map={"": 1},
         expected=False,
     )
 
@@ -205,54 +205,54 @@ def case_has_blob_nonexistent() -> HasBlobScenario:
 def case_has_blob_detected_language_changed() -> HasBlobScenario:
     """Plaintext blob, now detected as python (plugin registered) → False.
 
-    The stored chunk is at a current version, but there is no chunk in the
+    The stored chunk is at a current serial, but there is no chunk in the
     newly detected language, so the file must re-extract.
     """
-    c = make_chunk("raw1")  # language "", version 1
+    c = make_chunk("raw1")  # language "", serial 1
     return HasBlobScenario(
         chunks=[c],
         snapshots=[make_snap("head", "mod.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="python",
-        version_map={"python": 4, "": 1},
+        serial_map={"python": 4, "": 1},
         expected=False,
     )
 
 
 @case(tags=["has_blob"])
 def case_has_blob_multilanguage_all_current() -> HasBlobScenario:
-    """SFC blob: host + embedded chunks all at current versions → True."""
+    """SFC blob: host + embedded chunks all at current serials → True."""
     host = make_chunk("tpl", blob="sfc").model_copy(
-        update={"language": "svelte", "language_plugin_version": 2}
+        update={"language": "svelte", "extraction_serial": 2}
     )
     ts = make_chunk("fn", blob="sfc").model_copy(
-        update={"language": "typescript", "language_plugin_version": 7}
+        update={"language": "typescript", "extraction_serial": 7}
     )
     return HasBlobScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc")],
         query_blob="sfc",
         query_language="svelte",
-        version_map={"svelte": 2, "typescript": 7, "": 1},
+        serial_map={"svelte": 2, "typescript": 7, "": 1},
         expected=True,
     )
 
 
 @case(tags=["has_blob"])
 def case_has_blob_multilanguage_embedded_bump() -> HasBlobScenario:
-    """SFC blob: a delegated chunk stale vs the current embedded version → False."""
+    """SFC blob: a delegated chunk stale vs the current embedded serial → False."""
     host = make_chunk("tpl", blob="sfc").model_copy(
-        update={"language": "svelte", "language_plugin_version": 2}
+        update={"language": "svelte", "extraction_serial": 2}
     )
     ts = make_chunk("fn", blob="sfc").model_copy(
-        update={"language": "typescript", "language_plugin_version": 7}
+        update={"language": "typescript", "extraction_serial": 7}
     )
     return HasBlobScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc")],
         query_blob="sfc",
         query_language="svelte",
-        version_map={"svelte": 2, "typescript": 8, "": 1},
+        serial_map={"svelte": 2, "typescript": 8, "": 1},
         expected=False,
     )
 

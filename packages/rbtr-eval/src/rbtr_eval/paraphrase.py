@@ -365,7 +365,7 @@ class ParaphraseCmd(BaseModel):
     data_dir: Path = Field(description="Directory for the DuckDB index.")
     out: Path = Field(description="Output path for concept parquet.")
     model: str = Field(
-        description="pydantic-ai model string (e.g. openai:anthropic/claude-haiku).",
+        description="pydantic-ai model string (e.g. openai-chat:anthropic/claude-haiku).",
     )
     concurrency: int = Field(10, description="Max concurrent LLM requests.")
 

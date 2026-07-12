@@ -37,5 +37,5 @@ c = LanguageRegistration(
         query=load_query(__package__, "c"),
     ),
     source_roots=("", "include", "src"),
-    language_plugin_version=4,
+    extraction_serial=4,
 )

@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr_lang_svelte.plugin import chunk_sfc
-
 from rbtr.languages.registration import LanguageRegistration, load_query
+from rbtr_lang_svelte.plugin import chunk_sfc
 
 if TYPE_CHECKING:
     from tree_sitter import Language
@@ -33,7 +32,7 @@ vue = LanguageRegistration(
     extensions=frozenset({".vue"}),
     grammar_factory=_vue_grammar,
     injection_query=load_query("rbtr_lang_svelte", "injections"),
-    language_plugin_version=1,
+    extraction_serial=1,
 )
 
 vue.chunker(chunk_sfc)

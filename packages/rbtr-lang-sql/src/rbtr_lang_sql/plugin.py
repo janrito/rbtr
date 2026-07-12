@@ -48,5 +48,5 @@ sql = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "sql"),
     ),
-    language_plugin_version=3,
+    extraction_serial=3,
 )

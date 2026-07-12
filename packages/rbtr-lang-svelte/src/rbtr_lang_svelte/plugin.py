@@ -99,7 +99,7 @@ svelte = LanguageRegistration(
     extensions=frozenset({".svelte"}),
     grammar_module="tree_sitter_svelte",
     injection_query=load_query(__package__, "injections"),
-    language_plugin_version=1,
+    extraction_serial=1,
 )
 
 svelte.chunker(chunk_sfc)

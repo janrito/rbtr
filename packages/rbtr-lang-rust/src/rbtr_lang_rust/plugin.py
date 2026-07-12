@@ -141,7 +141,7 @@ rust = LanguageRegistration(
     ),
     index_files=frozenset({"mod.rs"}),
     path_substitutions=(("crate/", "src/"),),
-    language_plugin_version=5,
+    extraction_serial=5,
 )
 
 rust.import_extractor(extract_import_meta)

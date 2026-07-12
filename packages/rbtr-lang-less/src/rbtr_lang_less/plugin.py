@@ -20,14 +20,13 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr_lang_css.plugin import css_nesting_scope
-
 from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,
     build_quoted_import,
     load_query,
 )
+from rbtr_lang_css.plugin import css_nesting_scope
 
 less = LanguageRegistration(
     id="less",
@@ -37,7 +36,7 @@ less = LanguageRegistration(
         query=load_query(__package__, "less"),
     ),
     import_targets=frozenset({"css", "scss", "less"}),
-    language_plugin_version=3,
+    extraction_serial=3,
 )
 
 less.scope_extractor(css_nesting_scope)

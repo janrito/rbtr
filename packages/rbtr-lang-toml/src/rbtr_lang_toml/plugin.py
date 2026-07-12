@@ -66,7 +66,7 @@ toml = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "toml"),
     ),
-    language_plugin_version=4,
+    extraction_serial=4,
 )
 
 

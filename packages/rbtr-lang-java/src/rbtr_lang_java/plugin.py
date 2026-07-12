@@ -48,5 +48,5 @@ java = LanguageRegistration(
     ),
     source_roots=("", "src/main/java"),
     module_style=ModuleStyle.DOTTED,
-    language_plugin_version=4,
+    extraction_serial=4,
 )

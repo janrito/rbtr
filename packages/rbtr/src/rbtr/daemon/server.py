@@ -152,7 +152,7 @@ class DaemonServer:
         self._shutdown = False
         self._pub_socket: zmq.asyncio.Socket | None = None
         self._zmq_ctx = zmq.asyncio.Context()
-        self._zmq_shadow = zmq.Context.shadow(self._zmq_ctx)
+        self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
         self._handlers: dict[str, RequestHandler] = {
             "shutdown": self._handle_shutdown,
         }

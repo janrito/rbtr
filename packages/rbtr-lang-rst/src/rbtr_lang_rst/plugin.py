@@ -340,7 +340,7 @@ rst = LanguageRegistration(
     id="rst",
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
-    language_plugin_version=3,
+    extraction_serial=3,
 )
 
 rst.chunker(chunk_rst)
