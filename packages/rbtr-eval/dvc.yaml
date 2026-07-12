@@ -46,6 +46,19 @@ vars:
         url: https://github.com/anthropics/skills
 
 stages:
+
+  config:
+    cmd: >-
+      python -m rbtr --json
+      --data-dir ${data_dir}
+      --config-dir ${config_dir}
+      --log-dir ${log_dir}
+      config > data/rendered_config.json
+    always_changed: true
+    outs:
+      - data/rendered_config.json:
+          cache: false
+
   clone:
     foreach: ${repos}
     do:
@@ -148,16 +161,13 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - ../rbtr/src/rbtr
+      - data/rendered_config.json
       - ${repos_dir}
     outs:
       - data/.chunks-ready:
           cache: false
       - data/INDEX.md:
           cache: false
-      - ${config_dir}:
-          cache: false
-          push: false
-          persist: true
 
   embed:
     cmd: >-
@@ -172,6 +182,7 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - ../rbtr/src/rbtr
+      - data/rendered_config.json
       - data/.chunks-ready
     outs:
       - data/.embed-ready:
@@ -197,6 +208,7 @@ stages:
       - src/rbtr_eval/measure.py
       - src/rbtr_eval/templates/benchmarks.md.j2
       - ../rbtr/src/rbtr
+      - data/rendered_config.json
       - ${per_repo_dir}
       - ${concept_dir}
       - ${headers_dir}
@@ -230,6 +242,7 @@ stages:
     deps:
       - src/rbtr_eval/tune.py
       - ../rbtr/src/rbtr
+      - data/rendered_config.json
       - ${per_repo_dir}
       - ${concept_dir}
       - data/.embed-ready
@@ -263,6 +276,7 @@ stages:
     deps:
       - src/rbtr_eval/tune_reranker.py
       - ../rbtr/src/rbtr
+      - data/rendered_config.json
       - ${per_repo_dir}
       - ${concept_dir}
       - data/.embed-ready
