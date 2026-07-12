@@ -7,211 +7,205 @@ ablation in `measure` isolates the effect of each channel.
 
 ## Summary
 
-| field         | value                    |
-| ------------- | ------------------------ |
-| model         | `openai:zai-org/GLM-5.1` |
-| total queries | 2684                     |
-| expanded      | 2684 / 2684 (100%)       |
+| field         | value                         |
+| ------------- | ----------------------------- |
+| model         | `openai-chat:zai-org/GLM-5.2` |
+| total queries | 2357                          |
+| expanded      | 2357 / 2357 (100%)            |
 
 ## Per-kind breakdown
 
-| query_kind | n    | avg_keywords | avg_variants |
-| ---------- | ---- | ------------ | ------------ |
-| code       | 414  | 5.1          | 2.0          |
-| concept    | 1181 | 5.1          | 2.0          |
-| identifier | 1089 | 5.1          | 2.0          |
+| query_kind | n   | avg_keywords | avg_variants |
+| ---------- | --- | ------------ | ------------ |
+| code       | 419 | 5.2          | 2.0          |
+| concept    | 999 | 5.3          | 2.0          |
+| identifier | 939 | 5.1          | 2.0          |
 
 ## Per-repo breakdown
 
 | slug               | total | expanded | rate |
 | ------------------ | ----- | -------- | ---- |
-| anthropics__skills | 224   | 224      | 100% |
-| astral-sh__uv      | 628   | 628      | 100% |
-| badlogic__pi-mono  | 504   | 504      | 100% |
-| django__django     | 809   | 809      | 100% |
-| rbtr__rbtr         | 519   | 519      | 100% |
+| anthropics__skills | 438   | 438      | 100% |
+| astral-sh__uv      | 359   | 359      | 100% |
+| badlogic__pi-mono  | 460   | 460      | 100% |
+| django__django     | 672   | 672      | 100% |
+| rbtr__rbtr         | 428   | 428      | 100% |
 
 ## Per-provenance breakdown
 
 | provenance | total | expanded | rate |
 | ---------- | ----- | -------- | ---- |
-| body       | 650   | 650      | 100% |
-| concept    | 1157  | 1157     | 100% |
-| docstring  | 227   | 227      | 100% |
-| name       | 650   | 650      | 100% |
+| body       | 525   | 525      | 100% |
+| concept    | 993   | 993      | 100% |
+| docstring  | 314   | 314      | 100% |
+| name       | 525   | 525      | 100% |
 
 ## Examples
 
-### concept: `ready` (`django__django`)
+### concept: `enableAllGitHubCopilotModels` (`badlogic__pi-mono`)
 
-````javascript
-run a callback when the DOM is finished loading
+````typescript
+Activate all available AI coding assistant models after user login to ensure they are ready for use
 ````
 
-- **keywords:** DOMContentLoaded, onload, ready, addEventListener, document.readyState
-- **variants:** execute a function after the page is ready, how to wait for DOM ready
-  before running code
+- **keywords:** activate_models, enable_assistants, model_init, assistant_startup,
+  warmup_models
+- **variants:** initialize all assistant models upon user authentication, trigger model
+  loading and readiness check after login completes
 
-### concept: `tests/admin_views/templates/admin/admin_views/article/change_form_object_tools.html` (`django__django`)
+### concept: `CustomProvidersStore` (`badlogic__pi-mono`)
 
-````html
-how to add an export button to Django change form object tools
+````markdown
+How to add and retrieve custom LLM providers like Ollama at runtime
 ````
 
-- **keywords:** object_tools, change_form_object_tools, admin_change_form,
-  export_action, ExtraButtonsMixin
-- **variants:** customize Django admin change form toolbar with an export action, insert
-  export link into Django admin object tools block
+- **keywords:** llm_provider, add_provider, get_provider, ollama, register_llm,
+  custom_provider, provider_registry
+- **variants:** dynamically register and fetch LLM backends, how to plug in a new model
+  provider and look it up later
 
-### concept: ```DIRS``` (`django__django`)
-
-````rst
-how to configure template search directories in Django
-````
-
-- **keywords:** TEMPLATES, DIRS, APP_DIRS, template_dirs, FileSystemLoader
-- **variants:** where does Django look for template files, customize paths where Django
-  searches for HTML templates
-
-### concept: `area` (`django__django`)
-
-````json
-how to fix JSON parse error expected value at line 1 column 1
-````
-
-- **keywords:** JSON.parse, json.loads, JSONDecodeError, SyntaxError unexpected token,
-  invalid_json
-- **variants:** empty response body causes json parse failure at position 0, handling
-  malformed json when decoding returns unexpected character at start
-
-### concept: `test_readonly_stacked_inline_label` (`django__django`)
+### concept: `CssPlugin` (`rbtr__rbtr`)
 
 ````python
-Verify that readonly stacked inlines display the correct label in the admin change view
+Register stylesheet language support for parsing rules and tracking import dependencies
 ````
 
-- **keywords:** StackedInline, readonly, InlineModelAdmin, change_view, label_for
-- **variants:** Django admin stacked inline label rendering for read-only fields,
-  correct label text shown on readonly inline in admin change form
+- **keywords:** register_language, stylesheet_parser, import_dependencies,
+  language_support, parse_stylesheet
+- **variants:** add a language processor for stylesheet files to resolve imports, enable
+  a new stylesheet language with dependency tracking on file parse
 
-### identifier: `len` (`astral-sh__uv`)
-
-````rust
-/// Return the number of `--find-links` entries.
-````
-
-- **keywords:** find_links_count, num_find_links, count_find_links, n_find_links,
-  find_links_len
-- **variants:** count the number of find-links sources, return count of --find-links
-  option entries
-
-### identifier: `renderCopyLinkButton` (`badlogic__pi-mono`)
+### concept: `matcherFromTokens` (`django__django`)
 
 ````javascript
-/**
-       * Render the copy-link button HTML for a message.
+build an element matcher function from parsed selector tokens for CSS selector matching
 ````
 
-- **keywords:** renderCopyLinkButton, copy_link_btn, message_link_button,
-  create_share_link_markup, CopyLinkButton
-- **variants:** render a button to copy a message's shareable URL, generate HTML for
-  copying a permalink to a chat message
+- **keywords:** matches_selector, element_matches, selector_parser, compile_selector,
+  match_element_by_token
+- **variants:** function to check if a DOM element satisfies a parsed CSS selector AST,
+  create a predicate from parsed CSS selector components to test node compliance
 
-### identifier: `warn_file_conflict` (`astral-sh__uv`)
-
-````rust
-/// Check if all files are the same size, if so assume they are identical
-````
-
-- **keywords:** check_identical_by_size, files_same_size, are_files_identical,
-  compare_file_sizes, size_based_equality
-- **variants:** determine if files are identical by comparing their file sizes, verify
-  all files are duplicates by checking matching sizes
-
-### identifier: `the performance. Learn more at` (`rbtr__rbtr`)
+### concept: `Sivert Olstad, 2021` (`django__django`)
 
 ````markdown
-# the performance
+Norwegian Nynorsk translation file for admin documentation template tags filters and views
 ````
 
-- **keywords:** perf_metrics, performance_measurement, benchmark_results, perf_score,
-  performance_eval
-- **variants:** measure execution speed and resource usage, track and report system
-  performance metrics
+- **keywords:** nn, nynorsk, django.po, admin_docs, translation
+- **variants:** Nynorsk locale strings for admin templating and documentation views,
+  Norwegian Nynorsk gettext catalog for admin docs filters and template tags
 
-### identifier: `Consistency` (`django__django`)
+### identifier: `g` (`rbtr__rbtr`)
 
-````rst
-Consistency
------------
+````typescript
+// handle_status on the daemon calls git.open_repo, so the test
+// repo has to be a real git directory with at least one commit.
 ````
 
-- **keywords:** consistency_model, data_consistency, consistency_check,
-  EventualConsistency, consistency_validator
-- **variants:** ensure data remains uniform across distributed systems, validate that
-  replicated state matches across nodes
+- **keywords:** handle_status, daemon_status_handler, process_status,
+  status_request_handler, handle_repo_status
+- **variants:** daemon handler that opens a git repository and processes a status
+  request, server endpoint that inspects the working tree status of a git repository
 
-### code: `audit` (`astral-sh__uv`)
+### identifier: `RenderedToolHtml` (`badlogic__pi-mono`)
 
-````json
-"audit": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/AuditOptions"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    }
+````typescript
+/** Pre-rendered HTML for a custom tool call and result */
 ````
 
-- **keywords:** audit, AuditOptions, anyOf, nullable_schema, definitions_ref
-- **variants:** JSON Schema anyOf allowing AuditOptions or null, nullable audit property
-  referencing AuditOptions definition
+- **keywords:** precomputed_html, cached_html_output, static_html_result,
+  precomputed_html_result, template_html_render
+- **variants:** pre-rendered HTML output for a custom tool call, statically generated
+  HTML from a tool invocation
 
-### code: `Thanh Le Viet <lethanhx2k@gmail.com>, 2013` (`django__django`)
+### identifier: `EmbedCompleteNotification` (`rbtr__rbtr`)
 
-````markdown
-Thanh Le Viet <lethanhx2k@gmail.com>, 2013
+````typescript
+EmbedCompleteNotification
 ````
 
-- **keywords:** lethanhx2k, Thanh Le Viet, author_attribution, copyright_header, 2013
-- **variants:** author comment header with email and year, source file copyright
-  attribution by Thanh Le Viet
+- **keywords:** embed_completion_notification, EmbedFinishedEvent, EmbedReadyCallback,
+  EmbedDoneAlert, EmbedRenderComplete
+- **variants:** notify when embed rendering or processing finishes, signal that an
+  embedded content has completed loading
 
-### code: `Filip Cuk <filipcuk2@gmail.com>, 2016` (`django__django`)
-
-````markdown
-# Filip Cuk <filipcuk2@gmail.com>, 2016
-````
-
-- **keywords:** Filip Cuk, filipcuk2, author_comment, copyright_header,
-  translator_credits
-- **variants:** author attribution comment with name and email year, translation file
-  translator credit header
-
-### code: `EmailBackend` (`django__django`)
+### identifier: `frame_to_chunks` (`rbtr__rbtr`)
 
 ````python
-class EmailBackend(BaseEmailBackend):
-    def send_messages(self, email_messages):
-        return len(list(email_messages))
+frame_to_chunks
 ````
 
-- **keywords:** EmailBackend, BaseEmailBackend, send_messages, email_messages,
-  Django_email_backend
-- **variants:** custom Django email backend that counts sent messages, def send_messages
-  returning number of email messages sent
+- **keywords:** split_frame, frame_to_blocks, decompose_frame, chunk_frame,
+  frame_segmentation
+- **variants:** split a data frame into smaller chunks for batch processing, break a
+  frame into fixed-size segments or tiles
 
-### code: `.ansi-line` (`badlogic__pi-mono`)
+### identifier: `.toggle input:checked + .slider::before` (`anthropics__skills`)
 
 ````css
-.ansi-line {
-      white-space: pre-wrap;
-    }
+.toggle input:checked + .slider::before
 ````
 
-- **keywords:** ansi-line, pre-wrap, white-space, terminal_output_css, ansi_formatting
-- **variants:** CSS class for rendering ANSI terminal output with preserved whitespace
-  and wrapping, style rule preserving whitespace formatting for ansi text lines
+- **keywords:** toggle_switch_checked_slider, checkbox_slider_before,
+  switch_thumb_checked, toggle_thumb_pseudo, css_slider_thumb
+- **variants:** style the thumb knob of a toggle switch when the checkbox is checked,
+  CSS pseudo-element for the sliding knob of an on-off switch
+
+### code: `6a27f10aef159701c7a5ff07f0fb0a78_05545ed <bc5d401a7ecd9343dd5afac265ed8ab3_4845>, 2011-2012,2014` (`django__django`)
+
+````markdown
+# 6a27f10aef159701c7a5ff07f0fb0a78_05545ed <bc5d401a7ecd9343dd5afac265ed8ab3_4845>, 2011-2012,2014
+````
+
+- **keywords:** copyright_year, 2012, 2014, license_header, date_range
+- **variants:** source file copyright or license header spanning multiple years
+  2011-2014, comment indicating copyright years including 2012 and 2014
+
+### code: `showDialog` (`badlogic__pi-mono`)
+
+````typescript
+function showDialog(dialog: Component): void {
+		activeDialog = dialog;
+		setBottomComponent(dialog);
+	}
+````
+
+- **keywords:** showDialog, activeDialog, setBottomComponent, dialog, Component
+- **variants:** display a dialog by storing it as active and setting it as the bottom
+  component, set current dialog and assign it to bottom panel, open dialog component and
+  register as active bottom widget
+
+### code: `extractAnnotations` (`anthropics__skills`)
+
+````javascript
+async function extractAnnotations() {
+    const loadingTask = pdfjsLib.getDocument('annotated.pdf');
+    const pdf = await loadingTask.promise;
+````
+
+- **keywords:** extractAnnotations, pdfjsLib, getDocument, loadingTask, pdfjs,
+  annotations
+- **variants:** load a PDF file and wait for the document promise using pdf.js, async
+  function to open annotated.pdf with pdfjs and retrieve annotations
+
+### code: `ctx.newSession(options?)` (`badlogic__pi-mono`)
+
+````markdown
+### ctx.newSession(options?)
+````
+
+- **keywords:** newSession, ctx, session, options, context
+- **variants:** call newSession on the context with an optional options parameter,
+  create a new context session with optional configuration
+
+### code: `Id` (`astral-sh__uv`)
+
+````rust
+impl Deref for Id {
+    type Target = str;
+````
+
+- **keywords:** Deref, Id, Target, str, deref_impl
+- **variants:** implement Deref trait for Id wrapper targeting str, Id type dereferences
+  to string slice, newtype Id with Deref to str

@@ -218,9 +218,12 @@ replace = '"version": "{new_version}"'
 
 [tool.vulture]
 min_confidence = 80
-paths = ["packages/rbtr/src/rbtr", "packages/rbtr-eval/src/rbtr_eval"]
-# Language sample fixtures are illustrative, not product code.
-exclude = ["*/tests/samples/*"]
+paths = ["packages"]
+# vulture has no gitignore support and does not glob `paths`, so scan the
+# whole tree (covers every package and future rbtr-lang-* plugins) and carve
+# out non-product code with `exclude` globs (matched against absolute paths):
+# the cloned eval repos and the illustrative language sample fixtures.
+exclude = ["*/rbtr-eval/data/*", "*/tests/samples/*"]
 ignore_names = [
   "init_settings",        # pydantic_settings settings_customise_sources
   "dotenv_settings",      # pydantic_settings settings_customise_sources

@@ -30,9 +30,9 @@ vars:
   # changes are silently ignored — desirable for reproducibility.
   - concept_dir: data/concept
   - expansion_dir: data/expansion
-  - expansion_model: openai:zai-org/GLM-5.1
+  - expansion_model: openai-chat:zai-org/GLM-5.2
   - expansion_concurrency: 20
-  - paraphrase_model: openai:zai-org/GLM-5.1
+  - paraphrase_model: openai-chat:zai-org/GLM-5.2
   - repos:
       - slug: rbtr__rbtr
         url: ../..
@@ -53,7 +53,10 @@ stages:
       --data-dir ${data_dir}
       --config-dir ${config_dir}
       --log-dir ${log_dir}
-      config > data/rendered_config.json
+      config
+      | jq 'del(.config.runtime_dir, .config.daemon_rpc,
+      .config.daemon_pub, .config.cache_dir)'
+      > data/rendered_config.json
     always_changed: true
     outs:
       - data/rendered_config.json:
