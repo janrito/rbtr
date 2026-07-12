@@ -1148,6 +1148,38 @@ External plugins register via the `rbtr.languages` entry
 point. External registrations override built-in ones. See
 the README for a step-by-step guide to writing a plugin.
 
+The entry-point *value* must resolve to a plugin **instance**
+(`my_pkg.plugin:PLUGIN`, where `PLUGIN = MyPlugin()`), not the
+bare class: [pluggy] registers whatever `ep.load()` returns and
+calls the hookimpl on it, so a class leaves the method unbound.
+
+### Plugin → core contract
+
+A plugin (built-in or external `rbtr-lang-*` package) depends
+on a small, stable surface of core symbols. This is the
+contract that survives packaging each language as its own
+distribution:
+
+- `rbtr.languages.hookspec` — `hookimpl`, `LanguageRegistration`,
+  `ModuleStyle`, and the capture/import helpers `resolve_name`,
+  `collect_scoped_path`, `enclosing_nodes_of_type`,
+  `build_import_from_captures`, `build_quoted_import`,
+  `parse_path_relative`.
+- `rbtr.languages._queries.load_query` — loads the plugin's
+  co-located `.scm` query as package data.
+- `rbtr.index.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
+- `rbtr.index.identity.make_chunk_id`.
+- `rbtr.index.chunks.chunk_plaintext`.
+
+One dependency crosses *between* plugins rather than to core:
+scss and less import `css_nesting_scope` from the css plugin
+(CSS-family nesting behaviour). That is a legitimate
+plugin-to-plugin dependency, not part of the core contract.
+
+(`load_query` lives in a `_`-prefixed module today; packaging
+the languages should promote it to public API, since every
+plugin depends on it.)
+
 ### Sample fixtures
 
 `rbtr/tests/languages/samples/` holds one source file per

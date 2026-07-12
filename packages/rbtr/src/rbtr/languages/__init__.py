@@ -41,7 +41,6 @@ from pathlib import PurePosixPath
 import pluggy
 from tree_sitter import Language
 
-from rbtr.languages.bash.plugin import BashPlugin
 from rbtr.languages.c.plugin import CPlugin
 from rbtr.languages.cpp.plugin import CppPlugin
 from rbtr.languages.css.plugin import CssPlugin
@@ -61,7 +60,6 @@ from rbtr.languages.ruby.plugin import RubyPlugin
 from rbtr.languages.rust.plugin import RustPlugin
 from rbtr.languages.scss.plugin import ScssPlugin
 from rbtr.languages.sfc.plugin import SveltePlugin, VuePlugin
-from rbtr.languages.sql.plugin import SqlPlugin
 from rbtr.languages.toml.plugin import TomlPlugin
 from rbtr.languages.yaml.plugin import YamlPlugin
 
@@ -74,9 +72,9 @@ class LanguageManager:
 
     Precedence order (later overrides earlier):
 
-    1. `DefaultsPlugin` — detection-only and grammar-only languages.
-    2. Built-in specific plugins (Python, JS/TS, Go, Rust, Java, Bash).
-    3. External plugins via `rbtr.languages` entry points.
+    1. Built-in language plugins (registered by `_register_builtins`).
+    2. External plugins via `rbtr.languages` entry points, which
+       override built-ins.
 
     Example — checking what's registered::
 
@@ -108,7 +106,6 @@ class LanguageManager:
     def _register_builtins(self) -> None:
         """Register built-in plugins in precedence order."""
         for plugin_cls in (
-            BashPlugin,
             CPlugin,
             CppPlugin,
             CssPlugin,
@@ -128,7 +125,6 @@ class LanguageManager:
             ScssPlugin,
             SveltePlugin,
             VuePlugin,
-            SqlPlugin,
             TomlPlugin,
             YamlPlugin,
         ):

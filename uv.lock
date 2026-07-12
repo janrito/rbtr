@@ -13,6 +13,8 @@ resolution-markers = [
 members = [
     "rbtr",
     "rbtr-eval",
+    "rbtr-lang-bash",
+    "rbtr-lang-sql",
 ]
 
 [manifest.dependency-groups]
@@ -3219,11 +3221,11 @@ dependencies = [
     { name = "pydantic-settings", extra = ["toml"] },
     { name = "pygit2" },
     { name = "pyzmq" },
+    { name = "rbtr-lang-bash" },
     { name = "rich" },
     { name = "rich-argparse" },
     { name = "structlog" },
     { name = "tree-sitter" },
-    { name = "tree-sitter-bash" },
     { name = "tree-sitter-c" },
     { name = "tree-sitter-cpp" },
     { name = "tree-sitter-css" },
@@ -3242,21 +3244,28 @@ dependencies = [
     { name = "tree-sitter-ruby" },
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-scss" },
-    { name = "tree-sitter-sql" },
     { name = "tree-sitter-svelte" },
     { name = "tree-sitter-toml" },
     { name = "tree-sitter-typescript" },
     { name = "tree-sitter-yaml" },
 ]
 
+[package.optional-dependencies]
+sql = [
+    { name = "rbtr-lang-sql" },
+]
+testkit = [
+    { name = "pytest" },
+    { name = "pytest-cases" },
+    { name = "syrupy" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pyinstrument" },
-    { name = "pytest" },
-    { name = "pytest-cases" },
     { name = "pytest-mock" },
     { name = "pytest-xdist" },
-    { name = "syrupy" },
+    { name = "rbtr", extra = ["testkit"] },
 ]
 
 [package.metadata]
@@ -3272,12 +3281,16 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.12" },
     { name = "pygit2" },
+    { name = "pytest", marker = "extra == 'testkit'", specifier = "<9.1" },
+    { name = "pytest-cases", marker = "extra == 'testkit'", specifier = ">=3.10.1" },
     { name = "pyzmq", specifier = ">=27.1.0" },
+    { name = "rbtr-lang-bash", editable = "packages/rbtr-lang-bash" },
+    { name = "rbtr-lang-sql", marker = "extra == 'sql'", editable = "packages/rbtr-lang-sql" },
     { name = "rich", specifier = ">=13.0" },
     { name = "rich-argparse", specifier = ">=1.7.2" },
     { name = "structlog", specifier = ">=24.1" },
+    { name = "syrupy", marker = "extra == 'testkit'", specifier = ">=5.3.4" },
     { name = "tree-sitter", specifier = ">=0.24" },
-    { name = "tree-sitter-bash" },
     { name = "tree-sitter-c" },
     { name = "tree-sitter-cpp" },
     { name = "tree-sitter-css" },
@@ -3296,21 +3309,19 @@ requires-dist = [
     { name = "tree-sitter-ruby" },
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-scss" },
-    { name = "tree-sitter-sql" },
     { name = "tree-sitter-svelte" },
     { name = "tree-sitter-toml" },
     { name = "tree-sitter-typescript" },
     { name = "tree-sitter-yaml" },
 ]
+provides-extras = ["sql", "testkit"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "pyinstrument", specifier = ">=5.0" },
-    { name = "pytest", specifier = "<9.1" },
-    { name = "pytest-cases", specifier = ">=3.10.1" },
     { name = "pytest-mock" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "syrupy", specifier = ">=5.3.4" },
+    { name = "rbtr", extras = ["testkit"] },
 ]
 
 [[package]]
@@ -3359,6 +3370,52 @@ dev = [
     { name = "pytest-cases", specifier = ">=3.10.1" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
 ]
+
+[[package]]
+name = "rbtr-lang-bash"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-bash" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-bash" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["testkit"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-bash" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["testkit"], editable = "packages/rbtr" }]
+
+[[package]]
+name = "rbtr-lang-sql"
+version = "2026.6.1"
+source = { editable = "packages/rbtr-lang-sql" }
+dependencies = [
+    { name = "rbtr" },
+    { name = "tree-sitter-sql" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "rbtr", extra = ["testkit"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rbtr", editable = "packages/rbtr" },
+    { name = "tree-sitter-sql" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "rbtr", extras = ["testkit"], editable = "packages/rbtr" }]
 
 [[package]]
 name = "referencing"

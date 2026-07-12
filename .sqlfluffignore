@@ -18,3 +18,7 @@ build/
 # Language sample fixtures are illustrative, not product SQL — validated
 # by their own parse-clean/snapshot tests, not by sqlfluff.
 packages/rbtr/src/rbtr/tests/languages/samples/
+
+# Language-plugin sample fixtures (illustrative corpora, not product SQL),
+# glob-matched so future rbtr-lang-* packages are covered automatically.
+packages/rbtr-lang-*/src/*/tests/samples/

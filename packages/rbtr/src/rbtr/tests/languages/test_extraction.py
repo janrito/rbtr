@@ -29,8 +29,7 @@ from pytest_cases import parametrize_with_cases
 from rbtr.index.models import ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
 from rbtr.languages import LanguageManager, get_manager
-
-from .conftest import extract_chunks
+from rbtr.languages.testkit import extract_chunks
 
 # ── Symbol extraction ────────────────────────────────────────────────
 
@@ -137,48 +136,6 @@ impl Svc {
     chunks = extract_chunks("rust", src)
     svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
     assert len(svc_classes) == 2  # struct + impl
-
-
-def test_sql_pragma_not_extracted() -> None:
-    """A DuckDB PRAGMA yields no definition chunk.
-
-    The grammar has no PRAGMA statement node, so it parses to a
-    top-level ERROR with no enclosing `statement` to capture. This
-    is a known limitation guard; it flags the day the grammar gains
-    PRAGMA support. Only the content-less host-presence chunk (for
-    blob dedup) remains.
-    """
-    src = "PRAGMA create_fts_index('chunks', 'id', 'body');\n"
-    chunks = extract_chunks("sql", src)
-    assert [c for c in chunks if c.content] == []
-
-
-def test_sql_multi_statement_one_chunk_each() -> None:
-    """Each top-level statement in a file becomes its own chunk."""
-    src = """\
-CREATE TABLE a (id INT);
-SELECT * FROM a;
-DROP TABLE a;
-"""
-    chunks = extract_chunks("sql", src)
-    assert [(c.kind, c.name) for c in chunks] == [
-        (ChunkKind.CLASS, "a"),
-        (ChunkKind.FUNCTION, "a"),
-        (ChunkKind.FUNCTION, "a"),
-    ]
-
-
-def test_bash_source_and_dot_extracted_as_imports() -> None:
-    """source/. commands are captured as imports."""
-    src = """\
-source ./env.sh
-. /etc/profile
-"""
-    chunks = extract_chunks("bash", src)
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 2
-    modules = {c.metadata.module for c in imports}
-    assert modules == {"./env.sh", "/etc/profile"}
 
 
 def test_anonymous_chunk_when_name_capture_missing(

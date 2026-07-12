@@ -28,9 +28,11 @@ dependencies = [
   "rich-argparse>=1.7.2",
   "structlog>=24.1",
 
-  # tree-sitter — one grammar per built-in language plugin
+  # Default language plugins (required — ship with core).
+  "rbtr-lang-bash",
+
+  # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
-  "tree-sitter-bash",
   "tree-sitter-c",
   "tree-sitter-cpp",
   "tree-sitter-css",
@@ -49,7 +51,6 @@ dependencies = [
   "tree-sitter-ruby",
   "tree-sitter-rust",
   "tree-sitter-scss",
-  "tree-sitter-sql",
   "tree-sitter-svelte",
   "tree-sitter-toml",
   "tree-sitter-typescript",
@@ -59,14 +60,31 @@ dependencies = [
 [project.scripts]
 rbtr = "rbtr.cli:main"
 
-[dependency-groups]
-dev = [
-  "pyinstrument>=5.0",
+# Optional language plugins are wired here as extras during the
+# language-plugin-packaging migration.
+[project.optional-dependencies]
+sql = ["rbtr-lang-sql"]
+# Test-support extra for `rbtr.languages.testkit`: what a plugin package
+# needs to run its extraction/snapshot tests against the shared harness.
+# The pytest bound lives here (not just in `dev`) so that a plugin whose
+# only test dep is `rbtr[testkit]` still gets it.
+testkit = [
   # Held below 9.1: pytest-cases 3.10.1 breaks on pytest 9.1's changed
   # IdMaker signature. Drop the bound once pytest-cases is compatible.
   "pytest<9.1",
   "pytest-cases>=3.10.1",
+  "syrupy>=5.3.4",
+]
+
+# Language-plugin packages resolve to their workspace members.
+[tool.uv.sources]
+rbtr-lang-bash = { workspace = true }
+rbtr-lang-sql = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "pyinstrument>=5.0",
   "pytest-mock",
   "pytest-xdist>=3.8.0",
-  "syrupy>=5.3.4",
+  "rbtr[testkit]",
 ]
