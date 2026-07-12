@@ -18,6 +18,24 @@
     }
   },
   {
+    "id": "5c48ddf4bbfa419d",
+    "blob_sha": "sha1",
+    "file_path": "Counter.vue",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Vue single-file component.\n//\n// The SFC plugin delegates the <script setup> block to TypeScript and\n// the <style> block to SCSS, reusing the same chunker as Svelte. The\n// template is not extracted.",
+    "line_start": 2,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "40a74200c1fd369b",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
@@ -100,6 +118,24 @@
     "content": ".counter {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 19,
     "line_end": 22,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "fb44653fa0ee40c9",
+    "blob_sha": "sha1",
+    "file_path": "store.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Imported by Counter.vue's <script setup> block.",
+    "line_start": 1,
+    "line_end": 1,
     "metadata": {
       "module": "",
       "names": "",

@@ -1,3 +1,5 @@
+; Top-level comments (C uses one `comment` type for `//` and `/* */`).
+(comment) @comment
 
 (function_definition
   declarator: (function_declarator

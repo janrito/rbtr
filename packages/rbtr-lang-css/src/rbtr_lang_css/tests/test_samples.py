@@ -59,6 +59,7 @@ def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
         ChunkKind.CONFIG_KEY,
         ChunkKind.IMPORT,
         ChunkKind.VARIABLE,
+        ChunkKind.COMMENT,
     } <= kinds
 
 

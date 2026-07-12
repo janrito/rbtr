@@ -1,5 +1,23 @@
 [
   {
+    "id": "098a5708c3152ca7",
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "sql",
+    "content": "-- DuckDB dialect sample — LIST/STRUCT types, CTAS, CREATE MACRO.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "589702d5e5e39965",
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",

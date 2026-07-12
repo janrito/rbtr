@@ -124,12 +124,11 @@ javascript = LanguageRegistration(
         class_scope_types=frozenset({"class_declaration"}),
         # Both `/** */` JSDoc and `//` comments land in
         # the grammar as a single `comment` node type.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    language_plugin_version=4,
+    language_plugin_version=5,
 )
 typescript = LanguageRegistration(
     id="typescript",
@@ -152,12 +151,11 @@ typescript = LanguageRegistration(
         class_scope_types=frozenset(
             {"class_declaration", "abstract_class_declaration", "interface_declaration"}
         ),
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    language_plugin_version=4,
+    language_plugin_version=5,
 )
 tsx = LanguageRegistration(
     id="tsx",
@@ -180,12 +178,11 @@ tsx = LanguageRegistration(
         class_scope_types=frozenset(
             {"class_declaration", "abstract_class_declaration", "interface_declaration"}
         ),
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    language_plugin_version=1,
+    language_plugin_version=2,
 )
 
 javascript.import_extractor(extract_import_meta)

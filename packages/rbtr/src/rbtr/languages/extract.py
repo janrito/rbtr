@@ -33,7 +33,6 @@ def extract_query(
     blob_sha: str,
     content: bytes,
     ranges: list[Range] | None = None,
-    doc_comment_node_types: frozenset[str] | None = None,
 ) -> Iterator[Chunk]:
     """Run *language*'s tree-sitter query over *content*.
 
@@ -43,9 +42,6 @@ def extract_query(
     positions. Yields nothing if *language* has no grammar or query.
     The injection runner (`extract_injections`) calls this to delegate
     each embedded block to its language.
-
-    *doc_comment_node_types* defaults to the registration's; pass an
-    explicit (possibly empty) set to override leading-comment attachment.
     """
     mgr = get_manager()
     reg = mgr.get_registration(language)
@@ -58,7 +54,6 @@ def extract_query(
         blob_sha,
         content,
         grammar,
-        doc_comment_node_types=doc_comment_node_types,
         included_ranges=ranges,
     )
 

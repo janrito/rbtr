@@ -1,5 +1,23 @@
 [
   {
+    "id": "957ce9efcea8b572",
+    "blob_sha": "sha1",
+    "file_path": "yaml.yaml",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "yaml",
+    "content": "# Greeter CI workflow.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "46fb2b74a6219cb5",
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",

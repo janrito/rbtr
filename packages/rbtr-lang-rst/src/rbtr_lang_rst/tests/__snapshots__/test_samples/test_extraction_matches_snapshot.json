@@ -36,6 +36,24 @@
     }
   },
   {
+    "id": "9c28336b3e3f4ab9",
+    "blob_sha": "sha1",
+    "file_path": "helpers.py",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "python",
+    "content": "\"\"\"Helpers referenced by the documentation.\"\"\"",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "22ef1c98dd975c9d",
     "blob_sha": "sha1",
     "file_path": "helpers.py",

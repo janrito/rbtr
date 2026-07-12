@@ -1,3 +1,6 @@
+; Comments (`#`).
+(comment) @comment
+
 (table
   (bare_key) @_section_name) @config_key
 

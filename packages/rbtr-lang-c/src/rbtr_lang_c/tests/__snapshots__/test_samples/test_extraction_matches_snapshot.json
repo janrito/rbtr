@@ -1,5 +1,23 @@
 [
   {
+    "id": "4bbfada66e2e2dde",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "/* Greeter — format greetings for named recipients.\n *\n * The C plugin extracts functions, function prototypes, struct/union/\n * enum/typedef type definitions (as classes), top-level variables\n * (including pointer-declared globals), function/object-like macros,\n * and #include imports (system and local). */",
+    "line_start": 1,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "ed19bac9e8771016",
     "blob_sha": "sha1",
     "file_path": "c.c",
@@ -90,6 +108,24 @@
     }
   },
   {
+    "id": "e3bef78ffe8ef8d8",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "// trailing comment: its own chunk, not folded",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "0032d098456ec45a",
     "blob_sha": "sha1",
     "file_path": "c.c",
@@ -108,7 +144,25 @@
     }
   },
   {
-    "id": "c68a55864ff1c117",
+    "id": "416366101cbeff9a",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "/* Standalone note, separated by blank lines from any definition. */\n/* Second line of the same block. */",
+    "line_start": 17,
+    "line_end": 18,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "86c46ea843464bb6",
     "blob_sha": "sha1",
     "file_path": "c.c",
     "kind": "class",
@@ -116,8 +170,8 @@
     "scope": "",
     "language": "c",
     "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
-    "line_start": 17,
-    "line_end": 20,
+    "line_start": 20,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
@@ -126,7 +180,7 @@
     }
   },
   {
-    "id": "708bcb1d74f719e6",
+    "id": "50ad4d624ef7d80b",
     "blob_sha": "sha1",
     "file_path": "c.c",
     "kind": "class",
@@ -134,25 +188,7 @@
     "scope": "",
     "language": "c",
     "content": "typedef struct Greeter Greeter;",
-    "line_start": 22,
-    "line_end": 22,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "60ca0a89de47f169",
-    "blob_sha": "sha1",
-    "file_path": "c.c",
-    "kind": "class",
-    "name": "GreetCallback",
-    "scope": "",
-    "language": "c",
-    "content": "/* A callback invoked for each formatted greeting. */\ntypedef void (*GreetCallback)(const char *line);",
-    "line_start": 24,
+    "line_start": 25,
     "line_end": 25,
     "metadata": {
       "module": "",
@@ -162,7 +198,25 @@
     }
   },
   {
-    "id": "d33d057a13615dc1",
+    "id": "7341787e58337d04",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "class",
+    "name": "GreetCallback",
+    "scope": "",
+    "language": "c",
+    "content": "/* A callback invoked for each formatted greeting. */\ntypedef void (*GreetCallback)(const char *line);",
+    "line_start": 27,
+    "line_end": 28,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "e93571296c8a693c",
     "blob_sha": "sha1",
     "file_path": "c.c",
     "kind": "class",
@@ -170,8 +224,8 @@
     "scope": "",
     "language": "c",
     "content": "/* A tagged greeting payload. */\nunion Payload {\n    int code;\n    const char *text;\n}",
-    "line_start": 27,
-    "line_end": 31,
+    "line_start": 30,
+    "line_end": 34,
     "metadata": {
       "module": "",
       "names": "",
@@ -180,7 +234,7 @@
     }
   },
   {
-    "id": "0764f0598b8100d1",
+    "id": "41a8e4ce665cd2b7",
     "blob_sha": "sha1",
     "file_path": "c.c",
     "kind": "class",
@@ -188,61 +242,7 @@
     "scope": "",
     "language": "c",
     "content": "enum Locale { LOCALE_EN, LOCALE_FR }",
-    "line_start": 33,
-    "line_end": 33,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "6e1045e7b406fce0",
-    "blob_sha": "sha1",
-    "file_path": "c.c",
-    "kind": "variable",
-    "name": "LOCALE_EN",
-    "scope": "",
-    "language": "c",
-    "content": "LOCALE_EN",
-    "line_start": 33,
-    "line_end": 33,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "8cae2eb37fc333f4",
-    "blob_sha": "sha1",
-    "file_path": "c.c",
-    "kind": "variable",
-    "name": "LOCALE_FR",
-    "scope": "",
-    "language": "c",
-    "content": "LOCALE_FR",
-    "line_start": 33,
-    "line_end": 33,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "bd2b58cb9ede59b8",
-    "blob_sha": "sha1",
-    "file_path": "c.c",
-    "kind": "function",
-    "name": "greeter_default",
-    "scope": "",
-    "language": "c",
-    "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
-    "line_start": 35,
+    "line_start": 36,
     "line_end": 36,
     "metadata": {
       "module": "",
@@ -252,7 +252,61 @@
     }
   },
   {
-    "id": "7d45e9f4b5418390",
+    "id": "47db2d32016d125b",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "LOCALE_EN",
+    "scope": "",
+    "language": "c",
+    "content": "LOCALE_EN",
+    "line_start": 36,
+    "line_end": 36,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "bf9111abaa92b1f7",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "variable",
+    "name": "LOCALE_FR",
+    "scope": "",
+    "language": "c",
+    "content": "LOCALE_FR",
+    "line_start": 36,
+    "line_end": 36,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "4e716afb57b39ec5",
+    "blob_sha": "sha1",
+    "file_path": "c.c",
+    "kind": "function",
+    "name": "greeter_default",
+    "scope": "",
+    "language": "c",
+    "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
+    "line_start": 38,
+    "line_end": 39,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "dc9b641d87a81ebc",
     "blob_sha": "sha1",
     "file_path": "c.c",
     "kind": "function",
@@ -260,8 +314,26 @@
     "scope": "",
     "language": "c",
     "content": "/* Format a greeting for `name` into `buf`. */\nint format_greeting(const Greeter *g, const char *name, char *buf, int n) {\n    return snprintf(buf, (size_t)n, \"%s, %s\", g->prefix, name);\n}",
-    "line_start": 38,
-    "line_end": 41,
+    "line_start": 41,
+    "line_end": 44,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "02a12b65facd7a62",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "/* Header companion for c.c — declares the greeter API.\n *\n * Resolves the `#include \"greeter.h\"` edge and exercises C prototype and\n * type-definition capture (declared, not defined, here). */",
+    "line_start": 1,
+    "line_end": 4,
     "metadata": {
       "module": "",
       "names": "",
@@ -334,6 +406,42 @@
     "content": "typedef struct Greeter Greeter;",
     "line_start": 15,
     "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8ff9df9b9b12f62c",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "/* Build a greeter with the default prefix. */",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "7232d67445ea06ec",
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "c",
+    "content": "/* Format a greeting for `name` into `buf`. */",
+    "line_start": 20,
+    "line_end": 20,
     "metadata": {
       "module": "",
       "names": "",

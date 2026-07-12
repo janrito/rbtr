@@ -41,6 +41,7 @@ _CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.IMPORT,
         ChunkKind.DOC_SECTION,
         ChunkKind.CONFIG_KEY,
+        ChunkKind.COMMENT,
     }
 )
 
@@ -84,28 +85,30 @@ def _resolve_kind(
     return kind
 
 
-def _chunk_line_start(
-    node: Node,
-    content: bytes,
-    *,
-    is_import: bool,
-    doc_comment_node_types: frozenset[str],
-) -> tuple[int, int]:
-    """Return the `(start_byte, line_start)` for a chunk.
+def _contiguous(source: bytes, a_end: int, b_start: int) -> bool:
+    """Whether `[a_end, b_start)` is only whitespace with no blank line.
 
-    For symbol captures (`@function`, `@class`, `@method`),
-    extends the span backward over any attached leading doc
-    comments.  For `@import` captures, uses the node's own
-    span — imports are not a documented surface.
+    The sole primitive behind comment grouping (comment → comment) and
+    leading-doc folding (block → symbol): two nodes belong together when no
+    code and no empty line separate them. A trailing newline some grammars
+    fold into the earlier node is discounted (rust's `line_comment` spans its
+    `\n`; go's does not), so a blank line is ≥ 2 newlines in the gap.
     """
-    start_byte = node.start_byte
-    line = node.start_point[0] + 1
-    if not is_import and doc_comment_node_types:
-        attached = _collect_leading_doc_comments(node, doc_comment_node_types, content)
-        if attached:
-            start_byte = attached[0].start_byte
-            line = attached[0].start_point[0] + 1
-    return start_byte, line
+    if source[a_end:b_start].strip() != b"":
+        return False
+    end = a_end - 1 if a_end > 0 and source[a_end - 1 : a_end] == b"\n" else a_end
+    return source.count(b"\n", end, b_start) < 2
+
+
+def _starts_line(source: bytes, start: int) -> bool:
+    """Whether only whitespace precedes *start* on its own line.
+
+    A comment that trails code (`x = 1  # note`) returns False: it documents
+    the preceding statement, not whatever follows, so it never folds into the
+    next symbol.
+    """
+    line_begin = source.rfind(b"\n", 0, start) + 1
+    return source[line_begin:start].strip(b" \t") == b""
 
 
 def _scope_name(node: Node) -> str:
@@ -152,20 +155,16 @@ def _doc_ranges_for_symbol(
     node: Node,
     content: bytes,
     capture_dict: dict[str, list[Node]],
-    doc_comment_node_types: frozenset[str],
+    comment_nodes: list[Node],
 ) -> list[tuple[int, int]]:
     """Collect absolute byte ranges covering a symbol's documentation.
 
     Merges two sources:
 
     1. Interior `@_docstring` captures from the same match,
-       clipped to *node*'s own byte span (a single match can in
-       principle carry more than one `@function` capture; each
-       symbol owns only the docstring captures that fall inside
-       its own bytes).
-    2. Leading-comment siblings attached by the sibling walk
-       (exterior-comment languages — Rust, Go, JS, …).  Skipped
-       when `doc_comment_node_types` is empty.
+       clipped to *node*'s own byte span.
+    2. The `@comment` block sitting flush before *node* (its leading
+       docs), from *comment_nodes*.
 
     Returns sorted, possibly-empty byte ranges.  Used by
     `extract_doc_spans` to recover raw docstring text.
@@ -174,70 +173,29 @@ def _doc_ranges_for_symbol(
     for d in capture_dict.get(_DOCSTRING_CAPTURE, []):
         if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte:
             ranges.append((d.start_byte, d.end_byte))
-    if doc_comment_node_types:
-        for c in _collect_leading_doc_comments(node, doc_comment_node_types, content):
-            ranges.append((c.start_byte, c.end_byte))
+    for c in _leading_comment_block(node, comment_nodes, content):
+        ranges.append((c.start_byte, c.end_byte))
     ranges.sort()
     return ranges
 
 
-def _collect_leading_doc_comments(
-    node: Node,
-    comment_types: frozenset[str],
-    source: bytes,
-) -> list[Node]:
-    """Walk back over *node*'s previous named siblings, collecting comments.
+def _leading_comment_block(node: Node, comments: list[Node], source: bytes) -> list[Node]:
+    """The contiguous `@comment` run ending flush before *node* (its docs).
 
-    Tree-sitter queries can't cleanly express "leading doc comment
-    block" with blank-line separation, so this post-extraction walk
-    is how rbtr attaches doc comments to their symbol.  The walk
-    stops at the first non-comment sibling, or when a blank line
-    separates a comment from the next node — that boundary is what
-    distinguishes a symbol's own doc block from an unrelated
-    preceding comment such as a license header or a comment that
-    belongs to the *previous* symbol.
-
-    **Blank-line detection.**  Different grammars disagree on
-    whether a line-comment node includes its trailing newline:
-    tree-sitter-go does not (`// A` ends at byte 4, the `\n`
-    follows at 4..5) but tree-sitter-rust does (`// A\n` is
-    part of the `line_comment` span).  To treat both
-    consistently we count newlines over
-    `[content_end, next_start)` — where `content_end` is
-    `prev.end_byte` with a trailing `\n` excluded if present.
-    A blank line corresponds to exactly 2 newlines in that window
-    (one ends `prev`, one is the empty line).
-
-    Parameters:
-        node:          The captured symbol node.
-        comment_types: AST node types that count as comments for
-                       this language (plugin-provided via
-                       `LanguageRegistration.doc_comment_node_types`).
-                       Empty → empty result.
-        source:        The full file bytes, for blank-line detection
-                       in the inter-node gap.
-
-    Returns:
-        Comment nodes in source order (earliest first).  Empty list
-        when *comment_types* is empty or no attached comments exist.
+    Scans source-ordered *comments* for the maximal run that ends flush
+    before *node* — only whitespace and no blank line between the run and the
+    node. Empty when a blank line or code separates them.
     """
-    if not comment_types:
-        return []
-    collected: list[Node] = []
-    prev = node.prev_named_sibling
-    next_start = node.start_byte
-    while prev is not None and prev.type in comment_types:
-        content_end = prev.end_byte
-        if content_end > prev.start_byte and source[content_end - 1 : content_end] == b"\n":
-            content_end -= 1
-        separator = source[content_end:next_start]
-        if separator.count(b"\n") >= 2:
+    block: list[Node] = []
+    for c in comments:
+        if c.start_byte >= node.start_byte:
             break
-        collected.append(prev)
-        next_start = prev.start_byte
-        prev = prev.prev_named_sibling
-    collected.reverse()
-    return collected
+        if block and not _contiguous(source, block[-1].end_byte, c.start_byte):
+            block = []
+        block.append(c)
+    if block and _contiguous(source, block[-1].end_byte, node.start_byte):
+        return block
+    return []
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -250,124 +208,163 @@ def extract_symbols(
     content: bytes,
     grammar: Language,
     *,
-    doc_comment_node_types: frozenset[str] | None = None,
     included_ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
-    """Parse *content* and yield structural chunks.
+    """Parse *content* and yield structural chunks, in source order.
 
-    Runs a tree-sitter query over the parsed AST and yields one
-    `Chunk` per match.  Each chunk's kind, name, scope, and
-    metadata are derived from the query's capture conventions:
+    Runs a tree-sitter query over the parsed AST; each capture's kind, name,
+    scope, and metadata are derived from the query's capture conventions:
 
     - `@function` / `@_fn_name` → `ChunkKind.FUNCTION`
     - `@class` / `@_cls_name` → `ChunkKind.CLASS`
     - `@method` / `@_method_name` → `ChunkKind.METHOD`
     - `@import` / `@_import_module` → `ChunkKind.IMPORT`
     - `@doc_section` / `@_section_name` → `ChunkKind.DOC_SECTION`
+    - `@config_key` / `@_section_name` → `ChunkKind.CONFIG_KEY`
+    - `@comment` → `ChunkKind.COMMENT`
 
-    Import metadata is built by `registered_language.resolve_import`,
-    which calls the language's import resolver — the built-in (reads
-    `@_import_module`, `@_import_names`, and `@_import_dots` from the
-    captures and strips delimiters), or an override composed over it.
-    Languages with richer import structures (Python, JS/TS, Rust) provide
-    their own extractor that reads captures first, then walks
-    the node for what the query can't express.
+    Import metadata is built by `registered_language.resolve_import`.
+    Functions inside a class scope are promoted to methods (`_resolve_kind`).
 
-    Functions inside a class scope are promoted to methods
-    (see `_resolve_kind`).
+    **Comments.** Captured `@comment` nodes are grouped into blocks (a
+    maximal `_contiguous` run) and routed: a block flush before a symbol
+    folds into it (its docstring, possibly nested); a block inside a symbol's
+    body is dropped (already carried by that chunk); any other block is a
+    standalone `COMMENT` chunk. A comment trailing code on its line documents
+    that statement, so it never folds into what follows. Imports are not a
+    documented surface, so a block before one stays standalone.
 
     Parameters:
-        registered_language:    The language's registration — supplies the
-                                `QueryExtraction` (query + scope config), the
-                                name/scope/import resolution (override-or-
-                                default), and the id stamped on each chunk.
-        file_path:              Repo-relative path for chunk IDs.
-        blob_sha:               Git blob SHA for dedup.
-        content:                Raw file bytes.
-        grammar:                Tree-sitter `Language`.
-        doc_comment_node_types: Override for leading-doc attachment; `None`
-                                uses the registration's. When non-empty, each
-                                symbol's span extends backward over any
-                                attached comments.
-        included_ranges:        Byte/point ranges to restrict parsing
-                                to (e.g. a `<script>` block inside an
-                                SFC). When set, the parser sees only
-                                those ranges but reports absolute
-                                positions. `None` parses the whole
-                                content.
+        registered_language:  The language's registration — the
+                              `QueryExtraction`, name/scope/import resolution,
+                              and the id stamped on each chunk.
+        file_path:            Repo-relative path for chunk IDs.
+        blob_sha:             Git blob SHA for dedup.
+        content:              Raw file bytes.
+        grammar:              Tree-sitter `Language`.
+        included_ranges:      Byte/point ranges to restrict parsing to (e.g. a
+                              `<script>` block inside an SFC); `None` parses
+                              the whole content.
     """
     extraction = registered_language.extraction
     if not content or not isinstance(extraction, QueryExtraction):
         return
-    query_str = extraction.query
-    doc_types = (
-        extraction.doc_comment_node_types
-        if doc_comment_node_types is None
-        else doc_comment_node_types
-    )
 
     parser = Parser(grammar)
     if included_ranges is not None:
         parser.included_ranges = included_ranges
     tree = parser.parse(content)
-    query = _get_query(grammar, query_str)
-    matches = QueryCursor(query).matches(tree.root_node)
+    query = _get_query(grammar, extraction.query)
 
-    for _pattern_idx, capture_dict in matches:
+    # Flatten chunk-producing captures into one source-ordered stream.
+    items: list[tuple[Node, str, dict[str, list[Node]]]] = []
+    for _pattern_idx, capture_dict in QueryCursor(query).matches(tree.root_node):
         for capture_name, nodes in capture_dict.items():
             if capture_name.startswith("_"):
                 continue
             try:
-                kind = ChunkKind(capture_name)
+                if ChunkKind(capture_name) not in _CAPTURE_KINDS:
+                    continue
             except ValueError:
                 continue
-            if kind not in _CAPTURE_KINDS:
-                continue
-
             for node in nodes:
-                name = registered_language.resolve_name(capture_name, node, capture_dict)
+                items.append((node, capture_name, capture_dict))
+    items.sort(key=lambda it: it[0].start_byte)
 
-                meta = ImportMeta()
-                if capture_name == "import":
-                    meta = registered_language.resolve_import(node, capture_dict)
+    seen: list[tuple[int, int]] = []  # emitted symbol node spans (for interior comments)
+    pending: list[Node] = []  # the comment block being accumulated
 
-                scopes = _enclosing_scopes(node, extraction.scope_types)
-                scope_names = _scope_names(scopes)
-                nearest_is_class = _nearest_scope_is_class(scopes, extraction.class_scope_types)
-                # The scope override's segments extend the tree-ancestry
-                # scope; the default contributes the `@_scope` capture.
-                scope_names = [
-                    *scope_names,
-                    *registered_language.resolve_scope(capture_name, node, capture_dict),
-                ]
-                actual_kind = _resolve_kind(kind, nearest_scope_is_class=nearest_is_class)
+    def resolve(block: list[Node]) -> Chunk | None:
+        """A comment block that folded nowhere: drop if interior, else standalone."""
+        if any(s <= block[0].start_byte and block[-1].end_byte <= e for s, e in seen):
+            return None
+        end_byte = block[-1].end_byte
+        line_end = block[-1].end_point[0] + 1
+        if end_byte > block[-1].start_byte and content[end_byte - 1 : end_byte] == b"\n":
+            end_byte -= 1
+            line_end -= 1
+        return Chunk.model_validate(
+            {
+                "blob_sha": blob_sha,
+                "file_path": file_path,
+                "kind": ChunkKind.COMMENT,
+                "name": "<anonymous>",
+                "scope": [],
+                "language": registered_language.id,
+                "content": content[block[0].start_byte : end_byte].decode(
+                    "utf-8", errors="replace"
+                ),
+                "line_start": block[0].start_point[0] + 1,
+                "line_end": line_end,
+                "metadata": ImportMeta(),
+            }
+        )
 
-                start_byte, line_start = _chunk_line_start(
-                    node,
-                    content,
-                    is_import=capture_name == "import",
-                    doc_comment_node_types=doc_types,
-                )
+    for node, capture_name, capture_dict in items:
+        if capture_name == "comment":
+            if not _starts_line(content, node.start_byte):
+                # A comment trailing code documents the preceding statement,
+                # not what follows: flush any block and stand it alone (or
+                # drop if interior). It never folds into the next symbol.
+                if pending and (chunk := resolve(pending)) is not None:
+                    yield chunk
+                pending = []
+                if (chunk := resolve([node])) is not None:
+                    yield chunk
+                continue
+            if pending and not _contiguous(content, pending[-1].end_byte, node.start_byte):
+                if (chunk := resolve(pending)) is not None:
+                    yield chunk
+                pending = []
+            pending.append(node)
+            continue
 
-                text = content[start_byte : node.end_byte].decode("utf-8", errors="replace")
+        # A symbol capture. A pending block flush before it (and it is not an
+        # import) folds in, extending the chunk's start; otherwise resolve it.
+        start_byte = node.start_byte
+        line_start = node.start_point[0] + 1
+        if pending:
+            if capture_name != "import" and _contiguous(
+                content, pending[-1].end_byte, node.start_byte
+            ):
+                start_byte = pending[0].start_byte
+                line_start = pending[0].start_point[0] + 1
+            elif (chunk := resolve(pending)) is not None:
+                yield chunk
+            pending = []
 
-                # `scope` is given as segment names; the `Chunk` scope
-                # validator composes them and the id is derived there.
-                # model_validate keeps that input type-honest.
-                yield Chunk.model_validate(
-                    {
-                        "blob_sha": blob_sha,
-                        "file_path": file_path,
-                        "kind": actual_kind,
-                        "name": name,
-                        "scope": scope_names,
-                        "language": registered_language.id,
-                        "content": text,
-                        "line_start": line_start,
-                        "line_end": node.end_point[0] + 1,
-                        "metadata": meta,
-                    }
-                )
+        meta = ImportMeta()
+        if capture_name == "import":
+            meta = registered_language.resolve_import(node, capture_dict)
+        scopes = _enclosing_scopes(node, extraction.scope_types)
+        # The scope override's segments extend the tree-ancestry scope; the
+        # default contributes the `@_scope` capture.
+        scope_names = [
+            *_scope_names(scopes),
+            *registered_language.resolve_scope(capture_name, node, capture_dict),
+        ]
+        actual_kind = _resolve_kind(
+            ChunkKind(capture_name),
+            nearest_scope_is_class=_nearest_scope_is_class(scopes, extraction.class_scope_types),
+        )
+        seen.append((node.start_byte, node.end_byte))
+        yield Chunk.model_validate(
+            {
+                "blob_sha": blob_sha,
+                "file_path": file_path,
+                "kind": actual_kind,
+                "name": registered_language.resolve_name(capture_name, node, capture_dict),
+                "scope": scope_names,
+                "language": registered_language.id,
+                "content": content[start_byte : node.end_byte].decode("utf-8", errors="replace"),
+                "line_start": line_start,
+                "line_end": node.end_point[0] + 1,
+                "metadata": meta,
+            }
+        )
+
+    if pending and (chunk := resolve(pending)) is not None:
+        yield chunk
 
 
 @dataclasses.dataclass(frozen=True)
@@ -400,19 +397,16 @@ def extract_doc_spans(
     *,
     scope_types: frozenset[str] = frozenset(),
     class_scope_types: frozenset[str] = frozenset(),
-    doc_comment_node_types: frozenset[str] = frozenset(),
 ) -> Iterator[DocSpan]:
     """Yield `DocSpan` records for every documented symbol.
 
     Parses *content* once and collects doc byte ranges via interior
-    `@_docstring` captures (clipped to the enclosing symbol) plus
-    any leading-comment siblings attached by the language plugin.
-    Symbols without any doc bytes are omitted.
+    `@_docstring` captures (clipped to the enclosing symbol) plus the
+    `@comment` block sitting flush before each symbol. Symbols without any
+    doc bytes are omitted.
 
-    Line numbers are aligned with `extract_symbols`: when doc
-    comments are attached exterior to the symbol, `line_start`
-    reflects the first attached comment, not the symbol node
-    itself.
+    Line numbers reflect the leading comment when present, not the symbol
+    node itself.
 
     Meant for tooling — the benchmark's query sampler decodes the
     returned ranges to recover each symbol's raw docstring.  Not
@@ -424,7 +418,12 @@ def extract_doc_spans(
     parser = Parser(grammar)
     tree = parser.parse(content)
     query = _get_query(grammar, query_str)
-    matches = QueryCursor(query).matches(tree.root_node)
+    matches = list(QueryCursor(query).matches(tree.root_node))
+
+    comment_nodes = sorted(
+        (n for _p, caps in matches for n in caps.get("comment", [])),
+        key=lambda n: n.start_byte,
+    )
 
     for _pattern_idx, capture_dict in matches:
         for capture_name, nodes in capture_dict.items():
@@ -437,7 +436,7 @@ def extract_doc_spans(
                     node,
                     content,
                     capture_dict,
-                    doc_comment_node_types,
+                    comment_nodes,
                 )
                 if not doc_ranges:
                     continue
@@ -455,12 +454,8 @@ def extract_doc_spans(
                     ChunkKind(capture_name), nearest_scope_is_class=nearest_is_class
                 )
 
-                _, line_start = _chunk_line_start(
-                    node,
-                    content,
-                    is_import=False,
-                    doc_comment_node_types=doc_comment_node_types,
-                )
+                lead = _leading_comment_block(node, comment_nodes, content)
+                line_start = (lead[0] if lead else node).start_point[0] + 1
 
                 yield DocSpan(
                     name=name,

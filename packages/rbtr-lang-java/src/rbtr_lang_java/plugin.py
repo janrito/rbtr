@@ -45,12 +45,8 @@ java = LanguageRegistration(
                 "annotation_type_declaration",
             }
         ),
-        # Javadoc uses `block_comment`; `//` runs use
-        # `line_comment`.  Attach either when they sit
-        # directly above a method or class.
-        doc_comment_node_types=frozenset({"block_comment", "line_comment"}),
     ),
     source_roots=("", "src/main/java"),
     module_style=ModuleStyle.DOTTED,
-    language_plugin_version=3,
+    language_plugin_version=4,
 )

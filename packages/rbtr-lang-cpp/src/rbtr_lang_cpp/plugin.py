@@ -37,9 +37,7 @@ cpp = LanguageRegistration(
         query=load_query(__package__, "cpp"),
         scope_types=frozenset({"class_specifier", "struct_specifier", "namespace_definition"}),
         class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
-        # Same grammar as C — single `comment` node.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     source_roots=("", "include", "src"),
-    language_plugin_version=5,
+    language_plugin_version=6,
 )

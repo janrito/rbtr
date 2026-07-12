@@ -140,6 +140,8 @@ def _kind_boost_expr() -> pl.Expr:
         .then(0.7)
         .when(kind == ChunkKind.CONFIG_KEY)
         .then(0.6)
+        .when(kind == ChunkKind.COMMENT)
+        .then(0.5)
         .when(kind == ChunkKind.RAW_CHUNK)
         .then(0.5)
         .when(kind == ChunkKind.MIGRATION)

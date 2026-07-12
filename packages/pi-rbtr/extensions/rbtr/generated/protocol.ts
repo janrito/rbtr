@@ -56,6 +56,7 @@ export type ChunkKind =
   | "import"
   | "doc_section"
   | "config_key"
+  | "comment"
   | "migration"
   | "test_function"
   | "api_endpoint"

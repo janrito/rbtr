@@ -1,5 +1,23 @@
 [
   {
+    "id": "eef4f1a2335a14ee",
+    "blob_sha": "sha1",
+    "file_path": "config.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Locale configuration for the greeter.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "e0a327c3a03ba37f",
     "blob_sha": "sha1",
     "file_path": "config.ts",
@@ -18,6 +36,24 @@
     }
   },
   {
+    "id": "fb4725111d2795fc",
+    "blob_sha": "sha1",
+    "file_path": "types.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Shared greeter types.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "424341eae296e76f",
     "blob_sha": "sha1",
     "file_path": "types.ts",
@@ -28,6 +64,24 @@
     "content": "type Formatter = (name: string) => string;",
     "line_start": 2,
     "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a91d33b6137286b3",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "// Greeter — format greetings for named recipients.\n//\n// The TypeScript plugin extracts function declarations, arrow functions\n// bound to consts, classes, module variables, and imports, with\n// namespaces forming a scope. It also captures interfaces, enums, type\n// aliases, and abstract classes (all as classes), and class/interface\n// members as methods, including get/set accessors and abstract method\n// signatures.",
+    "line_start": 1,
+    "line_end": 8,
     "metadata": {
       "module": "",
       "names": "",
@@ -90,6 +144,24 @@
     }
   },
   {
+    "id": "bf938c784f5b0dfd",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "/** Tone of a greeting. */",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "b6adf6fe959b16ae",
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
@@ -144,6 +216,24 @@
     }
   },
   {
+    "id": "8ad6453681af62e7",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "/** A function that formats a greeting for a name. */",
+    "line_start": 21,
+    "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "348c41174428d5ac",
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
@@ -154,6 +244,24 @@
     "content": "type GreetingFn = (name: string) => string;",
     "line_start": 22,
     "line_end": 22,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6e9f9daa58fe7ea5",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "/** Format a greeting for a name. */",
+    "line_start": 24,
+    "line_end": 24,
     "metadata": {
       "module": "",
       "names": "",
@@ -190,6 +298,24 @@
     "content": "const cachedDefault = (): string => DEFAULT_GREETING;",
     "line_start": 29,
     "line_end": 29,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "9549343ff53b98ac",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "/** A greeting formatter contract. */",
+    "line_start": 31,
+    "line_end": 31,
     "metadata": {
       "module": "",
       "names": "",
@@ -298,6 +424,24 @@
     "content": "set prefix(value: string) {\n    this.x = value;\n  }",
     "line_start": 48,
     "line_end": 50,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "ffb8527fa40d083d",
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "typescript",
+    "content": "/** Stateful greeter holding a prefix. */",
+    "line_start": 53,
+    "line_end": 53,
     "metadata": {
       "module": "",
       "names": "",

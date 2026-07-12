@@ -1,5 +1,23 @@
 [
   {
+    "id": "0c6600a920da6f7a",
+    "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "css",
+    "content": "/* Greeter styles.\n *\n * The CSS plugin extracts rule sets, @media, @charset, and @keyframes\n * as doc sections, and @import statements as imports. */",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "d38c6f13e7d1f1f6",
     "blob_sha": "sha1",
     "file_path": "css.css",

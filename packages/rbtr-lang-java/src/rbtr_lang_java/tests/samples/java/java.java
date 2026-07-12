@@ -10,6 +10,9 @@ import static java.util.Collections.emptyList;
 
 import com.example.format.Formatter;
 
+// Standalone note at top level, separated by blank lines.
+// Second line of the same block.
+
 /** Formats greetings with a configurable prefix. */
 public class Greeter implements Formatter {
     private final String prefix;

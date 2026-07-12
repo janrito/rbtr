@@ -1,5 +1,23 @@
 [
   {
+    "id": "ed1ce3dfd9cb1a0e",
+    "blob_sha": "sha1",
+    "file_path": "sql_mysql.sql",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "sql",
+    "content": "-- MySQL dialect sample — backtick identifiers, UNSIGNED AUTO_INCREMENT, ENGINE.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "3932cde1fbfbca37",
     "blob_sha": "sha1",
     "file_path": "sql_mysql.sql",

@@ -37,7 +37,7 @@ scss = LanguageRegistration(
         query=load_query(__package__, "scss"),
     ),
     import_targets=frozenset({"css", "scss", "less"}),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )
 
 scss.scope_extractor(css_nesting_scope)

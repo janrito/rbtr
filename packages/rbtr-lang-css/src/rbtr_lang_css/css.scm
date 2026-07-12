@@ -1,3 +1,6 @@
+; Comments (`/* */`).
+(comment) @comment
+
 (rule_set
   (selectors) @_cls_name) @class
 

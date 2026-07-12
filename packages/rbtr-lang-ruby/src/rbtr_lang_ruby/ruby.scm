@@ -1,4 +1,7 @@
 
+; Comments (Ruby: `#` line and `=begin`/`=end` block, both `comment`).
+(comment) @comment
+
 (method
   name: (identifier) @_fn_name) @function
 

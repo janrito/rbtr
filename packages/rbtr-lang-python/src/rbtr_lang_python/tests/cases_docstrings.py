@@ -153,22 +153,6 @@ class Bare:
 
 
 @case(tags=["undocumented", "invalid"])
-def case_py_leading_hash_comment_not_attached() -> DocstringCase:
-    """A `#` comment above `def` is deliberately not treated as
-    documentation in Python.  The interior triple-string form
-    is canonical, and `#` runs frequently serve as section
-    headers or type-ignore markers — attaching them would
-    double-count noise.
-    """
-    src = """\
-# HASH_COMMENT_ABOVE_DEF_MARKER
-def work():
-    return 1
-"""
-    return "python", src, "work", "HASH_COMMENT_ABOVE_DEF_MARKER"
-
-
-@case(tags=["undocumented", "invalid"])
 def case_py_trailing_string_not_a_docstring() -> DocstringCase:
     """A triple-string placed *after* other statements is a
     discarded expression, not a docstring.  The text is in the

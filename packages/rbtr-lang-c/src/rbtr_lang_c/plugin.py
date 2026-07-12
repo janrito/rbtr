@@ -35,11 +35,7 @@ c = LanguageRegistration(
     grammar_module="tree_sitter_c",
     extraction=QueryExtraction(
         query=load_query(__package__, "c"),
-        # C grammar uses a single `comment` node for
-        # both `//` and `/* */` (and `/** */`).  Attach
-        # any leading run.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
     source_roots=("", "include", "src"),
-    language_plugin_version=3,
+    language_plugin_version=4,
 )

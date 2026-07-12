@@ -138,17 +138,10 @@ rust = LanguageRegistration(
         query=load_query(__package__, "rust"),
         scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
         class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
-        # Rust splits doc comments (`///`, `//!`) from
-        # regular line/block comments at parse time by
-        # wrapping them in distinct grammar rules, but
-        # the containing sibling type is always
-        # `line_comment` or `block_comment`.  Include
-        # both so any leading comment run attaches.
-        doc_comment_node_types=frozenset({"line_comment", "block_comment"}),
     ),
     index_files=frozenset({"mod.rs"}),
     path_substitutions=(("crate/", "src/"),),
-    language_plugin_version=4,
+    language_plugin_version=5,
 )
 
 rust.import_extractor(extract_import_meta)

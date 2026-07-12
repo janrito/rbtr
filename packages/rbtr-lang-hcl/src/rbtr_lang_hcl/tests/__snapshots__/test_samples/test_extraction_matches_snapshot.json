@@ -1,5 +1,23 @@
 [
   {
+    "id": "ee86eb0e9a970b30",
+    "blob_sha": "sha1",
+    "file_path": "main.tf",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "hcl",
+    "content": "# Greeter service infrastructure.\n#\n# The HCL plugin extracts each top-level block as a doc section, named by its\n# type and labels: a bare block by its type (terraform), a variable/output by\n# its name, a resource by its type and name.",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "9a3479950102c0b7",
     "blob_sha": "sha1",
     "file_path": "main.tf",

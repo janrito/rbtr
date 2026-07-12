@@ -35,7 +35,7 @@ hcl = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "hcl"),
     ),
-    language_plugin_version=3,
+    language_plugin_version=4,
 )
 
 

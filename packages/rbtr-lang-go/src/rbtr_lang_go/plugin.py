@@ -33,11 +33,6 @@ go = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "go"),
         scope_types=frozenset({"type_spec"}),
-        # Go convention: `//` runs directly above a
-        # declaration document it (gofmt preserves this
-        # link).  The grammar uses a single `comment`
-        # type for both line and block forms.
-        doc_comment_node_types=frozenset({"comment"}),
     ),
-    language_plugin_version=3,
+    language_plugin_version=4,
 )

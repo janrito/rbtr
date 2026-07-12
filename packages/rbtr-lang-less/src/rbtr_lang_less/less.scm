@@ -1,4 +1,7 @@
 
+; Comments (Less: `/* */` is `comment`, `//` is `js_comment`).
+[(comment) (js_comment)] @comment
+
 (declaration
   (property_name) @_var_name
   (#match? @_var_name "^[@]")) @variable

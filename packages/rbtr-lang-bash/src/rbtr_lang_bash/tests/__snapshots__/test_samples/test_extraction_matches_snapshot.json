@@ -1,5 +1,23 @@
 [
   {
+    "id": "d39ad69c069b6285",
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "bash",
+    "content": "#!/usr/bin/env bash\n# Greeter — print greetings for named recipients.\n#\n# Bash has no classes or methods; the plugin extracts functions,\n# top-level variable assignments (including export/declare/readonly),\n# aliases, and source/. imports.",
+    "line_start": 1,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "ca906d45e5c8e1da",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
@@ -54,69 +72,33 @@
     }
   },
   {
-    "id": "9704b4cb072d4c07",
+    "id": "610d295f73434926",
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "bash",
+    "content": "# trailing comment: its own chunk",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "aa482bbea0e16ce3",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "LOCALE",
     "scope": "",
     "language": "bash",
-    "content": "LOCALE=\"${LANG:-en}\"",
-    "line_start": 12,
-    "line_end": 12,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "ea23c2290d5827be",
-    "blob_sha": "sha1",
-    "file_path": "bash.sh",
-    "kind": "variable",
-    "name": "API_URL",
-    "scope": "",
-    "language": "bash",
-    "content": "export API_URL=\"https://example.com\"",
+    "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.\nLOCALE=\"${LANG:-en}\"",
     "line_start": 13,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "4821ad472b6b1cda",
-    "blob_sha": "sha1",
-    "file_path": "bash.sh",
-    "kind": "variable",
-    "name": "MAX_RETRIES",
-    "scope": "",
-    "language": "bash",
-    "content": "readonly MAX_RETRIES=3",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "id": "8402306d38808877",
-    "blob_sha": "sha1",
-    "file_path": "bash.sh",
-    "kind": "variable",
-    "name": "COUNTER",
-    "scope": "",
-    "language": "bash",
-    "content": "declare -i COUNTER=0",
-    "line_start": 15,
     "line_end": 15,
     "metadata": {
       "module": "",
@@ -126,14 +108,14 @@
     }
   },
   {
-    "id": "efb228c8aa7bb516",
+    "id": "fd2d219510e272c5",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
-    "name": "greet",
+    "name": "API_URL",
     "scope": "",
     "language": "bash",
-    "content": "alias greet=\"format_greeting\"",
+    "content": "export API_URL=\"https://example.com\"",
     "line_start": 16,
     "line_end": 16,
     "metadata": {
@@ -144,16 +126,16 @@
     }
   },
   {
-    "id": "2b3d91e89cf4d98d",
+    "id": "28c8e045bbc3c2fc",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
-    "kind": "function",
-    "name": "format_greeting",
+    "kind": "variable",
+    "name": "MAX_RETRIES",
     "scope": "",
     "language": "bash",
-    "content": "# Format a greeting for a single recipient.\nformat_greeting() {\n    local name=\"$1\"\n    echo \"${DEFAULT_GREETING}, ${name} (${LOCALE})\"\n}",
-    "line_start": 18,
-    "line_end": 22,
+    "content": "readonly MAX_RETRIES=3",
+    "line_start": 17,
+    "line_end": 17,
     "metadata": {
       "module": "",
       "names": "",
@@ -162,7 +144,61 @@
     }
   },
   {
-    "id": "7f3504a2e7730737",
+    "id": "46c076160d937a23",
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "variable",
+    "name": "COUNTER",
+    "scope": "",
+    "language": "bash",
+    "content": "declare -i COUNTER=0",
+    "line_start": 18,
+    "line_end": 18,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "9be9ed61fbcec8cf",
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "variable",
+    "name": "greet",
+    "scope": "",
+    "language": "bash",
+    "content": "alias greet=\"format_greeting\"",
+    "line_start": 19,
+    "line_end": 19,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "1c05f30beda1010c",
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "function",
+    "name": "format_greeting",
+    "scope": "",
+    "language": "bash",
+    "content": "# Format a greeting for a single recipient.\nformat_greeting() {\n    local name=\"$1\"\n    echo \"${DEFAULT_GREETING}, ${name} (${LOCALE})\"\n}",
+    "line_start": 21,
+    "line_end": 25,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "f6bed6e22b836142",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "function",
@@ -170,8 +206,8 @@
     "scope": "",
     "language": "bash",
     "content": "# Greet every argument in turn.\ngreet_all() {\n    for name in \"$@\"; do\n        format_greeting \"$name\"\n    done\n}",
-    "line_start": 24,
-    "line_end": 29,
+    "line_start": 27,
+    "line_end": 32,
     "metadata": {
       "module": "",
       "names": "",

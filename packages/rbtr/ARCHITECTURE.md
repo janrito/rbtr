@@ -792,13 +792,20 @@ Variable chunks cover module-level bindings only; class
 attributes and function-locals stay within their enclosing
 chunk.
 
-Leading documentation: a tree-sitter plugin may list
-`QueryExtraction.doc_comment_node_types` (the comment node kinds that
-count as docs). When set, `extract_symbols` extends a symbol's chunk
-upwards to cover the consecutive doc-comment nodes immediately
-above it (up to a blank-line boundary), so a chunk carries its
-own documentation; plugins that leave it empty get the bare
-symbol span.
+Comments: every tree-sitter plugin captures its grammar's comment
+nodes as `@comment`, scoped to the file root, plus the module
+docstring where the language has one (Python's bare top-level
+string). `extract_symbols` groups consecutive captured comments into
+blank-line-delimited blocks and routes each one. A block sitting flush
+above a definition folds into that definition's chunk, so a symbol
+carries its own documentation; a block inside a symbol's body is
+already part of that chunk; every other block — a licence or banner
+header, a note between definitions, a comment at end of file — becomes
+a standalone chunk of kind `COMMENT` at module level (empty scope). A
+comment trailing code on its line documents that statement, so it never
+folds into what follows. Comment text is therefore indexed and
+searchable wherever it sits, not only when it happens to precede a
+symbol.
 
 A file can also *embed* another language - a Markdown fenced
 block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
@@ -1626,6 +1633,20 @@ of candidate file paths, not by per-repo module-root
 configuration. This supports monorepos transparently;
 genuinely ambiguous matches are dropped rather than
 guessed.
+
+**Standalone comments as their own `COMMENT` kind.** A comment
+that isn't a symbol's documentation — a banner, licence header,
+section note, or module docstring — is indexed as its own chunk
+rather than dropped, so its text is searchable even before a
+reader knows the symbol names. It gets a dedicated kind, not
+`DOC_SECTION` (which is structured prose that participates in doc
+edges), ranked at 0.5: genuine natural-language signal, but below
+structured prose because a comment is rarely the thing you
+navigate *to*. Capture is query-driven — a per-grammar `@comment`
+capture, like every other construct — rather than a bespoke engine
+tree-walk, so one extraction model covers every language. The cost
+is that tree-sitter cannot see blank lines, so grouping comment
+runs into blocks is one small post-pass in the engine.
 
 ## Testing
 

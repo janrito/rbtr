@@ -37,7 +37,7 @@ less = LanguageRegistration(
         query=load_query(__package__, "less"),
     ),
     import_targets=frozenset({"css", "scss", "less"}),
-    language_plugin_version=2,
+    language_plugin_version=3,
 )
 
 less.scope_extractor(css_nesting_scope)

@@ -8,7 +8,10 @@
 source ./lib/colours.sh
 . /etc/greeter.conf
 
-DEFAULT_GREETING="Hello"
+DEFAULT_GREETING="Hello" # trailing comment: its own chunk
+
+# Standalone note, separated by blank lines from any definition.
+# Second line of the same block.
 LOCALE="${LANG:-en}"
 export API_URL="https://example.com"
 readonly MAX_RETRIES=3

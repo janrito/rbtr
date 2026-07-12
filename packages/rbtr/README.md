@@ -441,6 +441,8 @@ lives in its own `.scm` file, loaded with `load_query`:
   name: (type_identifier) @_cls_name) @class
 (import_declaration
   (identifier) @_import_module) @import
+(source_file
+  (comment) @comment)
 ```
 
 ```python
@@ -459,7 +461,6 @@ swift = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "swift"),
         scope_types=frozenset({"class_declaration"}),
-        doc_comment_node_types=frozenset({"comment"}),
     ),
 )
 ```
@@ -467,7 +468,7 @@ swift = LanguageRegistration(
 Capture conventions: `@function`/`@_fn_name`,
 `@class`/`@_cls_name`, `@method`/`@_method_name`,
 `@variable`/`@_var_name`, `@import`/`@_import_module`,
-`@doc_section`/`@_section_name`.
+`@doc_section`/`@_section_name`, `@comment`.
 
 Import captures: `@_import_module` populates
 `ImportMeta.module` directly from the query, with delimiter
@@ -492,11 +493,14 @@ CSS nested rule scoped under its parent selector; a TOML dotted table
 split into a name and scope). Each delegates to the default resolver
 for the cases it does not special-case.
 
-Leading doc comments: `QueryExtraction.doc_comment_node_types` lists the AST
-node types that count as documentation (e.g. `{"comment"}` in the Swift
-example above). When set, a symbol's chunk is extended upwards to
-cover the doc comments immediately preceding it; left empty, the
-chunk spans only the symbol itself.
+Comments: capture your grammar's comment nodes as `@comment`, scoped to the
+file root (`(source_file (comment) @comment)` above), plus the module
+docstring where the language has one. A comment block directly above a
+definition folds into its chunk as documentation; a block that stands on its
+own — a banner, a licence header, a note between definitions — becomes a
+searchable chunk of kind `comment`. A comment trailing code on its line stays
+with that statement. The engine handles the grouping and routing identically
+for every language; see [ARCHITECTURE](ARCHITECTURE.md) for the rules.
 
 ### Chunker-based plugin
 

@@ -55,7 +55,12 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     """The sample exercises bash's function, variable, and import chunks."""
     kinds = {c.kind for c in chunks}
-    assert {ChunkKind.FUNCTION, ChunkKind.VARIABLE, ChunkKind.IMPORT} <= kinds
+    assert {
+        ChunkKind.FUNCTION,
+        ChunkKind.VARIABLE,
+        ChunkKind.IMPORT,
+        ChunkKind.COMMENT,
+    } <= kinds
 
 
 def test_parses_cleanly(project: list[tuple[str, str]]) -> None:

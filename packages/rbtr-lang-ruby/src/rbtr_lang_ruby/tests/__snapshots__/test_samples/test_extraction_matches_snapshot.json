@@ -1,5 +1,23 @@
 [
   {
+    "id": "355bea7b642b491e",
+    "blob_sha": "sha1",
+    "file_path": "config.rb",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "ruby",
+    "content": "# frozen_string_literal: true",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "a06b8af62f4980b1",
     "blob_sha": "sha1",
     "file_path": "config.rb",
@@ -10,6 +28,42 @@
     "content": "# Greeter configuration.\nDEFAULT_LOCALE = \"en\"",
     "line_start": 3,
     "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "2d759bd7cb2f9d1b",
+    "blob_sha": "sha1",
+    "file_path": "ruby.rb",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "ruby",
+    "content": "# frozen_string_literal: true",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "043d8ce5b8a53d28",
+    "blob_sha": "sha1",
+    "file_path": "ruby.rb",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "ruby",
+    "content": "# Greeter — format greetings for named recipients.\n#\n# The Ruby plugin extracts top-level defs (as functions), classes and\n# modules, defs inside them (as methods), constant assignments (as\n# variables, scoped to their class/module), the RSpec describe/it DSL\n# (groups as classes, examples as functions), and require /\n# require_relative imports.",
+    "line_start": 3,
+    "line_end": 9,
     "metadata": {
       "module": "",
       "names": "",
@@ -72,7 +126,43 @@
     }
   },
   {
-    "id": "a15399fb0b996f4d",
+    "id": "e054cebe5b83523b",
+    "blob_sha": "sha1",
+    "file_path": "ruby.rb",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "ruby",
+    "content": "# trailing comment: its own chunk",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "2f471e188db05d9f",
+    "blob_sha": "sha1",
+    "file_path": "ruby.rb",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "ruby",
+    "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.",
+    "line_start": 16,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "fe403668c6d553ec",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
@@ -80,8 +170,8 @@
     "scope": "",
     "language": "ruby",
     "content": "# Mixin providing a shout helper.\nmodule Shoutable\n  def shout(message)\n    message.upcase\n  end\nend",
-    "line_start": 16,
-    "line_end": 21,
+    "line_start": 19,
+    "line_end": 24,
     "metadata": {
       "module": "",
       "names": "",
@@ -90,7 +180,7 @@
     }
   },
   {
-    "id": "f6f5303316cd3a11",
+    "id": "8b92d4431649a2ee",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
@@ -98,8 +188,8 @@
     "scope": "Shoutable",
     "language": "ruby",
     "content": "def shout(message)\n    message.upcase\n  end",
-    "line_start": 18,
-    "line_end": 20,
+    "line_start": 21,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
@@ -108,7 +198,7 @@
     }
   },
   {
-    "id": "8132c9016b6f556b",
+    "id": "99a79271c6865a8a",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
@@ -116,8 +206,8 @@
     "scope": "",
     "language": "ruby",
     "content": "# Formats greetings with a prefix.\nclass Greeter\n  include Shoutable\n\n  MAX_NAME_LENGTH = 64\n\n  def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end\n\n  # Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end\n\n  def self.default\n    new(DEFAULT_GREETING)\n  end\nend",
-    "line_start": 23,
-    "line_end": 41,
+    "line_start": 26,
+    "line_end": 44,
     "metadata": {
       "module": "",
       "names": "",
@@ -126,7 +216,7 @@
     }
   },
   {
-    "id": "1448e47f95a93e5e",
+    "id": "bd976b1644031dca",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "variable",
@@ -134,8 +224,8 @@
     "scope": "Greeter",
     "language": "ruby",
     "content": "MAX_NAME_LENGTH = 64",
-    "line_start": 27,
-    "line_end": 27,
+    "line_start": 30,
+    "line_end": 30,
     "metadata": {
       "module": "",
       "names": "",
@@ -144,7 +234,7 @@
     }
   },
   {
-    "id": "a9c257459154c6b7",
+    "id": "32e4ed5125a7157c",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
@@ -152,8 +242,8 @@
     "scope": "Greeter",
     "language": "ruby",
     "content": "def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end",
-    "line_start": 29,
-    "line_end": 31,
+    "line_start": 32,
+    "line_end": 34,
     "metadata": {
       "module": "",
       "names": "",
@@ -162,7 +252,7 @@
     }
   },
   {
-    "id": "42e8b4b5559b31b7",
+    "id": "8d161d3542d9341d",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
@@ -170,8 +260,8 @@
     "scope": "Greeter",
     "language": "ruby",
     "content": "# Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end",
-    "line_start": 33,
-    "line_end": 36,
+    "line_start": 36,
+    "line_end": 39,
     "metadata": {
       "module": "",
       "names": "",
@@ -180,7 +270,7 @@
     }
   },
   {
-    "id": "355720ad53161087",
+    "id": "6008d0eed4d60ea2",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
@@ -188,8 +278,8 @@
     "scope": "Greeter",
     "language": "ruby",
     "content": "def self.default\n    new(DEFAULT_GREETING)\n  end",
-    "line_start": 38,
-    "line_end": 40,
+    "line_start": 41,
+    "line_end": 43,
     "metadata": {
       "module": "",
       "names": "",
@@ -198,7 +288,7 @@
     }
   },
   {
-    "id": "2d5dcfa82c5924e5",
+    "id": "cef6c9825ae73071",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "function",
@@ -206,8 +296,8 @@
     "scope": "",
     "language": "ruby",
     "content": "# Top-level helper that builds a greeter and greets.\ndef format_greeting(name)\n  Greeter.new.greet(name)\nend",
-    "line_start": 43,
-    "line_end": 46,
+    "line_start": 46,
+    "line_end": 49,
     "metadata": {
       "module": "",
       "names": "",
@@ -216,7 +306,7 @@
     }
   },
   {
-    "id": "13cee473a77d8f6b",
+    "id": "ee6ba5d88918b295",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
@@ -224,8 +314,8 @@
     "scope": "",
     "language": "ruby",
     "content": "# RSpec-style specification exercising the describe/it DSL.\nRSpec.describe Greeter do\n  describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end\nend",
-    "line_start": 48,
-    "line_end": 55,
+    "line_start": 51,
+    "line_end": 58,
     "metadata": {
       "module": "",
       "names": "",
@@ -234,7 +324,7 @@
     }
   },
   {
-    "id": "96f2d09208f0a25b",
+    "id": "67303bad40d6fa81",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
@@ -242,8 +332,8 @@
     "scope": "",
     "language": "ruby",
     "content": "describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end",
-    "line_start": 50,
-    "line_end": 54,
+    "line_start": 53,
+    "line_end": 57,
     "metadata": {
       "module": "",
       "names": "",
@@ -252,7 +342,7 @@
     }
   },
   {
-    "id": "0e6f6b2135faebdb",
+    "id": "8ce512c7eb208fff",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "function",
@@ -260,8 +350,8 @@
     "scope": "",
     "language": "ruby",
     "content": "it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end",
-    "line_start": 51,
-    "line_end": 53,
+    "line_start": 54,
+    "line_end": 56,
     "metadata": {
       "module": "",
       "names": "",

@@ -14,7 +14,10 @@ use super::util;
 /// The default greeting prefix.
 const DEFAULT_GREETING: &str = "Hello";
 
-static FALLBACK_LOCALE: &str = "en";
+static FALLBACK_LOCALE: &str = "en"; // trailing comment: its own chunk
+
+// Standalone note, separated by blank lines from any definition.
+// Second line of the same block.
 
 /// A greeter holding a prefix.
 pub struct Greeter {

@@ -1,5 +1,23 @@
 [
   {
+    "id": "0da3db16ee1c511c",
+    "blob_sha": "sha1",
+    "file_path": "greeter.js",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "javascript",
+    "content": "// Client-side greeter.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "7250027edb443428",
     "blob_sha": "sha1",
     "file_path": "greeter.js",
@@ -8,6 +26,24 @@
     "scope": "",
     "language": "javascript",
     "content": "function greet(name) {\n  return `Hello, ${name}`;\n}",
+    "line_start": 2,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "a112d7329735ed9a",
+    "blob_sha": "sha1",
+    "file_path": "html.html",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "html",
+    "content": "<!-- Greeter page. The HTML plugin extracts <script src>/<link href>\n     as imports (with a language hint) and major <body> elements as\n     doc sections. -->",
     "line_start": 2,
     "line_end": 4,
     "metadata": {

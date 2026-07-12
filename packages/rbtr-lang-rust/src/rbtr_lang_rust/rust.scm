@@ -1,3 +1,6 @@
+; Comments (Rust: `//`/`///`/`//!` line and `/* */` block).
+[(line_comment) (block_comment)] @comment
+
 (function_item
   name: (identifier) @_fn_name) @function
 

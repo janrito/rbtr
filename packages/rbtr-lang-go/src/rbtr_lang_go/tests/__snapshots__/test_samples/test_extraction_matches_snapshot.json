@@ -1,5 +1,23 @@
 [
   {
+    "id": "d1f4278c0ca4e638",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "go",
+    "content": "// Package greet formats greetings for named recipients.\n//\n// The Go plugin extracts functions, methods (functions with a\n// receiver), type declarations (struct, interface, and alias, as\n// classes), const/var declarations (as variables), and imports.",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "617a74fefdf94501",
     "blob_sha": "sha1",
     "file_path": "go.go",
@@ -36,6 +54,24 @@
     }
   },
   {
+    "id": "1bc7a9beaa5abc1f",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "go",
+    "content": "// DefaultGreeting is the fallback prefix.",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
     "id": "6088984e54e72e54",
     "blob_sha": "sha1",
     "file_path": "go.go",
@@ -62,6 +98,24 @@
     "scope": "",
     "language": "go",
     "content": "fallbackLocale = \"en\"",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "6cf50d84e9893957",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "go",
+    "content": "// trailing comment: its own chunk, not folded",
     "line_start": 17,
     "line_end": 17,
     "metadata": {
@@ -144,16 +198,16 @@
     }
   },
   {
-    "id": "25a1dc07dbc021b7",
+    "id": "77923e25be8f065d",
     "blob_sha": "sha1",
     "file_path": "go.go",
-    "kind": "method",
-    "name": "Greet",
-    "scope": "Greeter",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
     "language": "go",
-    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, util.Trim(name))\n}",
+    "content": "// Standalone note, separated by blank lines from any definition.\n// Second line of the same block.",
     "line_start": 32,
-    "line_end": 35,
+    "line_end": 33,
     "metadata": {
       "module": "",
       "names": "",
@@ -162,7 +216,25 @@
     }
   },
   {
-    "id": "61916acdff9f88ee",
+    "id": "d49eb7eef5c71c0f",
+    "blob_sha": "sha1",
+    "file_path": "go.go",
+    "kind": "method",
+    "name": "Greet",
+    "scope": "Greeter",
+    "language": "go",
+    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, util.Trim(name))\n}",
+    "line_start": 35,
+    "line_end": 38,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "8355f60b7f62d374",
     "blob_sha": "sha1",
     "file_path": "go.go",
     "kind": "function",
@@ -170,8 +242,26 @@
     "scope": "",
     "language": "go",
     "content": "// FormatGreeting formats a greeting via a Greeter.\nfunc FormatGreeting(g Greeter, name string) string {\n\treturn g.Greet(name)\n}",
-    "line_start": 37,
-    "line_end": 40,
+    "line_start": 40,
+    "line_end": 43,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "id": "19cd38988ba480c4",
+    "blob_sha": "sha1",
+    "file_path": "greeter/util.go",
+    "kind": "comment",
+    "name": "<anonymous>",
+    "scope": "",
+    "language": "go",
+    "content": "// Package util holds greeting helpers.",
+    "line_start": 1,
+    "line_end": 1,
     "metadata": {
       "module": "",
       "names": "",

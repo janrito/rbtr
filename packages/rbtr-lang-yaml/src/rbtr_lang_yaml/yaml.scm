@@ -1,3 +1,6 @@
+; Comments (`#`).
+(comment) @comment
+
 (document
   (block_node
     (block_mapping

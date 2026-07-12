@@ -1,3 +1,6 @@
+; Top-level comments (Java: `//` line and `/* */`, `/** */` block).
+[(line_comment) (block_comment)] @comment
+
 (method_declaration
   name: (identifier) @_method_name) @method
 

@@ -11,7 +11,10 @@
 
 #define GREET_VERSION 2
 
-const char *kAppName = "greeter";
+const char *kAppName = "greeter"; // trailing comment: its own chunk
+
+// Standalone note, separated by blank lines from any definition.
+// Second line of the same block.
 
 namespace greet {
 
