@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 
 import pygit2
@@ -582,8 +583,6 @@ def test_build_index_version_gated_reextraction(
     mgr = get_manager()
     orig_reg = mgr.get_registration("markdown")
     assert orig_reg is not None
-    from dataclasses import replace
-
     bumped = replace(orig_reg, language_plugin_version=99)
     mocker.patch.object(
         mgr, "get_registration", side_effect=lambda lid: bumped if lid == "markdown" else orig_reg
@@ -591,6 +590,30 @@ def test_build_index_version_gated_reextraction(
 
     r2 = build_index(repo.workdir, sha, store, repo_id=1)
     assert r2.stats.parsed_files >= 1, "version bump should force re-extraction"
+
+
+def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> None:
+    """An empty file is skipped on rebuild, not re-parsed every time.
+
+    An empty `__init__.py` produces no definition chunks; the host-presence
+    chunk records its language so `has_blob` hits on the second build.
+    """
+    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
+    (tmp_path / "empty" / "pkg").mkdir(parents=True)
+    (tmp_path / "empty" / "pkg" / "__init__.py").write_text("")
+    index = repo.index
+    index.add("pkg/__init__.py")
+    index.write()
+    tree_oid = index.write_tree()
+    sig = pygit2.Signature("Test", "test@test.com")
+    repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
+    sha = str(repo.head.target)
+
+    build_index(repo.workdir, sha, store, repo_id=1)
+    r2 = build_index(repo.workdir, sha, store, repo_id=1)
+
+    assert r2.stats.skipped_files == r2.stats.total_files
+    assert r2.stats.parsed_files == 0
 
 
 def test_build_index_chunk_ids_stable(

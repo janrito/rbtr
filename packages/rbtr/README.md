@@ -359,7 +359,13 @@ detection). Everything else gets line-based chunking.
 
 Built-in: bash, c, cpp, css, go, hcl, html, java,
 javascript, json, markdown, python, rst, ruby, rust,
-sql, toml, typescript, yaml.
+sql, toml, tsx, typescript, yaml.
+
+Code embedded in another file is indexed in its own
+language. A fenced code block in Markdown is extracted as
+chunks of that language at its real line numbers, so a
+Python example in a README is searchable as Python.
+HTML extracts inline `<script>` / `<style>` the same way.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
 for how the plugin system works.
@@ -424,6 +430,15 @@ Cross-language imports: `ImportMeta.language_hint` directs
 resolution when the target language differs from the source
 (e.g. HTML `<script src>` → `language_hint="javascript"`).
 
+Custom names and scopes: when a query cannot express a
+symbol's display name or scope, set a `name_extractor` or
+`scope_extractor` on the registration — last-resort callbacks
+that compute them from the captured node (e.g. an HCL block
+named by its type and labels; a CSS nested rule scoped under
+its parent selector; a TOML dotted table split into a name
+and scope). Each delegates to the default resolver for the
+cases it does not special-case.
+
 Leading doc comments: `doc_comment_node_types` lists the AST node
 types that count as documentation (e.g. `{"comment"}` in the Swift
 example above). When set, a symbol's chunk is extended upwards to
@@ -440,6 +455,7 @@ chunker receives the grammar from the manager:
 ```python
 # rbtr/languages/example.py
 from __future__ import annotations
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 from tree_sitter import Parser
 from rbtr.index.identity import make_chunk_id
@@ -447,15 +463,20 @@ from rbtr.index.models import Chunk, ChunkKind
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
 if TYPE_CHECKING:
-    from tree_sitter import Language
+    from tree_sitter import Language, Range
 
 def chunk_example(
-    file_path: str, blob_sha: str, content: str, grammar: Language,
-) -> list[Chunk]:
+    file_path: str,
+    blob_sha: str,
+    content: str,
+    grammar: Language,
+    ranges: list[Range] | None = None,
+) -> Iterator[Chunk]:
     parser = Parser(grammar)
+    if ranges is not None:
+        parser.included_ranges = ranges  # serve as an injection target
     tree = parser.parse(content.encode())
-    # ... walk tree, build Chunk objects ...
-    return chunks
+    # ... walk tree, yield Chunk objects ...
 
 class ExamplePlugin:
     @hookimpl
@@ -472,8 +493,8 @@ class ExamplePlugin:
 
 ### Registration
 
-Built-in plugins: add the import and class to
-`rbtr/languages/__init__.py` in `_register_builtins`.
+Built-in plugins: import the class at the top of
+`rbtr/languages/__init__.py` and list it in `_register_builtins`.
 
 External plugins: register via setuptools entry points:
 

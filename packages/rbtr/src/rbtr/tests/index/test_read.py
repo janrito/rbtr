@@ -63,14 +63,7 @@ def test_has_blob_matches(
     blob_query: tuple[IndexStore, HasBlobScenario],
 ) -> None:
     store, s = blob_query
-    assert (
-        store.has_blob(
-            s.query_blob,
-            language=s.query_language,
-            language_plugin_version=s.query_language_plugin_version,
-        )
-        == s.expected
-    )
+    assert store.has_blob(s.query_blob, s.query_language, s.version_map) == s.expected
 
 
 # ── Chunk upsert ────────────────────────────────────────────────────
@@ -112,8 +105,8 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
     with store.session() as ws:
         ws.delete_chunks_for_blobs({"b1"})
 
-    assert store.has_blob("b1") is False
-    assert store.has_blob("b2") is True
+    assert store.has_blob("b1", "", {"": 1}) is False
+    assert store.has_blob("b2", "", {"": 1}) is True
 
 
 # ── get_edges ───────────────────────────────────────────────────────

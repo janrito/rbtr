@@ -32,13 +32,13 @@ class ChunkQueryScenario:
 
 @dataclass(frozen=True)
 class HasBlobScenario:
-    """Seed data + has_blob query + expected result."""
+    """Seed data + has_blob(version map) query + expected result."""
 
     chunks: list[TokenisedChunk]
     snapshots: list[Snapshot]
     query_blob: str
     query_language: str
-    query_language_plugin_version: int
+    version_map: dict[str, int]
     expected: bool
 
 
@@ -138,7 +138,7 @@ def case_has_blob_same_language() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="",
-        query_language_plugin_version=1,
+        version_map={"": 1},
         expected=True,
     )
 
@@ -152,7 +152,7 @@ def case_has_blob_different_language() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="swift",
-        query_language_plugin_version=1,
+        version_map={"swift": 1},
         expected=False,
     )
 
@@ -167,7 +167,7 @@ def case_has_blob_same_language_and_version() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="markdown",
-        query_language_plugin_version=1,
+        version_map={"markdown": 1},
         expected=True,
     )
 
@@ -182,7 +182,7 @@ def case_has_blob_different_version() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob=c.blob_sha,
         query_language="markdown",
-        query_language_plugin_version=2,
+        version_map={"markdown": 2},
         expected=False,
     )
 
@@ -196,7 +196,63 @@ def case_has_blob_nonexistent() -> HasBlobScenario:
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
         query_blob="no_such_blob",
         query_language="",
-        query_language_plugin_version=1,
+        version_map={"": 1},
+        expected=False,
+    )
+
+
+@case(tags=["has_blob"])
+def case_has_blob_detected_language_changed() -> HasBlobScenario:
+    """Plaintext blob, now detected as python (plugin registered) → False.
+
+    The stored chunk is at a current version, but there is no chunk in the
+    newly detected language, so the file must re-extract.
+    """
+    c = make_chunk("raw1")  # language "", version 1
+    return HasBlobScenario(
+        chunks=[c],
+        snapshots=[make_snap("head", "mod.py", c.blob_sha)],
+        query_blob=c.blob_sha,
+        query_language="python",
+        version_map={"python": 4, "": 1},
+        expected=False,
+    )
+
+
+@case(tags=["has_blob"])
+def case_has_blob_multilanguage_all_current() -> HasBlobScenario:
+    """Multi-language blob: host + embedded chunks all current → True."""
+    host = make_chunk("tpl", blob="page").model_copy(
+        update={"language": "html", "language_plugin_version": 2}
+    )
+    js = make_chunk("fn", blob="page").model_copy(
+        update={"language": "javascript", "language_plugin_version": 4}
+    )
+    return HasBlobScenario(
+        chunks=[host, js],
+        snapshots=[make_snap("head", "page.html", "page")],
+        query_blob="page",
+        query_language="html",
+        version_map={"html": 2, "javascript": 4, "": 1},
+        expected=True,
+    )
+
+
+@case(tags=["has_blob"])
+def case_has_blob_multilanguage_embedded_bump() -> HasBlobScenario:
+    """Multi-language blob: a delegated chunk stale vs the current version → False."""
+    host = make_chunk("tpl", blob="page").model_copy(
+        update={"language": "html", "language_plugin_version": 2}
+    )
+    js = make_chunk("fn", blob="page").model_copy(
+        update={"language": "javascript", "language_plugin_version": 4}
+    )
+    return HasBlobScenario(
+        chunks=[host, js],
+        snapshots=[make_snap("head", "page.html", "page")],
+        query_blob="page",
+        query_language="html",
+        version_map={"html": 2, "javascript": 5, "": 1},
         expected=False,
     )
 

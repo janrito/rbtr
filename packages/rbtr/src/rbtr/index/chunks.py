@@ -80,3 +80,28 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
 def chunk_plaintext(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
     """Chunk plain text or unsupported file types."""
     yield from _raw_chunks(file_path, blob_sha, content)
+
+
+def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
+    """A content-less chunk recording a file's host language for dedup.
+
+    Emitted when extraction produced no chunk in the file's own language:
+    an empty file (an empty `__init__.py`), or a multi-language file whose
+    host contributes no content (a Markdown file that is only a fenced code
+    block). It carries the host
+    language so the blob-dedup gate records that version and skips the file
+    on later builds instead of re-parsing it every time. Empty content
+    never ranks in search.
+    """
+    return Chunk(
+        id=make_chunk_id(file_path, blob_sha, file_path, 0),
+        blob_sha=blob_sha,
+        file_path=file_path,
+        kind=ChunkKind.RAW_CHUNK,
+        name=file_path,
+        scope="",
+        content="",
+        language=language,
+        line_start=1,
+        line_end=1,
+    )

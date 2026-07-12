@@ -31,7 +31,7 @@ from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
 if TYPE_CHECKING:
-    from tree_sitter import Node
+    from tree_sitter import Node, Range
 
 # URL schemes that indicate external links (not cross-references).
 _EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://")
@@ -41,6 +41,15 @@ _SECTION_QUERY = """\
 (section
   (atx_heading
     (inline) @_section_name)) @doc_section
+"""
+
+# Injection query: a fenced code block delegates its content to the language
+# named in the fence's info string (```python, ```sh). The info-string name
+# is captured dynamically and resolved to a language id by the runner.
+_INJECTIONS = """\
+(fenced_code_block
+  (info_string (language) @injection.language)
+  (code_fence_content) @injection.content)
 """
 
 
@@ -96,6 +105,7 @@ def _extract_sections(
     grammar: Language,
     file_path: str,
     blob_sha: str,
+    ranges: list[Range] | None,
 ) -> Iterator[Chunk]:
     """Run the section query and yield one chunk per headed section.
 
@@ -116,6 +126,8 @@ def _extract_sections(
     """
     query = Query(grammar, _SECTION_QUERY)
     parser = Parser(grammar)
+    if ranges is not None:
+        parser.included_ranges = ranges
     tree = parser.parse(content_bytes)
     matches = QueryCursor(query).matches(tree.root_node)
 
@@ -162,7 +174,11 @@ def _extract_sections(
 
 
 def chunk_markdown(
-    file_path: str, blob_sha: str, content: str, grammar: Language
+    file_path: str,
+    blob_sha: str,
+    content: str,
+    grammar: Language,
+    ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
     """Split Markdown by heading hierarchy using tree-sitter."""
     if not content.strip():
@@ -170,15 +186,17 @@ def chunk_markdown(
 
     content_bytes = content.encode("utf-8")
     parser = Parser(grammar)
+    if ranges is not None:
+        parser.included_ranges = ranges
     tree = parser.parse(content_bytes)
 
     if _has_headings(tree.root_node):
-        yield from _extract_sections(content_bytes, grammar, file_path, blob_sha)
+        yield from _extract_sections(content_bytes, grammar, file_path, blob_sha, ranges)
     else:
         yield from chunk_plaintext(file_path, blob_sha, content)
 
     # Extract local links as IMPORT chunks using the inline parser.
-    yield from _extract_links(content_bytes, file_path, blob_sha)
+    yield from _extract_links(content_bytes, file_path, blob_sha, ranges)
 
 
 # ── Link extraction ──────────────────────────────────────────────────
@@ -190,6 +208,7 @@ def _extract_links(
     content_bytes: bytes,
     file_path: str,
     blob_sha: str,
+    ranges: list[Range] | None,
 ) -> Iterator[Chunk]:
     """Extract local links as IMPORT chunks using the inline parser.
 
@@ -201,6 +220,8 @@ def _extract_links(
 
     inline_lang = Language(tree_sitter_markdown.inline_language())
     inline_parser = Parser(inline_lang)
+    if ranges is not None:
+        inline_parser.included_ranges = ranges
     inline_tree = inline_parser.parse(content_bytes)
 
     query = Query(inline_lang, _LINK_QUERY)
@@ -248,6 +269,7 @@ class MarkdownPlugin:
                 extensions=frozenset({".md"}),
                 grammar_module="tree_sitter_markdown",
                 chunker=chunk_markdown,
-                language_plugin_version=3,
+                injection_query=_INJECTIONS,
+                language_plugin_version=4,
             ),
         ]

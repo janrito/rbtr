@@ -11,7 +11,7 @@ via the `rbtr.languages` entry-point group override both.
 
 Example usage::
 
-    from rbtr.languages.manager import get_manager
+    from rbtr.languages import get_manager
 
     mgr = get_manager()
 
@@ -41,7 +41,25 @@ from pathlib import PurePosixPath
 import pluggy
 from tree_sitter import Language
 
+from rbtr.languages.bash import BashPlugin
+from rbtr.languages.c import CPlugin
+from rbtr.languages.cpp import CppPlugin
+from rbtr.languages.css import CssPlugin
+from rbtr.languages.go import GoPlugin
+from rbtr.languages.hcl import HclPlugin
 from rbtr.languages.hookspec import PROJECT_NAME, LanguageHookspec, LanguageRegistration
+from rbtr.languages.html import HtmlPlugin
+from rbtr.languages.java import JavaPlugin
+from rbtr.languages.javascript import JavaScriptPlugin
+from rbtr.languages.json import JsonPlugin
+from rbtr.languages.markdown import MarkdownPlugin
+from rbtr.languages.python import PythonPlugin
+from rbtr.languages.rst import RstPlugin
+from rbtr.languages.ruby import RubyPlugin
+from rbtr.languages.rust import RustPlugin
+from rbtr.languages.sql import SqlPlugin
+from rbtr.languages.toml import TomlPlugin
+from rbtr.languages.yaml import YamlPlugin
 
 
 class LanguageManager:
@@ -85,27 +103,6 @@ class LanguageManager:
 
     def _register_builtins(self) -> None:
         """Register built-in plugins in precedence order."""
-        # Lazy imports to avoid circular dependencies and to keep
-        # grammar packages optional.
-        from rbtr.languages.bash import BashPlugin
-        from rbtr.languages.c import CPlugin
-        from rbtr.languages.cpp import CppPlugin
-        from rbtr.languages.css import CssPlugin
-        from rbtr.languages.go import GoPlugin
-        from rbtr.languages.hcl import HclPlugin
-        from rbtr.languages.html import HtmlPlugin
-        from rbtr.languages.java import JavaPlugin
-        from rbtr.languages.javascript import JavaScriptPlugin
-        from rbtr.languages.json import JsonPlugin
-        from rbtr.languages.markdown import MarkdownPlugin
-        from rbtr.languages.python import PythonPlugin
-        from rbtr.languages.rst import RstPlugin
-        from rbtr.languages.ruby import RubyPlugin
-        from rbtr.languages.rust import RustPlugin
-        from rbtr.languages.sql import SqlPlugin
-        from rbtr.languages.toml import TomlPlugin
-        from rbtr.languages.yaml import YamlPlugin
-
         for plugin_cls in (
             BashPlugin,
             CPlugin,
@@ -200,15 +197,19 @@ class LanguageManager:
             return self._grammar_cache[language_id]
 
         reg = self._registrations.get(language_id)
-        if reg is None or reg.grammar_module is None:
+        if reg is None:
             self._grammar_cache[language_id] = None
             return None
 
         try:
-            mod = importlib.import_module(reg.grammar_module)
-            lang_fn = getattr(mod, reg.grammar_entry)
-            grammar = Language(lang_fn())
-            self._grammar_cache[language_id] = grammar
+            if reg.grammar_factory is not None:
+                self._grammar_cache[language_id] = reg.grammar_factory()
+            elif reg.grammar_module is not None:
+                mod = importlib.import_module(reg.grammar_module)
+                lang_fn = getattr(mod, reg.grammar_entry)
+                self._grammar_cache[language_id] = Language(lang_fn())
+            else:
+                self._grammar_cache[language_id] = None
         except (ImportError, AttributeError, OSError):
             self._grammar_cache[language_id] = None
 
@@ -301,7 +302,7 @@ def get_manager() -> LanguageManager:
 
     Example::
 
-        from rbtr.languages.manager import get_manager
+        from rbtr.languages import get_manager
 
         mgr = get_manager()
         lang = mgr.detect_language("main.go")  # "go"
@@ -318,7 +319,7 @@ def reset_manager() -> None:
 
     Example::
 
-        from rbtr.languages.manager import get_manager, reset_manager
+        from rbtr.languages import get_manager, reset_manager
 
         reset_manager()
         mgr = get_manager()  # fresh instance

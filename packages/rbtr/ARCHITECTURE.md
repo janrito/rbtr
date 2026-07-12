@@ -93,28 +93,51 @@ or co-located clones share `.git` object SHAs, so their blobs
 and chunk `id`s coincide, and the existing chunks are reused —
 no re-parsing, no re-embedding.
 
-The orchestrator checks `store.has_blob(blob_sha,
-language=detected, language_plugin_version=version)` before
-extracting a file. The check is global, so a blob already
-chunked by any repo is reused: if chunks already exist for that
-blob with a matching language **and** extractor version, the
-file is skipped and only its `file_snapshots` row is written —
-enough to make the shared chunk reachable from this repo.
+The orchestrator checks `store.has_blob(blob_sha, language,
+versions)` before extracting a file, where `language` is the
+file's detected host language and `versions` is the current
+`{language: plugin version}` registry map (plus `""` for
+plaintext). The check is global, so a blob already chunked by
+any repo is reused. A blob is **up to date** — the file skipped
+and only its `file_snapshots` row written — iff it has at least
+one chunk in the detected `language` *and* every stored chunk
+is at its language's current plugin version. Both are matched
+in one query against a registered `_version_map` view (a
+`LEFT JOIN`; a chunk with no matching version row is stale).
 
-The match is exact on all three keys, so a mismatch on either
-language or version triggers re-extraction:
+Two things force re-extraction; on a miss the orchestrator
+deletes the blob's old chunks first (the new extraction may
+produce different IDs the upsert can't reconcile):
 
-- **Language change.** A file first indexed as plaintext
-  (`language=""`), then covered by a newly-registered plugin,
-  misses on language and is re-extracted. The orchestrator
-  deletes the blob's old chunks first (`delete_chunks_for_blobs`
-  — the new extraction may produce different chunk IDs) before
-  re-inserting.
-- **Extractor version bump.** Each `LanguageRegistration`
-  carries a `language_plugin_version`; bumping it when a query
-  or chunker changes invalidates every chunk stored at the old
-  version, so they re-extract on the next build (see
-  [Versioning](#versioning)).
+- **Detected language changed.** A blob indexed as plaintext
+  (`language=""`), then a plugin registered for its extension,
+  has no chunk in the new language → miss → re-extract. Prose
+  (Markdown/RST) is detected by extension or content sniff and
+  persisted on the snapshot, so the gate sees its real
+  language and dedups normally.
+- **A plugin version bumped.** Chunks stored at the old version
+  no longer match the map → re-extract.
+
+**Every file leaves a host-language chunk.** Extraction
+guarantees at least one chunk in the file's own language — the
+real definitions for most files, and a content-less
+*host-presence chunk* for a file that would otherwise produce
+none: an empty file (an empty `__init__.py`), unextractable
+content, or a multi-language file whose host contributes no
+content (a Markdown file that is only a fenced code block).
+This is what makes the
+detected-language check and multi-language dedup reliable.
+
+Multi-language files (an HTML file with inline
+`<script>`/`<style>`, or Markdown with fenced code blocks)
+hold chunks in several languages — HTML's `<script>`
+delegates to JavaScript and its `<style>` to CSS, while the
+host markup is the `html` chunk. Each chunk
+carries *its own* language's plugin version (see
+[Versioning](#versioning)). The map lists the host and every
+embedded language, so such a file dedups like any other: a
+bump to *any* contributor (the host or a delegated language)
+re-extracts it, and an unchanged file is skipped.
 
 Language is resolved once per file before the gate, in order:
 file extension → the `detected_language` recorded on an earlier
@@ -392,6 +415,15 @@ purely **additive** table (e.g. `watched_refs`) appears in
 existing databases in place — no `schema_version` bump, no
 wipe. Only a **breaking** change to an existing table or
 column bumps `schema_version` (and so deletes the database).
+
+`language_plugin_version` is a per-chunk column, not a `meta`
+key: each chunk stamps the plugin version of *its own*
+`language`. For single-language files this equals the host
+file's version; for a multi-language file a delegated
+JavaScript chunk carries JavaScript's version, not the host
+HTML plugin's. Its only reader is the `has_blob` dedup
+gate; see [Content-addressed chunks and blob
+dedup](#content-addressed-chunks-and-blob-dedup).
 
 ## Daemon
 
@@ -753,6 +785,16 @@ above it (up to a blank-line boundary), so a chunk carries its
 own documentation; plugins that leave it empty get the bare
 symbol span.
 
+A file can also *embed* another language - a Markdown fenced
+block, or an HTML `<script>`/`<style>`. A host plugin's
+`injection_query` marks each embedded block; the engine
+delegates the block's byte range to the target's full
+extraction (chunker or query) and recurses into that
+target's own injection, so nested embeds (an HTML block
+inside Markdown) resolve too. Delegated chunks carry the
+embedded language. See [Language plugins](#language-plugins)
+for the dispatch chain.
+
 ## Dependency graph
 
 `edges.py` infers cross-file relationships:
@@ -1043,34 +1085,94 @@ capture conventions), see
 
 ### Dispatch chain
 
-The orchestrator routes each file through three paths in
-order:
+`_extract_file` builds each file's chunks in this order:
 
-1. **Registered chunker** - if the detected language has a
-   `chunker`, the orchestrator loads the grammar and calls
-   `chunker(path, sha, content, grammar)`. Used by
-   markdown, rst, toml, yaml, hcl, html.
-2. **Tree-sitter extraction** - if the language has a
-   `grammar` + `query`, the orchestrator runs
-   `extract_symbols`. This is the default path for code
-   languages (python, rust, go, ...) and simple config
-   formats (json, css).
-3. **Prose detection fallback** - if no language was
-   detected (unknown extension), the orchestrator applies
-   `detect_prose_format` to sniff the first 2 KB of
-   content. RST is detected by underline headings
-   (`Title\n=====`) or directives (`.. note::`). Markdown
-   is detected by ATX headings (`# Title`). If a format
-   is detected, the orchestrator looks up that format's
-   registered chunker and uses it. Otherwise, line-based
-   raw chunks (`RAW_CHUNK`, fixed-size overlapping
-   windows).
+1. **Primary extraction** - a registered `chunker` if the
+   language has one (`chunker(path, sha, content, grammar,
+   ranges)`; markdown, rst), else tree-sitter
+   `extract_symbols` for a `grammar` + `query` (python,
+   rust, go, ...; json, css, html, toml, yaml, hcl).
+2. **Injection (additive)** - if the registration has an
+   `injection_query`, the engine *also* runs
+   `extract_injections`: it matches embedded blocks
+   (`@injection.content`), determines each block's target
+   language, resolves overlaps by highest
+   `injection.priority`, and delegates each range to that
+   language's `extract_query`. The target is either a
+   static `#set! injection.language` on the pattern
+   (HTML `<script>` / `<style>`) or a
+   dynamic
+   `@injection.language` capture whose text is resolved to a
+   language id (a Markdown fence's info string - `python`,
+   `sh`). Injection runs *alongside* the host chunker
+   (step 1), not instead of it.
+3. **Plaintext fallback** - only if neither of the above
+   applied. If no language was detected (unknown
+   extension), `detect_prose_format` sniffs the first 2 KB:
+   RST by underline headings (`Title\n=====`) or directives
+   (`.. note::`), Markdown by ATX headings (`# Title`); a
+   detected format uses its registered chunker. Otherwise,
+   line-based raw chunks (`RAW_CHUNK`, fixed-size
+   overlapping windows).
+4. **Host-language trace** - if no chunk so far carried the
+   file's detected language, a content-less host-presence
+   chunk is appended (see
+   [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup))
+   so the blob-dedup gate can skip the file on later builds.
+
+**We author our own injection queries** rather than reuse a
+grammar's shipped `injections.scm`, which over-matches - a
+bare `(raw_text)` fallback catches every block, including
+styles. `injection.priority` disambiguates: a `lang`-tagged
+block outranks the bare fallback. The language mapping (step
+2) stays out of Python - static `#set!` values, and
+free-form hints resolved through the registry's own
+id/extension maps - so delegation is language-agnostic, with
+no per-language code.
+
+Delegation runs the target's *full* primary extraction
+(`extract_primary` — its chunker or query, range-scoped via
+`included_ranges`), so the block extracts as if it were its
+own file of that language: query targets (python, ts, html,
+...) and chunker targets (yaml, toml, ...) alike, imports
+included. Delegation also recurses into the target's own
+injection, so an HTML block inside Markdown that contains an
+inline `<script>` yields its js too (bounded by a depth
+cap). Only per-file orchestration — the plaintext fallback
+and host-presence trace — is not re-run per block.
 
 ### External plugins
 
 External plugins register via the `rbtr.languages` entry
 point. External registrations override built-in ones. See
 the README for a step-by-step guide to writing a plugin.
+
+### Sample fixtures
+
+`rbtr/tests/languages/samples/` holds one source file per
+supported language, each exercising the constructs that
+language's plugin extracts. They are both worked examples
+of extraction and golden-tested fixtures.
+
+`test_samples.py` checks each sample three ways: it parses
+cleanly (no tree-sitter errors), it emits every chunk kind
+its plugin is expected to produce, and its full extracted
+chunks match a committed snapshot under `__snapshots__/`
+(serialised via pydantic `model_dump_json`). Constructs a
+plugin does not capture - a Go method's receiver scope, a
+Java constructor - are pinned as strict `xfail` cases, so
+closing the gap turns the test red until the sample and its
+expectations are updated. See `samples/python.py` and its
+snapshot for the shape.
+
+To add a language: write `samples/<lang>.<ext>`, add a
+`@case` in `cases_samples.py` returning its expected chunk
+kinds, run `just snapshots`, and review the generated
+snapshot before committing.
+
+The samples are exempt from the repo's linters and
+type-checker - they are fixtures, validated by their own
+tests rather than held to product-code standards.
 
 ## Garbage collection
 

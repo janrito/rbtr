@@ -63,4 +63,5 @@ dev = [
   "pytest-cases>=3.10.1",
   "pytest-mock",
   "pytest-xdist>=3.8.0",
+  "syrupy>=5.3.4",
 ]

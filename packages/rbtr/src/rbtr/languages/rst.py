@@ -28,7 +28,7 @@ from rbtr.index.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
 if TYPE_CHECKING:
-    from tree_sitter import Language, Node
+    from tree_sitter import Language, Node, Range
 
 # URL schemes that indicate external links.
 _EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://")
@@ -57,7 +57,13 @@ def _rst_adornment_char(section: Node) -> str:
     return ""
 
 
-def chunk_rst(file_path: str, blob_sha: str, content: str, grammar: Language) -> Iterator[Chunk]:
+def chunk_rst(
+    file_path: str,
+    blob_sha: str,
+    content: str,
+    grammar: Language,
+    ranges: list[Range] | None = None,
+) -> Iterator[Chunk]:
     """Split RST by heading hierarchy using tree-sitter.
 
     Reconstructs the heading hierarchy from adornment characters
@@ -70,6 +76,8 @@ def chunk_rst(file_path: str, blob_sha: str, content: str, grammar: Language) ->
 
     content_bytes = content.encode("utf-8")
     parser = Parser(grammar)
+    if ranges is not None:
+        parser.included_ranges = ranges
     tree = parser.parse(content_bytes)
     root = tree.root_node
 

@@ -358,5 +358,5 @@ def test_delete_snapshots_hides_chunks(
         ws.delete_snapshots("head", repo_id=1)
 
     assert store.get_chunks("head", repo_id=1) == []
-    assert store.has_blob(math_func.blob_sha) is True
-    assert store.has_blob(http_func.blob_sha) is True
+    assert store.has_blob(math_func.blob_sha, "", {"": 1}) is True
+    assert store.has_blob(http_func.blob_sha, "", {"": 1}) is True

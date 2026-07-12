@@ -72,6 +72,7 @@ from rbtr.index.frames import (
     frame_to_chunks,
     repo_refs_frame,
     scored_to_chunks,
+    version_map_frame,
 )
 from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, RepoRef, ScoredChunk
 from rbtr.index.reranker import Reranker
@@ -364,33 +365,35 @@ class IndexStore:
 
     # ── Reads ────────────────────────────────────────────────────────
 
-    def has_blob(
-        self,
-        blob_sha: str,
-        *,
-        language: str = "",
-        language_plugin_version: int = 1,
-    ) -> bool:
-        """Check whether chunks exist for *blob_sha* at this version.
+    def has_blob(self, blob_sha: str, language: str, versions: dict[str, int]) -> bool:
+        """Check whether *blob_sha* is up to date for host *language*.
 
         This is the blob-dedup gate: the orchestrator calls it
-        before extracting a file.  If True, the file's content
-        hasn't changed and the existing chunks are valid — skip.
-        If False, the file needs (re-)extraction.  The check is
-        **global** (the chunk store is content-addressed and
-        shared), so a blob already parsed by any repo is reused —
-        no re-parse when a second repo/worktree indexes it.
+        before extracting a file.  If True, the blob's chunks are
+        current and valid — skip.  If False, the file needs
+        (re-)extraction.  The check is **global** (the chunk store
+        is content-addressed and shared), so a blob already parsed
+        by any repo is reused — no re-parse when a second
+        repo/worktree indexes it.
 
-        The match is exact on `(blob_sha, language,
-        language_plugin_version)`.  A mismatch on either
-        language or version triggers re-extraction:
+        *language* is the file's currently detected host language;
+        *versions* maps language id → current plugin version (the
+        full registry, plus `""` for plaintext).  The blob is up to
+        date iff it has ≥1 chunk in *language* **and** every chunk's
+        `(language, language_plugin_version)` matches a row in
+        *versions*.  Either condition failing triggers re-extraction:
 
-        - File was indexed as plaintext (`language=""`), then a
-          plugin is registered that matches the extension →
-          `has_blob(sha, language="python")` returns False →
-          file is re-extracted with the new plugin.
-        - Extractor version bumped → old chunks stored at the
-          previous version don't match → re-extracted.
+        - Detected language changed — a blob indexed as plaintext
+          (`language=""`), then a plugin registered for the
+          extension → no chunk in the new language → re-extract.
+          (Every file leaves a host-language chunk, so this check
+          is reliable.)
+        - A plugin's version is bumped → chunks stored at the old
+          version no longer match → re-extracted.
+        - A multi-language file lists every embedded language
+          plus the host, so bumping *any* contributor (the HTML
+          host or its delegated JavaScript) re-extracts the file;
+          when none change, it is skipped like any other blob.
 
         When `has_blob` returns False and old chunks exist for
         the blob (language change), the caller must delete old
@@ -398,15 +401,14 @@ class IndexStore:
         may produce different chunk IDs that the upsert can't
         reconcile.
         """
-        result = self._cursor.execute(
-            _HAS_BLOB_SQL,
-            {
-                "blob_sha": blob_sha,
-                "language": language,
-                "language_plugin_version": language_plugin_version,
-            },
-        ).fetchone()
-        return result is not None
+        self._cursor.register("_version_map", version_map_frame(versions))
+        try:
+            row = self._cursor.execute(
+                _HAS_BLOB_SQL, {"blob_sha": blob_sha, "language": language}
+            ).fetchone()
+        finally:
+            self._cursor.unregister("_version_map")
+        return bool(row[0]) if row and row[0] is not None else False
 
     def get_snapshot_language(self, file_path: str, *, repo_id: int) -> str:
         """Return the detected language from any existing snapshot.

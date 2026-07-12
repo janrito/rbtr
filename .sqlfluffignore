@@ -14,3 +14,7 @@ node_modules/
 # Build artefacts.
 dist/
 build/
+
+# Language sample fixtures are illustrative, not product SQL — validated
+# by their own parse-clean/snapshot tests, not by sqlfluff.
+packages/rbtr/src/rbtr/tests/languages/samples/

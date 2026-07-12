@@ -11,9 +11,10 @@ All test data lives in `case_extraction.py`. Three behaviors:
 3. **Mixed extraction** (`mixed` tag) — realistic modules produce
    all expected chunk kinds and method scoping.
 
-Cross-cutting **properties** (determinism, line numbers, empty
-source, error recovery) are tested via a parametrized fixture
-over all languages with grammars.
+The empty-source **property** is checked here for every registered
+language; the remaining cross-language invariants (determinism, line
+numbers, non-empty content, metadata, error recovery) run over the
+committed samples in `test_samples.py`.
 
 Language-specific **edge cases** (java constructors, rust impl,
 markdown heading exclusion, etc.) are plain test functions at the
@@ -27,7 +28,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.index.models import ChunkKind, ImportMeta
 from rbtr.index.treesitter import extract_symbols
-from rbtr.languages import LanguageManager
+from rbtr.languages import LanguageManager, get_manager
 
 from .conftest import extract_chunks
 
@@ -106,145 +107,37 @@ def test_extracts_multi_import(
 # ── Cross-language properties ────────────────────────────────────────
 
 
-@pytest.fixture(
-    params=[
-        pytest.param(("python", "def f():\n    pass\n"), id="python"),
-        pytest.param(("javascript", "function f() {}\n"), id="javascript"),
-        pytest.param(("typescript", "function f(): void {}\n"), id="typescript"),
-        pytest.param(("go", "package main\nfunc f() {}\n"), id="go"),
-        pytest.param(("rust", "fn f() {}\n"), id="rust"),
-        pytest.param(("java", "class C { void f() {} }\n"), id="java"),
-        pytest.param(("bash", "f() { :; }\n"), id="bash"),
-        pytest.param(("c", "void f(void) { }\n"), id="c"),
-        pytest.param(("cpp", "void f() { }\n"), id="cpp"),
-        pytest.param(("ruby", "def f\n  1\nend\n"), id="ruby"),
-        pytest.param(("sql", "CREATE TABLE t (id INT);\n"), id="sql"),
-    ]
-)
-def lang_and_source(request: pytest.FixtureRequest) -> tuple[str, str]:
-    """Language ID paired with a minimal source snippet."""
-    return request.param
+@pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
+def test_empty_source_yields_host_presence(lang: str) -> None:
+    """Empty source yields one content-less host-presence chunk, for every
+    registered language.
 
-
-@pytest.fixture
-def lang(lang_and_source: tuple[str, str]) -> str:
-    return lang_and_source[0]
-
-
-@pytest.fixture
-def minimal_source(lang_and_source: tuple[str, str]) -> str:
-    return lang_and_source[1]
-
-
-def test_empty_source_returns_empty(lang: str) -> None:
-    """Empty source produces no chunks, regardless of language."""
-    assert extract_chunks(lang, "") == []
-
-
-def test_deterministic_chunk_ids(lang: str, minimal_source: str) -> None:
-    """Extracting the same source twice produces identical chunk IDs."""
-    c1 = extract_chunks(lang, minimal_source)
-    c2 = extract_chunks(lang, minimal_source)
-    assert [c.id for c in c1] == [c.id for c in c2]
-
-
-def test_blob_sha_propagated(lang: str, minimal_source: str) -> None:
-    """All chunks carry the blob_sha passed to extract_symbols."""
-    chunks = extract_chunks(lang, minimal_source)
-    assert len(chunks) >= 1
-    assert all(c.blob_sha == "sha1" for c in chunks)
-
-
-def test_non_import_chunks_have_empty_metadata(lang: str, minimal_source: str) -> None:
-    """Non-import chunks always have empty metadata."""
-    chunks = extract_chunks(lang, minimal_source)
-    for c in chunks:
-        if c.kind != ChunkKind.IMPORT:
-            assert c.metadata == ImportMeta(), (
-                f"{c.kind} chunk {c.name!r} has metadata {c.metadata}"
-            )
-
-
-def test_line_numbers_are_positive(lang: str, minimal_source: str) -> None:
-    """All chunks have positive, 1-indexed line numbers."""
-    chunks = extract_chunks(lang, minimal_source)
-    for c in chunks:
-        assert c.line_start >= 1, f"{c.name} has line_start={c.line_start}"
-        assert c.line_end >= c.line_start, f"{c.name} has line_end < line_start"
-
-
-def test_content_is_nonempty(lang: str, minimal_source: str) -> None:
-    """All chunks have non-empty content."""
-    chunks = extract_chunks(lang, minimal_source)
-    for c in chunks:
-        assert c.content, f"{c.kind} chunk {c.name!r} has empty content"
-
-
-def test_syntax_error_still_extracts_valid_parts(lang: str, minimal_source: str) -> None:
-    """Tree-sitter error recovery: valid symbols extracted even with trailing garbage."""
-    broken = minimal_source + "\n\x00\x00INVALID{{{[[\n"
-    chunks = extract_chunks(lang, broken)
-    assert len(chunks) >= 1
+    Records the file's host language so the blob-dedup gate skips an empty
+    file on later builds instead of re-parsing it every time. The remaining
+    cross-language invariants (determinism, line numbers, content, metadata,
+    error recovery) run over the committed samples in `test_samples.py`.
+    """
+    chunks = extract_chunks(lang, "")
+    assert len(chunks) == 1
+    assert chunks[0].content == ""
+    assert chunks[0].language == lang
 
 
 # ── Language-specific edge cases ─────────────────────────────────────
 
 
-def test_java_constructor_not_captured() -> None:
-    """Java constructors use constructor_declaration, not method_declaration."""
-    src = """\
-class Foo {
-    Foo() {}
-}
-"""
-    chunks = extract_chunks("java", src)
-    methods = [c for c in chunks if c.kind == ChunkKind.METHOD and c.name == "Foo"]
-    assert methods == []
-
-
-def test_rust_impl_captures_struct_and_impl() -> None:
-    """Both struct and impl produce class chunks for the same type."""
-    src = """\
-struct Svc {}
-impl Svc {
-    fn new() -> Self { Svc {} }
-}
-"""
-    chunks = extract_chunks("rust", src)
-    svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
-    assert len(svc_classes) == 2  # struct + impl
-
-
-def test_sql_procedure_not_recognised() -> None:
-    """CREATE PROCEDURE is not recognised as a routine.
-
-    tree-sitter-sql 0.3.11 has no `create_procedure` node, so the
-    statement parses to an ERROR and the procedure itself produces
-    no chunk — there is no chunk named for the procedure. (Under
-    error recovery, statements inside the `$$ … $$` body may leak
-    as their own chunks; what this guards is that the procedure
-    header is never captured. If a future grammar adds the node,
-    this flags that the plugin should map it.)
-    """
-    src = """\
-CREATE PROCEDURE refresh()
-LANGUAGE SQL
-AS $$ DELETE FROM cache; $$;
-"""
-    names = {c.name for c in extract_chunks("sql", src)}
-    assert "refresh" not in names
-
-
 def test_sql_pragma_not_extracted() -> None:
-    """A DuckDB PRAGMA yields no chunk.
+    """A DuckDB PRAGMA yields no definition chunk.
 
     The grammar has no PRAGMA statement node, so it parses to a
     top-level ERROR with no enclosing `statement` to capture. This
     is a known limitation guard; it flags the day the grammar gains
-    PRAGMA support.
+    PRAGMA support. Only the content-less host-presence chunk (for
+    blob dedup) remains.
     """
     src = "PRAGMA create_fts_index('chunks', 'id', 'body');\n"
-    assert extract_chunks("sql", src) == []
+    chunks = extract_chunks("sql", src)
+    assert [c for c in chunks if c.content] == []
 
 
 def test_sql_multi_statement_one_chunk_each() -> None:
@@ -262,19 +155,6 @@ DROP TABLE a;
     ]
 
 
-def test_bash_source_and_dot_extracted_as_imports() -> None:
-    """source/. commands are captured as imports."""
-    src = """\
-source ./env.sh
-. /etc/profile
-"""
-    chunks = extract_chunks("bash", src)
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert len(imports) == 2
-    modules = {c.metadata.module for c in imports}
-    assert modules == {"./env.sh", "/etc/profile"}
-
-
 def test_anonymous_chunk_when_name_capture_missing(
     language_manager: LanguageManager,
 ) -> None:
@@ -289,6 +169,28 @@ def hello():
     chunks = list(extract_symbols("test.py", "sha1", src, grammar, query_no_name))
     assert len(chunks) >= 1
     assert chunks[0].name == "<anonymous>"
+
+
+def test_scope_extractor_owns_scope_address(
+    language_manager: LanguageManager,
+) -> None:
+    """A `scope_extractor` overrides the default scope with its own segments."""
+    grammar = language_manager.load_grammar("python")
+    assert grammar is not None
+    query = "(function_definition name: (identifier) @_fn_name) @function\n"
+    src = b"def hello():\n    pass\n"
+    chunks = list(
+        extract_symbols(
+            "test.py",
+            "sha1",
+            src,
+            grammar,
+            query,
+            scope_extractor=lambda _cap, _node, _caps: ["a", "b"],
+        )
+    )
+    assert len(chunks) == 1
+    assert chunks[0].scope == "a::b"
 
 
 def test_py_module_variable_content_is_whole_statement() -> None:
@@ -395,6 +297,38 @@ Second paragraph.
     assert all(c.kind == ChunkKind.RAW_CHUNK for c in chunks)
 
 
+def test_md_chunker_target_extracted() -> None:
+    """A chunker-based target (yaml) inside a Markdown fence extracts.
+
+    Query targets (python) already worked; this proves the delegate runs a
+    chunker plugin over the block too, at absolute line numbers.
+    """
+    src = """\
+# Doc
+
+```yaml
+service: greeter
+```
+"""
+    chunks = extract_chunks("markdown", src)
+    yaml_sections = [c for c in chunks if c.language == "yaml"]
+    assert [c.name for c in yaml_sections] == ["service"]
+    assert yaml_sections[0].line_start == 4
+
+
+def test_md_unknown_fence_left_unparsed() -> None:
+    """A fence naming a language rbtr has no grammar for is not delegated."""
+    src = """\
+# Doc
+
+```nonexistent
+some content here
+```
+"""
+    chunks = extract_chunks("markdown", src)
+    assert {c.language for c in chunks} == {"markdown"}
+
+
 def test_rst_hierarchy_from_adornment_order() -> None:
     """RST reconstructs hierarchy from adornment character order."""
     src = """\
@@ -436,20 +370,25 @@ Body.
 
 
 def test_toml_dotted_key_scope() -> None:
-    """TOML dotted keys split into name + scope."""
+    """A TOML dotted table splits into last-segment name + preceding scope."""
     src = """\
-[tool.ruff]
-line-length = 99
+[tool.ruff.lint]
+select = ["E"]
 """
     chunks = extract_chunks("toml", src)
-    assert chunks[0].name == "ruff"
-    assert chunks[0].scope == "tool"
+    assert chunks[0].name == "lint"
+    assert chunks[0].scope == "tool::ruff"
 
 
-def test_html_no_body_fallback() -> None:
-    """HTML without body falls back to single chunk."""
+def test_html_non_semantic_only_emits_presence() -> None:
+    """HTML with no head/body/semantic element yields only a presence chunk.
+
+    A non-semantic wrapper (`<div>`) is not elevated, so no searchable
+    doc_section is produced; the engine appends one content-less host chunk.
+    """
     chunks = extract_chunks("html", "<div>hello</div>")
-    assert len(chunks) == 1
+    assert [c.kind for c in chunks if c.content] == []
+    assert [c.language for c in chunks] == ["html"]
 
 
 def test_yaml_no_mapping_fallback() -> None:
@@ -486,6 +425,20 @@ def test_html_link_href_produces_import() -> None:
     assert len(imports) == 1
     assert imports[0].metadata.module == "styles.css"
     assert imports[0].metadata.language_hint == "css"
+
+
+def test_html_self_closing_link_produces_import() -> None:
+    """An XHTML-style self-closing `<link ... />` produces an import."""
+    src = """\
+<html>
+<head><link rel="stylesheet" href="styles.css" /></head>
+<body><p>hello</p></body>
+</html>
+"""
+    chunks = extract_chunks("html", src)
+    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert len(imports) == 1
+    assert imports[0].metadata.module == "styles.css"
 
 
 def test_css_import_produces_import_chunk() -> None:
