@@ -16,6 +16,7 @@ export type Request =
   | FindRefsRequest
   | ChangedSymbolsRequest
   | StatusRequest
+  | DaemonConfigRequest
   | GcRequest
   | ForgetRequest;
 /**
@@ -39,6 +40,7 @@ export type Response =
   | FindRefsResponse
   | ChangedSymbolsResponse
   | StatusResponse
+  | DaemonConfigResponse
   | GcResponse
   | ForgetResponse;
 /**
@@ -77,6 +79,7 @@ export type EdgeKind = "calls" | "imports" | "inherits" | "documents" | "configu
  * How a symbol changed between two indexed commits.
  */
 export type ChangeKind = "added" | "modified" | "removed";
+export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
   | ReadyNotification
@@ -158,6 +161,15 @@ export interface StatusRequest {
   kind: "status";
   repo_path: string;
   scope?: Scope;
+}
+/**
+ * Ask the daemon for its live config and loaded plugins.
+ *
+ * Global, not repo-scoped — carries no `repo_path`, so `_dispatch`
+ * skips repo normalisation.
+ */
+export interface DaemonConfigRequest {
+  kind: "daemon_config";
 }
 export interface GcRequest {
   kind: "gc";
@@ -370,6 +382,35 @@ export interface ActiveJob {
   current: number;
   total: number;
   elapsed_seconds: number;
+}
+/**
+ * The daemon's live config plus the language plugins it loaded.
+ *
+ * `config` is `config.model_dump(mode="json")` transported as data —
+ * never the `Config` model, whose `BaseSettings` validation would
+ * re-read the client's own environment. `rbtr_version` is the version
+ * of the process that answered.
+ */
+export interface DaemonConfigResponse {
+  kind: "daemon_config";
+  rbtr_version: string;
+  config: {
+    [k: string]: JsonValue;
+  };
+  plugins: PluginInfo[];
+}
+/**
+ * One installed language plugin, per language it registers.
+ *
+ * Package and version repeat across a package's languages; the
+ * `extraction_serial` is the language's own extraction-invalidation
+ * stamp, so it can differ between registrations of one package.
+ */
+export interface PluginInfo {
+  language: string;
+  package: string;
+  version: string;
+  extraction_serial: number;
 }
 export interface GcResponse {
   kind: "gc";

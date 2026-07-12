@@ -95,7 +95,7 @@ def _code_keywords() -> frozenset[str]:
     keywords: set[str] = set()
     mgr = get_manager()
     for lang_id in mgr.all_language_ids():
-        grammar = mgr.load_grammar(lang_id)
+        grammar = mgr.grammar(lang_id)
         if grammar is None:
             continue
         for i in range(grammar.node_kind_count):

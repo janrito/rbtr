@@ -52,6 +52,7 @@ from rbtr.daemon import watcher
 from rbtr.daemon.handlers import (
     handle_build_index,
     handle_changed_symbols,
+    handle_daemon_config,
     handle_find_refs,
     handle_forget,
     handle_gc,
@@ -155,6 +156,7 @@ class DaemonServer:
         self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
         self._handlers: dict[str, RequestHandler] = {
             "shutdown": self._handle_shutdown,
+            "daemon_config": handle_daemon_config,
         }
         self._idle_poll_interval = idle_poll_interval
         self._busy_poll_interval = busy_poll_interval

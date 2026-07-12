@@ -35,7 +35,7 @@ def test_empty_source_yields_host_presence(lang: str) -> None:
 
 def test_anonymous_chunk_when_name_capture_missing() -> None:
     """Chunks get name='<anonymous>' when the query omits the name capture."""
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query_no_name = "(function_definition) @function\n"
     src = b"""\
@@ -50,7 +50,7 @@ def hello():
 
 def test_scope_extractor_owns_scope_address() -> None:
     """A `scope_extractor` overrides the default scope with its own segments."""
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query = "(function_definition name: (identifier) @_fn_name) @function\n"
     src = b"def hello():\n    pass\n"
@@ -63,7 +63,7 @@ def test_scope_extractor_owns_scope_address() -> None:
 
 def test_unknown_capture_name_ignored() -> None:
     """Captures not in _CAPTURE_KINDS are silently skipped."""
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query_unknown = """\
 (function_definition
@@ -114,7 +114,7 @@ def test_comment_blocks_group_in_source_order(
     between comments splits them (and a block flush before a symbol folds into
     it rather than standing alone).
     """
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query = "(comment) @comment\n(function_definition name: (identifier) @_fn_name) @function\n"
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
@@ -127,7 +127,7 @@ def test_comment_blocks_group_in_source_order(
 
 def test_trailing_comment_does_not_fold_into_next_symbol() -> None:
     """A comment trailing code on its line is not the next symbol's doc."""
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query = "(comment) @comment\n(module (expression_statement (assignment left: (identifier) @_var_name) @variable))\n"
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
@@ -140,7 +140,7 @@ def test_trailing_comment_does_not_fold_into_next_symbol() -> None:
 
 def test_trailing_comment_not_grouped_with_following_leading_doc() -> None:
     """A trailing comment is separate from a real own-line doc for the next symbol."""
-    grammar = get_manager().load_grammar("python")
+    grammar = get_manager().grammar("python")
     assert grammar is not None
     query = "(comment) @comment\n(function_definition name: (identifier) @_fn_name) @function\n"
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))

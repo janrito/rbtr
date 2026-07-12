@@ -13,10 +13,16 @@ import pytest
 import structlog
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.handlers import handle_build_index, handle_gc, handle_status
+from rbtr.daemon.handlers import (
+    handle_build_index,
+    handle_daemon_config,
+    handle_gc,
+    handle_status,
+)
 from rbtr.daemon.messages import (
     ActiveJob,
     BuildIndexRequest,
+    DaemonConfigRequest,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
@@ -47,6 +53,17 @@ def unindexed_ref() -> str:
     not indexed" path rather than "cannot resolve".
     """
     return "0" * 40
+
+
+def test_daemon_config_reports_version_config_and_plugins() -> None:
+    """The handler wires the daemon's own version, config dump, and
+    loaded plugins together; it needs no store or repo."""
+    resp = handle_daemon_config(DaemonConfigRequest())
+    assert resp.rbtr_version
+    assert "chunk_lines" in resp.config
+    # Manager records are projected into PluginInfo DTOs by pydantic.
+    assert resp.plugins, "expected loaded language plugins"
+    assert all(p.package for p in resp.plugins)
 
 
 @pytest.mark.parametrize(

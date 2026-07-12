@@ -21,13 +21,17 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from rbtr.daemon.dto import RefOuts, SearchHitOut, SymbolOut
+from rbtr import get_version
+from rbtr.config import config
+from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     ActiveJob,
     BuildIndexRequest,
     ChangedSymbol,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
+    DaemonConfigRequest,
+    DaemonConfigResponse,
     FindRefsRequest,
     FindRefsResponse,
     ForgetRequest,
@@ -61,6 +65,7 @@ from rbtr.git import (
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.models import Chunk, QueryKind, RepoRef
+from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
     from rbtr.index.embeddings import Embedder
@@ -344,6 +349,36 @@ def handle_status(
         watched=watched,
         active_build=active_build,
         active_embed=active_embed,
+    )
+
+
+def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
+    """Report the daemon's live config and the language plugins it loaded.
+
+    Independent of any repo or index — answers from the daemon process's
+    own `config` and `LanguageManager`. Each plugin joins its registration
+    (for `extraction_serial`) with its distribution (for package/version).
+    """
+    mgr = get_manager()
+    plugins: list[PluginInfo] = []
+    for language in sorted(mgr.all_language_ids()):
+        dist = mgr.distribution(language)
+        reg = mgr.get_registration(language)
+        if dist is None or reg is None:
+            continue
+        package, version = dist
+        plugins.append(
+            PluginInfo(
+                language=language,
+                package=package,
+                version=version,
+                extraction_serial=reg.extraction_serial,
+            )
+        )
+    return DaemonConfigResponse(
+        rbtr_version=get_version(),
+        config=config.model_dump(mode="json"),
+        plugins=plugins,
     )
 
 
