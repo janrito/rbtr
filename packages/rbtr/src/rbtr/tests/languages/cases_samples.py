@@ -178,6 +178,41 @@ def case_css() -> SampleCase:
     )
 
 
+@case(id="scss", tags=["sample"])
+def case_scss() -> SampleCase:
+    """SCSS: `$`-variables, @mixin and @function definitions (as functions),
+    rule sets incl. `%placeholders` and nested rules (as doc sections),
+    @media/@charset/@keyframes (as doc sections), and @use/@forward/@import
+    (as imports).
+    """
+    return (
+        "scss",
+        {
+            ChunkKind.VARIABLE,
+            ChunkKind.FUNCTION,
+            ChunkKind.DOC_SECTION,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
+@case(id="less", tags=["sample"])
+def case_less() -> SampleCase:
+    """Less: `@`-variables, `.mixin()` definitions (as functions), rule sets
+    and @media/@charset/@keyframes (as doc sections), and @import (as
+    imports). Mixin calls are references and are not captured.
+    """
+    return (
+        "less",
+        {
+            ChunkKind.VARIABLE,
+            ChunkKind.FUNCTION,
+            ChunkKind.DOC_SECTION,
+            ChunkKind.IMPORT,
+        },
+    )
+
+
 @case(id="sql", tags=["sample"])
 def case_sql() -> SampleCase:
     """SQL: one chunk per top-level statement — CREATE TABLE/VIEW (as

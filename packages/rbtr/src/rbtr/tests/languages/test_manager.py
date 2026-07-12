@@ -37,6 +37,8 @@ from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hook
         ("config.yaml", "yaml"),
         ("ci.yml", "yaml"),
         ("pyproject.toml", "toml"),
+        ("theme.scss", "scss"),
+        ("theme.less", "less"),
         ("README.md", "markdown"),
         ("src/rbtr/index/store.py", "python"),
     ],
@@ -59,6 +61,8 @@ from rbtr.languages.hookspec import LanguageHookspec, LanguageRegistration, hook
         "yaml",
         "yml",
         "toml",
+        "scss",
+        "less",
         "markdown",
         "nested-path",
     ],
@@ -263,6 +267,8 @@ def test_all_language_ids_not_empty(language_manager: LanguageManager) -> None:
         "markdown",
         "css",
         "html",
+        "scss",
+        "less",
     ],
 )
 def test_all_language_ids_contains(lang_id: str, language_manager: LanguageManager) -> None:

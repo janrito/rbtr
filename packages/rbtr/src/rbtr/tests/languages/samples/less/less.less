@@ -1,0 +1,38 @@
+// Greeter theme (Less).
+//
+// The Less plugin extracts @-variables, .mixin() definitions, rule sets
+// and @media/@charset/@keyframes as doc sections, and @import as imports.
+// Mixin calls (e.g. `.rounded(8px)`) are references, not definitions.
+
+@import "base";
+
+@primary: #333;
+@spacing: 8px;
+
+.rounded(@radius: 4px) {
+  border-radius: @radius;
+}
+
+.greeter {
+  color: @primary;
+  padding: @spacing;
+  .rounded(8px);
+  .greeting-label {
+    text-transform: uppercase;
+  }
+}
+
+@media (max-width: 600px) {
+  .greeter {
+    font-size: 14px;
+  }
+}
+
+@keyframes greeting-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

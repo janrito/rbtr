@@ -1,0 +1,53 @@
+// Greeter theme (SCSS).
+//
+// The SCSS plugin extracts $-variables, @mixin and @function definitions,
+// rule sets (including %placeholders and nested rules), @media/@charset/
+// @keyframes as doc sections, and @use/@forward/@import as imports.
+
+@charset "UTF-8";
+
+@use "config";
+@forward "theme";
+@import "reset";
+
+$primary: #333;
+$spacing: 8px;
+
+@mixin flex-center($direction: row) {
+  display: flex;
+  flex-direction: $direction;
+  align-items: center;
+}
+
+@function rem($px) {
+  @return $px * 1rem;
+}
+
+%card-base {
+  border-radius: 4px;
+  padding: $spacing;
+}
+
+.greeter {
+  color: $primary;
+  @include flex-center(column);
+
+  &:hover {
+    color: blue;
+  }
+}
+
+@media (max-width: 600px) {
+  .greeter {
+    font-size: rem(14);
+  }
+}
+
+@keyframes greeting-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

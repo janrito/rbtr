@@ -52,11 +52,13 @@ from rbtr.languages.html import HtmlPlugin
 from rbtr.languages.java import JavaPlugin
 from rbtr.languages.javascript import JavaScriptPlugin
 from rbtr.languages.json import JsonPlugin
+from rbtr.languages.less import LessPlugin
 from rbtr.languages.markdown import MarkdownPlugin
 from rbtr.languages.python import PythonPlugin
 from rbtr.languages.rst import RstPlugin
 from rbtr.languages.ruby import RubyPlugin
 from rbtr.languages.rust import RustPlugin
+from rbtr.languages.scss import ScssPlugin
 from rbtr.languages.sql import SqlPlugin
 from rbtr.languages.toml import TomlPlugin
 from rbtr.languages.yaml import YamlPlugin
@@ -112,6 +114,7 @@ class LanguageManager:
             HclPlugin,
             HtmlPlugin,
             JavaPlugin,
+            LessPlugin,
             JavaScriptPlugin,
             JsonPlugin,
             MarkdownPlugin,
@@ -119,6 +122,7 @@ class LanguageManager:
             RstPlugin,
             RubyPlugin,
             RustPlugin,
+            ScssPlugin,
             SqlPlugin,
             TomlPlugin,
             YamlPlugin,
