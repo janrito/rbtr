@@ -1070,10 +1070,12 @@ chunks.
 
 ## Language plugins
 
-[pluggy]-based. Each plugin is a Python file under
-`rbtr/languages/` that returns `LanguageRegistration`
-instances. A plugin provides whatever combination of fields
-its language needs - there are no tiers or categories.
+[pluggy]-based. Each plugin is a package under
+`rbtr/languages/<lang>/` (a `plugin.py` plus its tree-sitter
+queries as sibling `.scm` files, loaded via `load_query`)
+that returns `LanguageRegistration` instances. A plugin
+provides whatever combination of fields its language needs -
+there are no tiers or categories.
 
 [pluggy]: https://pluggy.readthedocs.io/
 

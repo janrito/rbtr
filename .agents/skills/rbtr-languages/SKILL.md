@@ -115,6 +115,22 @@ at absolute line numbers. Every file also gets a host-language chunk (a
 content-less presence chunk if it would produce none), so dedup works. See
 ARCHITECTURE “Dispatch chain” for the mechanism and rationale.
 
+### Where queries live
+
+Every query — `reg.query`, `reg.injection_query`, and any query a chunker
+compiles — is a `.scm` file in the plugin's own package
+(`languages/<lang>/<name>.scm`), loaded at import via
+`load_query(__package__, "<name>")`. Never inline a query as a Python string
+literal (the house rule against embedding a foreign language). The `uv`
+build backend ships `.scm` as package data with no extra config.
+
+Compose in Python when a query is built from parts — the query language has
+no `#include`: js/ts concatenate shared fragment files with `+`
+(`load_query(pkg, "javascript") + load_query(pkg, "shared") + …`); SQL groups
+its DDL verbs into `[...]` alternations within one `sql.scm`. Prefer these to
+generating query text from Python data. Editing a `.scm` is an extraction
+change — the `language_plugin_version` bump rule (below) applies.
+
 ## Capture conventions
 
 The query's capture names drive the chunk kind (see `_CAPTURE_KIND` in
@@ -188,7 +204,9 @@ captured node, so they work for any language:
 1. Read the grammar: its `queries/tags.scm` (the authors' definition list —
    see the tags reference) **and** the real node structure (parse a snippet,
    print the tree). Never guess node types.
-2. Extend the `_QUERY` (or chunker). Verify against a parsed snippet.
+2. Edit the language's `.scm` query file (or chunker) — queries live in
+   `languages/<lang>/*.scm`, loaded via `load_query`, never inline (see
+   *Where queries live*). Verify against a parsed snippet.
 3. Add the construct to that language's sample in `tests/languages/samples/`
    and regenerate the snapshot with `just snapshots`; review the diff.
 4. Bump `language_plugin_version` — any extraction change triggers
@@ -231,6 +249,10 @@ itself a tree-sitter query, so it is **inspiration for ours, not a drop-in**:
   (TS `enum`/type alias, Java `enum`/`record`), some grammars inherit others
   (ts ← js), and only the 9 code grammars ship one.
 - Running it live would couple extraction to upstream drift. We don't.
+
+Distinct from **rbtr's own** `.scm` files (see *Where queries live*): we load
+those at runtime (`reg.query` / `injection_query`) as the source of truth,
+whereas `tags.scm` we only mine for ideas.
 
 Curated per-language verdicts (take / modify / ignore) and the
 `@definition.* → ChunkKind` mapping live in

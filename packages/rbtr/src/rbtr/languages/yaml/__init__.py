@@ -1,0 +1,1 @@
+"""YAML language plugin package."""

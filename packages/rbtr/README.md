@@ -375,30 +375,34 @@ for how the plugin system works.
 
 ## Writing a language plugin
 
-Every plugin is a Python file under `rbtr/languages/`
-with a pluggy hook that returns `LanguageRegistration`
-instances. A plugin provides whatever fields its language
-needs.
+Every plugin is a package under `rbtr/languages/<lang>/` — a
+`plugin.py` with a pluggy hook that returns
+`LanguageRegistration` instances, plus its tree-sitter query
+in a sibling `.scm` file. A plugin provides whatever fields
+its language needs.
 
 ### Query-based plugin (preferred)
 
 Most languages need only a tree-sitter query. The generic
 `extract_symbols` pipeline handles parsing, capture
-matching, scope detection, and chunk construction.
+matching, scope detection, and chunk construction. The query
+lives in its own `.scm` file, loaded with `load_query`:
 
-```python
-# rbtr/languages/swift.py
-from __future__ import annotations
-from rbtr.languages.hookspec import LanguageRegistration, hookimpl
-
-_QUERY = """\
+```scm
+; rbtr/languages/swift/swift.scm
 (function_declaration
   name: (identifier) @_fn_name) @function
 (class_declaration
   name: (type_identifier) @_cls_name) @class
 (import_declaration
   (identifier) @_import_module) @import
-"""
+```
+
+```python
+# rbtr/languages/swift/plugin.py
+from __future__ import annotations
+from rbtr.languages._queries import load_query
+from rbtr.languages.hookspec import LanguageRegistration, hookimpl
 
 class SwiftPlugin:
     @hookimpl
@@ -408,7 +412,7 @@ class SwiftPlugin:
                 id="swift",
                 extensions=frozenset({".swift"}),
                 grammar_module="tree_sitter_swift",
-                query=_QUERY,
+                query=load_query(__package__, "swift"),
                 scope_types=frozenset({"class_declaration"}),
                 doc_comment_node_types=frozenset({"comment"}),
             ),
@@ -456,7 +460,7 @@ content-minus-children), write a custom chunker. The
 chunker receives the grammar from the manager:
 
 ```python
-# rbtr/languages/example.py
+# rbtr/languages/example/plugin.py
 from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
@@ -496,7 +500,8 @@ class ExamplePlugin:
 
 ### Registration
 
-Built-in plugins: import the class at the top of
+Built-in plugins: add the `<lang>/` package (a `plugin.py`
+and any `.scm` files), then import the class at the top of
 `rbtr/languages/__init__.py` and list it in `_register_builtins`.
 
 External plugins: register via setuptools entry points:
