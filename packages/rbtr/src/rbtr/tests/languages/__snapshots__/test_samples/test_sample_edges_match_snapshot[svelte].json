@@ -1,0 +1,3 @@
+[
+  "Greeting.svelte::import { greet } from \"./greeter\"; -> greeter.ts::greet [imports]"
+]

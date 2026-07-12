@@ -1,0 +1,3 @@
+# Configuration
+
+Greeter configuration options.

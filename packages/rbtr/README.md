@@ -358,14 +358,17 @@ extraction (symbol-level chunks, import metadata, scope
 detection). Everything else gets line-based chunking.
 
 Built-in: bash, c, cpp, css, go, hcl, html, java,
-javascript, json, markdown, python, rst, ruby, rust,
-sql, toml, tsx, typescript, yaml.
+javascript, json, less, markdown, python, rst, ruby,
+rust, scss, sql, svelte, toml, tsx, typescript, vue,
+yaml.
 
 Code embedded in another file is indexed in its own
 language. A fenced code block in Markdown is extracted as
 chunks of that language at its real line numbers, so a
 Python example in a README is searchable as Python.
-HTML extracts inline `<script>` / `<style>` the same way.
+HTML and single-file components (Svelte, Vue) extract
+inline `<script>` / `<style>` the same way; an SFC's markup
+template is indexed too, named after the component file.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
 for how the plugin system works.

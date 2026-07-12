@@ -390,9 +390,9 @@ class IndexStore:
           is reliable.)
         - A plugin's version is bumped → chunks stored at the old
           version no longer match → re-extracted.
-        - A multi-language file lists every embedded language
-          plus the host, so bumping *any* contributor (the HTML
-          host or its delegated JavaScript) re-extracts the file;
+        - A multi-language file (SFC) lists every embedded language
+          plus the host, so bumping *any* contributor (the svelte
+          host or the delegated typescript) re-extracts the file;
           when none change, it is skipped like any other blob.
 
         When `has_blob` returns False and old chunks exist for

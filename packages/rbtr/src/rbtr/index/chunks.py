@@ -87,8 +87,7 @@ def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
 
     Emitted when extraction produced no chunk in the file's own language:
     an empty file (an empty `__init__.py`), or a multi-language file whose
-    host contributes no content (a Markdown file that is only a fenced code
-    block). It carries the host
+    host contributes no content (a script-only SFC). It carries the host
     language so the blob-dedup gate records that version and skips the file
     on later builds instead of re-parsing it every time. Empty content
     never ranks in search.

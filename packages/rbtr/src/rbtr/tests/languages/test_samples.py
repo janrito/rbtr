@@ -58,6 +58,17 @@ def sample(lang: str, expected_kinds: set[ChunkKind]) -> SampleData:
     return lang, expected_kinds, files, chunks, edges
 
 
+@pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
+def test_every_language_has_a_sample(lang: str) -> None:
+    """Every registered language ships a `samples/<lang>/` project.
+
+    Guards the sample-driven invariant battery and snapshots against silent
+    gaps: a new language with no sample fails here rather than being quietly
+    skipped by the `sample` fixture.
+    """
+    assert load_project(lang), f"{lang}: no samples/{lang}/ project"
+
+
 def test_sample_emits_expected_kinds(sample: SampleData) -> None:
     """The sample produces at least one chunk of every expected kind."""
     lang, expected_kinds, _files, chunks, _edges = sample

@@ -1,0 +1,3 @@
+[
+  "Counter.vue::import { makeStore } from \"./store\"; -> store.ts::makeStore [imports]"
+]

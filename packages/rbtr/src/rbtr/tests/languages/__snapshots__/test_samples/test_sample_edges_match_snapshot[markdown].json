@@ -1,0 +1,5 @@
+[
+  "markdown.md::api.md#format-greeting -> api.md::format-greeting [documents]",
+  "markdown.md::config.md -> config.md::Configuration [documents]",
+  "markdown.md::locales.md -> locales.md::Locales [documents]"
+]
