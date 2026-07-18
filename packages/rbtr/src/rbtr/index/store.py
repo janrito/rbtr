@@ -99,6 +99,7 @@ _GET_REPO_SQL = load_sql("get_repo.sql")
 _LIST_REPOS_SQL = load_sql("list_repos.sql")
 _GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
 _COUNT_CHUNKS_SQL = load_sql("count_chunks.sql")
+_DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
 _HAS_INDEXED_SQL = load_sql("has_indexed.sql")
 _LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_commits.sql")
 _LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
@@ -469,6 +470,16 @@ class IndexStore:
             _COUNT_CHUNKS_SQL, {"repo_id": repo_id, "commit_sha": commit_sha}
         ).fetchone()
         return int(row[0]) if row else 0
+
+    def distinct_chunk_languages(self) -> set[str]:
+        """Return every real language present in the store (global).
+
+        Excludes the raw-chunk fallback pseudo-language (`''`), so the
+        result is the set of languages some plugin has actually
+        extracted -- a record of the plugin set that built the index.
+        """
+        rows = self._cursor.execute(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall()
+        return {str(r[0]) for r in rows}
 
     def get_chunks(
         self,

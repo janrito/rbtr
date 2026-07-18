@@ -57,6 +57,7 @@ def test_index_falls_back_to_inline_when_start_fails(
         remove_stale_repos=False,
         daemon=True,
         embed=False,
+        allow_missing_plugins=False,
     ).cli_cmd()
 
     repo_id = inline_store.get_repo_id(normalise_repo_path(repo_path))

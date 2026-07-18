@@ -39,6 +39,29 @@ class IndexSchemaTooNewError(RbtrError):
         )
 
 
+class MissingLanguagePluginsError(RbtrError):
+    """Raised when the index holds languages the running rbtr can't load.
+
+    The index records which languages it was built with (chunk
+    `language`).  If the running process has no plugin loaded for one
+    of them, a rebuild re-extracts those files as raw line-chunks,
+    churning the content-addressed store and its embeddings.  So the
+    build/daemon refuses rather than silently degrade -- usually a
+    wrong or partially-installed environment.  `--allow-missing-plugins`
+    overrides it.
+    """
+
+    def __init__(self, *, missing: set[str]) -> None:
+        languages = ", ".join(sorted(missing))
+        super().__init__(
+            f"The index has chunks in languages this rbtr has not loaded: "
+            f"{languages}. Rebuilding would re-extract them as raw chunks "
+            f"and churn the index and its embeddings, so rbtr refuses to "
+            f"run. Check `rbtr config` for loaded plugins and fix the "
+            f"environment, or pass --allow-missing-plugins to override."
+        )
+
+
 class DaemonBusyError(RbtrError):
     """Raised when the daemon is alive but the request couldn't be served.
 

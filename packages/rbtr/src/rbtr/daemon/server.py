@@ -86,6 +86,7 @@ from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
+from rbtr.languages.manager import get_manager
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
@@ -137,6 +138,7 @@ class DaemonServer:
         *,
         idle_poll_interval: float | None = None,
         busy_poll_interval: float | None = None,
+        allow_missing_plugins: bool = False,
     ) -> None:
         # Defaults come from the central pydantic Config so there is
         # exactly one source of truth per knob. Callers (currently
@@ -160,6 +162,7 @@ class DaemonServer:
         }
         self._idle_poll_interval = idle_poll_interval
         self._busy_poll_interval = busy_poll_interval
+        self._allow_missing_plugins = allow_missing_plugins
         self._store = store
         self._ready = threading.Event()
         self._embedder: Embedder | None = None
@@ -688,6 +691,16 @@ class DaemonServer:
             loop.add_signal_handler(sig, self.request_shutdown)
 
     async def serve(self) -> None:
+        # Refuse to serve when the index holds languages this process
+        # can't load: rebuilding them would re-extract raw chunks and
+        # churn embeddings. Raises before we announce readiness, so the
+        # caller sees the daemon fail to start. Once, at boot -- never
+        # per build. `--allow-missing-plugins` overrides.
+        if self._store is not None:
+            get_manager().require_languages_loaded(
+                self._store.distinct_chunk_languages(),
+                allow_missing=self._allow_missing_plugins,
+            )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._register_atexit()
 

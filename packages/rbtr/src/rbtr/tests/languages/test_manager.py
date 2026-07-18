@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from tree_sitter import Query
 
-from rbtr.errors import RbtrError
+from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.manager import get_manager, reset_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
@@ -314,6 +314,40 @@ def test_broken_plugin_is_skipped(monkeypatch: pytest.MonkeyPatch, fresh_manager
     eps = [SimpleNamespace(name="broken", load=boom), SimpleNamespace(name="ok", load=lambda: good)]
     monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
     assert get_manager().all_language_ids() == ["oklang"]
+
+
+# ── require_languages_loaded ─────────────────────────────────────────
+#
+# The index records which languages it was built with; a rebuild in a
+# process missing one of those plugins would re-extract raw chunks and
+# churn embeddings.  The manager owns the "what is loaded" knowledge, so
+# the check lives here.
+
+
+@pytest.fixture
+def only_oklang(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) -> None:
+    """A manager that loaded exactly one language, `oklang`."""
+    reg = LanguageRegistration(id="oklang", extensions=frozenset({".oklang"}))
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group: [SimpleNamespace(name="ok", load=lambda: reg)],
+    )
+
+
+def test_require_languages_loaded_passes_when_all_present(only_oklang: None) -> None:
+    get_manager().require_languages_loaded(["oklang"], allow_missing=False)
+
+
+def test_require_languages_loaded_raises_for_unloaded(only_oklang: None) -> None:
+    """A language in the index with no loaded plugin is fatal."""
+    with pytest.raises(MissingLanguagePluginsError, match="python"):
+        get_manager().require_languages_loaded(["oklang", "python"], allow_missing=False)
+
+
+def test_require_languages_loaded_allow_missing_downgrades(only_oklang: None) -> None:
+    """`allow_missing` overrides the failure (warns instead of raising)."""
+    get_manager().require_languages_loaded(["python"], allow_missing=True)
 
 
 # ── Distributions ─────────────────────────────────────────────────────
