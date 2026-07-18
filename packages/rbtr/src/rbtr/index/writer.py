@@ -17,8 +17,11 @@ and search.  `WriteSession` owns all data mutations.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import duckdb
 import polars as pl
@@ -112,6 +115,7 @@ class WriteSession:
         self._store = store
         self._active = False
         self._chunks_modified = False
+        self._compact_requested = False
         # Chunks are content-addressed (keyed by id, no repo_id); the
         # buffer holds repo-independent content flushed via upsert.
         self._chunk_buffer: list[TokenisedChunk] = []
@@ -189,13 +193,15 @@ class WriteSession:
             self._commit()
 
     def _commit(self) -> None:
-        """Flush pending chunks, commit, and rebuild FTS if needed."""
+        """Flush pending chunks, commit, rebuild FTS, then compact if asked."""
         self._require_active()
         self._flush_chunks()
         self._cursor.commit()
         if self._chunks_modified:
             self._rebuild_fts()
         self._active = False
+        if self._compact_requested:
+            self._do_compact()
 
     def _rebuild_fts(self) -> None:
         """(Re)create the BM25 index and neutralise IDF."""
@@ -419,6 +425,104 @@ class WriteSession:
             ),
             chunks=chunks_deleted,
         )
+
+    def compact(self) -> None:
+        """Request a database-file rewrite once this session commits.
+
+        Deleting rows does not shrink the database file: the freed space
+        is kept inside it for reuse.  Copying the live data into a fresh
+        file and swapping it in is the only way to hand that space back
+        to the operating system.  The rewrite runs after the commit, so
+        the deletions are durable before the file is replaced.
+        """
+        self._require_active()
+        self._compact_requested = True
+
+    def _do_compact(self) -> None:
+        """Rewrite the committed database into a fresh file, lock-free.
+
+        Runs from `_commit`, after the commit. Copies the data (search
+        index included) into a fresh file, opens that file as its own
+        connection, atomically renames it over the original, and hands it
+        to the store (read-copy-update): readers still on the old
+        connection finish against the old file and rebind on their next
+        call, so none is cut off — no lock. A failure leaves the original
+        file and connection untouched, so a failed compaction is never
+        fatal; the index is simply not shrunk.
+        """
+        store = self._store
+        if store.db_path is None:
+            return  # in-memory: nothing on disk to compact
+        db_path = Path(store.db_path)
+        # Unique per compaction: the previous compaction's live connection
+        # still identifies its database by its own temp path, so reusing
+        # the name would collide on ATTACH.
+        tmp_path = db_path.with_name(f"{db_path.name}.compact-{uuid4().hex}")
+        try:
+            self._write_compacted_copy(tmp_path)
+        except (OSError, duckdb.Error) as exc:
+            tmp_path.unlink(missing_ok=True)
+            log.warning("gc_compaction_failed", error=str(exc))
+            return
+        # Open the compacted copy as its own connection (a distinct path,
+        # so DuckDB's one-instance-per-path cache gives a fresh instance),
+        # make it canonical with an atomic rename (the open file handle
+        # follows the inode), then publish it. The old connection is left
+        # to its readers and closes by refcount once they have rebound.
+        new_con: duckdb.DuckDBPyConnection | None = None
+        try:
+            new_con = duckdb.connect(str(tmp_path))
+            os.replace(tmp_path, db_path)
+        except (OSError, duckdb.Error) as exc:
+            if new_con is not None:
+                new_con.close()
+            tmp_path.unlink(missing_ok=True)
+            log.warning("gc_compaction_failed", error=str(exc))
+            return
+        store._adopt_connection(new_con)
+
+    def _write_compacted_copy(self, tmp_path: Path) -> None:
+        """Copy the live database into a fresh file at *tmp_path*.
+
+        The statements below are written inline, not loaded from `.sql`
+        files, deliberately. Two of them interpolate a value into the SQL
+        text, and interpolation can only be reviewed for safety when the
+        value and the statement it lands in are visible together — hiding
+        the template in another file makes that worse. DuckDB forces the
+        interpolation here: it parses an ATTACH path as a string literal
+        and a database name as an identifier, and *neither* can be a
+        bound parameter (`ATTACH $p` / `ATTACH ?` are parser errors),
+        nor is there a Python-API equivalent — `duckdb.DuckDBPyConnection`
+        has no `attach`/`detach`/`copy` method (only `execute`). So each
+        value is escaped for the exact quoting context it sits in.
+        """
+        tmp_path.unlink(missing_ok=True)
+        # Capture the cursor once: the ATTACH, COPY and DETACH must all
+        # run on the same connection (as `IndexStore._view` does for
+        # reads).
+        cur = self._cursor
+
+        # Source database name, needed to name it in the COPY below. This
+        # is the engine's own identifier for the open file (e.g. `index`),
+        # produced by DuckDB, never user-supplied text.
+        row = cur.execute("SELECT current_database()").fetchone()
+        source = str(row[0]) if row is not None else ""
+
+        # ATTACH the (empty) target file. `tmp_path` derives from the
+        # configured index path, not per-call input; it sits inside a
+        # single-quoted string literal, so every single quote in it is
+        # doubled ('->'') to keep the literal well-formed and unbreakable.
+        attach_path = str(tmp_path).replace("'", "''")
+        cur.execute(f"ATTACH '{attach_path}' AS compact_target")
+        try:
+            # Copy every table — chunk/snapshot/edge data and the FTS
+            # index — into the target. `source` sits inside a
+            # double-quoted identifier, so every double quote in it is
+            # doubled ("->"") for the same reason.
+            safe_source = source.replace('"', '""')
+            cur.execute(f'COPY FROM DATABASE "{safe_source}" TO compact_target')
+        finally:
+            cur.execute("DETACH compact_target")
 
     def forget_repo(self, repo_id: int) -> None:
         """Forget a whole repo: delete its references and the `repos` row.

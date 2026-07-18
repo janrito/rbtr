@@ -314,6 +314,7 @@ class GcRequest(BaseModel):
     mode: GcMode
     refs: list[str] = []
     dry_run: bool = False
+    compact: bool = True  # rewrite the index to reclaim freed disk space
 
 
 class ForgetRequest(BaseModel):
@@ -467,6 +468,7 @@ class StatusResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["status"] = "status"
     db_path: str | None = None
+    db_size_bytes: int | None = None  # whole index file on disk, a global figure
     indexed_refs: list[IndexedRef] = []
     watched: list[WatchedRef] = []
     active_build: ActiveJob | None = None
@@ -497,6 +499,8 @@ class GcResponse(BaseModel):
     snapshots_dropped: int
     edges_dropped: int
     chunks_freed: int  # chunks actually removed from the global pool
+    size_before_bytes: int = 0  # on-disk footprint before the run
+    size_after_bytes: int = 0  # on-disk footprint after the run
     elapsed_seconds: float
     dry_run: bool = False
 

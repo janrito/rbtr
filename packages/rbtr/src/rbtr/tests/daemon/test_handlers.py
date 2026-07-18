@@ -375,6 +375,7 @@ def test_status_with_index(
     with DaemonClient(running_server_with_index.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=fake_repo))
     assert isinstance(resp, StatusResponse)
+    assert resp.db_size_bytes is not None  # populated (0 for the in-memory test store)
     assert len(resp.indexed_refs) == 1
     assert resp.indexed_refs[0].sha == daemon_commit
     assert resp.indexed_refs[0].total > 0
