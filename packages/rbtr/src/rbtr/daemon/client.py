@@ -139,6 +139,13 @@ def start_daemon() -> DaemonStatus:
     # isn't the one we spawned, a concurrent caller won the race:
     # terminate our redundant serve (it would otherwise die on
     # the DuckDB lock) and return the winner.
+    #
+    # If our spawn exits without a daemon appearing, it failed for
+    # real (e.g. the index was built by a newer rbtr and this one
+    # refuses).  Fail fast rather than wait the full 5 s -- but
+    # allow a short grace first, since a spawn that *lost* the race
+    # also exits, and the winner's status file may lag a beat.
+    grace_after_exit = 5  # 100 ms ticks to let a racing winner appear
     for _ in range(50):  # 5 s at 100 ms intervals
         time.sleep(0.1)
         status = _status()
@@ -146,9 +153,13 @@ def start_daemon() -> DaemonStatus:
             if status.pid != proc.pid and proc.poll() is None:
                 proc.terminate()
             return status
+        if proc.poll() is not None:
+            if grace_after_exit <= 0:
+                break
+            grace_after_exit -= 1
 
     proc.terminate()
-    msg = f"Daemon failed to start within 5 s. Check {config.daemon_log} for details."
+    msg = f"Daemon failed to start. Check {config.daemon_log} for the reason."
     raise RbtrError(msg)
 
 

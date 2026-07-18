@@ -126,7 +126,14 @@ class DaemonServe(BaseModel):
 
         config.runtime_dir.mkdir(parents=True, exist_ok=True)
         print_banner()
-        store = IndexStore.from_config(writable=True)
+        try:
+            store = IndexStore.from_config(writable=True)
+        except RbtrError:
+            # The parent redirects our stderr to DEVNULL, so record why
+            # the daemon couldn't open the index (e.g. a schema refuse)
+            # in the log the parent points the user at.
+            log.exception("daemon_store_open_failed")
+            raise
         server = DaemonServer(config.runtime_dir, store)
         asyncio.run(server.serve())
 

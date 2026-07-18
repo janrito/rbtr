@@ -43,7 +43,6 @@ docstring documents the semantics and prose special case.
 
 from __future__ import annotations
 
-import contextlib
 import threading
 from pathlib import Path
 
@@ -53,7 +52,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import WeightTriple, config
-from rbtr.errors import IndexNotBuiltError, RbtrError
+from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
@@ -108,45 +107,25 @@ _COUNT_EDGES_FOR_COMMIT_SQL = load_sql("count_edges_for_commit.sql")
 _GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
 _COUNT_UNEMBEDDED_SQL = load_sql("count_unembedded.sql")
 _GET_UNEMBEDDED_CHUNKS_SQL = load_sql("get_unembedded_chunks.sql")
+_HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
+_DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
+_WIPE_SCHEMA_SQL = load_sql("wipe_schema.sql")
 
 
 # ── Row mapping ──────────────────────────────────────────────────────
 
-# ── Schema versioning ────────────────────────────────────────────────
 
+def _parse_calver(version: str) -> tuple[int, ...]:
+    """Parse a calver version to an int tuple for ordering.
 
-def check_schema_version(db_path: Path) -> None:
-    """Delete *db_path* if its schema version is stale.
-
-    Returns silently if the file is missing or already open in
-    this process.  Lets `duckdb.IOException` propagate when the
-    DB is locked by another process or genuinely corrupt --
-    callers decide what to do with that.
+    Compared as ints, not lexically (`2026.5.6 < 2026.5.10`).  An
+    unparseable version sorts oldest (`()`) so a foreign or corrupt
+    stored version rebuilds rather than being mistaken for newer.
     """
-    if not db_path.exists():
-        return
     try:
-        with contextlib.closing(duckdb.connect(str(db_path), read_only=True)) as con:
-            rows = con.execute(_GET_SCHEMA_VERSION_SQL).fetchall()
-    except (duckdb.ConnectionException, duckdb.IOException):
-        return
-    except (duckdb.CatalogException, duckdb.DependencyException):
-        # CatalogException: meta table doesn't exist yet (fresh DB).
-        # DependencyException: WAL contains stale FTS DDL that
-        # can't replay in read-only mode.  The read-write open
-        # in __init__ will handle it.
-        rows = []
-
-    stored = str(rows[0][0]) if rows else ""
-    if stored == SCHEMA_VERSION:
-        return
-    log.warning(
-        "index_schema_changed",
-        stored=stored or "none",
-        current=SCHEMA_VERSION,
-    )
-    db_path.unlink(missing_ok=True)
-    db_path.with_suffix(db_path.suffix + ".wal").unlink(missing_ok=True)
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return ()
 
 
 # ── IndexStore ─────────────────────────────────────────────────────────
@@ -171,9 +150,7 @@ class IndexStore:
         self._bootstrapped = False
         self._repo_cache: dict[str, int] = {}
         if db_path is not None:
-            resolved = Path(db_path)
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            check_schema_version(resolved)
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         dsn = str(db_path) if db_path else ":memory:"
         try:
             self._con = duckdb.connect(dsn)
@@ -190,9 +167,45 @@ class IndexStore:
             raise
         self._con.execute("INSTALL fts; LOAD fts;")
         self._local = threading.local()
+        # Enforce the schema version *while holding the connection* (and
+        # thus DuckDB's exclusive lock), so a wipe is done in place and
+        # never unlinks the file -- unlinking would let a second process
+        # open a fresh DB at the same path and defeat the lock.
+        if db_path is not None:
+            self._enforce_schema_version()
         if writable:
             with self.session():
                 pass  # schema DDL + embedding version check
+
+    def _enforce_schema_version(self) -> None:
+        """Keep, wipe, or refuse the open DB by its stored schema version.
+
+        Runs under the held connection.  An equal version keeps the
+        DB; a newer running binary wipes and rebuilds it in place; an
+        *older* running binary refuses (raises `IndexSchemaTooNewError`)
+        rather than destroy an index a newer rbtr wrote.
+        """
+        try:
+            rows = self._con.execute(_GET_SCHEMA_VERSION_SQL).fetchall()
+        except duckdb.CatalogException:
+            return  # no meta table: fresh DB, the writable bootstrap builds it
+        stored = str(rows[0][0]) if rows else ""
+        if stored == SCHEMA_VERSION:
+            return
+        if _parse_calver(stored) > _parse_calver(SCHEMA_VERSION):
+            self._con.close()
+            raise IndexSchemaTooNewError(stored=stored, code=SCHEMA_VERSION)
+        if not self._writable:
+            self._con.close()
+            msg = (
+                f"Index schema {stored or 'unknown'} predates this rbtr "
+                f"({SCHEMA_VERSION}); run `rbtr index` to rebuild it."
+            )
+            raise RbtrError(msg)
+        log.warning("index_schema_changed", stored=stored or "none", current=SCHEMA_VERSION)
+        if self._con.execute(_HAS_FTS_INDEX_SQL).fetchone():
+            self._con.execute(_DROP_FTS_INDEX_SQL)
+        self._con.execute(_WIPE_SCHEMA_SQL)
 
     @classmethod
     def from_config(cls, *, writable: bool = False) -> IndexStore:

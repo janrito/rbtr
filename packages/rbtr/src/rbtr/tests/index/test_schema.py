@@ -15,10 +15,12 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
+import pytest
 from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
+from rbtr.errors import IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.models import Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
@@ -165,6 +167,58 @@ def test_embedding_meta_stored_after_change(
 
 
 # ── DB lifecycle ────────────────────────────────────────────────────
+
+
+def _seed_one_chunk(path: Path) -> None:
+    """Seed *path* with a single indexed chunk at the current schema."""
+    seed = IndexStore(path, writable=True)
+    with seed.session() as ws:
+        ws.add_chunk(make_chunk("c1"))
+        ws.insert_snapshots(
+            [Snapshot(commit_sha="head", file_path="f.py", blob_sha="blob_c1")],
+            repo_id=1,
+        )
+    seed.close()
+
+
+def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: MockerFixture) -> None:
+    """An rbtr older than the on-disk schema refuses to open and never wipes.
+
+    Guards the cross-install flip-flop: an older install must not
+    destroy an index a newer install wrote.
+    """
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    inode_before = path.stat().st_ino
+
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2000.1.1")
+    with pytest.raises(IndexSchemaTooNewError):
+        IndexStore(path, writable=True)
+
+    assert path.exists()
+    assert path.stat().st_ino == inode_before  # never unlinked/recreated
+
+
+def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
+    """A newer rbtr wipes a stale index in place, never unlinking the file.
+
+    An unlink-based wipe defeats DuckDB's exclusive lock (a second
+    process opens a fresh DB at the same path); an in-place wipe keeps
+    the same inode, so the lock keeps serialising writers.
+    """
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    con = duckdb.connect(str(path))
+    con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')")
+    con.close()
+    inode_before = path.stat().st_ino
+
+    store = IndexStore(path, writable=True)  # newer code -> wipe in place
+    try:
+        assert path.stat().st_ino == inode_before, "wipe must not unlink/recreate the DB file"
+        assert not store.get_chunks("head", repo_id=1), "stale data must be wiped"
+    finally:
+        store.close()
 
 
 def test_second_open_against_same_db_succeeds(tmp_path: Path) -> None:
