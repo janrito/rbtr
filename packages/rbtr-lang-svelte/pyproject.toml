@@ -10,12 +10,12 @@ module-name = "rbtr_lang_svelte"
 
 [project]
 name = "rbtr-lang-svelte"
-version = "2026.7.0-dev0"
+version = "2026.7.0-dev1"
 description = "rbtr — Svelte language plugin (and shared SFC machinery)"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.7.0-dev0",
+  "rbtr==2026.7.0-dev1",
   "tree-sitter-svelte",
 ]
 
