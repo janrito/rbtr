@@ -97,6 +97,7 @@ from rbtr.index.embeddings import Embedder
 from rbtr.index.orchestrator import build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
+from rbtr.languages.manager import get_manager
 from rbtr.logging import configure_logging
 
 log = structlog.get_logger(__name__)
@@ -119,6 +120,11 @@ ScopeField = Annotated[Scope, BeforeValidator(_normalise_scope)]
 class DaemonServe(BaseModel):
     """Internal: run the daemon server (spawned by `daemon start`)."""
 
+    allow_missing_plugins: bool = Field(
+        False,
+        description="Serve even if the index has languages this rbtr cannot load",
+    )
+
     def cli_cmd(self) -> None:
         # The daemon's sole log sink is the rotating JSON file; the
         # parent no longer redirects the child's stderr here.
@@ -134,7 +140,9 @@ class DaemonServe(BaseModel):
             # in the log the parent points the user at.
             log.exception("daemon_store_open_failed")
             raise
-        server = DaemonServer(config.runtime_dir, store)
+        server = DaemonServer(
+            config.runtime_dir, store, allow_missing_plugins=self.allow_missing_plugins
+        )
         asyncio.run(server.serve())
 
 
@@ -144,6 +152,11 @@ class DaemonServe(BaseModel):
 class DaemonStart(BaseModel):
     """Start the daemon in the background."""
 
+    allow_missing_plugins: bool = Field(
+        False,
+        description="Serve even if the index has languages this rbtr cannot load",
+    )
+
     def cli_cmd(self) -> None:
         if is_daemon_running():
             s = _status()
@@ -151,7 +164,7 @@ class DaemonStart(BaseModel):
             return
 
         try:
-            start_daemon()
+            start_daemon(allow_missing_plugins=self.allow_missing_plugins)
         except RbtrError as exc:
             print_err(f"[red]error:[/] {exc}")
             sys.exit(1)
@@ -240,6 +253,10 @@ class Index(BaseModel):
     )
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
     embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
+    allow_missing_plugins: bool = Field(
+        False,
+        description="Build even if the index has languages this rbtr cannot load",
+    )
 
     def cli_cmd(self) -> None:
         # Forgetting vanished repos needs no current repo — handle it before
@@ -447,6 +464,12 @@ class Index(BaseModel):
     ) -> None:
         """Run indexing inline (blocking)."""
         store = IndexStore.from_config(writable=True)
+        # Refuse to rebuild languages whose plugin isn't loaded -- that
+        # would re-extract raw chunks and churn embeddings -- unless the
+        # caller overrides with --allow-missing-plugins.
+        get_manager().require_languages_loaded(
+            store.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
+        )
         with store.session() as ws:
             repo_id = ws.register_repo(resolved_repo)
         embedder = Embedder(idle_timeout=config.embed_idle_timeout)

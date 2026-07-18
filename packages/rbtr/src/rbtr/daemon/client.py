@@ -69,7 +69,7 @@ def _daemon_ready(status: DaemonStatus | None) -> TypeGuard[DaemonStatus]:
     return status is not None and is_pid_alive(status.pid)
 
 
-def start_daemon() -> DaemonStatus:
+def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     """Start the daemon and wait for it to become ready.
 
     Cleans up stale state before spawning: if a status file
@@ -121,6 +121,8 @@ def start_daemon() -> DaemonStatus:
         if value is not None:
             cmd.extend([flag, str(value)])
     cmd.extend(["daemon", "serve"])
+    if allow_missing_plugins:
+        cmd.append("--allow-missing-plugins")
 
     # The daemon configures its own rotating JSON log sink
     # (`configure_logging(to_file=True)`), so we no longer redirect the

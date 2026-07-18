@@ -30,13 +30,14 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import PurePosixPath
 
 import structlog
 from tree_sitter import Language
 
-from rbtr.errors import RbtrError
+from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.registration import LanguageRegistration
 
 log = structlog.get_logger(__name__)
@@ -178,6 +179,24 @@ class LanguageManager:
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs."""
         return list(self._registrations)
+
+    def require_languages_loaded(self, languages: Iterable[str], *, allow_missing: bool) -> None:
+        """Fail if any of *languages* has no plugin loaded in this process.
+
+        *languages* are the languages the index already holds chunks
+        for.  A rebuild that re-extracts them without their plugin
+        produces raw chunks and churns the store's embeddings, so this
+        raises `MissingLanguagePluginsError` -- unless *allow_missing*
+        overrides it, in which case it only warns.  Called once at
+        process start (daemon boot, inline build), never per build.
+        """
+        missing = {lang for lang in languages if lang not in self._registrations}
+        if not missing:
+            return
+        if allow_missing:
+            log.warning("index_languages_not_loaded", missing=sorted(missing), forced=True)
+            return
+        raise MissingLanguagePluginsError(missing=missing)
 
     def distribution(self, language_id: str) -> tuple[str, str] | None:
         """Return the `(package, version)` that ships *language_id*, or `None`.
