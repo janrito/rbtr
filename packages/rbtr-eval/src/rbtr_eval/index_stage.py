@@ -26,6 +26,7 @@ import minijinja
 import polars as pl
 from pydantic import BaseModel, Field
 
+from rbtr.cli.output import human_bytes
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import md_table
 from rbtr_eval.rbtr_cli import run_rbtr
@@ -100,6 +101,7 @@ def _embedding_report(store: IndexStore) -> str:
         with_embedding=f"{with_embedding:,}",
         truncated=f"{truncated:,}",
         coverage=coverage,
+        index_size_human=human_bytes(store.disk_size_bytes()),
         repos_table=md_table(repos),
     )
 

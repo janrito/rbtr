@@ -215,7 +215,6 @@ class MetricsFile(Metrics):
     seed = dy.UInt32()
     queries_per_cell = dy.UInt32(min=1)
     elapsed_seconds = dy.Float64(min=0.0)
-    index_size_bytes = dy.UInt64(min=0)
 
 
 class ScoredCandidate(dy.Schema):
