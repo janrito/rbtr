@@ -21,6 +21,24 @@ class IndexNotBuiltError(RbtrError):
         super().__init__(message)
 
 
+class IndexSchemaTooNewError(RbtrError):
+    """Raised when the index was written by a newer rbtr than this one.
+
+    The index is never migrated, and an older rbtr must not wipe a
+    newer index -- that triggers a destructive rebuild loop between
+    installs sharing one data dir.  So the older binary refuses to
+    open the DB instead of destroying it.
+    """
+
+    def __init__(self, *, stored: str, code: str) -> None:
+        super().__init__(
+            f"Index schema {stored} was written by a newer rbtr; this "
+            f"install only supports {code}. Refusing to open rather than "
+            "rebuild a newer index. Upgrade rbtr, or delete the index to "
+            "rebuild it from scratch."
+        )
+
+
 class DaemonBusyError(RbtrError):
     """Raised when the daemon is alive but the request couldn't be served.
 
