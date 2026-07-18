@@ -99,7 +99,7 @@ snapshots:
 build: build-py build-ext
 
 build-py:
-    uv build --package rbtr --out-dir dist
+    uv build --all-packages --out-dir dist
 
 build-ext:
     mkdir -p dist
