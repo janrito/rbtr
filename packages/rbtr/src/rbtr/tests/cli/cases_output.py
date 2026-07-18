@@ -133,7 +133,7 @@ def case_status_grouped_by_repo() -> RenderScenario:
     return RenderScenario(
         model=StatusResponse(
             db_path="/db",
-            db_size_bytes=1_572_864,  # 1.5 MB
+            db_size_bytes=1_500_000,  # 1.5 MB
             indexed_refs=[
                 IndexedRef(sha="a" * 40, total=10, embedded=10, repo_path="/projects/one"),
                 IndexedRef(sha="b" * 40, total=20, embedded=20, repo_path="/projects/two"),
@@ -172,8 +172,8 @@ def case_gc_reports_compaction_shrink() -> RenderScenario:
             snapshots_dropped=1,
             edges_dropped=1,
             chunks_freed=1,
-            size_before_bytes=2_147_483_648,  # 2.0 GB
-            size_after_bytes=1_073_741_824,  # 1.0 GB
+            size_before_bytes=2_000_000_000,  # 2.0 GB
+            size_after_bytes=1_000_000_000,  # 1.0 GB
             elapsed_seconds=0.1,
         ),
         expected=("index 2.0 GB → 1.0 GB", "-1.0 GB"),
@@ -190,8 +190,8 @@ def case_gc_reports_compaction_growth() -> RenderScenario:
             snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
-            size_before_bytes=1_048_576,  # 1.0 MB
-            size_after_bytes=2_097_152,  # 2.0 MB
+            size_before_bytes=1_000_000,  # 1.0 MB
+            size_after_bytes=2_000_000,  # 2.0 MB
             elapsed_seconds=0.1,
         ),
         expected=("index 1.0 MB → 2.0 MB", "+1.0 MB"),
@@ -208,8 +208,8 @@ def case_gc_reports_compaction_unchanged() -> RenderScenario:
             snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
-            size_before_bytes=1_048_576,  # 1.0 MB
-            size_after_bytes=1_048_576,
+            size_before_bytes=1_000_000,  # 1.0 MB
+            size_after_bytes=1_000_000,
             elapsed_seconds=0.1,
         ),
         expected=("index 1.0 MB",),

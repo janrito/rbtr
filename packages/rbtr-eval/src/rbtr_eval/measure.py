@@ -346,44 +346,7 @@ def _aggregate(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Metrics]:
     return pl.concat(rollups, how="vertical").sort(key_cols).pipe(Metrics.validate, cast=True)
 
 
-# ── Home size via DuckDB ─────────────────────────────────────────────────────
-
-
-def _data_size_bytes(data_dir: Path, db_name: str = "index.duckdb") -> int:
-    """Bytes occupied by the rbtr DuckDB index at *data_dir*.
-
-    Queries `pragma_database_size()` (the table-function form
-    of `PRAGMA database_size`) so the `block_size * total_blocks`
-    product happens in SQL and the Python side gets one scalar.
-    Safe to call only after the daemon has stopped (DuckDB
-    takes a process-level lock).
-    """
-    db_path = data_dir / db_name
-    if not db_path.exists():
-        return 0
-    con = duckdb.connect(str(db_path), read_only=True)
-    try:
-        row = con.execute(
-            # sql
-            "SELECT block_size * total_blocks AS bytes FROM pragma_database_size()"
-        ).fetchone()
-    finally:
-        con.close()
-    return int(row[0]) if row else 0
-
-
 # ── Rendering ────────────────────────────────────────────────────────────────
-
-
-def _bytes_human(n: int) -> str:
-    """Human-readable byte count (B / KiB / MiB / GiB)."""
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f} KiB"
-    if n < 1024 * 1024 * 1024:
-        return f"{n / (1024 * 1024):.1f} MiB"
-    return f"{n / (1024 * 1024 * 1024):.1f} GiB"
 
 
 # Display-frame projections.  Each turns a typed source frame
@@ -647,7 +610,6 @@ def _render_report(
     elapsed_seconds: float,
     metrics_df: dy.DataFrame[Metrics],
     outcomes: dy.DataFrame[SearchOutcome],
-    shared_home_bytes: int,
     batch: dy.DataFrame[SearchBatch],
     report_dir: Path | None = None,
 ) -> str:
@@ -739,7 +701,6 @@ def _render_report(
 
     return minijinja.Environment().render_str(
         template,
-        shared_home_bytes_human=_bytes_human(shared_home_bytes),
         run_table=md_table(run_table),
         headline_table=_headline_table(metrics_df),
         latency_table=_latency_table(metrics_df),
@@ -794,7 +755,6 @@ class MeasureCmd(BaseModel):
         with daemon_session(self.data_dir, self.config_dir, self.log_dir) as client:
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
-        shared_home_bytes = _data_size_bytes(self.data_dir)
 
         outcomes = _score_outcomes(batch)
         outcomes = _annotate_truncation(outcomes, self.data_dir)
@@ -807,7 +767,6 @@ class MeasureCmd(BaseModel):
             elapsed_seconds=elapsed_seconds,
             metrics_df=metrics_df,
             outcomes=outcomes,
-            shared_home_bytes=shared_home_bytes,
             batch=batch,
             report_dir=self.report.parent,
         )
@@ -823,7 +782,6 @@ class MeasureCmd(BaseModel):
                 .cast(pl.UInt32)
                 .alias("queries_per_cell"),
                 pl.lit(elapsed_seconds).alias("elapsed_seconds"),
-                pl.lit(shared_home_bytes).cast(pl.UInt64).alias("index_size_bytes"),
             )
             .pipe(MetricsFile.validate, cast=True)
         )

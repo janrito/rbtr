@@ -444,7 +444,7 @@ def _render_status_response(response: StatusResponse) -> None:
     print_banner()
     loc = f"[dim]{response.db_path}[/]"
     if response.db_size_bytes is not None:
-        loc = f"[dim]{_human_bytes(response.db_size_bytes)} · {response.db_path}[/]"
+        loc = f"[dim]{human_bytes(response.db_size_bytes)} · {response.db_path}[/]"
     if not response.indexed_refs:
         _out.print("[red]✗[/]  No index found")
     elif len({ref.repo_path for ref in response.indexed_refs}) > 1:
@@ -515,14 +515,20 @@ def _human(n: int) -> str:
     return f"{n / 1000:.1f}k"
 
 
-def _human_bytes(n: int) -> str:
-    """Format a byte count for humans: `512 B`, `1.3 MB`, `2.1 GB`."""
-    size = float(n)
-    for unit in ("B", "KB", "MB"):
-        if size < 1024:
-            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} GB"
+def human_bytes(n: int) -> str:
+    """Format a byte count for humans: `512 B`, `1.5 MB`, `2.1 GB`.
+
+    Decimal (SI) units: each step divides by 1000 and is labelled
+    accordingly (`KB`/`MB`/`GB`), matching how macOS Finder reports
+    file sizes.
+    """
+    if n < 1000:
+        return f"{n} B"
+    if n < 1000 * 1000:
+        return f"{n / 1000:.1f} KB"
+    if n < 1000 * 1000 * 1000:
+        return f"{n / (1000 * 1000):.1f} MB"
+    return f"{n / (1000 * 1000 * 1000):.1f} GB"
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -551,8 +557,8 @@ def _render_gc_response(response: GcResponse) -> None:
     if delta:
         sign = "-" if delta < 0 else "+"
         _out.print(
-            f"   index {_human_bytes(before)} → {_human_bytes(after)} "
-            f"[dim]({sign}{_human_bytes(abs(delta))})[/]"
+            f"   index {human_bytes(before)} → {human_bytes(after)} "
+            f"[dim]({sign}{human_bytes(abs(delta))})[/]"
         )
     else:
-        _out.print(f"   index {_human_bytes(after)}")
+        _out.print(f"   index {human_bytes(after)}")
