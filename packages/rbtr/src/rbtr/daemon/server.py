@@ -231,6 +231,16 @@ class DaemonServer:
                     reranker=rnk,
                 )
 
+        async def _async_gc(req: Any) -> Response:
+            # Serialise gc against builds/embeds on `_write_sem` so no
+            # writer runs during the copy-and-swap (its writes would be
+            # lost when the swap replaces the file). Run off the event
+            # loop. Compaction is on (`allow_compact`): the rewrite is
+            # lock-free (read-copy-update), so concurrent searches keep
+            # reading and rebind to the new file on their next call.
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_gc, req, store, allow_compact=True)
+
         self._handlers.update(
             {
                 "search": _async_search,
@@ -243,7 +253,7 @@ class DaemonServer:
                     store,
                     self._snapshot_status,
                 ),
-                "gc": lambda req: handle_gc(req, store),
+                "gc": _async_gc,
                 "forget": lambda req: handle_forget(req, store),
                 "index": lambda req: handle_build_index(req, self.watch_refs),
             }

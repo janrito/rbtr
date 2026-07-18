@@ -149,20 +149,19 @@ So the mental model is: *keep the set in a frame, let DuckDB do
 the set operation once.* The looping/`IN`-literal alternatives
 pay a per-row or per-call tax this avoids.
 
-The lifecycle is always register → execute → unregister, with
-the `unregister` in a `finally` so a failed query can't leak the
-view onto the cursor:
+The lifecycle is always register → execute → unregister, but
+don't hand-write it. Use the `_registered_views` context
+manager: it registers each frame, yields the cursor, and drops
+the views on exit — even if the query raises, so a failed query
+can't leak a view onto the cursor:
 
 ```python
-self._cursor.register("_repo_refs", repo_refs_frame(refs))
-try:
+with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
     return (
-        self._cursor.execute(_SEARCH_SQL, {"top_k": top_k})
+        cur.execute(_SEARCH_SQL, {"top_k": top_k})
         .pl()
         .pipe(ScoredChunkResultRow.validate, cast=True)
     )
-finally:
-    self._cursor.unregister("_repo_refs")
 ```
 
 Rules:
@@ -181,15 +180,15 @@ Rules:
   the target column is TEXT — DuckDB sees a polars `Struct` as a
   nested type, not a string. `_bulk_insert` does this with
   `pl.col(c).struct.json_encode()`.
-- **It is thread-safe by cursor.** `register` / `unregister`
-  bind to the cursor they are called on, and rbtr uses one
-  thread-local cursor per thread, so concurrent calls on
-  different threads register identically-named views without
-  colliding. Don't add locks for this.
-- **Register multiple views for one query** when it needs
-  several inputs — register each, execute, unregister each in
-  `finally` (e.g. `_qvecs` + `_repo_refs` in the semantic
-  search).
+- **It is thread-safe by cursor.** `_registered_views` binds the
+  views on the thread-local cursor, and rbtr uses one such cursor
+  per thread, so concurrent calls on different threads register
+  identically-named views without colliding. Don't add locks for
+  this.
+- **Register multiple views for one query** when it needs several
+  inputs — pass them as separate keyword arguments to
+  `_registered_views` (e.g. `_qvecs=…` + `_repo_refs=…` in the
+  semantic search).
 
 This is the polars↔DuckDB bridge: keep data construction and
 validation in polars (schema'd frames), hand the SQL-shaped

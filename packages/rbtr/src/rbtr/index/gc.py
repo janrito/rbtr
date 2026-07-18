@@ -56,6 +56,7 @@ def run_gc_all(
     mode: GcMode,
     refs: list[str],
     dry_run: bool,
+    compact: bool = False,
 ) -> tuple[GcCounts, int]:
     """Run `run_gc` over every registered repo; sum counts, count repos.
 
@@ -76,8 +77,13 @@ def run_gc_all(
         if read_head(repo_path) is None:
             log.info("gc_skipped_unresolvable_repo", repo=repo_path)
             continue
+        # Never compact per repo: a rewrite is expensive, so compact once
+        # after every repo's logical deletes have landed.
         total = total + run_gc(store, repo_path, repo_id, mode=mode, refs=refs, dry_run=dry_run)
         collected += 1
+    if compact and not dry_run:
+        with store.session() as session:
+            session.compact()
     return total, collected
 
 
@@ -97,15 +103,17 @@ def run_gc(
     mode: GcMode,
     refs: list[str],
     dry_run: bool,
+    compact: bool = False,
 ) -> GcCounts:
     """Execute a garbage-collection operation.
 
     Returns accumulated `GcCounts` across every deletion performed.
     When *dry_run* is true, computes the counts without writing to
-    the database.
+    the database.  When *compact* is true, the index file is rewritten
+    after the deletions commit, reclaiming the freed disk space.
     """
     if mode is GcMode.ORPHANS:
-        return _run_orphans_only(store, repo_id, dry_run=dry_run)
+        return _run_orphans_only(store, repo_id, dry_run=dry_run, compact=compact)
 
     keep_set = _resolve_keep_set(repo_path, store, repo_id, mode=mode, refs=refs)
     drop_set = _resolve_drop_set(
@@ -137,10 +145,14 @@ def run_gc(
         for sha in drop_set:
             total = total + session.drop_commit(repo_id, sha)
         total = total + session.cleanup(repo_id)
+        if compact:
+            session.compact()
     return total
 
 
-def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCounts:
+def _run_orphans_only(
+    store: IndexStore, repo_id: int, *, dry_run: bool, compact: bool = False
+) -> GcCounts:
     if dry_run:
         # ORPHANS dry-run is conservative: report zero rather than
         # adding a read-only counterpart to sweep_orphan_commits.
@@ -148,6 +160,8 @@ def _run_orphans_only(store: IndexStore, repo_id: int, *, dry_run: bool) -> GcCo
     with store.session() as session:
         session.sweep()
         total = session.cleanup(repo_id)
+        if compact:
+            session.compact()
     return total
 
 

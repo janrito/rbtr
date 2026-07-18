@@ -201,10 +201,13 @@ rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/store.py
 
 ### `rbtr status`
 
-Index status: indexed refs, chunk counts, active builds.
+Index status: indexed refs, chunk counts, the on-disk index
+size, and active builds.
 
 ```bash
-rbtr status
+$ rbtr status
+✓  5.8k chunks  1.3 GB · ~/.local/share/rbtr/index.duckdb
+   aa2ecc4bbefb (HEAD, main)  5.8k indexed  5.8k embedded ✓
 ```
 
 Pass `--scope all` to list every indexed repo in the
@@ -212,7 +215,7 @@ shared store, grouped by repo:
 
 ```bash
 $ rbtr status --scope all
-✓  indexed repos  ~/.local/share/rbtr/index.duckdb
+✓  indexed repos  1.3 GB · ~/.local/share/rbtr/index.duckdb
   /home/me/projects/ukf
      a4aa7830ad87 (HEAD, main)  68.8k indexed  68.8k embedded ✓
   /home/me/projects/rbtr
@@ -252,6 +255,7 @@ rbtr gc --watched-only        # keep only HEAD and watched refs
 rbtr gc --keep-head-only      # keep only HEAD
 rbtr gc main release          # keep only HEAD plus these refs
 rbtr gc --orphans             # sweep crashed-build residue only
+rbtr gc --no-compact          # skip the disk-reclaiming rewrite
 rbtr gc --dry-run             # preview what would be dropped
 ```
 
@@ -272,6 +276,12 @@ tags (the way to reclaim refs you no longer index).
 The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
 keeps HEAD plus the listed refs; `--orphans` sweeps residue
 from crashed builds.
+
+After deleting, gc rewrites the index file to hand the freed disk
+space back to the operating system — deleting alone keeps that space
+inside the file, so it never shrinks on its own. The rewrite reports
+the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
+`--no-compact` to skip it.
 
 ## Output modes
 

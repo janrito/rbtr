@@ -843,6 +843,10 @@ class Gc(BaseModel):
         description="Sweep crashed-build residue only; no commits dropped",
     )
     dry_run: bool = Field(False, description="Report what would be removed without writing")
+    compact: bool = Field(
+        True,
+        description="Rewrite the index to reclaim freed disk space (--no-compact to skip)",
+    )
 
     def cli_cmd(self) -> None:
         mode, refs = self._resolve_mode()
@@ -861,6 +865,7 @@ class Gc(BaseModel):
             mode=mode,
             refs=refs,
             dry_run=self.dry_run,
+            compact=self.compact,
         )
 
         match try_daemon(request):
@@ -870,10 +875,12 @@ class Gc(BaseModel):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(1)
             case None:
+                # No daemon: this process holds DuckDB's exclusive lock, so
+                # compaction's connection swap is safe here (allow_compact).
                 store = IndexStore.from_config(writable=True)
 
                 try:
-                    emit(handle_gc(request, store))
+                    emit(handle_gc(request, store, allow_compact=True))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)

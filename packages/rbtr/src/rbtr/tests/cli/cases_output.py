@@ -133,14 +133,16 @@ def case_status_grouped_by_repo() -> RenderScenario:
     return RenderScenario(
         model=StatusResponse(
             db_path="/db",
+            db_size_bytes=1_572_864,  # 1.5 MB
             indexed_refs=[
                 IndexedRef(sha="a" * 40, total=10, embedded=10, repo_path="/projects/one"),
                 IndexedRef(sha="b" * 40, total=20, embedded=20, repo_path="/projects/two"),
             ],
         ),
         # "indexed repos" header is the cross-repo grouping cue,
-        # rendered only in TTY mode — proves the rich path, not JSON.
-        expected=("indexed repos", "/projects/one", "/projects/two"),
+        # rendered only in TTY mode — proves the rich path, not JSON. The
+        # whole-DB size renders on that line too.
+        expected=("indexed repos", "1.5 MB", "/projects/one", "/projects/two"),
     )
 
 
@@ -157,6 +159,61 @@ def case_gc_reports_freed_chunks_and_scope() -> RenderScenario:
             elapsed_seconds=0.1,
         ),
         expected=("2 commits", "freed 4 chunks", "across 3 repos"),
+    )
+
+
+@case(tags=["gc"])
+def case_gc_reports_compaction_shrink() -> RenderScenario:
+    """A compacting gc shows before → after and the signed byte change."""
+    return RenderScenario(
+        model=GcResponse(
+            repos_collected=1,
+            commits_dropped=1,
+            snapshots_dropped=1,
+            edges_dropped=1,
+            chunks_freed=1,
+            size_before_bytes=2_147_483_648,  # 2.0 GB
+            size_after_bytes=1_073_741_824,  # 1.0 GB
+            elapsed_seconds=0.1,
+        ),
+        expected=("index 2.0 GB → 1.0 GB", "-1.0 GB"),
+    )
+
+
+@case(tags=["gc"])
+def case_gc_reports_compaction_growth() -> RenderScenario:
+    """A rewrite that grows the file says so — growth is not hidden."""
+    return RenderScenario(
+        model=GcResponse(
+            repos_collected=1,
+            commits_dropped=0,
+            snapshots_dropped=0,
+            edges_dropped=0,
+            chunks_freed=0,
+            size_before_bytes=1_048_576,  # 1.0 MB
+            size_after_bytes=2_097_152,  # 2.0 MB
+            elapsed_seconds=0.1,
+        ),
+        expected=("index 1.0 MB → 2.0 MB", "+1.0 MB"),
+    )
+
+
+@case(tags=["gc"])
+def case_gc_reports_compaction_unchanged() -> RenderScenario:
+    """No byte change shows just the size, with no arrow or delta."""
+    return RenderScenario(
+        model=GcResponse(
+            repos_collected=1,
+            commits_dropped=0,
+            snapshots_dropped=0,
+            edges_dropped=0,
+            chunks_freed=0,
+            size_before_bytes=1_048_576,  # 1.0 MB
+            size_after_bytes=1_048_576,
+            elapsed_seconds=0.1,
+        ),
+        expected=("index 1.0 MB",),
+        forbidden=("→",),
     )
 
 

@@ -442,11 +442,14 @@ def _render_daemon_config_response(response: DaemonConfigResponse) -> None:
 def _render_status_response(response: StatusResponse) -> None:
     # Output is derived solely from the response model.
     print_banner()
+    loc = f"[dim]{response.db_path}[/]"
+    if response.db_size_bytes is not None:
+        loc = f"[dim]{_human_bytes(response.db_size_bytes)} · {response.db_path}[/]"
     if not response.indexed_refs:
         _out.print("[red]✗[/]  No index found")
     elif len({ref.repo_path for ref in response.indexed_refs}) > 1:
         # Cross-repo: group refs under their repo.
-        _out.print(f"[green]✓[/]  indexed repos  [dim]{response.db_path}[/]")
+        _out.print(f"[green]✓[/]  indexed repos  {loc}")
         by_repo: dict[str, list[IndexedRef]] = {}
         for ref in response.indexed_refs:
             by_repo.setdefault(ref.repo_path or "?", []).append(ref)
@@ -456,7 +459,7 @@ def _render_status_response(response: StatusResponse) -> None:
                 _out.print(f"     {_fmt_ref(ref)}")
     else:
         total = response.indexed_refs[0].total
-        _out.print(f"[green]✓[/]  {_human(total)} chunks  [dim]{response.db_path}[/]")
+        _out.print(f"[green]✓[/]  {_human(total)} chunks  {loc}")
         for ref in response.indexed_refs:
             _out.print(f"   {_fmt_ref(ref)}")
     if response.watched:
@@ -512,6 +515,16 @@ def _human(n: int) -> str:
     return f"{n / 1000:.1f}k"
 
 
+def _human_bytes(n: int) -> str:
+    """Format a byte count for humans: `512 B`, `1.3 MB`, `2.1 GB`."""
+    size = float(n)
+    for unit in ("B", "KB", "MB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
 def _format_elapsed(seconds: float) -> str:
     """Format a monotonic-seconds delta as `1m23s` / `45s`."""
     if seconds < 60:
@@ -533,3 +546,13 @@ def _render_gc_response(response: GcResponse) -> None:
     )
     t.append(f"  ({response.elapsed_seconds:.2f}s)", style="dim")
     _out.print(t)
+    before, after = response.size_before_bytes, response.size_after_bytes
+    delta = after - before
+    if delta:
+        sign = "-" if delta < 0 else "+"
+        _out.print(
+            f"   index {_human_bytes(before)} → {_human_bytes(after)} "
+            f"[dim]({sign}{_human_bytes(abs(delta))})[/]"
+        )
+    else:
+        _out.print(f"   index {_human_bytes(after)}")

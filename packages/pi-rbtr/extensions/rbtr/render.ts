@@ -433,7 +433,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   if (indexed.length === 0) {
     lines.push(theme.fg("error", "✗ No index found"));
   } else if (crossRepo) {
-    lines.push(theme.fg("success", "✓ indexed repos"));
+    lines.push(theme.fg("success", `✓ indexed repos${sizeSuffixRender(response)}`));
     const byRepo = new Map<string, typeof indexed>();
     for (const ref of indexed) {
       const key = ref.repo_path ?? "?";
@@ -449,7 +449,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     }
   } else {
     const total = indexed[0].total;
-    lines.push(theme.fg("success", `✓ ${humanCountRender(total)} symbols`));
+    lines.push(theme.fg("success", `✓ ${humanCountRender(total)} symbols${sizeSuffixRender(response)}`));
     for (const ref of indexed) {
       lines.push(theme.fg("muted", fmtRefRender(ref)));
     }
@@ -491,6 +491,17 @@ function formatElapsedRender(seconds: number): string {
 function humanCountRender(n: number): string {
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1)}k`;
+}
+
+function sizeSuffixRender(response: StatusResponse | undefined): string {
+  const bytes = response?.db_size_bytes;
+  if (bytes == null) return "";
+  let size = bytes;
+  for (const unit of ["B", "KB", "MB"]) {
+    if (size < 1024) return unit === "B" ? ` · ${Math.round(size)} ${unit}` : ` · ${size.toFixed(1)} ${unit}`;
+    size /= 1024;
+  }
+  return ` · ${size.toFixed(1)} GB`;
 }
 
 function fmtRefRender(ref: { sha: string; names?: string[]; total: number; embedded: number }): string {

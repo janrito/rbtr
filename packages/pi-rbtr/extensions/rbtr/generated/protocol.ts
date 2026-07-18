@@ -177,6 +177,7 @@ export interface GcRequest {
   mode: GcMode;
   refs?: string[];
   dry_run?: boolean;
+  compact?: boolean;
 }
 /**
  * Forget a whole repo's index (metadata-only; GC reclaims chunks).
@@ -332,6 +333,7 @@ export interface ChangedSymbol {
 export interface StatusResponse {
   kind: "status";
   db_path?: string | null;
+  db_size_bytes?: number | null;
   indexed_refs?: IndexedRef[];
   watched?: WatchedRef[];
   active_build?: ActiveJob | null;
@@ -419,6 +421,8 @@ export interface GcResponse {
   snapshots_dropped: number;
   edges_dropped: number;
   chunks_freed: number;
+  size_before_bytes?: number;
+  size_after_bytes?: number;
   elapsed_seconds: number;
   dry_run?: boolean;
 }

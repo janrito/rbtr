@@ -332,6 +332,7 @@ def handle_status(
         if ws_repo_id is None:
             return StatusResponse(
                 db_path=store.db_path,
+                db_size_bytes=store.disk_size_bytes(),
                 indexed_refs=[],
                 watched=[],
                 active_build=None,
@@ -345,6 +346,7 @@ def handle_status(
         active_build, active_embed = snapshot_status(request.repo_path)
     return StatusResponse(
         db_path=store.db_path,
+        db_size_bytes=store.disk_size_bytes(),
         indexed_refs=indexed_refs,
         watched=watched,
         active_build=active_build,
@@ -385,8 +387,14 @@ def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
 # ── Build handler ────────────────────────────────────────────────────
 
 
-def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
+def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = False) -> GcResponse:
     t0 = time.monotonic()
+    # Compaction rewrites and swaps the database file, so it is only safe
+    # when the caller owns the connection exclusively -- the inline
+    # no-daemon path (`allow_compact=True`). The daemon shares the
+    # connection with live searches and leaves it off.
+    compact = request.compact and allow_compact and not request.dry_run
+    size_before = store.disk_size_bytes()
     if request.repo_path is None:
         # Global GC: reclaim across every registered repo. Restricted to
         # the safe default reclamation — aggressive modes must be scoped to
@@ -399,7 +407,7 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
             )
             raise RbtrError(msg)
         counts, repos_collected = run_gc_all(
-            store, mode=request.mode, refs=request.refs, dry_run=request.dry_run
+            store, mode=request.mode, refs=request.refs, dry_run=request.dry_run, compact=compact
         )
     else:
         repo_id = store.resolve_repo(request.repo_path)
@@ -410,6 +418,7 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
             mode=request.mode,
             refs=request.refs,
             dry_run=request.dry_run,
+            compact=compact,
         )
         repos_collected = 1
     # A real run's `counts.chunks` is the actual reclamation. A dry run only
@@ -418,6 +427,7 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
     chunks_freed = counts.chunks
     if request.dry_run:
         chunks_freed += store.count_orphan_chunks()
+    size_after = store.disk_size_bytes()
     elapsed = time.monotonic() - t0
     log.info(
         "gc_complete",
@@ -436,6 +446,8 @@ def handle_gc(request: GcRequest, store: IndexStore) -> GcResponse:
         snapshots_dropped=counts.snapshots,
         edges_dropped=counts.edges,
         chunks_freed=chunks_freed,
+        size_before_bytes=size_before,
+        size_after_bytes=size_after,
         elapsed_seconds=elapsed,
         dry_run=request.dry_run,
     )

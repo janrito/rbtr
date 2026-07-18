@@ -163,6 +163,19 @@ def test_gc_all_repos_reclaims_globally(
     assert store.has_indexed(repo_id, tiny_repo.c2) is True
 
 
+def test_gc_no_compact_smoke(
+    tiny_repo: TinyRepo,
+    seeded_repo_id_both_commits: int,
+) -> None:
+    """`--no-compact` parses (pydantic-settings bool negation) and routes."""
+    repo_id = seeded_repo_id_both_commits
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--no-compact"])
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["kind"] == "gc"
+    store = IndexStore.from_config(writable=True)
+    assert store.has_indexed(repo_id, tiny_repo.c2) is True  # HEAD kept
+
+
 def test_gc_all_repos_rejects_aggressive_mode() -> None:
     """Global GC is limited to the default reclamation: combining
     `--all-repos` with an aggressive mode is refused before any work."""

@@ -513,7 +513,11 @@ whether it is indexed yet).
 a time. The `_job_worker` serialises all write tasks
 through `asyncio.Semaphore(1)` + `asyncio.to_thread()`.
 Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes.
+and run concurrently with writes. Compaction is the one
+write that swaps the connection: it publishes the rewritten
+file as a fresh connection (`IndexStore._adopt_connection`)
+and each thread rebinds its cursor on the next read, so a
+`gc` rewrite never blocks or cuts off an in-flight search.
 
 **GPU model serialisation:** The daemon manages two GPU
 models: `Embedder` (embedding) and `Reranker`
@@ -1265,6 +1269,23 @@ transactions, a co-tenant repo's sweep could delete chunks the build
 still needs. `build_index` upholds the invariant and logs
 `orphan_chunks_after_build` if it is ever violated; see the
 `WriteSession` docstring.
+
+**Compaction.** Deleting rows does not shrink the database file — the
+freed space is kept inside it for reuse, so the file only ever grows.
+To hand that space back, `gc` finishes by rewriting the database:
+`WriteSession.compact` copies the live data, search index included,
+into a temporary sibling file and atomically renames it over the
+original, so search keeps working without a rebuild.
+
+The rename either fully succeeds or leaves the original in place, and
+the row deletions are already durable by then, so an interrupted or
+failed rewrite leaves the index correct — just not smaller. `gc` logs
+the failure and carries on; `--no-compact` skips the rewrite entirely.
+
+Both modes rewrite the same way: standalone, `rbtr gc` owns the
+database (`handle_gc(..., allow_compact=True)`); in the daemon the
+rewrite is lock-free, so live searches keep running throughout (see
+[Concurrency model](#concurrency-model)).
 
 The keep-set depends on the `GcMode`. The **default** is
 `WATCHED`: keep HEAD, every local branch / tag / note,

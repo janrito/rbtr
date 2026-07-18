@@ -44,6 +44,8 @@ docstring documents the semantics and prose special case.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import dataframely as dy
@@ -111,6 +113,7 @@ _GET_UNEMBEDDED_CHUNKS_SQL = load_sql("get_unembedded_chunks.sql")
 _HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
 _DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
 _WIPE_SCHEMA_SQL = load_sql("wipe_schema.sql")
+_DATA_SIZE_BYTES_SQL = load_sql("data_size_bytes.sql")
 
 
 # ── Row mapping ──────────────────────────────────────────────────────
@@ -166,7 +169,7 @@ class IndexStore:
                 )
                 raise RbtrError(locked_msg) from exc
             raise
-        self._con.execute("INSTALL fts; LOAD fts;")
+        self._load_fts(self._con)
         self._local = threading.local()
         # Enforce the schema version *while holding the connection* (and
         # thus DuckDB's exclusive lock), so a wipe is done in place and
@@ -222,10 +225,34 @@ class IndexStore:
         `getcwd` + `stat` syscalls in DuckDB).
         """
         cur = getattr(self._local, "cur", None)
-        if cur is None:
+        if cur is None or self._local.built_against is not self._con:
+            # First use on this thread, or compaction published a new
+            # connection: bind a fresh cursor to the current one. A read
+            # already in progress keeps the cursor it captured (see
+            # `_registered_views`), so a swap never tears it.
             cur = self._con.cursor()
             self._local.cur = cur
+            self._local.built_against = self._con
         return cur
+
+    @contextmanager
+    def _registered_views(self, **frames: pl.DataFrame) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Register temp views on one cursor for the block, then drop them.
+
+        Capturing the cursor once keeps a multi-statement read atomic
+        against a concurrent compaction swap: the register, the query,
+        and the unregister all run on the same connection, which stays
+        alive for this read. It also replaces the register/try/finally/
+        unregister boilerplate each such read would otherwise repeat.
+        """
+        cur = self._cursor
+        for name, frame in frames.items():
+            cur.register(name, frame)
+        try:
+            yield cur
+        finally:
+            for name in frames:
+                cur.unregister(name)
 
     def session(self) -> WriteSession:
         """Create a `WriteSession` for use as a context manager.
@@ -245,6 +272,57 @@ class IndexStore:
     def close(self) -> None:
         """Close the database connection."""
         self._con.close()
+
+    def data_size_bytes(self) -> int:
+        """Logical size allocated inside the main database file, in bytes.
+
+        `block_size * total_blocks` from `pragma_database_size` — the
+        in-file pages including free space kept for reuse, so it drops
+        only when the file is rewritten (compacted), never from a plain
+        delete. This is the measure of compaction reclaim. It excludes
+        the write-ahead log and reads zero until the WAL is consolidated,
+        so it is not the on-disk footprint (see `disk_size_bytes`).
+        """
+        row = self._cursor.execute(_DATA_SIZE_BYTES_SQL).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def disk_size_bytes(self) -> int:
+        """Total bytes the index occupies on disk (database file + WAL).
+
+        The honest footprint a user sees: it counts the actual files, so
+        it is non-zero as soon as anything is committed and never depends
+        on whether the write-ahead log has been consolidated into the
+        main file. Zero for an in-memory store.
+        """
+        if self.db_path is None:
+            return 0
+        db = Path(self.db_path)
+        total = db.stat().st_size if db.exists() else 0
+        wal = db.with_name(f"{db.name}.wal")
+        if wal.exists():
+            total += wal.stat().st_size
+        return total
+
+    def _load_fts(self, con: duckdb.DuckDBPyConnection) -> None:
+        """Install and load the full-text-search extension on *con*."""
+        con.install_extension("fts")
+        con.load_extension("fts")
+
+    def _adopt_connection(self, con: duckdb.DuckDBPyConnection) -> None:
+        """Publish a freshly-opened connection as the live one, lock-free.
+
+        Compaction opens the rewritten file as its own connection
+        (`WriteSession.compact`) and hands it here. Assigning `self._con`
+        is atomic under the GIL, so a reader sees either the old
+        connection or the new one, never a torn state; each thread's
+        cached cursor was built against the old connection, so `_cursor`
+        rebinds it on next use. The old connection is **not** closed here
+        — it stays alive for readers still using it and closes itself by
+        refcount once the last has rebound, so no read is ever cut off
+        mid-query.
+        """
+        self._load_fts(con)
+        self._con = con
 
     def get_repo_id(self, path: str) -> int | None:
         """Return the repo_id for *path*, or None if not registered."""
@@ -415,13 +493,10 @@ class IndexStore:
         may produce different chunk IDs that the upsert can't
         reconcile.
         """
-        self._cursor.register("_serial_map", serial_map_frame(serials))
-        try:
-            row = self._cursor.execute(
+        with self._registered_views(_serial_map=serial_map_frame(serials)) as cur:
+            row = cur.execute(
                 _HAS_BLOB_SQL, {"blob_sha": blob_sha, "language": language}
             ).fetchone()
-        finally:
-            self._cursor.unregister("_serial_map")
         return bool(row[0]) if row and row[0] is not None else False
 
     def get_snapshot_language(self, file_path: str, *, repo_id: int) -> str:
@@ -517,17 +592,13 @@ class IndexStore:
         """
         if not target_ids:
             return InboundRefResultRow.create_empty()
-        self._cursor.register(
-            "_repo_refs", repo_refs_frame([RepoRef(repo_id=repo_id, commit_sha=commit_sha)])
-        )
-        try:
+        refs = repo_refs_frame([RepoRef(repo_id=repo_id, commit_sha=commit_sha)])
+        with self._registered_views(_repo_refs=refs) as cur:
             return (
-                self._cursor.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
+                cur.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
                 .pl()
                 .pipe(InboundRefResultRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_repo_refs")
 
     def get_chunks_frame(self, commit_sha: str, *, repo_id: int) -> dy.DataFrame[ChunkContentRow]:
         """Return all chunks at *commit_sha* as a content-only frame.
@@ -565,15 +636,8 @@ class IndexStore:
             "target_id": target_id,
             "kind": kind_val,
         }
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
-            return (
-                self._cursor.execute(_GET_EDGES_SQL, params)
-                .pl()
-                .pipe(EdgeResultRow.validate, cast=True)
-            )
-        finally:
-            self._cursor.unregister("_repo_refs")
+        with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
+            return cur.execute(_GET_EDGES_SQL, params).pl().pipe(EdgeResultRow.validate, cast=True)
 
     def get_edges(
         self,
@@ -606,18 +670,12 @@ class IndexStore:
         """Return inbound edge counts for the given chunk IDs."""
         if not chunk_ids:
             return InboundDegreeResultRow.create_empty()
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
+        with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
             return (
-                self._cursor.execute(
-                    _INBOUND_DEGREE_SQL,
-                    {"chunk_ids": chunk_ids},
-                )
+                cur.execute(_INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
                 .pl()
                 .pipe(InboundDegreeResultRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_repo_refs")
 
     def diff_symbols(
         self,
@@ -650,16 +708,13 @@ class IndexStore:
             "base_sha": base_sha,
             "scope_all": not file_paths,
         }
-        self._cursor.register("_file_paths", file_paths_frame(file_paths or []))
-        try:
+        with self._registered_views(_file_paths=file_paths_frame(file_paths or [])) as cur:
             return (
-                self._cursor.execute(_DIFF_SYMBOLS_SQL, params)
+                cur.execute(_DIFF_SYMBOLS_SQL, params)
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_file_paths")
 
     # ── Match (internal frame, public chunk) ─────────────────────
 
@@ -670,10 +725,9 @@ class IndexStore:
         prefix → substring.  Only the best tier that has matches
         is returned.
         """
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
+        with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
             return (
-                self._cursor.execute(
+                cur.execute(
                     _SEARCH_BY_NAME_SQL,
                     {"name": pattern, "pattern": f"%{pattern}%"},
                 )
@@ -681,8 +735,6 @@ class IndexStore:
                 .pipe(_decode_metadata)
                 .pipe(ChunkResultRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_repo_refs")
 
     def match_by_name(self, commit_sha: str, pattern: str, *, repo_id: int) -> list[Chunk]:
         """Find chunks by name with tiered resolution.
@@ -712,21 +764,13 @@ class IndexStore:
         calls on different thread-local cursors cannot collide.
         """
         vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
-        self._cursor.register("_qvecs", vecs_frame)
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
+        with self._registered_views(_qvecs=vecs_frame, _repo_refs=repo_refs_frame(refs)) as cur:
             return (
-                self._cursor.execute(
-                    _SEARCH_SIMILAR_SQL,
-                    {"top_k": top_k},
-                )
+                cur.execute(_SEARCH_SIMILAR_SQL, {"top_k": top_k})
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ScoredChunkResultRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_qvecs")
-            self._cursor.unregister("_repo_refs")
 
     def match_similar(
         self,
@@ -788,24 +832,19 @@ class IndexStore:
         tokenised_query = tokenise_code(query)
         if not tokenised_query:
             return ScoredChunkResultRow.create_empty()
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
-            return (
-                self._cursor.execute(
-                    _SEARCH_FULLTEXT_SQL,
-                    {
-                        "tokenised_query": tokenised_query,
-                        "top_k": top_k,
-                    },
+        with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
+            try:
+                return (
+                    cur.execute(
+                        _SEARCH_FULLTEXT_SQL,
+                        {"tokenised_query": tokenised_query, "top_k": top_k},
+                    )
+                    .pl()
+                    .pipe(_decode_metadata)
+                    .pipe(ScoredChunkResultRow.validate, cast=True)
                 )
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ScoredChunkResultRow.validate, cast=True)
-            )
-        except duckdb.CatalogException as exc:
-            raise IndexNotBuiltError from exc
-        finally:
-            self._cursor.unregister("_repo_refs")
+            except duckdb.CatalogException as exc:
+                raise IndexNotBuiltError from exc
 
     def match_fulltext(
         self,
@@ -833,18 +872,12 @@ class IndexStore:
         """Return `(id, file_path)` for the given chunk IDs."""
         if not chunk_ids:
             return ChunkPathResultRow.create_empty()
-        self._cursor.register("_repo_refs", repo_refs_frame(refs))
-        try:
+        with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
             return (
-                self._cursor.execute(
-                    _GET_CHUNK_PATHS_SQL,
-                    {"chunk_ids": chunk_ids},
-                )
+                cur.execute(_GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
                 .pl()
                 .pipe(ChunkPathResultRow.validate, cast=True)
             )
-        finally:
-            self._cursor.unregister("_repo_refs")
 
     # ── Unified search ───────────────────────────────────────────────
 
