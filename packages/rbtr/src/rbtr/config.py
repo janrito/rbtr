@@ -225,6 +225,12 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
 Must accommodate the first search when the embedding model \
 is still loading.",
     )
+    daemon_start_timeout: float = Field(
+        default=60.0,
+        description="Backstop seconds to wait for a spawned daemon to bind "
+        "its sockets before giving up.  Only trips on a genuine hang; a "
+        "slow cold start under load binds well within this.",
+    )
     warmup: bool = Field(
         default=True,
         description="Pre-load GPU models (embedder, reranker) when the daemon starts.  \
