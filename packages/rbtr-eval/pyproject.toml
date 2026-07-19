@@ -19,7 +19,7 @@ dependencies = [
   "dvc",
   "minijinja>=2.0",
   "polars>=1.0",
-  "dataframely>=2.9.1",
+  "dataframely>=2.13.1",
   "optuna>=4.0",
   "pydantic-ai>=2.0.0",
   "vl-convert-python>=1.0",
