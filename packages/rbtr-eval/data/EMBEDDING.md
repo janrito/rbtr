@@ -1,10 +1,11 @@
 # Embedding summary
 
-| metric    | value            |
-| --------- | ---------------- |
-| chunks    | 162,295          |
-| embedded  | 162,295 (100.0%) |
-| truncated | 1,257            |
+| metric     | value            |
+| ---------- | ---------------- |
+| chunks     | 162,295          |
+| embedded   | 162,295 (100.0%) |
+| truncated  | 1,257            |
+| index size | 1.3 GB           |
 
 ## Repos
 

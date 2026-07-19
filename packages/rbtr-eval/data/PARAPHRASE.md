@@ -10,35 +10,35 @@ developer searches with different words than the code uses.
 | metric          | value                         |
 | --------------- | ----------------------------- |
 | model           | `openai-chat:zai-org/GLM-5.2` |
-| concept queries | 1526                          |
+| concept queries | 1523                          |
 
 ## Per repo
 
 | slug               | n   |
 | ------------------ | --- |
-| anthropics__skills | 303 |
-| astral-sh__uv      | 384 |
-| badlogic__pi-mono  | 274 |
-| django__django     | 341 |
-| rbtr__rbtr         | 224 |
+| anthropics__skills | 300 |
+| astral-sh__uv      | 385 |
+| badlogic__pi-mono  | 275 |
+| django__django     | 338 |
+| rbtr__rbtr         | 225 |
 
 ## Per language
 
 | language   | n   |
 | ---------- | --- |
-| python     | 371 |
+| python     | 367 |
 | typescript | 205 |
 | javascript | 171 |
 | css        | 148 |
-| markdown   | 128 |
-| rust       | 117 |
-| json       | 96  |
-| bash       | 93  |
-|            | 50  |
-| yaml       | 38  |
-| toml       | 33  |
-| sql        | 29  |
-| html       | 27  |
+| markdown   | 127 |
+| rust       | 118 |
+| json       | 98  |
+| bash       | 92  |
+|            | 47  |
+| yaml       | 39  |
+| toml       | 34  |
+| sql        | 31  |
+| html       | 26  |
 | rst        | 20  |
 
 ## Examples
@@ -46,133 +46,80 @@ developer searches with different words than the code uses.
 Randomly sampled symbols showing the source code (LLM input)
 and the generated concept query (LLM output).
 
-### `handleApiError` (`anthropics__skills`)
+### `CreateUserInput` (`anthropics__skills`)
 
-````typescript
-function handleApiError(error: unknown): string {
-  if (error instanceof AxiosError) {
-    if (error.response) {
-      switch (error.response.status) {
-        case 404:
-          return "Error: Resource not found. Please check the ID is correct.";
-        case 403:
-          return "Error: Permission denied. You don't have access to this resource.";
-        case 429:
-          return "Error: Rate limit exceeded. Please wait before making more requests.";
-        default:
-          return `Error: API request failed with status ${error.response.status}`;
-      }
-    } else if (error.code === "ECONNABORTED") {
-      return "Error: Request timed out. Please try again.";
-    }
-  }
-  return `Error: Unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`;
-}
+````python
+class CreateUserInput(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True
+    )
+
+    name: str = Field(..., description="User's full name", min_length=1, max_length=100)
+    email: str = Field(..., description="User's email address", pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+    age: int = Field(..., description="User's age", ge=0, le=150)
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Email cannot be empty")
+        return v.lower()
 ````
 
-> **concept:** Convert HTTP and network errors into human-readable error messages
+> **concept:** validate user registration data with name, email, and age constraints
 
-### `.github/renovate.json5:181-196` (`astral-sh__uv`)
+### `cfg(all(target_env = "msvc", target_os = "windows"))` (`astral-sh__uv`)
 
-````text
-customType: "regex",
-      managerFilePatterns: ["/(^|/)rust-toolchain\\.toml?$/"],
-      matchStrings: [
-        'channel\\s*=\\s*"(?<currentValue>\\d+\\.\\d+(\\.\\d+)?)"',
-      ],
-      depNameTemplate: "rust",
-      packageNameTemplate: "rust-lang/rust",
-      datasourceTemplate: "github-releases",
-    },
-  ],
-  vulnerabilityAlerts: {
-    commitMessageSuffix: "",
-    labels: ["internal", "security"],
-  },
-}
+````toml
+# statically link the C runtime so the executable does not depend on
+# that shared/dynamic library.
+#
+# See: https://github.com/astral-sh/ruff/issues/11503
+[target.'cfg(all(target_env = "msvc", target_os = "windows"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
 ````
 
-> **concept:** how to configure custom regex pattern matching for rust toolchain version
-> updates
+> **concept:** how to statically link the C runtime on Windows MSVC builds
 
-### `with_cache_on_nocow_fs` (`astral-sh__uv`)
+### `<anonymous>` (`astral-sh__uv`)
 
 ````rust
-/// Use a cache directory on the filesystem specified by
-    /// [`EnvVars::UV_INTERNAL__TEST_NOCOW_FS`].
-    ///
-    /// Returns `Ok(None)` if the environment variable is not set.
-    pub fn with_cache_on_nocow_fs(self) -> anyhow::Result<Option<Self>> {
-        let Some(dir) = env::var(EnvVars::UV_INTERNAL__TEST_NOCOW_FS).ok() else {
-            return Ok(None);
-        };
-        self.with_cache_on_fs(&dir, "NOCOW_FS").map(Some)
-    }
+// disable all rust entry points, requires enabling compiler-builtins-mem
 ````
 
-> **concept:** Configure cache to use a filesystem directory specified by an environment
-> variable for no copy-on-write testing
+> **concept:** How to disable Rust entry points and enable compiler-builtins-mem feature
 
-### `SocketModeClient` (`badlogic__pi-mono`)
-
-````javascript
-{ SocketModeClient } = require('@slack/socket-mode')
-````
-
-> **concept:** how to import the Slack socket mode client using require
-
-### `processOutput` (`badlogic__pi-mono`)
+### `restoreEditor` (`badlogic__pi-mono`)
 
 ````typescript
-// Process log output line by line
-	const processOutput = (data: Buffer) => {
-		const lines = data.toString().split("\n");
-		for (const line of lines) {
-			if (line) {
-				console.log(line); // Echo the line to console
-
-				// Check for startup complete message
-				if (line.includes("Application startup complete")) {
-					startupComplete = true;
-					logProcess.kill(); // Stop tailing logs
-				}
-
-				// Check for failure indicators
-				if (line.includes("Model runner exiting with code") && !line.includes("code 0")) {
-					startupFailed = true;
-					failureReason = "Model runner failed to start";
-					logProcess.kill();
-				}
-				if (line.includes("Script exited with code") && !line.includes("code 0")) {
-					startupFailed = true;
-					failureReason = "Script failed to execute";
-					logProcess.kill();
-				}
-				if (line.includes("torch.OutOfMemoryError") || line.includes("CUDA out of memory")) {
-					startupFailed = true;
-					failureReason = "Out of GPU memory (OOM)";
-					// Don't kill immediately - let it show more error context
-				}
-				if (line.includes("RuntimeError: Engine core initialization failed")) {
-					startupFailed = true;
-					failureReason = "vLLM engine initialization failed";
-					logProcess.kill();
-				}
-			}
-		}
-	};
+// Restore editor helper
+		const restoreEditor = () => {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
 ````
 
-> **concept:** Parse log output line by line to detect startup success or failure
-> conditions like OOM errors and exit codes
+> **concept:** Restore the editor component back into its container and set focus
 
-### `--selected-row` (`django__django`)
+### `[0.63.1] - 2026-03-27` (`badlogic__pi-mono`)
 
-````css
---selected-row: #00363a;
+````markdown
+## [0.63.1] - 2026-03-27
 ````
 
-> **concept:** how to set custom theme variable for highlighted table row color
+> **concept:** What changed in the latest patch release updates
+
+### `<anonymous>` (`django__django`)
+
+````javascript
+// Call the preDispatch hook for the mapped type, and let it bail if desired
+````
+
+> **concept:** how to call preDispatch hook before event dispatch
 
 ### `ImportedModelBackend` (`django__django`)
 
@@ -181,42 +128,68 @@ class ImportedModelBackend(ModelBackend):
     pass
 ````
 
-> **concept:** Django model authentication backend imported from external module
+> **concept:** custom authentication backend that extends Django's default model backend
 
-### `tests/fixtures_regress/fixtures/sequence_extra_yaml.yaml` (`django__django`)
-
-````yaml
-
-````
-
-> **concept:** how to configure settings using YAML format
-
-### `EmbedJob` (`rbtr__rbtr`)
+### `make_id` (`django__django`)
 
 ````python
-class EmbedJob(BaseModel):
-    """An embed-index job for the unified work queue."""
-
-    model_config = _STRICT
-    kind: Literal["embed"] = "embed"
-    path: str
-    repo_id: int
-    ref: str
-
-    @property
-    def dedupe_key(self) -> Hashable:
-        return (self.repo_id, self.ref)
+def make_id(target):
+            """
+            Simulate id() reuse for distinct senders with non-overlapping
+            lifetimes that would require memory contention to reproduce.
+            """
+            if isinstance(target, Sender):
+                return 0
+            return _make_id(target)
 ````
 
-> **concept:** Queue job definition for embedding repository content at a specific ref
+> **concept:** Generate a simulated Python object id to test sender memory address reuse
+> with non-overlapping lifetimes
 
-### `meta` (`rbtr__rbtr`)
+### `runtime_dir` (`rbtr__rbtr`)
 
-````sql
-CREATE TABLE IF NOT EXISTS meta (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-)
+````python
+def runtime_dir(self) -> Path:
+        """Per-`data_dir` runtime dir for sockets + status file.
+
+        Keyed on `hash(resolve(data_dir))` so two daemons
+        against different data dirs get independent runtime
+        dirs.  Lives under `platformdirs.user_runtime_path('rbtr')`.
+        """
+        base = platformdirs.user_runtime_path(RBTR_NAME, ensure_exists=True)
+        key = hashlib.sha256(str(self.data_dir.resolve()).encode()).hexdigest()[:16]
+        path = base / key
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 ````
 
-> **concept:** create a simple key-value configuration table in the database
+> **concept:** Get a unique per-data-directory runtime path for daemon sockets and
+> status files
+
+### `make_content_response` (`rbtr__rbtr`)
+
+````python
+def make_content_response(content: str = "") -> CreateChatCompletionResponse:
+    """Build a plain chat-completion response with text content only."""
+    return {
+        "id": "stub",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "stub",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                },
+                "logprobs": None,
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+````
+
+> **concept:** create a fake chat completion API response with stub text content for
+> testing

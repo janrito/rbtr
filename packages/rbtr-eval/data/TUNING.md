@@ -12,15 +12,15 @@ The search score fuses three channels:
 
 | kind       | alpha    | beta     | gamma    |
 | ---------- | -------- | -------- | -------- |
-| concept    | 0.137519 | 0.27806  | 0.584421 |
+| concept    | 0.020334 | 0.033426 | 0.946239 |
 | identifier | 0.007601 | 0.092751 | 0.899648 |
-| code       | 0.059404 | 0.846227 | 0.09437  |
+| code       | 0.063497 | 0.611428 | 0.325074 |
 
 ## Result
 
-| metric | current             | recommended         | delta                        |
-| ------ | ------------------- | ------------------- | ---------------------------- |
-| MRR    | 0.19610506250229112 | 0.20816103962755234 | 0.012055977125261214 (+6.1%) |
+| metric | current             | recommended         | delta                       |
+| ------ | ------------------- | ------------------- | --------------------------- |
+| MRR    | 0.21282946588951207 | 0.21913559881227318 | 0.00630613292276111 (+3.0%) |
 
 ## Impact by dimension
 
@@ -30,30 +30,30 @@ kind.
 
 | slug               | language   | provenance | baseline_mrr | best_mrr | delta   | baseline_ndcg_at_10 | best_ndcg_at_10 | delta_ndcg_at_10 |
 | ------------------ | ---------- | ---------- | ------------ | -------- | ------- | ------------------- | --------------- | ---------------- |
-| __all__            |            | __all__    | 0.443817     | 0.421326 | -0.0225 | 0.471481            | 0.448494        | -0.023           |
-| __all__            | __all__    | __all__    | 0.463241     | 0.469329 | 0.0061  | 0.499421            | 0.504203        | 0.0048           |
-| __all__            | __all__    | body       | 0.496538     | 0.511273 | 0.0147  | 0.540654            | 0.553461        | 0.0128           |
-| __all__            | __all__    | concept    | 0.177647     | 0.172075 | -0.0056 | 0.210482            | 0.203629        | -0.0069          |
-| __all__            | __all__    | docstring  | 0.695852     | 0.692136 | -0.0037 | 0.727141            | 0.722689        | -0.0045          |
+| __all__            |            | __all__    | 0.440261     | 0.417655 | -0.0226 | 0.467426            | 0.442322        | -0.0251          |
+| __all__            | __all__    | __all__    | 0.470568     | 0.474809 | 0.0042  | 0.507477            | 0.511264        | 0.0038           |
+| __all__            | __all__    | body       | 0.496447     | 0.509966 | 0.0135  | 0.540575            | 0.552852        | 0.0123           |
+| __all__            | __all__    | concept    | 0.205394     | 0.194362 | -0.011  | 0.241091            | 0.231158        | -0.0099          |
+| __all__            | __all__    | docstring  | 0.695852     | 0.691774 | -0.0041 | 0.727141            | 0.722388        | -0.0048          |
 | __all__            | __all__    | name       | 0.569728     | 0.581262 | 0.0115  | 0.600786            | 0.611546        | 0.0108           |
-| __all__            | bash       | __all__    | 0.615487     | 0.646278 | 0.0308  | 0.668275            | 0.697151        | 0.0289           |
-| __all__            | css        | __all__    | 0.697159     | 0.682232 | -0.0149 | 0.730645            | 0.718068        | -0.0126          |
-| __all__            | html       | __all__    | 0.3234375    | 0.34375  | 0.0203  | 0.343175            | 0.358973        | 0.0158           |
-| __all__            | javascript | __all__    | 0.570713     | 0.569053 | -0.0017 | 0.606333            | 0.603462        | -0.0029          |
-| __all__            | json       | __all__    | 0.180471     | 0.178397 | -0.0021 | 0.210442            | 0.207704        | -0.0027          |
-| __all__            | markdown   | __all__    | 0.205274     | 0.239166 | 0.0339  | 0.225527            | 0.26164         | 0.0361           |
-| __all__            | python     | __all__    | 0.598179     | 0.615969 | 0.0178  | 0.641475            | 0.651835        | 0.0104           |
-| __all__            | rst        | __all__    | 0.004608     | 0.009985 | 0.0054  | 0.010753            | 0.022243        | 0.0115           |
-| __all__            | rust       | __all__    | 0.581184     | 0.569991 | -0.0112 | 0.640342            | 0.627213        | -0.0131          |
-| __all__            | sql        | __all__    | 0.62284      | 0.651111 | 0.0283  | 0.68853             | 0.709852        | 0.0213           |
-| __all__            | toml       | __all__    | 0.167907     | 0.138393 | -0.0295 | 0.191943            | 0.156           | -0.0359          |
-| __all__            | typescript | __all__    | 0.582346     | 0.57432  | -0.008  | 0.625416            | 0.617708        | -0.0077          |
-| __all__            | yaml       | __all__    | 0.14569      | 0.169599 | 0.0239  | 0.173153            | 0.1981          | 0.0249           |
-| anthropics__skills | __all__    | __all__    | 0.579295     | 0.578914 | -0.0004 | 0.629008            | 0.625995        | -0.003           |
-| astral-sh__uv      | __all__    | __all__    | 0.453504     | 0.459425 | 0.0059  | 0.484416            | 0.489217        | 0.0048           |
-| badlogic__pi-mono  | __all__    | __all__    | 0.484073     | 0.486139 | 0.0021  | 0.521001            | 0.52283         | 0.0018           |
-| django__django     | __all__    | __all__    | 0.346841     | 0.352476 | 0.0056  | 0.368274            | 0.373715        | 0.0054           |
-| rbtr__rbtr         | __all__    | __all__    | 0.47081      | 0.493006 | 0.0222  | 0.519481            | 0.538844        | 0.0194           |
+| __all__            | bash       | __all__    | 0.653598     | 0.668605 | 0.015   | 0.698899            | 0.716746        | 0.0178           |
+| __all__            | css        | __all__    | 0.702609     | 0.69045  | -0.0122 | 0.740107            | 0.729528        | -0.0106          |
+| __all__            | html       | __all__    | 0.3234375    | 0.340402 | 0.017   | 0.343175            | 0.356092        | 0.0129           |
+| __all__            | javascript | __all__    | 0.578999     | 0.588777 | 0.0098  | 0.618821            | 0.626371        | 0.0075           |
+| __all__            | json       | __all__    | 0.183063     | 0.179349 | -0.0037 | 0.214143            | 0.208591        | -0.0056          |
+| __all__            | markdown   | __all__    | 0.20419      | 0.237513 | 0.0333  | 0.224934            | 0.260658        | 0.0357           |
+| __all__            | python     | __all__    | 0.611332     | 0.624582 | 0.0132  | 0.659315            | 0.667263        | 0.0079           |
+| __all__            | rst        | __all__    | 0.004608     | 0.009217 | 0.0046  | 0.010753            | 0.021505        | 0.0108           |
+| __all__            | rust       | __all__    | 0.605144     | 0.591997 | -0.0131 | 0.655507            | 0.645857        | -0.0096          |
+| __all__            | sql        | __all__    | 0.555247     | 0.583272 | 0.028   | 0.615139            | 0.646381        | 0.0312           |
+| __all__            | toml       | __all__    | 0.167907     | 0.138021 | -0.0299 | 0.191943            | 0.155627        | -0.0363          |
+| __all__            | typescript | __all__    | 0.589446     | 0.57601  | -0.0134 | 0.633182            | 0.621295        | -0.0119          |
+| __all__            | yaml       | __all__    | 0.147426     | 0.170194 | 0.0228  | 0.177535            | 0.198715        | 0.0212           |
+| anthropics__skills | __all__    | __all__    | 0.594056     | 0.588957 | -0.0051 | 0.643834            | 0.637386        | -0.0064          |
+| astral-sh__uv      | __all__    | __all__    | 0.470873     | 0.472458 | 0.0016  | 0.500893            | 0.50177         | 0.0009           |
+| badlogic__pi-mono  | __all__    | __all__    | 0.479128     | 0.481397 | 0.0023  | 0.518472            | 0.522615        | 0.0041           |
+| django__django     | __all__    | __all__    | 0.349083     | 0.355717 | 0.0066  | 0.373394            | 0.379049        | 0.0057           |
+| rbtr__rbtr         | __all__    | __all__    | 0.469803     | 0.492147 | 0.0223  | 0.517351            | 0.539036        | 0.0217           |
 
 ## Convergence
 
@@ -67,9 +67,9 @@ kind.
 
 ```toml
 [search_weights.concept]
-alpha = 0.13751900829806735
-beta = 0.27805965902468166
-gamma = 0.584421332677251
+alpha = 0.02033447162493074
+beta = 0.03342632797195456
+gamma = 0.9462392004031146
 
 [search_weights.identifier]
 alpha = 0.0076011360583828486
@@ -77,30 +77,30 @@ beta = 0.09275092124464959
 gamma = 0.8996479426969676
 
 [search_weights.code]
-alpha = 0.059403827118493804
-beta = 0.8462265911073973
-gamma = 0.09436958177410891
+alpha = 0.0634972115247005
+beta = 0.6114282980612943
+gamma = 0.3250744904140052
 ```
 
 ## Run metadata
 
 - Optuna trials: 50
-- queries evaluated: 1554
-- elapsed: 8606 s
+- queries evaluated: 1552
+- elapsed: 8782 s
 
 ## Sample distribution
 
 | slug               | language   | provenance | n_queries |
 | ------------------ | ---------- | ---------- | --------- |
 | anthropics__skills |            | body       | 10        |
-| anthropics__skills |            | concept    | 10        |
+| anthropics__skills |            | concept    | 12        |
 | anthropics__skills |            | name       | 10        |
 | anthropics__skills | bash       | body       | 15        |
 | anthropics__skills | bash       | concept    | 10        |
 | anthropics__skills | bash       | docstring  | 6         |
 | anthropics__skills | bash       | name       | 10        |
 | anthropics__skills | css        | body       | 11        |
-| anthropics__skills | css        | concept    | 10        |
+| anthropics__skills | css        | concept    | 12        |
 | anthropics__skills | css        | docstring  | 10        |
 | anthropics__skills | css        | name       | 11        |
 | anthropics__skills | javascript | body       | 18        |
@@ -114,15 +114,15 @@ gamma = 0.09436958177410891
 | anthropics__skills | markdown   | concept    | 10        |
 | anthropics__skills | markdown   | name       | 10        |
 | anthropics__skills | python     | body       | 20        |
-| anthropics__skills | python     | concept    | 12        |
+| anthropics__skills | python     | concept    | 11        |
 | anthropics__skills | python     | docstring  | 13        |
 | anthropics__skills | python     | name       | 10        |
 | anthropics__skills | typescript | body       | 20        |
-| anthropics__skills | typescript | concept    | 10        |
+| anthropics__skills | typescript | concept    | 11        |
 | anthropics__skills | typescript | docstring  | 9         |
 | anthropics__skills | typescript | name       | 10        |
 | astral-sh__uv      |            | body       | 10        |
-| astral-sh__uv      |            | concept    | 11        |
+| astral-sh__uv      |            | concept    | 10        |
 | astral-sh__uv      |            | name       | 10        |
 | astral-sh__uv      | bash       | body       | 21        |
 | astral-sh__uv      | bash       | concept    | 10        |
@@ -139,11 +139,11 @@ gamma = 0.09436958177410891
 | astral-sh__uv      | markdown   | concept    | 10        |
 | astral-sh__uv      | markdown   | name       | 10        |
 | astral-sh__uv      | python     | body       | 20        |
-| astral-sh__uv      | python     | concept    | 10        |
+| astral-sh__uv      | python     | concept    | 11        |
 | astral-sh__uv      | python     | docstring  | 14        |
 | astral-sh__uv      | python     | name       | 10        |
 | astral-sh__uv      | rust       | body       | 20        |
-| astral-sh__uv      | rust       | concept    | 11        |
+| astral-sh__uv      | rust       | concept    | 12        |
 | astral-sh__uv      | rust       | docstring  | 12        |
 | astral-sh__uv      | rust       | name       | 10        |
 | astral-sh__uv      | toml       | body       | 17        |
@@ -170,17 +170,17 @@ gamma = 0.09436958177410891
 | badlogic__pi-mono  | json       | concept    | 10        |
 | badlogic__pi-mono  | json       | name       | 10        |
 | badlogic__pi-mono  | markdown   | body       | 12        |
-| badlogic__pi-mono  | markdown   | concept    | 14        |
+| badlogic__pi-mono  | markdown   | concept    | 10        |
 | badlogic__pi-mono  | markdown   | name       | 11        |
 | badlogic__pi-mono  | typescript | body       | 20        |
-| badlogic__pi-mono  | typescript | concept    | 11        |
+| badlogic__pi-mono  | typescript | concept    | 12        |
 | badlogic__pi-mono  | typescript | docstring  | 13        |
 | badlogic__pi-mono  | typescript | name       | 10        |
 | django__django     |            | body       | 10        |
 | django__django     |            | concept    | 12        |
 | django__django     |            | name       | 10        |
 | django__django     | css        | body       | 20        |
-| django__django     | css        | concept    | 12        |
+| django__django     | css        | concept    | 11        |
 | django__django     | css        | docstring  | 10        |
 | django__django     | css        | name       | 12        |
 | django__django     | html       | body       | 12        |
@@ -214,7 +214,7 @@ gamma = 0.09436958177410891
 | rbtr__rbtr         | markdown   | concept    | 10        |
 | rbtr__rbtr         | markdown   | name       | 11        |
 | rbtr__rbtr         | python     | body       | 21        |
-| rbtr__rbtr         | python     | concept    | 13        |
+| rbtr__rbtr         | python     | concept    | 10        |
 | rbtr__rbtr         | python     | docstring  | 11        |
 | rbtr__rbtr         | python     | name       | 10        |
 | rbtr__rbtr         | sql        | body       | 15        |
