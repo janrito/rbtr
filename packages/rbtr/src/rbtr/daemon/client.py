@@ -84,7 +84,8 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     we terminate it and return the winner.
 
     Returns the daemon status on success. Raises `RbtrError`
-    if no daemon becomes ready within the timeout.
+    if the spawned daemon exits without one becoming ready, or
+    does not bind within the backstop timeout.
     """
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
     config.log_dir.mkdir(parents=True, exist_ok=True)
@@ -142,13 +143,14 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     # terminate our redundant serve (it would otherwise die on
     # the DuckDB lock) and return the winner.
     #
-    # If our spawn exits without a daemon appearing, it failed for
-    # real (e.g. the index was built by a newer rbtr and this one
-    # refuses).  Fail fast rather than wait the full 5 s -- but
-    # allow a short grace first, since a spawn that *lost* the race
-    # also exits, and the winner's status file may lag a beat.
+    # Give up only when our spawned child actually exits (real
+    # failure, or we lost the race and the winner's status file
+    # lags -- hence the short grace).  The deadline is a backstop
+    # against a child that wedges before binding, not the normal
+    # path: a slow cold start under load still binds within it.
     grace_after_exit = 5  # 100 ms ticks to let a racing winner appear
-    for _ in range(50):  # 5 s at 100 ms intervals
+    deadline = time.monotonic() + config.daemon_start_timeout
+    while time.monotonic() < deadline:
         time.sleep(0.1)
         status = _status()
         if _daemon_ready(status):
@@ -157,11 +159,15 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
             return status
         if proc.poll() is not None:
             if grace_after_exit <= 0:
-                break
+                msg = f"Daemon failed to start. Check {config.daemon_log} for the reason."
+                raise RbtrError(msg)
             grace_after_exit -= 1
 
     proc.terminate()
-    msg = f"Daemon failed to start. Check {config.daemon_log} for the reason."
+    msg = (
+        f"Daemon did not become ready within {config.daemon_start_timeout:g}s. "
+        f"Check {config.daemon_log} for the reason."
+    )
     raise RbtrError(msg)
 
 
