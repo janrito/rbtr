@@ -24,6 +24,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    StringConstraints,
     TypeAdapter,
     ValidationInfo,
     field_validator,
@@ -142,9 +143,15 @@ def _unwrap_json_list(value: Any) -> Any:
 
 
 # A list-of-strings request field that tolerates a JSON-encoded-string
-# delivery (see `_unwrap_json_list`). Optional and required variants.
+# delivery (see `_unwrap_json_list`).
 OptStrList = Annotated[list[str] | None, BeforeValidator(_unwrap_json_list)]
-StrList = Annotated[list[str], BeforeValidator(_unwrap_json_list)]
+
+# A git ref is a single non-empty token with no whitespace (git's
+# ref-format rules forbid it); full syntax is checked by git when the
+# ref is resolved. Applied per element so a list of refs is validated
+# item-by-item, while still tolerating the JSON-encoded-string delivery.
+Ref = Annotated[str, StringConstraints(pattern=r"^\S+$")]
+RefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list)]
 
 
 def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
@@ -186,7 +193,7 @@ class BuildIndexRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["index"] = "index"
     repo_path: str
-    refs: StrList = ["HEAD"]
+    refs: RefList = ["HEAD"]
     embed: bool = True
     remove: bool = False
 
