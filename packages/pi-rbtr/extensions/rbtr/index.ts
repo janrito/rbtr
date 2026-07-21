@@ -657,7 +657,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     parameters: Type.Object({
       refs: Type.Optional(
         Type.Array(Type.String(), {
-          description: "Refs to watch and index (default: ['HEAD']). Each ref is an independent watch target.",
+          description:
+            "Refs to watch and index (default: ['HEAD']). Each ref is an independent watch target: " +
+            'pass every ref as a separate array element, e.g. ["main", "HEAD"] — never a single ' +
+            'space-joined string like "main HEAD".',
         }),
       ),
       remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
