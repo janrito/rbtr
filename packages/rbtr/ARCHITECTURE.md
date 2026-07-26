@@ -32,8 +32,8 @@ in, chunks come out, and the store makes them searchable.
 
 ```mermaid
 flowchart LR
-    files(["git files"]) --> orchestrator
-    orchestrator --> plugins["language<br/>plugins"]
+    files(["git files"]) --> build["build_index"]
+    build --> plugins["language<br/>plugins"]
     plugins --> chunks(["Chunks"])
     chunks --> store[("DuckDB")]
     chunks --> embeddings["embeddings"]
@@ -46,22 +46,27 @@ flowchart LR
     reranker --> results(["ranked results"])
 ```
 
-The orchestrator drives the pipeline. It detects each
+`build_index` drives the pipeline. It detects each
 file's language, loads the appropriate plugin, and
 routes extraction through one of three strategies (see
 [Language decomposition](#language-decomposition)).
-Chunks, embeddings, and edges are written to a single
-DuckDB file via the store. Search reads from the same
-store.
+Chunks and edges are written to a single DuckDB file via
+the store; embedding is a separate step (`embed_index`),
+and search reads from the same store.
 
-Modules only import from layers below them - no upward
-dependencies. The orchestrator sits at the top; models
-and config sit at the bottom.
+Modules only import from layers below them — no upward
+dependencies. Top to bottom: `cli` → `daemon` → `index`
+→ `languages` → `domain` (the pure kernel: data models,
+identity, tokenisation). `config` sits just above the
+kernel; `git` and `errors` are foundations below. The
+layering is a DAG enforced by import-linter (run in
+`just lint`), so boundary drift fails the build instead
+of relying on convention.
 
 ### Language plugin routing
 
 Plugins register capabilities via `LanguageRegistration`.
-The orchestrator routes each file to the most specific
+`build_index` routes each file to the most specific
 extraction path available:
 
 ```mermaid
