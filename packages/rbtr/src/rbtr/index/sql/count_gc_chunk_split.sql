@@ -21,7 +21,7 @@ WITH candidates AS (
       AND c.file_path = fs.file_path
   WHERE
     fs.repo_id = $repo_id
-    AND fs.commit_sha IN (SELECT unnest($drop_shas::TEXT []))
+    AND fs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))
 ),
 
 kept AS (
@@ -33,7 +33,7 @@ kept AS (
       AND cand.file_path = keepfs.file_path
   WHERE NOT (
     keepfs.repo_id = $repo_id
-    AND keepfs.commit_sha IN (SELECT unnest($drop_shas::TEXT []))
+    AND keepfs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))
   )
 )
 

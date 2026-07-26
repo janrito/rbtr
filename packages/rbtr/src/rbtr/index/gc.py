@@ -129,8 +129,8 @@ def run_gc(
         counts = _dry_run_counts(store, repo_id, drop_set=drop_set)
         chunks_freed, _kept = store.count_gc_chunk_split(repo_id, list(drop_set))
         return GcCounts(
-            commits=counts.commits,
             snapshots=counts.snapshots,
+            file_snapshots=counts.file_snapshots,
             edges=counts.edges,
             chunks=chunks_freed,
         )
@@ -142,7 +142,7 @@ def run_gc(
         session.sweep()
         total = GcCounts()
         for sha in drop_set:
-            total = total + session.drop_commit(repo_id, sha)
+            total = total + session.drop_snapshot(repo_id, sha)
         total = total + session.cleanup(repo_id)
         if compact:
             session.compact()
@@ -209,7 +209,7 @@ def _resolve_drop_set(
     keep_set: set[str],
 ) -> set[str]:
     """Return indexed SHAs to drop: everything outside *keep_set*."""
-    indexed = {sha for sha, _at in store.list_indexed_commits(repo_id)}
+    indexed = {sha for sha, _at in store.list_indexed_snapshots(repo_id)}
     # Protect the current worktree tree SHA from GC.  Tree SHAs
     # are never reachable from a git ref (they're tree objects,
     # not commits) so indexed - keep_set would include them.
@@ -229,15 +229,15 @@ def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> G
     needs no drop simulation), so this returns `chunks=0` and the
     caller overrides it.
     """
-    total = GcCounts(commits=len(drop_set))
-    snapshots = 0
+    total = GcCounts(snapshots=len(drop_set))
+    file_snapshots = 0
     edges = 0
     for sha in drop_set:
-        snapshots += store.count_snapshots_for_commit(repo_id, sha)
-        edges += store.count_edges_for_commit(repo_id, sha)
+        file_snapshots += store.count_file_snapshots(repo_id, sha)
+        edges += store.count_edges(repo_id, sha)
     return GcCounts(
-        commits=total.commits,
-        snapshots=snapshots,
+        snapshots=total.snapshots,
+        file_snapshots=file_snapshots,
         edges=edges,
         chunks=0,
     )

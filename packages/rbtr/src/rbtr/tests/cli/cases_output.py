@@ -152,13 +152,13 @@ def case_gc_reports_freed_chunks_and_scope() -> RenderScenario:
     return RenderScenario(
         model=GcResponse(
             repos_collected=3,
-            commits_dropped=2,
-            snapshots_dropped=5,
+            snapshots_dropped=2,
+            file_snapshots_dropped=5,
             edges_dropped=3,
             chunks_freed=4,
             elapsed_seconds=0.1,
         ),
-        expected=("2 commits", "freed 4 chunks", "across 3 repos"),
+        expected=("2 snapshots", "freed 4 chunks", "across 3 repos"),
     )
 
 
@@ -168,8 +168,8 @@ def case_gc_reports_compaction_shrink() -> RenderScenario:
     return RenderScenario(
         model=GcResponse(
             repos_collected=1,
-            commits_dropped=1,
             snapshots_dropped=1,
+            file_snapshots_dropped=1,
             edges_dropped=1,
             chunks_freed=1,
             size_before_bytes=2_000_000_000,  # 2.0 GB
@@ -186,8 +186,8 @@ def case_gc_reports_compaction_growth() -> RenderScenario:
     return RenderScenario(
         model=GcResponse(
             repos_collected=1,
-            commits_dropped=0,
             snapshots_dropped=0,
+            file_snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
             size_before_bytes=1_000_000,  # 1.0 MB
@@ -204,8 +204,8 @@ def case_gc_reports_compaction_unchanged() -> RenderScenario:
     return RenderScenario(
         model=GcResponse(
             repos_collected=1,
-            commits_dropped=0,
             snapshots_dropped=0,
+            file_snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
             size_before_bytes=1_000_000,  # 1.0 MB

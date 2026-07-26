@@ -1,7 +1,7 @@
 """Behavioural tests for `rbtr.daemon.watcher.poll_watched` and `poll_worktree`.
 
 `poll_watched(store)` resolves each repo's `watched_refs` and
-returns those whose SHA is not recorded in `indexed_commits`.
+returns those whose SHA is not recorded in `indexed_snapshots`.
 Scenarios in `cases_watcher.py`.
 
 `poll_worktree(store)` returns repos whose working tree is
@@ -109,7 +109,7 @@ def expected_targets(
     for e in scenario.expected:
         built = built_repos[e.repo]
         sha = built.shas[e.sha_index]
-        out.append(WatchedTarget(repo_path=built.path, ref=e.ref or sha, sha=sha))
+        out.append(WatchedTarget(repo_path=built.path, ref=e.ref or sha, snapshot_sha=sha))
     return out
 
 
@@ -190,9 +190,9 @@ def test_poll_worktree(
         assert isinstance(dirty, DirtyWorktree)
         assert dirty.repo_path == wt_repo
         # tree_sha should be a valid 40-char hex SHA.
-        assert len(dirty.tree_sha) == 40
+        assert len(dirty.snapshot_sha) == 40
         # And it should match the current worktree_tree_sha.
-        assert dirty.tree_sha == worktree_tree_sha(wt_repo)
+        assert dirty.snapshot_sha == worktree_tree_sha(wt_repo)
     else:
         assert result == []
 

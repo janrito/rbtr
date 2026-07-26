@@ -217,7 +217,7 @@ inline. Concretely:
 Don't bother when:
 
 - It's a **fixed, small** set of scalar parameters — bound
-  params (`$top_k`, `$commit_sha`) are simpler and clearer than
+  params (`$top_k`, `$snapshot_sha`) are simpler and clearer than
   a one-row view.
 - The data is **already in a table** — join the table directly;
   don't round-trip it out to a frame and back.

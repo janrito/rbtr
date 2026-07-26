@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, TokenisedChunk
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
@@ -159,7 +159,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ws.add_chunk(c)
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=c1, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(snapshot_sha=c1, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c1
             ],
             repo_id=repo_id,
@@ -172,7 +172,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ws.add_chunk(c)
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=c2, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(snapshot_sha=c2, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c2
             ],
             repo_id=repo_id,

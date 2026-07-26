@@ -48,7 +48,7 @@ def render_edges(edges: list[Edge], chunks: list[Chunk]) -> list[str]:
 
 
 class PydanticSnapshotExtension(SingleFileSnapshotExtension):
-    """Snapshot pydantic models via their own JSON serialisation.
+    """FileSnapshot pydantic models via their own JSON serialisation.
 
     One `.json` file per case; `serialize` delegates to pydantic through
     `TypeAdapter`, so a `list[Chunk]` round-trips through the real

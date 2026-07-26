@@ -1,5 +1,5 @@
 -- sqlfluff:templater:placeholder:repo_id:1
--- sqlfluff:templater:placeholder:commit_sha:'abc'
+-- sqlfluff:templater:placeholder:snapshot_sha:'abc'
 -- sqlfluff:templater:placeholder:file_path:'src/main.py'
 -- sqlfluff:templater:placeholder:kind:'function'
 -- sqlfluff:templater:placeholder:name:'main'
@@ -24,7 +24,7 @@ INNER JOIN file_snapshots AS fs
     AND c.file_path = fs.file_path
 WHERE
   fs.repo_id = $repo_id
-  AND fs.commit_sha = $commit_sha
+  AND fs.snapshot_sha = $snapshot_sha
   AND ($file_path IS NULL OR fs.file_path = $file_path)
   AND ($kind IS NULL OR c.kind = $kind)
   AND ($name IS NULL OR c.name = $name)

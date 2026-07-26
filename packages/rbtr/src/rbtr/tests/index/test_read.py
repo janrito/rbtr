@@ -1,6 +1,6 @@
 """Read-side behavioural tests for IndexStore.
 
-Covers: get_chunks filters, get_edges filters, has_blob
+Covers: get_chunks filters, get_edges filters, blob_is_current
 language matching, chunk upsert, delete_chunks_for_blobs,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
@@ -14,7 +14,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 
-from .cases_read import ChunkQueryScenario, GcCountScenario, HasBlobScenario
+from .cases_read import BlobCurrentScenario, ChunkQueryScenario, GcCountScenario
 from .conftest import make_chunk, make_snap
 
 # ── get_chunks ──────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ def test_get_chunks_returns_expected(
 ) -> None:
     store, s = chunk_query
     chunks = store.get_chunks(
-        s.commit_sha,
+        s.snapshot_sha,
         file_path=s.file_path,
         kind=s.kind,
         name=s.name,
@@ -46,12 +46,14 @@ def test_get_chunks_returns_expected(
     assert sorted(c.id for c in chunks) == sorted(s.expected_ids)
 
 
-# ── has_blob ────────────────────────────────────────────────────────
+# ── blob_is_current ────────────────────────────────────────────────────────
 
 
 @fixture
-@parametrize_with_cases("scenario", has_tag="has_blob")
-def blob_query(scenario: HasBlobScenario, store: IndexStore) -> tuple[IndexStore, HasBlobScenario]:
+@parametrize_with_cases("scenario", has_tag="blob_is_current")
+def blob_query(
+    scenario: BlobCurrentScenario, store: IndexStore
+) -> tuple[IndexStore, BlobCurrentScenario]:
     with store.session() as ws:
         for c in scenario.chunks:
             ws.add_chunk(c)
@@ -59,11 +61,11 @@ def blob_query(scenario: HasBlobScenario, store: IndexStore) -> tuple[IndexStore
     return store, scenario
 
 
-def test_has_blob_matches(
-    blob_query: tuple[IndexStore, HasBlobScenario],
+def test_blob_is_current_matches(
+    blob_query: tuple[IndexStore, BlobCurrentScenario],
 ) -> None:
     store, s = blob_query
-    assert store.has_blob(s.query_blob, s.query_language, s.serial_map) == s.expected
+    assert store.blob_is_current(s.query_blob, s.query_language, s.serial_map) == s.expected
 
 
 # ── Chunk upsert ────────────────────────────────────────────────────
@@ -105,8 +107,8 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
     with store.session() as ws:
         ws.delete_chunks_for_blobs({"b1"})
 
-    assert store.has_blob("b1", "", {"": 1}) is False
-    assert store.has_blob("b2", "", {"": 1}) is True
+    assert store.blob_is_current("b1", "", {"": 1}) is False
+    assert store.blob_is_current("b2", "", {"": 1}) is True
 
 
 # ── get_edges ───────────────────────────────────────────────────────
@@ -235,14 +237,14 @@ def test_shared_chunk_embedded_once_across_repos(
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
     store = shared_chunk_store
-    assert store.count_unembedded(repo_id=1, commit_sha="head") == 1
-    assert store.count_unembedded(repo_id=2, commit_sha="head") == 1
+    assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 1
+    assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 1
 
     with store.session() as ws:
         ws.update_embeddings(["shared_fn"], [[0.1, 0.2, 0.3]])
 
-    assert store.count_unembedded(repo_id=1, commit_sha="head") == 0
-    assert store.count_unembedded(repo_id=2, commit_sha="head") == 0
+    assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 0
+    assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 0
 
 
 def test_cleanup_keeps_chunk_referenced_by_another_repo(
@@ -271,13 +273,13 @@ def test_shared_chunk_swept_only_after_last_repo_drops_it(
     store = shared_chunk_store
     # Repo 1 drops its commit: shared chunk survives (repo 2 references it).
     with store.session() as ws:
-        first_drop = ws.drop_commit(1, "head")
+        first_drop = ws.drop_snapshot(1, "head")
     assert first_drop.chunks == 0
     assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn"]
 
     # Repo 2 drops its commit: last reference gone, chunk is swept.
     with store.session() as ws:
-        second_drop = ws.drop_commit(2, "head")
+        second_drop = ws.drop_snapshot(2, "head")
     assert second_drop.chunks == 1
     assert store.count_orphan_chunks() == 0
     assert store.get_chunks("head", repo_id=2) == []
@@ -305,10 +307,10 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn_v2"]
 
 
-def test_drop_commit_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
+def test_drop_snapshot_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
     store: IndexStore,
 ) -> None:
-    """`drop_commit` collects a chunk orphaned at its path even when the
+    """`drop_snapshot` collects a chunk orphaned at its path even when the
     same blob stays referenced at another path.
 
     A blob backing identical content at `a.py` and `b.py` yields two
@@ -328,7 +330,7 @@ def test_drop_commit_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
         ws.mark_indexed(1, "c2")
 
     with store.session() as ws:
-        dropped = ws.drop_commit(1, "c1")
+        dropped = ws.drop_snapshot(1, "c1")
 
     assert dropped.chunks == 1
     assert store.count_orphan_chunks() == 0
@@ -396,7 +398,7 @@ def gc_count_query(
             ws.add_chunk(c)
         for g in scenario.groups:
             ws.insert_snapshots(g.snapshots, repo_id=g.repo_id)
-            ws.mark_indexed(g.repo_id, g.commit_sha)
+            ws.mark_indexed(g.repo_id, g.snapshot_sha)
     return store, scenario
 
 
@@ -422,7 +424,7 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     """The predicted drop count matches a real deletion, leaving no orphans.
 
     Guards against drift between `count_gc_chunk_split` (the prediction)
-    and the `drop_commit` sweep (the deletion), and between the sweep and
+    and the `drop_snapshot` sweep (the deletion), and between the sweep and
     `count_orphan_chunks`: dropping the drop set's commits must remove
     exactly the predicted number of chunks and leave the store
     orphan-free. Both sides are read off the same reference graph, so
@@ -434,7 +436,7 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     before = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
     with store.session() as ws:
         for sha in s.drop_shas:
-            ws.drop_commit(s.drop_repo_id, sha)
+            ws.drop_snapshot(s.drop_repo_id, sha)
     after = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
 
     assert before is not None
@@ -487,7 +489,7 @@ def test_forget_repo_leaves_orphan_chunks_for_gc(
     assert store.count_orphan_chunks() == 1
 
 
-def test_forget_repo_purges_indexed_commits_incl_worktree_sha(
+def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
     store: IndexStore,
 ) -> None:
     """Every indexed commit for the repo — HEAD and any worktree tree SHA —

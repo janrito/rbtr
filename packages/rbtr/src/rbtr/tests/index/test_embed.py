@@ -65,151 +65,151 @@ def test_embed_batch_failure_skips_batch(
 
 
 def test_embed_index_total_failure_is_nonfatal(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, mocker: MockerFixture
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, mocker: MockerFixture
 ) -> None:
     """When every embed batch fails, embed_index returns 0 and the structural index is intact."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
     embedder = mocker.MagicMock()
     embedder.embed = mocker.MagicMock(side_effect=RuntimeError("GPU OOM"))
 
-    result = embed_index(store, commit_sha, repo_id=1, embedder=embedder)
+    result = embed_index(store, snapshot_sha, repo_id=1, embedder=embedder)
 
     assert result == 0
-    chunks = store.get_chunks(commit_sha, repo_id=1)
+    chunks = store.get_chunks(snapshot_sha, repo_id=1)
     assert len(chunks) > 0
     assert all(not c.embedding for c in chunks)
 
 
 def test_build_index_without_embedder_leaves_embeddings_null(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """build_index marks commit indexed with FTS, but all embeddings are NULL."""
-    result = build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    result = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
 
-    assert store.has_indexed(1, commit_sha)
+    assert store.has_indexed(1, snapshot_sha)
     assert result.stats.total_chunks > 0
 
     # FTS works.
-    fts_results = store.match_fulltext(commit_sha, "helper", repo_id=1)
+    fts_results = store.match_fulltext(snapshot_sha, "helper", repo_id=1)
     assert len(fts_results) > 0
 
     # All embeddings are NULL (no embedder was provided).
-    chunks = store.get_chunks(commit_sha, repo_id=1)
+    chunks = store.get_chunks(snapshot_sha, repo_id=1)
     assert all(not c.embedding for c in chunks)
 
 
 def test_embed_index_populates_embeddings(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
     """embed_index fills embedding vectors for an already-indexed commit."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
 
     # All NULL before embed.
-    chunks_before = store.get_chunks(commit_sha, repo_id=1)
+    chunks_before = store.get_chunks(snapshot_sha, repo_id=1)
     assert all(not c.embedding for c in chunks_before)
 
-    embedded = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    embedded = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
 
     assert embedded == len(chunks_before)
-    chunks_after = store.get_chunks(commit_sha, repo_id=1)
+    chunks_after = store.get_chunks(snapshot_sha, repo_id=1)
     assert all(c.embedding for c in chunks_after)
 
 
 def test_embed_index_is_incremental(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
     """embed_index skips already-embedded chunks."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
 
     # First pass embeds all.
-    first = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    first = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert first > 0
 
     stub_embedder.embed.reset_mock()
 
     # Second pass is a no-op.
-    second = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    second = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert second == 0
     stub_embedder.embed.assert_not_called()
 
 
 def test_count_unembedded_all_null(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """count_unembedded returns the total chunk count when none are embedded."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
-    total = store.count_chunks(commit_sha, repo_id=1)
-    unembedded = store.count_unembedded(repo_id=1, commit_sha=commit_sha)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    total = store.count_chunks(snapshot_sha, repo_id=1)
+    unembedded = store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha)
     assert unembedded == total
     assert unembedded > 0
 
 
 def test_count_unembedded_after_embedding(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
     """count_unembedded returns 0 after all chunks are embedded."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
-    embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
 
-    assert store.count_unembedded(repo_id=1, commit_sha=commit_sha) == 0
+    assert store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha) == 0
 
 
 def test_get_unembedded_chunks_returns_only_nulls(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """get_unembedded_chunks returns only chunks without embeddings."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
 
     # Partially embed — embed first batch only.
-    chunks = store.get_chunks(commit_sha, repo_id=1)
+    chunks = store.get_chunks(snapshot_sha, repo_id=1)
     first_chunk = chunks[0]
     with store.session() as ws:
         ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]])
 
-    unembedded = store.get_unembedded_chunks(repo_id=1, commit_sha=commit_sha)
+    unembedded = store.get_unembedded_chunks(repo_id=1, snapshot_sha=snapshot_sha)
     assert len(unembedded) == len(chunks) - 1
     assert first_chunk.id not in {c.id for c in unembedded}
 
 
 def test_get_unembedded_chunks_respects_limit(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """get_unembedded_chunks limits the number of returned rows."""
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
-    total = store.count_unembedded(repo_id=1, commit_sha=commit_sha)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    total = store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha)
     assert total > 1  # need multiple chunks for the test to be meaningful
 
-    limited = store.get_unembedded_chunks(repo_id=1, commit_sha=commit_sha, limit=1)
+    limited = store.get_unembedded_chunks(repo_id=1, snapshot_sha=snapshot_sha, limit=1)
     assert len(limited) == 1
 
 
 def test_build_then_embed_full_idempotency(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
     """Build + embed twice.  Second run is a complete no-op."""
     # First pass: build + embed.
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
-    embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
 
-    chunks_1 = store.get_chunks(commit_sha, repo_id=1)
+    chunks_1 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_1 = {c.id for c in chunks_1}
-    edges_1 = store.get_edges(commit_sha, repo_id=1)
+    edges_1 = store.get_edges(snapshot_sha, repo_id=1)
     embeddings_1 = {c.id: c.embedding for c in chunks_1}
 
     # Second pass: build + embed.
-    r2 = build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    r2 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
 
     stub_embedder.embed.reset_mock()
-    second_embed = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    second_embed = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert second_embed == 0
     stub_embedder.embed.assert_not_called()
 
     # State is identical.
-    chunks_2 = store.get_chunks(commit_sha, repo_id=1)
+    chunks_2 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_2 = {c.id for c in chunks_2}
-    edges_2 = store.get_edges(commit_sha, repo_id=1)
+    edges_2 = store.get_edges(snapshot_sha, repo_id=1)
     embeddings_2 = {c.id: c.embedding for c in chunks_2}
 
     assert ids_1 == ids_2
@@ -218,32 +218,32 @@ def test_build_then_embed_full_idempotency(
 
 
 def test_build_without_embed_then_build_with_embed(
-    git_repo: pygit2.Repository, store: IndexStore, commit_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
     """Build (no embed) → build (with embed) → third pass is no-op."""
     # First build — no embedding.
-    build_index(git_repo.workdir, commit_sha, store, repo_id=1)
-    chunks_no_embed = store.get_chunks(commit_sha, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    chunks_no_embed = store.get_chunks(snapshot_sha, repo_id=1)
     assert len(chunks_no_embed) > 0
     assert all(not c.embedding for c in chunks_no_embed), "All embeddings should be NULL"
-    assert store.get_edges(commit_sha, repo_id=1), "Edges should exist"
+    assert store.get_edges(snapshot_sha, repo_id=1), "Edges should exist"
 
     # Second build — chunking is idempotent (all files skipped).
-    r2 = build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    r2 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
     assert r2.stats.skipped_files == r2.stats.total_files
 
     # Now embed.
-    embedded = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    embedded = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert embedded > 0
 
-    chunks_after_embed = store.get_chunks(commit_sha, repo_id=1)
+    chunks_after_embed = store.get_chunks(snapshot_sha, repo_id=1)
     assert all(c.embedding for c in chunks_after_embed), "All should be embedded"
 
     # Third pass: build + embed are both no-ops.
-    r3 = build_index(git_repo.workdir, commit_sha, store, repo_id=1)
+    r3 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
     assert r3.stats.skipped_files == r3.stats.total_files
 
     stub_embedder.embed.reset_mock()
-    third_embed = embed_index(store, commit_sha, repo_id=1, embedder=stub_embedder)
+    third_embed = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert third_embed == 0
     stub_embedder.embed.assert_not_called()

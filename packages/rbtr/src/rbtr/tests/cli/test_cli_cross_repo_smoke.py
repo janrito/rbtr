@@ -17,7 +17,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import Snapshot
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.store import IndexStore
 
 from ..conftest import run_cli
@@ -62,9 +62,11 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
                 [
-                    Snapshot(commit_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"),
-                    Snapshot(
-                        commit_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
+                    FileSnapshot(
+                        snapshot_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"
+                    ),
+                    FileSnapshot(
+                        snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
                 repo_id=repo_id,

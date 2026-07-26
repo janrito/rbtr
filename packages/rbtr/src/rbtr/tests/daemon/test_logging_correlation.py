@@ -77,7 +77,7 @@ def test_binding_survives_to_thread(
 
 
 def test_binding_is_scoped_to_the_request(server: DaemonServer, fake_repo: str) -> None:
-    # Snapshot the context *inside the same task* as the dispatch: a
+    # FileSnapshot the context *inside the same task* as the dispatch: a
     # scoped (`bound_contextvars`) binding is gone once `_dispatch`
     # returns; an unscoped `bind_contextvars` would leak it here.
     async def dispatch_then_snapshot() -> dict[str, object]:

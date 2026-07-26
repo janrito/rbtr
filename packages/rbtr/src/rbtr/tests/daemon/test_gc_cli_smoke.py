@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
@@ -71,7 +71,8 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
         with store.session() as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
-                [Snapshot(commit_sha=sha, file_path="a.py", blob_sha=f"b{i}")], repo_id=repo_id
+                [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
+                repo_id=repo_id,
             )
             ws.mark_indexed(repo_id, sha)
     store.close()
@@ -97,7 +98,8 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     with store.session() as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
-            [Snapshot(commit_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")], repo_id=repo_id
+            [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
+            repo_id=repo_id,
         )
         ws.mark_indexed(repo_id, tiny_repo.c1)
     store.close()
@@ -114,7 +116,7 @@ def test_gc_default_keeps_head_drops_unreferenced(
     assert r.returncode == 0, r.stderr
     payload = json.loads(r.stdout)
     assert payload["kind"] == "gc"
-    assert payload["commits_dropped"] == 1  # c1 is not a ref tip
+    assert payload["snapshots_dropped"] == 1  # c1 is not a ref tip
 
     store = IndexStore.from_config(writable=True)
     assert store.has_indexed(repo_id, tiny_repo.c1) is False
@@ -157,7 +159,7 @@ def test_gc_all_repos_reclaims_globally(
     repo_id = seeded_repo_id_both_commits
     r = run_cli(["--json", "gc", "--all-repos"])
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout)["commits_dropped"] == 1  # c1 is not a ref tip
+    assert json.loads(r.stdout)["snapshots_dropped"] == 1  # c1 is not a ref tip
     store = IndexStore.from_config(writable=True)
     assert store.has_indexed(repo_id, tiny_repo.c1) is False
     assert store.has_indexed(repo_id, tiny_repo.c2) is True

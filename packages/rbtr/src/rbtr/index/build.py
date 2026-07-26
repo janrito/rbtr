@@ -26,8 +26,8 @@ from rbtr.config import config
 from rbtr.domain.models import (
     Chunk,
     Edge,
+    FileSnapshot,
     IndexResult,
-    Snapshot,
     TokenisedChunk,
 )
 from rbtr.domain.tokenise import tokenise_code
@@ -50,7 +50,7 @@ def _extract_and_store_chunks(
     *,
     store: IndexStore,
     repo_path: str,
-    commit_sha: str,
+    snapshot_sha: str,
     repo_id: int,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
@@ -58,7 +58,7 @@ def _extract_and_store_chunks(
     """Stream files, extract chunks, write snapshots.
 
     When *base_sha* is provided, only files that changed between
-    *base_sha* and *commit_sha* are extracted.
+    *base_sha* and *snapshot_sha* are extracted.
 
     Opens its own session with an explicit sweep.
     """
@@ -79,9 +79,9 @@ def _extract_and_store_chunks(
     ignore = load_ignore(repo_root)
     changed: set[str] | None = None
     if base_sha is not None:
-        changed = changed_files(repo_path, base_sha, commit_sha)
+        changed = changed_files(repo_path, base_sha, snapshot_sha)
 
-    snapshots: list[Snapshot] = []
+    snapshots: list[FileSnapshot] = []
     result = IndexResult()
     repo_files: set[str] = set()  # collected for edge inference
 
@@ -91,7 +91,7 @@ def _extract_and_store_chunks(
         # extraction, then released by the iterator.
         for entry in list_files(
             repo_path,
-            commit_sha,
+            snapshot_sha,
             max_file_size=config.max_file_size,
             ignore=ignore,
         ):
@@ -102,8 +102,8 @@ def _extract_and_store_chunks(
             if changed is not None and entry.path not in changed:
                 result.stats.skipped_files += 1
                 snapshots.append(
-                    Snapshot(
-                        commit_sha=commit_sha,
+                    FileSnapshot(
+                        snapshot_sha=snapshot_sha,
                         file_path=entry.path,
                         blob_sha=entry.blob_sha,
                     )
@@ -126,7 +126,7 @@ def _extract_and_store_chunks(
             serial = reg.extraction_serial if reg else 1
 
             # Blob dedup gate.
-            if store.has_blob(entry.blob_sha, detected_lang, dedup_serials):
+            if store.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
                 result.stats.skipped_files += 1
             else:
                 try:
@@ -152,8 +152,8 @@ def _extract_and_store_chunks(
 
             # Record detected language on snapshot.
             snapshots.append(
-                Snapshot(
-                    commit_sha=commit_sha,
+                FileSnapshot(
+                    snapshot_sha=snapshot_sha,
                     file_path=entry.path,
                     blob_sha=entry.blob_sha,
                     detected_language=detected_lang,
@@ -162,14 +162,14 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(commit_sha, snapshots, repo_id=repo_id)
+        session.replace_snapshots(snapshot_sha, snapshots, repo_id=repo_id)
 
     log.info(
         "extracted_files",
         total=result.stats.total_files,
         parsed=result.stats.parsed_files,
         skipped=result.stats.skipped_files,
-        sha=commit_sha[:12],
+        sha=snapshot_sha[:12],
     )
     return result, repo_files
 
@@ -179,7 +179,7 @@ def _infer_and_store_edges(
     store: IndexStore,
     chunks: list[Chunk],
     repo_files: set[str],
-    commit_sha: str,
+    snapshot_sha: str,
     repo_id: int,
     on_progress: ProgressCallback,
 ) -> int:
@@ -191,24 +191,24 @@ def _infer_and_store_edges(
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
     with store.session() as session:
-        session.replace_edges(commit_sha, edges, repo_id=repo_id)
+        session.replace_edges(snapshot_sha, edges, repo_id=repo_id)
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
 
 
 def _mark_indexed_and_cleanup(
-    *, store: IndexStore, repo_id: int, commit_sha: str, on_progress: ProgressCallback
+    *, store: IndexStore, repo_id: int, snapshot_sha: str, on_progress: ProgressCallback
 ) -> None:
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
     with store.session() as session:
-        session.mark_indexed(repo_id, commit_sha)
+        session.mark_indexed(repo_id, snapshot_sha)
         cleaned = session.cleanup(repo_id)
-        if cleaned.snapshots or cleaned.edges or cleaned.chunks:
+        if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(
                 "cleanup",
-                snapshots=cleaned.snapshots,
+                file_snapshots=cleaned.file_snapshots,
                 edges=cleaned.edges,
                 chunks=cleaned.chunks,
             )
@@ -226,7 +226,7 @@ def _mark_indexed_and_cleanup(
             "orphan_chunks_after_build",
             orphans=orphans,
             repo_id=repo_id,
-            sha=commit_sha[:12],
+            sha=snapshot_sha[:12],
         )
 
 
@@ -235,23 +235,23 @@ def _mark_indexed_and_cleanup(
 
 def build_index(
     repo_path: str,
-    commit_sha: str,
+    snapshot_sha: str,
     store: IndexStore,
     *,
     repo_id: int,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
 ) -> IndexResult:
-    """Build (or incrementally update) the index for *commit_sha*.
+    """Build (or incrementally update) the index for *snapshot_sha*.
 
-    Lists all files at *commit_sha*, extracts chunks, infers
+    Lists all files at *snapshot_sha*, extracts chunks, infers
     edges, and marks the commit indexed.  The commit becomes
     queryable via FTS/name/edges immediately — embedding is
     handled separately by `embed_index`.
 
     When *base_sha* is provided, only files that changed between
-    *base_sha* and *commit_sha* are considered for extraction.
-    Unchanged files are skipped without checking `has_blob`.
+    *base_sha* and *snapshot_sha* are considered for extraction.
+    Unchanged files are skipped without checking `blob_is_current`.
     """
     t0 = time.monotonic()
 
@@ -259,7 +259,7 @@ def build_index(
     result, repo_files = _extract_and_store_chunks(
         store=store,
         repo_path=repo_path,
-        commit_sha=commit_sha,
+        snapshot_sha=snapshot_sha,
         repo_id=repo_id,
         base_sha=base_sha,
         on_progress=on_progress,
@@ -267,21 +267,21 @@ def build_index(
 
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
-    all_chunks = store.get_chunks(commit_sha, repo_id=repo_id)
+    all_chunks = store.get_chunks(snapshot_sha, repo_id=repo_id)
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(
         store=store,
         chunks=all_chunks,
         repo_files=repo_files,
-        commit_sha=commit_sha,
+        snapshot_sha=snapshot_sha,
         repo_id=repo_id,
         on_progress=on_progress,
     )
 
     # Phase 3: mark complete and remove orphaned data.
     _mark_indexed_and_cleanup(
-        store=store, repo_id=repo_id, commit_sha=commit_sha, on_progress=on_progress
+        store=store, repo_id=repo_id, snapshot_sha=snapshot_sha, on_progress=on_progress
     )
 
     result.stats.total_chunks = len(all_chunks)

@@ -14,7 +14,7 @@ from collections.abc import Iterator
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.domain.models import RepoRef
+from rbtr.domain.models import SnapshotRef
 from rbtr.index import _gpu_model
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.results import ScoredChunkResultRow
@@ -137,7 +137,9 @@ def test_match_by_text_prepends_query_instruction(mocker: MockerFixture) -> None
         "Instruct: Given a code search query, retrieve relevant code or documentation"
         "\nQuery:find this"
     )
-    spy.assert_called_once_with([RepoRef(repo_id=1, commit_sha="abc123")], [[0.1, 0.2, 0.3]], 5)
+    spy.assert_called_once_with(
+        [SnapshotRef(repo_id=1, snapshot_sha="abc123")], [[0.1, 0.2, 0.3]], 5
+    )
     store.close()
 
 

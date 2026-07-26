@@ -12,11 +12,11 @@ CREATE SEQUENCE IF NOT EXISTS repos_id_seq START 1;
 
 CREATE TABLE IF NOT EXISTS file_snapshots (
   repo_id INTEGER NOT NULL DEFAULT 1,
-  commit_sha TEXT NOT NULL,
+  snapshot_sha TEXT NOT NULL,
   file_path TEXT NOT NULL,
   blob_sha TEXT NOT NULL,
   detected_language TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (repo_id, commit_sha, file_path)
+  PRIMARY KEY (repo_id, snapshot_sha, file_path)
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -52,15 +52,15 @@ CREATE TABLE IF NOT EXISTS edges (
   source_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
   kind TEXT NOT NULL,
-  commit_sha TEXT NOT NULL,
-  PRIMARY KEY (repo_id, commit_sha, source_id, target_id, kind)
+  snapshot_sha TEXT NOT NULL,
+  PRIMARY KEY (repo_id, snapshot_sha, source_id, target_id, kind)
 );
 
-CREATE TABLE IF NOT EXISTS indexed_commits (
+CREATE TABLE IF NOT EXISTS indexed_snapshots (
   repo_id INTEGER NOT NULL,
-  commit_sha TEXT NOT NULL,
+  snapshot_sha TEXT NOT NULL,
   indexed_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
-  PRIMARY KEY (repo_id, commit_sha)
+  PRIMARY KEY (repo_id, snapshot_sha)
 );
 
 CREATE TABLE IF NOT EXISTS watched_refs (
@@ -73,4 +73,4 @@ CREATE INDEX IF NOT EXISTS idx_chunks_blob
 ON chunks (blob_sha, file_path);
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_repo_commit
-ON file_snapshots (repo_id, commit_sha);
+ON file_snapshots (repo_id, snapshot_sha);

@@ -27,7 +27,7 @@ log = structlog.get_logger(__name__)
 
 def embed_index(
     store: IndexStore,
-    commit_sha: str,
+    snapshot_sha: str,
     *,
     repo_id: int,
     embedder: Embedder,
@@ -48,7 +48,7 @@ def embed_index(
 
     Returns the number of chunks that were embedded.
     """
-    total = store.count_unembedded(repo_id, commit_sha)
+    total = store.count_unembedded(repo_id, snapshot_sha)
     if total == 0:
         return 0
 
@@ -57,7 +57,7 @@ def embed_index(
     done = 0
     t0 = time.perf_counter()
 
-    while missing := store.get_unembedded_chunks(repo_id, commit_sha):
+    while missing := store.get_unembedded_chunks(repo_id, snapshot_sha):
         before = done
         for batch in itertools.batched(missing, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]

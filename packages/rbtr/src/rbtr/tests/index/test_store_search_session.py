@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, RepoRef
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
 from rbtr.index.store import IndexStore
 
 from .cases_search import SearchScenario
@@ -152,7 +152,10 @@ def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
 ) -> None:
     """Cross-repo search keeps a shared chunk as one row per repo, each attributed."""
     store = shared_chunk_store
-    refs = [RepoRef(repo_id=1, commit_sha="head"), RepoRef(repo_id=2, commit_sha="head")]
+    refs = [
+        SnapshotRef(repo_id=1, snapshot_sha="head"),
+        SnapshotRef(repo_id=2, snapshot_sha="head"),
+    ]
     results = store.search(refs, "shared", top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
     shared = [r for r in results if r.id == "shared_fn"]
     assert {r.repo_path for r in shared} == {"/repo1", "/repo2"}
@@ -162,8 +165,8 @@ def test_cross_repo_search_merges_both_repos(multi_repo_store: tuple[IndexStore,
     """Two refs return hits from both repos."""
     store, repo_one, repo_two = multi_repo_store
     refs = [
-        RepoRef(repo_id=repo_one, commit_sha="head"),
-        RepoRef(repo_id=repo_two, commit_sha="head"),
+        SnapshotRef(repo_id=repo_one, snapshot_sha="head"),
+        SnapshotRef(repo_id=repo_two, snapshot_sha="head"),
     ]
     results = store.search(refs, "func", top_k=10)
     ids = {r.id for r in results}
@@ -176,7 +179,7 @@ def test_single_ref_search_scopes_to_one_repo(
 ) -> None:
     """One ref excludes the other repo's chunks."""
     store, repo_one, _repo_two = multi_repo_store
-    results = store.search([RepoRef(repo_id=repo_one, commit_sha="head")], "func", top_k=10)
+    results = store.search([SnapshotRef(repo_id=repo_one, snapshot_sha="head")], "func", top_k=10)
     ids = {r.id for r in results}
     assert "r1_a" in ids
     assert "r2_b" not in ids
@@ -212,7 +215,7 @@ def test_match_similar_single_vector(semantic_store: IndexStore) -> None:
     """Single vector returns closest chunk first."""
     query_vec = [1.0, 0.0, 0.0, 0.0]
     result = semantic_store._match_similar(
-        [RepoRef(repo_id=1, commit_sha="head")], [query_vec], top_k=2
+        [SnapshotRef(repo_id=1, snapshot_sha="head")], [query_vec], top_k=2
     )
     assert len(result) >= 2
     assert result["id"].to_list()[0] == "close"
@@ -225,7 +228,7 @@ def test_match_similar_picks_best_score(semantic_store: IndexStore) -> None:
     # vec_b is close to "far" chunk ([0.3, 0.7, ...]).
     vec_b = [0.0, 1.0, 0.0, 0.0]
     result = semantic_store._match_similar(
-        [RepoRef(repo_id=1, commit_sha="head")], [vec_a, vec_b], top_k=2
+        [SnapshotRef(repo_id=1, snapshot_sha="head")], [vec_a, vec_b], top_k=2
     )
     ids = result["id"].to_list()
     assert "close" in ids
@@ -241,7 +244,7 @@ def test_match_similar_empty(store: IndexStore) -> None:
     s = SearchScenario(chunks=[make_chunk("x")], query="")
     seed_store(store, s.chunks)
     vec = [1.0, 0.0, 0.0, 0.0]
-    result = store._match_similar([RepoRef(repo_id=1, commit_sha="head")], [vec], top_k=5)
+    result = store._match_similar([SnapshotRef(repo_id=1, snapshot_sha="head")], [vec], top_k=5)
     assert len(result) == 0
 
 
@@ -324,7 +327,7 @@ def unified_store(store: IndexStore) -> IndexStore:
 
 def test_unified_search_returns_results_with_breakdown(unified_store: IndexStore) -> None:
     """store.search() returns ScoredChunks with score breakdown."""
-    results = unified_store.search([RepoRef(repo_id=1, commit_sha="head")], "config")
+    results = unified_store.search([SnapshotRef(repo_id=1, snapshot_sha="head")], "config")
     assert len(results) > 0
     top = results[0]
     assert top.score >= 0.0
@@ -349,6 +352,6 @@ def test_unified_search_without_embeddings(
 ) -> None:
     """search() works when no embeddings exist (semantic weight redistributed)."""
     store, s = unified_no_embed
-    results = store.search([RepoRef(repo_id=1, commit_sha="head")], s.query)
+    results = store.search([SnapshotRef(repo_id=1, snapshot_sha="head")], s.query)
     assert len(results) > 0
     assert all(r.score >= 0.0 for r in results)

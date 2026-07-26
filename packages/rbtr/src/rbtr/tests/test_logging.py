@@ -27,7 +27,7 @@ from rbtr.logging import _resolve_stream_format, configure_logging, elapsed_ms
 
 @pytest.fixture(autouse=True)
 def _restore_root_logging() -> Generator[None]:
-    """Snapshot and restore the root logger around each test.
+    """FileSnapshot and restore the root logger around each test.
 
     `configure_logging` mutates the root logger's handlers and level;
     without this, that state leaks into sibling tests.

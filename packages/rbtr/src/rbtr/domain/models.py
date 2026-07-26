@@ -211,10 +211,10 @@ class TokenisedChunk(Chunk):
     extraction_serial: int = 1
 
 
-class Snapshot(BaseModel):
-    """A file in a commit's tree, mapping path to blob SHA."""
+class FileSnapshot(BaseModel):
+    """A file in a snapshot's tree, mapping path to blob SHA."""
 
-    commit_sha: str
+    snapshot_sha: str
     file_path: str
     blob_sha: str
     detected_language: str = ""
@@ -229,7 +229,7 @@ class Edge(BaseModel):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class RepoRef:
+class SnapshotRef:
     """A repo paired with the indexed ref to read it at.
 
     Internal-only transport: built at the daemon's handler
@@ -238,20 +238,20 @@ class RepoRef:
     RPC boundary — clients name repos by path, never by numeric
     `repo_id` — so the integer key stays inside the process.
 
-    `commit_sha` is the snapshot identity (a commit SHA or a
+    `snapshot_sha` is the snapshot identity (a commit SHA or a
     dirty worktree tree SHA) that search and edge queries join
     through `file_snapshots`.  `kw_only` forbids positional /
     tuple-style construction and unpacking.
     """
 
     repo_id: int
-    commit_sha: str
+    snapshot_sha: str
 
 
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
 TokenisedChunks = TypeAdapter(list[TokenisedChunk])
-Snapshots = TypeAdapter(list[Snapshot])
+FileSnapshots = TypeAdapter(list[FileSnapshot])
 Edges = TypeAdapter(list[Edge])
 
 
@@ -295,21 +295,21 @@ class GcMode(StrEnum):
 class GcCounts:
     """Rows removed by a garbage-collection operation.
 
-    `commits`, `snapshots`, and `edges` are per-repo (summed when a global
-    GC visits several repos). `chunks` is the number of chunks actually
+    `snapshots`, `file_snapshots`, and `edges` are per-repo (summed when a
+    global GC visits several repos). `chunks` is the number of chunks actually
     freed from the content-addressed pool — a global figure, since a chunk
     dies only when no `file_snapshots` row in any repo references it.
     """
 
-    commits: int = 0
     snapshots: int = 0
+    file_snapshots: int = 0
     edges: int = 0
     chunks: int = 0
 
     def __add__(self, other: GcCounts) -> GcCounts:
         return GcCounts(
-            commits=self.commits + other.commits,
             snapshots=self.snapshots + other.snapshots,
+            file_snapshots=self.file_snapshots + other.file_snapshots,
             edges=self.edges + other.edges,
             chunks=self.chunks + other.chunks,
         )

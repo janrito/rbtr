@@ -14,7 +14,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, GcMode, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, TokenisedChunk
 from rbtr.errors import RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.gc import run_gc, run_gc_all
@@ -93,7 +93,8 @@ def gc(
         with store.session() as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
-                [Snapshot(commit_sha=sha, file_path="a.py", blob_sha=f"b{i}")], repo_id=repo_id
+                [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
+                repo_id=repo_id,
             )
             ws.mark_indexed(repo_id, sha)
     yield GcFixture(repo=repo, store=store, repo_id=repo_id, c1=c1, c2=c2, c3=c3)
@@ -107,7 +108,7 @@ def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False
     )
-    assert counts.commits == 2  # c1 and c2 dropped
+    assert counts.snapshots == 2  # c1 and c2 dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -123,7 +124,7 @@ def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
     )
-    assert counts.commits == 0
+    assert counts.snapshots == 0
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # watched tag v1
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True  # watched bare SHA
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD
@@ -135,7 +136,7 @@ def test_watched_keeps_all_branches_drops_unreferenced(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
     )
-    assert counts.commits == 1  # only c2 (unreachable) dropped
+    assert counts.snapshots == 1  # only c2 (unreachable) dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # tag v1 kept
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -147,7 +148,7 @@ def test_watched_only_drops_unwatched_branches_and_tags(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False
     )
-    assert counts.commits == 2  # c1 (tag v1) and c2 dropped; only HEAD kept
+    assert counts.snapshots == 2  # c1 (tag v1) and c2 dropped; only HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -161,7 +162,7 @@ def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.KEEP, refs=["v1"], dry_run=False
     )
-    assert counts.commits == 1
+    assert counts.snapshots == 1
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -177,11 +178,11 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
 # ── ORPHANS ──────────────────────────────────────────────────────────
 
 
-def test_orphans_never_drops_indexed_commits(gc: GcFixture) -> None:
+def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False
     )
-    assert counts.commits == 0
+    assert counts.snapshots == 0
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
@@ -191,12 +192,12 @@ def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
     # Simulate a crashed build: snapshot without mark_indexed.
     with gc.store.session() as ws:
         ws.insert_snapshots(
-            [Snapshot(commit_sha="crashed", file_path="x.py", blob_sha="bx")],
+            [FileSnapshot(snapshot_sha="crashed", file_path="x.py", blob_sha="bx")],
             repo_id=gc.repo_id,
         )
     run_gc(gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     # Orphan snapshot is gone (swept on session entry or by GC).
-    assert gc.store.count_snapshots_for_commit(gc.repo_id, "crashed") == 0
+    assert gc.store.count_file_snapshots(gc.repo_id, "crashed") == 0
     # Completed commits untouched.
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
 
@@ -208,7 +209,7 @@ def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
     counts = run_gc(
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True
     )
-    assert counts.commits == 2
+    assert counts.snapshots == 2
     # Dry-run predicts the drop set's freed chunks (read-only graph query):
     # both dropped commits' chunks are unshared, so both are freed.
     assert counts.chunks == 2
@@ -228,7 +229,7 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
     with gc.store.session() as ws:
         other = ws.register_repo("/other")
         ws.insert_snapshots(
-            [Snapshot(commit_sha="other_head", file_path="a.py", blob_sha="b0")],
+            [FileSnapshot(snapshot_sha="other_head", file_path="a.py", blob_sha="b0")],
             repo_id=other,
         )
         ws.mark_indexed(other, "other_head")
@@ -254,7 +255,7 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
         gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
     )
 
-    assert counts.commits == 0  # nothing dropped
+    assert counts.snapshots == 0  # nothing dropped
     assert counts.chunks == 1  # the orphan was reclaimed AND reported
     assert gc.store.count_orphan_chunks() == 0
 

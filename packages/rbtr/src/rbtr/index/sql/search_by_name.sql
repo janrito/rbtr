@@ -26,8 +26,8 @@ WITH ranked AS (
     ON
       c.blob_sha = fs.blob_sha
       AND c.file_path = fs.file_path
-  INNER JOIN _repo_refs AS rr
-    ON fs.repo_id = rr.repo_id AND fs.commit_sha = rr.commit_sha
+  INNER JOIN _snapshot_refs AS rr
+    ON fs.repo_id = rr.repo_id AND fs.snapshot_sha = rr.snapshot_sha
   WHERE c.name ILIKE $pattern
 )
 

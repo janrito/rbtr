@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk
@@ -24,8 +24,8 @@ def test_concurrent_write_then_read(
             ws.add_chunk(string_func)
             ws.insert_snapshots(
                 [
-                    Snapshot(
-                        commit_sha="head",
+                    FileSnapshot(
+                        snapshot_sha="head",
                         file_path=c.file_path,
                         blob_sha=c.blob_sha,
                     )
@@ -64,8 +64,8 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                 session.add_chunk(c)
             session.insert_snapshots(
                 [
-                    Snapshot(
-                        commit_sha="head",
+                    FileSnapshot(
+                        snapshot_sha="head",
                         file_path=c.file_path,
                         blob_sha=c.blob_sha,
                     )
@@ -105,7 +105,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
             session.add_chunk(c)
         session.insert_snapshots(
             [
-                Snapshot(commit_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
             repo_id=1,
@@ -127,8 +127,8 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 session.add_chunk(extra)
                 session.insert_snapshots(
                     [
-                        Snapshot(
-                            commit_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
+                        FileSnapshot(
+                            snapshot_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
                         )
                     ],
                     repo_id=1,

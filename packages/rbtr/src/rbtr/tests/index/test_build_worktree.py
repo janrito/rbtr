@@ -7,7 +7,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import RepoRef
+from rbtr.domain.models import SnapshotRef
 from rbtr.git import changed_files, worktree_tree_sha
 from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
@@ -137,11 +137,11 @@ def test_build_worktree_edges(
 def test_build_worktree_marks_indexed(
     worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
 ) -> None:
-    """Tree SHA appears in `list_indexed_commits` after build."""
+    """Tree SHA appears in `list_indexed_snapshots` after build."""
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store, repo_id=1)
 
-    indexed = [sha for sha, _ts in store.list_indexed_commits(repo_id=1)]
+    indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id=1)]
     assert wt_sha in indexed
 
 
@@ -155,7 +155,7 @@ def test_search_returns_worktree_content(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store, repo_id=1)
 
-    results = store.search([RepoRef(repo_id=1, commit_sha=wt_sha)], "helper")
+    results = store.search([SnapshotRef(repo_id=1, snapshot_sha=wt_sha)], "helper")
     helpers = [r for r in results if r.name == "helper"]
     assert len(helpers) == 1
     assert "99" in helpers[0].content

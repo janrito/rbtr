@@ -20,7 +20,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, FileSnapshot, TokenisedChunk
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
 
@@ -60,16 +60,16 @@ def make_chunk(
     )
 
 
-def make_snap(sha: str, path: str, blob: str) -> Snapshot:
-    """Build a `Snapshot`."""
-    return Snapshot(commit_sha=sha, file_path=path, blob_sha=blob)
+def make_snap(sha: str, path: str, blob: str) -> FileSnapshot:
+    """Build a `FileSnapshot`."""
+    return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob)
 
 
 def seed_store(
     store: IndexStore,
     chunks: list[TokenisedChunk],
     *,
-    commit_sha: str = "head",
+    snapshot_sha: str = "head",
     mark_indexed: bool = True,
     repo_id: int = 1,
 ) -> None:
@@ -85,13 +85,13 @@ def seed_store(
             ws.add_chunk(c)
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=commit_sha, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(snapshot_sha=snapshot_sha, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
             repo_id=repo_id,
         )
         if mark_indexed:
-            ws.mark_indexed(repo_id, commit_sha)
+            ws.mark_indexed(repo_id, snapshot_sha)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -106,7 +106,7 @@ def shared_chunk_store(store: IndexStore) -> IndexStore:
     Models byte-identical content in two worktrees/clones of one
     repository: the blob (and so the chunk `id`) coincides. The chunk
     is inserted **once**; each repo records a snapshot referencing the
-    same `(blob_sha, file_path)` — mirroring the `has_blob` skip that
+    same `(blob_sha, file_path)` — mirroring the `blob_is_current` skip that
     happens when a second repo indexes already-chunked content.
     """
     with store.session() as ws:
@@ -127,7 +127,7 @@ def shared_chunk_store(store: IndexStore) -> IndexStore:
 
 
 @pytest.fixture
-def commit_sha(git_repo: pygit2.Repository) -> str:
+def snapshot_sha(git_repo: pygit2.Repository) -> str:
     """SHA of the initial commit."""
     return str(git_repo.head.target)
 
@@ -408,7 +408,9 @@ def ranking_store(
             ws.add_chunk(tc)
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=ranking_commit, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(
+                    snapshot_sha=ranking_commit, file_path=c.file_path, blob_sha=c.blob_sha
+                )
                 for c in ranking_chunks
             ],
             repo_id=1,
