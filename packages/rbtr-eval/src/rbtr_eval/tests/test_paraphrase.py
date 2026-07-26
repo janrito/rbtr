@@ -163,7 +163,7 @@ def mini_repo(tmp_path: Path) -> tuple[Path, IndexStore, int]:
     with store.session() as ws:
         repo_id = ws.register_repo(resolved)
     head = str(repo.head.target)
-    build_index(repo.workdir, head, store, repo_id=repo_id)
+    build_index(repo.workdir, head, store)
     return repo_path, store, repo_id
 
 

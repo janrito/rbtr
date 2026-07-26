@@ -409,11 +409,9 @@ def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = Fa
             store, mode=request.mode, refs=request.refs, dry_run=request.dry_run, compact=compact
         )
     else:
-        repo_id = store.resolve_repo(request.repo_path)
         counts = run_gc(
             store,
             request.repo_path,
-            repo_id,
             mode=request.mode,
             refs=request.refs,
             dry_run=request.dry_run,

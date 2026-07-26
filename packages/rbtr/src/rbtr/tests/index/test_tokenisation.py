@@ -214,6 +214,7 @@ def keyword_store_and_case(case: KeywordScenario) -> Generator[tuple[IndexStore,
     )
     store = IndexStore(writable=True)
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],

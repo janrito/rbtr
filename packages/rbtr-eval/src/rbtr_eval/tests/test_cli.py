@@ -34,8 +34,11 @@ def tiny_repo(tmp_path: Path) -> Path:
     One function, one class, and one method inside the class
     so the extract exercises the scope / kind axes of the
     `QueryRow` schema.
+
+    Named for the `tiny` slug: `extract` finds a repo by matching the
+    slug against the last component of its registered path.
     """
-    repo = tmp_path / "repo"
+    repo = tmp_path / "tiny"
     repo.mkdir()
     (repo / "hello.py").write_text(
         '''
@@ -72,19 +75,17 @@ def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path)
     headers_dir = tmp_path / "headers"
 
     # Build a file-backed index so ExtractCmd can open it.
-    # Register with a path whose last component matches the
-    # slug so extract can find it via Path(path).name.
+    # The build registers the repo under its canonical root, whose last
+    # component matches the slug so extract can find it via Path(path).name.
     db_dir = tmp_path / "index"
     db_dir.mkdir()
     file_store = IndexStore(str(db_dir / "index.duckdb"), writable=True)
-    with file_store.session() as ws:
-        repo_id = ws.register_repo(str(tmp_path / "tiny"))
     repo = pygit2.Repository(str(tiny_repo))
     head = str(repo.head.target)
 
     from rbtr.index.build import build_index  # deferred: heavy native libs
 
-    build_index(repo.workdir, head, file_store, repo_id=repo_id)
+    build_index(repo.workdir, head, file_store)
 
     argv = [
         "extract",

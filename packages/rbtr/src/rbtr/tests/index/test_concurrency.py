@@ -19,6 +19,7 @@ def test_concurrent_write_then_read(
 
     def writer() -> None:
         with store.session() as ws:
+            ws.register_repo("/repo")
             ws.add_chunk(math_func)
             ws.add_chunk(http_func)
             ws.add_chunk(string_func)

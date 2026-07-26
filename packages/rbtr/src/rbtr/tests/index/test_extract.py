@@ -47,7 +47,7 @@ def test_build_index_extraction_error_is_nonfatal(
 
     mocker.patch("rbtr.index.build.extract_file", side_effect=_patched_extract)
 
-    result = build_index(repo.workdir, sha, store, repo_id=1)
+    result = build_index(repo.workdir, sha, store)
 
     assert len(result.errors) == 1
     assert "bad.py" in result.errors[0]

@@ -15,6 +15,7 @@ import structlog
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
+from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
 
 
@@ -110,13 +111,16 @@ def make_commit(
 
 @pytest.fixture
 def fake_repo(tmp_path: Path) -> str:
-    """Minimal real git repo — one empty commit, returns workdir path."""
+    """Minimal real git repo — one empty commit, returns workdir path.
+
+    Canonical, so registering it and building it yield one repo row.
+    """
     path = tmp_path / "repo"
     repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
     tree = repo.TreeBuilder().write()
     repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
-    return str(path)
+    return normalise_repo_path(str(path))
 
 
 @pytest.fixture
@@ -200,6 +204,18 @@ Run `format_name` to clean strings.
     repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
 
     return repo
+
+
+@pytest.fixture
+def repo_path(git_repo: pygit2.Repository) -> str:
+    """`git_repo`'s canonical root — the path a repo is identified by.
+
+    `pygit2`'s raw `workdir` carries a trailing slash, and on macOS a
+    temp path resolves through a symlink, so the raw string and the
+    normalised one differ.  Registering one and building the other
+    would create two repo rows for one repo; always use this.
+    """
+    return normalise_repo_path(git_repo.workdir)
 
 
 @pytest.fixture

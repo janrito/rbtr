@@ -31,7 +31,7 @@ def diff_result(
 ) -> tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]]:
     base_oid = make_commit(diff_repo, scenario.base_files)
     base_sha = str(base_oid)
-    build_index(diff_repo.workdir, base_sha, store, repo_id=1)
+    build_index(diff_repo.workdir, base_sha, store)
 
     if scenario.same_as_base:
         head_sha = base_sha
@@ -43,7 +43,7 @@ def diff_result(
             head_sha = str(commit_obj.tree_id)
         else:
             head_sha = str(head_oid)
-        build_index(diff_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
+        build_index(diff_repo.workdir, head_sha, store, base_sha=base_sha)
 
     frame = store.diff_symbols(base_sha, head_sha, repo_id=1, file_paths=scenario.file_paths)
     return scenario, frame, changed_to_symbols(frame)

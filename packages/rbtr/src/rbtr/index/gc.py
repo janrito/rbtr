@@ -78,9 +78,7 @@ def run_gc_all(
             continue
         # Never compact per repo: a rewrite is expensive, so compact once
         # after every repo's logical deletes have landed.
-        total = total + run_gc(
-            store, repo.repo_path, repo.repo_id, mode=mode, refs=refs, dry_run=dry_run
-        )
+        total = total + run_gc(store, repo.repo_path, mode=mode, refs=refs, dry_run=dry_run)
         collected += 1
     if compact and not dry_run:
         with store.session() as session:
@@ -99,7 +97,6 @@ _KEPT_REF_PREFIXES: tuple[str, ...] = (
 def run_gc(
     store: IndexStore,
     repo_path: str,
-    repo_id: int,
     *,
     mode: GcMode,
     refs: list[str],
@@ -112,7 +109,12 @@ def run_gc(
     When *dry_run* is true, computes the counts without writing to
     the database.  When *compact* is true, the index file is rewritten
     after the deletions commit, reclaiming the freed disk space.
+
+    *repo_path* must already be registered — collecting a repo that was
+    never indexed is meaningless, so this raises rather than creating
+    one.  The `repo_id` is derived from it, so the two cannot disagree.
     """
+    repo_id = store.resolve_repo(repo_path)
     if mode is GcMode.ORPHANS:
         return _run_orphans_only(store, repo_id, dry_run=dry_run, compact=compact)
 

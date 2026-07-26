@@ -16,10 +16,10 @@ def test_incremental_incremental(
     base_sha, head_sha = two_commits
 
     # Build base first.
-    build_index(git_repo.workdir, base_sha, store, repo_id=1)
+    build_index(git_repo.workdir, base_sha, store)
 
     # Incremental update.
-    result = build_index(git_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
+    result = build_index(git_repo.workdir, head_sha, store, base_sha=base_sha)
 
     assert result.stats.total_files > 0
     assert result.stats.parsed_files >= 1  # At least the changed files.
@@ -37,10 +37,10 @@ def test_incremental_marks_head_indexed(
 ) -> None:
     """Incremental update marks head, leaving base's mark alone."""
     base_sha, head_sha = two_commits
-    build_index(git_repo.workdir, base_sha, store, repo_id=1)
+    build_index(git_repo.workdir, base_sha, store)
     assert store.has_indexed(1, head_sha) is False
 
-    build_index(git_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
+    build_index(git_repo.workdir, head_sha, store, base_sha=base_sha)
 
     assert store.has_indexed(1, head_sha) is True
     assert store.has_indexed(1, base_sha) is True  # still marked
@@ -51,8 +51,8 @@ def test_incremental_preserves_unchanged(
 ) -> None:
     base_sha, head_sha = two_commits
 
-    build_index(git_repo.workdir, base_sha, store, repo_id=1)
-    result = build_index(git_repo.workdir, head_sha, store, repo_id=1, base_sha=base_sha)
+    build_index(git_repo.workdir, base_sha, store)
+    result = build_index(git_repo.workdir, head_sha, store, base_sha=base_sha)
 
     # Unchanged files should be cached, not re-parsed.
     assert result.stats.skipped_files > 0
@@ -79,7 +79,7 @@ def test_incremental_replaces_head_snapshots_for_reused_ref(
         git_repo.branches.local.create("feature", base)
 
     # Build base under a stable branch ref, as /review does.
-    build_index(git_repo.workdir, "main", store, repo_id=1)
+    build_index(git_repo.workdir, "main", store)
 
     # Feature commit 1: add a temporary file/symbol.
     git_repo.set_head("refs/heads/feature")
@@ -102,7 +102,7 @@ def legacy_only():
     assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Add legacy file", tree_oid, [parent.id])
 
-    build_index(git_repo.workdir, "feature", store, repo_id=1, base_sha="main")
+    build_index(git_repo.workdir, "feature", store, base_sha="main")
     names_v1 = {c.name for c in store.get_chunks("feature", repo_id=1)}
     assert "legacy_only" in names_v1
 
@@ -116,7 +116,7 @@ def legacy_only():
     assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Remove legacy file", tree_oid, [parent.id])
 
-    build_index(git_repo.workdir, "feature", store, repo_id=1, base_sha="main")
+    build_index(git_repo.workdir, "feature", store, base_sha="main")
     names_v2 = {c.name for c in store.get_chunks("feature", repo_id=1)}
     assert "legacy_only" not in names_v2
 
@@ -157,8 +157,8 @@ def new_func():
     git_repo.references.create("refs/remotes/origin/feature-branch", head_oid)
 
     # Build base, then incremental update using the remote branch name.
-    build_index(git_repo.workdir, base_sha, store, repo_id=1)
-    result = build_index(git_repo.workdir, "feature-branch", store, repo_id=1, base_sha=base_sha)
+    build_index(git_repo.workdir, base_sha, store)
+    result = build_index(git_repo.workdir, "feature-branch", store, base_sha=base_sha)
 
     assert result.stats.total_chunks > 0
     # FileSnapshots stored under "feature-branch", queryable by that name.

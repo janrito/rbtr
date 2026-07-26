@@ -49,7 +49,7 @@ def built_index(
     sha = str(repo.head.target)
 
     store = IndexStore(writable=True)
-    result = build_index(repo.workdir, sha, store, repo_id=1)
+    result = build_index(repo.workdir, sha, store)
     yield store, result, sha
     store.close()
 
@@ -102,7 +102,7 @@ def test_build_index_resolves_monorepo_absolute_import(
     query edges by target_id.
     """
     sha = str(monorepo_repo.head.target)
-    build_index(monorepo_repo.workdir, sha, store, repo_id=1)
+    build_index(monorepo_repo.workdir, sha, store)
     widget = next(
         c
         for c in store.get_chunks(sha, repo_id=1)
@@ -115,6 +115,38 @@ def test_build_index_resolves_monorepo_absolute_import(
     assert any(e.kind == EdgeKind.IMPORTS for e in edges), (
         "absolute import across packages/*/src produced no inbound edge"
     )
+
+
+def test_build_index_registers_the_repo(
+    git_repo: pygit2.Repository, repo_path: str, store: IndexStore, snapshot_sha: str
+) -> None:
+    """A build registers its repo — indexing a path is what makes it known.
+
+    There is no separate register action, so the build must obtain the repo
+    row itself; without one, every per-repo table it writes would carry an
+    id no enumeration (gc, watcher, forget) could ever reach.
+    """
+    assert store.list_repos() == []
+
+    build_index(git_repo.workdir, snapshot_sha, store)
+
+    assert [r.repo_path for r in store.list_repos()] == [repo_path]
+
+
+@pytest.mark.parametrize("suffix", ["", "/", "/src"])
+def test_build_index_identifies_one_repo_from_any_path_inside_it(
+    repo_path: str, store: IndexStore, snapshot_sha: str, suffix: str
+) -> None:
+    """Any path inside a checkout resolves to a single repo row.
+
+    `pygit2`'s raw workdir carries a trailing slash and a caller may pass a
+    subdirectory, so keying identity on the given string would register a
+    second repo for the same checkout — splitting its index in two, each
+    half invisible to the other.
+    """
+    build_index(repo_path + suffix, snapshot_sha, store)
+
+    assert [r.repo_path for r in store.list_repos()] == [repo_path]
 
 
 def test_build_index_creates_chunks(
@@ -186,7 +218,6 @@ def test_build_index_progress_callback(
         git_repo.workdir,
         snapshot_sha,
         store,
-        repo_id=1,
         on_progress=lambda p, d, t: calls.append((p, d, t)),
     )
 
@@ -200,8 +231,8 @@ def test_build_index_cache_hit(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """Second build should hit the cache for all files."""
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
-    r2 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
+    r2 = build_index(git_repo.workdir, snapshot_sha, store)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
@@ -237,8 +268,8 @@ def test_build_dedups_across_linked_worktrees(
     have the same edges inferred (from the shared chunks read back via
     snapshots) even though extraction was skipped.
     """
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
-    wt = build_index(linked_worktree.workdir, snapshot_sha, store, repo_id=2)
+    build_index(git_repo.workdir, snapshot_sha, store)
+    wt = build_index(linked_worktree.workdir, snapshot_sha, store)
 
     ids_1 = sorted(c.id for c in store.get_chunks(snapshot_sha, repo_id=1))
     ids_2 = sorted(c.id for c in store.get_chunks(snapshot_sha, repo_id=2))
@@ -293,8 +324,8 @@ def test_build_dedups_shared_files_across_divergent_worktrees(
     disjoint chunk set per checkout, with neither repo seeing the
     other's version.
     """
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
-    build_index(linked_worktree.workdir, divergent_sha, store, repo_id=2)
+    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(linked_worktree.workdir, divergent_sha, store)
 
     # Unchanged file: same chunk ids in both checkouts (deduped).
     models_1 = sorted(
@@ -318,10 +349,10 @@ def test_build_index_idempotent_edges(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """Re-building should not duplicate edges."""
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
     e1 = store.get_edges(snapshot_sha, repo_id=1)
 
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
     e2 = store.get_edges(snapshot_sha, repo_id=1)
 
     assert len(e1) == len(e2)
@@ -337,7 +368,7 @@ def test_build_index_replaces_snapshots_for_same_ref(
     git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
 
     # First index pass includes src/main.py.
-    build_index(git_repo.workdir, "review-head", store, repo_id=1)
+    build_index(git_repo.workdir, "review-head", store)
     before_paths = {c.file_path for c in store.get_chunks("review-head", repo_id=1)}
     assert "src/main.py" in before_paths
 
@@ -354,7 +385,7 @@ def test_build_index_replaces_snapshots_for_same_ref(
     git_repo.create_commit("HEAD", sig, sig, "Remove main", tree_oid, [parent.id])
 
     # Second pass at the same ref should not leak deleted-file chunks.
-    build_index(git_repo.workdir, "review-head", store, repo_id=1)
+    build_index(git_repo.workdir, "review-head", store)
     after_paths = {c.file_path for c in store.get_chunks("review-head", repo_id=1)}
     assert "src/main.py" not in after_paths
     assert "src/utils.py" in after_paths
@@ -364,7 +395,7 @@ def test_build_index_metadata_round_trip(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """Import metadata should survive store round-trip."""
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
 
     chunks = store.get_chunks(snapshot_sha, file_path="src/main.py", repo_id=1)
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
@@ -380,7 +411,7 @@ def test_build_index_marks_commit_indexed(
 ) -> None:
     """Successful build_index records a completion row."""
     assert store.has_indexed(1, snapshot_sha) is False
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
     assert store.has_indexed(1, snapshot_sha) is True
 
 
@@ -400,7 +431,7 @@ def test_build_index_sweeps_residue_from_crashed_builds(
         )
     assert store.has_indexed(1, "crashed_sha") is False
 
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
 
     # The legit commit is indexed; the crashed residue is gone.
     assert store.has_indexed(1, snapshot_sha) is True
@@ -418,7 +449,7 @@ def test_build_index_empty_repo(tmp_path: Path, store: IndexStore) -> None:
     repo.create_commit("HEAD", sig, sig, "Empty", tree_oid, [])
 
     sha = str(repo.head.target)
-    result = build_index(repo.workdir, sha, store, repo_id=1)
+    result = build_index(repo.workdir, sha, store)
 
     assert result.stats.total_files == 0
     assert result.stats.total_chunks == 0
@@ -457,12 +488,12 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     store1 = IndexStore(writable=True)
     store2 = IndexStore(writable=True)
     try:
-        build_index(repo.workdir, sha, store1, repo_id=1)
+        build_index(repo.workdir, sha, store1)
         chunks1 = {c.name for c in store1.get_chunks(sha, repo_id=1)}
 
         # Second build — queries are now cached.
         _get_query.cache_clear()
-        build_index(repo.workdir, sha, store2, repo_id=1)
+        build_index(repo.workdir, sha, store2)
         chunks2 = {c.name for c in store2.get_chunks(sha, repo_id=1)}
 
         # All 10 functions must be present in both.
@@ -480,7 +511,7 @@ def test_build_rebuilds_fts_at_commit(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """FTS is rebuilt at the end of build_index, not on first search."""
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
 
     # match_fulltext finds results — the build rebuilt FTS.
     results = store.match_fulltext(snapshot_sha, "helper", repo_id=1)
@@ -504,7 +535,7 @@ line3
     repo.create_commit("HEAD", sig, sig, "Add unknown file", tree_oid, [])
 
     sha = str(repo.head.target)
-    result = build_index(repo.workdir, sha, store, repo_id=1)
+    result = build_index(repo.workdir, sha, store)
 
     assert result.stats.total_files == 1
     chunks = store.get_chunks(sha, repo_id=1)
@@ -533,7 +564,7 @@ Initial release.
     repo.create_commit("HEAD", sig, sig, "Add changelog", tree_oid, [])
 
     sha = str(repo.head.target)
-    build_index(repo.workdir, sha, store, repo_id=1)
+    build_index(repo.workdir, sha, store)
 
     chunks = store.get_chunks(sha, repo_id=1)
     assert len(chunks) > 0
@@ -558,8 +589,8 @@ Description here.
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
     sha = str(repo.head.target)
-    build_index(repo.workdir, sha, store, repo_id=1)
-    r2 = build_index(repo.workdir, sha, store, repo_id=1)
+    build_index(repo.workdir, sha, store)
+    r2 = build_index(repo.workdir, sha, store)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
@@ -580,7 +611,7 @@ def test_build_index_serial_gated_reextraction(
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
     sha = str(repo.head.target)
-    r1 = build_index(repo.workdir, sha, store, repo_id=1)
+    r1 = build_index(repo.workdir, sha, store)
     assert r1.stats.parsed_files >= 1
 
     # Bump the markdown registration's serial.
@@ -592,7 +623,7 @@ def test_build_index_serial_gated_reextraction(
         mgr, "get_registration", side_effect=lambda lid: bumped if lid == "markdown" else orig_reg
     )
 
-    r2 = build_index(repo.workdir, sha, store, repo_id=1)
+    r2 = build_index(repo.workdir, sha, store)
     assert r2.stats.parsed_files >= 1, "serial bump should force re-extraction"
 
 
@@ -632,8 +663,8 @@ def test_build_index_dedups_multilang_file(
     wrong (host) serial would miss the serial-map gate and re-extract here.
     """
     sha = str(multilang_repo.head.target)
-    build_index(multilang_repo.workdir, sha, store, repo_id=1)
-    rebuild = build_index(multilang_repo.workdir, sha, store, repo_id=1)
+    build_index(multilang_repo.workdir, sha, store)
+    rebuild = build_index(multilang_repo.workdir, sha, store)
 
     assert rebuild.stats.skipped_files == rebuild.stats.total_files
     assert rebuild.stats.parsed_files == 0
@@ -648,7 +679,7 @@ def test_build_index_reextracts_on_contributor_bump(
     Confirms the serial map gates on every language in the file, not just one.
     """
     sha = str(multilang_repo.head.target)
-    build_index(multilang_repo.workdir, sha, store, repo_id=1)
+    build_index(multilang_repo.workdir, sha, store)
 
     mgr = get_manager()
     target = mgr.get_registration(plugin)
@@ -661,7 +692,7 @@ def test_build_index_reextracts_on_contributor_bump(
         side_effect=lambda lid: bumped if lid == plugin else originals.get(lid),
     )
 
-    rebuild = build_index(multilang_repo.workdir, sha, store, repo_id=1)
+    rebuild = build_index(multilang_repo.workdir, sha, store)
     assert rebuild.stats.parsed_files >= 1
 
 
@@ -682,8 +713,8 @@ def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> Non
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
     sha = str(repo.head.target)
 
-    build_index(repo.workdir, sha, store, repo_id=1)
-    r2 = build_index(repo.workdir, sha, store, repo_id=1)
+    build_index(repo.workdir, sha, store)
+    r2 = build_index(repo.workdir, sha, store)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
@@ -693,11 +724,11 @@ def test_build_index_chunk_ids_stable(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
     """Build twice, compare chunk ID sets — no phantom inserts or deletes."""
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
     ids_1 = {c.id for c in store.get_chunks(snapshot_sha, repo_id=1)}
     assert len(ids_1) > 0
 
-    build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
+    build_index(git_repo.workdir, snapshot_sha, store)
     ids_2 = {c.id for c in store.get_chunks(snapshot_sha, repo_id=1)}
 
     assert ids_1 == ids_2

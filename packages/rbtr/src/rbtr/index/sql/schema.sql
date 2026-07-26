@@ -3,6 +3,12 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
+-- Maps each registered checkout to the small integer id that every per-repo
+-- table below carries.  A `repo_id` with no row here is unreachable: gc, the
+-- watcher and forget all find their work by listing repos.  `build_index`
+-- inserts the row, which is why no foreign key is needed to keep the two in
+-- step.  `path` is always canonical (`normalise_repo_path`), so a linked
+-- worktree is a repo of its own.  See ARCHITECTURE.md "Repo registration".
 CREATE TABLE IF NOT EXISTS repos (
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE NOT NULL
@@ -10,8 +16,11 @@ CREATE TABLE IF NOT EXISTS repos (
 
 CREATE SEQUENCE IF NOT EXISTS repos_id_seq START 1;
 
+-- `repo_id` has no DEFAULT.  Every write sets it explicitly, and a default
+-- would let a write that forgot to file its rows under an unrelated repo
+-- instead of failing.
 CREATE TABLE IF NOT EXISTS file_snapshots (
-  repo_id INTEGER NOT NULL DEFAULT 1,
+  repo_id INTEGER NOT NULL,
   snapshot_sha TEXT NOT NULL,
   file_path TEXT NOT NULL,
   blob_sha TEXT NOT NULL,
@@ -48,7 +57,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 CREATE TABLE IF NOT EXISTS edges (
-  repo_id INTEGER NOT NULL DEFAULT 1,
+  repo_id INTEGER NOT NULL,
   source_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
   kind TEXT NOT NULL,

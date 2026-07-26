@@ -488,7 +488,6 @@ class Index(BaseModel):
                 resolved_repo,
                 resolved_refs[0],
                 store,
-                repo_id=repo_id,
                 on_progress=on_progress,
             )
             for ref in resolved_refs[1:]:
@@ -496,7 +495,6 @@ class Index(BaseModel):
                     resolved_repo,
                     ref,
                     store,
-                    repo_id=repo_id,
                     on_progress=on_progress,
                 )
 

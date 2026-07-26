@@ -26,6 +26,7 @@ from .conftest import make_chunk, make_snap
 def test_clean_exit_commits(store: IndexStore) -> None:
     """Data written in a session is visible after clean exit."""
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a"))
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
 
@@ -38,6 +39,7 @@ def test_exception_rolls_back(store: IndexStore) -> None:
 
     def _failing_session() -> None:
         with store.session() as ws:
+            ws.register_repo("/repo")
             ws.add_chunk(make_chunk("a"))
             ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
             msg = "boom"
@@ -80,6 +82,7 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
     chunks for two repos; each must surface under its own repo.
     """
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("r1_a", path="a.py", blob="b1a"))
         ws.add_chunk(make_chunk("r2_a", path="a.py", blob="b2a"))
         ws.add_chunk(make_chunk("r1_b", path="b.py", blob="b1b"))
@@ -104,6 +107,7 @@ def test_sweep_cleans_orphans(store: IndexStore) -> None:
     # but with a completed build already present so the repo
     # doesn't look like a first-build-in-progress.
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("good"))
         ws.insert_snapshots([make_snap("good_sha", "f.py", "blob_good")], repo_id=1)
         ws.mark_indexed(1, "good_sha")
@@ -127,6 +131,7 @@ def test_sweep_skips_first_build(store: IndexStore) -> None:
     That's not crash residue — it's an in-progress build.
     """
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("wip"))
         ws.insert_snapshots([make_snap("wip_sha", "f.py", "blob_wip")], repo_id=1)
         # No mark_indexed — first build in progress.
@@ -143,6 +148,7 @@ def test_sweep_skips_first_build(store: IndexStore) -> None:
 def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
     """Session that inserts chunks rebuilds FTS on exit."""
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("searchable"))
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")], repo_id=1)
         ws.mark_indexed(1, "c1")
@@ -159,6 +165,7 @@ def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.Mon
     monkeypatch.setattr(config, "insert_batch_size", 5)
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         for i in range(12):
             ws.add_chunk(make_chunk(f"c{i}", path=f"f{i}.py"))
         ws.insert_snapshots(
@@ -173,6 +180,7 @@ def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.Mon
 def test_buffer_flushes_before_dependent_ops(store: IndexStore) -> None:
     """Buffer is flushed before replace_snapshots (which depends on chunks)."""
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a", blob="b1", path="a.py"))
         # replace_snapshots triggers _flush_chunks internally.
         ws.replace_snapshots("c1", [make_snap("c1", "a.py", "b1")], repo_id=1)
@@ -245,6 +253,7 @@ def test_resolve_repo_raises_for_unknown(store: IndexStore) -> None:
 def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
     """Replacing snapshots for one commit doesn't touch another."""
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a", blob="b1", path="a.py"))
         ws.add_chunk(make_chunk("b", blob="b2", path="b.py"))
         ws.insert_snapshots([make_snap("c1", "a.py", "b1")], repo_id=1)
@@ -262,6 +271,7 @@ def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
     e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.IMPORTS)
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.insert_edges([e1], "c1", repo_id=1)
         ws.insert_edges([e2], "c2", repo_id=1)
 
@@ -283,6 +293,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
     `embedding_truncated` column in the DB.
     """
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a"))
         ws.add_chunk(make_chunk("b", blob="blob_b", path="g.py"))
         ws.insert_snapshots(
@@ -336,6 +347,7 @@ def test_delete_snapshots_hides_chunks(
 ) -> None:
     """Deleting snapshots hides chunks at a ref without touching chunks."""
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(math_func)
         ws.add_chunk(http_func)
         ws.insert_snapshots(

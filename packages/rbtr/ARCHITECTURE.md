@@ -170,7 +170,11 @@ with `writable=False` (the default) rejects `session()`
 calls.
 
 The build pipeline opens one session per phase:
-extract → edges → finalise → (separate) embed.
+register → extract → edges → finalise → (separate) embed.
+Registering the repo first (see
+[Repo registration](#repo-registration)) means a crash part-way
+through leaves an empty `repos` row, rather than indexed rows
+that nothing can find.
 
 Embedding is deferred and lower-priority. After
 indexing completes, the daemon submits an `EmbedJob`
@@ -225,6 +229,42 @@ a repo meets content is **`file_snapshots`**, which maps
   point at it.
 - `edges` and `indexed_snapshots` stay per-repo (they carry `repo_id`);
   only `chunks` is shared.
+
+### Repo registration
+
+Every per-repo table — `file_snapshots`, `edges`, `indexed_snapshots`,
+`watched_refs` — names its repo with a small integer `repo_id` rather than a
+path. The `repos` table holds that mapping: one row per checkout, pairing an
+id with the checkout's absolute path. **Registering** a repo means adding
+that row.
+
+Nothing registers a repo on its own. Indexing a path is what makes it known:
+`build_index` looks the path up and inserts a row if it has not seen it
+before, and adding a watched ref does the same. A repo is in the index
+because it was indexed or watched, never because it was declared separately.
+
+That row has to exist, because everything that goes looking for work starts
+from the list of repos — garbage collection (`run_gc_all`), the watcher's
+reconcile loop, `forget --stale` and cross-repo search all walk
+`list_repos()`. Rows carrying a `repo_id` with no matching `repos` row are
+reachable by none of them: never collected, never rebuilt, and impossible to
+forget. They just sit in the database.
+
+So `build_index` derives the id from the path rather than taking one as an
+argument, and the two cannot disagree. `run_gc` and search look the path up
+the same way but fail when it has no row, since a repo that was never
+indexed has nothing to collect or search.
+
+The path is what identifies a checkout, so it is canonicalised before use
+(`normalise_repo_path`). The same checkout can be named several ways —
+`pygit2` reports a working directory with a trailing slash, a caller may
+pass a subdirectory, and a path may reach the repo through a symlink.
+Matching on the string as given would register each spelling separately and
+split one repo's index between them.
+
+The link between `repos` and the tables that reference it is maintained in
+code rather than declared as a foreign key;
+[Design decisions](#design-decisions) explains why.
 
 The tables and their keys:
 
@@ -294,7 +334,7 @@ erDiagram
 
 | Table               | Natural key                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `repos`             | `(id)`, `path` is unique                                                                                       |
+| `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                           |
 | `chunks`            | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind)` — the whole tuple is the key                             |
@@ -423,6 +463,19 @@ purely **additive** table (e.g. `watched_refs`) appears in
 existing databases in place — no `schema_version` bump, no
 wipe. Only a **breaking** change to an existing table or
 column bumps `schema_version` (and so deletes the database).
+
+**Constraints reach only new databases.** DuckDB has no
+`ALTER TABLE ... ADD CONSTRAINT`, and `CREATE TABLE IF NOT
+EXISTS` leaves an existing table untouched. A `CHECK` or
+`FOREIGN KEY` added to `schema.sql` therefore applies to
+databases created after the change and not to those already
+on disk — it will hold on a fresh checkout while being absent
+from every index in the field. Applying one everywhere means
+bumping `schema_version`, so that each database is rebuilt
+with it.
+
+rbtr declares no foreign keys; see
+[Design decisions](#design-decisions).
 
 `extraction_serial` is a per-chunk column, not a `meta`
 key: each chunk stamps the extraction serial of *its own*
@@ -1337,7 +1390,8 @@ frees chunks no other repo references.
 
 **Forgetting a repo** removes it entirely from the index — its
 `watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the
-`repos` row, in one transaction (`WriteSession.forget_repo`). It is
+`repos` row, in one transaction (`WriteSession.forget_repo`) — undoing
+what [registration](#repo-registration) set up. It is
 **metadata-only**: it deliberately does not sweep chunks, so it reports
 no statistics; the now-orphaned chunks are reclaimed by the next GC (or
 build cleanup), keeping removal cheap and uniform with ref removal.
@@ -1459,7 +1513,10 @@ be visible through both paths if the file hasn't changed.
 ### Build lifecycle
 
 `build_index(repo_path, tree_sha, store, ...)` runs the
-same four-phase pipeline as a commit build:
+same pipeline as a commit build, preceded by registering
+the repo — and since `repo_path` canonicalises to the
+worktree's own directory, a linked worktree registers as a
+repo of its own:
 
 1. **Extract** — `list_files(repo_path, tree_sha)` walks
    the tree object directly (same as commit trees). Each
@@ -1609,6 +1666,16 @@ If clean: nothing.
 6. **Builds preempt embedding.** The embed worker checks
    `poll_watched()` and `poll_worktree()` between batches
    and yields if higher-priority work is needed.
+7. **A linked worktree is a separate repo.** Its path
+   canonicalises to its own directory rather than the main
+   checkout's, so it gets its own `repos` row, watch set,
+   `file_snapshots`, `edges`, `indexed_snapshots` and HEAD,
+   and is built and collected independently. Any path inside
+   it — a subdirectory, or the trailing-slash form `pygit2`
+   reports — leads back to that same directory, so one
+   checkout is always one repo. The two share only `chunks`,
+   by content — see [What is shared, what is
+   duplicated](#what-is-shared-what-is-duplicated).
 
 ## Design decisions
 
@@ -1624,6 +1691,38 @@ discovered from the `rbtr.languages` entry-point group via
 No hook framework (pluggy): the domain is single-dispatch by
 language id, where a plain registry is simpler and a
 multi-dispatch hook loop buys nothing (YAGNI).
+
+**Indexing a path registers it; collecting one does not.**
+Registering a repo is not a user action of its own — only
+`index` and `watch` add a `repos` row — so `build_index`
+inserts it rather than expecting the caller to have done so
+first. `run_gc` and search behave the other way round and fail
+on a path with no row, since a repo that was never indexed has
+nothing to collect or search. Neither takes a `repo_id`
+argument; both work it out from the path, so a caller cannot
+pair an id with a path it does not belong to. See
+[Repo registration](#repo-registration).
+
+**No foreign keys.** The `repos` mapping would be the natural
+candidate for one, but DuckDB will not delete a row and its
+dependent rows in the same transaction, and rejects
+`ON DELETE CASCADE` outright — and removing a repo together
+with everything indexed under it, in one transaction, is
+exactly what `forget_repo` does. Declaring the key would mean
+splitting that deletion in two and either running both halves
+from the handlers or moving the deletion off `WriteSession`:
+giving up both atomic removal and the rule that every mutation
+goes through the write session. The mapping is inexpensive to
+keep correct in code, so it is kept there.
+
+**`build_index` canonicalises paths; store lookups do not.**
+`get_repo_id` and `resolve_repo` match a path exactly as it
+was stored. That is what lets a deleted checkout still be
+found: `forget --stale` notices one *because* canonicalising
+its path now fails, and then removes the row using the path
+recorded when it was registered. Canonicalising inside the
+lookups would leave a vanished checkout's rows in the database
+with no way left to name them.
 
 **pydantic-settings for CLI + config.** Config fields are
 CLI flags. TOML, env, and CLI args merge in one framework.

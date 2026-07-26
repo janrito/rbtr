@@ -71,16 +71,24 @@ def seed_store(
     *,
     snapshot_sha: str = "head",
     mark_indexed: bool = True,
-    repo_id: int = 1,
-) -> None:
-    """Insert chunks + snapshots into a store via session.
+    repo_id: int | None = None,
+) -> int:
+    """Insert chunks + snapshots into a store via session; return the repo id.
 
-    Each chunk's own `repo_id` decides where it lands; a mixed-repo
-    references the chunks' blobs under *repo_id*.  Seed several repos
-    by calling once per repo; pass the same chunk to two repos to
-    model content shared across worktrees/clones.
+    Snapshots reference the chunks' blobs under *repo_id*.  Seed several
+    repos by calling once per repo (registering each first and passing its
+    id); pass the same chunk to two repos to model content shared across
+    worktrees/clones.
+
+    When *repo_id* is omitted a repo is registered here, because per-repo
+    rows must hang off a real `repos` row — the foreign key rejects an id
+    that was never registered.  The path is synthetic: these are
+    store-level tests that never read git, and registration is about
+    identity, not about a directory existing on disk.
     """
     with store.session() as ws:
+        if repo_id is None:
+            repo_id = ws.register_repo("/repo")
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -92,6 +100,7 @@ def seed_store(
         )
         if mark_indexed:
             ws.mark_indexed(repo_id, snapshot_sha)
+    return repo_id
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -403,6 +412,7 @@ def ranking_store(
     """An in-memory IndexStore pre-loaded with the ranking dataset."""
     store = IndexStore(writable=True)
     with store.session() as ws:
+        ws.register_repo("/repo")
         for c in ranking_chunks:
             tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
             ws.add_chunk(tc)

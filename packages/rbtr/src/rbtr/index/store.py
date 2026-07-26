@@ -334,14 +334,20 @@ class IndexStore:
         self._con = con
 
     def get_repo_id(self, path: str) -> int | None:
-        """Return the repo_id for *path*, or None if not registered."""
+        """Return the repo_id for *path*, or None if not registered.
+
+        *path* is matched exactly, as stored at registration — it is not
+        normalised, so pass a canonical path.  A repo whose checkout has
+        since been deleted is still found, which is how it gets forgotten.
+        """
         row = self._cursor.execute(_GET_REPO_SQL, {"path": path}).fetchone()
         return int(row[0]) if row else None
 
     def resolve_repo(self, repo: str) -> int:
         """Return the repo_id for *repo*, raising if not registered.
 
-        Results are cached for the lifetime of the store.
+        As with `get_repo_id`, *repo* is matched exactly and must already
+        be canonical.  Results are cached for the lifetime of the store.
         """
         cached = self._repo_cache.get(repo)
         if cached is not None:

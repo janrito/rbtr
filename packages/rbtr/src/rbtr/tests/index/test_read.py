@@ -26,6 +26,7 @@ def chunk_query(
     scenario: ChunkQueryScenario, store: IndexStore
 ) -> tuple[IndexStore, ChunkQueryScenario]:
     with store.session() as ws:
+        ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
@@ -55,6 +56,7 @@ def blob_query(
     scenario: BlobCurrentScenario, store: IndexStore
 ) -> tuple[IndexStore, BlobCurrentScenario]:
     with store.session() as ws:
+        ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
@@ -77,6 +79,7 @@ def test_upsert_replaces_content(store: IndexStore) -> None:
     c2 = make_chunk("fn1", content="def fn1(): return 2")
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(c1)
         ws.insert_snapshots([make_snap("head", "f.py", c1.blob_sha)], repo_id=1)
 
@@ -97,6 +100,7 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
     c2 = make_chunk("fn2", blob="b2", path="b.py")
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(c1)
         ws.add_chunk(c2)
         ws.insert_snapshots(
@@ -120,6 +124,7 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
     e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.insert_edges([e1, e2], "head", repo_id=1)
 
     edges = store.get_edges("head", repo_id=1)
@@ -132,6 +137,7 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
     e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.insert_edges([e1, e2], "head", repo_id=1)
 
     edges = store.get_edges("head", kind=EdgeKind.IMPORTS, repo_id=1)
@@ -241,6 +247,7 @@ def test_shared_chunk_embedded_once_across_repos(
     assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 1
 
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.update_embeddings(["shared_fn"], [[0.1, 0.2, 0.3]])
 
     assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 0
@@ -259,6 +266,7 @@ def test_cleanup_keeps_chunk_referenced_by_another_repo(
     """
     store = shared_chunk_store
     with store.session() as ws:
+        ws.register_repo("/repo")
         cleaned = ws.cleanup(1)
     assert cleaned.chunks == 0
     assert store.count_orphan_chunks() == 0
@@ -300,6 +308,7 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
         update={"extraction_serial": 2}
     )
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.delete_chunks_for_blobs({"b_shared"})
         ws.add_chunk(rechunked)
 
@@ -321,6 +330,7 @@ def test_drop_snapshot_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
     not on `blob_sha` alone.
     """
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("at_a", path="a.py", blob="b"))
         ws.add_chunk(make_chunk("at_b", path="b.py", blob="b"))
         # c1 references the blob at both paths; c2 keeps only a.py.
@@ -348,6 +358,7 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     """
     store = shared_chunk_store
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(
             make_chunk(
                 "imp1",
@@ -455,6 +466,7 @@ def test_forget_repo_removes_references_keeps_shared_chunk(
     chunk another repo still references; reclamation is gc's job."""
     store = shared_chunk_store
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_watched_refs(1, ["main"])
 
     with store.session() as ws:
@@ -477,6 +489,7 @@ def test_forget_repo_leaves_orphan_chunks_for_gc(
     referenced becomes an orphan that a later GC reclaims."""
     store = shared_chunk_store
     with store.session() as ws:
+        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("only1", path="y.py", blob="b_only1"))
         ws.insert_snapshots([make_snap("head", "y.py", "b_only1")], repo_id=1)
     assert store.count_orphan_chunks() == 0
