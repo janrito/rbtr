@@ -594,6 +594,15 @@ lock. `start_daemon()` tolerates this rather than coordinating it
 converge on the winner and a losing spawn is terminated. The
 double-spawn is cheap, so no parent-side start lock is needed.
 
+The flip side is deciding a start *failed*. `start_daemon` keys
+that on the spawned child's exit, not on elapsed time: while the
+child is alive it keeps waiting, giving up only when the process
+exits without a live daemon having appeared. A backstop deadline
+(`daemon_start_timeout`) covers the rare child that wedges before
+binding. Keying on exit rather than a short timer means a slow
+cold start under load — open the store, backfill watches, bind
+sockets — isn't mistaken for failure and killed mid-startup.
+
 ### Crash recovery
 
 **Indexing:** `WriteSession.sweep` deletes data
