@@ -8,7 +8,11 @@ Scenarios live in `case_messages.py`. Two behaviours:
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from pytest_cases import parametrize_with_cases
+
+from rbtr.daemon.messages import request_adapter
 
 from .cases_messages import MessageScenario
 
@@ -28,3 +32,11 @@ def test_roundtrip(scenario: MessageScenario) -> None:
     model = scenario.adapter.validate_json(scenario.raw)
     roundtripped = scenario.adapter.validate_json(model.model_dump_json())
     assert type(roundtripped) is type(model)
+
+
+def test_index_rejects_whitespace_ref() -> None:
+    """A whitespace-joined ref is a mis-shaped call, not one ref."""
+    raw = b'{"kind":"index","repo_path":"/r","refs":["main HEAD"]}'
+    with pytest.raises(ValidationError) as excinfo:
+        request_adapter.validate_json(raw)
+    assert "main HEAD" in str(excinfo.value)
