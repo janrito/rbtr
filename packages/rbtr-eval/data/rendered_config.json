@@ -1,6 +1,6 @@
 {
   "kind": "daemon_config",
-  "rbtr_version": "2026.6.1",
+  "rbtr_version": "2026.7.0.dev1",
   "config": {
     "data_dir": "data/index",
     "config_dir": "data/config",
@@ -70,19 +70,19 @@
     {
       "language": "bash",
       "package": "rbtr-lang-bash",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 4
     },
     {
       "language": "c",
       "package": "rbtr-lang-c",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 4
     },
     {
       "language": "cpp",
       "package": "rbtr-lang-cpp",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 6
     },
     {
@@ -106,7 +106,7 @@
     {
       "language": "html",
       "package": "rbtr-lang-html",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 3
     },
     {
@@ -118,7 +118,7 @@
     {
       "language": "javascript",
       "package": "rbtr-lang-javascript",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 5
     },
     {
@@ -136,19 +136,19 @@
     {
       "language": "markdown",
       "package": "rbtr-lang-markdown",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 4
     },
     {
       "language": "python",
       "package": "rbtr-lang-python",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 5
     },
     {
       "language": "rst",
       "package": "rbtr-lang-rst",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 3
     },
     {
@@ -196,13 +196,13 @@
     {
       "language": "tsx",
       "package": "rbtr-lang-javascript",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 2
     },
     {
       "language": "typescript",
       "package": "rbtr-lang-javascript",
-      "version": "2026.6.1",
+      "version": "2026.7.0.dev1",
       "extraction_serial": 5
     },
     {

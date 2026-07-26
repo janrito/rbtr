@@ -1,7 +1,7 @@
 # rbtr search-quality dataset
 
 Characterisation of the query set **before** measurement — the input
-to the benchmark, not its results. 3621 queries across
+to the benchmark, not its results. 3618 queries across
 5 repos and 14 languages.
 
 The three axes are independent: `symbol_kind` is the target chunk,
@@ -24,19 +24,19 @@ The indexed commit and sampled sizes per repo.
 
 | language   | n   |
 | ---------- | --- |
-| python     | 902 |
+| python     | 898 |
 | typescript | 521 |
 | javascript | 431 |
 | css        | 355 |
-| markdown   | 282 |
-| rust       | 247 |
-| bash       | 234 |
-| json       | 198 |
-|            | 110 |
-| yaml       | 91  |
-| sql        | 78  |
-| toml       | 73  |
-| html       | 59  |
+| markdown   | 281 |
+| rust       | 248 |
+| bash       | 233 |
+| json       | 200 |
+|            | 107 |
+| yaml       | 92  |
+| sql        | 80  |
+| toml       | 74  |
+| html       | 58  |
 | rst        | 40  |
 
 ## Target coverage — `symbol_kind` × `provenance`
@@ -47,13 +47,13 @@ generation strategies. A kind absent here is not measured.
 | symbol_kind | body | concept | docstring | name | total |
 | ----------- | ---- | ------- | --------- | ---- | ----- |
 | variable    | 174  | 295     | 76        | 177  | 722   |
-| class       | 136  | 247     | 110       | 137  | 630   |
-| function    | 130  | 245     | 122       | 130  | 627   |
-| method      | 100  | 167     | 60        | 100  | 427   |
-| config_key  | 80   | 154     | 21        | 80   | 335   |
-| comment     | 167  | 164     | 0         | 0    | 331   |
-| raw_chunk   | 56   | 122     | 0         | 99   | 277   |
-| doc_section | 70   | 132     | 0         | 70   | 272   |
+| class       | 136  | 251     | 110       | 137  | 634   |
+| function    | 130  | 244     | 122       | 130  | 626   |
+| method      | 100  | 164     | 60        | 100  | 424   |
+| config_key  | 80   | 157     | 21        | 80   | 338   |
+| comment     | 167  | 163     | 0         | 0    | 330   |
+| raw_chunk   | 56   | 119     | 0         | 99   | 274   |
+| doc_section | 70   | 130     | 0         | 70   | 270   |
 
 ## Target × request shape — `symbol_kind` × `query_kind`
 
@@ -62,14 +62,14 @@ axes are independent of provenance.
 
 | symbol_kind | concept | identifier | code | total |
 | ----------- | ------- | ---------- | ---- | ----- |
-| variable    | 311     | 298        | 113  | 722   |
-| class       | 244     | 252        | 134  | 630   |
-| function    | 246     | 251        | 130  | 627   |
-| method      | 166     | 172        | 89   | 427   |
-| config_key  | 155     | 157        | 23   | 335   |
-| comment     | 181     | 141        | 9    | 331   |
-| raw_chunk   | 123     | 138        | 16   | 277   |
-| doc_section | 140     | 105        | 27   | 272   |
+| variable    | 313     | 296        | 113  | 722   |
+| class       | 246     | 254        | 134  | 634   |
+| function    | 243     | 253        | 130  | 626   |
+| method      | 165     | 170        | 89   | 424   |
+| config_key  | 158     | 157        | 23   | 338   |
+| comment     | 178     | 143        | 9    | 330   |
+| raw_chunk   | 122     | 137        | 15   | 274   |
+| doc_section | 140     | 103        | 27   | 270   |
 
 ## Not measured
 
@@ -112,7 +112,7 @@ scatter here is that difference made visible.
 | provenance  | concept | identifier | code  | n    |
 | ----------- | ------- | ---------- | ----- | ---- |
 | `body`      | 3.5%    | 40.0%      | 56.5% | 913  |
-| `concept`   | 98.5%   | 1.4%       | 0.1%  | 1526 |
+| `concept`   | 98.6%   | 1.4%       | 0.0%  | 1523 |
 | `docstring` | 5.9%    | 90.0%      | 4.1%  | 389  |
 | `name`      | 1.0%    | 98.0%      | 1.0%  | 793  |
 
@@ -146,22 +146,22 @@ impl AsRef<Path> for RevisionId {
     #   pydantic
 ````
 
-**`concept` → concept** · python · `method` · load_module
+**`concept` → concept** · rust · `variable` · Python
 
 ````text
-Patch distutils module loading to apply compatibility patches when importing modules
+trampoline acting as a proxy executable to launch the interpreter
 ````
 
-**`concept` → concept** · python · `comment` · <anonymous>
+**`concept` → concept** · css · `variable` · --proton
 
 ````text
-what packages depend on pydantic and pydantic-core
+how to define a custom CSS color variable with a hex value
 ````
 
-**`concept` → concept** · bash · `variable` · artifact_count
+**`concept` → concept** · toml · `raw_chunk` · rustfmt.toml
 
 ````text
-how to count downloaded artifacts in a directory using shell commands
+how to configure formatting settings in a TOML configuration file
 ````
 
 **`docstring` → identifier** · python · `variable` · USE_UV_EXECUTABLE
