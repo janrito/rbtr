@@ -155,7 +155,7 @@ def handle_search(
     """
     if request.scope == Scope.ALL:
         refs = store.list_latest_refs()
-        repo_paths = dict(store.list_repos())
+        repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
         ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
@@ -323,9 +323,9 @@ def handle_status(
     if request.scope == Scope.ALL:
         indexed_refs: list[IndexedRef] = []
         watched: list[WatchedRef] = []
-        for repo_id, repo_path in store.list_repos():
-            indexed_refs.extend(_refs_for_repo(store, repo_id, repo_path))
-            watched.extend(_watched_for_repo(store, repo_id, repo_path))
+        for repo in store.list_repos():
+            indexed_refs.extend(_refs_for_repo(store, repo.repo_id, repo.repo_path))
+            watched.extend(_watched_for_repo(store, repo.repo_id, repo.repo_path))
     else:
         ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
@@ -463,11 +463,11 @@ def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
     """
     if request.stale:
         gone: list[tuple[int, str]] = []
-        for repo_id, path in store.list_repos():
+        for repo in store.list_repos():
             try:
-                normalise_repo_path(path)
+                normalise_repo_path(repo.repo_path)
             except RbtrError:
-                gone.append((repo_id, path))
+                gone.append((repo.repo_id, repo.repo_path))
         if not request.dry_run and gone:
             with store.session() as ws:
                 for repo_id, _path in gone:

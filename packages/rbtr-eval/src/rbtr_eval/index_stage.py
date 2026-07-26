@@ -128,11 +128,11 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     are written.
     """
     h = hashlib.sha256()
-    for repo_id, _repo_path in store.list_repos():
-        for sha, _ts in store.list_indexed_snapshots(repo_id):
-            h.update(f"{repo_id}:{sha}".encode())
+    for repo in store.list_repos():
+        for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
+            h.update(f"{repo.repo_id}:{sha}".encode())
             if embed:
-                unembedded = store.count_unembedded(repo_id, sha)
+                unembedded = store.count_unembedded(repo.repo_id, sha)
                 h.update(f":{unembedded}".encode())
     return h.hexdigest()
 

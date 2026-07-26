@@ -101,10 +101,10 @@ class ChunkResultRow(_ChunkIdentity):
     """Columns projected by every chunk-returning SQL file.
 
     Sources `repo_id` from the `file_snapshots` join (so a chunk
-    shared by several repos stays a
-    distinct row in cross-repo search) and `has_embedding` —
-    the existence check that lets `Chunk.embedding` stay a
-    sentinel marker without loading the full 1024-float vector.
+    shared by several repos stays a distinct row in cross-repo search)
+    and `has_embedding` — whether the chunk has a stored embedding, a
+    boolean existence check so reads need not load the full 1024-float
+    vector.
     """
 
     repo_id = dy.Int32(nullable=False)
@@ -183,16 +183,15 @@ class FusionInputRow(ChunkResultRow, _SignalColumns):
 
 
 class FusedRow(_ChunkIdentity, _SignalColumns):
-    """Fusion output: identity, signals, scoring, resolved embedding.
+    """Fusion output: identity, signals, and scoring.
 
-    `has_embedding` is resolved to `embedding` (sentinel or
-    empty list) and all scoring columns are present.  `repo_id`
-    is carried through so results can be attributed to their
+    `has_embedding` marks whether the chunk has a stored embedding.
+    `repo_id` is carried through so results can be attributed to their
     repo in cross-repo search.
     """
 
     repo_id = dy.Int32(nullable=False)
-    embedding = dy.List(dy.Float64())
+    has_embedding = dy.Bool(nullable=False)
     score = dy.Float64(nullable=False)
     name_match = dy.Float64(nullable=False)
     kind_boost = dy.Float64(nullable=False)
@@ -254,25 +253,9 @@ def _decode_metadata(frame: pl.DataFrame) -> pl.DataFrame:
     return frame
 
 
-# Truthy sentinel for 'has embedding in DB but not loaded'.
-# Chunk.embedding is list[float]: empty = none, non-empty = exists.
-# Loading full 1024-float vectors for every chunk is wasteful.
-_EMBEDDING_SENTINEL: list[float] = [0.0]
-
-
 def frame_to_chunks(frame: dy.DataFrame[ChunkResultRow]) -> list[Chunk]:
     """Convert a validated chunk-result frame to `Chunk` models."""
-    prepared = (
-        frame.with_columns(
-            pl.when(pl.col("has_embedding"))
-            .then(pl.lit(_EMBEDDING_SENTINEL))
-            .otherwise(pl.lit([]))
-            .alias("embedding"),
-        )
-        .drop("has_embedding")
-        .to_dicts()
-    )
-    return Chunks.validate_python(prepared)
+    return Chunks.validate_python(frame.to_dicts())
 
 
 def scored_to_chunks(

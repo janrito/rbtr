@@ -252,7 +252,7 @@ def test_unseeded_chunks_have_no_embedding(store: IndexStore) -> None:
     s = SearchScenario(chunks=[make_chunk("a")], query="")
     seed_store(store, s.chunks)
     chunks = store.get_chunks("head", repo_id=1)
-    assert not chunks[0].embedding
+    assert not chunks[0].has_embedding
 
 
 def test_seeded_chunks_have_embedding_flag(store: IndexStore) -> None:
@@ -262,7 +262,7 @@ def test_seeded_chunks_have_embedding_flag(store: IndexStore) -> None:
     with store.session() as ws:
         ws.update_embeddings(["a"], [vec])
     chunks = store.get_chunks("head", repo_id=1)
-    assert chunks[0].embedding
+    assert chunks[0].has_embedding
 
 
 @pytest.fixture

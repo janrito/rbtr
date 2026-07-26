@@ -58,8 +58,8 @@ def test_embed_batch_failure_skips_batch(
     embed_index(store, sha, repo_id=1, embedder=embedder)
 
     chunks = store.get_chunks(sha, repo_id=1)
-    embedded = [c for c in chunks if c.embedding]
-    unembedded = [c for c in chunks if not c.embedding]
+    embedded = [c for c in chunks if c.has_embedding]
+    unembedded = [c for c in chunks if not c.has_embedding]
     assert len(embedded) > 0, "Successful batch should have embeddings"
     assert len(unembedded) > 0, "Failed batch should lack embeddings"
 
@@ -77,7 +77,7 @@ def test_embed_index_total_failure_is_nonfatal(
     assert result == 0
     chunks = store.get_chunks(snapshot_sha, repo_id=1)
     assert len(chunks) > 0
-    assert all(not c.embedding for c in chunks)
+    assert all(not c.has_embedding for c in chunks)
 
 
 def test_build_index_without_embedder_leaves_embeddings_null(
@@ -95,7 +95,7 @@ def test_build_index_without_embedder_leaves_embeddings_null(
 
     # All embeddings are NULL (no embedder was provided).
     chunks = store.get_chunks(snapshot_sha, repo_id=1)
-    assert all(not c.embedding for c in chunks)
+    assert all(not c.has_embedding for c in chunks)
 
 
 def test_embed_index_populates_embeddings(
@@ -106,13 +106,13 @@ def test_embed_index_populates_embeddings(
 
     # All NULL before embed.
     chunks_before = store.get_chunks(snapshot_sha, repo_id=1)
-    assert all(not c.embedding for c in chunks_before)
+    assert all(not c.has_embedding for c in chunks_before)
 
     embedded = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
 
     assert embedded == len(chunks_before)
     chunks_after = store.get_chunks(snapshot_sha, repo_id=1)
-    assert all(c.embedding for c in chunks_after)
+    assert all(c.has_embedding for c in chunks_after)
 
 
 def test_embed_index_is_incremental(
@@ -194,7 +194,7 @@ def test_build_then_embed_full_idempotency(
     chunks_1 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_1 = {c.id for c in chunks_1}
     edges_1 = store.get_edges(snapshot_sha, repo_id=1)
-    embeddings_1 = {c.id: c.embedding for c in chunks_1}
+    embeddings_1 = {c.id: c.has_embedding for c in chunks_1}
 
     # Second pass: build + embed.
     r2 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
@@ -210,7 +210,7 @@ def test_build_then_embed_full_idempotency(
     chunks_2 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_2 = {c.id for c in chunks_2}
     edges_2 = store.get_edges(snapshot_sha, repo_id=1)
-    embeddings_2 = {c.id: c.embedding for c in chunks_2}
+    embeddings_2 = {c.id: c.has_embedding for c in chunks_2}
 
     assert ids_1 == ids_2
     assert len(edges_1) == len(edges_2)
@@ -225,7 +225,7 @@ def test_build_without_embed_then_build_with_embed(
     build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)
     chunks_no_embed = store.get_chunks(snapshot_sha, repo_id=1)
     assert len(chunks_no_embed) > 0
-    assert all(not c.embedding for c in chunks_no_embed), "All embeddings should be NULL"
+    assert all(not c.has_embedding for c in chunks_no_embed), "All embeddings should be NULL"
     assert store.get_edges(snapshot_sha, repo_id=1), "Edges should exist"
 
     # Second build — chunking is idempotent (all files skipped).
@@ -237,7 +237,7 @@ def test_build_without_embed_then_build_with_embed(
     assert embedded > 0
 
     chunks_after_embed = store.get_chunks(snapshot_sha, repo_id=1)
-    assert all(c.embedding for c in chunks_after_embed), "All should be embedded"
+    assert all(c.has_embedding for c in chunks_after_embed), "All should be embedded"
 
     # Third pass: build + embed are both no-ops.
     r3 = build_index(git_repo.workdir, snapshot_sha, store, repo_id=1)

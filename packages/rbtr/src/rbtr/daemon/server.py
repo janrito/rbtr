@@ -272,8 +272,8 @@ class DaemonServer:
         if not repos:
             return
         with store.session() as ws:
-            for repo_id, _repo_path in repos:
-                ws.add_watched_refs(repo_id, [HEAD_REF])
+            for repo in repos:
+                ws.add_watched_refs(repo.repo_id, [HEAD_REF])
         log.info("head_watch_backfill", repos=len(repos))
 
     def _recover_pending_embeds(self, store: IndexStore) -> None:
@@ -283,13 +283,13 @@ class DaemonServer:
         but before embedding completed.  Sets `_wake` so the
         DB-polling worker picks up the work.
         """
-        for repo_id, _repo_path in store.list_repos():
-            for sha, _ts in store.list_indexed_snapshots(repo_id):
-                count = store.count_unembedded(repo_id, sha)
+        for repo in store.list_repos():
+            for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
+                count = store.count_unembedded(repo.repo_id, sha)
                 if count > 0:
                     log.info(
                         "recovering_embed",
-                        repo_id=repo_id,
+                        repo_id=repo.repo_id,
                         sha=sha[:12],
                         chunks=count,
                     )
@@ -584,14 +584,14 @@ class DaemonServer:
             return BuildJob(repo_path=dirty.repo_path, refs=(dirty.snapshot_sha,))
 
         # Embeds: indexed commits with un-embedded chunks.
-        for repo_id, repo_path in store.list_repos():
-            for sha, _ts in store.list_indexed_snapshots(repo_id):
-                count = store.count_unembedded(repo_id, sha)
+        for repo in store.list_repos():
+            for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
+                count = store.count_unembedded(repo.repo_id, sha)
                 if count > 0:
-                    key = f"{repo_id}:{sha}"
+                    key = f"{repo.repo_id}:{sha}"
                     if key == self._active_key:
                         continue
-                    return EmbedJob(repo_path=repo_path, repo_id=repo_id, ref=sha)
+                    return EmbedJob(repo_path=repo.repo_path, repo_id=repo.repo_id, ref=sha)
 
         return None
 

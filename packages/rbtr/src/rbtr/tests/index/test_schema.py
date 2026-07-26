@@ -145,7 +145,7 @@ def test_embeddings_survive_matches_scenario(
     if not chunks:
         assert not scenario.expected_chunks_survive
         return
-    any_embedded = any(c.embedding for c in chunks)
+    any_embedded = any(c.has_embedding for c in chunks)
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
     else:
