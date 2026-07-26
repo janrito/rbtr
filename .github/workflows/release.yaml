@@ -102,7 +102,7 @@ jobs:
       - name: Publish to PyPI
         run: uv publish dist/*.whl dist/*.tar.gz
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
