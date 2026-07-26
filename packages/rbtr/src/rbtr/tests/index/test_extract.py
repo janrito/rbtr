@@ -8,7 +8,7 @@ import pygit2
 from pytest_mock import MockerFixture
 
 from rbtr.git import FileEntry
-from rbtr.index.orchestrator import build_index
+from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 from rbtr.languages.extract import extract_file
 
@@ -45,7 +45,7 @@ def test_build_index_extraction_error_is_nonfatal(
             raise RuntimeError(msg)
         return list(original_extract(entry, language))
 
-    mocker.patch("rbtr.index.orchestrator.extract_file", side_effect=_patched_extract)
+    mocker.patch("rbtr.index.build.extract_file", side_effect=_patched_extract)
 
     result = build_index(repo.workdir, sha, store, repo_id=1)
 

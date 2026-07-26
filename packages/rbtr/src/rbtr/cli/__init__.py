@@ -93,8 +93,9 @@ from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_sec
 from rbtr.domain.models import GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
-from rbtr.index.orchestrator import build_index, embed_index
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager

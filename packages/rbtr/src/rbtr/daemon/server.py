@@ -82,8 +82,10 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, filter_tree_shas, normalise_repo_path
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder, embedding_text
-from rbtr.index.orchestrator import ProgressCallback, build_index, embed_index
+from rbtr.index.progress import ProgressCallback
 from rbtr.index.reranker import Reranker
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager

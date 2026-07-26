@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pygit2
 
-from rbtr.index.orchestrator import build_index
+from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 
 

@@ -156,7 +156,7 @@ def mini_repo(tmp_path: Path) -> tuple[Path, IndexStore, int]:
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
-    from rbtr.index.orchestrator import build_index  # deferred: heavy native libs
+    from rbtr.index.build import build_index  # deferred: heavy native libs
 
     resolved = str(repo_path.resolve())
     store = IndexStore(writable=True)

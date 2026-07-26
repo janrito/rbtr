@@ -1,30 +1,24 @@
-"""Index orchestration — build and diff a code index.
+"""Index building — extract chunks and infer edges for a commit.
 
-`build_index` is the entry point.  It runs four phases, each
-in its own transactional session:
+`build_index` is the entry point.  It runs three phases, each in its own
+transactional session:
 
-1. **Extract** — stream files from git, extract chunks via
-   tree-sitter or plugin chunkers, write chunks + snapshots.
-2. **Edges** — infer import/test/doc edges from the committed
-   chunk set.
-3. **Embed** — compute embeddings for chunks that lack them.
-4. **Finalise** — mark the commit indexed, clean up orphans.
+1. **Extract** — stream files from git, extract chunks via tree-sitter or
+   plugin chunkers, write chunks + snapshots.
+2. **Edges** — infer import/test/doc edges from the committed chunk set.
+3. **Finalise** — mark the commit indexed, clean up orphans.
 
-All heavy work runs synchronously — the caller (daemon job
-worker) runs it via `asyncio.to_thread()`.
+Embedding is a separate step — see `embed_index` in `rbtr.index.embed`.
 
-Progress is reported via a single `ProgressCallback(phase,
-done, total)`.  Logs record completion summaries; progress
-reports real-time state.
+All heavy work runs synchronously — the caller (daemon job worker) runs it
+via `asyncio.to_thread()`.  Progress is reported via a single
+`ProgressCallback(phase, done, total)`; logs record completion summaries.
 """
 
 from __future__ import annotations
 
-import itertools
 import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import structlog
 
@@ -38,26 +32,15 @@ from rbtr.domain.models import (
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import changed_files, list_files
-from rbtr.index.embeddings import Embedder, embedding_text
+from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.store import IndexStore
 from rbtr.languages.chunks import detect_prose_format
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
-from rbtr.logging import elapsed_ms
 from rbtr.rbtrignore import load_ignore
 
-if TYPE_CHECKING:
-    pass
-
 log = structlog.get_logger(__name__)
-
-type ProgressCallback = Callable[[str, int, int], None]
-"""`(phase, done, total)` — called to report build progress."""
-
-
-def _noop_progress(_phase: str, _done: int, _total: int) -> None:
-    pass
 
 
 # ── Build phases ─────────────────────────────────────────────────────
@@ -310,62 +293,3 @@ def build_index(
         elapsed_seconds=round(result.stats.elapsed_seconds, 1),
     )
     return result
-
-
-def embed_index(
-    store: IndexStore,
-    commit_sha: str,
-    *,
-    repo_id: int,
-    embedder: Embedder,
-    on_progress: ProgressCallback = _noop_progress,
-    should_stop: Callable[[], bool] | None = None,
-) -> int:
-    """Embed un-embedded chunks for an already-indexed commit.
-
-    Fetches unembedded chunks in pages and processes each page
-    in batches.  Each batch gets its own write session so the
-    DuckDB write lock is released between batches — higher-priority
-    builds can run in the gaps.
-
-    When *should_stop* returns ``True`` the function commits
-    the current batch and returns early.  The remaining chunks
-    are still ``embedding IS NULL`` so the next call picks up
-    where this one left off.
-
-    Returns the number of chunks that were embedded.
-    """
-    total = store.count_unembedded(repo_id, commit_sha)
-    if total == 0:
-        return 0
-
-    on_progress("loading_model", 0, 0)
-
-    done = 0
-    t0 = time.perf_counter()
-
-    while missing := store.get_unembedded_chunks(repo_id, commit_sha):
-        before = done
-        for batch in itertools.batched(missing, config.embedding_batch_size, strict=False):
-            texts = [embedding_text(c.name, c.content) for c in batch]
-            try:
-                results = embedder.embed(texts)
-            except (RuntimeError, ValueError):
-                log.warning("embedding_batch_failed", exc_info=True)
-                continue
-            with store.session() as session:
-                session.update_embeddings(
-                    [c.id for c in batch],
-                    [r.vector for r in results],
-                    truncated=[r.truncated for r in results],
-                )
-            done += len(batch)
-            on_progress("embedding", done, total)
-            if should_stop is not None and should_stop():
-                log.info("embedding_preempted", done=done, total=total)
-                return done
-        if done == before:
-            break
-
-    log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
-    return done

@@ -62,8 +62,8 @@ from rbtr.git import (
     resolve_ref,
     worktree_tree_sha,
 )
-from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc, run_gc_all
+from rbtr.index.results import changed_to_symbols
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:

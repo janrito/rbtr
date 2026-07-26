@@ -14,7 +14,7 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.domain.models import QueryKind, ScoredChunk
-from rbtr.index.frames import FusionInputRow
+from rbtr.index.results import FusionInputRow
 from rbtr.index.search import fuse_scores, match_preview_exprs, materialise_scored
 
 from .cases_fuse import FuseScenario

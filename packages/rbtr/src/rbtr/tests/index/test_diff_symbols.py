@@ -13,8 +13,8 @@ import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChangeKind, Chunk
-from rbtr.index.frames import ChangedSymbolRow, changed_to_symbols
-from rbtr.index.orchestrator import build_index
+from rbtr.index.build import build_index
+from rbtr.index.results import ChangedSymbolRow, changed_to_symbols
 from rbtr.index.store import IndexStore
 
 from ..conftest import make_commit
