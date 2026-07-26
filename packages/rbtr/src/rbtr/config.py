@@ -49,7 +49,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr.index.models import QueryKind
+from rbtr.domain.models import QueryKind
 
 RBTR_NAME = "rbtr"
 

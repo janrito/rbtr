@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.index.models import ImportMeta
+from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,

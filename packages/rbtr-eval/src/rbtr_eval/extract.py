@@ -17,7 +17,7 @@ import dataframely as dy
 import polars as pl
 from pydantic import BaseModel, Field
 
-from rbtr.index.identity import SCOPE_SEPARATOR
+from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction

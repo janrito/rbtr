@@ -9,8 +9,8 @@ from __future__ import annotations
 import dataframely as dy
 import polars as pl
 
+from rbtr.domain.models import ChangeKind, Chunk, ScoredChunk
 from rbtr.index.frames import ChangedSymbolRow
-from rbtr.index.models import ChangeKind, Chunk, ScoredChunk
 
 # A symbol's identity for diff assertions: (name, scope).
 SymbolId = tuple[str, str]

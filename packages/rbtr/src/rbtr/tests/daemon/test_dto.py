@@ -10,7 +10,7 @@ import json
 import pytest
 
 from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut
-from rbtr.index.models import Chunk, ChunkKind, ImportMeta, QueryKind, ScoredChunk
+from rbtr.domain.models import Chunk, ChunkKind, ImportMeta, QueryKind, ScoredChunk
 
 
 @pytest.fixture

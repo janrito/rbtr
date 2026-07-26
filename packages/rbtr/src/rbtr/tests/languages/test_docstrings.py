@@ -11,8 +11,8 @@ attachment causes, and that a blank-separated comment stays standalone.
 
 from __future__ import annotations
 
+from rbtr.domain.models import ChunkKind
 from rbtr.git import FileEntry
-from rbtr.index.models import ChunkKind
 from rbtr.languages.extract import extract_file
 
 

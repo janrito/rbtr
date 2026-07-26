@@ -7,8 +7,8 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.domain.models import RepoRef
 from rbtr.git import changed_files, worktree_tree_sha
-from rbtr.index.models import RepoRef
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
 

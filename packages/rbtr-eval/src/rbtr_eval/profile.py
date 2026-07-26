@@ -24,7 +24,7 @@ import minijinja
 import polars as pl
 from pydantic import BaseModel, Field
 
-from rbtr.index.models import QueryKind
+from rbtr.domain.models import QueryKind
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import load_all_queries, with_query_kind

@@ -21,7 +21,7 @@ from __future__ import annotations
 import dataframely as dy
 import polars as pl
 
-from rbtr.index.models import (
+from rbtr.domain.models import (
     ChangeKind,
     Chunk,
     ChunkKind,

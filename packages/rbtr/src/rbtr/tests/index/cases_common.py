@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rbtr.index.models import ChunkKind, ImportMeta
+from rbtr.domain.models import ChunkKind, ImportMeta
 
 
 @dataclass(frozen=True)

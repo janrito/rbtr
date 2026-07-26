@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk, seed_store

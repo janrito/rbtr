@@ -54,6 +54,8 @@ import polars as pl
 import structlog
 
 from rbtr.config import WeightTriple, config
+from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, RepoRef, ScoredChunk
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
@@ -75,10 +77,8 @@ from rbtr.index.frames import (
     scored_to_chunks,
     serial_map_frame,
 )
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, RepoRef, ScoredChunk
 from rbtr.index.reranker import Reranker
 from rbtr.index.search import search
-from rbtr.index.tokenise import tokenise_code
 from rbtr.index.writer import WriteSession
 
 log = structlog.get_logger(__name__)

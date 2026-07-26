@@ -36,8 +36,8 @@ from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
+from rbtr.domain.models import QueryKind
 from rbtr.index.classify import classify_query
-from rbtr.index.models import QueryKind
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.queries import load_all_queries
 from rbtr_eval.schemas import ExpansionRow, QueryRow

@@ -26,7 +26,6 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
-    GcMode,
     GcRequest,
     ListSymbolsRequest,
     ListSymbolsResponse,
@@ -39,8 +38,8 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.domain.models import EdgeKind, GcMode, QueryKind
 from rbtr.errors import RbtrError
-from rbtr.index.models import EdgeKind, QueryKind
 from rbtr.index.store import IndexStore
 
 

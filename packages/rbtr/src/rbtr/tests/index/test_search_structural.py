@@ -7,7 +7,7 @@ ranking as expected.
 
 from __future__ import annotations
 
-from rbtr.index.models import RepoRef
+from rbtr.domain.models import RepoRef
 from rbtr.index.store import IndexStore
 
 from .asserts import assert_in_results

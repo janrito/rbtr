@@ -29,17 +29,17 @@ from typing import TYPE_CHECKING
 import structlog
 
 from rbtr.config import config
-from rbtr.git import changed_files, list_files
-from rbtr.index.embeddings import Embedder, embedding_text
-from rbtr.index.models import (
+from rbtr.domain.models import (
     Chunk,
     Edge,
     IndexResult,
     Snapshot,
     TokenisedChunk,
 )
+from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import changed_files, list_files
+from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 from rbtr.languages.chunks import detect_prose_format
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file

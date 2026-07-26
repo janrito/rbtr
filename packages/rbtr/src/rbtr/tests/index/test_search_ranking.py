@@ -12,7 +12,7 @@ file-category penalty, and importance.
 
 from __future__ import annotations
 
-from rbtr.index.models import RepoRef, ScoredChunk
+from rbtr.domain.models import RepoRef, ScoredChunk
 from rbtr.index.store import IndexStore
 
 from .asserts import assert_outranks, assert_ranked_within

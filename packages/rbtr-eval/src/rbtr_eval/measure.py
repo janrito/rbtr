@@ -36,8 +36,8 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
+from rbtr.domain.models import QueryKind
 from rbtr.index.classify import classify_query
-from rbtr.index.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table

@@ -2,7 +2,7 @@
 
 These are the API/wire shape returned by the daemon and printed by the
 CLI's `--json`. They are deliberately distinct from the storage models
-in `rbtr.index.models`: storage rows carry identity hashes (`id`,
+in `rbtr.domain.models`: storage rows carry identity hashes (`id`,
 `blob_sha`), an embedding, ranking internals, and an always-present
 `metadata` bag, none of which a caller needs. Projecting to a DTO keeps
 the public contract minimal and low-noise — agents read these payloads
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from rbtr.index.models import Chunk, ChunkKind, EdgeKind, ImportMeta, ScoredChunk
+from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, ScoredChunk
 
 _STRICT = ConfigDict(extra="forbid")
 

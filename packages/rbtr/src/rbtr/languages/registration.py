@@ -44,7 +44,7 @@ from enum import StrEnum
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
-from rbtr.index.models import Chunk, ImportMeta
+from rbtr.domain.models import Chunk, ImportMeta
 from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
 
 if TYPE_CHECKING:

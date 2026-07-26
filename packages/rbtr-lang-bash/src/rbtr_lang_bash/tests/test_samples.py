@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 import pytest
 from tree_sitter import Parser
 
+from rbtr.domain.models import Chunk, ChunkKind, Edge
 from rbtr.git import FileEntry
-from rbtr.index.models import Chunk, ChunkKind, Edge
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager

@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import parametrize_with_cases
 
+from rbtr.domain.models import ChunkKind
 from rbtr.git import FileEntry
-from rbtr.index.models import ChunkKind
 from rbtr.languages.extract import extract_file
 
 

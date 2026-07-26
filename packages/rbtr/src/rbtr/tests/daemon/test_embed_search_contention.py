@@ -23,10 +23,10 @@ from rbtr.daemon.messages import (
     SearchResponse,
 )
 from rbtr.daemon.server import DaemonServer
+from rbtr.domain.models import ChunkKind, RepoRef, Snapshot, TokenisedChunk
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.embeddings import Embedder
-from rbtr.index.models import ChunkKind, RepoRef, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 
 from ..conftest import StubModel
 

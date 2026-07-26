@@ -14,10 +14,10 @@ from collections.abc import Iterator
 import pytest
 from pytest_mock import MockerFixture
 
+from rbtr.domain.models import RepoRef
 from rbtr.index import _gpu_model
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.frames import ScoredChunkResultRow
-from rbtr.index.models import RepoRef
 from rbtr.index.store import IndexStore
 
 

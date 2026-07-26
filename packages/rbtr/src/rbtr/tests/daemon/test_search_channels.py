@@ -26,8 +26,8 @@ from rbtr.config import WeightTriple
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import DaemonServer
+from rbtr.domain.models import RepoRef, Snapshot
 from rbtr.index.embeddings import Embedder
-from rbtr.index.models import RepoRef, Snapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk

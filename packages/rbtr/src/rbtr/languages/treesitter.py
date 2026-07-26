@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
-from rbtr.index.identity import compose_scope
-from rbtr.index.models import Chunk, ChunkKind, ImportMeta
+from rbtr.domain.identity import compose_scope
+from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY
 from rbtr.languages.registration import QueryExtraction
 

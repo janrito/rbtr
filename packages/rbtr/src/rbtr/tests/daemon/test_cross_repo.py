@@ -14,7 +14,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.handlers import handle_search, handle_status
 from rbtr.daemon.messages import SearchRequest, StatusRequest
-from rbtr.index.models import Snapshot
+from rbtr.domain.models import Snapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk

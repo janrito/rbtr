@@ -14,7 +14,7 @@ import pytest
 
 from rbtr.daemon.messages import BuildJob
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.models import Snapshot
+from rbtr.domain.models import Snapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk

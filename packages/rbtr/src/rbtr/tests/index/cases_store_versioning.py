@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rbtr.index.models import Chunk
+from rbtr.domain.models import Chunk
 
 
 @dataclass(frozen=True)

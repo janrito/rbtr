@@ -15,7 +15,7 @@ from enum import StrEnum
 import dataframely as dy
 from pydantic import BaseModel, Field
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 from rbtr_eval.kinds import EXCLUDED_KINDS
 
 

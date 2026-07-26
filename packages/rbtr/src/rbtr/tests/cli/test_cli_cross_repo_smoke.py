@@ -17,7 +17,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.index.models import Snapshot
+from rbtr.domain.models import Snapshot
 from rbtr.index.store import IndexStore
 
 from ..conftest import run_cli

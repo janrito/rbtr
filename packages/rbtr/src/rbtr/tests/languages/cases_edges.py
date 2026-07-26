@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rbtr.index.models import ChunkKind, EdgeKind, ImportMeta
+from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta
 from rbtr.languages.edges import ImportResolution
 from rbtr.languages.registration import ModuleStyle
 

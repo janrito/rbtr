@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
-from rbtr.index.identity import compose_scope, make_chunk_id
+from rbtr.domain.identity import compose_scope, make_chunk_id
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -279,6 +279,16 @@ class IndexStatus(BaseModel):
 
 
 # ── GC / session types ────────────────────────────────────────
+
+
+class GcMode(StrEnum):
+    """What a `rbtr gc` invocation is allowed to delete."""
+
+    HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
+    KEEP = "keep"  # keep only listed refs
+    ORPHANS = "orphans"  # sweep residue only, drop no commits
+    WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
+    WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
 
 
 @dataclass(frozen=True)

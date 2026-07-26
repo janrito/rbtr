@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.index.models import ChunkKind, TokenisedChunk
+from rbtr.domain.models import ChunkKind, TokenisedChunk
 
 from .conftest import make_chunk
 
