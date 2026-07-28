@@ -122,6 +122,19 @@ Boundary rules:
   design-decisions section, not in docstrings or README.
 - **Historical context** belongs in none of the three.
   Describe the present. History lives in git.
+- **Rejected approaches** are the exception, and are not
+  history: an approach that was tried and lost is a
+  boundary on the current design. Record it where the
+  decision lives — present tense, no dates, no
+  chronology — naming what was tried, why it lost (with
+  the figure, if it was measured), and what would justify
+  revisiting. "We used to do X" is history; "X does not
+  work here, because…" is rationale.
+- **State what a thing does, not what it is not.**
+  Negative definitions ("no shell commands, no file
+  paths, no…") and vague honorifics ("the full gate",
+  "first-class support") name nothing a reader can act
+  on. Describe the behaviour.
 - **Edge-case caveats** about implementation limits
   belong as inline `#` comments, not in docstrings.
 - **Each concept once.** Other mentions cross-reference
