@@ -412,7 +412,7 @@ rbtr-lang-swift/
 ```toml
 # pyproject.toml
 [build-system]
-requires = ["uv_build>=0.9,<1"]
+requires = ["uv_build>=0.11.26,<1"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
