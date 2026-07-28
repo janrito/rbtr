@@ -69,6 +69,9 @@ knows the index is available without being told.
 
 ### Tool examples
 
+Shapes, not fixtures — the line numbers and scores below move
+with the code they describe.
+
 **`rbtr_search`** — query in, scored results out:
 
 ```json
@@ -171,17 +174,6 @@ The `command` setting determines how `rbtr` is called:
 The extension validates the command on session start and
 shows an error with install instructions if it fails.
 
-## How it works
-
-The extension talks to the rbtr daemon via ZMQ. If the
-daemon is unavailable it falls back to the CLI. The
-daemon is auto-started on first use and version-checked
-on each session start. Indexing runs in the background;
-results are truncated to fit the LLM context.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the session
-lifecycle, reconnection model, and rendering design.
-
 ## Development
 
 ```bash
@@ -194,5 +186,7 @@ just typecheck-ts         # tsc --noEmit
 
 ### Architecture reference
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for how the extension
-is structured, CLI integration details, and rendering design.
+The extension talks to the daemon over ZMQ and falls back to
+the CLI when none is reachable, starting one on first use.
+[ARCHITECTURE.md](ARCHITECTURE.md) covers the session
+lifecycle, the reconnection model, and rendering.

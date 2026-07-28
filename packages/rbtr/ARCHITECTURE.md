@@ -10,7 +10,49 @@ classes, methods, imports), connects them with a dependency
 graph, and makes them searchable through three fused
 retrieval channels.
 
-Design priorities:
+### The path a file takes
+
+A build walks a git tree. Each file is matched to a language
+and, unless its bytes have been chunked already, handed to
+that language's plugin, which returns chunks — named spans of
+source, each with a kind, a scope, and a line range. The
+chunks go into a DuckDB file; an edge pass infers imports and
+doc links between them; a later, lower-priority pass embeds
+them.
+
+A query runs three channels over that table — name matching,
+BM25, and vector similarity — fuses them into one score,
+reranks the top candidates with a cross-encoder, and returns
+the winners.
+
+The daemon runs all of it in the background. It watches refs,
+rebuilds when they move, and answers queries over ZMQ, so the
+CLI and the pi extension read one index rather than each
+keeping their own.
+
+### Where things live
+
+Modules only import from layers below them — no upward
+dependencies. Top to bottom: `cli` → `daemon` → `index`
+→ `languages` → `domain` (the pure kernel: data models,
+identity, tokenisation). `config` sits just above the
+kernel; `git` and `errors` are foundations below. The
+layering is a DAG enforced by import-linter (run in
+`just lint`), so boundary drift fails the build instead
+of relying on convention.
+
+### Chunk and symbol
+
+The two words name the same thing from either side of the
+API boundary. Internally it is a **chunk**: content-addressed,
+keyed by a hash of its own bytes, and shared between every
+repo that holds those bytes. On the wire it is a **symbol**
+(`SymbolOut`), because that is what a caller navigates by.
+`rbtr.daemon.dto` is where one becomes the other, dropping the
+persistence detail on the way out — see
+[Storage models vs API DTOs](#storage-models-vs-api-dtos).
+
+### Design priorities
 
 1. **Language-agnostic.** Every file gets indexed. Languages
    with tree-sitter grammars get structural extraction;
@@ -53,15 +95,6 @@ routes extraction through one of three strategies (see
 Chunks and edges are written to a single DuckDB file via
 the store; embedding is a separate step (`embed_index`),
 and search reads from the same store.
-
-Modules only import from layers below them — no upward
-dependencies. Top to bottom: `cli` → `daemon` → `index`
-→ `languages` → `domain` (the pure kernel: data models,
-identity, tokenisation). `config` sits just above the
-kernel; `git` and `errors` are foundations below. The
-layering is a DAG enforced by import-linter (run in
-`just lint`), so boundary drift fails the build instead
-of relying on convention.
 
 ### Language plugin routing
 
@@ -185,7 +218,7 @@ embeddings are absent.
 
 ### Extraction call flow
 
-The tree-sitter path - the most common case. The build loop calls
+The tree-sitter path — the most common case. The build loop calls
 `extract_file` (`rbtr.languages.extract`), which dispatches via
 `extract_primary` → `extract_query` to `extract_symbols`
 (`rbtr.languages.treesitter`); that call chain:
@@ -439,12 +472,12 @@ builds. GC uses it to identify orphans: any
 `meta` is a key-value table that tracks compatibility.
 Three keys:
 
-- `schema_version` - the DDL version. A mismatch deletes
+- `schema_version` — the DDL version. A mismatch deletes
   the database on open (it's derived data; a full rebuild
   is the only safe migration).
-- `embedding_model` - the GGUF model ID used to compute
+- `embedding_model` — the GGUF model ID used to compute
   vectors.
-- `embedding_version` - a format version for the embedding
+- `embedding_version` — a format version for the embedding
   pipeline.
 
 When the model or version changes, all embeddings are
@@ -875,7 +908,7 @@ folds into what follows. Comment text is therefore indexed and
 searchable wherever it sits, not only when it happens to precede a
 symbol.
 
-A file can also *embed* another language - a Markdown fenced
+A file can also *embed* another language — a Markdown fenced
 block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
 `injection_query` marks each embedded block; the engine
 delegates the block's byte range to the target's full
@@ -950,8 +983,39 @@ Each channel is normalised to [0, 1], then combined:
 score = alpha × semantic + beta × lexical + gamma × name
 ```
 
-Post-fusion multipliers: kind boost, file category,
-importance (inbound edge count), proximity (diff distance).
+Four multipliers then scale that score. They carry what a
+channel score cannot see: that some kinds of chunk are better
+answers than others, that some files matter less than their
+contents suggest, and that a symbol many things depend on is
+more often the one you meant.
+
+**Kind boost** — what the chunk is. A class scores 1.5, a
+function or method 1.3, a variable 1.0, a doc section 0.8, a
+test function 0.7, a config key 0.6, a comment or raw
+line-chunk 0.5, a migration 0.4, an import 0.3. An import line
+matches a name as well as the definition does and is almost
+never what was wanted, which is what the bottom of that range
+is for.
+
+**File category** — where it lives. Vendored and generated
+code 0.3, tests 0.5, config 0.7, documentation 0.8, ordinary
+source 1.0. Classified by path pattern, first match wins.
+
+**Importance** — how much depends on it:
+`1 + log2(1 + degree) / 4`, capped at 3.0, where `degree` is
+the inbound edge count. One inbound edge gives 1.25, three
+1.5, fifteen 2.0. Logarithmic because the step from one
+dependent to three says far more than the step from thirty to
+thirty-two.
+
+**Proximity** — distance from the current diff, when there is
+one. 1.5 for a chunk in a changed file, 1.2 for one with an
+edge to a changed file, 1.1 for one in a changed directory,
+1.0 otherwise.
+
+These magnitudes are hand-set. The fusion weights below are
+not — they are measured (see
+[`rbtr-eval`](../rbtr-eval/README.md)).
 
 Weights are configured per query kind. Every search
 classifies the query via `classify_query` and selects the
@@ -1066,6 +1130,15 @@ as `CODE` when its total reaches a threshold of 2.
 Keywords are extracted at runtime from all registered
 tree-sitter grammars, so new language plugins
 automatically contribute.
+
+`CONCEPT` additionally requires low punctuation density
+(`_punct_ratio <= 0.04`) on top of the word-count minimum.
+Word count alone routes any structured name long enough to
+split — a CSS selector, a dot-joined path — down the concept
+path, where it gets variant rephrasings that dilute the exact
+lexical signal it needed. The gate costs a fraction of true
+concept queries and removes most of that misrouting; the
+[eval](../rbtr-eval/README.md) has the measured trade.
 
 | Kind           | Example                       | Expansion strategy       |
 | -------------- | ----------------------------- | ------------------------ |
@@ -1197,7 +1270,7 @@ order:
    (HTML and Svelte/Vue `<script>` / `<style>`) or a
    dynamic
    `@injection.language` capture whose text is resolved to a
-   language id (a Markdown fence's info string - `python`,
+   language id (a Markdown fence's info string — `python`,
    `sh`). Injection runs *alongside* the host chunker
    (step 1), not instead of it.
 3. **Plaintext fallback** - only if neither of the above
@@ -1215,13 +1288,13 @@ order:
    so the blob-dedup gate can skip the file on later builds.
 
 **We author our own injection queries** rather than reuse a
-grammar's shipped `injections.scm`, which over-matches - a
+grammar's shipped `injections.scm`, which over-matches — a
 bare `(raw_text)` fallback catches every block, including
 styles. `injection.priority` disambiguates: a `lang`-tagged
 block outranks the bare fallback. The language mapping (step
-2) stays out of Python - static `#set!` values, and
+2) stays out of Python — static `#set!` values, and
 free-form hints resolved through the registry's own
-id/extension maps - so delegation is language-agnostic, with
+id/extension maps — so delegation is language-agnostic, with
 no per-language code.
 
 Delegation runs the target's *full* primary extraction
@@ -1556,24 +1629,13 @@ Next poll: worktree_tree_sha = tree_A (same edit)
          → has_indexed(tree_A) = True → skip
 ```
 
-#### User edits again
+Every later edit repeats this against a new tree SHA, and each
+build ends by calling `_drop_stale_worktree_shas`, which drops
+any indexed tree SHA that is not the one just built — so at
+most one worktree snapshot survives per repo.
 
-```text
-State: tree_A indexed. User edits foo.py again.
-
-poll_worktree → worktree_tree_sha = tree_B (≠ tree_A)
-             → has_indexed(tree_B) = False → rebuild
-
-build_index(tree_B):
-  foo.py: new blob_sha → extract
-  replace_snapshots(tree_B)
-  mark_indexed(tree_B)
-
-_drop_stale_worktree_shas:
-  filter_tree_shas finds tree_A → drop_snapshot(tree_A)
-  → deletes tree_A's snapshots, edges, indexed_snapshots row
-  → cleanup() sweeps orphaned chunks
-```
+The two scenarios below are the ones that do not follow from
+that; the [invariants](#invariants) cover the rest.
 
 #### New commit while still dirty
 
@@ -1590,17 +1652,6 @@ Next poll: worktree_tree_sha = tree_C (against new HEAD)
          → has_indexed(tree_C) = False → rebuild
 ```
 
-#### Commit makes tree clean
-
-```text
-State: tree_A indexed. User commits all changes → HEAD=def456.
-
-Commit build runs. _drop_stale_worktree_shas → drops tree_A.
-
-Next poll: worktree_tree_sha = None (clean) → skip.
-Store: only def456 indexed.
-```
-
 #### Clean tree, worktree lingering
 
 ```text
@@ -1614,20 +1665,6 @@ tree_A row lingers in indexed_snapshots but is inert:
 tree_A is cleaned up by:
   - The next build (commit or worktree) via _drop_stale_worktree_shas
   - GC (tree SHAs are not reachable from any ref)
-```
-
-#### Branch change
-
-```text
-State: HEAD=abc123 (main), tree_A indexed.
-User switches to feature → HEAD=fed987.
-
-poll_watched → WatchedTarget(ref=HEAD, sha=fed987) → build.
-_drop_stale_worktree_shas → drops tree_A.
-
-If tree still dirty on new branch:
-  worktree_tree_sha = tree_D (different tree base) → rebuild.
-If clean: nothing.
 ```
 
 ### Invariants
@@ -1664,11 +1701,34 @@ If clean: nothing.
 
 ## Design decisions
 
-**DuckDB over SQLite.** BM25 FTS, array columns for
-embeddings, bulk insert performance.
+**DuckDB over SQLite.** Three channels have to run over one
+store. SQLite gives BM25 through FTS5, but not the other two:
+no array column to hold an embedding, so vectors would live as
+blobs and cosine similarity would run in Python over rows
+pulled out of the database, and no way to hand a polars frame
+to a query without inserting it first. DuckDB has `FLOAT[]`
+and `LIST_COSINE_SIMILARITY`, so semantic scoring is a SQL
+expression, and it reads registered frames zero-copy, which is
+what lets retrieval and bulk upsert both be single set-based
+statements (see
+[Registered frames as query inputs](#registered-frames-as-query-inputs)).
+The cost is a young file format with no in-place schema
+migration — hence the wipe-and-rebuild policy in
+[Versioning](#versioning) — and one writer at a time. Both are
+acceptable for derived data with a single writing daemon.
+Revisit if the index ever needs concurrent writers.
 
-**pygit2 over git CLI.** Direct object-store access; no
-subprocess per file.
+**pygit2 over git CLI.** A build reads every blob in a tree.
+Through the CLI that is a subprocess per object, and the cost
+is process spawn rather than I/O. pygit2 reads the object
+store directly, so walking a tree and fetching blobs stays
+in-process, and the working-tree tree SHA
+([Identity: tree SHAs](#identity-tree-shas)) can be computed by
+building an index in memory and writing a tree object — no
+staging area is touched, which a CLI-based equivalent could
+not promise. The cost is a compiled dependency with its own
+libgit2 version skew, paid at install time rather than per
+build.
 
 **Entry-point registry for language plugins.** Languages are
 discovered from the `rbtr.languages` entry-point group via
@@ -1709,11 +1769,29 @@ recorded when it was registered. Canonicalising inside the
 lookups would leave a vanished checkout's rows in the database
 with no way left to name them.
 
-**pydantic-settings for CLI + config.** Config fields are
-CLI flags. TOML, env, and CLI args merge in one framework.
+**pydantic-settings for CLI + config.** Every setting has to
+be reachable three ways — `config.toml`, a `RBTR_` environment
+variable, and a command-line flag — with a documented
+precedence between them. Written by hand that is three parsers
+and a merge; here the `Config` model *is* all three, so a new
+field gains a flag, an env var and a TOML key at once, and
+`rbtr config` renders the merged result from the same object.
+The cost is that the CLI's `--help` is generated from field
+names and types, so flag naming is not free to diverge from
+the config schema.
 
-**ZMQ for the daemon.** REQ/REP + PUB/SUB. Simpler than
-HTTP; single process, single build worker.
+**ZMQ for the daemon.** The transport needs
+request/response for queries and fan-out for build progress,
+over a local socket, with clients that come and go. HTTP gives
+the first and needs polling, SSE or websockets bolted on for
+the second, plus a port to allocate and defend. ZMQ has both
+patterns natively over IPC — REP for queries, PUB for
+progress — and its SUB sockets reconnect on their own, which
+is what lets a pi session survive a daemon restart without
+re-discovering an endpoint (see
+[Daemon protocol](#daemon-protocol)). The cost is a
+hand-rolled message contract; `messages.py` and
+`just schema-check` exist to keep it honest.
 
 **structlog through one stdlib sink.** Application code uses
 structlog, but the renderer is a `ProcessorFormatter` on a single
@@ -1751,8 +1829,12 @@ fast but shallow — it combines independent channel
 scores without seeing query and document together. A
 cross-encoder evaluates each `(query, chunk)` pair
 with full cross-attention, catching relevance that
-channel scores miss. Evaluated at +10.6pp Hit@1 and
-+0.107 MRR over fusion alone on 5029 queries.
+channel scores miss. It is the largest single ranking
+improvement measured, in both Hit@1 and MRR, and costs about
+two seconds at p50. Current figures are in
+[`data/BENCHMARKS.md`](../rbtr-eval/data/BENCHMARKS.md),
+regenerated by each eval run — not repeated here, where they
+would go stale silently.
 
 **Suffix-match import resolution.** Absolute/dotted
 imports resolve by matching the module path as a suffix
