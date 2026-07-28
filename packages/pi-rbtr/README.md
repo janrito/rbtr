@@ -34,7 +34,7 @@ pi install -l ./packages/pi-rbtr
 
 ## What the agent gets
 
-Seven tools, registered automatically on session start:
+Eight tools, registered automatically on session start:
 
 | Tool                   | Description                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -45,6 +45,7 @@ Seven tools, registered automatically on session start:
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
 | `rbtr_index`           | Index the repository (background, incremental)                                                                           |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                      |
 
 The extension also injects a system prompt note so the agent
 knows the index is available without being told.
@@ -61,8 +62,8 @@ knows the index is available without being told.
   `rbtr_list_symbols`. One-line-per-symbol TOC with line ranges.
 - **Exact string match** ("find all `TODO` comments") →
   `grep`. The index is structural, not textual.
-- **Who calls X?** → `rbtr_find_refs`. Follows import, test,
-  and doc edges in the dependency graph.
+- **Who calls X?** → `rbtr_find_refs`. Follows import and doc
+  edges in the dependency graph.
 - **What changed?** → `rbtr_changed_symbols`. Function-level
   diff between two refs, not line-level.
 
@@ -102,8 +103,8 @@ The per-signal ranking breakdown is omitted by default; pass
 
 ```json
 {"kind": "find_refs", "refs": [
-  {"name": "from search import fuse_scores", "kind": "import",
-   "file_path": "src/rbtr/index/ranking.py", "line_start": 12, "edge": "imports"}
+  {"name": "from rbtr.index.store import IndexStore", "kind": "import",
+   "file_path": "src/rbtr/daemon/watcher.py", "line_start": 30, "edge": "imports"}
 ]}
 ```
 

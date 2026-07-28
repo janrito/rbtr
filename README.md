@@ -92,7 +92,7 @@ for detail.
 
 ```bash
 just setup                  # uv sync + bun install
-just check                  # schema-check + lint + typecheck + test
+just check                  # schema-check + graphql + lint + typecheck + test
 just fmt                    # auto-fix (Python, TypeScript, SQL, Markdown)
 ```
 

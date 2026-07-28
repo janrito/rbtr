@@ -703,8 +703,8 @@ for the dedup mechanism.
 ```bash
 git clone <repo-url>
 cd rbtr
-uv sync --extra languages
-just check    # lint + typecheck + test
+just setup    # uv sync + bun install
+just check    # the full gate
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for internals.

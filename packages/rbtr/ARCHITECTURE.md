@@ -492,13 +492,15 @@ The daemon keeps the index current without blocking the
 CLI or editor. Single process, asyncio event loop:
 
 ```text
-DaemonServer (asyncio.TaskGroup)
- ├─ _rpc_loop            — zmq REP poll + dispatch
- ├─ _job_worker          — await Event, to_thread(run_job)
- ├─ _watcher_loop        — sleep, to_thread(poll_watched), wake
- ├─ _notification_relay  — zmq inproc PULL → PUB
- └─ _idle_loop           — sleep, check idle, unload
+DaemonServer.serve()          — zmq REP poll + dispatch, on the event loop
+ ├─ _notification_relay       — zmq inproc PULL → PUB
+ ├─ _job_worker               — await Event, to_thread(run_job)
+ ├─ _watcher_loop             — sleep, to_thread(poll_watched), wake
+ └─ _idle_loop (per GPU model) — sleep, check idle, unload
 ```
+
+Dispatch is not a task of its own: `serve()` *is* the REP loop, and
+the tasks below it are the work it spawns.
 
 - **`DaemonServer`** — ZMQ REQ/REP for request/response
   and PUB for build-progress notifications. Owns one
@@ -562,16 +564,6 @@ whether it is indexed yet).
 
 ### Concurrency model
 
-**Task inventory:**
-
-| Task                  | Purpose                          |
-| --------------------- | -------------------------------- |
-| `_rpc_loop`           | Async zmq REP/PUB                |
-| `_job_worker`         | DuckDB writes (builds + embeds)  |
-| `_watcher_loop`       | Polls git repos, sets wake event |
-| `_notification_relay` | inproc PULL → PUB forwarding     |
-| `_idle_loop` (×N)     | Per-model idle unload            |
-
 **Single-writer guarantee:** DuckDB enforces one writer at
 a time. The `_job_worker` serialises all write tasks
 through `asyncio.Semaphore(1)` + `asyncio.to_thread()`.
@@ -586,7 +578,7 @@ and each thread rebinds its cursor on the next read, so a
 models: `Embedder` (embedding) and `Reranker`
 (cross-encoder reranking). Each wraps a `llama_cpp.Llama`
 instance via `GpuModelSlot` — a generic slot that handles
-lazy loading, idle unload, and `RLock`-based thread
+lazy loading, idle unload, and `threading.Lock`-based thread
 safety. Metal is not thread-safe across concurrent Llama
 instances, so all GPU inference is serialised through a
 single `_gpu_lock` (`asyncio.Lock` on `DaemonServer`,
@@ -834,8 +826,8 @@ The extraction engine lives in `rbtr.languages`, beside the
 and injection), `edges` (import/doc inference), and `chunks` (the plaintext
 fallback). `rbtr.index` depends on `languages` in just two places — the build
 loop, which composes extraction with storage, and `classify`, which reuses the
-language registry for search — while `languages` reaches back only for the
-shared `models` and `identity` leaves, so the dependency stays
+language registry for search — while `languages` reaches down only to the
+`rbtr.domain` kernel (`models`, `identity`), so the dependency stays
 one-directional.
 
 Each file is routed to one of three extraction strategies
@@ -1193,7 +1185,7 @@ order:
    ranges)`; markdown, rst, svelte, vue), else tree-sitter
    `extract_symbols` for a `grammar` + `query` (python,
    rust, go, ...; json, css, html, toml, yaml, hcl; and
-   `query` itself, indexing `.scm` files).
+   `tree_sitter_query` itself, indexing `.scm` files).
 2. **Injection (additive)** - if the registration has an
    `injection_query`, the engine *also* runs
    `extract_injections`: it matches embedded blocks
@@ -1245,11 +1237,12 @@ and host-presence trace — is not re-run per block.
 
 ### External plugins
 
-All languages — the ones bundled in core and external
-`rbtr-lang-*` packages alike — register via the `rbtr.languages`
-entry-point group; core declares entry points for its bundled
-languages in its own `pyproject.toml`. See the README for a
-step-by-step guide to writing a plugin.
+Every language registers through the `rbtr.languages`
+entry-point group, and every language is a separate
+`rbtr-lang-*` distribution — core declares none of its own. Eight
+are required dependencies of `rbtr`, so they arrive with it; the
+rest are extras. See the README for a step-by-step guide to
+writing a plugin.
 
 The entry-point *value* resolves to a module-level
 `LanguageRegistration`, named by its language id
@@ -1284,35 +1277,27 @@ scss and less import `css_nesting_scope` from the css plugin
 (CSS-family nesting behaviour). That is a legitimate
 plugin-to-plugin dependency, not part of the core contract.
 
-(`load_query` lives in a `_`-prefixed module today; packaging
-the languages should promote it to public API, since every
-plugin depends on it.)
-
 ### Sample fixtures
 
-`rbtr/tests/languages/samples/` holds one source file per
-supported language, each exercising the constructs that
-language's plugin extracts. They are both worked examples
-of extraction and golden-tested fixtures.
+Each plugin owns its samples, beside its code:
+`src/rbtr_lang_<id>/tests/samples/` holds a small example project
+exercising the constructs that plugin extracts. They are both
+worked examples of extraction and golden-tested fixtures.
 
-`test_samples.py` checks each sample three ways: it parses
-cleanly (no tree-sitter errors), it emits every chunk kind
-its plugin is expected to produce, and its full extracted
-chunks match a committed snapshot under `__snapshots__/`
-(serialised via pydantic `model_dump_json`). Constructs a
-plugin does not capture - a Go method's receiver scope, a
-Java constructor - are pinned as strict `xfail` cases, so
-closing the gap turns the test red until the sample and its
-expectations are updated. See `samples/python.py` and its
-snapshot for the shape.
+A plugin's `test_samples.py` runs the real per-file entry point
+(`rbtr.languages.extract.extract_file`) over the sample tree and
+compares the result against a committed snapshot under
+`__snapshots__/`, so any drift in extraction output turns the
+test red. The `snapshot_json` fixture that serialises chunks to
+canonical JSON ships with core's pytest plugin
+(`rbtr.testing`), so a plugin needs no `conftest.py`.
 
-To add a language: write `samples/<lang>.<ext>`, add a
-`@case` in `cases_samples.py` returning its expected chunk
-kinds, run `just snapshots`, and review the generated
-snapshot before committing.
+Regenerate every plugin's snapshots after an intended extraction
+change with `just snapshots`, and review the diff before
+committing.
 
 The samples are exempt from the repo's linters and
-type-checker - they are fixtures, validated by their own
+type-checker — they are fixtures, validated by their own
 tests rather than held to product-code standards.
 
 ## Garbage collection
@@ -1796,12 +1781,15 @@ For conventions (TDD workflow, fixture design, parametrise
 patterns), see the `rbtr-testing` skill. This section
 covers the test infrastructure.
 
-**Isolation.** The root `conftest.py` has an autouse
-`isolate_config` fixture that redirects `data_dir`,
-`config_dir`, and `log_dir` to `tmp_path` and stubs the
-embedding model. Tests never touch real data or load the
-400 MB GGUF. `cache_dir` is deliberately not redirected
-— it holds the shared model cache and is safe to reuse.
+**Isolation.** `[tool.pytest_env]` points `RBTR_DATA_DIR`,
+`RBTR_CONFIG_DIR`, and `RBTR_LOG_DIR` at the system temp
+directory, and the autouse `_test_dirs` fixture asserts that
+before creating them — so a misconfigured run fails loudly
+instead of writing to real data. `cache_dir` is deliberately not
+redirected: it holds the shared model cache and is safe to
+reuse. Tests run a tiny CPU embedding model (all-MiniLM-L6-v2,
+~20 MB) rather than the production GGUF; `stub_embedding_model`
+is opt-in, for tests that drive the model from several threads.
 
 **Fixture composition.** Three layers: root conftest
 (isolation) → domain conftest per subdirectory (data
