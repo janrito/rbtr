@@ -103,7 +103,7 @@ Use a named `TypeAdapter` defined at module level:
 foo_list = TypeAdapter(list[Foo])
 
 # At the call site
-foo_list.dump_json(items, indent=2)   # → bytes
+foo_list.dump_json(items, indent=2)  # → bytes
 foo_list.dump_python(items, mode="json")  # → list[dict]
 ```
 

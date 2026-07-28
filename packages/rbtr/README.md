@@ -538,6 +538,7 @@ example = LanguageRegistration(
     grammar_module="tree_sitter_example",
 )
 
+
 @example.chunker
 def chunk_example(
     file_path: str,
@@ -564,11 +565,14 @@ The name/scope/import overrides are **wrap-style** (like pydantic's
 to delegate, then refine — so you never import the default:
 
 ```python
-@swift.name_extractor          # fresh, inline
-def swift_name(resolver: NameResolver, capture_name: str, node: Node, caps: dict[str, list[Node]]) -> str:
-    return resolver(capture_name, node, caps).removesuffix("!")   # delegate, then tweak
+@swift.name_extractor  # fresh, inline
+def swift_name(
+    resolver: NameResolver, capture_name: str, node: Node, caps: dict[str, list[Node]]
+) -> str:
+    return resolver(capture_name, node, caps).removesuffix("!")  # delegate, then tweak
 
-swift.import_extractor(extract_swift_imports)   # reuse an existing function
+
+swift.import_extractor(extract_swift_imports)  # reuse an existing function
 ```
 
 The methods are `name_extractor`, `scope_extractor`, `import_extractor`
@@ -604,16 +608,20 @@ functions and run the pipeline in the test body:
 ```python
 # cases_extraction.py
 from pytest_cases import case
+
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+
 
 @case(tags=["symbol"])
 def case_function() -> SymbolCase:
     return "swift", "func greet() {}\n", [("function", "greet", "")]
 
+
 # test_extraction.py
 from pytest_cases import parametrize_with_cases
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
+
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(lang, source, expected):
@@ -633,11 +641,11 @@ from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 
+
 def test_extraction_matches_snapshot(snapshot_json):
     root = Path(__file__).parent / "samples" / "swift"
     files = [
-        (str(p.relative_to(root)), p.read_text())
-        for p in sorted(root.rglob("*")) if p.is_file()
+        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
     ]
     manager = get_manager()
     chunks = []
