@@ -240,6 +240,7 @@ debug = [
     "vulture>=2.16",
 ]
 dev = [
+    "import-linter>=2.0",
     "mypy>=2.1.0",
     "pytest-cov>=6.2",
     "pytest-env>=1.6.0",
@@ -247,4 +248,80 @@ dev = [
     "rumdl>=0.1.93",
     "rust-just>=1.51.0",
     "sqlfluff>=4.2.1",
+]
+
+[tool.importlinter]
+root_package = "rbtr"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "rbtr.cli",
+    "rbtr.daemon",
+    "rbtr.index",
+    "rbtr.languages",
+    "rbtr.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain kernel is pure"
+type = "forbidden"
+source_modules = ["rbtr.domain"]
+forbidden_modules = [
+    "rbtr.config",
+    "rbtr.logging",
+    "rbtr.git",
+    "rbtr.errors",
+    "rbtr.index",
+    "rbtr.languages",
+    "rbtr.daemon",
+    "rbtr.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Config stays near the floor"
+type = "forbidden"
+source_modules = ["rbtr.config"]
+forbidden_modules = ["rbtr.index", "rbtr.languages", "rbtr.daemon", "rbtr.cli"]
+
+[[tool.importlinter.contracts]]
+name = "Foundation imports nothing upward"
+type = "forbidden"
+source_modules = ["rbtr.errors", "rbtr.git"]
+forbidden_modules = [
+    "rbtr.config",
+    "rbtr.domain",
+    "rbtr.index",
+    "rbtr.languages",
+    "rbtr.daemon",
+    "rbtr.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "Staging and results are independent"
+type = "independence"
+modules = ["rbtr.index.staging", "rbtr.index.results"]
+
+[[tool.importlinter.contracts]]
+name = "Writer does not touch read schemas"
+type = "forbidden"
+# Direct-only: the write executor must not import read-result schemas
+# itself. The transitive chain writer -> store -> results is legitimate
+# (store is the shared read/write facade), so indirect imports are allowed.
+source_modules = ["rbtr.index.writer"]
+forbidden_modules = ["rbtr.index.results"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Utilities import nothing upward"
+type = "forbidden"
+# `domain` is the floor, so `logging -> config -> domain` is a downward
+# chain, not an upward one; only the app layers are off-limits here.
+source_modules = ["rbtr.logging", "rbtr.rbtrignore"]
+forbidden_modules = [
+    "rbtr.index",
+    "rbtr.languages",
+    "rbtr.daemon",
+    "rbtr.cli",
 ]

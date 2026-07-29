@@ -25,7 +25,7 @@ ci: schema-check validate-graphql lint typecheck test-cov test-ts
 
 fmt: fmt-py fmt-ts fmt-sql fmt-md
 
-lint: lint-py lint-ts lint-sql lint-md
+lint: lint-py lint-imports lint-ts lint-sql lint-md
 
 fmt-py:
     uv run ruff check --fix
@@ -34,6 +34,9 @@ fmt-py:
 lint-py:
     uv run ruff check
     uv run ruff format --check
+
+lint-imports:
+    uv run lint-imports
 
 fmt-sql:
     uv run sqlfluff fix .
