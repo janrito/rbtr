@@ -20,7 +20,7 @@ dependencies = [
   "platformdirs>=4.0",
   "pyarrow>=17.0",
   "pydantic>=2.12",
-  "pydantic-settings[toml]>=2.12",
+  "pydantic-settings[toml]>=2.14.2",
   "pygit2",
   "pyzmq>=27.1.0",
   "rich>=13.0",
