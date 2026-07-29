@@ -201,7 +201,8 @@ def test_register_repo(scenario: RepoSequence, store: IndexStore) -> None:
     with store.session() as ws:
         for path, expected_id in zip(scenario.calls, scenario.expected_ids, strict=True):
             assert ws.register_repo(path) == expected_id
-    assert store.list_repos() == scenario.expected_listing
+    listing = [(r.repo_id, r.repo_path) for r in store.list_repos()]
+    assert listing == scenario.expected_listing
 
 
 # ── watched_refs ─────────────────────────────────────────────────
@@ -294,7 +295,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
 
     # Before embedding — chunks have no embedding.
     chunks = store.get_chunks("c1", repo_id=1)
-    assert all(not c.embedding for c in chunks)
+    assert all(not c.has_embedding for c in chunks)
 
     vec = [0.1, 0.2, 0.3]
     with store.session() as ws:
@@ -303,7 +304,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
     # After embedding — both flagged as embedded.
     chunks = store.get_chunks("c1", repo_id=1)
     assert len(chunks) == 2
-    assert all(c.embedding for c in chunks)
+    assert all(c.has_embedding for c in chunks)
 
     # Verify truncation flags in the DB.
     rows = store._cursor.execute(

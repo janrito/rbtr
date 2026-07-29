@@ -43,6 +43,16 @@ awkward".
 
 ### Types & annotations
 
+- **Make invalid states unrepresentable.** Use the type system to
+  exclude bad states, don't guard against them at runtime. Bundle
+  fields that must agree into one type instead of threading them as
+  correlated parameters (e.g. `SnapshotRef` carries `repo_id` +
+  `snapshot_sha` together, so they can't be mismatched). Prefer an
+  enum or a sum type over a bag of bool flags or a magic sentinel.
+  Give a value a type that can only hold valid instances — parse at
+  the boundary, don't re-validate downstream. If a combination
+  shouldn't exist, make it impossible to construct, not merely
+  something you assert against.
 - `type` aliases for complex annotations.
 - `TypedDict` or `BaseModel` for fixed-key dicts.
   No `NamedTuple`.

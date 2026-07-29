@@ -180,11 +180,11 @@ def queries_for_symbol(
 
 def resolve_repo(store: IndexStore, slug: str) -> tuple[int, str]:
     """Find a repo in the store by slug; return `(repo_id, sha)`."""
-    for rid, path in store.list_repos():
-        if Path(path).name == slug:
-            commits = store.list_indexed_snapshots(rid)
+    for repo in store.list_repos():
+        if Path(repo.repo_path).name == slug:
+            commits = store.list_indexed_snapshots(repo.repo_id)
             if commits:
-                return rid, commits[0][0]
+                return repo.repo_id, commits[0][0]
     msg = f"repo {slug} not found or not indexed"
     raise SystemExit(msg)
 

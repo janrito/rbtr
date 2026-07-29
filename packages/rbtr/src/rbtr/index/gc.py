@@ -72,13 +72,15 @@ def run_gc_all(
     """
     total = GcCounts()
     collected = 0
-    for repo_id, repo_path in store.list_repos():
-        if read_head(repo_path) is None:
-            log.info("gc_skipped_unresolvable_repo", repo=repo_path)
+    for repo in store.list_repos():
+        if read_head(repo.repo_path) is None:
+            log.info("gc_skipped_unresolvable_repo", repo=repo.repo_path)
             continue
         # Never compact per repo: a rewrite is expensive, so compact once
         # after every repo's logical deletes have landed.
-        total = total + run_gc(store, repo_path, repo_id, mode=mode, refs=refs, dry_run=dry_run)
+        total = total + run_gc(
+            store, repo.repo_path, repo.repo_id, mode=mode, refs=refs, dry_run=dry_run
+        )
         collected += 1
     if compact and not dry_run:
         with store.session() as session:

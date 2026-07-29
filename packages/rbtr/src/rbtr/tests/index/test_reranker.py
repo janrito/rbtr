@@ -85,7 +85,7 @@ def _build_fused_frame(scenario: RerankScenario) -> dy.DataFrame[FusedRow]:
             "semantic": [0.0] * n,
             "importance": [1.0] * n,
             "proximity": [1.0] * n,
-            "embedding": [[]] * n,
+            "has_embedding": [False] * n,
             "score": fusions,
             "name_match": [0.0] * n,
             "kind_boost": [1.0] * n,

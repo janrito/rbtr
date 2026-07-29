@@ -54,7 +54,16 @@ import polars as pl
 import structlog
 
 from rbtr.config import WeightTriple, config
-from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, QueryKind, ScoredChunk, SnapshotRef
+from rbtr.domain.models import (
+    Chunk,
+    ChunkKind,
+    Edge,
+    EdgeKind,
+    QueryKind,
+    Repo,
+    ScoredChunk,
+    SnapshotRef,
+)
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
 from rbtr.git import worktree_tree_sha
@@ -344,17 +353,17 @@ class IndexStore:
         self._repo_cache[repo] = repo_id
         return repo_id
 
-    def list_repos(self) -> list[tuple[int, str]]:
-        """Return all registered repos as `(id, path)` tuples."""
+    def list_repos(self) -> list[Repo]:
+        """Return all registered repos."""
         rows = self._cursor.execute(_LIST_REPOS_SQL).fetchall()
-        return [(int(r[0]), str(r[1])) for r in rows]
+        return [Repo(repo_id=int(r[0]), repo_path=str(r[1])) for r in rows]
 
     def list_watched_refs(self, repo_id: int) -> list[str]:
         """Return the repo's watched refs (symbolic names), sorted by name."""
         rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
         return [str(r[0]) for r in rows]
 
-    def latest_ref(self, repo_id: int, repo_path: str) -> SnapshotRef | None:
+    def latest_ref(self, repo: Repo) -> SnapshotRef | None:
         """Resolve the most recent indexed ref for one repo.
 
         Prefers the current worktree tree SHA when the worktree is
@@ -362,13 +371,13 @@ class IndexStore:
         to the newest indexed commit.  Returns `None` when the repo
         has no indexed commits at all.
         """
-        tree_sha = worktree_tree_sha(repo_path)
-        if tree_sha is not None and self.has_indexed(repo_id, tree_sha):
-            return SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
-        indexed = self.list_indexed_snapshots(repo_id)
+        tree_sha = worktree_tree_sha(repo.repo_path)
+        if tree_sha is not None and self.has_indexed(repo.repo_id, tree_sha):
+            return SnapshotRef(repo_id=repo.repo_id, snapshot_sha=tree_sha)
+        indexed = self.list_indexed_snapshots(repo.repo_id)
         if not indexed:
             return None
-        return SnapshotRef(repo_id=repo_id, snapshot_sha=indexed[0][0])
+        return SnapshotRef(repo_id=repo.repo_id, snapshot_sha=indexed[0][0])
 
     def list_latest_refs(self) -> list[SnapshotRef]:
         """Return one `SnapshotRef` per registered repo with indexed data.
@@ -379,8 +388,8 @@ class IndexStore:
         `search()`.
         """
         refs: list[SnapshotRef] = []
-        for repo_id, repo_path in self.list_repos():
-            ref = self.latest_ref(repo_id, repo_path)
+        for repo in self.list_repos():
+            ref = self.latest_ref(repo)
             if ref is not None:
                 refs.append(ref)
         return refs

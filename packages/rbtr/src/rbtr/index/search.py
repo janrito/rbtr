@@ -26,7 +26,6 @@ from rbtr.domain.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.classify import classify_query
 from rbtr.index.results import (
-    _EMBEDDING_SENTINEL,
     ChunkPathResultRow,
     ChunkResultRow,
     EdgeResultRow,
@@ -379,14 +378,9 @@ def fuse_scores(
         frame.sort("score", "id", descending=[True, False])
         .head(top_k)
         .with_columns(
-            pl.when(pl.col("has_embedding"))
-            .then(pl.lit(_EMBEDDING_SENTINEL))
-            .otherwise(pl.lit([]))
-            .alias("embedding"),
             pl.col("score").alias("fusion"),
             pl.lit(0.0).alias("reranker"),
         )
-        .drop("has_embedding")
         .pipe(FusedRow.validate, cast=True)
     )
 

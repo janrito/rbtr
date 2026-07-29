@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
@@ -67,15 +67,6 @@ class EdgeKind(StrEnum):
     CONFIGURES = "configures"
 
 
-class IndexPhase(StrEnum):
-    """Current phase of background indexing."""
-
-    IDLE = "idle"
-    INDEXING = "indexing"
-    READY = "ready"
-    FAILED = "failed"
-
-
 # ── Structured metadata ──────────────────────────────────────────────
 
 
@@ -124,7 +115,7 @@ class Chunk(BaseModel):
     line_start: int
     line_end: int
     metadata: ImportMeta = Field(default_factory=ImportMeta)
-    embedding: Annotated[list[float], Field(exclude=True)] = []
+    has_embedding: bool = Field(default=False, exclude=True)
 
     @field_validator("scope", mode="before")
     @classmethod
@@ -173,7 +164,7 @@ class ScoredChunk(BaseModel, frozen=True):
     line_start: int
     line_end: int
     metadata: ImportMeta = Field(default_factory=ImportMeta)
-    embedding: Annotated[list[float], Field(exclude=True)] = []
+    has_embedding: bool = Field(default=False, exclude=True)
     score: float
     lexical: float
     semantic: float
@@ -248,6 +239,20 @@ class SnapshotRef:
     snapshot_sha: str
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Repo:
+    """A repository registered in the index: its surrogate id and path.
+
+    The `(repo_id, repo_path)` correspondence is fixed at registration and
+    guaranteed by the `repos` table (`path` UNIQUE, `id` its PK). Taking a
+    `Repo` rather than the two as separate parameters makes pairing an id
+    with the wrong path impossible to express.
+    """
+
+    repo_id: int
+    repo_path: str
+
+
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
 TokenisedChunks = TypeAdapter(list[TokenisedChunk])
@@ -265,17 +270,6 @@ class IndexStats(BaseModel):
     parsed_files: int = 0
     embedded_chunks: int = 0
     elapsed_seconds: float = 0.0
-
-
-class IndexStatus(BaseModel):
-    """Current state of the index, readable by the UI."""
-
-    phase: IndexPhase = IndexPhase.IDLE
-    files_indexed: int = 0
-    total_files: int = 0
-    skipped_files: int = 0
-    stats: IndexStats | None = None
-    error: str = ""
 
 
 # ── GC / session types ────────────────────────────────────────

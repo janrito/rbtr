@@ -71,18 +71,18 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     """
     out: list[WatchedTarget] = []
     seen: set[tuple[str, str]] = set()
-    for repo_id, path in store.list_repos():
-        for ref in store.list_watched_refs(repo_id):
+    for repo in store.list_repos():
+        for ref in store.list_watched_refs(repo.repo_id):
             try:
-                sha = resolve_ref(path, ref)
+                sha = resolve_ref(repo.repo_path, ref)
             except RbtrError:
                 continue
-            if store.has_indexed(repo_id, sha):
+            if store.has_indexed(repo.repo_id, sha):
                 continue
-            if (path, sha) in seen:
+            if (repo.repo_path, sha) in seen:
                 continue
-            seen.add((path, sha))
-            out.append(WatchedTarget(repo_path=path, ref=ref, snapshot_sha=sha))
+            seen.add((repo.repo_path, sha))
+            out.append(WatchedTarget(repo_path=repo.repo_path, ref=ref, snapshot_sha=sha))
     return out
 
 
@@ -98,11 +98,11 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
     by the job worker thread via `WriteSession`.
     """
     out: list[DirtyWorktree] = []
-    for repo_id, path in store.list_repos():
-        sha = worktree_tree_sha(path)
+    for repo in store.list_repos():
+        sha = worktree_tree_sha(repo.repo_path)
         if sha is None:
             continue
-        if store.has_indexed(repo_id, sha):
+        if store.has_indexed(repo.repo_id, sha):
             continue
-        out.append(DirtyWorktree(repo_path=path, repo_id=repo_id, snapshot_sha=sha))
+        out.append(DirtyWorktree(repo_path=repo.repo_path, repo_id=repo.repo_id, snapshot_sha=sha))
     return out
