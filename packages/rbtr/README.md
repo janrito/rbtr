@@ -23,7 +23,9 @@ unchanged files (by blob SHA) are skipped.
 
 ## Walkthrough
 
-Index a repository, then explore it:
+Index a repository, then explore it. The transcripts below
+come from rbtr's own source; line numbers and scores move as
+the code does.
 
 ```text
 rbtr index
@@ -76,6 +78,14 @@ rbtr list-symbols src/rbtr/index/search.py
 ```
 
 ## Commands
+
+The read commands — `search`, `read-symbol`, `list-symbols`,
+`find-refs` — share a `--ref`. Left out, it reads your working
+tree when it is dirty and `HEAD` when it is clean, so results
+reflect uncommitted edits without being asked to. Given
+explicitly, that ref must be indexed: an unindexed ref you
+named is an error rather than a quiet answer from a different
+one.
 
 ### `rbtr index`
 
@@ -210,6 +220,11 @@ $ rbtr status
    aa2ecc4bbefb (HEAD, main)  5.8k indexed  5.8k embedded ✓
 ```
 
+The chunk count is this repo's; the size is the whole file,
+which every indexed repo shares. Most of it is embeddings —
+one vector per chunk, and they dominate everything else
+stored. `--scope all` breaks the count down per repo.
+
 Pass `--scope all` to list every indexed repo in the
 shared store, grouped by repo:
 
@@ -224,8 +239,10 @@ $ rbtr status --scope all
 
 ### `rbtr config`
 
-Rendered configuration with all defaults, TOML overrides,
-and env vars merged.
+The configuration in force and the language plugins loaded.
+Reports the running daemon's live config when one is up,
+otherwise what a daemon would load from this directory,
+noting which on stderr.
 
 ```bash
 rbtr config
@@ -282,6 +299,19 @@ space back to the operating system — deleting alone keeps that space
 inside the file, so it never shrinks on its own. The rewrite reports
 the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
 `--no-compact` to skip it.
+
+**When to run it.** Never on a schedule — the daemon does not
+collect on its own, and a healthy index does not need it. Two
+situations call for it: the file has grown past what you want
+to give it, or you have stopped indexing refs and want the
+space back (`--watched-only`).
+
+Growth is driven by embeddings, one vector per chunk, so the
+size tracks how many distinct chunks every indexed repo holds
+between them — not how many repos there are. Branches sharing
+most of their content cost little; a long-lived branch that
+diverges widely, or a second unrelated repo, costs
+proportionally. `rbtr status --scope all` shows the split.
 
 ## Output modes
 
@@ -365,12 +395,18 @@ independently overridable (`--data-dir`, `--config-dir`,
 
 Languages with tree-sitter grammars get structural
 extraction (symbol-level chunks, import metadata, scope
-detection). Everything else gets line-based chunking.
+detection). Everything else gets line-based chunking, so it
+stays searchable without structure.
 
-Built-in: bash, c, cpp, css, go, hcl, html, java,
-javascript, json, less, markdown, python, query, rst,
-ruby, rust, scss, sql, svelte, toml, tsx, typescript,
-vue, yaml.
+Each language is a separate package. `rbtr config` lists the
+ones this install loaded; the [repository
+README](../../README.md#languages) has the full set with the
+extra to install for each.
+
+Comments are indexed too. A comment block above a definition
+becomes part of that definition's chunk; one standing on its
+own — a banner, a licence header, a note between functions —
+becomes its own searchable chunk.
 
 Code embedded in another file is indexed in its own
 language. A fenced code block in Markdown is extracted as
@@ -387,12 +423,61 @@ for how the plugin system works.
 
 rbtr's core ships no languages of its own — each is a separate,
 installable package, `rbtr-lang-<lang>`, that registers with rbtr
-through a `rbtr.languages` entry point. Users add one by installing it
-(`pip install rbtr-lang-swift`, or `pip install rbtr[swift]` for the
-languages rbtr bundles as extras — see [Installing the
-plugin](#installing-the-plugin)). A plugin exposes
-`LanguageRegistration` values and provides whatever fields its
-language needs — there are no tiers or categories.
+through a `rbtr.languages` entry point. Installing the package is what
+registers it; nothing else does.
+
+Most of a plugin is optional. Only `id` is required, and for most
+languages a query and a grammar are all you add on top.
+
+### The smallest plugin that works
+
+Two files and an entry point. The query says which nodes to capture:
+
+```scm
+; src/rbtr_lang_swift/swift.scm
+(function_declaration
+  name: (identifier) @_fn_name) @function
+(class_declaration
+  name: (type_identifier) @_cls_name) @class
+(import_declaration
+  (identifier) @_import_module) @import
+(source_file
+  (comment) @comment)
+```
+
+The registration names the language and points at that query:
+
+```python
+# src/rbtr_lang_swift/plugin.py
+from __future__ import annotations
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    QueryExtraction,
+    load_query,
+)
+
+swift = LanguageRegistration(
+    id="swift",
+    extensions=frozenset({".swift"}),
+    grammar_module="tree_sitter_swift",
+    extraction=QueryExtraction(
+        query=load_query(__package__, "swift"),
+        scope_types=frozenset({"class_declaration"}),
+    ),
+)
+```
+
+And the entry point tells rbtr where to find it:
+
+```toml
+[project.entry-points."rbtr.languages"]
+swift = "rbtr_lang_swift.plugin:swift"
+```
+
+That is a complete plugin. The generic `extract_symbols` pipeline does
+the rest: parsing, capture matching, scope detection, chunk
+construction, and comment grouping. Everything below is for languages
+that need more than this.
 
 ### The package
 
@@ -433,84 +518,73 @@ swift = "rbtr_lang_swift.plugin:swift"
 dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
 ```
 
-Nothing else registers the plugin — installing the package is enough for
-rbtr to find it.
+### Capture conventions
 
-### The plugin — query-based (preferred)
+A capture's name decides the chunk kind. Eight produce chunks:
 
-Most languages need only a tree-sitter query. The generic
-`extract_symbols` pipeline handles parsing, capture
-matching, scope detection, and chunk construction. The query
-lives in its own `.scm` file, loaded with `load_query`:
+| Capture        | Name capture      | Produces                                                                             |
+| -------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `@function`    | `@_fn_name`       | a function                                                                           |
+| `@method`      | `@_method_name`   | a method (a `@function` whose nearest scope is class-like is promoted automatically) |
+| `@class`       | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
+| `@variable`    | `@_var_name`      | a module-level variable or constant                                                  |
+| `@import`      | `@_import_module` | an import, with metadata for the edge graph                                          |
+| `@doc_section` | `@_section_name`  | a prose section                                                                      |
+| `@config_key`  | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
+| `@comment`     | —                 | a comment; see below                                                                 |
 
-```scm
-; src/rbtr_lang_swift/swift.scm
-(function_declaration
-  name: (identifier) @_fn_name) @function
-(class_declaration
-  name: (type_identifier) @_cls_name) @class
-(import_declaration
-  (identifier) @_import_module) @import
-(source_file
-  (comment) @comment)
-```
+Two helper captures do not produce chunks of their own:
+`@_scope` contributes a scope segment that lexical nesting cannot
+reach (a Go method's receiver type), and `@_docstring` marks an
+interior docstring. Any capture starting with `_` is read but never
+becomes a chunk.
+
+**Imports.** `@_import_module` populates `ImportMeta.module` straight
+from the query, stripping `<>` and `"` delimiters. Each `@import`
+match then passes through the language's import resolver, which reads
+captures first and walks the node for what the query cannot express,
+such as multi-valued import names. `ImportMeta.language_hint` directs
+resolution when the target is a different language — an HTML
+`<script src>` pointing at JavaScript, say.
+
+**Comments.** Capture your grammar's comment nodes as `@comment`,
+scoped to the file root, plus the module docstring where the language
+has one. A block directly above a definition folds into that
+definition's chunk; a block standing on its own becomes a `comment`
+chunk; a comment trailing code stays with that statement. The engine
+does this identically for every language — see
+[ARCHITECTURE](ARCHITECTURE.md) for the rules.
+
+### When a query is not enough
+
+Four overrides handle what captures cannot express. Each attaches to
+the registration as a decorator, or as a plain call to reuse an
+existing function:
+
+| Override           | For                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `name_extractor`   | a display name the query cannot capture — an HCL block named by its type and labels                   |
+| `scope_extractor`  | a scope tree ancestry cannot reach — a CSS nested rule under its parent selector, a TOML dotted table |
+| `import_extractor` | import metadata needing a node walk                                                                   |
+| `chunker`          | a whole language whose structure captures cannot express                                              |
+
+The first three are **wrap-style**, like pydantic's `WrapValidator`:
+the first argument is the built-in resolver, so you delegate to it and
+refine the result rather than importing the default.
 
 ```python
-# src/rbtr_lang_swift/plugin.py
-from __future__ import annotations
-from rbtr.languages.registration import (
-    LanguageRegistration,
-    QueryExtraction,
-    load_query,
-)
+@swift.name_extractor  # fresh, inline
+def swift_name(
+    resolver: NameResolver, capture_name: str, node: Node, caps: dict[str, list[Node]]
+) -> str:
+    return resolver(capture_name, node, caps).removesuffix("!")  # delegate, then tweak
 
-swift = LanguageRegistration(
-    id="swift",
-    extensions=frozenset({".swift"}),
-    grammar_module="tree_sitter_swift",
-    extraction=QueryExtraction(
-        query=load_query(__package__, "swift"),
-        scope_types=frozenset({"class_declaration"}),
-    ),
-)
+
+swift.import_extractor(extract_swift_imports)  # reuse an existing function
 ```
 
-Capture conventions: `@function`/`@_fn_name`,
-`@class`/`@_cls_name`, `@method`/`@_method_name`,
-`@variable`/`@_var_name`, `@import`/`@_import_module`,
-`@doc_section`/`@_section_name`, `@comment`.
-
-Import captures: `@_import_module` populates
-`ImportMeta.module` directly from the query, with delimiter
-stripping for `<>` (system includes) and `"` (string literals).
-Each `@import` match is passed to the language's
-`import_extractor`, which reads captures first then walks
-the node for what the query can't express (e.g. multi-valued
-import names). Languages that don't need custom logic get the
-built-in import resolver; those that do attach an override with
-`@swift.import_extractor` (see Overrides below).
-
-Cross-language imports: `ImportMeta.language_hint` directs
-resolution when the target language differs from the source
-(e.g. HTML `<script src>` → `language_hint="javascript"`).
-
-Custom names and scopes: when a query cannot express a
-symbol's display name or scope, attach a resolver with the
-`@swift.name_extractor` / `@swift.scope_extractor` decorator methods
-(see Overrides below) — last-resort callbacks that compute them from
-the captured node (e.g. an HCL block named by its type and labels; a
-CSS nested rule scoped under its parent selector; a TOML dotted table
-split into a name and scope). Each delegates to the default resolver
-for the cases it does not special-case.
-
-Comments: capture your grammar's comment nodes as `@comment`, scoped to the
-file root (`(source_file (comment) @comment)` above), plus the module
-docstring where the language has one. A comment block directly above a
-definition folds into its chunk as documentation; a block that stands on its
-own — a banner, a licence header, a note between definitions — becomes a
-searchable chunk of kind `comment`. A comment trailing code on its line stays
-with that statement. The engine handles the grouping and routing identically
-for every language; see [ARCHITECTURE](ARCHITECTURE.md) for the rules.
+An override that does not delegate simply ignores its `resolver`.
+Unset ones fall back to the engine defaults.
 
 ### Chunker-based plugin
 
@@ -553,32 +627,6 @@ def chunk_example(
     tree = parser.parse(content.encode())
     # ... walk tree, yield Chunk objects ...
 ```
-
-### Overrides — custom resolvers and chunkers
-
-The four extraction overrides are attached as **methods** on the
-registration, not constructor arguments. Each works as a decorator on a
-fresh function, or as a plain call to reuse a shared/imported one.
-
-The name/scope/import overrides are **wrap-style** (like pydantic's
-`WrapValidator`): the first argument is the built-in `resolver` — call it
-to delegate, then refine — so you never import the default:
-
-```python
-@swift.name_extractor  # fresh, inline
-def swift_name(
-    resolver: NameResolver, capture_name: str, node: Node, caps: dict[str, list[Node]]
-) -> str:
-    return resolver(capture_name, node, caps).removesuffix("!")  # delegate, then tweak
-
-
-swift.import_extractor(extract_swift_imports)  # reuse an existing function
-```
-
-The methods are `name_extractor`, `scope_extractor`, `import_extractor`
-(all wrap-style, `resolver` first), and `chunker` (no resolver). An
-override that doesn't delegate simply ignores its `resolver`. Unset ones
-fall back to the engine defaults.
 
 ### Testing the plugin
 
@@ -703,8 +751,8 @@ for the dedup mechanism.
 ```bash
 git clone <repo-url>
 cd rbtr
-uv sync --extra languages
-just check    # lint + typecheck + test
+just setup    # uv sync + bun install
+just check    # lint, typecheck, and every test suite
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for internals.

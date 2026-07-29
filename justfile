@@ -25,7 +25,7 @@ ci: schema-check validate-graphql lint typecheck test-cov test-ts
 
 fmt: fmt-py fmt-ts fmt-sql fmt-md
 
-lint: lint-py lint-imports lint-ts lint-sql lint-md
+lint: lint-py lint-imports lint-ts lint-sql lint-md lint-docs
 
 fmt-py:
     uv run ruff check --fix
@@ -43,6 +43,14 @@ fmt-sql:
 
 lint-sql:
     uv run sqlfluff lint .
+
+# Every README/ARCHITECTURE must be linked from the root README, which
+# is the only index of them there is.
+lint-docs:
+    @for f in $(find packages demo -name README.md -o -name ARCHITECTURE.md \
+        | grep -v -e node_modules -e 'eval/data/repos'); do \
+        grep -q "$f" README.md || { echo "not linked from README.md: $f"; exit 1; }; \
+    done
 
 fmt-md *FILES:
     uv run rumdl check --fix {{ if FILES == "" { "." } else { FILES } }}

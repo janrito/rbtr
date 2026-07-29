@@ -34,7 +34,7 @@ pi install -l ./packages/pi-rbtr
 
 ## What the agent gets
 
-Seven tools, registered automatically on session start:
+Eight tools, registered automatically on session start:
 
 | Tool                   | Description                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -45,6 +45,7 @@ Seven tools, registered automatically on session start:
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
 | `rbtr_index`           | Index the repository (background, incremental)                                                                           |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                      |
 
 The extension also injects a system prompt note so the agent
 knows the index is available without being told.
@@ -61,12 +62,15 @@ knows the index is available without being told.
   `rbtr_list_symbols`. One-line-per-symbol TOC with line ranges.
 - **Exact string match** ("find all `TODO` comments") →
   `grep`. The index is structural, not textual.
-- **Who calls X?** → `rbtr_find_refs`. Follows import, test,
-  and doc edges in the dependency graph.
+- **Who calls X?** → `rbtr_find_refs`. Follows import and doc
+  edges in the dependency graph.
 - **What changed?** → `rbtr_changed_symbols`. Function-level
   diff between two refs, not line-level.
 
 ### Tool examples
+
+Shapes, not fixtures — the line numbers and scores below move
+with the code they describe.
 
 **`rbtr_search`** — query in, scored results out:
 
@@ -102,8 +106,8 @@ The per-signal ranking breakdown is omitted by default; pass
 
 ```json
 {"kind": "find_refs", "refs": [
-  {"name": "from search import fuse_scores", "kind": "import",
-   "file_path": "src/rbtr/index/ranking.py", "line_start": 12, "edge": "imports"}
+  {"name": "from rbtr.index.store import IndexStore", "kind": "import",
+   "file_path": "src/rbtr/daemon/watcher.py", "line_start": 30, "edge": "imports"}
 ]}
 ```
 
@@ -170,17 +174,6 @@ The `command` setting determines how `rbtr` is called:
 The extension validates the command on session start and
 shows an error with install instructions if it fails.
 
-## How it works
-
-The extension talks to the rbtr daemon via ZMQ. If the
-daemon is unavailable it falls back to the CLI. The
-daemon is auto-started on first use and version-checked
-on each session start. Indexing runs in the background;
-results are truncated to fit the LLM context.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the session
-lifecycle, reconnection model, and rendering design.
-
 ## Development
 
 ```bash
@@ -193,5 +186,7 @@ just typecheck-ts         # tsc --noEmit
 
 ### Architecture reference
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for how the extension
-is structured, CLI integration details, and rendering design.
+The extension talks to the daemon over ZMQ and falls back to
+the CLI when none is reachable, starting one on first use.
+[ARCHITECTURE.md](ARCHITECTURE.md) covers the session
+lifecycle, the reconnection model, and rendering.
