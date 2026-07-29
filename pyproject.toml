@@ -14,6 +14,11 @@ src = ["packages/*/src"]
 # from linting and formatting (see [tool.mypy] exclude for rationale).
 extend-exclude = [
   "packages/rbtr-lang-*/src/*/tests/samples",
+  # Eval reports are generated artefacts. Their fenced code blocks quote
+  # corpus source verbatim to show what extraction produced, so formatting
+  # them rewrites other projects' code (and loses the original indentation
+  # of a nested chunk); the next eval run would revert it regardless.
+  "packages/rbtr-eval/data",
 ]
 
 [tool.ruff.format]

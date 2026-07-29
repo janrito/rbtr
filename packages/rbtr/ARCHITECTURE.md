@@ -1420,10 +1420,10 @@ The working tree's identity is a git tree SHA computed by
 `worktree_tree_sha(repo_path)` in `rbtr.git`:
 
 ```python
-repo.index.read()         # load on-disk index
-repo.index.add_all()      # stage all changes in memory
+repo.index.read()  # load on-disk index
+repo.index.add_all()  # stage all changes in memory
 tree_sha = str(repo.index.write_tree())  # write tree object
-repo.index.read()         # reset (no side effects on disk)
+repo.index.read()  # reset (no side effects on disk)
 ```
 
 This produces a real git tree object that includes all

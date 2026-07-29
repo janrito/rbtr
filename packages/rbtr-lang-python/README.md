@@ -18,11 +18,15 @@ A symbol's docstring (the leading `"""…"""`) is folded into its chunk content.
 ## Chunks produced
 
 ```python
-def greet(name): ...             # function "greet"
-class User:                      # class "User"
-    def save(self): ...          #   method "save", scope "User"
-MAX = 100                        # variable "MAX"
-from .utils import helper        # import, metadata {module: ".utils", names: "helper"}
+def greet(name): ...  # function "greet"
+
+
+class User:  # class "User"
+    def save(self): ...  #   method "save", scope "User"
+
+
+MAX = 100  # variable "MAX"
+from .utils import helper  # import, metadata {module: ".utils", names: "helper"}
 ```
 
 ## Embedded / injected chunks

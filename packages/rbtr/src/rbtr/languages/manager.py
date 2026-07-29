@@ -81,7 +81,7 @@ class LanguageManager:
         for ep in importlib.metadata.entry_points(group="rbtr.languages"):
             try:
                 reg = ep.load()
-            except Exception:  # noqa: BLE001  # a broken plugin must not sink the rest
+            except Exception:  # a broken plugin must not sink the rest
                 log.warning("language_plugin_load_failed", entry_point=ep.name, exc_info=True)
                 continue
             if reg.id in self._registrations:

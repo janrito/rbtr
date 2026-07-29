@@ -190,7 +190,7 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
     try:
         with DaemonClient(runtime_dir) as client:
             client.send_or_raise(ShutdownRequest())
-    except Exception:  # noqa: BLE001 — best-effort shutdown; anything can fail
+    except Exception:  # best-effort shutdown; anything can fail
         log.debug("graceful_shutdown_failed", exc_info=True)
 
     # Wait for the process to exit
