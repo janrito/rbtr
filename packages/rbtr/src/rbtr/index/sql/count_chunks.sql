@@ -1,5 +1,5 @@
 -- sqlfluff:templater:placeholder:repo_id:1
--- sqlfluff:templater:placeholder:commit_sha:'abc'
+-- sqlfluff:templater:placeholder:snapshot_sha:'abc'
 SELECT count(*) AS n
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
@@ -8,4 +8,4 @@ INNER JOIN file_snapshots AS fs
     AND c.file_path = fs.file_path
 WHERE
   fs.repo_id = $repo_id
-  AND fs.commit_sha = $commit_sha
+  AND fs.snapshot_sha = $snapshot_sha

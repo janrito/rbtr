@@ -48,7 +48,7 @@ def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db:
     try:
         repo_id = store.get_repo_id(normalise_repo_path(repo))
         assert repo_id is not None, "repo not registered"
-        commits = store.list_indexed_commits(repo_id)
+        commits = store.list_indexed_snapshots(repo_id)
         assert len(commits) == 1, "HEAD not indexed"
         assert store.count_chunks(commits[0][0], repo_id) > 0, "no symbols extracted"
     finally:

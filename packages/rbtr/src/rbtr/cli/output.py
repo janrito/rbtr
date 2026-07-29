@@ -544,8 +544,8 @@ def _render_gc_response(response: GcResponse) -> None:
     free = "would free" if response.dry_run else "freed"
     repos = "1 repo" if response.repos_collected == 1 else f"{response.repos_collected} repos"
     t = Text.from_markup(
-        f"[green]{drop}[/]  {response.commits_dropped} commits, "
-        f"{response.snapshots_dropped} snapshots, "
+        f"[green]{drop}[/]  {response.snapshots_dropped} snapshots, "
+        f"{response.file_snapshots_dropped} file snapshots, "
         f"{response.edges_dropped} edges; "
         f"{free} {response.chunks_freed} chunks "
         f"(across {repos})"

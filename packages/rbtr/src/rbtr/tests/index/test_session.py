@@ -12,7 +12,7 @@ from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, TokenisedChunk
 from rbtr.errors import RbtrError
 from rbtr.index.store import IndexStore
 
@@ -116,8 +116,8 @@ def test_sweep_cleans_orphans(store: IndexStore) -> None:
     with store.session() as ws:
         ws.sweep()
 
-    assert store.count_snapshots_for_commit(1, "crashed_sha") == 0
-    assert store.count_snapshots_for_commit(1, "good_sha") > 0
+    assert store.count_file_snapshots(1, "crashed_sha") == 0
+    assert store.count_file_snapshots(1, "good_sha") > 0
 
 
 def test_sweep_skips_first_build(store: IndexStore) -> None:
@@ -134,7 +134,7 @@ def test_sweep_skips_first_build(store: IndexStore) -> None:
     with store.session() as ws:
         ws.sweep()
 
-    assert store.count_snapshots_for_commit(1, "wip_sha") > 0
+    assert store.count_file_snapshots(1, "wip_sha") > 0
 
 
 # ── FTS rebuild ──────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
     with store.session() as ws:
         ws.replace_snapshots("c1", [make_snap("c1", "a.py", "b1")], repo_id=1)
 
-    assert store.count_snapshots_for_commit(1, "c2") == 1
+    assert store.count_file_snapshots(1, "c2") == 1
 
 
 def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
@@ -267,8 +267,8 @@ def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
     with store.session() as ws:
         ws.replace_edges("c1", [], repo_id=1)
 
-    assert store.count_edges_for_commit(1, "c1") == 0
-    assert store.count_edges_for_commit(1, "c2") == 1
+    assert store.count_edges(1, "c1") == 0
+    assert store.count_edges(1, "c2") == 1
 
 
 # ── update_embeddings ────────────────────────────────────────────────
@@ -339,13 +339,13 @@ def test_delete_snapshots_hides_chunks(
         ws.add_chunk(http_func)
         ws.insert_snapshots(
             [
-                Snapshot(
-                    commit_sha="head",
+                FileSnapshot(
+                    snapshot_sha="head",
                     file_path=math_func.file_path,
                     blob_sha=math_func.blob_sha,
                 ),
-                Snapshot(
-                    commit_sha="head",
+                FileSnapshot(
+                    snapshot_sha="head",
                     file_path=http_func.file_path,
                     blob_sha=http_func.blob_sha,
                 ),
@@ -358,5 +358,5 @@ def test_delete_snapshots_hides_chunks(
         ws.delete_snapshots("head", repo_id=1)
 
     assert store.get_chunks("head", repo_id=1) == []
-    assert store.has_blob(math_func.blob_sha, "", {"": 1}) is True
-    assert store.has_blob(http_func.blob_sha, "", {"": 1}) is True
+    assert store.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
+    assert store.blob_is_current(http_func.blob_sha, "", {"": 1}) is True

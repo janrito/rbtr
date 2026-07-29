@@ -26,7 +26,7 @@ from rbtr.config import WeightTriple
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import RepoRef, Snapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.embeddings import Embedder
 from rbtr.index.store import IndexStore
 
@@ -125,7 +125,10 @@ def channel_store(
         embeddings = [_normalise(chunk_vecs[c.name]) for c in chunks]
         ws.update_embeddings(ids, embeddings)
         ws.insert_snapshots(
-            [Snapshot(commit_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha) for c in chunks],
+            [
+                FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
+                for c in chunks
+            ],
             repo_id=repo_id,
         )
         ws.mark_indexed(repo_id, sha)
@@ -181,7 +184,7 @@ def test_daemon_and_direct_search_produce_identical_results(
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
     direct_results = channel_store.search(
-        [RepoRef(repo_id=1, commit_sha=sha)],
+        [SnapshotRef(repo_id=1, snapshot_sha=sha)],
         query,
         top_k=5,
         embedder=embedder,

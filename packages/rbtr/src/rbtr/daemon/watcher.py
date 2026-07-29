@@ -5,7 +5,7 @@ index store):
 
 - `poll_watched` — watched-ref staleness.  For every ref in a
   repo's `watched_refs` table, resolves it to a SHA and returns
-  a `WatchedTarget` when that SHA has no `indexed_commits` row.
+  a `WatchedTarget` when that SHA has no `indexed_snapshots` row.
   Symbolic names (`"HEAD"`, `"main"`) are re-resolved each poll
   so moving refs track their tip; a bare SHA resolves to itself
   (one-shot).  `HEAD` is just the default watched ref.
@@ -15,7 +15,7 @@ index store):
   dirty and the current tree SHA is not yet indexed.
 
 No in-memory state: the store's `watched_refs` (intent) and
-`indexed_commits` (completion) tables are the single source of
+`indexed_snapshots` (completion) tables are the single source of
 truth.  See ARCHITECTURE.md's Watched refs section.
 """
 
@@ -34,28 +34,28 @@ log = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class WatchedTarget:
-    """A watched ref whose resolved SHA is not in `indexed_commits`.
+    """A watched ref whose resolved SHA is not in `indexed_snapshots`.
 
     `ref` is the symbolic watched name (e.g. `"HEAD"`, `"main"`);
-    `sha` is its current resolution.
+    `snapshot_sha` is its current resolution.
     """
 
     repo_path: str
     ref: str
-    sha: str
+    snapshot_sha: str
 
 
 @dataclass(frozen=True)
 class DirtyWorktree:
     """A repo whose working tree has uncommitted changes not yet indexed.
 
-    `tree_sha` is the git tree SHA representing the current
+    `snapshot_sha` is the git tree SHA representing the current
     working-tree state, computed by `worktree_tree_sha`.
     """
 
     repo_path: str
     repo_id: int
-    tree_sha: str
+    snapshot_sha: str
 
 
 def poll_watched(store: IndexStore) -> list[WatchedTarget]:
@@ -65,7 +65,7 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     `watched_refs`, resolving each symbolic name to a SHA with
     `git.resolve_ref`.  Unresolvable refs (deleted branch, missing
     repo path) are silently skipped.  A SHA already present in
-    `indexed_commits` is skipped.  Targets are de-duplicated by
+    `indexed_snapshots` is skipped.  Targets are de-duplicated by
     `(repo_path, sha)`, so two refs pointing at the same commit
     (e.g. `"HEAD"` and `"main"`) yield a single build.
     """
@@ -82,7 +82,7 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
             if (path, sha) in seen:
                 continue
             seen.add((path, sha))
-            out.append(WatchedTarget(repo_path=path, ref=ref, sha=sha))
+            out.append(WatchedTarget(repo_path=path, ref=ref, snapshot_sha=sha))
     return out
 
 
@@ -104,5 +104,5 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
             continue
         if store.has_indexed(repo_id, sha):
             continue
-        out.append(DirtyWorktree(repo_path=path, repo_id=repo_id, tree_sha=sha))
+        out.append(DirtyWorktree(repo_path=path, repo_id=repo_id, snapshot_sha=sha))
     return out

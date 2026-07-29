@@ -7,7 +7,7 @@ from collections.abc import Generator
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import Snapshot
+from rbtr.domain.models import FileSnapshot
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
 
@@ -216,7 +216,7 @@ def keyword_store_and_case(case: KeywordScenario) -> Generator[tuple[IndexStore,
     with store.session() as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
-            [Snapshot(commit_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
+            [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
     yield store, case

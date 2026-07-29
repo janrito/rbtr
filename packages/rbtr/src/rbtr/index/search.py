@@ -36,7 +36,7 @@ from rbtr.index.results import (
 )
 
 if TYPE_CHECKING:
-    from rbtr.domain.models import RepoRef
+    from rbtr.domain.models import SnapshotRef
     from rbtr.index.embeddings import Embedder
     from rbtr.index.reranker import Reranker
     from rbtr.index.store import IndexStore
@@ -555,7 +555,7 @@ def _embed_query(
 
 def _retrieve(
     store: IndexStore,
-    refs: list[RepoRef],
+    refs: list[SnapshotRef],
     query: str,
     lex_query: str,
     query_vecs: list[list[float]],
@@ -565,7 +565,7 @@ def _retrieve(
 ) -> dy.DataFrame[FusionInputRow]:
     """Three-channel retrieval + merge + importance + proximity.
 
-    *refs* is the list of `(repo_id, commit_sha)` snapshots to
+    *refs* is the list of `(repo_id, snapshot_sha)` snapshots to
     search.  A single-repo search passes one ref; cross-repo
     search passes one per indexed repo and the channels span all
     of them in a single query each.
@@ -662,7 +662,7 @@ def _has_semantic(candidates: dy.DataFrame[FusionInputRow]) -> bool:
 
 def search(
     store: IndexStore,
-    refs: list[RepoRef],
+    refs: list[SnapshotRef],
     query: str,
     *,
     top_k: int = 10,
@@ -679,7 +679,7 @@ def search(
 ) -> list[ScoredChunk]:
     """Fused search combining lexical, semantic, and name signals.
 
-    *refs* lists the `(repo_id, commit_sha)` snapshots to search
+    *refs* lists the `(repo_id, snapshot_sha)` snapshots to search
     across.  One ref is a single-repo search; many refs fan the
     query across repos and merge results into one ranked list.
 

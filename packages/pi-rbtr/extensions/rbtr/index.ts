@@ -832,8 +832,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         dryRun: params.dry_run ?? true,
       });
       const text = res.dry_run
-        ? `Dry run: would drop ${res.commits_dropped} commit(s) and free ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
-        : `Dropped ${res.commits_dropped} commit(s); freed ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s).`;
+        ? `Dry run: would drop ${res.snapshots_dropped} snapshot(s) and free ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
+        : `Dropped ${res.snapshots_dropped} snapshot(s); freed ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s).`;
       return {
         content: [{ type: "text", text }],
         details: { fromDaemon: true, response: res },

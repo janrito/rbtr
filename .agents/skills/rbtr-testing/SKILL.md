@@ -16,6 +16,32 @@ user-invocable: false
 **Red/green TDD.** Write a failing test first, then write the
 code to make it pass. Run `just check` after each step.
 
+## What to test — conceptual actions, not units
+
+Test the **high-level conceptual actions** (the use cases:
+build, embed, search, gc, diff, watch) against realistic data.
+Those tests exercise the domain kernel (`rbtr.domain` — models,
+identity, tokenisation) *transitively*, so pure domain code does
+**not** need its own unit tests when a conceptual-action test
+already covers it. A test earns its place by pinning a
+behaviour a caller relies on, not by re-asserting an
+encoding the use-case tests already prove.
+
+- **Don't unit-test the kernel for its own sake.** A dedicated
+  test of a pure domain function is warranted only for logic a
+  use-case test can't naturally reach, or a specific edge case
+  it can't isolate.
+- **Test through real infrastructure, not fakes.** Prefer a real
+  DuckDB store / pygit2 repo / daemon over a mock or a
+  hand-rolled fake double. This is a deliberate trade: slightly
+  slower tests that actually encode the conceptual action, over
+  fast tests of an abstraction that only exists to be faked.
+  Don't introduce a seam (a `Protocol`, an injected fake) whose
+  only purpose is isolated unit testing.
+- This is the *no-overlapping-tests* rule applied across layers:
+  if the build test already proves `make_chunk_id` behaves, a
+  separate `make_chunk_id` unit test is overlap.
+
 ## Test structure
 
 - **Plain test functions only.** No test classes.

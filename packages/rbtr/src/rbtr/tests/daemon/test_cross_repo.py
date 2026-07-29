@@ -14,7 +14,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.handlers import handle_search, handle_status
 from rbtr.daemon.messages import SearchRequest, StatusRequest
-from rbtr.domain.models import Snapshot
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -39,7 +39,11 @@ def two_repos() -> Generator[tuple[IndexStore, dict[int, str]]]:
             ws.register_repo(paths[repo_id])
             ws.add_chunk(chunk)
             ws.insert_snapshots(
-                [Snapshot(commit_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
+                [
+                    FileSnapshot(
+                        snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
+                    )
+                ],
                 repo_id=repo_id,
             )
             ws.mark_indexed(repo_id, "head")

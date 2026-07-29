@@ -354,7 +354,7 @@ export interface IndexedRef {
  *
  * `sha` is the ref's current resolution (`None` when it no longer
  * resolves, e.g. a deleted branch). `indexed` is true once that SHA
- * has an `indexed_commits` row; false means *pending* (just added,
+ * has an `indexed_snapshots` row; false means *pending* (just added,
  * or its tip moved and a rebuild is due).
  */
 export interface WatchedRef {
@@ -417,8 +417,8 @@ export interface PluginInfo {
 export interface GcResponse {
   kind: "gc";
   repos_collected?: number;
-  commits_dropped: number;
   snapshots_dropped: number;
+  file_snapshots_dropped: number;
   edges_dropped: number;
   chunks_freed: number;
   size_before_bytes?: number;

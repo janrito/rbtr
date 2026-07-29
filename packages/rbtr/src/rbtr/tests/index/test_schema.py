@@ -20,7 +20,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import Snapshot, TokenisedChunk
+from rbtr.domain.models import FileSnapshot, TokenisedChunk
 from rbtr.errors import IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.store import IndexStore
@@ -40,7 +40,7 @@ def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
         "file_snapshots",
         "chunks",
         "edges",
-        "indexed_commits",
+        "indexed_snapshots",
     }
     tables = {
         row[0]
@@ -81,8 +81,8 @@ def reopened(
             if before.seeded_chunks:
                 ws.insert_snapshots(
                     [
-                        Snapshot(
-                            commit_sha="head",
+                        FileSnapshot(
+                            snapshot_sha="head",
                             file_path=c.file_path,
                             blob_sha=c.blob_sha,
                         )
@@ -175,7 +175,7 @@ def _seed_one_chunk(path: Path) -> None:
     with seed.session() as ws:
         ws.add_chunk(make_chunk("c1"))
         ws.insert_snapshots(
-            [Snapshot(commit_sha="head", file_path="f.py", blob_sha="blob_c1")],
+            [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
             repo_id=1,
         )
     seed.close()
@@ -239,7 +239,7 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     with store1.session() as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
-            [Snapshot(commit_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
+            [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
     results1 = store1.match_fulltext("head", "persist", top_k=5, repo_id=1)

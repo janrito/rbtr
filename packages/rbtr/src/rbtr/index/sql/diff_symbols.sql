@@ -42,7 +42,7 @@ WITH head AS (
       AND c.file_path = fs.file_path
   WHERE
     fs.repo_id = $repo_id
-    AND fs.commit_sha = $head_sha
+    AND fs.snapshot_sha = $head_sha
     AND c.kind IN ('function', 'class', 'method')
     AND (
       $scope_all
@@ -75,7 +75,7 @@ base AS (
       AND c.file_path = fs.file_path
   WHERE
     fs.repo_id = $repo_id
-    AND fs.commit_sha = $base_sha
+    AND fs.snapshot_sha = $base_sha
     AND c.kind IN ('function', 'class', 'method')
     AND (
       $scope_all

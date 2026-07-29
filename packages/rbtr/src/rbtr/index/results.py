@@ -1,7 +1,7 @@
 """Result-row schemas and read transforms for the index query path.
 
 Schemas here validate the columns DuckDB projects back to Python
-(`*ResultRow`), the cursor-registered join views (`_repo_refs`,
+(`*ResultRow`), the cursor-registered join views (`_snapshot_refs`,
 `_file_paths`, `_serial_map`), and the fusion/ranking frames.  Transforms
 map a validated frame to `Chunk` models.  The write/staging schemas live in
 `staging.py`; the two are kept independent (see the import-linter CQRS
@@ -22,20 +22,20 @@ from rbtr.domain.models import (
     Chunks,
     EdgeKind,
     ImportMeta,
-    RepoRef,
+    SnapshotRef,
 )
 
 
-class RepoRefRow(dy.Schema):
-    """Backs the cursor-registered `_repo_refs` join view.
+class SnapshotRefRow(dy.Schema):
+    """Backs the cursor-registered `_snapshot_refs` join view.
 
     Not an insert target: search/edge SQL joins against this view
-    to scope rows to one or more `(repo_id, commit_sha)` snapshots.
+    to scope rows to one or more `(repo_id, snapshot_sha)` snapshots.
     `repo_id` is `Int32` to match the column on `file_snapshots`/`edges`.
     """
 
     repo_id = dy.Int32(nullable=False)
-    commit_sha = dy.String(nullable=False)
+    snapshot_sha = dy.String(nullable=False)
 
 
 class FilePathRow(dy.Schema):
@@ -51,7 +51,7 @@ class FilePathRow(dy.Schema):
 class SerialMapRow(dy.Schema):
     """Backs the cursor-registered `_serial_map` join view.
 
-    Not an insert target: `has_blob` left-joins a blob's chunks against
+    Not an insert target: `blob_is_current` left-joins a blob's chunks against
     this view to check every chunk is at its language's current
     extraction serial. Maps language id -> current serial (the full
     registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
@@ -201,16 +201,16 @@ class FusedRow(_ChunkIdentity, _SignalColumns):
     reranker = dy.Float64(nullable=False)
 
 
-def repo_refs_frame(refs: list[RepoRef]) -> dy.DataFrame[RepoRefRow]:
-    """Build the `_repo_refs` join view from a list of `RepoRef`."""
+def snapshot_refs_frame(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
+    """Build the `_snapshot_refs` join view from a list of `SnapshotRef`."""
     if not refs:
-        return RepoRefRow.create_empty()
+        return SnapshotRefRow.create_empty()
     return pl.DataFrame(
         {
             "repo_id": [r.repo_id for r in refs],
-            "commit_sha": [r.commit_sha for r in refs],
+            "snapshot_sha": [r.snapshot_sha for r in refs],
         }
-    ).pipe(RepoRefRow.validate, cast=True)
+    ).pipe(SnapshotRefRow.validate, cast=True)
 
 
 def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:

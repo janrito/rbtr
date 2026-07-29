@@ -415,13 +415,13 @@ def case_status_response_with_refs() -> MessageScenario:
 def case_gc_response() -> MessageScenario:
     return MessageScenario(
         raw=(
-            b'{"kind":"gc","repos_collected":3,"commits_dropped":2,'
-            b'"snapshots_dropped":5,"edges_dropped":3,"chunks_freed":10,'
+            b'{"kind":"gc","repos_collected":3,"snapshots_dropped":2,'
+            b'"file_snapshots_dropped":5,"edges_dropped":3,"chunks_freed":10,'
             b'"elapsed_seconds":0.42,"dry_run":false}'
         ),
         adapter=response_adapter,
         expected_type=GcResponse,
-        checks={"commits_dropped": 2, "chunks_freed": 10, "repos_collected": 3, "dry_run": False},
+        checks={"snapshots_dropped": 2, "chunks_freed": 10, "repos_collected": 3, "dry_run": False},
     )
 
 

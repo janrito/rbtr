@@ -37,7 +37,7 @@ class ChurnedIndex:
     store: IndexStore
     repo_path: str
     repo_id: int
-    commit_sha: str
+    snapshot_sha: str
     query: str
 
 
@@ -85,7 +85,7 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
         store=store,
         repo_path=fake_repo,
         repo_id=repo_id,
-        commit_sha=head,
+        snapshot_sha=head,
         query="retry backoff",
     )
     store.close()
@@ -103,12 +103,12 @@ def test_gc_compaction_respects_flag(
     """
     ci = churned_index
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.commit_sha, ci.repo_id)
+    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=scenario.compact)
     handle_gc(request, ci.store, allow_compact=True)
 
-    assert ci.store.count_chunks(ci.commit_sha, ci.repo_id) == before_count
+    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
     if scenario.expect_shrink:
         assert ci.store.data_size_bytes() < before_size
     else:
@@ -149,7 +149,7 @@ def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     handle_gc(request, ci.store, allow_compact=True)
 
-    hits = ci.store.match_fulltext(ci.commit_sha, ci.query, top_k=5, repo_id=ci.repo_id)
+    hits = ci.store.match_fulltext(ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id)
     assert hits, "search returned nothing after compaction"
 
 
@@ -177,7 +177,7 @@ def test_gc_compaction_failure_is_non_fatal(
     """
     ci = churned_index
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.commit_sha, ci.repo_id)
+    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
     mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
@@ -185,7 +185,7 @@ def test_gc_compaction_failure_is_non_fatal(
 
     assert isinstance(response, GcResponse)  # swallowed, not raised
     assert ci.store.data_size_bytes() == before_size  # rewrite did not take effect
-    assert ci.store.count_chunks(ci.commit_sha, ci.repo_id) == before_count
+    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
     db_path = Path(ci.store.db_path or "")
     # RCU names each temp `.compact-<uuid>`; none may linger after a fail.
     assert not list(db_path.parent.glob(f"{db_path.name}.compact-*"))
@@ -210,9 +210,11 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     def reader() -> None:
         try:
             while not stop.is_set():
-                assert ci.store.match_fulltext(ci.commit_sha, ci.query, top_k=5, repo_id=ci.repo_id)
+                assert ci.store.match_fulltext(
+                    ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id
+                )
                 assert ci.store.match_by_name(
-                    ci.commit_sha, "calculate_retry_backoff_1", repo_id=ci.repo_id
+                    ci.snapshot_sha, "calculate_retry_backoff_1", repo_id=ci.repo_id
                 )
         except Exception as exc:  # noqa: BLE001 - re-asserted on main thread
             errors.append(exc)

@@ -14,7 +14,7 @@ import pytest
 
 from rbtr.daemon.messages import BuildJob
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import Snapshot
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -30,7 +30,7 @@ def recovery_store_unembedded() -> Generator[IndexStore]:
         repo_id = ws.register_repo("/test/repo")
         ws.add_chunk(make_chunk("chunk1", name="foo", path="test.py", blob="blob1"))
         ws.insert_snapshots(
-            [Snapshot(commit_sha="sha1", file_path="test.py", blob_sha="blob1")],
+            [FileSnapshot(snapshot_sha="sha1", file_path="test.py", blob_sha="blob1")],
             repo_id=repo_id,
         )
         ws.mark_indexed(repo_id, "sha1")
@@ -46,7 +46,7 @@ def recovery_store_fully_embedded() -> Generator[IndexStore]:
         repo_id = ws.register_repo("/test/repo")
         ws.add_chunk(make_chunk("chunk1", name="foo", path="test.py", blob="blob1"))
         ws.insert_snapshots(
-            [Snapshot(commit_sha="sha1", file_path="test.py", blob_sha="blob1")],
+            [FileSnapshot(snapshot_sha="sha1", file_path="test.py", blob_sha="blob1")],
             repo_id=repo_id,
         )
         ws.update_embeddings(["chunk1"], [[0.1, 0.2, 0.3]])

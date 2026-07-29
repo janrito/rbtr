@@ -20,7 +20,7 @@ import pygit2
 import pytest
 
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Snapshot
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -111,7 +111,7 @@ def seeded_store(
             ws.add_chunk(c)
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(snapshot_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
             repo_id=repo_id,
@@ -155,8 +155,10 @@ def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
         )
         ws.insert_snapshots(
             [
-                Snapshot(commit_sha=head, file_path="src/config.py", blob_sha="blob_config_v2"),
-                Snapshot(commit_sha=head, file_path="src/app.py", blob_sha="blob_app"),
+                FileSnapshot(
+                    snapshot_sha=head, file_path="src/config.py", blob_sha="blob_config_v2"
+                ),
+                FileSnapshot(snapshot_sha=head, file_path="src/app.py", blob_sha="blob_app"),
             ],
             repo_id=repo_id,
         )
@@ -242,9 +244,11 @@ def two_repo_server(
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
                 [
-                    Snapshot(commit_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"),
-                    Snapshot(
-                        commit_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
+                    FileSnapshot(
+                        snapshot_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"
+                    ),
+                    FileSnapshot(
+                        snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
                 repo_id=repo_id,

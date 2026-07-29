@@ -52,7 +52,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     WatchedRef,
 )
-from rbtr.domain.models import Chunk, GcMode, QueryKind, RepoRef
+from rbtr.domain.models import Chunk, GcMode, QueryKind, SnapshotRef
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import (
     HEAD_REF,
@@ -119,14 +119,14 @@ def _resolve_read_ref(
         sha = resolve_ref(repo_path, requested_ref)
     except RbtrError:
         if requested_ref == HEAD_REF:
-            indexed = store.list_indexed_commits(repo_id)
+            indexed = store.list_indexed_snapshots(repo_id)
             if indexed:
                 return indexed[0][0]
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
     if require_indexed and not store.has_indexed(repo_id, sha):
         if not explicit:
-            indexed = store.list_indexed_commits(repo_id)
+            indexed = store.list_indexed_snapshots(repo_id)
             if indexed:
                 return indexed[0][0]
         _require_indexed(store, repo_id, requested_ref, sha)
@@ -159,7 +159,7 @@ def handle_search(
     else:
         repo_id = store.resolve_repo(request.repo_path)
         ref = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
-        refs = [RepoRef(repo_id=repo_id, commit_sha=ref)]
+        refs = [SnapshotRef(repo_id=repo_id, snapshot_sha=ref)]
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = store.search(
@@ -268,7 +268,7 @@ def _refs_for_repo(
     repo_path: str,
 ) -> list[IndexedRef]:
     """Build `IndexedRef`s for one repo's indexed commits."""
-    indexed_shas = [sha for sha, _ in store.list_indexed_commits(repo_id)]
+    indexed_shas = [sha for sha, _ in store.list_indexed_snapshots(repo_id)]
     ref_names = names_for_commits(repo_path, indexed_shas)
     refs: list[IndexedRef] = []
     for sha in indexed_shas:
@@ -295,7 +295,7 @@ def _watched_for_repo(
 
     Resolves each watched ref to a SHA (`None` if it no longer
     resolves) and marks it indexed when that SHA is recorded in
-    `indexed_commits`; otherwise it is pending.
+    `indexed_snapshots`; otherwise it is pending.
     """
     out: list[WatchedRef] = []
     for ref in store.list_watched_refs(repo_id):
@@ -433,16 +433,16 @@ def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = Fa
         mode=request.mode,
         dry_run=request.dry_run,
         repos=repos_collected,
-        commits=counts.commits,
         snapshots=counts.snapshots,
+        file_snapshots=counts.file_snapshots,
         edges=counts.edges,
         chunks_freed=chunks_freed,
         elapsed_ms=round(elapsed * 1000, 1),
     )
     return GcResponse(
         repos_collected=repos_collected,
-        commits_dropped=counts.commits,
         snapshots_dropped=counts.snapshots,
+        file_snapshots_dropped=counts.file_snapshots,
         edges_dropped=counts.edges,
         chunks_freed=chunks_freed,
         size_before_bytes=size_before,

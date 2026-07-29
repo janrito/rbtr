@@ -28,17 +28,17 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, GcCounts, Snapshot, TokenisedChunk
+from rbtr.domain.models import Edge, FileSnapshot, GcCounts, TokenisedChunk
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
-from rbtr.index.staging import chunks_frame, edges_frame, embeddings_frame, snapshots_frame
+from rbtr.index.staging import chunks_frame, edges_frame, embeddings_frame, file_snapshots_frame
 
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
 _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
 _DELETE_EDGES_SQL = load_sql("delete_edges.sql")
 _DELETE_SNAPSHOTS_SQL = load_sql("delete_snapshots.sql")
-_DROP_COMMIT_SQL = load_sql("drop_commit.sql")
+_DROP_SNAPSHOT_SQL = load_sql("drop_snapshot.sql")
 _HAS_ANY_INDEXED_SQL = load_sql("has_any_indexed.sql")
 _INSERT_EDGES_SQL = load_sql("insert_edges.sql")
 _MARK_INDEXED_SQL = load_sql("mark_indexed.sql")
@@ -54,7 +54,7 @@ _UPSERT_SNAPSHOTS_SQL = load_sql("upsert_snapshots.sql")
 _REGISTER_REPO_SQL = load_sql("register_repo.sql")
 _FORGET_SNAPSHOTS_SQL = load_sql("delete_snapshots_for_repo.sql")
 _FORGET_EDGES_SQL = load_sql("delete_edges_for_repo.sql")
-_FORGET_INDEXED_COMMITS_SQL = load_sql("delete_indexed_commits_for_repo.sql")
+_FORGET_INDEXED_COMMITS_SQL = load_sql("delete_indexed_snapshots_for_repo.sql")
 _FORGET_WATCHED_REFS_SQL = load_sql("delete_watched_refs_for_repo.sql")
 _FORGET_REPO_SQL = load_sql("delete_repo.sql")
 _CREATE_FTS_INDEX_SQL = load_sql("create_fts_index.sql")
@@ -304,38 +304,42 @@ class WriteSession:
         self._require_active()
         self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
 
-    def insert_snapshots(self, snapshots: list[Snapshot], repo_id: int) -> None:
+    def insert_snapshots(self, snapshots: list[FileSnapshot], repo_id: int) -> None:
         """Batch insert snapshots."""
         if not snapshots:
             return
-        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, snapshots_frame(snapshots, repo_id))
+        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, file_snapshots_frame(snapshots, repo_id))
 
-    def replace_snapshots(self, commit_sha: str, snapshots: list[Snapshot], repo_id: int) -> None:
-        """Atomically replace all snapshots for *commit_sha*."""
+    def replace_snapshots(
+        self, snapshot_sha: str, snapshots: list[FileSnapshot], repo_id: int
+    ) -> None:
+        """Atomically replace all snapshots for *snapshot_sha*."""
         self._flush_chunks()
-        self.delete_snapshots(commit_sha, repo_id=repo_id)
+        self.delete_snapshots(snapshot_sha, repo_id=repo_id)
         self.insert_snapshots(snapshots, repo_id=repo_id)
 
-    def insert_edges(self, edges: list[Edge], commit_sha: str, repo_id: int) -> None:
-        """Batch insert edges scoped to *commit_sha*."""
+    def insert_edges(self, edges: list[Edge], snapshot_sha: str, repo_id: int) -> None:
+        """Batch insert edges scoped to *snapshot_sha*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, commit_sha, repo_id))
+        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, snapshot_sha, repo_id))
 
-    def replace_edges(self, commit_sha: str, edges: list[Edge], repo_id: int) -> None:
-        """Atomically replace all edges for *commit_sha*."""
-        self.delete_edges(commit_sha, repo_id=repo_id)
-        self.insert_edges(edges, commit_sha, repo_id=repo_id)
+    def replace_edges(self, snapshot_sha: str, edges: list[Edge], repo_id: int) -> None:
+        """Atomically replace all edges for *snapshot_sha*."""
+        self.delete_edges(snapshot_sha, repo_id=repo_id)
+        self.insert_edges(edges, snapshot_sha, repo_id=repo_id)
 
-    def delete_snapshots(self, commit_sha: str, repo_id: int) -> None:
-        """Remove all file snapshots scoped to *commit_sha*."""
+    def delete_snapshots(self, snapshot_sha: str, repo_id: int) -> None:
+        """Remove all file snapshots scoped to *snapshot_sha*."""
         self._require_active()
-        self._cursor.execute(_DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "commit_sha": commit_sha})
+        self._cursor.execute(
+            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
+        )
 
-    def delete_edges(self, commit_sha: str, repo_id: int) -> None:
-        """Remove edges scoped to *commit_sha*."""
+    def delete_edges(self, snapshot_sha: str, repo_id: int) -> None:
+        """Remove edges scoped to *snapshot_sha*."""
         self._require_active()
-        self._cursor.execute(_DELETE_EDGES_SQL, {"repo_id": repo_id, "commit_sha": commit_sha})
+        self._cursor.execute(_DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
 
     def update_embeddings(
         self,
@@ -361,32 +365,32 @@ class WriteSession:
         finally:
             self._cursor.unregister("_emb_stg")
 
-    def mark_indexed(self, repo_id: int, commit_sha: str) -> None:
+    def mark_indexed(self, repo_id: int, snapshot_sha: str) -> None:
         """Record a commit as fully indexed."""
         self._require_active()
-        self._cursor.execute(_MARK_INDEXED_SQL, {"repo_id": repo_id, "commit_sha": commit_sha})
+        self._cursor.execute(_MARK_INDEXED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
 
     # ── GC ───────────────────────────────────────────────────────
 
-    def drop_commit(self, repo_id: int, commit_sha: str) -> GcCounts:
-        """Remove all trace of *commit_sha* from this repo."""
+    def drop_snapshot(self, repo_id: int, snapshot_sha: str) -> GcCounts:
+        """Remove all trace of *snapshot_sha* from this repo."""
         self._require_active()
         commit_row = self._cursor.execute(
-            _DROP_COMMIT_SQL, {"repo_id": repo_id, "commit_sha": commit_sha}
+            _DROP_SNAPSHOT_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
         snap_row = self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "commit_sha": commit_sha}
+            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
         edge_row = self._cursor.execute(
-            _DELETE_EDGES_SQL, {"repo_id": repo_id, "commit_sha": commit_sha}
+            _DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
         chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:
             self._chunks_modified = True
         return GcCounts(
-            commits=int(commit_row[0]) if commit_row else 0,
-            snapshots=int(snap_row[0]) if snap_row else 0,
+            snapshots=int(commit_row[0]) if commit_row else 0,
+            file_snapshots=int(snap_row[0]) if snap_row else 0,
             edges=int(edge_row[0]) if edge_row else 0,
             chunks=chunks_deleted,
         )
@@ -397,11 +401,11 @@ class WriteSession:
         Combines crash-residue cleanup and stale-data pruning
         into a single pass:
 
-        1. Delete snapshots/edges for commits never marked
+        1. Delete file snapshots/edges for snapshots never marked
            indexed (crash residue).
         2. Delete chunks not referenced by any surviving
-           snapshot (stale extractions and crash residue).
-        3. Delete edges whose commit has no snapshots.
+           file snapshot (stale extractions and crash residue).
+        3. Delete edges whose snapshot has no file snapshots.
 
         Returns counts of rows removed.
         """
@@ -418,7 +422,7 @@ class WriteSession:
         if chunks_deleted > 0:
             self._chunks_modified = True
         return GcCounts(
-            snapshots=int(snap_row[0]) if snap_row else 0,
+            file_snapshots=int(snap_row[0]) if snap_row else 0,
             edges=(
                 (int(orphan_edge_row[0]) if orphan_edge_row else 0)
                 + (int(stale_edge_row[0]) if stale_edge_row else 0)
@@ -528,7 +532,7 @@ class WriteSession:
         """Forget a whole repo: delete its references and the `repos` row.
 
         Metadata-only — removes the repo's `file_snapshots`, `edges`,
-        `indexed_commits`, `watched_refs`, then the `repos` row, in one
+        `indexed_snapshots`, `watched_refs`, then the `repos` row, in one
         transaction. Deliberately does **not** sweep chunks: chunks are
         content-addressed and shared, so reclaiming the now-orphaned ones
         is global GC's job (it reports freed/kept). See ARCHITECTURE's

@@ -3,5 +3,5 @@ FROM file_snapshots
 WHERE
   repo_id = $repo_id
   AND file_path = $file_path
-ORDER BY commit_sha
+ORDER BY snapshot_sha
 LIMIT 1

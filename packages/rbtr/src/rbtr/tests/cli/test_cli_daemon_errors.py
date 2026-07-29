@@ -62,6 +62,6 @@ def test_index_falls_back_to_inline_when_start_fails(
 
     repo_id = inline_store.get_repo_id(normalise_repo_path(repo_path))
     assert repo_id is not None, "inline fallback did not register the repo"
-    commits = inline_store.list_indexed_commits(repo_id)
+    commits = inline_store.list_indexed_snapshots(repo_id)
     assert len(commits) == 1, "inline fallback did not index HEAD"
     assert inline_store.count_chunks(commits[0][0], repo_id) > 0, "no symbols extracted"

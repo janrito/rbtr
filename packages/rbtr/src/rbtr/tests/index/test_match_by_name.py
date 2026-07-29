@@ -62,7 +62,7 @@ def name_store(store: IndexStore) -> IndexStore:
                 path="src/fuse.py",
             ),
         ],
-        commit_sha=COMMIT,
+        snapshot_sha=COMMIT,
     )
     return store
 

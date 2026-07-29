@@ -23,7 +23,7 @@ from rbtr.daemon.messages import (
     SearchResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, RepoRef, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef, TokenisedChunk
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.embeddings import Embedder
 from rbtr.index.store import IndexStore
@@ -119,7 +119,10 @@ def embeddable_store(contention_repo: str) -> Generator[IndexStore]:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
-            [Snapshot(commit_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha) for c in chunks],
+            [
+                FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
+                for c in chunks
+            ],
             repo_id=repo_id,
         )
         session.mark_indexed(repo_id, sha)
@@ -205,7 +208,7 @@ def test_search_results_correct_during_embed(
     # Direct search for comparison.
     sha = str(pygit2.Repository(contention_repo).head.target)
     direct_results = embeddable_store.search(
-        [RepoRef(repo_id=1, commit_sha=sha)],
+        [SnapshotRef(repo_id=1, snapshot_sha=sha)],
         "func_0",
         top_k=5,
         embedder=embedder,

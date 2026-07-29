@@ -1,7 +1,7 @@
 """Polars DataFrame builders for the index write path (staging).
 
 Each builder converts a list of domain objects (`Chunk`, `Edge`, or
-`Snapshot`) into a typed polars frame whose column names match the
+`FileSnapshot`) into a typed polars frame whose column names match the
 corresponding SQL staging view (`_stg`).  Registering a frame as a virtual
 view and running `INSERT INTO ... SELECT` against it is orders of magnitude
 faster than `executemany` for large batches; `duckdb.register` accepts polars
@@ -21,8 +21,8 @@ from rbtr.domain.models import (
     Edge,
     EdgeKind,
     Edges,
-    Snapshot,
-    Snapshots,
+    FileSnapshot,
+    FileSnapshots,
     TokenisedChunk,
     TokenisedChunks,
 )
@@ -63,7 +63,7 @@ class ChunkStagingRow(dy.Schema):
 class EdgeStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `insert_edges.sql`.
 
-    All rows in a batch share the same `commit_sha` and
+    All rows in a batch share the same `snapshot_sha` and
     `repo_id`; broadcast happens here rather than in SQL.
     """
 
@@ -71,14 +71,14 @@ class EdgeStagingRow(dy.Schema):
     source_id = dy.String(nullable=False)
     target_id = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in EdgeKind)
-    commit_sha = dy.String(nullable=False)
+    snapshot_sha = dy.String(nullable=False)
 
 
-class SnapshotStagingRow(dy.Schema):
+class FileSnapshotStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `upsert_snapshots.sql`."""
 
     repo_id = dy.Int32(nullable=False)
-    commit_sha = dy.String(nullable=False)
+    snapshot_sha = dy.String(nullable=False)
     file_path = dy.String(nullable=False)
     blob_sha = dy.String(nullable=False)
     detected_language = dy.String(nullable=False)
@@ -118,28 +118,30 @@ def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     )
 
 
-def edges_frame(edges: list[Edge], commit_sha: str, repo_id: int) -> dy.DataFrame[EdgeStagingRow]:
-    """Build a staging frame of edges scoped to *commit_sha*."""
+def edges_frame(edges: list[Edge], snapshot_sha: str, repo_id: int) -> dy.DataFrame[EdgeStagingRow]:
+    """Build a staging frame of edges scoped to *snapshot_sha*."""
     if not edges:
         return EdgeStagingRow.create_empty()
     return (
         pl.DataFrame(Edges.dump_python(edges, mode="json"))
         .with_columns(
             repo_id=pl.lit(repo_id, dtype=pl.Int32),
-            commit_sha=pl.lit(commit_sha),
+            snapshot_sha=pl.lit(snapshot_sha),
         )
         .pipe(EdgeStagingRow.validate, cast=True)
     )
 
 
-def snapshots_frame(snapshots: list[Snapshot], repo_id: int) -> dy.DataFrame[SnapshotStagingRow]:
-    """Build a staging frame from a list of `Snapshot` models."""
+def file_snapshots_frame(
+    snapshots: list[FileSnapshot], repo_id: int
+) -> dy.DataFrame[FileSnapshotStagingRow]:
+    """Build a staging frame from a list of `FileSnapshot` models."""
     if not snapshots:
-        return SnapshotStagingRow.create_empty()
+        return FileSnapshotStagingRow.create_empty()
     return (
-        pl.DataFrame(Snapshots.dump_python(snapshots, mode="json"))
+        pl.DataFrame(FileSnapshots.dump_python(snapshots, mode="json"))
         .with_columns(repo_id=pl.lit(repo_id, dtype=pl.Int32))
-        .pipe(SnapshotStagingRow.validate, cast=True)
+        .pipe(FileSnapshotStagingRow.validate, cast=True)
     )
 
 

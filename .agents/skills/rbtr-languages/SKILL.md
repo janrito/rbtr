@@ -85,8 +85,8 @@ module-level `LanguageRegistration` values — each named by its language id
 — through the `rbtr.languages` entry-point group; the `LanguageManager`
 discovers them via `importlib.metadata` (no pluggy — languages are
 single-dispatch by id). Core's bundled languages register the same way,
-from core's own `pyproject`. The orchestrator's primary path is one of
-three:
+from core's own `pyproject`. `build_index` routes extraction down one of
+three paths:
 
 1. **Chunker** — a chunker attached via `@reg.chunker`: prose (markdown,
    rst) and SFCs' markup

@@ -4,6 +4,6 @@ SELECT
   source_id,
   target_id,
   kind,
-  commit_sha
+  snapshot_sha
 FROM _stg
 ON CONFLICT DO NOTHING

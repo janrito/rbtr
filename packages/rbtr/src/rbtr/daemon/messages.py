@@ -450,7 +450,7 @@ class WatchedRef(BaseModel):
 
     `sha` is the ref's current resolution (`None` when it no longer
     resolves, e.g. a deleted branch). `indexed` is true once that SHA
-    has an `indexed_commits` row; false means *pending* (just added,
+    has an `indexed_snapshots` row; false means *pending* (just added,
     or its tip moved and a rebuild is due).
     """
 
@@ -492,8 +492,8 @@ class GcResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
     repos_collected: int = 1  # 1 for a single repo, N for `--all-repos`
-    commits_dropped: int
     snapshots_dropped: int
+    file_snapshots_dropped: int
     edges_dropped: int
     chunks_freed: int  # chunks actually removed from the global pool
     size_before_bytes: int = 0  # on-disk footprint before the run

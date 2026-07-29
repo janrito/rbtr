@@ -284,7 +284,7 @@ class DaemonServer:
         DB-polling worker picks up the work.
         """
         for repo_id, _repo_path in store.list_repos():
-            for sha, _ts in store.list_indexed_commits(repo_id):
+            for sha, _ts in store.list_indexed_snapshots(repo_id):
                 count = store.count_unembedded(repo_id, sha)
                 if count > 0:
                     log.info(
@@ -330,7 +330,7 @@ class DaemonServer:
             )
             # Clean up stale worktree tree SHAs.  After a
             # worktree build, old tree SHAs from previous edits
-            # linger in indexed_commits.  After a commit build,
+            # linger in indexed_snapshots.  After a commit build,
             # the old worktree was built against the previous
             # HEAD's tree.  Either way, drop any tree-type SHA
             # that isn't the one we just built.
@@ -344,9 +344,9 @@ class DaemonServer:
         *,
         keep: str,
     ) -> None:
-        """Drop old worktree tree SHAs from `indexed_commits`.
+        """Drop old worktree tree SHAs from `indexed_snapshots`.
 
-        After a build (commit or worktree), scans `indexed_commits`
+        After a build (commit or worktree), scans `indexed_snapshots`
         for tree-type SHAs and drops any that aren't *keep*.  This
         prevents stale worktree rows from accumulating between GC
         runs.
@@ -354,13 +354,13 @@ class DaemonServer:
         Called from `_run_build` inside the worker thread's
         `WriteSession` scope.
         """
-        indexed = [sha for sha, _ts in store.list_indexed_commits(repo_id)]
+        indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id)]
         stale = [sha for sha in filter_tree_shas(repo_path, indexed) if sha != keep]
         if not stale:
             return
         with store.session() as ws:
             for sha in stale:
-                ws.drop_commit(repo_id, sha)
+                ws.drop_snapshot(repo_id, sha)
                 log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
     def _run_embed(self, job: EmbedJob, store: IndexStore, push: zmq.Socket) -> None:
@@ -574,18 +574,18 @@ class DaemonServer:
             key = target.repo_path
             if key == self._active_key:
                 continue
-            return BuildJob(repo_path=target.repo_path, refs=(target.sha,))
+            return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
 
         # Worktree builds: dirty working trees.
         for dirty in watcher.poll_worktree(store):
-            key = f"{dirty.repo_path}:wt:{dirty.tree_sha}"
+            key = f"{dirty.repo_path}:wt:{dirty.snapshot_sha}"
             if key == self._active_key:
                 continue
-            return BuildJob(repo_path=dirty.repo_path, refs=(dirty.tree_sha,))
+            return BuildJob(repo_path=dirty.repo_path, refs=(dirty.snapshot_sha,))
 
         # Embeds: indexed commits with un-embedded chunks.
         for repo_id, repo_path in store.list_repos():
-            for sha, _ts in store.list_indexed_commits(repo_id):
+            for sha, _ts in store.list_indexed_snapshots(repo_id):
                 count = store.count_unembedded(repo_id, sha)
                 if count > 0:
                     key = f"{repo_id}:{sha}"
@@ -861,19 +861,23 @@ class DaemonServer:
                         "watched_ref_stale",
                         repo=target.repo_path,
                         ref=target.ref,
-                        sha=target.sha[:12],
+                        sha=target.snapshot_sha[:12],
                     )
                     _notify(
                         self._notify_push,
-                        AutoRebuildNotification(repo_path=target.repo_path, new_ref=target.sha),
+                        AutoRebuildNotification(
+                            repo_path=target.repo_path, new_ref=target.snapshot_sha
+                        ),
                     )
                     self._wake.set()
                 dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)
                 for dirty in dirty_list:
-                    log.info("dirty_worktree", repo=dirty.repo_path, tree=dirty.tree_sha[:12])
+                    log.info("dirty_worktree", repo=dirty.repo_path, tree=dirty.snapshot_sha[:12])
                     _notify(
                         self._notify_push,
-                        AutoRebuildNotification(repo_path=dirty.repo_path, new_ref=dirty.tree_sha),
+                        AutoRebuildNotification(
+                            repo_path=dirty.repo_path, new_ref=dirty.snapshot_sha
+                        ),
                     )
                     self._wake.set()
 

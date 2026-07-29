@@ -1,4 +1,4 @@
 DELETE FROM edges
 WHERE
   repo_id = $repo_id
-  AND commit_sha = $commit_sha
+  AND snapshot_sha = $snapshot_sha

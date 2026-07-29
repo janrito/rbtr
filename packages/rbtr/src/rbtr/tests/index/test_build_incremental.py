@@ -161,7 +161,7 @@ def new_func():
     result = build_index(git_repo.workdir, "feature-branch", store, repo_id=1, base_sha=base_sha)
 
     assert result.stats.total_chunks > 0
-    # Snapshots stored under "feature-branch", queryable by that name.
+    # FileSnapshots stored under "feature-branch", queryable by that name.
     chunks = store.get_chunks("feature-branch", repo_id=1)
     assert len(chunks) > 0
     assert any(c.name == "new_func" for c in chunks)

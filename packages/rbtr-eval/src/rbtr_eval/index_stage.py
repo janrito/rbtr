@@ -122,14 +122,14 @@ def _install_rbtrignore(repo_path: Path) -> None:
 def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     """Compute a content-hash for DVC sentinel files.
 
-    ``embed=False`` (chunks-ready): hash of ``(repo_id, commit_sha)``
+    ``embed=False`` (chunks-ready): hash of ``(repo_id, snapshot_sha)``
     pairs.  ``embed=True`` (embed-ready): also includes the
     unembedded count per commit so the hash changes when embeddings
     are written.
     """
     h = hashlib.sha256()
     for repo_id, _repo_path in store.list_repos():
-        for sha, _ts in store.list_indexed_commits(repo_id):
+        for sha, _ts in store.list_indexed_snapshots(repo_id):
             h.update(f"{repo_id}:{sha}".encode())
             if embed:
                 unembedded = store.count_unembedded(repo_id, sha)

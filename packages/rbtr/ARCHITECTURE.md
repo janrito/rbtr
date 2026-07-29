@@ -98,7 +98,7 @@ or co-located clones share `.git` object SHAs, so their blobs
 and chunk `id`s coincide, and the existing chunks are reused —
 no re-parsing, no re-embedding.
 
-The orchestrator checks `store.has_blob(blob_sha, language,
+The build checks `store.blob_is_current(blob_sha, language,
 serials)` before extracting a file, where `language` is the
 file's detected host language and `serials` is the current
 `{language: extraction serial}` registry map (plus `""` for
@@ -110,7 +110,7 @@ is at its language's current extraction serial. Both are matched
 in one query against a registered `_serial_map` view (a
 `LEFT JOIN`; a chunk with no matching serial row is stale).
 
-Two things force re-extraction; on a miss the orchestrator
+Two things force re-extraction; on a miss the build
 deletes the blob's old chunks first (the new extraction may
 produce different IDs the upsert can't reconcile):
 
@@ -197,7 +197,7 @@ sequenceDiagram
     M-->>O: lang_id (else stored detected_language / prose sniff)
     O->>M: get_registration(lang_id)
     M-->>O: reg (extraction: QueryExtraction, resolve_* overrides, id, plugin_version, ...)
-    O->>S: has_blob(sha, language, serials)
+    O->>S: blob_is_current(sha, language, serials)
     S-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
     O->>M: load_grammar(lang_id)
     M-->>O: grammar
@@ -215,7 +215,7 @@ The index is a single DuckDB file. Its central design point is that
 **`chunks` is a content-addressed store**: a chunk row is keyed by `id`
 alone (a content hash) and carries **no `repo_id`**. The only table where
 a repo meets content is **`file_snapshots`**, which maps
-`(repo_id, commit_sha, file_path) -> blob_sha`. So:
+`(repo_id, snapshot_sha, file_path) -> blob_sha`. So:
 
 - A chunk is reached by joining `file_snapshots` on `(blob_sha,
   file_path)`; the repo scope and a result row's `repo_id` come from that
@@ -223,7 +223,7 @@ a repo meets content is **`file_snapshots`**, which maps
 - Byte-identical content in several repos/worktrees/clones is **one**
   physical `chunks` row, shared. `file_snapshots` rows (one per repo)
   point at it.
-- `edges` and `indexed_commits` stay per-repo (they carry `repo_id`);
+- `edges` and `indexed_snapshots` stay per-repo (they carry `repo_id`);
   only `chunks` is shared.
 
 The tables and their keys:
@@ -232,7 +232,7 @@ The tables and their keys:
 erDiagram
     repos ||--o{ file_snapshots : "repo_id"
     repos ||--o{ edges : "repo_id"
-    repos ||--o{ indexed_commits : "repo_id"
+    repos ||--o{ indexed_snapshots : "repo_id"
     repos ||--o{ watched_refs : "repo_id"
 
     file_snapshots }o--o{ chunks : "blob_sha + file_path (content-addressed, shared)"
@@ -245,7 +245,7 @@ erDiagram
     }
     file_snapshots {
         int repo_id PK
-        text commit_sha PK
+        text snapshot_sha PK
         text file_path PK
         text blob_sha
         text detected_language
@@ -273,11 +273,11 @@ erDiagram
         text source_id PK
         text target_id PK
         text kind PK
-        text commit_sha PK
+        text snapshot_sha PK
     }
-    indexed_commits {
+    indexed_snapshots {
         int repo_id PK
-        text commit_sha PK
+        text snapshot_sha PK
         timestamp indexed_at
     }
     watched_refs {
@@ -292,15 +292,15 @@ erDiagram
 
 ### Record identity
 
-| Table             | Natural key                                                                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| `repos`           | `(id)`, `path` is unique                                                                                       |
-| `file_snapshots`  | `(repo_id, commit_sha, file_path)`                                                                             |
-| `chunks`          | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
-| `edges`           | `(repo_id, commit_sha, source_id, target_id, kind)` — the whole tuple is the key                               |
-| `indexed_commits` | `(repo_id, commit_sha)`                                                                                        |
-| `watched_refs`    | `(repo_id, ref)`                                                                                               |
-| `meta`            | `(key)`                                                                                                        |
+| Table               | Natural key                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `repos`             | `(id)`, `path` is unique                                                                                       |
+| `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                           |
+| `chunks`            | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
+| `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind)` — the whole tuple is the key                             |
+| `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                      |
+| `watched_refs`      | `(repo_id, ref)`                                                                                               |
+| `meta`              | `(key)`                                                                                                        |
 
 ### Embedding column
 
@@ -326,22 +326,22 @@ embedding (`embeddings.embed` flags it; `update_embeddings.sql`
 persists it). It is a **diagnostic flag only** — written on
 embed, never read by search, ranking, or re-embedding.
 
-### Commit resolution
+### Snapshot resolution
 
-Chunks are blob-addressed (shared across commits with the
+Chunks are blob-addressed (shared across snapshots with the
 same blob) but visible through the lens of a specific
-commit's file tree:
+snapshot's file tree:
 
 ```sql
 FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
   AND c.file_path = fs.file_path
-WHERE fs.repo_id = ? AND fs.commit_sha = ?
+WHERE fs.repo_id = ? AND fs.snapshot_sha = ?
 ```
 
 The repo scope and the result row's `repo_id` both come from
-`file_snapshots` (or `_repo_refs`), never from the chunk — the
+`file_snapshots` (or `_snapshot_refs`), never from the chunk — the
 chunk is repo-less. A chunk shared by several repos therefore
 fans out to one result row per repo via this join, preserving
 cross-repo attribution.
@@ -360,13 +360,18 @@ number of rows. The multi-vector scan below quantifies the
 win (7–32× for 3 vectors).
 
 - **Reads** register a frame and join against it:
-  `_repo_refs` (the `(repo_id, commit_sha)` snapshots a
+  `_snapshot_refs` (the `(repo_id, snapshot_sha)` snapshots a
   search spans — see [Cross-repo search](#cross-repo-search))
   and `_qvecs` (query vectors — see
   [Multi-vector semantic scan](#multi-vector-semantic-scan)).
 - **Writes** register a staging frame the upsert reads from:
   `_stg` (chunks / snapshots / edges) and `_emb_stg`
   (embeddings), via `WriteSession._bulk_insert`.
+
+The schemas behind these frames are split by direction:
+write/staging schemas live in `index/staging.py`, read-result
+schemas and the row→model transforms in `index/results.py`,
+kept independent by import-linter (a physical CQRS seam).
 
 Registration is cursor-scoped, and the store uses one
 thread-local cursor per thread (see
@@ -379,13 +384,13 @@ convention lives in the `rbtr-data` skill.
 
 ### Completion tracking
 
-`indexed_commits` records which `(repo, commit)` pairs are
+`indexed_snapshots` records which `(repo, snapshot)` pairs are
 fully indexed. The daemon watcher checks this to trigger
 builds. GC uses it to identify orphans: any
 `file_snapshots` or `edges` row without a matching
-`indexed_commits` row is orphan.
+`indexed_snapshots` row is orphan.
 
-`indexed_commits` is **completion**; `watched_refs` is
+`indexed_snapshots` is **completion**; `watched_refs` is
 **intent** (which refs to keep indexed). See
 [Watched refs](#watched-refs).
 
@@ -424,7 +429,7 @@ key: each chunk stamps the extraction serial of *its own*
 `language`. For single-language files this equals the host
 file's serial; for a multi-language file a delegated
 TypeScript chunk carries TypeScript's serial, not the host
-svelte plugin's. Its only reader is the `has_blob` dedup
+svelte plugin's. Its only reader is the `blob_is_current` dedup
 gate; see [Content-addressed chunks and blob
 dedup](#content-addressed-chunks-and-blob-dedup).
 
@@ -465,7 +470,7 @@ DaemonServer (asyncio.TaskGroup)
 `watched_refs(repo_id, ref)` is the durable record of
 **intent** — the refs the daemon keeps indexed. It is the
 single source the watcher derives builds from;
-`indexed_commits` remains the record of **completion**
+`indexed_snapshots` remains the record of **completion**
 (see [Completion tracking](#completion-tracking)).
 
 - `rbtr index` (no args) watches the default ref, `HEAD`;
@@ -478,7 +483,7 @@ single source the watcher derives builds from;
   itself and settles after one build.
 - `watcher.poll_watched` resolves every watched ref, skips
   unresolvable ones, and returns a `WatchedTarget` for any
-  whose SHA is not in `indexed_commits`, de-duplicated by
+  whose SHA is not in `indexed_snapshots`, de-duplicated by
   `(repo, sha)`.
 - On startup, `_backfill_head_watches` seeds a `HEAD` watch
   for every already-registered repo, so HEAD tracking
@@ -611,13 +616,13 @@ sockets — isn't mistaken for failure and killed mid-startup.
 ### Crash recovery
 
 **Indexing:** `WriteSession.sweep` deletes data
-for commits never `mark_indexed`. On next startup the
+for snapshots never `mark_indexed`. On next startup the
 watcher re-derives any un-indexed watched ref (HEAD is
 one) and re-triggers the build; startup also runs
 `_backfill_head_watches` (a `WriteSession` write, like
 embed recovery). The watcher itself stays read-only.
 
-**Embedding:** On startup, the daemon scans indexed commits
+**Embedding:** On startup, the daemon scans indexed snapshots
 for un-embedded chunks and sets the wake event so the
 DB-polling worker picks up the work. This handles the case
 where the daemon crashed after indexing completed but before
@@ -870,7 +875,10 @@ always-present `metadata` bag — that no caller needs and that
 adds noise and tokens to an agent's context. Handlers instead
 project to output DTOs in `rbtr.daemon.dto` (`SymbolOut`,
 `SearchHitOut`, `RefOut`): a curated, low-noise public
-contract. Empty `metadata` and null `repo_path` are omitted,
+contract. The boundary is also a vocabulary shift: the
+internal unit is a content-addressed `chunk`, but the public
+API speaks of `symbol`s (`SymbolOut`) — the term agents
+actually navigate by. Empty `metadata` and null `repo_path` are omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
@@ -922,15 +930,15 @@ Both modes run the *same* pipeline — `_retrieve` →
 `fuse_scores` → reranker → `materialise_scored`. The only
 difference is the list of refs fed in. Rather than branch
 into parallel SQL or duplicate the channel methods,
-`_retrieve` takes a `list[RepoRef]` (one
-`(repo_id, commit_sha)` per repo) and each channel query
+`_retrieve` takes a `list[SnapshotRef]` (one
+`(repo_id, snapshot_sha)` per repo) and each channel query
 joins against a cursor-registered temporary view,
-`_repo_refs(repo_id, commit_sha)`. For a workspace search
+`_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
 the view holds one row; for `scope=all` it holds one per
 repo. This mirrors the `_qvecs` register/unregister pattern
 used for multi-vector semantic scan — a single table scan
 regardless of repo count, and no scalar `repo_id`/
-`commit_sha` bind params in the search SQL.
+`snapshot_sha` bind params in the search SQL.
 
 `handle_search` builds the refs list: a one-element list
 from `_resolve_read_ref` for `workspace`, or
@@ -982,9 +990,9 @@ from, and the two cases differ on purpose:
 - An explicit ref that isn't indexed is an error — you asked
   for that ref, so we don't quietly answer from another.
 - An *implicit* ref that isn't indexed yet (a build still
-  finalising) falls back to the latest indexed commit, so a
+  finalising) falls back to the latest indexed snapshot, so a
   read returns a slightly stale answer rather than nothing. It
-  only errors when the repo has no indexed commits at all.
+  only errors when the repo has no indexed snapshots at all.
 
 `file_paths` is normalised to repo-root-relative POSIX form,
 so absolute, `./`-prefixed, and relative inputs all match the
@@ -1256,11 +1264,11 @@ tests rather than held to product-code standards.
 
 ## Garbage collection
 
-`indexed_commits` is the authority. Data without a matching
+`indexed_snapshots` is the authority. Data without a matching
 row is orphan. Both operations live on `WriteSession`:
 
-- `drop_commit` — removes all trace of a commit
-  (indexed_commits row, snapshots, edges, orphaned chunks).
+- `drop_snapshot` — removes all trace of a commit
+  (indexed_snapshots row, snapshots, edges, orphaned chunks).
 - `cleanup` — removes residue from crashed builds
   (snapshots/edges for uncommitted commits) and stale data
   (chunks not referenced by any snapshot, edges whose
@@ -1305,13 +1313,13 @@ The keep-set depends on the `GcMode`. The **default** is
 `WATCHED`: keep HEAD, every local branch / tag / note,
 **and** every resolved [watched ref](#watched-refs) (the
 current worktree tree is always protected). So a routine
-`rbtr gc` only drops genuinely unreferenced commits — it
+`rbtr gc` only drops genuinely unreferenced snapshots — it
 never discards anything a branch points at or that you
 asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
 the watch set, dropping unwatched branches/tags — the opt-in
 way to reclaim refs you no longer index. `HEAD_ONLY`,
 `KEEP`, and `ORPHANS` are the other explicit modes. If an
-aggressive mode drops a still-watched commit, the watcher
+aggressive mode drops a still-watched snapshot, the watcher
 rebuilds it on the next poll (self-healing).
 
 GC is **per-repo by default**; `rbtr gc --all-repos` reclaims across
@@ -1319,7 +1327,7 @@ GC is **per-repo by default**; `rbtr gc --all-repos` reclaims across
 `run_gc_all` loops `run_gc` over `list_repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
 Global GC is **restricted to the default `WATCHED` reclamation** — it
-only drops genuinely-unreferenced commits, never aggressively across
+only drops genuinely-unreferenced snapshots, never aggressively across
 the whole index, and `KEEP` refs are repo-specific anyway; `handle_gc`
 rejects a global request in any other mode. A repo whose path no longer
 resolves (a removed worktree/clone) is **skipped** — never an error, and
@@ -1328,7 +1336,7 @@ The chunk sweep is global on *every* gc, so even a single-repo `rbtr gc`
 frees chunks no other repo references.
 
 **Forgetting a repo** removes it entirely from the index — its
-`watched_refs`, `indexed_commits`, `file_snapshots`, `edges`, and the
+`watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the
 `repos` row, in one transaction (`WriteSession.forget_repo`). It is
 **metadata-only**: it deliberately does not sweep chunks, so it reports
 no statistics; the now-orphaned chunks are reclaimed by the next GC (or
@@ -1377,7 +1385,7 @@ unstaged, untracked, deleted). Properties:
   directly — the same code path as commit trees.
 
 Tree SHAs never collide with commit SHAs (different git
-object types), so they coexist safely in `indexed_commits`.
+object types), so they coexist safely in `indexed_snapshots`.
 
 ### What a worktree build writes
 
@@ -1386,7 +1394,7 @@ same schema as commits — no sentinel, no special columns.
 
 When a worktree build runs, the store receives:
 
-- **`file_snapshots`** with `commit_sha = <tree_sha>`.
+- **`file_snapshots`** with `snapshot_sha = <tree_sha>`.
   One row per file in the working tree. Each row's
   `blob_sha` is the git blob hash written by `add_all()`
   (dirty files) or the committed blob SHA (clean files).
@@ -1395,11 +1403,11 @@ When a worktree build runs, the store receives:
   `blob_sha`, a dirty file produces different chunk IDs from the
   committed version of the same file, even when symbol name and
   position are identical.
-- **`edges`** with `commit_sha = <tree_sha>`.
-- **`indexed_commits`** with `commit_sha = <tree_sha>`.
+- **`edges`** with `snapshot_sha = <tree_sha>`.
+- **`indexed_snapshots`** with `snapshot_sha = <tree_sha>`.
 
 Queries scope results through `file_snapshots` exactly as for
-commits ([Commit resolution](#commit-resolution)) — the join is
+commits ([Snapshot resolution](#snapshot-resolution)) — the join is
 on `blob_sha + file_path`, with the repo scope coming from the
 snapshot, never the chunk:
 
@@ -1408,10 +1416,10 @@ FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
   AND c.file_path = fs.file_path
-WHERE fs.repo_id = $repo_id AND fs.commit_sha = $commit_sha
+WHERE fs.repo_id = $repo_id AND fs.snapshot_sha = $snapshot_sha
 ```
 
-When `$commit_sha` is a tree SHA, the join resolves to
+When `$snapshot_sha` is a tree SHA, the join resolves to
 the working-tree snapshots. When it's a commit SHA, the
 join resolves to committed blobs. The same chunk row can
 be visible through both paths if the file hasn't changed.
@@ -1423,7 +1431,7 @@ be visible through both paths if the file hasn't changed.
 - **Chunks for clean files.** A file that hasn't changed
   has the same `blob_sha` in both HEAD and worktree
   snapshots. The `file_snapshots` rows differ (different
-  `commit_sha`) but point at the same chunks. No chunk
+  `snapshot_sha`) but point at the same chunks. No chunk
   rows are duplicated.
 - **Embeddings.** Since clean files share chunk rows,
   their embeddings are shared too. A dirty file's new
@@ -1436,7 +1444,7 @@ be visible through both paths if the file hasn't changed.
   `replace_snapshots` deletes old snapshots for that SHA
   and inserts the current set.
 - **`edges`** — one full set per tree SHA.
-- **`indexed_commits`** — one row per tree SHA.
+- **`indexed_snapshots`** — one row per tree SHA.
 
 **New content-addressed rows (per dirty blob, not per repo):**
 
@@ -1456,14 +1464,14 @@ same four-phase pipeline as a commit build:
 1. **Extract** — `list_files(repo_path, tree_sha)` walks
    the tree object directly (same as commit trees). Each
    file gets a `FileEntry` with `blob_sha` from the tree.
-   The `has_blob` gate skips files whose blob SHA already
+   The `blob_is_current` gate skips files whose blob SHA already
    has chunks in the store.
 2. **Edges** — inferred from the worktree's chunk set.
 3. **Finalise** — `mark_indexed(repo_id, tree_sha)`,
    cleanup orphans.
 4. **Embed** — deferred, same as commits.
 
-Because `has_blob` works on content identity (blob SHA),
+Because `blob_is_current` works on content identity (blob SHA),
 a rebuild where nothing changed skips all files.
 
 ### Staleness detection
@@ -1481,7 +1489,7 @@ The daemon's watcher drives the worktree lifecycle. On
 each poll cycle:
 
 - `poll_watched()` resolves each watched ref (HEAD is the
-  default) and checks `indexed_commits`.
+  default) and checks `indexed_snapshots`.
 - `poll_worktree()` computes `worktree_tree_sha` and
   checks `has_indexed`. Read-only — never writes.
 
@@ -1497,7 +1505,7 @@ poll_worktree → worktree_tree_sha = tree_A (≠ HEAD tree)
 _find_next_job → BuildJob(refs=(tree_A,))
 build_index(tree_A):
   list_files(tree_A) → walks tree object
-  foo.py: dirty blob_sha → has_blob miss → extract
+  foo.py: dirty blob_sha → blob_is_current miss → extract
   other files: same blob_sha as HEAD → skip
   replace_snapshots(tree_A), replace_edges(tree_A)
   mark_indexed(tree_A)
@@ -1520,8 +1528,8 @@ build_index(tree_B):
   mark_indexed(tree_B)
 
 _drop_stale_worktree_shas:
-  filter_tree_shas finds tree_A → drop_commit(tree_A)
-  → deletes tree_A's snapshots, edges, indexed_commits row
+  filter_tree_shas finds tree_A → drop_snapshot(tree_A)
+  → deletes tree_A's snapshots, edges, indexed_snapshots row
   → cleanup() sweeps orphaned chunks
 ```
 
@@ -1557,7 +1565,7 @@ Store: only def456 indexed.
 State: tree_A indexed. User runs `git checkout .`.
 
 poll_worktree → worktree_tree_sha = None → skip.
-tree_A row lingers in indexed_commits but is inert:
+tree_A row lingers in indexed_snapshots but is inert:
   _resolve_read_ref(None) computes worktree_tree_sha (None)
   → falls back to HEAD.
 
@@ -1589,7 +1597,7 @@ If clean: nothing.
    `WriteSession` on the job worker thread.
 3. **Stale tree SHAs are cleaned eagerly.** After each
    build, `_drop_stale_worktree_shas` scans
-   `indexed_commits` and drops any tree-type SHA that
+   `indexed_snapshots` and drops any tree-type SHA that
    isn't the one just built.
 4. **GC protects the current tree SHA.** `_resolve_drop_set`
    calls `worktree_tree_sha` and excludes it. Stale tree

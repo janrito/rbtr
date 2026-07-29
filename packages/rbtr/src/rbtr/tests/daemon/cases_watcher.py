@@ -71,7 +71,7 @@ def case_empty_store() -> WatcherScenario:
 
 
 def case_head_already_indexed() -> WatcherScenario:
-    """Watched HEAD is recorded in `indexed_commits`."""
+    """Watched HEAD is recorded in `indexed_snapshots`."""
     return WatcherScenario(
         repos=[RepoSpec(name="r")],
         indexed_at={"r": 0},
@@ -109,7 +109,7 @@ def case_bare_sha_one_shot() -> WatcherScenario:
 
 
 def case_head_never_indexed() -> WatcherScenario:
-    """Watched HEAD with no `indexed_commits` row at all."""
+    """Watched HEAD with no `indexed_snapshots` row at all."""
     return WatcherScenario(
         repos=[RepoSpec(name="r")],
         watched={"r": ["HEAD"]},
