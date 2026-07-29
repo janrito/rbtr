@@ -16,7 +16,7 @@ import pytest
 
 from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, TokenisedChunk
 from rbtr.errors import RbtrError
-from rbtr.git import worktree_tree_sha
+from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.store import IndexStore
 
@@ -25,10 +25,15 @@ from .conftest import make_chunk, make_snap
 
 @dataclass(frozen=True)
 class GcFixture:
-    """A real git repo, an in-memory store, and the three SHAs indexed."""
+    """A real git repo, an in-memory store, and the three SHAs indexed.
+
+    `repo_path` is the canonical root the repo is *registered* under, so
+    it and `repo_id` always denote the same repo.
+    """
 
     repo: pygit2.Repository
     store: IndexStore
+    repo_path: str
     repo_id: int
     c1: str  # first commit on main, tagged as v1
     c2: str  # middle commit, no longer reachable by any named ref
@@ -77,8 +82,9 @@ def gc(
     """Index all three commits into a fresh in-memory store."""
     repo, c1, c2, c3 = gc_repo
     store = IndexStore(writable=True)
+    repo_path = normalise_repo_path(repo.workdir)
     with store.session() as ws:
-        repo_id = ws.register_repo("/repo")
+        repo_id = ws.register_repo(repo_path)
     for i, sha in enumerate((c1, c2, c3)):
         chunk = TokenisedChunk(
             id=f"c{i}",
@@ -97,7 +103,9 @@ def gc(
                 repo_id=repo_id,
             )
             ws.mark_indexed(repo_id, sha)
-    yield GcFixture(repo=repo, store=store, repo_id=repo_id, c1=c1, c2=c2, c3=c3)
+    yield GcFixture(
+        repo=repo, store=store, repo_path=repo_path, repo_id=repo_id, c1=c1, c2=c2, c3=c3
+    )
     store.close()
 
 
@@ -105,9 +113,7 @@ def gc(
 
 
 def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.snapshots == 2  # c1 and c2 dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
@@ -121,9 +127,7 @@ def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
     """Keeps HEAD plus every watched ref — branch/tag and bare SHA alike."""
     with gc.store.session() as ws:
         ws.add_watched_refs(gc.repo_id, ["v1", gc.c2])  # a tag and a bare SHA
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)
     assert counts.snapshots == 0
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # watched tag v1
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True  # watched bare SHA
@@ -133,9 +137,7 @@ def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
 def test_watched_keeps_all_branches_drops_unreferenced(gc: GcFixture) -> None:
     """With no watched refs, WATCHED still keeps HEAD + branches/tags;
     only the genuinely unreferenced commit is dropped."""
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)
     assert counts.snapshots == 1  # only c2 (unreachable) dropped
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True  # tag v1 kept
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
@@ -145,9 +147,7 @@ def test_watched_keeps_all_branches_drops_unreferenced(gc: GcFixture) -> None:
 def test_watched_only_drops_unwatched_branches_and_tags(gc: GcFixture) -> None:
     """WATCHED_ONLY keeps only HEAD + watched refs; an unwatched tag/branch
     is dropped (unlike the default which keeps all branches/tags)."""
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
     assert counts.snapshots == 2  # c1 (tag v1) and c2 dropped; only HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
@@ -159,9 +159,7 @@ def test_watched_only_drops_unwatched_branches_and_tags(gc: GcFixture) -> None:
 
 def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
     # Keep v1 (c1). HEAD (c3) is kept implicitly.
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.KEEP, refs=["v1"], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.KEEP, refs=["v1"], dry_run=False)
     assert counts.snapshots == 1
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
@@ -169,7 +167,7 @@ def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
 
 
 def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
-    run_gc(gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.KEEP, refs=[], dry_run=False)
+    run_gc(gc.store, gc.repo_path, mode=GcMode.KEEP, refs=[], dry_run=False)
     assert gc.store.has_indexed(gc.repo_id, gc.c3) is True  # HEAD kept
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is False
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is False
@@ -179,9 +177,7 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
 
 
 def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     assert counts.snapshots == 0
     assert gc.store.has_indexed(gc.repo_id, gc.c1) is True
     assert gc.store.has_indexed(gc.repo_id, gc.c2) is True
@@ -195,7 +191,7 @@ def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
             [FileSnapshot(snapshot_sha="crashed", file_path="x.py", blob_sha="bx")],
             repo_id=gc.repo_id,
         )
-    run_gc(gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.ORPHANS, refs=[], dry_run=False)
+    run_gc(gc.store, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     # Orphan snapshot is gone (swept on session entry or by GC).
     assert gc.store.count_file_snapshots(gc.repo_id, "crashed") == 0
     # Completed commits untouched.
@@ -206,9 +202,7 @@ def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
 
 
 def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True)
     assert counts.snapshots == 2
     # Dry-run predicts the drop set's freed chunks (read-only graph query):
     # both dropped commits' chunks are unshared, so both are freed.
@@ -234,9 +228,7 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
         )
         ws.mark_indexed(other, "other_head")
 
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.chunks == 1  # only c2's unshared chunk freed
     assert gc.store.count_chunks("other_head", repo_id=other) > 0  # shared chunk survives
 
@@ -251,9 +243,7 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
         ws.add_chunk(make_chunk("orphan", path="z.py", blob="b_orphan"))
     assert gc.store.count_orphan_chunks() == 1
 
-    counts = run_gc(
-        gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.WATCHED, refs=[], dry_run=False
-    )
+    counts = run_gc(gc.store, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)
 
     assert counts.snapshots == 0  # nothing dropped
     assert counts.chunks == 1  # the orphan was reclaimed AND reported
@@ -267,8 +257,7 @@ def test_unknown_ref_in_keep_raises(gc: GcFixture) -> None:
     with pytest.raises(RbtrError, match="nosuchref"):
         run_gc(
             gc.store,
-            gc.repo.workdir,
-            gc.repo_id,
+            gc.repo_path,
             mode=GcMode.KEEP,
             refs=["nosuchref"],
             dry_run=False,
@@ -280,7 +269,7 @@ def test_unknown_ref_in_keep_raises(gc: GcFixture) -> None:
 
 def test_search_works_after_gc(gc: GcFixture) -> None:
     """FTS and get_chunks still work after GC drops commits."""
-    run_gc(gc.store, gc.repo.workdir, gc.repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+    run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
     # HEAD (c3) survives — its chunks are still queryable.
     chunks = gc.store.get_chunks(gc.c3, repo_id=gc.repo_id)
@@ -301,17 +290,16 @@ def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
     tree_sha = worktree_tree_sha(gc.repo.workdir)
     assert tree_sha is not None
 
-    # Re-register with real path and index the tree SHA.
+    # Index HEAD and the tree SHA.
     with gc.store.session() as ws:
-        repo_id = ws.register_repo(gc.repo.workdir)
-        ws.mark_indexed(repo_id, gc.c3)  # HEAD
-        ws.mark_indexed(repo_id, tree_sha)
+        ws.mark_indexed(gc.repo_id, gc.c3)  # HEAD
+        ws.mark_indexed(gc.repo_id, tree_sha)
 
-    run_gc(gc.store, gc.repo.workdir, repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+    run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
     # HEAD and current tree SHA both preserved.
-    assert gc.store.has_indexed(repo_id, gc.c3) is True
-    assert gc.store.has_indexed(repo_id, tree_sha) is True
+    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
+    assert gc.store.has_indexed(gc.repo_id, tree_sha) is True
 
 
 def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
@@ -329,30 +317,30 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
     assert current_sha is not None
     assert stale_sha != current_sha
 
-    # Register and index both.
+    # Index all three.
     with gc.store.session() as ws:
-        repo_id = ws.register_repo(gc.repo.workdir)
-        ws.mark_indexed(repo_id, gc.c3)  # HEAD
-        ws.mark_indexed(repo_id, stale_sha)
-        ws.mark_indexed(repo_id, current_sha)
+        ws.mark_indexed(gc.repo_id, gc.c3)  # HEAD
+        ws.mark_indexed(gc.repo_id, stale_sha)
+        ws.mark_indexed(gc.repo_id, current_sha)
 
-    run_gc(gc.store, gc.repo.workdir, repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+    run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
     # HEAD and current tree SHA preserved; stale dropped.
-    assert gc.store.has_indexed(repo_id, gc.c3) is True
-    assert gc.store.has_indexed(repo_id, current_sha) is True
-    assert gc.store.has_indexed(repo_id, stale_sha) is False
+    assert gc.store.has_indexed(gc.repo_id, gc.c3) is True
+    assert gc.store.has_indexed(gc.repo_id, current_sha) is True
+    assert gc.store.has_indexed(gc.repo_id, stale_sha) is False
 
 
 def test_gc_unborn_head_raises(tmp_path: Path) -> None:
     """GC on a repo with no commits (unborn HEAD) raises RbtrError."""
-    repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
+    pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
+    repo_path = normalise_repo_path(str(tmp_path / "empty"))
     store = IndexStore(writable=True)
     with store.session() as ws:
-        repo_id = ws.register_repo("/empty")
+        ws.register_repo(repo_path)
 
     with pytest.raises(RbtrError, match="no commits"):
-        run_gc(store, repo.workdir, repo_id, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+        run_gc(store, repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     store.close()
 
 

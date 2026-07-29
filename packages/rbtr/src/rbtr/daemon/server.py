@@ -312,7 +312,6 @@ class DaemonServer:
                 job.repo_path,
                 sha,
                 store,
-                repo_id=repo_id,
                 on_progress=_progress_callback(push, job.repo_path),
             )
             total = store.count_chunks(sha, repo_id=repo_id)

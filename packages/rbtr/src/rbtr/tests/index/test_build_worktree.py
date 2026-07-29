@@ -68,7 +68,7 @@ def test_build_worktree_creates_chunks(
     worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
 ) -> None:
     repo, _ = worktree_repo
-    result = build_index(repo.workdir, wt_sha, store, repo_id=1)
+    result = build_index(repo.workdir, wt_sha, store)
     assert result.stats.total_chunks > 0
 
 
@@ -79,8 +79,8 @@ def test_build_worktree_blob_dedup(
     repo, head_sha = worktree_repo
 
     # Build HEAD first, then worktree.
-    r1 = build_index(repo.workdir, head_sha, store, repo_id=1)
-    wt = build_index(repo.workdir, wt_sha, store, repo_id=1)
+    r1 = build_index(repo.workdir, head_sha, store)
+    wt = build_index(repo.workdir, wt_sha, store)
 
     # Files unchanged between HEAD and worktree (e.g. models.py,
     # main.py, README.md) share blobs, so fewer files are parsed
@@ -93,7 +93,7 @@ def test_build_worktree_modified_visible(
 ) -> None:
     """Modified file content appears in worktree chunks."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
 
     chunks = store.get_chunks(wt_sha, repo_id=1)
     helper_chunks = [c for c in chunks if c.name == "helper"]
@@ -106,7 +106,7 @@ def test_build_worktree_added_file(
 ) -> None:
     """New working-tree file appears in worktree index."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
 
     chunks = store.get_chunks(wt_sha, repo_id=1)
     service_chunks = [c for c in chunks if c.file_path == "src/service.py"]
@@ -118,7 +118,7 @@ def test_build_worktree_deleted_file(
 ) -> None:
     """Deleted working-tree file is absent from worktree index."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
 
     chunks = store.get_chunks(wt_sha, repo_id=1)
     test_chunks = [c for c in chunks if c.file_path == "tests/test_utils.py"]
@@ -130,7 +130,7 @@ def test_build_worktree_edges(
 ) -> None:
     """Worktree build infers edges (import relationships)."""
     repo, _ = worktree_repo
-    result = build_index(repo.workdir, wt_sha, store, repo_id=1)
+    result = build_index(repo.workdir, wt_sha, store)
     assert result.stats.total_edges > 0
 
 
@@ -139,7 +139,7 @@ def test_build_worktree_marks_indexed(
 ) -> None:
     """Tree SHA appears in `list_indexed_snapshots` after build."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
 
     indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id=1)]
     assert wt_sha in indexed
@@ -153,7 +153,7 @@ def test_search_returns_worktree_content(
 ) -> None:
     """FTS search against tree SHA finds the modified content."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
 
     results = store.search([SnapshotRef(repo_id=1, snapshot_sha=wt_sha)], "helper")
     helpers = [r for r in results if r.name == "helper"]
@@ -167,8 +167,8 @@ def test_head_still_visible_after_worktree_build(
     """HEAD index is not clobbered by the worktree build."""
     repo, head_sha = worktree_repo
 
-    build_index(repo.workdir, head_sha, store, repo_id=1)
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, head_sha, store)
+    build_index(repo.workdir, wt_sha, store)
 
     # HEAD still has the original helper() returning 42.
     head_chunks = store.get_chunks(head_sha, repo_id=1)
@@ -190,8 +190,8 @@ def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, store: I
     # Clean tree: worktree_tree_sha returns None, so we use HEAD's tree directly.
     head_tree_sha = str(git_repo.head.peel(pygit2.Tree).id)
 
-    build_index(git_repo.workdir, head_sha, store, repo_id=1)
-    build_index(git_repo.workdir, head_tree_sha, store, repo_id=1)
+    build_index(git_repo.workdir, head_sha, store)
+    build_index(git_repo.workdir, head_tree_sha, store)
 
     head_chunks = store.get_chunks(head_sha, repo_id=1)
     wt_chunks = store.get_chunks(head_tree_sha, repo_id=1)
@@ -212,7 +212,7 @@ def test_rebuild_worktree_reflects_new_edits(
     repo, _ = worktree_repo
 
     # First build: helper() returns 99.
-    build_index(repo.workdir, wt_sha, store, repo_id=1)
+    build_index(repo.workdir, wt_sha, store)
     chunks_v1 = store.get_chunks(wt_sha, repo_id=1)
     helpers_v1 = [c for c in chunks_v1 if c.name == "helper"]
     assert "99" in helpers_v1[0].content
@@ -234,7 +234,7 @@ def format_name(name):
     assert wt_sha != tree_sha_v2
 
     # Rebuild picks up the new content.
-    build_index(repo.workdir, tree_sha_v2, store, repo_id=1)
+    build_index(repo.workdir, tree_sha_v2, store)
     chunks_v2 = store.get_chunks(tree_sha_v2, repo_id=1)
     helpers_v2 = [c for c in chunks_v2 if c.name == "helper"]
     assert len(helpers_v2) == 1
@@ -261,7 +261,7 @@ def test_build_worktree_file_unreadable_mid_walk(
     utils.symlink_to("/nonexistent/target")
 
     # Build should complete — the tree object has the blob.
-    result = build_index(repo.workdir, wt_sha, store, repo_id=1)
+    result = build_index(repo.workdir, wt_sha, store)
     assert result.stats.total_chunks > 0
 
     # utils.py IS present because its blob was written to the object

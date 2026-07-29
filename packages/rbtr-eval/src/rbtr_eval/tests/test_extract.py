@@ -70,7 +70,7 @@ def mixed_kind_index(tmp_path: Path) -> tuple[IndexStore, int, str]:
     with store.session() as ws:
         repo_id = ws.register_repo(str(repo_path.resolve()))
     head = str(repo.head.target)
-    build_index(repo.workdir, head, store, repo_id=repo_id)
+    build_index(repo.workdir, head, store)
     return store, repo_id, head
 
 

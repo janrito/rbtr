@@ -31,7 +31,7 @@ from rbtr.domain.models import (
     TokenisedChunk,
 )
 from rbtr.domain.tokenise import tokenise_code
-from rbtr.git import changed_files, list_files
+from rbtr.git import changed_files, list_files, normalise_repo_path
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.store import IndexStore
 from rbtr.languages.chunks import detect_prose_format
@@ -238,7 +238,6 @@ def build_index(
     snapshot_sha: str,
     store: IndexStore,
     *,
-    repo_id: int,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
 ) -> IndexResult:
@@ -249,11 +248,25 @@ def build_index(
     queryable via FTS/name/edges immediately — embedding is
     handled separately by `embed_index`.
 
+    *repo_path* may be any path inside the repository; it is resolved
+    to the root and registered if not already known, since indexing a
+    path is what puts a repo in the index.  The `repo_id` comes from
+    that lookup rather than from the caller, so it always matches the
+    path being built.  A linked worktree resolves to its own
+    directory, and so is built as a repo of its own.
+
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are considered for extraction.
     Unchanged files are skipped without checking `blob_is_current`.
     """
     t0 = time.monotonic()
+
+    # Register before writing anything that refers to the repo, so a
+    # crash part-way through leaves an unused repos row rather than
+    # indexed rows that nothing can find.
+    repo_path = normalise_repo_path(repo_path)
+    with store.session() as session:
+        repo_id = session.register_repo(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
     result, repo_files = _extract_and_store_chunks(

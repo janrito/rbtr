@@ -241,6 +241,9 @@ class WriteSession:
         """Register a repo path and return its integer ID.
 
         Idempotent — returns the existing ID if already registered.
+        *path* must be canonical, since it is what identifies the repo:
+        two spellings of one checkout would become two repos.  Pass it
+        through `normalise_repo_path` first, as `build_index` does.
         """
         self._require_active()
         existing = self._store.get_repo_id(path)
