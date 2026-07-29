@@ -29,7 +29,7 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import WeightTriple, config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.index.models import QueryKind
+from rbtr.domain.models import QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table

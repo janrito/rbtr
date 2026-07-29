@@ -27,7 +27,6 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
-    GcMode,
     GcRequest,
     GcResponse,
     IndexErrorNotification,
@@ -50,6 +49,7 @@ from rbtr.daemon.messages import (
     request_adapter,
     response_adapter,
 )
+from rbtr.domain.models import GcMode
 
 
 @dataclass(frozen=True)

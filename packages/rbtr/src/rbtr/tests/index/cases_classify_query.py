@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pytest_cases import case, parametrize
 
-from rbtr.index.models import QueryKind
+from rbtr.domain.models import QueryKind
 
 # ── IDENTIFIER (correctly classified) ────────────────────────────────
 

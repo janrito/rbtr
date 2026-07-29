@@ -7,7 +7,7 @@ import functools
 import pytest
 from tree_sitter import Node
 
-from rbtr.index.models import ImportMeta
+from rbtr.domain.models import ImportMeta
 from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
 from rbtr.languages.registration import (
     ImportResolver,

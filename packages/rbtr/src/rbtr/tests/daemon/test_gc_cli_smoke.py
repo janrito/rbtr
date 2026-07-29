@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.index.models import ChunkKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 

@@ -15,9 +15,9 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.index.models import ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 from rbtr.tests.conftest import run_cli
 
 # ── Fixtures ─────────────────────────────────────────────────────────

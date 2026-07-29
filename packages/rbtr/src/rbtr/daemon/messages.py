@@ -35,7 +35,7 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.index.models import ChangeKind, IndexStats, QueryKind
+from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -302,16 +302,6 @@ class DaemonConfigRequest(BaseModel):
 
     model_config = _STRICT
     kind: Literal["daemon_config"] = "daemon_config"
-
-
-class GcMode(StrEnum):
-    """What a `rbtr gc` invocation is allowed to delete."""
-
-    HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
-    KEEP = "keep"  # keep only listed refs
-    ORPHANS = "orphans"  # sweep residue only, drop no commits
-    WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
-    WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
 
 
 class GcRequest(BaseModel):

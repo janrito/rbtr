@@ -22,7 +22,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 from rbtr.index.store import IndexStore
 from rbtr_eval.paraphrase import (
     SymbolContext,

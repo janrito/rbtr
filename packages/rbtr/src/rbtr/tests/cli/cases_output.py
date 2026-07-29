@@ -21,7 +21,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     WatchedRef,
 )
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 
 
 @dataclass(frozen=True)

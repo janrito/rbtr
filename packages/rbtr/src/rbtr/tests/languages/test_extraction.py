@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+from rbtr.domain.models import ChunkKind
 from rbtr.git import FileEntry
-from rbtr.index.models import ChunkKind
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction

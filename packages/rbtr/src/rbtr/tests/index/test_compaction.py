@@ -20,7 +20,8 @@ from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.daemon.handlers import handle_gc
-from rbtr.daemon.messages import GcMode, GcRequest, GcResponse
+from rbtr.daemon.messages import GcRequest, GcResponse
+from rbtr.domain.models import GcMode
 from rbtr.git import head_sha
 from rbtr.index.store import IndexStore
 

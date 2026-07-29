@@ -22,6 +22,8 @@ import polars as pl
 import structlog
 
 from rbtr.config import WeightTriple, config
+from rbtr.domain.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.classify import classify_query
 from rbtr.index.frames import (
     _EMBEDDING_SENTINEL,
@@ -32,12 +34,10 @@ from rbtr.index.frames import (
     FusionInputRow,
     ScoredChunkResultRow,
 )
-from rbtr.index.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
-from rbtr.index.tokenise import tokenise_code
 
 if TYPE_CHECKING:
+    from rbtr.domain.models import RepoRef
     from rbtr.index.embeddings import Embedder
-    from rbtr.index.models import RepoRef
     from rbtr.index.reranker import Reranker
     from rbtr.index.store import IndexStore
 

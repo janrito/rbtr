@@ -14,11 +14,10 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.daemon.messages import GcMode
+from rbtr.domain.models import ChunkKind, GcMode, Snapshot, TokenisedChunk
 from rbtr.errors import RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.gc import run_gc, run_gc_all
-from rbtr.index.models import ChunkKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk, make_snap

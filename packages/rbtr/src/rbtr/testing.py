@@ -2,7 +2,7 @@
 
 Two things a test suite (in- or out-of-tree) can't easily re-derive: a
 pydantic-aware snapshot serialiser and a readable edge renderer, both keyed
-off `rbtr.index.models`. Everything else — running extraction, loading
+off `rbtr.domain.models`. Everything else — running extraction, loading
 samples — is plain setup that belongs in each suite's own fixtures, calling
 `rbtr.languages.extract.extract_file` directly.
 
@@ -25,7 +25,7 @@ import pytest
 from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
-from rbtr.index.models import Chunk, Edge
+from rbtr.domain.models import Chunk, Edge
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion

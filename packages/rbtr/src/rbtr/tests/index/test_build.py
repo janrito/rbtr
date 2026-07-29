@@ -10,7 +10,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.index.models import ChunkKind, EdgeKind, IndexResult, Snapshot
+from rbtr.domain.models import ChunkKind, EdgeKind, IndexResult, Snapshot
 from rbtr.index.orchestrator import build_index
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager

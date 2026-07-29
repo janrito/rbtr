@@ -28,10 +28,10 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.models import Edge, GcCounts, Snapshot, TokenisedChunk
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.frames import chunks_frame, edges_frame, embeddings_frame, snapshots_frame
-from rbtr.index.models import Edge, GcCounts, Snapshot, TokenisedChunk
 
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser, QueryCursor
 
+from rbtr.domain.models import Chunk
 from rbtr.git import FileEntry
-from rbtr.index.models import Chunk
 from rbtr.languages.chunks import chunk_plaintext, host_presence_chunk
 from rbtr.languages.manager import LanguageManager, get_manager
 from rbtr.languages.registration import ChunkExtraction, QueryExtraction

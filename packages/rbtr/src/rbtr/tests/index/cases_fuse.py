@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 
 from .cases_common import ChunkSpec
 

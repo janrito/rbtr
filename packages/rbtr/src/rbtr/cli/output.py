@@ -44,7 +44,7 @@ from rbtr.daemon.messages import (
     WatchedRef,
 )
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.index.models import ChangeKind
+from rbtr.domain.models import ChangeKind
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich
 # style per change kind, and the added→modified→removed order.

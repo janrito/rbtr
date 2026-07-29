@@ -12,8 +12,8 @@ import pytest
 
 from rbtr.daemon.handlers import handle_changed_symbols
 from rbtr.daemon.messages import ChangedSymbolsRequest
+from rbtr.domain.models import ChangeKind
 from rbtr.errors import RbtrError
-from rbtr.index.models import ChangeKind
 from rbtr.index.store import IndexStore
 
 

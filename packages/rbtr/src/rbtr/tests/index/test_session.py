@@ -12,8 +12,8 @@ from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
+from rbtr.domain.models import Edge, EdgeKind, Snapshot, TokenisedChunk
 from rbtr.errors import RbtrError
-from rbtr.index.models import Edge, EdgeKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_store_repos import RepoSequence

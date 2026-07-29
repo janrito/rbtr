@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from functools import cache
 
-from rbtr.index.models import QueryKind
+from rbtr.domain.models import QueryKind
 from rbtr.languages.manager import get_manager
 
 _CONCEPT_MIN_WORDS = 3

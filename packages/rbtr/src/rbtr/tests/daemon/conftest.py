@@ -20,7 +20,7 @@ import pygit2
 import pytest
 
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.models import ChunkKind, Edge, EdgeKind, Snapshot
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Snapshot
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk

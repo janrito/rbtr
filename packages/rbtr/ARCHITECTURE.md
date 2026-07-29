@@ -1209,8 +1209,8 @@ distribution:
   as their wrap `resolver` argument and delegate to it, so plugins never
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
-- `rbtr.index.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
-- `rbtr.index.identity.make_chunk_id`.
+- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
+- `rbtr.domain.identity.make_chunk_id`.
 - `rbtr.languages.chunks.chunk_plaintext`.
 
 One dependency crosses *between* plugins rather than to core:

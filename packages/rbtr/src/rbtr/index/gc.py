@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import structlog
 
-from rbtr.daemon.messages import GcMode
+from rbtr.domain.models import GcCounts, GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import (
     head_sha,
@@ -44,7 +44,6 @@ from rbtr.git import (
     resolve_refs_to_shas,
     worktree_tree_sha,
 )
-from rbtr.index.models import GcCounts
 from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)

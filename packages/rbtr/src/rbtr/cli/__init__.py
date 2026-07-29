@@ -74,7 +74,6 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
-    GcMode,
     GcRequest,
     GcResponse,
     ListSymbolsRequest,
@@ -91,6 +90,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
+from rbtr.domain.models import GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.embeddings import Embedder

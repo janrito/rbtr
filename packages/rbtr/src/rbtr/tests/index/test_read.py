@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.models import ChunkKind, Edge, EdgeKind
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind
 from rbtr.index.store import IndexStore
 
 from .cases_read import ChunkQueryScenario, GcCountScenario, HasBlobScenario

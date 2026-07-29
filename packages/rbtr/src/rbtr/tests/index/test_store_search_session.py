@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.models import ChunkKind, Edge, EdgeKind, RepoRef
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, RepoRef
 from rbtr.index.store import IndexStore
 
 from .cases_search import SearchScenario

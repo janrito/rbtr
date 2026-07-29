@@ -7,9 +7,9 @@ from collections.abc import Generator
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.models import Snapshot
+from rbtr.domain.models import Snapshot
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 
 from .cases_tokenise_keywords import KeywordScenario
 from .conftest import make_chunk

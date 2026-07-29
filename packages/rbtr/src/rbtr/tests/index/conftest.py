@@ -20,9 +20,9 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.index.models import Chunk, ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
-from rbtr.index.tokenise import tokenise_code
 
 # ═════════════════════════════════════════════════════════════════════
 # Builders (no side effects, no hidden state)

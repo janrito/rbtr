@@ -36,7 +36,6 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
-    GcMode,
     GcRequest,
     GcResponse,
     IndexedRef,
@@ -53,6 +52,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     WatchedRef,
 )
+from rbtr.domain.models import Chunk, GcMode, QueryKind, RepoRef
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import (
     HEAD_REF,
@@ -64,7 +64,6 @@ from rbtr.git import (
 )
 from rbtr.index.frames import changed_to_symbols
 from rbtr.index.gc import run_gc, run_gc_all
-from rbtr.index.models import Chunk, QueryKind, RepoRef
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:

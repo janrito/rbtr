@@ -56,7 +56,7 @@ skill's `Schema.column.name` recommendation.
 ## Reuse the library's enum
 
 When a column has a finite domain and the library already ships
-a string enum (e.g. `rbtr.index.models.ChunkKind`), use it
+a string enum (e.g. `rbtr.domain.models.ChunkKind`), use it
 directly. In a `dy.Enum`, feed values via genexp:
 
 ```python

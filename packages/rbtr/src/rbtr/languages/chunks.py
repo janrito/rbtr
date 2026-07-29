@@ -14,8 +14,8 @@ import re
 from collections.abc import Iterator
 
 from rbtr.config import config
-from rbtr.index.identity import make_chunk_id
-from rbtr.index.models import Chunk, ChunkKind
+from rbtr.domain.identity import make_chunk_id
+from rbtr.domain.models import Chunk, ChunkKind
 
 # ── Prose format detection ─────────────────────────────────────────
 

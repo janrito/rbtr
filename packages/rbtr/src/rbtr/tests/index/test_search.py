@@ -9,7 +9,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 from rbtr.index.search import (
     _file_category_penalty_expr,
     _importance_expr,

@@ -10,7 +10,7 @@ concerns only *which target chunks* the harness generates queries for.
 
 from __future__ import annotations
 
-from rbtr.index.models import ChunkKind
+from rbtr.domain.models import ChunkKind
 
 # No queries are generated for imports: an import references a symbol
 # defined elsewhere, so the thing worth finding is the definition, not

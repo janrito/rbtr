@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.index.models import Edge, EdgeKind, Snapshot, TokenisedChunk
+from rbtr.domain.models import Edge, EdgeKind, Snapshot, TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk

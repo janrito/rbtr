@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.index.models import ImportMeta
+from rbtr.domain.models import ImportMeta
 
 if TYPE_CHECKING:
     from tree_sitter import Node
