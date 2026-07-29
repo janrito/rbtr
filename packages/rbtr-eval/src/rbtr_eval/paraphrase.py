@@ -34,7 +34,7 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import CODE_KINDS, ChunkKind
 from rbtr.git import read_head
-from rbtr.index.frames import ChunkContentRow
+from rbtr.index.results import ChunkContentRow
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.schemas import ConceptQuery, QueryRow

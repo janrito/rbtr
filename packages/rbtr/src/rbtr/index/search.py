@@ -25,7 +25,7 @@ from rbtr.config import WeightTriple, config
 from rbtr.domain.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.classify import classify_query
-from rbtr.index.frames import (
+from rbtr.index.results import (
     _EMBEDDING_SENTINEL,
     ChunkPathResultRow,
     ChunkResultRow,

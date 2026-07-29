@@ -9,7 +9,7 @@ import pytest
 
 from rbtr.domain.models import RepoRef
 from rbtr.git import changed_files, worktree_tree_sha
-from rbtr.index.orchestrator import build_index
+from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 
 

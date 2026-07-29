@@ -15,8 +15,8 @@ import polars as pl
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.index.frames import FusedRow
 from rbtr.index.reranker import Reranker
+from rbtr.index.results import FusedRow
 
 from .cases_reranker import RerankScenario
 

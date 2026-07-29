@@ -8,8 +8,9 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture, MockType
 
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import EmbedResult
-from rbtr.index.orchestrator import build_index, embed_index
 from rbtr.index.store import IndexStore
 
 

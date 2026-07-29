@@ -25,7 +25,7 @@ from llama_cpp import LLAMA_POOLING_TYPE_RANK, Llama
 
 from rbtr.config import config
 from rbtr.index._gpu_model import GpuModelSlot, install_llama_log_callback, resolve_gguf_path
-from rbtr.index.frames import FusedRow
+from rbtr.index.results import FusedRow
 from rbtr.index.search import _normalise_col
 
 log = structlog.get_logger(__name__)

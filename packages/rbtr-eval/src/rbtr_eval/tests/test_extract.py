@@ -64,7 +64,7 @@ def mixed_kind_index(tmp_path: Path) -> tuple[IndexStore, int, str]:
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", index.write_tree(), [])
 
-    from rbtr.index.orchestrator import build_index  # deferred: heavy native libs
+    from rbtr.index.build import build_index  # deferred: heavy native libs
 
     store = IndexStore(writable=True)
     with store.session() as ws:

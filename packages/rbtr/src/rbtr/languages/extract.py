@@ -5,7 +5,7 @@
 selects the primary strategy — a registered chunker, the tree-sitter query,
 or plaintext — via `extract_primary` / `extract_query`, then layers
 embedded-language injections (`extract_injections`) on top. The build loop in
-`rbtr.index.orchestrator` consumes `extract_file`; this module is the
+`rbtr.index.build` consumes `extract_file`; this module is the
 extraction runtime, kept beside the language declarations it runs.
 """
 

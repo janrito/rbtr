@@ -2,7 +2,7 @@
 
 These live in their own module to avoid circular imports:
 `store.py` and `writer.py` need them, and `store` already imports
-from `frames`.
+from `results`.
 """
 
 from __future__ import annotations

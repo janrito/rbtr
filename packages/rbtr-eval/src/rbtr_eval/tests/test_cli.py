@@ -82,7 +82,7 @@ def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path)
     repo = pygit2.Repository(str(tiny_repo))
     head = str(repo.head.target)
 
-    from rbtr.index.orchestrator import build_index  # deferred: heavy native libs
+    from rbtr.index.build import build_index  # deferred: heavy native libs
 
     build_index(repo.workdir, head, file_store, repo_id=repo_id)
 

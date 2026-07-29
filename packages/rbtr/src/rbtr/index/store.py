@@ -61,7 +61,8 @@ from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
 from rbtr.index.embeddings import Embedder
-from rbtr.index.frames import (
+from rbtr.index.reranker import Reranker
+from rbtr.index.results import (
     ChangedSymbolRow,
     ChunkContentRow,
     ChunkPathResultRow,
@@ -77,7 +78,6 @@ from rbtr.index.frames import (
     scored_to_chunks,
     serial_map_frame,
 )
-from rbtr.index.reranker import Reranker
 from rbtr.index.search import search
 from rbtr.index.writer import WriteSession
 
