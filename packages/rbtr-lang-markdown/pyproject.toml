@@ -10,12 +10,12 @@ module-name = "rbtr_lang_markdown"
 
 [project]
 name = "rbtr-lang-markdown"
-version = "2026.6.1"
+version = "2026.7.0-dev1"
 description = "rbtr — Markdown language plugin"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.6.1",
+  "rbtr==2026.7.0-dev1",
   "tree-sitter-markdown",
 ]
 
