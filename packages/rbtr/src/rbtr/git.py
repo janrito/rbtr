@@ -311,9 +311,9 @@ def names_for_commits(repo_path: str, shas: list[str]) -> dict[str, list[str]]:
 
     Names include `"HEAD"` when HEAD resolves to the commit, plus short
     forms of every matching local branch and tag.  Remote-tracking branches
-    are kept as `origin/<n>`.  Worktree tree SHAs (matching the current
-    `worktree_tree_sha`) are labelled `"working tree"`.  SHAs with no
-    matching ref get an empty list.
+    are kept as `origin/<n>`.  A SHA naming a tree is a worktree
+    snapshot, labelled `"working tree"`.  SHAs with no matching ref get
+    an empty list.
     """
     names: dict[str, list[str]] = {sha: [] for sha in shas}
     wanted = set(names)
@@ -333,10 +333,18 @@ def names_for_commits(repo_path: str, shas: list[str]) -> dict[str, list[str]]:
     except pygit2.GitError:
         pass
 
-    # Label the current worktree tree SHA.
-    wt_sha = worktree_tree_sha(repo_path)
-    if wt_sha is not None and wt_sha in wanted:
-        names[wt_sha].append("working tree")
+    # A worktree snapshot is named by a tree, so label the shas that are
+    # trees. Asked of the objects in hand: computing the current worktree
+    # tree instead writes objects into the repository being described,
+    # and drops the label as soon as the working tree moves on.
+    #
+    # The gate is "is a tree", not "is not a commit" as in
+    # `non_commit_shas` — a sha this repo has never heard of is not a
+    # commit either, and it is not a worktree snapshot. Dropping an
+    # unknown sha from the index is safe; labelling one is a lie.
+    for sha in wanted:
+        if _is_tree_sha(repo, sha):
+            names[sha].append("working tree")
 
     for ref_name in repo.references:
         try:
