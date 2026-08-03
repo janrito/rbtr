@@ -142,10 +142,10 @@ def queries_for_symbol(
             "text": text,
         }
 
-    # Name query for chunks with a real name; anonymous chunks
+    # Name query for chunks with a real name; unnamed chunks
     # (comments, raw chunks) and heading-less paragraphs yield
     # body / docstring only.
-    if name and name != "<anonymous>":
+    if name:
         name_text = f"{scope}{SCOPE_SEPARATOR}{name}" if scope else name
         queries.append(_row("name", name_text))
 

@@ -22,7 +22,7 @@ Extracted chunks::
     INSERT INTO logs ...                → function "logs"
     UPDATE / DELETE ... t               → function "t"
     WITH ranked AS (...)                → function "ranked"  (one per CTE)
-    ... UNION ...                       → function "<anonymous>"
+    ... UNION ...                       → function, unnamed
 
     CREATE INDEX idx ON users(...)      → variable "idx"
     CREATE SEQUENCE / SCHEMA / ROLE …   → variable
@@ -30,7 +30,7 @@ Extracted chunks::
     ALTER / DROP <object>               → function "<object>"
 
 A statement with no nameable target (`SELECT 1`, a sub-query `FROM`, a
-`UNION`) is named `<anonymous>`.  `CREATE PROCEDURE` and `PRAGMA` are not
+`UNION`) carries no name.  `CREATE PROCEDURE` and `PRAGMA` are not
 extracted — the grammar has no node for them (they parse to `ERROR`).
 """
 

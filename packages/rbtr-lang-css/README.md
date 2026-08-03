@@ -12,7 +12,7 @@ blocks. `@charset` becomes a config key, `@import` statements become imports
 (for cross-language edges), and custom properties become variables.
 
 - **Rule sets & at-rule blocks** — `body { … }`, `.header { … }`, `@media`,
-  `@keyframes` → classes (named by selector; `@media` is `<anonymous>`).
+  `@keyframes` → classes (named by selector; `@media` carries no name).
 - **Directives** — `@charset` → config key.
 - **Imports** — `@import url("reset.css")` → an import chunk carrying the
   referenced path, so an edge links to the imported stylesheet.
@@ -27,7 +27,7 @@ nested rule set (CSS nesting), else empty.
 body { color: #333; }              /* class "body",          scope ""      */
 .header { background: blue; }      /* class ".header",       scope ""      */
 .card { .title { … } }             /* class ".title",        scope ".card" */
-@media (max-width: 600px) { … }    /* class "<anonymous>"                 */
+@media (max-width: 600px) { … }    /* class, unnamed                      */
 @keyframes slide { … }             /* class "slide"                       */
 @import url("reset.css");          /* import, metadata {module: reset.css} */
 :root { --brand: #333; }           /* variable "--brand"                   */

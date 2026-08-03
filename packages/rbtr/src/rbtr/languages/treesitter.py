@@ -288,7 +288,7 @@ def extract_symbols(
                 "blob_sha": blob_sha,
                 "file_path": file_path,
                 "kind": ChunkKind.COMMENT,
-                "name": "<anonymous>",
+                "name": "",
                 "scope": [],
                 "language": registered_language.id,
                 "content": content[block[0].start_byte : end_byte].decode(

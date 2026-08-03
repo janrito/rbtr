@@ -88,10 +88,7 @@ def extract_primary(
         chunks = list(extract_query(language, file_path, blob_sha, content, ranges=ranges))
     else:
         return None
-    for chunk in chunks:
-        if not chunk.language:
-            chunk.language = language
-    return chunks
+    return [c if c.language else c.model_copy(update={"language": language}) for c in chunks]
 
 
 def _resolve_injection_hint(mgr: LanguageManager, captures: dict[str, list[Node]]) -> str | None:
@@ -191,6 +188,12 @@ def extract_file(entry: FileEntry, language: str) -> list[Chunk]:
     content-less host-presence chunk is appended so the dedup gate can skip
     the file on later builds instead of re-parsing it. The caller handles
     blob dedup and deletes stale chunks first.
+
+    Every chunk leaves here stamped with *language* as its
+    `file_language`, this being the only place that knows it: a chunker
+    is passed the language it is extracting, which for an embedded block
+    is the block's own. It is part of a chunk's identity, so the id
+    follows from the stamp.
     """
     text = entry.content.decode(errors="replace")
     reg = get_manager().get_registration(language)
@@ -210,4 +213,4 @@ def extract_file(entry: FileEntry, language: str) -> list[Chunk]:
     if not any(chunk.language == language for chunk in chunks):
         chunks.append(host_presence_chunk(entry.path, entry.blob_sha, language))
 
-    return chunks
+    return [chunk.model_copy(update={"file_language": language}) for chunk in chunks]
