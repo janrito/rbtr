@@ -35,6 +35,7 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
             "name": [s.name for s in scenario.chunks],
             "scope": [""] * n,
             "language": [""] * n,
+            "file_language": [""] * n,
             "content": [""] * n,
             "content_tokens": [""] * n,
             "name_tokens": [""] * n,

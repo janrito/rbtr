@@ -1,12 +1,12 @@
 [
   {
-    "id": "936c3f247da37444",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "doc_section",
     "name": "Greeting",
     "scope": "",
     "language": "svelte",
+    "file_language": "svelte",
     "content": "<h1 class=\"greeting\">{shout()}</h1>",
     "line_start": 28,
     "line_end": 28,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d9707b44a8167bb9"
   },
   {
-    "id": "19f625062ef30635",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "import",
     "name": "import { greet } from \"./greeter\";",
     "scope": "",
     "language": "typescript",
+    "file_language": "svelte",
     "content": "import { greet } from \"./greeter\";",
     "line_start": 10,
     "line_end": 10,
@@ -33,16 +34,17 @@
       "names": "greet",
       "dots": "1",
       "language_hint": ""
-    }
+    },
+    "id": "9e08409ab07d56f2"
   },
   {
-    "id": "aa13c9d111936d4a",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "variable",
     "name": "name",
     "scope": "",
     "language": "typescript",
+    "file_language": "svelte",
     "content": "name: string = \"world\"",
     "line_start": 12,
     "line_end": 12,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "030615b8d1bfaaf0"
   },
   {
-    "id": "8a62ef8fa503d105",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "function",
     "name": "shout",
     "scope": "",
     "language": "typescript",
+    "file_language": "svelte",
     "content": "function shout(): string {\n    return greet(name).toUpperCase();\n  }",
     "line_start": 14,
     "line_end": 16,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ca91fc7dc3b14adc"
   },
   {
-    "id": "7501217a7162745d",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "variable",
     "name": "$accent",
     "scope": "",
     "language": "scss",
+    "file_language": "svelte",
     "content": "$accent: #00aa77;",
     "line_start": 20,
     "line_end": 20,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "83127d65b9be4d63"
   },
   {
-    "id": "e4fe5d777434ea58",
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
     "kind": "class",
     "name": ".greeting",
     "scope": "",
     "language": "scss",
+    "file_language": "svelte",
     "content": ".greeting {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 22,
     "line_end": 25,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d263e499d49e38f4"
   },
   {
-    "id": "96694b004c39e452",
     "blob_sha": "sha1",
     "file_path": "greeter.ts",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "// Imported by Greeting.svelte's <script> block.",
     "line_start": 1,
     "line_end": 1,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b0eec444d8e60c22"
   },
   {
-    "id": "1dec2aba4e6ac565",
     "blob_sha": "sha1",
     "file_path": "greeter.ts",
     "kind": "function",
     "name": "greet",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "function greet(name: string): string {\n  return `Hello, ${name}`;\n}",
     "line_start": 3,
     "line_end": 5,
@@ -141,6 +148,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "babbec3806fb9d96"
   }
 ]

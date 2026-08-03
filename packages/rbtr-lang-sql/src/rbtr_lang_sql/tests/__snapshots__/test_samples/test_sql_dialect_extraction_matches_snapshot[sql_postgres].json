@@ -1,12 +1,12 @@
 [
   {
-    "id": "3963b43236cb6eca",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- PostgreSQL dialect sample — SERIAL, JSONB, arrays, ENUM type, plpgsql.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0202263c4558210b"
   },
   {
-    "id": "79e1142e41029536",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "variable",
     "name": "\"uuid-ossp\"",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"",
     "line_start": 3,
     "line_end": 3,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ea569708fd9107dd"
   },
   {
-    "id": "a0882309ec33ff51",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "class",
     "name": "mood",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')",
     "line_start": 5,
     "line_end": 5,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8935d150afcbbe2f"
   },
   {
-    "id": "ca3e1dc6da71a832",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "class",
     "name": "users",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    email TEXT UNIQUE NOT NULL,\n    profile JSONB DEFAULT '{}'::jsonb,\n    tags TEXT[],\n    created_at TIMESTAMPTZ DEFAULT now()\n)",
     "line_start": 7,
     "line_end": 13,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c959eda6cfcc840d"
   },
   {
-    "id": "9b90bfa48d47fb35",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "function",
     "name": "greet",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE FUNCTION greet(name TEXT) RETURNS TEXT\nLANGUAGE sql AS $$ SELECT 'Hello, ' || name $$",
     "line_start": 15,
     "line_end": 16,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "494263cbd1532edd"
   },
   {
-    "id": "766a1d4fccf7a25c",
     "blob_sha": "sha1",
     "file_path": "sql_postgres.sql",
     "kind": "variable",
     "name": "idx_users_email",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE INDEX idx_users_email ON users (email)",
     "line_start": 18,
     "line_end": 18,
@@ -105,6 +110,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "64c23d29e5209b80"
   }
 ]

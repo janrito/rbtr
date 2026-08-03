@@ -23,9 +23,10 @@ from rbtr.daemon.messages import (
     SearchResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.embeddings import Embedder
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from ..conftest import StubModel
@@ -103,7 +104,6 @@ def embeddable_store(contention_repo: str) -> Generator[IndexStore]:
         content = f"def func_{i}(x):\n    return x + {i}\n"
         chunks.append(
             TokenisedChunk(
-                id=f"chunk_{i}",
                 blob_sha=f"blob_{i}",
                 file_path=f"src/mod_{i}.py",
                 kind=ChunkKind.FUNCTION,

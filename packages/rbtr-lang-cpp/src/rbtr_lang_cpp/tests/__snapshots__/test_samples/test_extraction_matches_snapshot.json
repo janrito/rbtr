@@ -1,12 +1,12 @@
 [
   {
-    "id": "30717ce6f7a37685",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Greeter — format greetings for named recipients.\n//\n// The C++ plugin extracts free functions, prototypes, classes/structs/\n// unions, type aliases, namespaces (as classes and scopes), member\n// functions and operator overloads (as methods), namespace/global\n// variables (including pointer globals), macros, and #include imports.",
     "line_start": 1,
     "line_end": 6,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "04f8404346f30b4f"
   },
   {
-    "id": "b9a294f43e158d5e",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "import",
     "name": "#include <string>",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "#include <string>\n",
     "line_start": 8,
     "line_end": 9,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2adb71d343d592e4"
   },
   {
-    "id": "e67c80769188dd11",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "import",
     "name": "#include \"greeter.hpp\"",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "#include \"greeter.hpp\"\n",
     "line_start": 10,
     "line_end": 11,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e5b474a4691b1f5b"
   },
   {
-    "id": "2f6bcc64c3714d92",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "variable",
     "name": "GREET_VERSION",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "#define GREET_VERSION 2\n",
     "line_start": 12,
     "line_end": 13,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3965d7f03635915c"
   },
   {
-    "id": "8ba3d658ff2ec7c6",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "variable",
     "name": "kAppName",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "const char *kAppName = \"greeter\";",
     "line_start": 14,
     "line_end": 14,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c03020dfeb4f6cf4"
   },
   {
-    "id": "4eed4993fc15787d",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// trailing comment: its own chunk",
     "line_start": 14,
     "line_end": 14,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3e1cabf1e23e7c0d"
   },
   {
-    "id": "43d1546e4f810260",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Standalone note, separated by blank lines from any definition.\n// Second line of the same block.",
     "line_start": 16,
     "line_end": 17,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b8c167b8be7a0669"
   },
   {
-    "id": "b381fa11b53526df",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "class",
     "name": "greet",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "namespace greet {\n\nconst std::string DEFAULT_PREFIX = \"Hello\";\n\n// A short alias for a recipient name.\nusing Name = std::string;\n\n// Anything convertible to a std::string can name a recipient.\ntemplate <typename T>\nconcept Nameable = std::convertible_to<T, std::string>;\n\n// A tagged greeting payload.\nunion Payload {\n    int code;\n    const char *text;\n};\n\n// Build a greeter with the default prefix (declared here).\nGreeter make_default();\n\n// A greeter holding a prefix.\nclass Greeter {\n   public:\n    explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}\n\n    // Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }\n\n    // Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }\n\n   private:\n    std::string prefix_;\n};\n\n// Format a greeting using a greeter.\nstd::string format_greeting(const Greeter &g, const std::string &name) {\n    return g.greet(name);\n}\n\n}",
     "line_start": 19,
     "line_end": 63,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8c54b23f9cfe4c48"
   },
   {
-    "id": "59f56ee2ad81de8a",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "variable",
     "name": "DEFAULT_PREFIX",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "const std::string DEFAULT_PREFIX = \"Hello\";",
     "line_start": 21,
     "line_end": 21,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f225762a9dc77a1d"
   },
   {
-    "id": "bcdb6a9bb1ac1e73",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "class",
     "name": "Name",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// A short alias for a recipient name.\nusing Name = std::string;",
     "line_start": 23,
     "line_end": 24,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "7bea04d5683991bc"
   },
   {
-    "id": "a23a15e987dc9b6c",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "class",
     "name": "Nameable",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "concept Nameable = std::convertible_to<T, std::string>;",
     "line_start": 28,
     "line_end": 28,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "52475544c29d52a3"
   },
   {
-    "id": "b089f7380dbf0746",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "class",
     "name": "Payload",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// A tagged greeting payload.\nunion Payload {\n    int code;\n    const char *text;\n}",
     "line_start": 30,
     "line_end": 34,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "07bbc803d4022972"
   },
   {
-    "id": "e74269deae2ae442",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "function",
     "name": "make_default",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Build a greeter with the default prefix (declared here).\nGreeter make_default();",
     "line_start": 36,
     "line_end": 37,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "218b537faf925e63"
   },
   {
-    "id": "e8f130340606bc1b",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "class",
     "name": "Greeter",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// A greeter holding a prefix.\nclass Greeter {\n   public:\n    explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}\n\n    // Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }\n\n    // Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }\n\n   private:\n    std::string prefix_;\n}",
     "line_start": 39,
     "line_end": 56,
@@ -249,16 +262,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1a2e3f076e24b82f"
   },
   {
-    "id": "b6cfb7f8d473a7fb",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "method",
     "name": "Greeter",
     "scope": "greet::Greeter",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}",
     "line_start": 42,
     "line_end": 42,
@@ -267,16 +281,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1b9bb3d7c310d955"
   },
   {
-    "id": "719fbd3d44c0eea0",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "method",
     "name": "greet",
     "scope": "greet::Greeter",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }",
     "line_start": 44,
     "line_end": 47,
@@ -285,16 +300,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8884defb1e7d9525"
   },
   {
-    "id": "87b56da6151de28f",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "method",
     "name": "operator==",
     "scope": "greet::Greeter",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }",
     "line_start": 49,
     "line_end": 52,
@@ -303,16 +319,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0302774d4455b7f9"
   },
   {
-    "id": "0d709abd3b54cc0f",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "function",
     "name": "format_greeting",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Format a greeting using a greeter.\nstd::string format_greeting(const Greeter &g, const std::string &name) {\n    return g.greet(name);\n}",
     "line_start": 58,
     "line_end": 61,
@@ -321,16 +338,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b8a6996bf67e471d"
   },
   {
-    "id": "471b8ad76059b629",
     "blob_sha": "sha1",
     "file_path": "cpp.cpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// namespace greet",
     "line_start": 63,
     "line_end": 63,
@@ -339,16 +357,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "5c71cd0d42190042"
   },
   {
-    "id": "529189efb71ce7a6",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// Header companion for cpp.cpp — declares the greeter API.\n//\n// Exercises in-class *declared-only* methods (no inline body): the\n// constructor and member functions are captured as methods scoped to\n// their class, just like inline definitions.",
     "line_start": 1,
     "line_end": 5,
@@ -357,16 +376,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d13c67a5a7b06579"
   },
   {
-    "id": "25bd5d7d5fb434a9",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "import",
     "name": "#include <string>",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "#include <string>\n",
     "line_start": 8,
     "line_end": 9,
@@ -375,16 +395,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2adb71d343d592e4"
   },
   {
-    "id": "e5c0d8124297f62b",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "class",
     "name": "greet",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "namespace greet {\n\nclass Greeting {\npublic:\n    Greeting(std::string prefix);\n    std::string render(const std::string &name) const;\n    static Greeting withDefault();\n\nprivate:\n    std::string prefix_;\n};\n\n}",
     "line_start": 10,
     "line_end": 22,
@@ -393,16 +414,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a371cb8bf764bcef"
   },
   {
-    "id": "a292f927d336479b",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "class",
     "name": "Greeting",
     "scope": "greet",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "class Greeting {\npublic:\n    Greeting(std::string prefix);\n    std::string render(const std::string &name) const;\n    static Greeting withDefault();\n\nprivate:\n    std::string prefix_;\n}",
     "line_start": 12,
     "line_end": 20,
@@ -411,16 +433,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "69810da226bc7dc8"
   },
   {
-    "id": "ebb10d89fefdf8fd",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "method",
     "name": "Greeting",
     "scope": "greet::Greeting",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "Greeting(std::string prefix);",
     "line_start": 14,
     "line_end": 14,
@@ -429,16 +452,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3e0d4be66aa42556"
   },
   {
-    "id": "85924dfd916f4ebe",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "method",
     "name": "render",
     "scope": "greet::Greeting",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "std::string render(const std::string &name) const;",
     "line_start": 15,
     "line_end": 15,
@@ -447,16 +471,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c3578164972bfc2d"
   },
   {
-    "id": "e01bbd19e2d7ea97",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "method",
     "name": "withDefault",
     "scope": "greet::Greeting",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "static Greeting withDefault();",
     "line_start": 16,
     "line_end": 16,
@@ -465,16 +490,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "af80bee21ac69d1b"
   },
   {
-    "id": "0d59d9d8617205fc",
     "blob_sha": "sha1",
     "file_path": "greeter.hpp",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "cpp",
+    "file_language": "cpp",
     "content": "// namespace greet",
     "line_start": 22,
     "line_end": 22,
@@ -483,6 +509,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2bb64e668a2a5b28"
   }
 ]

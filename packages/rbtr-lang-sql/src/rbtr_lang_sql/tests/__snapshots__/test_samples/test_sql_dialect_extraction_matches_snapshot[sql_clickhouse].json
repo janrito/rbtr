@@ -1,12 +1,12 @@
 [
   {
-    "id": "28e0c071926caf0e",
     "blob_sha": "sha1",
     "file_path": "sql_clickhouse.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- ClickHouse dialect sample — MergeTree engine, ORDER BY, special types.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0202263c4558210b"
   },
   {
-    "id": "c78331afa7004964",
     "blob_sha": "sha1",
     "file_path": "sql_clickhouse.sql",
     "kind": "class",
     "name": "events",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TABLE events (\n    event_date Date,\n    user_id UInt64,\n    name LowCardinality(String),\n    props Array(String),\n    value Nullable(Float64)\n)\nENGINE = MergeTree\nPARTITION BY toYYYYMM(event_date)",
     "line_start": 3,
     "line_end": 11,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b7a5c7af04875e96"
   },
   {
-    "id": "d137cbce96bc3797",
     "blob_sha": "sha1",
     "file_path": "sql_clickhouse.sql",
     "kind": "class",
     "name": "events_mv",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE MATERIALIZED VIEW events_mv\nENGINE = SummingMergeTree\nORDER BY user_id\nAS SELECT user_id, count() AS c FROM events GROUP BY user_id",
     "line_start": 14,
     "line_end": 17,
@@ -51,6 +53,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b6ef13e06c2afd39"
   }
 ]

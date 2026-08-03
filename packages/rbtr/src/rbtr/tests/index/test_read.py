@@ -12,6 +12,7 @@ from __future__ import annotations
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_read import BlobCurrentScenario, ChunkQueryScenario, GcCountScenario
@@ -44,7 +45,7 @@ def test_get_chunks_returns_expected(
         name=s.name,
         repo_id=1,
     )
-    assert sorted(c.id for c in chunks) == sorted(s.expected_ids)
+    assert sorted(c.name for c in chunks) == sorted(s.expected_names)
 
 
 # ── blob_is_current ────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
         )
 
     with store.session() as ws:
-        ws.delete_chunks_for_blobs({"b1"})
+        ws.delete_chunks_for_blobs({"b1"}, file_language="")
 
     assert store.blob_is_current("b1", "", {"": 1}) is False
     assert store.blob_is_current("b2", "", {"": 1}) is True
@@ -120,8 +121,20 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
 
 def test_get_edges_returns_all(store: IndexStore) -> None:
     """Edges inserted for a commit are all returned."""
-    e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
+    e1 = Edge(
+        source_id="a",
+        target_id="b",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/a.py",
+        target_path="src/b.py",
+    )
+    e2 = Edge(
+        source_id="c",
+        target_id="d",
+        kind=EdgeKind.DOCUMENTS,
+        source_path="src/c.py",
+        target_path="src/d.py",
+    )
 
     with store.session() as ws:
         ws.register_repo("/repo")
@@ -133,8 +146,20 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
 
 def test_get_edges_filter_by_kind(store: IndexStore) -> None:
     """Filtering edges by kind returns only matching."""
-    e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.DOCUMENTS)
+    e1 = Edge(
+        source_id="a",
+        target_id="b",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/a.py",
+        target_path="src/b.py",
+    )
+    e2 = Edge(
+        source_id="c",
+        target_id="d",
+        kind=EdgeKind.DOCUMENTS,
+        source_path="src/c.py",
+        target_path="src/d.py",
+    )
 
     with store.session() as ws:
         ws.register_repo("/repo")
@@ -153,15 +178,29 @@ def test_inbound_refs_resolves_source(store: IndexStore) -> None:
     src = make_chunk(
         "imp", name="from m import fn", path="app.py", blob="b_app", kind=ChunkKind.IMPORT
     )
+    target = make_chunk("fn", path="m.py", blob="b_m")
     with store.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(src)
-        ws.insert_snapshots([make_snap("head", "app.py", "b_app")], repo_id=1)
+        ws.add_chunk(target)
+        ws.insert_snapshots(
+            [make_snap("head", "app.py", "b_app"), make_snap("head", "m.py", "b_m")], repo_id=1
+        )
         ws.insert_edges(
-            [Edge(source_id="imp", target_id="fn", kind=EdgeKind.IMPORTS)], "head", repo_id=1
+            [
+                Edge(
+                    source_id=src.id,
+                    target_id=target.id,
+                    kind=EdgeKind.IMPORTS,
+                    source_path=src.file_path,
+                    target_path=target.file_path,
+                )
+            ],
+            "head",
+            repo_id=1,
         )
 
-    frame = store.inbound_refs("head", ["fn"], repo_id=1)
+    frame = store.inbound_refs("head", [target.id], repo_id=1)
     assert frame.height == 1
     row = frame.to_dicts()[0]
     assert row["name"] == "from m import fn"
@@ -198,8 +237,8 @@ def test_get_chunks_isolated_per_repo(store: IndexStore) -> None:
     r1_chunks = store.get_chunks("head", repo_id=1)
     r2_chunks = store.get_chunks("head", repo_id=2)
 
-    assert [c.id for c in r1_chunks] == ["r1_fn"]
-    assert [c.id for c in r2_chunks] == ["r2_fn"]
+    assert [c.id for c in r1_chunks] == [c1.id]
+    assert [c.id for c in r2_chunks] == [c2.id]
 
 
 def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
@@ -208,8 +247,20 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
         ws.register_repo("/repo1")
         ws.register_repo("/repo2")
 
-    e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="x", target_id="y", kind=EdgeKind.IMPORTS)
+    e1 = Edge(
+        source_id="a",
+        target_id="b",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/a.py",
+        target_path="src/b.py",
+    )
+    e2 = Edge(
+        source_id="x",
+        target_id="y",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/x.py",
+        target_path="src/y.py",
+    )
 
     with store.session() as ws:
         ws.insert_edges([e1], "head", repo_id=1)
@@ -228,11 +279,12 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
 
 def test_shared_content_is_one_row_visible_to_both_repos(
     shared_chunk_store: IndexStore,
+    shared_chunk: TokenisedChunk,
 ) -> None:
     """Shared content is a single physical row, visible to every repo."""
     store = shared_chunk_store
-    assert [c.id for c in store.get_chunks("head", repo_id=1)] == ["shared_fn"]
-    assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn"]
+    assert [c.id for c in store.get_chunks("head", repo_id=1)] == [shared_chunk.id]
+    assert [c.id for c in store.get_chunks("head", repo_id=2)] == [shared_chunk.id]
     row = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
     assert row is not None
     assert row[0] == 1
@@ -240,6 +292,7 @@ def test_shared_content_is_one_row_visible_to_both_repos(
 
 def test_shared_chunk_embedded_once_across_repos(
     shared_chunk_store: IndexStore,
+    shared_chunk: TokenisedChunk,
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
     store = shared_chunk_store
@@ -248,7 +301,7 @@ def test_shared_chunk_embedded_once_across_repos(
 
     with store.session() as ws:
         ws.register_repo("/repo")
-        ws.update_embeddings(["shared_fn"], [[0.1, 0.2, 0.3]])
+        ws.update_embeddings([shared_chunk.id], [[0.1, 0.2, 0.3]])
 
     assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 0
     assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 0
@@ -256,6 +309,7 @@ def test_shared_chunk_embedded_once_across_repos(
 
 def test_cleanup_keeps_chunk_referenced_by_another_repo(
     shared_chunk_store: IndexStore,
+    shared_chunk: TokenisedChunk,
 ) -> None:
     """A repo's build-finalise `cleanup()` must not prune a co-tenant's chunk.
 
@@ -270,12 +324,13 @@ def test_cleanup_keeps_chunk_referenced_by_another_repo(
         cleaned = ws.cleanup(1)
     assert cleaned.chunks == 0
     assert store.count_orphan_chunks() == 0
-    assert [c.id for c in store.get_chunks("head", repo_id=1)] == ["shared_fn"]
-    assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn"]
+    assert [c.id for c in store.get_chunks("head", repo_id=1)] == [shared_chunk.id]
+    assert [c.id for c in store.get_chunks("head", repo_id=2)] == [shared_chunk.id]
 
 
 def test_shared_chunk_swept_only_after_last_repo_drops_it(
     shared_chunk_store: IndexStore,
+    shared_chunk: TokenisedChunk,
 ) -> None:
     """Cross-repo refcount: the chunk survives until the last reference goes."""
     store = shared_chunk_store
@@ -283,7 +338,7 @@ def test_shared_chunk_swept_only_after_last_repo_drops_it(
     with store.session() as ws:
         first_drop = ws.drop_snapshot(1, "head")
     assert first_drop.chunks == 0
-    assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn"]
+    assert [c.id for c in store.get_chunks("head", repo_id=2)] == [shared_chunk.id]
 
     # Repo 2 drops its commit: last reference gone, chunk is swept.
     with store.session() as ws:
@@ -307,32 +362,30 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     rechunked = make_chunk("shared_fn_v2", path="x.py", blob="b_shared").model_copy(
         update={"extraction_serial": 2}
     )
+    # A different name, so a different id: the upgrade replaces the row.
     with store.session() as ws:
         ws.register_repo("/repo")
-        ws.delete_chunks_for_blobs({"b_shared"})
+        ws.delete_chunks_for_blobs({"b_shared"}, file_language="")
         ws.add_chunk(rechunked)
 
-    assert [c.id for c in store.get_chunks("head", repo_id=1)] == ["shared_fn_v2"]
-    assert [c.id for c in store.get_chunks("head", repo_id=2)] == ["shared_fn_v2"]
+    assert [c.id for c in store.get_chunks("head", repo_id=1)] == [rechunked.id]
+    assert [c.id for c in store.get_chunks("head", repo_id=2)] == [rechunked.id]
 
 
-def test_drop_snapshot_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
+def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
     store: IndexStore,
 ) -> None:
-    """`drop_snapshot` collects a chunk orphaned at its path even when the
-    same blob stays referenced at another path.
+    """`drop_snapshot` keeps a chunk whose blob is referenced elsewhere.
 
-    A blob backing identical content at `a.py` and `b.py` yields two
-    distinct chunks sharing one `blob_sha` (the path is part of the id).
-    Dropping the commit that referenced `b.py` orphans that path's chunk;
-    the sweep must collect it though the blob is still referenced via
-    `a.py` — i.e. it must key on `(blob_sha, file_path)`, like prune,
-    not on `blob_sha` alone.
+    Identical content at `a.py` and `b.py` is one chunk reached through
+    two paths, so dropping the commit that referenced `b.py` collects
+    nothing: the chunk is still reachable at `a.py`, and deleting it
+    would empty a file that has not changed.
     """
     with store.session() as ws:
         ws.register_repo("/repo")
-        ws.add_chunk(make_chunk("at_a", path="a.py", blob="b"))
-        ws.add_chunk(make_chunk("at_b", path="b.py", blob="b"))
+        shared = make_chunk("shared", path="a.py", blob="b")
+        ws.add_chunk(shared)
         # c1 references the blob at both paths; c2 keeps only a.py.
         ws.insert_snapshots([make_snap("c1", "a.py", "b"), make_snap("c1", "b.py", "b")], repo_id=1)
         ws.insert_snapshots([make_snap("c2", "a.py", "b")], repo_id=1)
@@ -342,13 +395,14 @@ def test_drop_snapshot_sweeps_chunk_orphaned_at_one_path_of_a_shared_blob(
     with store.session() as ws:
         dropped = ws.drop_snapshot(1, "c1")
 
-    assert dropped.chunks == 1
+    assert dropped.chunks == 0
     assert store.count_orphan_chunks() == 0
-    assert [c.id for c in store.get_chunks("c2", repo_id=1)] == ["at_a"]
+    assert [c.id for c in store.get_chunks("c2", repo_id=1)] == [shared.id]
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     shared_chunk_store: IndexStore,
+    shared_chunk: TokenisedChunk,
 ) -> None:
     """inbound_refs to a shared chunk returns only the querying repo's referrers.
 
@@ -359,39 +413,53 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     store = shared_chunk_store
     with store.session() as ws:
         ws.register_repo("/repo")
-        ws.add_chunk(
-            make_chunk(
-                "imp1",
-                name="from m import shared_fn",
-                path="a.py",
-                blob="b_imp1",
-                kind=ChunkKind.IMPORT,
-            )
+        imp1 = make_chunk(
+            "imp1",
+            name="from m import shared_fn",
+            path="a.py",
+            blob="b_imp1",
+            kind=ChunkKind.IMPORT,
         )
+        ws.add_chunk(imp1)
         ws.insert_snapshots([make_snap("head", "a.py", "b_imp1")], repo_id=1)
         ws.insert_edges(
-            [Edge(source_id="imp1", target_id="shared_fn", kind=EdgeKind.IMPORTS)],
+            [
+                Edge(
+                    source_id=imp1.id,
+                    target_id=shared_chunk.id,
+                    kind=EdgeKind.IMPORTS,
+                    source_path=imp1.file_path,
+                    target_path=shared_chunk.file_path,
+                )
+            ],
             "head",
             repo_id=1,
         )
-        ws.add_chunk(
-            make_chunk(
-                "imp2",
-                name="from m import shared_fn",
-                path="b.py",
-                blob="b_imp2",
-                kind=ChunkKind.IMPORT,
-            )
+        imp2 = make_chunk(
+            "imp2",
+            name="from m import shared_fn",
+            path="b.py",
+            blob="b_imp2",
+            kind=ChunkKind.IMPORT,
         )
+        ws.add_chunk(imp2)
         ws.insert_snapshots([make_snap("head", "b.py", "b_imp2")], repo_id=2)
         ws.insert_edges(
-            [Edge(source_id="imp2", target_id="shared_fn", kind=EdgeKind.IMPORTS)],
+            [
+                Edge(
+                    source_id=imp2.id,
+                    target_id=shared_chunk.id,
+                    kind=EdgeKind.IMPORTS,
+                    source_path=imp2.file_path,
+                    target_path=shared_chunk.file_path,
+                )
+            ],
             "head",
             repo_id=2,
         )
 
-    r1 = store.inbound_refs("head", ["shared_fn"], repo_id=1).to_dicts()
-    r2 = store.inbound_refs("head", ["shared_fn"], repo_id=2).to_dicts()
+    r1 = store.inbound_refs("head", [shared_chunk.id], repo_id=1).to_dicts()
+    r2 = store.inbound_refs("head", [shared_chunk.id], repo_id=2).to_dicts()
     assert [row["file_path"] for row in r1] == ["a.py"]
     assert [row["file_path"] for row in r2] == ["b.py"]
 

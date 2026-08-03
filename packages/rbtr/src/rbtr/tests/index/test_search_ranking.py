@@ -27,7 +27,7 @@ def test_class_definition_outranks_its_import(
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "AppConfig", top_k=10
     )
-    assert_outranks(results, "config_class", "import_config")
+    assert_outranks(results, "AppConfig", "from config import AppConfig")
 
 
 # ── File-category penalty ───────────────────────────────────────────
@@ -45,7 +45,7 @@ def test_source_function_outranks_test_with_higher_tf(
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
     )
-    assert_outranks(results, "load_config", "test_config")
+    assert_outranks(results, "load_config", "test_load_config")
 
 
 def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit: str) -> None:
@@ -53,7 +53,7 @@ def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit:
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
     )
-    assert_outranks(results, "load_config", "doc_config")
+    assert_outranks(results, "load_config", "Configuration")
 
 
 # ── Name matching ────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit:
     )
 
     assert len(results) >= 1
-    assert results[0].id == "start_server"
+    assert results[0].name == "start_server"
 
 
 def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_commit: str) -> None:
@@ -81,7 +81,7 @@ def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_co
     )
 
     assert len(results) >= 1
-    assert results[0].id == "config_class"
+    assert results[0].name == "AppConfig"
 
 
 # ── High-df terms ────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ def test_high_df_term_still_finds_definition(
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "config", top_k=10
     )
-    assert_ranked_within(results, "config_class", top=2)
+    assert_ranked_within(results, "AppConfig", top=2)
 
 
 def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: str) -> None:
@@ -109,7 +109,7 @@ def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: s
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "database", top_k=10
     )
-    assert_ranked_within(results, "config_class", top=2)
+    assert_ranked_within(results, "AppConfig", top=2)
 
 
 # ── Score breakdown populated ────────────────────────────────────────
@@ -193,7 +193,7 @@ def test_match_preview_populated_for_lexical_hit(
     results = ranking_store.search(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
     )
-    hit = next(r for r in results if r.id == "load_config")
+    hit = next(r for r in results if r.name == "load_config")
     assert hit.match_line_offset is not None
     assert "load" in hit.matched_terms
     assert "config" in hit.matched_terms

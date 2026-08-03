@@ -10,7 +10,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult
+from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult, SnapshotRef
 from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
@@ -720,6 +720,58 @@ def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> Non
     assert r2.stats.parsed_files == 0
 
 
+def test_empty_files_of_two_languages_each_keep_a_presence_chunk(
+    tmp_path: Path, store: IndexStore
+) -> None:
+    """The empty blob extracted under two languages yields a chunk for each.
+
+    An empty `.py` and an empty `.html` are the same blob, so the dedup
+    gate has to key on the language too. Keyed on the blob alone it hits
+    for the second file, extraction is skipped, and that file has no
+    presence chunk and no way into the index. The second file lands in a
+    second commit because the gate only sees what has been flushed.
+    """
+    repo = pygit2.init_repository(str(tmp_path / "blank"), bare=False, initial_head="main")
+    sig = pygit2.Signature("Test", "test@test.com")
+    shas: list[str] = []
+    for message, path in (("Python package", "pkg/__init__.py"), ("Blank page", "web/blank.html")):
+        target = tmp_path / "blank" / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("")
+        index = repo.index
+        index.add(path)
+        index.write()
+        parent = repo.get(repo.head.target) if shas else None
+        repo.create_commit(
+            "HEAD", sig, sig, message, index.write_tree(), [parent.id] if parent else []
+        )
+        shas.append(str(repo.head.target))
+
+    build_index(repo.workdir, shas[0], store)
+    build_index(repo.workdir, shas[1], store, base_sha=shas[0])
+
+    paths = {c.file_path for c in store.get_chunks(shas[1], repo_id=1)}
+    assert paths == {"pkg/__init__.py", "web/blank.html"}
+
+
+def test_symbol_in_an_embedded_fence_is_searchable(
+    multilang_repo: pygit2.Repository, store: IndexStore
+) -> None:
+    """A python symbol inside a markdown fence is found at the host's path.
+
+    The chunk's own language is `python` while the file it lives in is
+    markdown, so a read that pairs chunks with files by language has to
+    use the file's, not the chunk's, or every fenced block and embedded
+    style block silently leaves the index.
+    """
+    sha = str(multilang_repo.head.target)
+    build_index(multilang_repo.workdir, sha, store)
+
+    results = store.search([SnapshotRef(repo_id=1, snapshot_sha=sha)], "handle", top_k=10)
+
+    assert [r.file_paths for r in results if r.name == "handle"] == [["api.md"]]
+
+
 def test_build_index_chunk_ids_stable(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
@@ -732,3 +784,21 @@ def test_build_index_chunk_ids_stable(
     ids_2 = {c.id for c in store.get_chunks(snapshot_sha, repo_id=1)}
 
     assert ids_1 == ids_2
+
+
+def test_unparseable_file_is_still_navigable(
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, mocker: MockerFixture
+) -> None:
+    """A file whose extraction raises keeps a presence chunk.
+
+    The snapshot row is written whether extraction succeeded or not, so
+    without a chunk the file is listed as indexed yet cannot be reached
+    by any read — and the next build re-parses and re-fails it.
+    """
+    mocker.patch("rbtr.index.build.extract_file", side_effect=RuntimeError("no parser today"))
+
+    result = build_index(git_repo.workdir, snapshot_sha, store)
+
+    assert result.errors, "extraction failure must be reported"
+    chunks = store.get_chunks(snapshot_sha, repo_id=1, file_path="src/utils.py")
+    assert [c.kind for c in chunks] == [ChunkKind.RAW_CHUNK]
