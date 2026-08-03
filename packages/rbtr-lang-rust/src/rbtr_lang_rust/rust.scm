@@ -1,6 +1,11 @@
 ; Comments (Rust: `//`/`///`/`//!` line and `/* */` block).
 [(line_comment) (block_comment)] @comment
 
+; An attribute documents the item below it and is its sibling in the
+; tree, so it folds into that item exactly as a comment block does. One
+; standing alone — a module's `#![allow(...)]` — becomes its own chunk.
+(source_file [(attribute_item) (inner_attribute_item)] @comment)
+
 (function_item
   name: (identifier) @_fn_name) @function
 
