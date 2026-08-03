@@ -83,6 +83,66 @@ def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
 # ── Shared helpers ───────────────────────────────────────────────────
 
 
+def _substituted(module_path: str, resolution: ImportResolution) -> str:
+    """Apply the first matching prefix substitution, then the module style."""
+    resolved = module_path
+    for prefix, replacement in resolution.path_substitutions:
+        if resolved.startswith(prefix):
+            resolved = replacement + resolved[len(prefix) :]
+            break
+    if resolution.module_style is ModuleStyle.DOTTED and "." in resolved:
+        resolved = resolved.replace(".", "/")
+    return resolved
+
+
+def _under_source_roots(
+    resolved: str,
+    repo_files: set[str],
+    resolution: ImportResolution,
+) -> str | None:
+    """Search each source root for the bare path, then extensions, then index files."""
+    for root in resolution.source_roots:
+        base = f"{root}/{resolved}" if root else resolved
+        if base in repo_files:
+            return base
+        for ext in resolution.extensions:
+            if f"{base}{ext}" in repo_files:
+                return f"{base}{ext}"
+        for idx in resolution.index_files:
+            if f"{base}/{idx}" in repo_files:
+                return f"{base}/{idx}"
+    return None
+
+
+def _by_path_suffix(
+    resolved: str,
+    repo_files: set[str],
+    resolution: ImportResolution,
+    importer_ext: str,
+) -> str | None:
+    """Match *resolved* as a full-path suffix, dropping genuine ambiguity.
+
+    Requires >= 2 path segments so single-segment bare modules (`os`, `io`)
+    cannot match a nested `.../os.py`. Candidates are grouped by path without
+    extension: more than one group means distinct files, which is ambiguity
+    rather than a choice, and resolves to nothing.
+    """
+    if "/" not in resolved:
+        return None
+    candidates = _suffix_matches(resolved, repo_files, resolution.extensions)
+    if not candidates:
+        return None
+    groups: dict[str, list[str]] = {}
+    for f in candidates:
+        groups.setdefault(str(PurePosixPath(f).with_suffix("")), []).append(f)
+    if len(groups) != 1:
+        return None
+    group = next(iter(groups.values()))
+    if len(group) == 1:
+        return group[0]
+    return _pick_by_importer(group, importer_ext, resolution.own_extensions)
+
+
 def _resolve_module_to_file(
     module_path: str,
     repo_files: set[str],
@@ -99,49 +159,12 @@ def _resolve_module_to_file(
     (Tier 3). *importer_ext* is the importing file's extension, used only to
     break ties when several files share one path but differ by extension.
     """
-    # Apply prefix substitutions.
-    resolved = module_path
-    for prefix, replacement in resolution.path_substitutions:
-        if resolved.startswith(prefix):
-            resolved = replacement + resolved[len(prefix) :]
-            break
-
-    # Style-specific conversion.
-    if resolution.module_style is ModuleStyle.DOTTED and "." in resolved:
-        resolved = resolved.replace(".", "/")
-
-    # Search source_roots x (bare, extensions, index_files).
-    for root in resolution.source_roots:
-        base = f"{root}/{resolved}" if root else resolved
-        if base in repo_files:
-            return base
-        for ext in resolution.extensions:
-            if f"{base}{ext}" in repo_files:
-                return f"{base}{ext}"
-        for idx in resolution.index_files:
-            if f"{base}/{idx}" in repo_files:
-                return f"{base}/{idx}"
-
-    # Tier 3: layout-independent full-path suffix match. Requires >=2 path
-    # segments so single-segment bare modules (`os`, `io`) cannot match a
-    # nested `.../os.py`. Files only; the index-file (package) form is not
-    # tried here.
-    if "/" not in resolved:
-        return None
-    candidates = _suffix_matches(resolved, repo_files, resolution.extensions)
-    if not candidates:
-        return None
-    # Group by path-without-extension; more than one group is genuine
-    # ambiguity (distinct files) and is dropped.
-    groups: dict[str, list[str]] = {}
-    for f in candidates:
-        groups.setdefault(str(PurePosixPath(f).with_suffix("")), []).append(f)
-    if len(groups) != 1:
-        return None
-    group = next(iter(groups.values()))
-    if len(group) == 1:
-        return group[0]
-    return _pick_by_importer(group, importer_ext, resolution.own_extensions)
+    resolved = _substituted(module_path, resolution)
+    under_root = _under_source_roots(resolved, repo_files, resolution)
+    if under_root is not None:
+        return under_root
+    # The index-file (package) form is not tried as a path suffix.
+    return _by_path_suffix(resolved, repo_files, resolution, importer_ext)
 
 
 def _suffix_matches(
@@ -208,22 +231,35 @@ def _resolve_import_to_file(
     if not dots and resolution is not None and resolution.module_style is ModuleStyle.PATH:
         dots, module = parse_path_relative(module)
 
-    # Resolve relative path against the importing file.
     if dots:
-        parts = PurePosixPath(file_path).parts
-        if len(parts) < dots:
+        relative = _relative_module(file_path, dots, module)
+        if relative is None:
             return None
-        segs = list(parts[:-dots])
-        if module:
-            segs.extend(s for s in module.split("/") if s) if "/" in module else segs.append(module)
-        if not segs:
-            return None
-        module = "/".join(segs)
+        module = relative
 
     if not module or resolution is None:
         return None
     importer_ext = PurePosixPath(file_path).suffix
     return _resolve_module_to_file(module, repo_files, resolution, importer_ext)
+
+
+def _relative_module(file_path: str, dots: int, module: str) -> str | None:
+    """Resolve a relative import *dots* levels above *file_path*.
+
+    Returns `None` when the importing file sits too shallow for the climb,
+    or when nothing is left to name after it.
+    """
+    parts = PurePosixPath(file_path).parts
+    if len(parts) < dots:
+        return None
+    segs = list(parts[:-dots])
+    if "/" in module:
+        segs.extend(s for s in module.split("/") if s)
+    elif module:
+        segs.append(module)
+    if not segs:
+        return None
+    return "/".join(segs)
 
 
 def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
@@ -272,6 +308,39 @@ def _build_file_chunks_index(chunks: list[Chunk]) -> dict[str, list[Chunk]]:
 # the symbol index by name across all files.
 
 
+def _edge(imp: Chunk, target: Chunk, kind: EdgeKind) -> Edge:
+    """An edge from an import chunk to what it reaches, at both paths."""
+    return Edge(
+        source_id=imp.id,
+        target_id=target.id,
+        kind=kind,
+        source_path=imp.file_path,
+        target_path=target.file_path,
+    )
+
+
+def _edge_kind_for(language: str) -> EdgeKind:
+    """Prose languages document what they reference; code imports it."""
+    return EdgeKind.DOCUMENTS if language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
+
+
+def _named_target(
+    name: str,
+    target_file: str,
+    symbol_index: dict[tuple[str, str], Chunk],
+    file_chunks_index: dict[str, list[Chunk]],
+) -> Chunk | None:
+    """Find *name* in *target_file*, as a symbol or a doc section."""
+    target = symbol_index.get((target_file, name))
+    if target is not None:
+        return target
+    # Fragment references (`doc.md#a-heading`) name a section, not a symbol.
+    for c in file_chunks_index.get(target_file, []):
+        if c.kind == ChunkKind.DOC_SECTION and c.name == name:
+            return c
+    return None
+
+
 def _structural_import_edges(
     imp: Chunk,
     symbol_index: dict[tuple[str, str], Chunk],
@@ -286,49 +355,22 @@ def _structural_import_edges(
     link to *every* non-import chunk in the target file — the
     entire file is brought into scope.
     """
-    edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
+    edge_kind = _edge_kind_for(imp.language)
 
     target_file = _resolve_import_to_file(imp.metadata, imp.file_path, repo_files, resolution)
     if target_file is None:
         return []
 
-    edges: list[Edge] = []
-    names_str = imp.metadata.names
-
-    if names_str:
-        # from foo import Bar, Baz → link to each named symbol.
-        for name in names_str.split(","):
-            target = symbol_index.get((target_file, name))
-            if target is None:
-                # Try DOC_SECTION name match (fragment references).
-                for c in file_chunks_index.get(target_file, []):
-                    if c.kind == ChunkKind.DOC_SECTION and c.name == name:
-                        target = c
-                        break
-            if target is not None:
-                edges.append(
-                    Edge(
-                        source_id=imp.id,
-                        target_id=target.id,
-                        kind=edge_kind,
-                        source_path=imp.file_path,
-                        target_path=target.file_path,
-                    )
-                )
-    else:
+    if not imp.metadata.names:
         # Bare import → edge to every non-import chunk in the file.
-        for target in file_chunks_index.get(target_file, []):
-            edges.append(
-                Edge(
-                    source_id=imp.id,
-                    target_id=target.id,
-                    kind=edge_kind,
-                    source_path=imp.file_path,
-                    target_path=target.file_path,
-                )
-            )
+        return [_edge(imp, target, edge_kind) for target in file_chunks_index.get(target_file, [])]
 
-    return edges
+    # from foo import Bar, Baz → link to each named symbol.
+    named = (
+        _named_target(name, target_file, symbol_index, file_chunks_index)
+        for name in imp.metadata.names.split(",")
+    )
+    return [_edge(imp, target, edge_kind) for target in named if target is not None]
 
 
 def _build_stem_index(
@@ -376,23 +418,48 @@ def _text_search_import_edges(
     edges: list[Edge] = []
 
     for word in words:
-        files = stem_index.get(word)
-        if files is None:
-            continue
-        for target_file in files:
+        for target_file in stem_index.get(word, ()):
             target = file_symbols.get(target_file)
             if target is not None:
-                edges.append(
-                    Edge(
-                        source_id=imp.id,
-                        target_id=target.id,
-                        kind=EdgeKind.IMPORTS,
-                        source_path=imp.file_path,
-                        target_path=target.file_path,
-                    )
-                )
+                edges.append(_edge(imp, target, EdgeKind.IMPORTS))
 
     return edges
+
+
+def _name_search_import_edges(
+    imp: Chunk,
+    symbol_index: dict[tuple[str, str], Chunk],
+) -> list[Edge]:
+    """Resolve a name-only reference (rST `:func:`) by symbol name alone.
+
+    The reference names no file, so the first symbol with a matching name
+    anywhere in the repository wins. Only prose languages reach here, so
+    every edge documents rather than imports.
+    """
+    edges: list[Edge] = []
+    for name in imp.metadata.names.split(","):
+        for (_, sym_name), chunk in symbol_index.items():
+            if sym_name == name:
+                edges.append(_edge(imp, chunk, EdgeKind.DOCUMENTS))
+                break
+    return edges
+
+
+def _resolution_for(
+    imp: Chunk,
+    resolution_map: dict[str, ImportResolution] | None,
+) -> ImportResolution | None:
+    """Pick the resolution rules for an import.
+
+    A `language_hint` (HTML `<script src>` naming JavaScript) resolves
+    against the hinted language's import targets rather than the language
+    of the file the import sits in.
+    """
+    if resolution_map is None:
+        return None
+    if imp.metadata.language_hint:
+        return resolution_map.get(imp.metadata.language_hint)
+    return resolution_map.get(imp.language)
 
 
 def infer_import_edges(
@@ -416,43 +483,19 @@ def infer_import_edges(
 
     for imp in imports:
         has_file = bool(imp.metadata.module or imp.metadata.dots)
-        has_names_only = (
-            bool(imp.metadata.names) and not has_file and imp.language in _PROSE_LANGUAGES
-        )
-
-        if has_names_only:
-            # Name-only lookup (RST :func:, :class: etc.).
-            # Search the symbol index by name across all files.
-            edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
-            for name in imp.metadata.names.split(","):
-                for (_, sym_name), chunk in symbol_index.items():
-                    if sym_name == name:
-                        edges.append(
-                            Edge(
-                                source_id=imp.id,
-                                target_id=chunk.id,
-                                kind=edge_kind,
-                                source_path=imp.file_path,
-                                target_path=chunk.file_path,
-                            )
-                        )
-                        break
-        elif has_file:
-            # Structural: tree-sitter gave us exact module/names.
-            # When language_hint is set (e.g. HTML <script src> →
-            # "javascript"), resolve using the hinted language's
-            # import_targets instead of the source language.
-            if imp.metadata.language_hint and resolution_map:
-                resolution = resolution_map.get(imp.metadata.language_hint)
-            else:
-                resolution = resolution_map.get(imp.language) if resolution_map else None
+        if has_file:
             edges.extend(
                 _structural_import_edges(
-                    imp, symbol_index, file_chunks_index, repo_files, resolution
+                    imp,
+                    symbol_index,
+                    file_chunks_index,
+                    repo_files,
+                    _resolution_for(imp, resolution_map),
                 )
             )
+        elif imp.metadata.names and imp.language in _PROSE_LANGUAGES:
+            edges.extend(_name_search_import_edges(imp, symbol_index))
         else:
-            # Text search fallback: scan for repo file stems.
             edges.extend(_text_search_import_edges(imp, file_symbols, stem_index))
 
     return edges
