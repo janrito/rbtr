@@ -1552,6 +1552,12 @@ unstaged, untracked, deleted). Properties:
 Tree SHAs never collide with commit SHAs (different git
 object types), so they coexist safely in `indexed_snapshots`.
 
+Describing an indexed SHA back to the user — `status` naming a
+worktree snapshot rather than printing a hash — tests the SHAs
+already in hand with `is_tree_sha`, which reads. It does not
+recompute `worktree_tree_sha`, which would write a tree and a
+blob per changed file into the repository being described.
+
 ### What a worktree build writes
 
 The working tree is indexed under its tree SHA in the
@@ -1659,7 +1665,12 @@ each poll cycle:
 - `poll_watched()` resolves each watched ref (HEAD is the
   default) and checks `indexed_snapshots`.
 - `poll_worktree()` computes `worktree_tree_sha` and
-  checks `has_indexed`. Read-only — never writes.
+  checks `has_indexed`. It writes no index rows, but computing
+  the SHA writes git objects into the repository being polled:
+  a tree, plus a blob for each changed file whose content git
+  does not already hold. No ref reaches them, so `git gc` may
+  prune them at any time — which is why neither cleanup nor
+  labelling may ask git to look one up again.
 
 #### Dirty repo (first edit)
 
@@ -1727,10 +1738,15 @@ tree_A is cleaned up by:
    in-memory state.
 2. **The watcher is read-only.** All writes go through
    `WriteSession` on the job worker thread.
-3. **Stale tree SHAs are cleaned eagerly.** After each
+3. **Stale worktree SHAs are cleaned eagerly.** After each
    build, `_drop_stale_worktree_shas` scans
-   `indexed_snapshots` and drops any tree-type SHA that
-   isn't the one just built.
+   `indexed_snapshots` and drops any indexed SHA that is not a
+   commit and is not the one just built. The gate asks whether
+   a SHA *is not a commit*, rather than whether it is a tree,
+   so a row whose object git has already pruned is still
+   dropped. Labelling asks the opposite question, because the
+   two tolerate different mistakes: dropping a SHA that names
+   nothing is harmless, calling it a worktree is a lie.
 4. **GC protects the current tree SHA.** `_resolve_drop_set`
    calls `worktree_tree_sha` and excludes it. Stale tree
    SHAs are included in the drop set (not reachable from

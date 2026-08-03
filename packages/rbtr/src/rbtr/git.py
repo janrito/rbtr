@@ -15,7 +15,7 @@ Public surface
 - `is_binary`           — null-byte heuristic
 - `read_head`           — tolerant HEAD read for polling
 - `worktree_tree_sha`   — working-tree identity (tree SHA or None)
-- `filter_tree_shas`    — batch tree-type check
+- `non_commit_shas`     — which indexed shas are not commits
 - `resolve_ref`         — unified ref → SHA resolution
 - `list_files`          — file listing (git tree or working tree)
 - `read_blob`           — single blob read
@@ -252,17 +252,33 @@ def _is_tree_sha(repo: pygit2.Repository, sha: str) -> bool:
         return obj is not None and obj.type == pygit2.GIT_OBJECT_TREE
 
 
-def filter_tree_shas(repo_path: str, shas: list[str]) -> list[str]:
-    """Return the subset of *shas* that are tree objects in the repo.
+def non_commit_shas(repo_path: str, shas: list[str]) -> list[str]:
+    """Return the subset of *shas* that do not name a commit.
 
-    Opens the repo once and checks each SHA.  Returns an empty
-    list if the repo is missing or unreadable.
+    A worktree snapshot is named by a tree `worktree_tree_sha` wrote,
+    which nothing references, so the user's own `git gc` prunes it.
+    Asking which shas *are* trees strands those rows in the index —
+    git answers "not a tree" for an object it no longer has, and the
+    caller keeps the row forever. Asking which are *not* commits drops
+    them, so a pruned object cleans up instead of accumulating.
+
+    Returns an empty list if the repo is missing or unreadable.
     """
     try:
         repo = _open_repo(repo_path)
     except RbtrError:
         return []
-    return [sha for sha in shas if _is_tree_sha(repo, sha)]
+    return [sha for sha in shas if not _is_commit_sha(repo, sha)]
+
+
+def _is_commit_sha(repo: pygit2.Repository, sha: str) -> bool:
+    """Return `True` if *sha* is a commit object in *repo*."""
+    try:
+        obj = repo.get(sha)
+    except (ValueError, pygit2.GitError):
+        return False
+    else:
+        return obj is not None and obj.type == pygit2.GIT_OBJECT_COMMIT
 
 
 def resolve_ref(repo_path: str, ref: str) -> str:
@@ -295,9 +311,9 @@ def names_for_commits(repo_path: str, shas: list[str]) -> dict[str, list[str]]:
 
     Names include `"HEAD"` when HEAD resolves to the commit, plus short
     forms of every matching local branch and tag.  Remote-tracking branches
-    are kept as `origin/<n>`.  Worktree tree SHAs (matching the current
-    `worktree_tree_sha`) are labelled `"working tree"`.  SHAs with no
-    matching ref get an empty list.
+    are kept as `origin/<n>`.  A SHA naming a tree is a worktree
+    snapshot, labelled `"working tree"`.  SHAs with no matching ref get
+    an empty list.
     """
     names: dict[str, list[str]] = {sha: [] for sha in shas}
     wanted = set(names)
@@ -317,10 +333,18 @@ def names_for_commits(repo_path: str, shas: list[str]) -> dict[str, list[str]]:
     except pygit2.GitError:
         pass
 
-    # Label the current worktree tree SHA.
-    wt_sha = worktree_tree_sha(repo_path)
-    if wt_sha is not None and wt_sha in wanted:
-        names[wt_sha].append("working tree")
+    # A worktree snapshot is named by a tree, so label the shas that are
+    # trees. Asked of the objects in hand: computing the current worktree
+    # tree instead writes objects into the repository being described,
+    # and drops the label as soon as the working tree moves on.
+    #
+    # The gate is "is a tree", not "is not a commit" as in
+    # `non_commit_shas` — a sha this repo has never heard of is not a
+    # commit either, and it is not a worktree snapshot. Dropping an
+    # unknown sha from the index is safe; labelling one is a lie.
+    for sha in wanted:
+        if _is_tree_sha(repo, sha):
+            names[sha].append("working tree")
 
     for ref_name in repo.references:
         try:

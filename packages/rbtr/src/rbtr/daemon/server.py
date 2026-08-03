@@ -81,7 +81,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import IndexNotBuiltError, RbtrError
-from rbtr.git import HEAD_REF, filter_tree_shas, normalise_repo_path
+from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder, embedding_text
@@ -345,16 +345,17 @@ class DaemonServer:
     ) -> None:
         """Drop old worktree tree SHAs from `indexed_snapshots`.
 
-        After a build (commit or worktree), scans `indexed_snapshots`
-        for tree-type SHAs and drops any that aren't *keep*.  This
-        prevents stale worktree rows from accumulating between GC
-        runs.
+        After a build (commit or worktree), drops every indexed SHA
+        that is not a commit and is not *keep*, so stale worktree rows
+        do not accumulate between GC runs. The gate is "not a commit"
+        rather than "is a tree", so a row whose object `git gc` has
+        already pruned is dropped too.
 
         Called from `_run_build` inside the worker thread's
         `WriteSession` scope.
         """
         indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id)]
-        stale = [sha for sha in filter_tree_shas(repo_path, indexed) if sha != keep]
+        stale = [sha for sha in non_commit_shas(repo_path, indexed) if sha != keep]
         if not stale:
             return
         with store.session() as ws:
