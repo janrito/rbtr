@@ -93,5 +93,100 @@
       "language_hint": ""
     },
     "id": "52d00073c71d16e6"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "main.tf",
+    "kind": "config_key",
+    "name": "module greeter",
+    "scope": "",
+    "language": "hcl",
+    "file_language": "hcl",
+    "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
+    "line_start": 31,
+    "line_end": 33,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "d08d3f48a7c705df"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "main.tf",
+    "kind": "import",
+    "name": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
+    "scope": "",
+    "language": "hcl",
+    "file_language": "hcl",
+    "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
+    "line_start": 31,
+    "line_end": 33,
+    "metadata": {
+      "module": "./modules/greeter",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "04b63f6a4402d449"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "modules/greeter/main.tf",
+    "kind": "config_key",
+    "name": "variable name",
+    "scope": "",
+    "language": "hcl",
+    "file_language": "hcl",
+    "content": "# The module main.tf reads via `source = \"./modules/greeter\"`. A Terraform\n# module is a directory, so the reference reaches every .tf file in it.\nvariable \"name\" {\n  type    = string\n  default = \"world\"\n}",
+    "line_start": 1,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "6473410d3fce61e5"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "modules/greeter/main.tf",
+    "kind": "config_key",
+    "name": "output greeting",
+    "scope": "",
+    "language": "hcl",
+    "file_language": "hcl",
+    "content": "output \"greeting\" {\n  value = \"Hello, ${var.name}\"\n}",
+    "line_start": 8,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "7d290195d36951c4"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "modules/greeter/versions.tf",
+    "kind": "config_key",
+    "name": "terraform",
+    "scope": "",
+    "language": "hcl",
+    "file_language": "hcl",
+    "content": "# A second file of the same module, reached by the same reference.\nterraform {\n  required_version = \">= 1.6\"\n}",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "b86fbf09f6da8746"
   }
 ]

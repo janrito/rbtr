@@ -41,20 +41,20 @@
     "blob_sha": "sha1",
     "file_path": "go.go",
     "kind": "import",
-    "name": "\"greeter/util\"",
+    "name": "\"example.com/greeter/greeter\"",
     "scope": "",
     "language": "go",
     "file_language": "go",
-    "content": "\"greeter/util\"",
+    "content": "\"example.com/greeter/greeter\"",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "greeter/util",
+      "module": "example.com/greeter/greeter",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "abc85356573a4526"
+    "id": "d63e01cda0420de5"
   },
   {
     "blob_sha": "sha1",
@@ -235,7 +235,7 @@
     "scope": "Greeter",
     "language": "go",
     "file_language": "go",
-    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, util.Trim(name))\n}",
+    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, greeter.Trim(name))\n}",
     "line_start": 35,
     "line_end": 38,
     "metadata": {
@@ -267,59 +267,59 @@
   },
   {
     "blob_sha": "sha1",
-    "file_path": "greeter/util.go",
+    "file_path": "greeter/text.go",
     "kind": "comment",
     "name": "",
     "scope": "",
     "language": "go",
     "file_language": "go",
-    "content": "// Package util holds greeting helpers.",
+    "content": "// Package util holds greeting helpers.\n//\n// Imported as example.com/greeter/greeter: the path carries the module\n// prefix go.mod declares, and this file is named for what it holds rather\n// than for the directory that is the package.",
     "line_start": 1,
-    "line_end": 1,
+    "line_end": 5,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "37052900def5979f"
+    "id": "d110dbdbf7f030c8"
   },
   {
     "blob_sha": "sha1",
-    "file_path": "greeter/util.go",
+    "file_path": "greeter/text.go",
     "kind": "import",
     "name": "\"strings\"",
     "scope": "",
     "language": "go",
     "file_language": "go",
     "content": "\"strings\"",
-    "line_start": 4,
-    "line_end": 4,
+    "line_start": 8,
+    "line_end": 8,
     "metadata": {
       "module": "strings",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "ec1db57d172e204e"
+    "id": "fb0ee6f51193f94b"
   },
   {
     "blob_sha": "sha1",
-    "file_path": "greeter/util.go",
+    "file_path": "greeter/text.go",
     "kind": "function",
     "name": "Trim",
     "scope": "",
     "language": "go",
     "file_language": "go",
     "content": "// Trim removes surrounding whitespace from a name.\nfunc Trim(name string) string {\n\treturn strings.TrimSpace(name)\n}",
-    "line_start": 6,
-    "line_end": 9,
+    "line_start": 10,
+    "line_end": 13,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "c840ba90c5334978"
+    "id": "b6fe62153764afa0"
   }
 ]

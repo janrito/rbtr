@@ -446,7 +446,12 @@ def _structural_import_edges(
     # Prose documents what it references; code imports it.
     edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
 
-    target_files = _resolve_import_targets(imp.metadata, imp.file_path, repo_files, resolution)
+    target_files = [
+        f
+        for f in _resolve_import_targets(imp.metadata, imp.file_path, repo_files, resolution)
+        # A file does not import itself, however its neighbours are named.
+        if f != imp.file_path
+    ]
 
     if not imp.metadata.names:
         # Bare import → edge to every non-import chunk in each file.

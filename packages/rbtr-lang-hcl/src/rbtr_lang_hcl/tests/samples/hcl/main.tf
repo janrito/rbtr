@@ -27,3 +27,7 @@ output "greeter_ip" {
   description = "Public IP of the greeter instance."
   value       = aws_instance.greeter.public_ip
 }
+
+module "greeter" {
+  source = "./modules/greeter"
+}
