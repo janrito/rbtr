@@ -81,7 +81,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import IndexNotBuiltError, RbtrError
-from rbtr.git import HEAD_REF, filter_tree_shas, normalise_repo_path
+from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder, embedding_text
@@ -354,7 +354,7 @@ class DaemonServer:
         `WriteSession` scope.
         """
         indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id)]
-        stale = [sha for sha in filter_tree_shas(repo_path, indexed) if sha != keep]
+        stale = [sha for sha in non_commit_shas(repo_path, indexed) if sha != keep]
         if not stale:
             return
         with store.session() as ws:
