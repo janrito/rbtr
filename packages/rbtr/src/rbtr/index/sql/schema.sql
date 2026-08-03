@@ -58,7 +58,14 @@ CREATE TABLE IF NOT EXISTS chunks (
   -- the model (see ARCHITECTURE.md "Embedding column").
   embedding FLOAT [] DEFAULT NULL,
   embedding_truncated BOOLEAN NOT NULL DEFAULT FALSE,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  -- A span ends on or after the line it starts on.
+  CONSTRAINT chunk_span CHECK (line_end >= line_start),
+  -- Truncation describes an embedding that exists.
+  CONSTRAINT truncation_needs_embedding CHECK (
+    embedding IS NOT NULL
+    OR NOT embedding_truncated
+  )
 );
 
 CREATE TABLE IF NOT EXISTS edges (
