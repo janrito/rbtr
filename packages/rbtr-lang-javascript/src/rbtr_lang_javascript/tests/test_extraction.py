@@ -62,3 +62,19 @@ def test_extracts_multi_import(
     assert len(imports) == count
     for imp, expected in zip(imports, metadata_list, strict=True):
         assert imp.metadata == ImportMeta(**expected)
+
+
+def test_re_export_is_an_import_carrying_its_module() -> None:
+    """A re-export reads from another module, so it resolves like an import.
+
+    It is also how a symbol reaches a consumer that never names the file
+    defining it, so the edge matters as much as the text.
+    """
+    src = """\
+export * from "./c";
+export { helper } from "./b";
+"""
+    chunks = list(extract_file(FileEntry("input.ts", "sha1", src.encode()), "typescript"))
+    imports = [(c.metadata.module, c.content) for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert ("c", 'export * from "./c";') in imports
+    assert ("b", 'export { helper } from "./b";') in imports

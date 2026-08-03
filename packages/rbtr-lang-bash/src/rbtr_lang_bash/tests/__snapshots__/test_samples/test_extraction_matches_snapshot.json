@@ -229,6 +229,63 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "bash",
+    "file_language": "bash",
+    "content": "greet_all \"$@\"",
+    "line_start": 34,
+    "line_end": 34,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "28fef2e3cc81696c"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "bash",
+    "file_language": "bash",
+    "content": "mkdir -p \"${HOME}/.greeter\"",
+    "line_start": 36,
+    "line_end": 36,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "3b9dadb425a9561b"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "bash.sh",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "bash",
+    "file_language": "bash",
+    "content": "if [ -z \"${GREETER_QUIET:-}\" ]; then\n  greet \"$DEFAULT_GREETING\"\nfi",
+    "line_start": 38,
+    "line_end": 40,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "1c837acadf784a90"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "lib/colours.sh",
     "kind": "variable",
     "name": "RED",

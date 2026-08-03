@@ -32,3 +32,9 @@ greet_all() {
 }
 
 greet_all "$@"
+
+mkdir -p "${HOME}/.greeter"
+
+if [ -z "${GREETER_QUIET:-}" ]; then
+  greet "$DEFAULT_GREETING"
+fi

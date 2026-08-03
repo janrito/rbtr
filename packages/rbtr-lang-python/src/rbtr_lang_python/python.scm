@@ -46,6 +46,11 @@
 (import_statement
   name: (dotted_name) @_import_module) @import
 
+; `import numpy as np` nests the module inside the alias.
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @_import_module)) @import
+
 (import_from_statement
   module_name: (dotted_name) @_import_module) @import
 
@@ -57,3 +62,7 @@
 (import_from_statement
   module_name: (relative_import
     (import_prefix) @_import_dots .)) @import
+
+; `from __future__ import annotations` has its own node type, and is an
+; import like any other.
+(future_import_statement) @import

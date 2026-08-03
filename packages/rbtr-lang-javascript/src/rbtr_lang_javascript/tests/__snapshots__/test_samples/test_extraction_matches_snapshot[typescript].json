@@ -549,5 +549,62 @@
       "language_hint": ""
     },
     "id": "bcab5fad63de22c9"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "// Re-exported so a consumer reaches these without naming their file.",
+    "line_start": 66,
+    "line_end": 66,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "c74ac4631f65977e"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "import",
+    "name": "export { Locale } from \"./types\";",
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "export { Locale } from \"./types\";",
+    "line_start": 67,
+    "line_end": 67,
+    "metadata": {
+      "module": "types",
+      "names": "",
+      "dots": "1",
+      "language_hint": ""
+    },
+    "id": "7086161a86e476e1"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "typescript.ts",
+    "kind": "import",
+    "name": "export * from \"./config\";",
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "export * from \"./config\";",
+    "line_start": 68,
+    "line_end": 68,
+    "metadata": {
+      "module": "config",
+      "names": "",
+      "dots": "1",
+      "language_hint": ""
+    },
+    "id": "fbf278e7135316e2"
   }
 ]
