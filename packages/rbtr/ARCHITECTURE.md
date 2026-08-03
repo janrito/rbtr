@@ -868,9 +868,10 @@ Log behaviour is asserted on captured event dicts via
 The extraction engine lives in `rbtr.languages`, beside the
 `LanguageRegistration` contract and the manager that runs it: `treesitter`
 (query execution and doc-span recovery), `extract` (per-file strategy dispatch
-and injection), `edges` (import/doc inference), and `chunks` (the plaintext
-fallback). `rbtr.index` depends on `languages` in just two places — the build
-loop, which composes extraction with storage, and `classify`, which reuses the
+and injection), `edges` (import/doc inference), and `chunks` (the
+plaintext fallback, and the span arithmetic every chunker shares).
+`rbtr.index` depends on `languages` in just two places — the build loop,
+which composes extraction with storage, and `classify`, which reuses the
 language registry for search — while `languages` reaches down only to the
 `rbtr.domain` kernel (`models`, `identity`), so the dependency stays
 one-directional.
