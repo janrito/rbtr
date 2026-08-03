@@ -216,7 +216,7 @@ class WriteSession:
     # ── Bulk helpers ─────────────────────────────────────────────
 
     def _bulk_insert(self, sql: str, frame: pl.DataFrame) -> None:
-        """Register *frame* as `_stg`, execute *sql*, then unregister.
+        """Execute *sql* against *frame*, bound as the view `_stg`.
 
         Struct columns are encoded to JSON strings before
         registration so DuckDB sees TEXT matching the schema.
@@ -229,11 +229,8 @@ class WriteSession:
         ]
         if struct_cols:
             frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
-        self._cursor.register("_stg", frame)
-        try:
-            self._cursor.execute(sql)
-        finally:
-            self._cursor.unregister("_stg")
+        with self._store._registered_views(_stg=frame) as cur:
+            cur.execute(sql)
 
     # ── Write methods ────────────────────────────────────────────
 
@@ -362,11 +359,8 @@ class WriteSession:
         if truncated is None:
             truncated = [False] * len(ids)
         frame = embeddings_frame(ids, embeddings, truncated)
-        self._cursor.register("_emb_stg", frame)
-        try:
-            self._cursor.execute(_UPDATE_EMBEDDINGS_SQL)
-        finally:
-            self._cursor.unregister("_emb_stg")
+        with self._store._registered_views(_emb_stg=frame) as cur:
+            cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
     def mark_indexed(self, repo_id: int, snapshot_sha: str) -> None:
         """Record a commit as fully indexed."""
