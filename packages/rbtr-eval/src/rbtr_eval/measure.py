@@ -115,11 +115,17 @@ def _search(
     keywords: list[str] | None = None,
     variants: list[str] | None = None,
 ) -> SearchResponse:
-    """One search call via the daemon client."""
+    """One search call via the daemon client, against HEAD.
+
+    Naming `HEAD` explicitly pins the measurement to the snapshot
+    the queries were extracted from (`rbtr_eval.corpus`); left
+    unset, the daemon would prefer an indexed dirty worktree.
+    """
     request = SearchRequest(
         repo_path=str(repo_path),
         query=query,
         limit=10,
+        ref="HEAD",
         keywords=keywords,
         variants=variants,
     )
