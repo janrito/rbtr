@@ -12,7 +12,6 @@ Rust support for [rbtr](../rbtr). Optional plugin — install with
 - **Variables** — module-level `const` / `static`.
 - **Imports** — `use` declarations (scoped paths resolved), for cross-file
   edges.
-
 - **Attributes** — `#[derive(...)]`, `#[serde(...)]` and the rest fold into
   the item below them, so a type is findable by the traits it derives. A
   module-level `#![allow(...)]`, with no item under it, is its own chunk.
