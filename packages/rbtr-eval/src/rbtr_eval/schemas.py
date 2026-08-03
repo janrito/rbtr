@@ -330,3 +330,60 @@ class TuneReport(dy.Schema):
     n_trials = dy.UInt32(min=1)
     n_queries = dy.UInt32(min=0)
     elapsed_seconds = dy.Float64(min=0.0)
+
+
+class RepoCountRow(dy.Schema):
+    """One row of INDEX.md's per-repo table.
+
+    Counts are over the repo's corpus snapshot only (see
+    `rbtr_eval.corpus`). `chunks` counts content, so a file vendored
+    twice contributes one chunk and two `locations`, and two repos
+    holding the same file each count it. `locations` is what compares
+    against a file count.
+    """
+
+    repo = dy.String()
+    chunks = dy.UInt64(min=0)
+    locations = dy.UInt64(min=0)
+    edges = dy.UInt64(min=0)
+
+
+class KindCountRow(dy.Schema):
+    """One row of INDEX.md's per-kind table.
+
+    An edge contributes to `outbound_edges` of its source kind and
+    `inbound_edges` of its target kind, so both columns sum to the
+    edge total.
+    """
+
+    kind = dy.Enum(k.value for k in ChunkKind)
+    n = dy.UInt64(min=0)
+    outbound_edges = dy.UInt64(min=0)
+    inbound_edges = dy.UInt64(min=0)
+
+
+class LanguageCountRow(dy.Schema):
+    """One row of INDEX.md's per-language table.
+
+    `lang` is the plugin's language id, or `(plaintext)` for chunks
+    from files no plugin claimed.
+    """
+
+    lang = dy.String()
+    n = dy.UInt64(min=0)
+    outbound_edges = dy.UInt64(min=0)
+    inbound_edges = dy.UInt64(min=0)
+
+
+class EmbeddingRepoRow(dy.Schema):
+    """One row of EMBEDDING.md's per-repo table.
+
+    `embedded` counts chunks carrying a vector and `truncated` those
+    whose text exceeded the model's context, so
+    `embedded <= chunks` holds by construction.
+    """
+
+    repo = dy.String()
+    chunks = dy.UInt64(min=0)
+    embedded = dy.UInt64(min=0)
+    truncated = dy.UInt64(min=0)

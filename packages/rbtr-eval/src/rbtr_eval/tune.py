@@ -99,7 +99,7 @@ def _collect_scored_candidates(
         if on_progress is not None:
             on_progress(offset + i, total)
 
-    candidates = pl.DataFrame(rows, schema=ScoredCandidate.to_polars_schema()).pipe(
+    candidates = pl.DataFrame(rows, schema=ScoredCandidate.create_empty().schema).pipe(
         ScoredCandidate.validate, cast=True
     )
 
