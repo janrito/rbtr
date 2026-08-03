@@ -255,8 +255,10 @@ a repo meets content is **`file_snapshots`**, which maps
 `(repo_id, snapshot_sha, file_path) -> blob_sha`. So:
 
 - A chunk is reached by joining `file_snapshots` on `(blob_sha,
-  file_path)`; the repo scope and a result row's `repo_id` come from that
-  join, never from the chunk.
+  file_language)`; the repo scope, a result row's `repo_id`, and its
+  path all come from that join, never from the chunk. A chunk carries no
+  path: identical content at four paths is one row reached four ways,
+  and a search result lists every location it was found at.
 - Byte-identical content in several repos/worktrees/clones is **one**
   physical `chunks` row, shared. `file_snapshots` rows (one per repo)
   point at it.
@@ -308,7 +310,7 @@ erDiagram
     repos ||--o{ indexed_snapshots : "repo_id"
     repos ||--o{ watched_refs : "repo_id"
 
-    file_snapshots }o--o{ chunks : "blob_sha + file_path (content-addressed, shared)"
+    file_snapshots }o--o{ chunks : "blob_sha + file_language (content-addressed, shared)"
     edges }o--|| chunks : "source_id = id"
     edges }o--|| chunks : "target_id = id"
 
@@ -365,15 +367,15 @@ erDiagram
 
 ### Record identity
 
-| Table               | Natural key                                                                                                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                |
-| `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                           |
-| `chunks`            | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
-| `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind)` — the whole tuple is the key                             |
-| `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                      |
-| `watched_refs`      | `(repo_id, ref)`                                                                                               |
-| `meta`              | `(key)`                                                                                                        |
+| Table               | Natural key                                                                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
+| `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
+| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across repos and paths                                                                |
+| `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
+| `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
+| `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
+| `meta`              | `(key)`                                                                                                                                                                                                   |
 
 ### Embedding column
 
@@ -409,15 +411,21 @@ snapshot's file tree:
 FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
-  AND c.file_path = fs.file_path
+  AND c.file_language = fs.detected_language
 WHERE fs.repo_id = ? AND fs.snapshot_sha = ?
 ```
 
-The repo scope and the result row's `repo_id` both come from
-`file_snapshots` (or `_snapshot_refs`), never from the chunk — the
-chunk is repo-less. A chunk shared by several repos therefore
-fans out to one result row per repo via this join, preserving
-cross-repo attribution.
+The repo scope, the result row's `repo_id`, and the path all come from
+`file_snapshots` (or `_snapshot_refs`), never from the chunk — the chunk
+is repo-less and path-less. A chunk shared by several repos, or found at
+several paths within one, fans out to one row per location through this
+join, which is how a location-sensitive signal like the file-category
+penalty still sees each path. Search collapses those rows afterwards,
+keeping the best-scoring one and listing every path on the result.
+
+The language is part of the join because it is part of a chunk's
+identity: the same bytes extracted as two languages are two chunks, and
+each must pair with the files read as that language.
 
 ### Registered frames as query inputs
 
@@ -1341,8 +1349,9 @@ distribution:
   as their wrap `resolver` argument and delegate to it, so plugins never
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
-- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
-- `rbtr.domain.identity.make_chunk_id`.
+- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
+  `id` is a property over its own fields, so a plugin yields chunks and
+  never computes an identity.
 - `rbtr.languages.chunks.chunk_plaintext`.
 
 One dependency crosses *between* plugins rather than to core:
@@ -1520,14 +1529,14 @@ When a worktree build runs, the store receives:
 
 Queries scope results through `file_snapshots` exactly as for
 commits ([Snapshot resolution](#snapshot-resolution)) — the join is
-on `blob_sha + file_path`, with the repo scope coming from the
-snapshot, never the chunk:
+on `blob_sha + file_language`, with the repo scope *and the path*
+coming from the snapshot, never the chunk:
 
 ```sql
 FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
-  AND c.file_path = fs.file_path
+  AND c.file_language = fs.detected_language
 WHERE fs.repo_id = $repo_id AND fs.snapshot_sha = $snapshot_sha
 ```
 
