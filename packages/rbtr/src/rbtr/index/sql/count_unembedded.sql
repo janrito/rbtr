@@ -5,7 +5,7 @@ FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON
     c.blob_sha = fs.blob_sha
-    AND c.file_path = fs.file_path
+    AND c.file_language = fs.detected_language
 WHERE
   fs.repo_id = $repo_id
   AND fs.snapshot_sha = $snapshot_sha

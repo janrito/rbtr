@@ -4,7 +4,9 @@
 SELECT
   e.source_id,
   e.target_id,
-  e.kind
+  e.kind,
+  e.source_path,
+  e.target_path
 FROM edges AS e
 INNER JOIN _snapshot_refs AS rr
   ON e.repo_id = rr.repo_id AND e.snapshot_sha = rr.snapshot_sha

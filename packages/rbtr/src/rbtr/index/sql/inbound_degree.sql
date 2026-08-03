@@ -1,3 +1,7 @@
+-- Referrers of each target, counted per target id.  Edges are keyed by
+-- location, so a chunk duplicated at several paths counts the referrers
+-- of all its locations -- which is what importance means for content
+-- that exists in more than one place.
 SELECT
   e.target_id AS chunk_id,
   count(*) AS degree

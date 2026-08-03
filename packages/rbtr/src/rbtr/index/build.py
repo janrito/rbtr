@@ -18,6 +18,8 @@ via `asyncio.to_thread()`.  Progress is reported via a single
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
@@ -28,13 +30,13 @@ from rbtr.domain.models import (
     Edge,
     FileSnapshot,
     IndexResult,
-    TokenisedChunk,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import changed_files, list_files, normalise_repo_path
 from rbtr.index.progress import ProgressCallback, _noop_progress
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
-from rbtr.languages.chunks import detect_prose_format
+from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
@@ -44,6 +46,51 @@ log = structlog.get_logger(__name__)
 
 
 # ── Build phases ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ExtractedFile:
+    """A file's extraction output, bundled with the language it used.
+
+    The language a file was extracted as has to reach two places that
+    must agree: its chunks' `file_language`, which is part of their
+    identity, and its snapshot row's `detected_language`, which is how a
+    read pairs the two. Holding one value and deriving both from it is
+    what stops them disagreeing — a file recorded under one language
+    with chunks stamped for another is indexed and unreachable.
+
+    A skipped file is this with no chunks: it still needs its row.
+    """
+
+    path: str
+    blob_sha: str
+    language: str
+    chunks: list[Chunk]
+
+    def snapshot_row(self, snapshot_sha: str) -> FileSnapshot:
+        """This file's row in *snapshot_sha*'s tree."""
+        return FileSnapshot(
+            snapshot_sha=snapshot_sha,
+            file_path=self.path,
+            blob_sha=self.blob_sha,
+            detected_language=self.language,
+        )
+
+    def tokenised(self, serials: Mapping[str, int], default: int) -> Iterator[TokenisedChunk]:
+        """The chunks as storage rows: FTS tokens derived, serial resolved.
+
+        The single place tokenisation runs, so a chunk's tokens cannot
+        disagree with the text they index. A chunk's serial comes from
+        *its own* language, not the file's, so bumping an embedded
+        grammar invalidates the blocks it parsed.
+        """
+        for chunk in self.chunks:
+            yield TokenisedChunk(
+                **chunk.model_dump(),
+                content_tokens=tokenise_code(chunk.content),
+                name_tokens=tokenise_code(chunk.name),
+                extraction_serial=serials.get(chunk.language, default),
+            )
 
 
 def _extract_and_store_chunks(
@@ -98,67 +145,56 @@ def _extract_and_store_chunks(
             result.stats.total_files += 1
             repo_files.add(entry.path)
 
-            # In incremental mode, skip files that didn't change.
-            if changed is not None and entry.path not in changed:
-                result.stats.skipped_files += 1
-                snapshots.append(
-                    FileSnapshot(
-                        snapshot_sha=snapshot_sha,
-                        file_path=entry.path,
-                        blob_sha=entry.blob_sha,
-                    )
-                )
-                continue
-
-            # Resolve language: extension first, then stored
-            # detection, then content sniff (new files only).
+            # Resolve language: extension first, then stored detection.
+            # Every file needs it, including one that is skipped below:
+            # a snapshot row pairs with its chunks on the language the
+            # file was extracted as, so a row without one has no chunks.
             detected_lang = mgr.detect_language(entry.path) or ""
             if not detected_lang:
                 detected_lang = store.get_snapshot_language(entry.path, repo_id=repo_id)
-            if not detected_lang:
-                text = entry.content.decode(errors="replace")
-                fmt = detect_prose_format(text)
-                if fmt:
-                    detected_lang = fmt
 
-            # Resolve the serial from registration.
-            reg = mgr.get_registration(detected_lang) if detected_lang else None
-            serial = reg.extraction_serial if reg else 1
-
-            # Blob dedup gate.
-            if store.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
+            # A file contributes no chunks when it is unchanged since the
+            # base snapshot, or when the gate finds its blob already
+            # extracted this way. It still gets a row below.
+            chunks: list[Chunk] = []
+            serial = 1
+            if changed is not None and entry.path not in changed:
                 result.stats.skipped_files += 1
             else:
-                try:
-                    # Delete old chunks before re-extraction (language may
-                    # have changed, producing different chunk IDs).
-                    session.delete_chunks_for_blobs({entry.blob_sha})
-                    file_has_chunks = False
-                    for chunk in extract_file(entry, detected_lang):
-                        tokenised = TokenisedChunk(
-                            **chunk.model_dump(),
-                            content_tokens=tokenise_code(chunk.content),
-                            name_tokens=tokenise_code(chunk.name),
-                            extraction_serial=serial_by_language.get(chunk.language, serial),
-                        )
-                        session.add_chunk(tokenised)
-                        file_has_chunks = True
-                    if file_has_chunks:
-                        result.stats.parsed_files += 1
-                except Exception:
-                    msg = f"Failed to index {entry.path}"
-                    log.exception("index_file_failed", path=entry.path)
-                    result.errors.append(msg)
+                # Content sniff, for a new file whose extension says nothing.
+                if not detected_lang:
+                    text = entry.content.decode(errors="replace")
+                    fmt = detect_prose_format(text)
+                    if fmt:
+                        detected_lang = fmt
 
-            # Record detected language on snapshot.
-            snapshots.append(
-                FileSnapshot(
-                    snapshot_sha=snapshot_sha,
-                    file_path=entry.path,
-                    blob_sha=entry.blob_sha,
-                    detected_language=detected_lang,
-                )
-            )
+                # Resolve the serial from registration.
+                reg = mgr.get_registration(detected_lang) if detected_lang else None
+                serial = reg.extraction_serial if reg else 1
+
+                # Blob dedup gate.
+                if store.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
+                    result.stats.skipped_files += 1
+                else:
+                    try:
+                        # Delete old chunks before re-extraction (language may
+                        # have changed, producing different chunk IDs).
+                        session.delete_chunks_for_blobs({entry.blob_sha}, detected_lang)
+                        chunks = extract_file(entry, detected_lang)
+                        if chunks:
+                            result.stats.parsed_files += 1
+                    except Exception:
+                        msg = f"Failed to index {entry.path}"
+                        log.exception("index_file_failed", path=entry.path)
+                        result.errors.append(msg)
+                        # The row below records the file either way, so
+                        # without this it is indexed but unreachable.
+                        chunks = [host_presence_chunk(entry.path, entry.blob_sha, detected_lang)]
+
+            extracted = ExtractedFile(entry.path, entry.blob_sha, detected_lang, chunks)
+            for tokenised in extracted.tokenised(serial_by_language, serial):
+                session.add_chunk(tokenised)
+            snapshots.append(extracted.snapshot_row(snapshot_sha))
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
