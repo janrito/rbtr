@@ -41,6 +41,7 @@ from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
+from rbtr.languages.plaintext import PLAINTEXT
 from rbtr.rbtrignore import load_ignore
 
 log = structlog.get_logger(__name__)
@@ -120,9 +121,10 @@ def _extract_and_store_chunks(
         for lang in mgr.all_language_ids()
         if (reg := mgr.get_registration(lang)) is not None
     }
-    # The dedup gate checks every stored chunk against its language's current
-    # serial; `""` is the plaintext pseudo-language (always serial 1).
-    dedup_serials = {**serial_by_language, "": 1}
+    # The dedup gate checks every stored chunk against its language's
+    # current serial.  Plaintext is in the registry like any other, so
+    # there is no pseudo-language to add here.
+    dedup_serials = serial_by_language
     repo_root = Path(repo_path).resolve()
     ignore = load_ignore(repo_root)
     changed: set[str] | None = None
@@ -160,6 +162,7 @@ def _extract_and_store_chunks(
             serial = 1
             if changed is not None and entry.path not in changed:
                 result.stats.record(FileOutcome.SKIPPED_UNCHANGED)
+                detected_lang = detected_lang or PLAINTEXT
             else:
                 # Content sniff, for a new file whose extension says nothing.
                 if not detected_lang:
@@ -167,9 +170,13 @@ def _extract_and_store_chunks(
                     fmt = detect_prose_format(text)
                     if fmt:
                         detected_lang = fmt
+                # Nothing claimed it, so it is plaintext: a language, not
+                # a blank. Settled before the gate, which asks whether
+                # this blob was already extracted as this language.
+                detected_lang = detected_lang or PLAINTEXT
 
                 # Resolve the serial from registration.
-                reg = mgr.get_registration(detected_lang) if detected_lang else None
+                reg = mgr.get_registration(detected_lang)
                 serial = reg.extraction_serial if reg else 1
 
                 # Blob dedup gate.
@@ -202,9 +209,8 @@ def _extract_and_store_chunks(
 
         session.replace_snapshots(snapshot_sha, snapshots, repo_id=repo_id)
 
-    # Every outcome that occurred, by name: a file that ran and produced
-    # nothing shows up as `extracted_empty` instead of vanishing between
-    # `parsed` and `skipped`.
+    # Every outcome that occurred, by name, so a run's file count is
+    # accounted for in the log line that reports it.
     log.info(
         "extracted_files",
         total=result.stats.total_files,

@@ -1,6 +1,6 @@
 WITH chunk_counts AS (
   SELECT
-    CASE WHEN language = '' THEN '(plaintext)' ELSE language END AS lang,
+    language AS lang,
     COUNT(*) AS n
   FROM chunks
   GROUP BY language
@@ -8,7 +8,7 @@ WITH chunk_counts AS (
 
 outbound AS (
   SELECT
-    CASE WHEN c.language = '' THEN '(plaintext)' ELSE c.language END AS lang,
+    c.language AS lang,
     COUNT(*) AS outbound_edges
   FROM edges AS e
   INNER JOIN chunks AS c ON e.source_id = c.id
@@ -17,7 +17,7 @@ outbound AS (
 
 inbound AS (
   SELECT
-    CASE WHEN c.language = '' THEN '(plaintext)' ELSE c.language END AS lang,
+    c.language AS lang,
     COUNT(*) AS inbound_edges
   FROM edges AS e
   INNER JOIN chunks AS c ON e.target_id = c.id
