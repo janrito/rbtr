@@ -96,6 +96,158 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "The documentation in this tree is in plain text files and can be viewed\nusing any text file viewer.",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "6cca008daaaf1997"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "It uses `ReST`_ (reStructuredText), and the `Sphinx`_ documentation system.",
+    "line_start": 4,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "32be18d77c64640b"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "To build an HTML version of the docs:",
+    "line_start": 6,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "9de91e991d7b0c09"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "* Install Sphinx (using ``python -m pip install Sphinx`` or another method).",
+    "line_start": 8,
+    "line_end": 8,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "765223fec0dd2e53"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "* In this directory, type ``make html`` at a shell prompt.",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "7b0f92c1e3c5c32c"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "The built documentation in ``_build/html/index.html`` can then be read in a\nweb browser.",
+    "line_start": 12,
+    "line_end": 13,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "23e254a5d1d0661d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": ".. _ReST: https://docutils.sourceforge.io/rst.html",
+    "line_start": 15,
+    "line_end": 15,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "8ef64e26c2ec4619"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "readme.rst",
+    "kind": "doc_section",
+    "name": "",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": ".. _Sphinx: https://www.sphinx-doc.org/",
+    "line_start": 16,
+    "line_end": 16,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "f68f819bd610f166"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "rst.rst",
     "kind": "doc_section",
     "name": "Greeter",

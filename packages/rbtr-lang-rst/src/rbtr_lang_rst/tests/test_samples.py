@@ -17,7 +17,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
-from rbtr.testing import render_edges
+from rbtr.testing import assert_document_fully_chunked, render_edges
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -70,3 +70,16 @@ def test_edges_match_snapshot(
     chunks: list[Chunk], edges: list[Edge], snapshot_json: SnapshotAssertion
 ) -> None:
     assert render_edges(edges, chunks) == snapshot_json
+
+
+def test_every_block_of_every_document_is_chunked(
+    project: list[tuple[str, str]], chunks: list[Chunk]
+) -> None:
+    """A chunker owns the whole document, so no top-level block is dropped."""
+    manager = get_manager()
+    for path, text in project:
+        if manager.detect_language(path) != "rst":
+            continue
+        grammar = manager.grammar("rst")
+        assert grammar is not None
+        assert_document_fully_chunked(path, text, chunks, grammar)

@@ -7,6 +7,7 @@ FTS rebuild, chunk buffering, and write method round-trips.
 
 from __future__ import annotations
 
+import duckdb
 import pytest
 from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
@@ -19,7 +20,7 @@ from rbtr.index.store import IndexStore
 
 from .cases_store_repos import RepoSequence
 from .cases_store_watched_refs import WatchedRefScenario
-from .conftest import make_chunk, make_snap
+from .conftest import make_chunk, make_snap, seed_store
 
 # ── Commit / rollback ───────────────────────────────────────────────
 
@@ -390,3 +391,10 @@ def test_delete_snapshots_hides_chunks(
     assert store.get_chunks("head", repo_id=1) == []
     assert store.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
     assert store.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
+
+
+def test_chunk_with_inverted_span_is_rejected(store: IndexStore) -> None:
+    """A span that ends before it starts does not reach the table."""
+    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
+    with pytest.raises(duckdb.ConstraintException):
+        seed_store(store, [inverted])

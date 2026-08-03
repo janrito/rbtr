@@ -23,6 +23,65 @@ def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> No
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
+def test_rst_headingless_paragraphs_span_their_own_lines() -> None:
+    """A file with no headings spans each paragraph over the lines it occupies.
+
+    Taken from django's `docs/README.rst`, where the one-line paragraph
+    followed by a blank line and a bullet list reported line 7 to line 6.
+    """
+    src = """\
+The documentation in this tree is in plain text files and can be viewed using
+any text file viewer.
+
+It uses `ReST`_ (reStructuredText), and the `Sphinx`_ documentation system.
+
+To create an HTML version of the docs:
+
+* Install Sphinx (using ``python -m pip install Sphinx`` or some other method).
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION]
+    assert spans == [(1, 2), (4, 4), (6, 6), (8, 8)]
+
+
+def test_rst_headingless_file_yields_every_top_level_block() -> None:
+    """Without headings, each top-level block is its own section.
+
+    A bullet list, a link target and a directive are content someone
+    searches for, so none is dropped for want of a heading above it.
+    """
+    src = """\
+An opening paragraph.
+
+* a bullet item
+* another item
+
+1. an enumerated item
+
+.. note::
+   A directive body.
+
+.. _ReST: https://docutils.sourceforge.io/rst.html
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    sections = [c.content.split("\n")[0] for c in chunks if c.kind == ChunkKind.DOC_SECTION]
+    assert sections == [
+        "An opening paragraph.",
+        "* a bullet item",
+        "1. an enumerated item",
+        ".. note::",
+        ".. _ReST: https://docutils.sourceforge.io/rst.html",
+    ]
+
+
+def test_rst_headingless_file_still_extracts_references() -> None:
+    """A document's references are found whether or not it has a heading."""
+    src = "See :doc:`guide` and :func:`do_stuff` for details.\n"
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert [c.metadata.module or c.metadata.names for c in imports] == ["guide", "do_stuff"]
+
+
 def test_rst_hierarchy_from_adornment_order() -> None:
     """RST reconstructs hierarchy from adornment character order."""
     src = """\

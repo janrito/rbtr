@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rbtr.domain.models import ChunkKind
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -36,3 +37,26 @@ def test_svelte_without_template_still_emits_host_chunk() -> None:
     host = [c for c in chunks if c.language == "svelte"]
     assert len(host) == 1
     assert host[0].content == ""
+
+
+def test_sfc_top_level_comment_is_its_own_chunk() -> None:
+    """A comment above the component's markup is searchable content.
+
+    The template chunk excludes it, so it needs a chunk of its own or the
+    banner explaining what a component is for cannot be found.
+    """
+    src = """\
+<!--
+  Greeting: shouts a name.
+-->
+
+<script>
+  let name = "world";
+</script>
+
+<h1>{name}</h1>
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "svelte")
+    comments = [c for c in chunks if c.kind == ChunkKind.COMMENT]
+    assert [(c.line_start, c.line_end) for c in comments] == [(1, 3)]
+    assert "shouts a name" in comments[0].content

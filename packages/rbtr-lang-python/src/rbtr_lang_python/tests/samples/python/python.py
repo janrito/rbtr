@@ -14,6 +14,7 @@ metadata, and standalone / leading comments.
 from __future__ import annotations
 
 import os
+import os.path as osp
 from functools import lru_cache
 from pathlib import Path as P
 

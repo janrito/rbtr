@@ -28,14 +28,14 @@
     "file_language": "cpp",
     "content": "#include <string>\n",
     "line_start": 8,
-    "line_end": 9,
+    "line_end": 8,
     "metadata": {
       "module": "string",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "2adb71d343d592e4"
+    "id": "e3e0300773bbb098"
   },
   {
     "blob_sha": "sha1",
@@ -47,14 +47,14 @@
     "file_language": "cpp",
     "content": "#include \"greeter.hpp\"\n",
     "line_start": 10,
-    "line_end": 11,
+    "line_end": 10,
     "metadata": {
       "module": "greeter.hpp",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "e5b474a4691b1f5b"
+    "id": "cc5e458aceed1a1b"
   },
   {
     "blob_sha": "sha1",
@@ -66,14 +66,14 @@
     "file_language": "cpp",
     "content": "#define GREET_VERSION 2\n",
     "line_start": 12,
-    "line_end": 13,
+    "line_end": 12,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "3965d7f03635915c"
+    "id": "f7765b16bed8d7bb"
   },
   {
     "blob_sha": "sha1",
@@ -389,14 +389,14 @@
     "file_language": "cpp",
     "content": "#include <string>\n",
     "line_start": 8,
-    "line_end": 9,
+    "line_end": 8,
     "metadata": {
       "module": "string",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "2adb71d343d592e4"
+    "id": "e3e0300773bbb098"
   },
   {
     "blob_sha": "sha1",

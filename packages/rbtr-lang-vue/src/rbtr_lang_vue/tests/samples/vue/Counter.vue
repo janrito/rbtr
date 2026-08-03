@@ -1,3 +1,11 @@
+<!--
+  Vue single-file component.
+
+  The SFC plugin delegates <script> to TypeScript and <style> to SCSS.
+  This comment is itself a chunk, so a component's own explanation of
+  what it is for stays searchable.
+-->
+
 <script setup lang="ts">
 // Vue single-file component.
 //

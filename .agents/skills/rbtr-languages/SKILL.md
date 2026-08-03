@@ -276,6 +276,15 @@ Set on the language's `QueryExtraction` (the `extraction` field);
   *references* too (e.g. inside `typedef struct G G;`, or a parameter type),
   producing spurious class chunks. Require `body:` so only definitions match
   (C/C++ struct/enum/class).
+- **Take a span's last line from `last_line`.** Tree-sitter rows are
+  0-based, so `end_point[0] + 1` is right for a node ending mid-line and
+  one too many for a node that consumes its trailing newline and ends at
+  column 0 of the next row. Ten sites once computed this three ways: a
+  toml table claimed the next table's header line, a rust comment block
+  lost its last line, and a heading-less rst paragraph ran backwards
+  (line 7 to line 6). Import `last_line` from `rbtr.languages.chunks`
+  and delete any local trailing-newline correction — a compensation left
+  beside it decrements twice.
 - **Non-lexical scope → `@_scope`.** Scope is otherwise lexical-ancestry only
   (`_enclosing_scopes` walks parents). A Go method's receiver is a *child*, so
   capture it as `@_scope`.

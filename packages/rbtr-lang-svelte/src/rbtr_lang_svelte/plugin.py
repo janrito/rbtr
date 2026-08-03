@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser
 
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ def _template_chunk(
         return None
     name = PurePosixPath(file_path).stem
     line_start = min(n.start_point[0] for n in nodes)
-    line_end = max(n.end_point[0] for n in nodes)
+    line_end = max(last_line(n) for n in nodes)
     return Chunk(
         blob_sha=blob_sha,
         file_path=file_path,
@@ -61,7 +62,7 @@ def _template_chunk(
         scope="",
         content=text,
         line_start=line_start + 1,
-        line_end=line_end + 1,
+        line_end=line_end,
     )
 
 
@@ -72,10 +73,12 @@ def chunk_sfc(
     grammar: Language,
     ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
-    """Emit the SFC's markup template as a host chunk.
+    """Emit the SFC's markup template, and any comment above it.
 
     The `<script>`/`<style>` blocks are handled by the engine's injection
-    mechanism (`_SFC_INJECTIONS`), not here.
+    mechanism (`_SFC_INJECTIONS`), not here. A top-level comment is not
+    markup, so it does not belong to the template chunk; it is content
+    someone searches for, so it gets a chunk of its own.
     """
     content_bytes = content.encode("utf-8")
     parser = Parser(grammar)
@@ -91,13 +94,28 @@ def chunk_sfc(
     if template is not None:
         yield template
 
+    for node in tree.root_node.children:
+        if node.type != "comment":
+            continue
+        text = content_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+        yield Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            kind=ChunkKind.COMMENT,
+            name="",
+            scope="",
+            content=text.strip(),
+            line_start=node.start_point[0] + 1,
+            line_end=last_line(node),
+        )
+
 
 svelte = LanguageRegistration(
     id="svelte",
     extensions=frozenset({".svelte"}),
     grammar_module="tree_sitter_svelte",
     injection_query=load_query(__package__, "injections"),
-    extraction_serial=1,
+    extraction_serial=3,
 )
 
 svelte.chunker(chunk_sfc)

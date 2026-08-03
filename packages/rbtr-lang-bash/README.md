@@ -9,6 +9,10 @@ core `rbtr`, no extra required.
   forms. All functions are top-level (bash has no nesting).
 - **Top-level variable assignments** — `MAX=100`, and `alias` names.
 - **Imports** — `source file` and `. file` commands.
+- **Top-level statements** — every other command, pipeline, conditional and
+  loop at the top level becomes an anonymous **doc-section** chunk. A script
+  that defines nothing is what it does, so `rsync -a ./build/ "$DEST"` is as
+  findable as a function.
 
 Bash has no classes, methods, or module structure, so none are emitted.
 

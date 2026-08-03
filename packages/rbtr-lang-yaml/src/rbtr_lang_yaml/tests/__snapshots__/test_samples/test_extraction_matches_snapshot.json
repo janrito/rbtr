@@ -66,13 +66,13 @@
     "file_language": "yaml",
     "content": "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: just check\n",
     "line_start": 9,
-    "line_end": 15,
+    "line_end": 14,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "b5df111468a68b81"
+    "id": "77f31da28a7f1eeb"
   }
 ]

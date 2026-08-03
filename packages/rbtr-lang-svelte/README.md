@@ -11,6 +11,8 @@ each part is indexed as itself:
 
 - The **markup template** becomes one host **doc-section** chunk (named after
   the file), so component markup is searchable.
+- A **comment** above the markup is its own chunk, so the note explaining
+  what the component is for stays searchable.
 - The `<script>` and `<style>` blocks are **delegated** to their embedded
   language by injection (see below) — not re-parsed here.
 

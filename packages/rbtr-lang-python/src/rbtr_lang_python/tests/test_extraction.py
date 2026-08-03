@@ -108,3 +108,31 @@ a, b = compute()
     variables = [c for c in chunks if c.kind == ChunkKind.VARIABLE]
     assert {c.name for c in variables} == {"a", "b"}
     assert all(c.content.strip() == "a, b = compute()" for c in variables)
+
+
+def test_python_future_import_is_an_import() -> None:
+    """`from __future__ import annotations` is an import like any other.
+
+    The grammar gives it its own node type, so a query matching only
+    `import_statement` and `import_from_statement` leaves it in no chunk.
+    """
+    src = """\
+from __future__ import annotations
+
+import os
+"""
+    chunks = list(extract_file(FileEntry("input", "sha1", src.encode()), "python"))
+    imports = [c.content for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert "from __future__ import annotations" in imports
+
+
+def test_python_aliased_import_is_an_import() -> None:
+    """`import numpy as np` is an import of `numpy`.
+
+    The grammar nests the module inside an `aliased_import`, so a pattern
+    matching only a bare `dotted_name` leaves the statement in no chunk.
+    """
+    src = "import numpy as np\n"
+    chunks = list(extract_file(FileEntry("input", "sha1", src.encode()), "python"))
+    imports = [(c.metadata.module, c.content) for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert imports == [("numpy", "import numpy as np")]

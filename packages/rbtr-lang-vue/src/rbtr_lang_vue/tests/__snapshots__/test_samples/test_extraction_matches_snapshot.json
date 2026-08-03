@@ -8,15 +8,34 @@
     "language": "vue",
     "file_language": "vue",
     "content": "<template>\n  <button class=\"counter\" @click=\"increment\">{{ store.count }}</button>\n</template>",
-    "line_start": 25,
-    "line_end": 27,
+    "line_start": 33,
+    "line_end": 35,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "2d9684af8fe8407a"
+    "id": "383d4211ee508e85"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "Counter.vue",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "vue",
+    "file_language": "vue",
+    "content": "<!--\n  Vue single-file component.\n\n  The SFC plugin delegates <script> to TypeScript and <style> to SCSS.\n  This comment is itself a chunk, so a component's own explanation of\n  what it is for stays searchable.\n-->",
+    "line_start": 1,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "b8108f5642e5ab1d"
   },
   {
     "blob_sha": "sha1",
@@ -27,15 +46,15 @@
     "language": "typescript",
     "file_language": "vue",
     "content": "// Vue single-file component.\n//\n// The SFC plugin delegates the <script setup> block to TypeScript and\n// the <style> block to SCSS, reusing the same chunker as Svelte. The\n// template is not extracted.",
-    "line_start": 2,
-    "line_end": 6,
+    "line_start": 10,
+    "line_end": 14,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "b2db703d3d672cf1"
+    "id": "10a55ab379567fb3"
   },
   {
     "blob_sha": "sha1",
@@ -46,15 +65,15 @@
     "language": "typescript",
     "file_language": "vue",
     "content": "import { makeStore } from \"./store\";",
-    "line_start": 7,
-    "line_end": 7,
+    "line_start": 15,
+    "line_end": 15,
     "metadata": {
       "module": "store",
       "names": "makeStore",
       "dots": "1",
       "language_hint": ""
     },
-    "id": "1cfd125b5b3415da"
+    "id": "2829a0c60e534b3e"
   },
   {
     "blob_sha": "sha1",
@@ -65,15 +84,15 @@
     "language": "typescript",
     "file_language": "vue",
     "content": "store = makeStore()",
-    "line_start": 9,
-    "line_end": 9,
+    "line_start": 17,
+    "line_end": 17,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "0f0210e4987a3cb8"
+    "id": "4c8308057f92d8a6"
   },
   {
     "blob_sha": "sha1",
@@ -84,15 +103,15 @@
     "language": "typescript",
     "file_language": "vue",
     "content": "function increment(): void {\n  store.count += 1;\n}",
-    "line_start": 11,
-    "line_end": 13,
+    "line_start": 19,
+    "line_end": 21,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "61fa74abaa7133d2"
+    "id": "648d9d1f6c623121"
   },
   {
     "blob_sha": "sha1",
@@ -103,15 +122,15 @@
     "language": "scss",
     "file_language": "vue",
     "content": "$accent: #00aa77;",
-    "line_start": 17,
-    "line_end": 17,
+    "line_start": 25,
+    "line_end": 25,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "3fc66b02183bd14a"
+    "id": "cebdec667e5d1547"
   },
   {
     "blob_sha": "sha1",
@@ -122,15 +141,15 @@
     "language": "scss",
     "file_language": "vue",
     "content": ".counter {\n    color: $accent;\n    font-weight: bold;\n  }",
-    "line_start": 19,
-    "line_end": 22,
+    "line_start": 27,
+    "line_end": 30,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "a942fe2380dc00d4"
+    "id": "c41a0c5fc46325f9"
   },
   {
     "blob_sha": "sha1",

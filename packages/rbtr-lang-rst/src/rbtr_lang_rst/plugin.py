@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser, Query, QueryCursor
 
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
@@ -63,12 +64,14 @@ def chunk_rst(
     grammar: Language,
     ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
-    """Split RST by heading hierarchy using tree-sitter.
+    """Split RST into sections, then extract its cross-references.
 
-    Reconstructs the heading hierarchy from adornment characters
-    (first character seen = level 1, second = level 2, etc.).
-    Each section gets content from its heading to the next
-    same-or-higher-level heading.
+    A document with headings is split by hierarchy, reconstructed from
+    adornment characters (first character seen = level 1, second = level
+    2, ...), each section running from its heading to the next
+    same-or-higher-level heading. A document with no heading has one
+    section per top-level block instead. References are extracted from
+    either.
     """
     if not content.strip():
         return
@@ -82,28 +85,55 @@ def chunk_rst(
 
     children = [c for c in root.children if c.is_named]
 
-    has_sections = any(c.type == "section" for c in children)
-    if not has_sections:
-        for child in children:
-            if child.type == "paragraph":
-                text = (
-                    content_bytes[child.start_byte : child.end_byte]
-                    .decode("utf-8", errors="replace")
-                    .strip()
-                )
-                if text:
-                    yield Chunk(
-                        blob_sha=blob_sha,
-                        file_path=file_path,
-                        kind=ChunkKind.DOC_SECTION,
-                        name="",
-                        scope="",
-                        content=text,
-                        line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0],
-                    )
-        return
+    if any(c.type == "section" for c in children):
+        yield from _sectioned_chunks(children, root, content_bytes, file_path, blob_sha)
+    else:
+        yield from _block_chunks(children, content_bytes, file_path, blob_sha)
 
+    yield from _extract_references(root, grammar, content_bytes, file_path, blob_sha)
+
+
+def _block_chunks(
+    children: list[Node],
+    content_bytes: bytes,
+    file_path: str,
+    blob_sha: str,
+) -> Iterator[Chunk]:
+    """One section per top-level block, for a document with no headings.
+
+    Every block a document can open with is content: a paragraph, a
+    bullet or enumerated list, a definition list, a directive, a literal
+    block, a comment, a footnote, a link target. None carries a heading
+    to be named by, so each is anonymous and located by its lines.
+    """
+    for child in children:
+        text = (
+            content_bytes[child.start_byte : child.end_byte]
+            .decode("utf-8", errors="replace")
+            .strip()
+        )
+        if not text:
+            continue
+        yield Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            kind=ChunkKind.DOC_SECTION,
+            name="",
+            scope="",
+            content=text,
+            line_start=child.start_point[0] + 1,
+            line_end=last_line(child),
+        )
+
+
+def _sectioned_chunks(
+    children: list[Node],
+    root: Node,
+    content_bytes: bytes,
+    file_path: str,
+    blob_sha: str,
+) -> Iterator[Chunk]:
+    """One section per heading, scoped by the adornment hierarchy."""
     # Build heading level map from adornment character order.
     adornment_levels: dict[str, int] = {}
     for child in children:
@@ -179,15 +209,12 @@ def chunk_rst(
                         "scope": [t for t, _ in scope_stack_for_scope],
                         "content": text,
                         "line_start": current_line_start,
-                        "line_end": root.end_point[0],
+                        "line_end": last_line(root),
                     }
                 )
             )
 
     yield from chunks
-
-    # Extract cross-references as IMPORT chunks.
-    yield from _extract_references(root, grammar, content_bytes, file_path, blob_sha)
 
 
 # ── Reference extraction ─────────────────────────────────────────────
@@ -263,7 +290,7 @@ def _extract_references(
                 content=ref_node.text.decode() if ref_node.text else "",
                 metadata=meta,
                 line_start=ref_node.start_point[0] + 1,
-                line_end=ref_node.end_point[0] + 1,
+                line_end=last_line(ref_node),
             )
 
         # Toctree directives.
@@ -289,7 +316,7 @@ def _extract_references(
                     content=entry,
                     metadata=ImportMeta(module=entry),
                     line_start=content_nodes[0].start_point[0] + 1,
-                    line_end=content_nodes[0].end_point[0] + 1,
+                    line_end=last_line(content_nodes[0]),
                 )
 
         # Hyperlink references: `text <url>`_
@@ -315,7 +342,7 @@ def _extract_references(
                     content=text,
                     metadata=ImportMeta(module=url),
                     line_start=ref_node.start_point[0] + 1,
-                    line_end=ref_node.end_point[0] + 1,
+                    line_end=last_line(ref_node),
                 )
 
 
@@ -326,7 +353,7 @@ rst = LanguageRegistration(
     id="rst",
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
-    extraction_serial=3,
+    extraction_serial=4,
 )
 
 rst.chunker(chunk_rst)

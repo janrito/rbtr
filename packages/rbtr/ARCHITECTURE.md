@@ -515,6 +515,10 @@ from every index in the field. Applying one everywhere means
 bumping `schema_version`, so that each database is rebuilt
 with it.
 
+`chunks` carries two: a span ends on or after the line it
+starts on, and truncation describes an embedding that exists.
+Both arrived with a `schema_version` bump for that reason.
+
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
 
@@ -1352,7 +1356,10 @@ distribution:
 - `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
   `id` is a property over its own fields, so a plugin yields chunks and
   never computes an identity.
-- `rbtr.languages.chunks.chunk_plaintext`.
+- `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
+  which turns a tree-sitter end point into the 1-based last line a
+  node occupies. The query engine and every chunker share it, so a
+  span means the same thing in every language.
 
 One dependency crosses *between* plugins rather than to core:
 scss and less import `css_nesting_scope` from the css plugin

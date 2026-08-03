@@ -8,8 +8,8 @@ Vue support for [rbtr](../rbtr). Optional plugin — install with
 `.vue` single-file components. Vue has the same `<script>`/`<style>`/template
 shape as Svelte, so this package reuses the SFC chunker and injection query
 from [rbtr-lang-svelte](../rbtr-lang-svelte): the markup template becomes one
-host **doc-section** chunk, and the `<script>`/`<style>` blocks are delegated
-to their embedded language.
+host **doc-section** chunk, a comment above that markup is its own chunk, and
+the `<script>`/`<style>` blocks are delegated to their embedded language.
 
 ## Chunks produced
 
