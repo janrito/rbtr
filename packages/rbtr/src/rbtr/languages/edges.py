@@ -52,15 +52,32 @@ class ImportResolution:
     own_extensions: frozenset[str] = frozenset()
     """The importing language's *own* extensions (distinct from the flattened
     target `extensions`). Used to break same-path ties in the suffix tier."""
+    package_directory: bool = False
+    """Whether a reference may name a directory whose every file it reaches."""
 
 
-def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
-    """Build language → resolution hints from plugin registrations."""
+def build_resolution_map(
+    mgr: LanguageManager,
+    manifests: dict[str, str] | None = None,
+) -> dict[str, ImportResolution]:
+    """Build language → resolution hints from plugin registrations.
+
+    *manifests* maps a repository file's path to its text, for the files
+    languages declare as their `manifest`. A language whose manifest is
+    present gains the substitutions it reads from it, ahead of the ones
+    its registration declares: Go's `go.mod` names the module prefix its
+    imports carry, which is a fact about the repository rather than about
+    the language.
+    """
+    manifests = manifests or {}
     result: dict[str, ImportResolution] = {}
     for lang_id in mgr.all_language_ids():
         reg = mgr.get_registration(lang_id)
         if reg is None:
             continue
+        from_manifest: tuple[tuple[str, str], ...] = ()
+        if reg.manifest and (text := manifests.get(reg.manifest)) is not None:
+            from_manifest = reg.substitutions_from_manifest(text)
         target_langs = reg.import_targets or frozenset({lang_id})
         exts: list[str] = []
         idxs: list[str] = []
@@ -73,9 +90,10 @@ def build_resolution_map(mgr: LanguageManager) -> dict[str, ImportResolution]:
             extensions=tuple(exts),
             index_files=tuple(idxs),
             source_roots=reg.source_roots,
-            path_substitutions=reg.path_substitutions,
+            path_substitutions=from_manifest + reg.path_substitutions,
             module_style=reg.module_style,
             own_extensions=reg.extensions,
+            package_directory=reg.package_directory,
         )
     return result
 
@@ -213,12 +231,53 @@ def _pick_by_importer(
     return ranked[0]
 
 
+def _files_in_directory(
+    path: str,
+    repo_files: set[str],
+    extensions: tuple[str, ...],
+) -> list[str]:
+    """The language's files sitting directly in the directory *path*.
+
+    Some references name a directory rather than a file, and the files
+    inside it are not named by any convention: a Go package is its
+    directory and every `.go` file in it belongs to the package, and a
+    Terraform module is a directory of `.tf` files. Where a language does
+    name one — `__init__.py`, `index.js`, `mod.rs` — `index_files`
+    resolves it to that single file first.
+    """
+    if not path or not extensions:
+        return []
+    inside = f"{path}/"
+    return sorted(
+        f
+        for f in repo_files
+        if f.startswith(inside) and "/" not in f[len(inside) :] and f.endswith(extensions)
+    )
+
+
+def _targets_at(
+    path: str,
+    repo_files: set[str],
+    resolution: ImportResolution,
+    importer_ext: str,
+) -> list[str]:
+    """The files a reference to *path* names: one file, or a directory's."""
+    found = _resolve_module_to_file(path, repo_files, resolution, importer_ext)
+    if found is not None:
+        return [found]
+    if not resolution.package_directory:
+        return []
+    # `_resolve_module_to_file` substitutes prefixes on its own copy, so the
+    # directory search has to be given the substituted path too.
+    return _files_in_directory(_substituted(path, resolution), repo_files, resolution.extensions)
+
+
 def _resolve_unanchored(
     module: str,
     file_path: str,
     repo_files: set[str],
     resolution: ImportResolution,
-) -> str | None:
+) -> list[str]:
     """Resolve a reference that names no starting point of its own.
 
     The repository root is tried first, so a reference that already
@@ -227,21 +286,21 @@ def _resolve_unanchored(
     `css/a.css` means `css/b.css`.
     """
     importer_ext = PurePosixPath(file_path).suffix
-    from_root = _resolve_module_to_file(module, repo_files, resolution, importer_ext)
-    if from_root is not None or resolution.module_style is not ModuleStyle.PATH:
+    from_root = _targets_at(module, repo_files, resolution, importer_ext)
+    if from_root or resolution.module_style is not ModuleStyle.PATH:
         return from_root
     beside_importer = _relative_module(file_path, 1, module)
     if beside_importer is None or beside_importer == module:
-        return None
-    return _resolve_module_to_file(beside_importer, repo_files, resolution, importer_ext)
+        return []
+    return _targets_at(beside_importer, repo_files, resolution, importer_ext)
 
 
-def _resolve_import_to_file(
+def _resolve_import_targets(
     meta: ImportMeta,
     file_path: str,
     repo_files: set[str],
     resolution: ImportResolution | None,
-) -> str | None:
+) -> list[str]:
     """Resolve import metadata to a repo file path.
 
     Handles relative imports (extractor-set `dots` or PATH-style
@@ -258,18 +317,16 @@ def _resolve_import_to_file(
     if not dots and resolution is not None and resolution.module_style is ModuleStyle.PATH:
         dots, module = parse_path_relative(module)
     if resolution is None:
-        return None
+        return []
 
     if dots:
         anchored = _relative_module(file_path, dots, module)
         if anchored is None:
-            return None
-        return _resolve_module_to_file(
-            anchored, repo_files, resolution, PurePosixPath(file_path).suffix
-        )
+            return []
+        return _targets_at(anchored, repo_files, resolution, PurePosixPath(file_path).suffix)
 
     if not module:
-        return None
+        return []
     return _resolve_unanchored(module, file_path, repo_files, resolution)
 
 
@@ -379,21 +436,27 @@ def _structural_import_edges(
     Bare imports (`import X`, `@import "x.css"`, `#include "x.h"`)
     link to *every* non-import chunk in the target file — the
     entire file is brought into scope.
+
+    A reference naming a directory reaches every file in it, which is
+    what importing a Go package or a Terraform module does.
     """
     # Prose documents what it references; code imports it.
     edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
 
-    target_file = _resolve_import_to_file(imp.metadata, imp.file_path, repo_files, resolution)
-    if target_file is None:
-        return []
+    target_files = _resolve_import_targets(imp.metadata, imp.file_path, repo_files, resolution)
 
     if not imp.metadata.names:
-        # Bare import → edge to every non-import chunk in the file.
-        return [_edge(imp, target, edge_kind) for target in file_chunks_index.get(target_file, [])]
+        # Bare import → edge to every non-import chunk in each file.
+        return [
+            _edge(imp, target, edge_kind)
+            for target_file in target_files
+            for target in file_chunks_index.get(target_file, [])
+        ]
 
     # from foo import Bar, Baz → link to each named symbol.
     named = (
         _named_target(name, target_file, symbol_index, file_chunks_index)
+        for target_file in target_files
         for name in imp.metadata.names.split(",")
     )
     return [_edge(imp, target, edge_kind) for target in named if target is not None]
