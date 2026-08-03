@@ -8,6 +8,11 @@ HCL / Terraform support for [rbtr](../rbtr). Optional plugin — install with
 Top-level blocks become **config-key** chunks (HCL is configuration, not
 code). A block is named by its type and labels combined.
 
+A `module` block's `source` becomes an **import**. A Terraform module is a
+directory rather than a file, so a `source` naming one inside the repository
+reaches every `.tf` file in it; a registry or git source reaches nothing,
+having nothing here to reach.
+
 ## Chunks produced
 
 ```hcl
