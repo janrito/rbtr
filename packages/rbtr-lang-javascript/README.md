@@ -14,6 +14,9 @@ folded into its chunk content.
 - **Classes** — classes, and TypeScript interfaces, enums, type aliases, and
   namespaces (a namespace also scopes its members).
 - **Variables** — module-level `const` / `let` (including destructuring).
+- **Re-exports** — `export * from "./c"` and `export { x } from "./b"` read
+  from another module, so they resolve as imports do. A consumer reaches a
+  symbol through them without ever naming the file that defines it.
 - **Imports** — `import`, `import type`, namespace, default, and side-effect
   imports → import chunks with resolved module + names, for cross-file edges.
 
