@@ -26,12 +26,15 @@ NAME_CAPTURE_KEY: dict[str, str] = {
 }
 """Maps a structural capture name to its paired `@_*_name` helper capture."""
 
-# Node types whose captured text needs delimiter stripping → (open, close).
-DELIMITER_STRIP: dict[str, tuple[str, str]] = {
-    "system_lib_string": ("<", ">"),
-    "string_literal": ('"', '"'),
-    "interpreted_string_literal": ('"', '"'),
-    "string": ('"', '"'),
+# Node types whose captured text needs delimiter stripping, each with the
+# (open, close) pairs the grammar admits for that type. A grammar that gives
+# one node type to every string shape needs every pair it accepts: Ruby's
+# `require 'b'` and `require "b"` are both a `string`.
+DELIMITER_STRIP: dict[str, tuple[tuple[str, str], ...]] = {
+    "system_lib_string": (("<", ">"),),
+    "string_literal": (('"', '"'), ("'", "'")),
+    "interpreted_string_literal": (('"', '"'),),
+    "string": (('"', '"'), ("'", "'")),
 }
 
 
@@ -100,7 +103,7 @@ class DefaultImport:
         if not (nodes and nodes[0].text):
             return None
         raw = nodes[0].text.decode()
-        delims = DELIMITER_STRIP.get(nodes[0].type)
-        if delims and raw.startswith(delims[0]) and raw.endswith(delims[1]):
-            raw = raw[len(delims[0]) : -len(delims[1])]
+        for opening, closing in DELIMITER_STRIP.get(nodes[0].type, ()):
+            if raw.startswith(opening) and raw.endswith(closing):
+                return raw[len(opening) : -len(closing)]
         return raw
