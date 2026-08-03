@@ -345,10 +345,11 @@ class DaemonServer:
     ) -> None:
         """Drop old worktree tree SHAs from `indexed_snapshots`.
 
-        After a build (commit or worktree), scans `indexed_snapshots`
-        for tree-type SHAs and drops any that aren't *keep*.  This
-        prevents stale worktree rows from accumulating between GC
-        runs.
+        After a build (commit or worktree), drops every indexed SHA
+        that is not a commit and is not *keep*, so stale worktree rows
+        do not accumulate between GC runs. The gate is "not a commit"
+        rather than "is a tree", so a row whose object `git gc` has
+        already pruned is dropped too.
 
         Called from `_run_build` inside the worker thread's
         `WriteSession` scope.
