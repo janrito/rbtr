@@ -112,7 +112,6 @@ stages:
         - src/rbtr_eval/schemas.py
         - src/rbtr_eval/kinds.py
         - src/rbtr_eval/formatting.py
-        - src/rbtr_eval/sql/all_chunk_content.sql
         - ../rbtr/src/rbtr
         - ${per_repo_dir}/${item.slug}.parquet
         - data/.chunks-ready
@@ -132,7 +131,6 @@ stages:
       - src/rbtr_eval/schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/formatting.py
-      - src/rbtr_eval/sql/all_chunk_content.sql
       - src/rbtr_eval/templates/paraphrase.md.j2
       - ../rbtr/src/rbtr
       - ${concept_dir}
@@ -210,6 +208,11 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/sql/index_repos.sql
+      - src/rbtr_eval/sql/index_kinds.sql
+      - src/rbtr_eval/sql/index_languages.sql
+      - src/rbtr_eval/sql/index_totals.sql
+      - src/rbtr_eval/templates/index.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${repos_dir}
@@ -232,6 +235,9 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/sql/embedding_repos.sql
+      - src/rbtr_eval/sql/embedding_totals.sql
+      - src/rbtr_eval/templates/embedding.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - data/.chunks-ready
