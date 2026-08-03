@@ -1,0 +1,7 @@
+{
+  "$comment": "Referred to from schema/greeting.json as a bare sibling.",
+  "Name": {
+    "type": "string",
+    "minLength": 1
+  }
+}

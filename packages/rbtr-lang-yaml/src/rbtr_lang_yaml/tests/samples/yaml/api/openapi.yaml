@@ -1,0 +1,5 @@
+# Refers into its bare sibling, which only resolves relative to this directory.
+openapi: 3.1.0
+paths:
+  /greeting:
+    $ref: "paths.yaml"

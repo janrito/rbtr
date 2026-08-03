@@ -1,0 +1,7 @@
+{
+  "$comment": "Refers into its bare sibling, which only resolves relative to this directory.",
+  "type": "object",
+  "properties": {
+    "recipient": { "$ref": "defs.json#/Name" }
+  }
+}

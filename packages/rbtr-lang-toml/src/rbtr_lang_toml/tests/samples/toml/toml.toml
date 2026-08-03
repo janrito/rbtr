@@ -16,3 +16,6 @@ code = "en"
 
 [[locales]]
 code = "fr"
+
+[dependencies]
+helper = { path = "crates/helper" }

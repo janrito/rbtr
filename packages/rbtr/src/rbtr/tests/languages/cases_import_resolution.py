@@ -291,3 +291,43 @@ module "x" {
         target="tf/b/main.tf",
         target_source='resource "null_resource" "y" {}\n',
     )
+
+
+def case_toml() -> ImportScenario:
+    """Cargo resolves a path dependency."""
+    return ImportScenario(
+        language="toml",
+        importer="Cargo.toml",
+        importer_source="""\
+[dependencies]
+helper = { path = "crates/helper" }
+""",
+        target="crates/helper/Cargo.toml",
+        target_source='[package]\nname = "helper"\n',
+    )
+
+
+def case_json() -> ImportScenario:
+    """A JSON Schema resolves a `$ref` to another schema."""
+    return ImportScenario(
+        language="json",
+        importer="schema/thing.json",
+        importer_source='{\n  "allOf": [{ "$ref": "defs.json#/Named" }]\n}\n',
+        target="schema/defs.json",
+        target_source='{\n  "Named": { "type": "string" }\n}\n',
+    )
+
+
+def case_yaml() -> ImportScenario:
+    """An OpenAPI document resolves a `$ref` to another document."""
+    return ImportScenario(
+        language="yaml",
+        importer="api/openapi.yaml",
+        importer_source="""\
+paths:
+  /greeting:
+    $ref: "paths/greeting.yaml"
+""",
+        target="api/paths/greeting.yaml",
+        target_source="get:\n  summary: A greeting\n",
+    )
