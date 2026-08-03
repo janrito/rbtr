@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser, Query, QueryCursor
 
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ def chunk_rst(
                         scope="",
                         content=text,
                         line_start=child.start_point[0] + 1,
-                        line_end=child.end_point[0],
+                        line_end=last_line(child),
                     )
         return
 
@@ -179,7 +180,7 @@ def chunk_rst(
                         "scope": [t for t, _ in scope_stack_for_scope],
                         "content": text,
                         "line_start": current_line_start,
-                        "line_end": root.end_point[0],
+                        "line_end": last_line(root),
                     }
                 )
             )
@@ -263,7 +264,7 @@ def _extract_references(
                 content=ref_node.text.decode() if ref_node.text else "",
                 metadata=meta,
                 line_start=ref_node.start_point[0] + 1,
-                line_end=ref_node.end_point[0] + 1,
+                line_end=last_line(ref_node),
             )
 
         # Toctree directives.
@@ -289,7 +290,7 @@ def _extract_references(
                     content=entry,
                     metadata=ImportMeta(module=entry),
                     line_start=content_nodes[0].start_point[0] + 1,
-                    line_end=content_nodes[0].end_point[0] + 1,
+                    line_end=last_line(content_nodes[0]),
                 )
 
         # Hyperlink references: `text <url>`_
@@ -315,7 +316,7 @@ def _extract_references(
                     content=text,
                     metadata=ImportMeta(module=url),
                     line_start=ref_node.start_point[0] + 1,
-                    line_end=ref_node.end_point[0] + 1,
+                    line_end=last_line(ref_node),
                 )
 
 
@@ -326,7 +327,7 @@ rst = LanguageRegistration(
     id="rst",
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
-    extraction_serial=3,
+    extraction_serial=4,
 )
 
 rst.chunker(chunk_rst)

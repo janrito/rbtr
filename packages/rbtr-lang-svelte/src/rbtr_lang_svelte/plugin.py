@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser
 
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ def _template_chunk(
         return None
     name = PurePosixPath(file_path).stem
     line_start = min(n.start_point[0] for n in nodes)
-    line_end = max(n.end_point[0] for n in nodes)
+    line_end = max(last_line(n) for n in nodes)
     return Chunk(
         blob_sha=blob_sha,
         file_path=file_path,
@@ -61,7 +62,7 @@ def _template_chunk(
         scope="",
         content=text,
         line_start=line_start + 1,
-        line_end=line_end + 1,
+        line_end=line_end,
     )
 
 
@@ -97,7 +98,7 @@ svelte = LanguageRegistration(
     extensions=frozenset({".svelte"}),
     grammar_module="tree_sitter_svelte",
     injection_query=load_query(__package__, "injections"),
-    extraction_serial=1,
+    extraction_serial=2,
 )
 
 svelte.chunker(chunk_sfc)

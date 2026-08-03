@@ -19,6 +19,7 @@ from tree_sitter import Language, Parser, Query, QueryCursor, Range
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import QueryExtraction
 
 if TYPE_CHECKING:
@@ -279,10 +280,10 @@ def extract_symbols(
         if any(s <= block[0].start_byte and block[-1].end_byte <= e for s, e in seen):
             return None
         end_byte = block[-1].end_byte
-        line_end = block[-1].end_point[0] + 1
+        # `last_line` already excludes a trailing newline's row; the byte range
+        # still has to drop it so the content does not end with a blank line.
         if end_byte > block[-1].start_byte and content[end_byte - 1 : end_byte] == b"\n":
             end_byte -= 1
-            line_end -= 1
         return Chunk.model_validate(
             {
                 "blob_sha": blob_sha,
@@ -295,7 +296,7 @@ def extract_symbols(
                     "utf-8", errors="replace"
                 ),
                 "line_start": block[0].start_point[0] + 1,
-                "line_end": line_end,
+                "line_end": last_line(block[-1]),
                 "metadata": ImportMeta(),
             }
         )
@@ -358,7 +359,7 @@ def extract_symbols(
                 "language": registered_language.id,
                 "content": content[start_byte : node.end_byte].decode("utf-8", errors="replace"),
                 "line_start": line_start,
-                "line_end": node.end_point[0] + 1,
+                "line_end": last_line(node),
                 "metadata": meta,
             }
         )
@@ -462,7 +463,7 @@ def extract_doc_spans(
                     kind=kind,
                     scope=scope,
                     line_start=line_start,
-                    line_end=node.end_point[0] + 1,
+                    line_end=last_line(node),
                     ranges=doc_ranges,
                     start_byte=node.start_byte,
                     end_byte=node.end_byte,
