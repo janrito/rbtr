@@ -2,23 +2,25 @@
 -- sqlfluff:templater:placeholder:drop_shas:['x']
 -- Split the chunks a GC drop set references into those that would be
 -- freed versus those kept because another indexed ref still references
--- their (blob_sha, file_path).  Read-only: it does not simulate the
+-- their (blob_sha, file_language).  Read-only: it does not simulate the
 -- drop, so it serves dry-run and real runs identically.
 --
 -- `candidates` are the chunks referenced by a snapshot in the drop set
 -- ($repo_id, $drop_shas).  A candidate is KEPT iff some snapshot
 -- OUTSIDE that set (another ref of this repo, or any other repo)
--- references the same (blob_sha, file_path); the rest are DROPPED.
+-- references the same (blob_sha, file_language) — including at a
+-- different path, since identical content at two paths is one chunk and
+-- dropping one path leaves the other reaching it.
 WITH candidates AS (
   SELECT DISTINCT
     c.id,
     c.blob_sha,
-    c.file_path
+    c.file_language
   FROM chunks AS c
   INNER JOIN file_snapshots AS fs
     ON
       c.blob_sha = fs.blob_sha
-      AND c.file_path = fs.file_path
+      AND c.file_language = fs.detected_language
   WHERE
     fs.repo_id = $repo_id
     AND fs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))
@@ -30,7 +32,7 @@ kept AS (
   INNER JOIN file_snapshots AS keepfs
     ON
       cand.blob_sha = keepfs.blob_sha
-      AND cand.file_path = keepfs.file_path
+      AND cand.file_language = keepfs.detected_language
   WHERE NOT (
     keepfs.repo_id = $repo_id
     AND keepfs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))

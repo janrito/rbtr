@@ -1,12 +1,12 @@
 [
   {
-    "id": "ee86eb0e9a970b30",
     "blob_sha": "sha1",
     "file_path": "main.tf",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "hcl",
+    "file_language": "hcl",
     "content": "# Greeter service infrastructure.\n#\n# The HCL plugin extracts each top-level block as a doc section, named by its\n# type and labels: a bare block by its type (terraform), a variable/output by\n# its name, a resource by its type and name.",
     "line_start": 1,
     "line_end": 5,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "7d2924582868db42"
   },
   {
-    "id": "9a3479950102c0b7",
     "blob_sha": "sha1",
     "file_path": "main.tf",
     "kind": "config_key",
     "name": "terraform",
     "scope": "",
     "language": "hcl",
+    "file_language": "hcl",
     "content": "terraform {\n  required_version = \">= 1.5\"\n}",
     "line_start": 7,
     "line_end": 9,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f58842c77d1a871a"
   },
   {
-    "id": "6a9efd680841aa5e",
     "blob_sha": "sha1",
     "file_path": "main.tf",
     "kind": "config_key",
     "name": "variable region",
     "scope": "",
     "language": "hcl",
+    "file_language": "hcl",
     "content": "variable \"region\" {\n  description = \"Deployment region for the greeter service.\"\n  type        = string\n  default     = \"us-east-1\"\n}",
     "line_start": 11,
     "line_end": 15,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3e495ada0ca309cb"
   },
   {
-    "id": "457a0958f846de57",
     "blob_sha": "sha1",
     "file_path": "main.tf",
     "kind": "config_key",
     "name": "resource aws_instance greeter",
     "scope": "",
     "language": "hcl",
+    "file_language": "hcl",
     "content": "resource \"aws_instance\" \"greeter\" {\n  ami           = \"ami-0abc123\"\n  instance_type = \"t3.micro\"\n\n  tags = {\n    Name = \"greeter\"\n  }\n}",
     "line_start": 17,
     "line_end": 24,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0bb9553077557d9d"
   },
   {
-    "id": "633460e780957025",
     "blob_sha": "sha1",
     "file_path": "main.tf",
     "kind": "config_key",
     "name": "output greeter_ip",
     "scope": "",
     "language": "hcl",
+    "file_language": "hcl",
     "content": "output \"greeter_ip\" {\n  description = \"Public IP of the greeter instance.\"\n  value       = aws_instance.greeter.public_ip\n}",
     "line_start": 26,
     "line_end": 29,
@@ -87,6 +91,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "52d00073c71d16e6"
   }
 ]

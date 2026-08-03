@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
 
-from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    TypeAdapter,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
-from rbtr.domain.identity import compose_scope, make_chunk_id
+from rbtr.domain.identity import compose_scope
 
 # ── Enums ────────────────────────────────────────────────────────────
 
@@ -93,24 +101,40 @@ class ImportMeta(BaseModel):
 # ── Data models ──────────────────────────────────────────────────────
 
 
-class Chunk(BaseModel):
+class Chunk(BaseModel, frozen=True):
     """A single indexed unit of code, documentation, or configuration.
 
     The model owns its identity: `scope` is composed from enclosing-scope
     segments (a list is joined into a `::` address; a string passes
-    through), and `id` is derived from `(file_path, blob_sha, name,
-    line_start - 1)` when not supplied. Synthetic chunks (raw/link/ref)
-    that need a decorated id pass it explicitly, and reads from storage
-    carry the stored id — both are kept as-is.
+    through), and `id` is *computed* from the fields it hashes, so a
+    chunk cannot carry an id that disagrees with its own content. Every one of those fields is a stored column, so a chunk
+    read back from storage recomputes the id it was stored under.
+
+    `file_path` is where this chunk was found, and is *not* part of its
+    identity: it comes from `file_snapshots` on read, and one chunk can
+    be reached at several paths.
+
+    Frozen, because a chunk *is* its content: two with the same content
+    are the same chunk, and changing one of the fields that says so makes
+    it a different chunk rather than the same one altered. Labelling one
+    therefore returns a copy.
     """
 
-    id: str = ""
     blob_sha: str
     file_path: str
     kind: ChunkKind
     name: str
     scope: str = ""
     language: str = ""
+    file_language: str = ""
+    """The language the *file* was extracted as.
+
+    Distinct from `language`, which is the chunk's own: a python fence in
+    a markdown document has `language="python"` and
+    `file_language="markdown"`. Stamped by `extract_file`, the only place
+    that knows it — a chunker is passed the language it is extracting,
+    which for an embedded block is the block's, not the file's.
+    """
     content: str
     line_start: int
     line_end: int
@@ -130,18 +154,43 @@ class Chunk(BaseModel):
             return value
         return compose_scope(value)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _derive_id(cls, data: Any) -> Any:
-        """Derive `id` from identity fields when one is not supplied."""
-        if isinstance(data, dict) and not data.get("id"):
-            return {
-                **data,
-                "id": make_chunk_id(
-                    data["file_path"], data["blob_sha"], data["name"], data["line_start"] - 1
-                ),
-            }
-        return data
+    @computed_field  # type: ignore[prop-decorator]  # pydantic needs the property last
+    @property
+    def id(self) -> str:
+        """A hash of what this chunk is: content, language, role, span.
+
+        Byte-identical files share every chunk, so a copy of an indexed
+        file resolves to the row already there. Location is the province
+        of `file_snapshots`, which holds every path a chunk is reachable
+        at.
+
+        `file_language` — the language the file was read as — is part of
+        it because the same bytes read as two languages are two
+        extractions: the empty blob is one chunk under python and
+        another under html, and the dedup gate asks after each
+        separately. `kind` and `line_end` are part of it because a chunk
+        is a span with a role, and an rst `doc_section` and a `:mod:`
+        reference can share a name and a starting line while spanning
+        different lines and meaning different things.
+        """
+        raw = (
+            f"{self.blob_sha}:{self.file_language}:{self.kind}:"
+            f"{self.name}:{self.line_start}:{self.line_end}"
+        )
+        return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()
+
+    @model_validator(mode="after")
+    def _check_unnamed_kinds(self) -> Chunk:
+        """Reject a name on a kind with no identifier to hold one.
+
+        A remark and a slice of lines have nothing to name. Every other
+        kind *may* be unnamed — an arrow function, a CSS `@media` block, a
+        `@charset` rule, a heading-less paragraph — so this runs one way.
+        """
+        if self.kind in {ChunkKind.COMMENT, ChunkKind.RAW_CHUNK} and self.name:
+            msg = f"{self.kind} carries no name, got {self.name!r}"
+            raise ValueError(msg)
+        return self
 
 
 class ScoredChunk(BaseModel, frozen=True):
@@ -149,12 +198,19 @@ class ScoredChunk(BaseModel, frozen=True):
 
     `repo_path` attributes the result to its repo in cross-repo
     search; it is `None` for single-repo (workspace) searches.
+
+    `file_paths` holds every location this content was found at, sorted,
+    with no primary: a chunk is its content, so the same bytes at four
+    paths are one result reachable four ways rather than four results.
+    Ranking still sees each location — candidates are scored per path
+    and collapsed afterwards, so a copy under `node_modules` cannot drag
+    down the source it duplicates.
     """
 
     id: str
     blob_sha: str
     repo_path: str | None = None
-    file_path: str
+    file_paths: list[str] = Field(min_length=1)
     kind: ChunkKind
     query_kind: QueryKind
     name: str
@@ -182,26 +238,6 @@ class ScoredChunk(BaseModel, frozen=True):
     matched_terms: list[str] = Field(default_factory=list)
 
 
-class TokenisedChunk(Chunk):
-    """Chunk with the extra columns the `chunks` table needs.
-
-    Written during extraction, stored in DB, consumed by FTS.
-    No code outside the extraction loop reads these fields
-    from the model — they exist only to flow into DuckDB.
-    The added fields split by role: `content_tokens` and
-    `name_tokens` are the code-aware tokenisations BM25/FTS
-    queries against; `extraction_serial` is a storage
-    column, not part of chunk identity, which is derived from
-    file/blob/name/line only.  Chunks carry no `repo_id` — the
-    store is content-addressed and repo attribution lives in
-    `file_snapshots`.
-    """
-
-    content_tokens: str = ""
-    name_tokens: str = ""
-    extraction_serial: int = 1
-
-
 class FileSnapshot(BaseModel):
     """A file in a snapshot's tree, mapping path to blob SHA."""
 
@@ -212,11 +248,20 @@ class FileSnapshot(BaseModel):
 
 
 class Edge(BaseModel):
-    """A directed relationship between two chunks."""
+    """A directed relationship between content at two locations.
+
+    A chunk is content and sits at as many paths as hold those bytes, so
+    the paths are part of the relationship: `docx/helpers.py` importing
+    its sibling and `xlsx/helpers.py` importing a different one are two
+    edges from a single import chunk, distinguished by where each end
+    sits. `find-refs` reports the location that did the referring.
+    """
 
     source_id: str
     target_id: str
     kind: EdgeKind
+    source_path: str
+    target_path: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -255,21 +300,62 @@ class Repo:
 
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
-TokenisedChunks = TypeAdapter(list[TokenisedChunk])
 FileSnapshots = TypeAdapter(list[FileSnapshot])
 Edges = TypeAdapter(list[Edge])
 
 
+class FileOutcome(StrEnum):
+    """What a build did with one file.
+
+    Exactly one is recorded per file, so the counts derived from the
+    tally agree with each other and with the loop. Every path through
+    the loop has a member here, including `EXTRACTED_EMPTY` — a file
+    that was extracted and yielded nothing, which a build log names so
+    that a run reporting few parsed files says why.
+    """
+
+    PARSED = "parsed"
+    SKIPPED_UNCHANGED = "skipped_unchanged"  # not in the incremental diff
+    SKIPPED_CURRENT = "skipped_current"  # the blob was already extracted
+    EXTRACTED_EMPTY = "extracted_empty"  # ran, produced nothing
+    FAILED = "failed"
+
+
 class IndexStats(BaseModel):
-    """Summary statistics for a completed index."""
+    """Summary statistics for a completed index.
+
+    `outcomes` holds one entry per file and is the only thing stored or
+    sent; the file counts are properties over it, so they cannot
+    disagree with each other or with what the loop did.
+    """
 
     total_chunks: int = 0
     total_edges: int = 0
-    total_files: int = 0
-    skipped_files: int = 0
-    parsed_files: int = 0
+    outcomes: Counter[FileOutcome] = Field(default_factory=Counter)
     embedded_chunks: int = 0
     elapsed_seconds: float = 0.0
+
+    def record(self, outcome: FileOutcome) -> None:
+        """Tally one file's outcome."""
+        self.outcomes[outcome] += 1
+
+    @property
+    def total_files(self) -> int:
+        """Files the build considered."""
+        return sum(self.outcomes.values())
+
+    @property
+    def parsed_files(self) -> int:
+        """Files that were extracted and produced at least one chunk."""
+        return self.outcomes[FileOutcome.PARSED]
+
+    @property
+    def skipped_files(self) -> int:
+        """Files the build did not extract, for either reason."""
+        return (
+            self.outcomes[FileOutcome.SKIPPED_UNCHANGED]
+            + self.outcomes[FileOutcome.SKIPPED_CURRENT]
+        )
 
 
 # ── GC / session types ────────────────────────────────────────

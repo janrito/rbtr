@@ -33,8 +33,8 @@ def test_empty_source_yields_host_presence(lang: str) -> None:
     assert chunks[0].language == lang
 
 
-def test_anonymous_chunk_when_name_capture_missing() -> None:
-    """Chunks get name='<anonymous>' when the query omits the name capture."""
+def test_chunk_is_unnamed_when_name_capture_missing() -> None:
+    """Chunks get an empty name when the query omits the name capture."""
     grammar = get_manager().grammar("python")
     assert grammar is not None
     query_no_name = "(function_definition) @function\n"
@@ -45,7 +45,7 @@ def hello():
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query_no_name))
     chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
     assert len(chunks) >= 1
-    assert chunks[0].name == "<anonymous>"
+    assert chunks[0].name == ""
 
 
 def test_scope_extractor_owns_scope_address() -> None:
@@ -119,10 +119,12 @@ def test_comment_blocks_group_in_source_order(
     query = "(comment) @comment\n(function_definition name: (identifier) @_fn_name) @function\n"
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
     chunks = list(extract_symbols(reg, "t.py", "sha1", src, grammar))
-    comments = [
-        (c.line_start, c.line_end, c.content) for c in chunks if c.kind == ChunkKind.COMMENT
-    ]
+    comment_chunks = [c for c in chunks if c.kind == ChunkKind.COMMENT]
+    comments = [(c.line_start, c.line_end, c.content) for c in comment_chunks]
     assert comments == expected
+    assert [c.name for c in comment_chunks] == [""] * len(comment_chunks), (
+        "a comment has no identifier to name it"
+    )
 
 
 def test_trailing_comment_does_not_fold_into_next_symbol() -> None:

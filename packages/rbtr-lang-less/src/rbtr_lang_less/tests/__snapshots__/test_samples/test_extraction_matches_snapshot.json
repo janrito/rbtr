@@ -1,12 +1,12 @@
 [
   {
-    "id": "e03b0b6a01be78d0",
     "blob_sha": "sha1",
     "file_path": "base.less",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "// Imported by less.less via `@import \"base\"`.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "71698a6c624fc960"
   },
   {
-    "id": "8f10aa0b97fda5ea",
     "blob_sha": "sha1",
     "file_path": "base.less",
     "kind": "variable",
     "name": "@bg",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@bg: #ffffff;",
     "line_start": 3,
     "line_end": 3,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "837abe811d55f219"
   },
   {
-    "id": "214b26100f73bc2c",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "// Greeter theme (Less).\n//\n// The Less plugin extracts @-variables, .mixin() definitions, rule sets\n// and @media/@charset/@keyframes as doc sections, and @import as imports.\n// Mixin calls (e.g. `.rounded(8px)`) are references, not definitions.",
     "line_start": 1,
     "line_end": 5,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8209659e6455d986"
   },
   {
-    "id": "14b448311d1139b8",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "import",
     "name": "@import \"base\";",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@import \"base\";",
     "line_start": 7,
     "line_end": 7,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f048740420fb950f"
   },
   {
-    "id": "8d9441ee2a311c25",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "variable",
     "name": "@primary",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@primary: #333;",
     "line_start": 9,
     "line_end": 9,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "90cc2ea8356e9258"
   },
   {
-    "id": "7c7b0d1e3f708b87",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "variable",
     "name": "@spacing",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@spacing: 8px;",
     "line_start": 10,
     "line_end": 10,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "dfa4fcd6bb9ca8dc"
   },
   {
-    "id": "70cc768af8829886",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "function",
     "name": "rounded",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": ".rounded(@radius: 4px) {\n  border-radius: @radius;\n}",
     "line_start": 12,
     "line_end": 14,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f966c2712450d388"
   },
   {
-    "id": "787412e930624b62",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": ".greeter {\n  color: @primary;\n  padding: @spacing;\n  .rounded(8px);\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
     "line_start": 16,
     "line_end": 23,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3c04530906d60e4d"
   },
   {
-    "id": "a21acf50441166ff",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "class",
     "name": ".greeting-label",
     "scope": ".greeter",
     "language": "less",
+    "file_language": "less",
     "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
     "line_start": 20,
     "line_end": 22,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "852720c757a85ba8"
   },
   {
-    "id": "289a7c82bd01f03c",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "class",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
     "line_start": 25,
     "line_end": 29,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e0f22662ab1ffe7b"
   },
   {
-    "id": "a4d6c82c63beab1c",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": ".greeter {\n    font-size: 14px;\n  }",
     "line_start": 26,
     "line_end": 28,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a81bc1863fd8b29c"
   },
   {
-    "id": "4d89902ee8dcd396",
     "blob_sha": "sha1",
     "file_path": "less.less",
     "kind": "class",
     "name": "greeting-fade",
     "scope": "",
     "language": "less",
+    "file_language": "less",
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
     "line_start": 31,
     "line_end": 38,
@@ -213,6 +224,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a20a92b7069da8d3"
   }
 ]

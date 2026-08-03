@@ -231,4 +231,4 @@ def test_keyword_searchable_via_fts(
     store, case = keyword_store_and_case
     results = store.match_fulltext("head", case.keyword, top_k=5, repo_id=1)
     assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"
-    assert results[0][0].id == case.chunk_id
+    assert results[0][0].name == case.name

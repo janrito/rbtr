@@ -20,9 +20,10 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import FileSnapshot, TokenisedChunk
+from rbtr.domain.models import FileSnapshot
 from rbtr.errors import IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_store_versioning import VersioningScenario

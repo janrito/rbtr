@@ -77,6 +77,7 @@ def _build_fused_frame(scenario: RerankScenario) -> dy.DataFrame[FusedRow]:
             "name": ["fn"] * n,
             "scope": [""] * n,
             "language": [""] * n,
+            "file_language": [""] * n,
             "content": contents,
             "line_start": [1] * n,
             "line_end": [1] * n,

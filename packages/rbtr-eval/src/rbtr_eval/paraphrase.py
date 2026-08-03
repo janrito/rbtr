@@ -44,10 +44,6 @@ log = logging.getLogger(__name__)
 # Fail the stage rather than write a dataset gutted by endpoint errors.
 _MIN_YIELD = 0.5
 
-_ALL_CHUNK_CONTENT_SQL = (
-    resources.files("rbtr_eval.sql").joinpath("all_chunk_content.sql").read_text()
-)
-
 
 # ── Deps ─────────────────────────────────────────────────────────────
 
@@ -321,6 +317,30 @@ def paraphrase_symbols(
 # ── Report ───────────────────────────────────────────────────────────
 
 
+def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.DataFrame:
+    """Source text for *sampled*, keyed by the symbol's full identity.
+
+    A corpus holds one snapshot per repo and repeats paths across
+    them — `README.md` and `setup.py` sit in most of them — so the
+    slug is part of the key, and content is read per repo rather
+    than from one frame spanning the corpus.
+    """
+    slugs = set(sampled["slug"].unique())
+    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
+    frames = [
+        store.get_chunks_frame(ref.snapshot_sha, repo_id=ref.repo_id)
+        .select("file_path", "scope", "name", "line_start", "content")
+        .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
+        for ref in store.list_latest_refs()
+        if by_id.get(ref.repo_id) in slugs
+    ]
+    if not frames:
+        return pl.DataFrame(schema={**sampled.schema, "content": pl.String}).select(
+            "slug", "file_path", "scope", "name", "line_start", "content"
+        )
+    return pl.concat(frames)
+
+
 def _render_paraphrase_report(
     concepts: dy.DataFrame[QueryRow],
     model: str,
@@ -332,11 +352,10 @@ def _render_paraphrase_report(
     lang_table = concepts.group_by("language").agg(pl.len().alias("n")).sort("n", descending=True)
 
     # Look up source content for sampled examples from the index.
-    sampled = concepts.sample(10, seed=42)
-    content_frame = store._cursor.execute(_ALL_CHUNK_CONTENT_SQL).pl()
+    sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
     examples_df = sampled.join(
-        content_frame,
-        on=["file_path", "name", "line_start"],
+        _sampled_content(store, sampled),
+        on=["slug", "file_path", "scope", "name", "line_start"],
         how="left",
     )
     examples = [

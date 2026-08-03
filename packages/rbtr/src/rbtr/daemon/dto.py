@@ -100,7 +100,7 @@ class SearchHitOut(BaseModel):
 
     name: str
     kind: ChunkKind
-    file_path: str
+    file_paths: list[str]
     scope: str = ""
     language: str = ""
     content: str
@@ -119,7 +119,7 @@ class SearchHitOut(BaseModel):
         return cls(
             name=sc.name,
             kind=sc.kind,
-            file_path=sc.file_path,
+            file_paths=sc.file_paths,
             scope=sc.scope,
             language=sc.language,
             content=sc.content,

@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser, Query, QueryCursor
 
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -94,12 +93,6 @@ def chunk_rst(
                 )
                 if text:
                     yield Chunk(
-                        id=make_chunk_id(
-                            file_path,
-                            blob_sha,
-                            f"para:{child.start_point[0]}",
-                            child.start_point[0],
-                        ),
                         blob_sha=blob_sha,
                         file_path=file_path,
                         kind=ChunkKind.DOC_SECTION,
@@ -262,9 +255,6 @@ def _extract_references(
                 continue
 
             yield Chunk(
-                id=make_chunk_id(
-                    file_path, blob_sha, f"role:{role_text}{target}", ref_node.start_point[0]
-                ),
                 blob_sha=blob_sha,
                 file_path=file_path,
                 kind=ChunkKind.IMPORT,
@@ -291,9 +281,6 @@ def _extract_references(
                 if not entry:
                     continue
                 yield Chunk(
-                    id=make_chunk_id(
-                        file_path, blob_sha, f"toctree:{entry}", content_nodes[0].start_point[0]
-                    ),
                     blob_sha=blob_sha,
                     file_path=file_path,
                     kind=ChunkKind.IMPORT,
@@ -320,7 +307,6 @@ def _extract_references(
                 if any(url.startswith(s) for s in _EXTERNAL_SCHEMES):
                     continue
                 yield Chunk(
-                    id=make_chunk_id(file_path, blob_sha, f"ref:{url}", ref_node.start_point[0]),
                     blob_sha=blob_sha,
                     file_path=file_path,
                     kind=ChunkKind.IMPORT,

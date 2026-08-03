@@ -1,8 +1,8 @@
 """Chunking helpers and fallback for unsupported content.
 
-Provides `make_chunk_id` (shared by all chunkers), the
-prose-format detection heuristic, and the line-based fallback
-chunker used when no language plugin matches.
+Provides the prose-format detection heuristic, the host-presence
+sentinel, and the line-based fallback chunker used when no language
+plugin matches.
 
 Actual chunker implementations live in their language plugin
 files under `rbtr/languages/`.
@@ -14,8 +14,8 @@ import re
 from collections.abc import Iterator
 
 from rbtr.config import config
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.plaintext import PLAINTEXT
 
 # ── Prose format detection ─────────────────────────────────────────
 
@@ -52,7 +52,9 @@ def detect_prose_format(content: str) -> str | None:
 def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
     """Split into fixed-size line-based chunks with overlap.
 
-    Chunk size and overlap come from `config.index`.
+    Chunk size and overlap come from `config.index`. A slice of lines
+    has no name — `line_start`/`line_end` locate it, and readers label
+    it from those and the path they read it at.
     """
     chunk_lines = config.chunk_lines
     overlap = config.chunk_overlap
@@ -64,11 +66,10 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
         text = "\n".join(lines[start:end]).strip()
         if text:
             yield Chunk(
-                id=make_chunk_id(file_path, blob_sha, f"chunk:{start}", start),
                 blob_sha=blob_sha,
                 file_path=file_path,
                 kind=ChunkKind.RAW_CHUNK,
-                name=f"{file_path}:{start + 1}-{end}",
+                name="",
                 scope="",
                 content=text,
                 line_start=start + 1,
@@ -78,8 +79,14 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
 
 
 def chunk_plaintext(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
-    """Chunk plain text or unsupported file types."""
-    yield from _raw_chunks(file_path, blob_sha, content)
+    """Chunk plain text or unsupported file types.
+
+    The chunks carry `PLAINTEXT`, which is the language they are in:
+    that is what stops `extract_file` deciding the file produced nothing
+    in its own language and appending a presence chunk to every one.
+    """
+    for chunk in _raw_chunks(file_path, blob_sha, content):
+        yield chunk.model_copy(update={"language": PLAINTEXT})
 
 
 def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
@@ -90,17 +97,23 @@ def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
     host contributes no content (a script-only SFC). It carries the host
     language so the blob-dedup gate records that version and skips the file
     on later builds instead of re-parsing it every time. Empty content
-    never ranks in search.
+    never ranks in search, and it has no name for the same reason a raw
+    chunk has none: nothing about it is a symbol.
+
+    Both language fields are *language*: the chunk stands for the file
+    itself, so the file's language and the chunk's own are the same one.
+    That also makes it complete without `extract_file`, which is how the
+    build's extraction-failure fallback can emit one directly.
     """
     return Chunk(
-        id=make_chunk_id(file_path, blob_sha, file_path, 0),
         blob_sha=blob_sha,
         file_path=file_path,
         kind=ChunkKind.RAW_CHUNK,
-        name=file_path,
+        name="",
         scope="",
         content="",
         language=language,
+        file_language=language,
         line_start=1,
         line_end=1,
     )

@@ -16,6 +16,40 @@ user-invocable: false
 **Red/green TDD.** Write a failing test first, then write the
 code to make it pass. Run `just check` after each step.
 
+**Read the red.** A new test must fail *for the reason it
+describes* — read the assertion output, don't just note that it
+failed. A test that **passes** when first written is a suspect
+fixture, not a success: the setup probably never reaches the
+state the bug needs.
+
+**Committing a test whose fix comes later.** Mark it
+`@pytest.mark.xfail(reason="…", strict=True)`. The suite stays
+green, the bug is documented where it will be fixed, and
+`strict` makes the test announce itself by *failing* the moment
+the behaviour is right — at which point the marker comes off.
+
+## Make the fixture actually reproduce the bug
+
+A fixture that describes the bug in prose but not in state
+produces a test that passes and proves nothing. Two traps in
+this codebase have cost hours each:
+
+- **Cache and dedup bugs need two builds, or two commits.**
+  `add_chunk` buffers, so within a single build the chunks of
+  an earlier file are not yet committed and a gate that reads
+  committed state cannot see them. Anything about "the second
+  occurrence is skipped" must put the first occurrence in a
+  *previous* build — which is also what a real repo does.
+- **Ranking tests need candidate spread.** `_normalise_col`
+  min-max normalises each signal and *returns 0.0 when every
+  candidate ties*. A fixture with only the two chunks under
+  comparison therefore scores them both 0.0, and the order
+  falls to the id tiebreak — the assertion passes or fails by
+  hash. Include a weaker match so the distribution has a range.
+
+When a test's outcome could be explained by the fixture rather
+than the code, fix the fixture first.
+
 ## What to test — conceptual actions, not units
 
 Test the **high-level conceptual actions** (the use cases:
@@ -91,9 +125,38 @@ tuple list, promote to cases.
 
 ## Fixtures
 
+**Search before you write.** Grep the conftests up the tree
+before adding a fixture — `store` (in-memory writable
+`IndexStore`), `git_repo`, `isolated_db`, `two_commits` and
+friends already exist, and a new fixture that constructs what
+one of them provides also duplicates its teardown. Check
+`rbtr.domain.models` before inventing a test-only type to carry
+two values: `SnapshotRef` already pairs a repo with a snapshot,
+and using it removes a hardcoded `repo_id=1` at every call site.
+
+**Setup is proportional to assertions.** If fixture lines
+outnumber assertion lines several times over, either the setup
+is doing too much or the file is testing too little. Treat the
+ratio as a review signal on the fixture, not on the tests.
+
+**Return the thing under test.** A fixture returning
+`tuple[Store, str]` forces every test to unpack positionally and
+lets two same-typed values swap silently. Prefer: return the one
+object; derive anything else in a second fixture that takes the
+first. Reach for a frozen dataclass only when a *scenario
+description* is being passed to a case family (see
+`cases_common.py`), not to bundle a fixture's return.
+
+**When a fixture draws criticism, subtract before you add.** The
+usual fix for an awkward fixture is deleting part of it —
+replacing a closure with structure, or a tuple with three new
+types, makes it worse while appearing to address the note.
+
 - **Fixtures over helpers.** Shared setup belongs in
-  `@pytest.fixture`, not in loose helper functions. If a
-  fixture body is too long, decompose into *smaller fixtures*.
+  `@pytest.fixture`, not in loose helper functions — and not in
+  a function nested inside a fixture, which hides its captured
+  state. If a fixture body is too long, decompose into *smaller
+  fixtures*.
 - **Prefer independent fixtures to factory fixtures.** Factories
   hide the dependency graph. Reach for one only when the test
   truly needs many instances parametrised by caller-supplied

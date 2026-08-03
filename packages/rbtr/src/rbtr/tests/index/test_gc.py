@@ -14,10 +14,11 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.gc import run_gc, run_gc_all
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk, make_snap
@@ -87,7 +88,6 @@ def gc(
         repo_id = ws.register_repo(repo_path)
     for i, sha in enumerate((c1, c2, c3)):
         chunk = TokenisedChunk(
-            id=f"c{i}",
             blob_sha=f"b{i}",
             file_path="a.py",
             kind=ChunkKind.FUNCTION,

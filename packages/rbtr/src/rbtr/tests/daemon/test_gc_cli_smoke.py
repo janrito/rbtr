@@ -15,7 +15,8 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
@@ -59,7 +60,6 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
         repo_id = ws.register_repo(str(tiny_repo.path))
     for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
         chunk = TokenisedChunk(
-            id=f"c{i}",
             blob_sha=f"b{i}",
             file_path="a.py",
             kind=ChunkKind.FUNCTION,
@@ -86,7 +86,6 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     with store.session() as ws:
         repo_id = ws.register_repo(str(tiny_repo.path))
     chunk = TokenisedChunk(
-        id="c0",
         blob_sha="b0",
         file_path="a.py",
         kind=ChunkKind.FUNCTION,

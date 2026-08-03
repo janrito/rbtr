@@ -10,9 +10,9 @@ Extracted chunks::
 
     body { color: #333; }           → class "body", scope ""
     .header { background: blue; }   → class ".header", scope ""
-    @media (max-width: 600px) {}    → class "<anonymous>", scope ""
+    @media (max-width: 600px) {}    → class, unnamed, scope ""
     @keyframes slide { ... }        → class "slide", scope ""
-    @charset "utf-8";               → config_key "<anonymous>"
+    @charset "utf-8";               → config_key, unnamed
     @import url("reset.css");       → import, metadata {module: "reset.css"}
 """
 

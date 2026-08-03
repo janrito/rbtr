@@ -1,4 +1,9 @@
-"""Polars DataFrame builders for the index write path (staging).
+"""The shapes the index write path puts into DuckDB.
+
+`TokenisedChunk` is the storage row: a `Chunk` plus the columns the
+`chunks` table needs — the FTS tokenisations and the extraction serial
+— which are facts about the table, so they live with the write path
+that fills them.
 
 Each builder converts a list of domain objects (`Chunk`, `Edge`, or
 `FileSnapshot`) into a typed polars frame whose column names match the
@@ -15,35 +20,59 @@ from __future__ import annotations
 
 import dataframely as dy
 import polars as pl
+from pydantic import TypeAdapter
 
 from rbtr.domain.models import (
+    Chunk,
     ChunkKind,
     Edge,
     EdgeKind,
     Edges,
     FileSnapshot,
     FileSnapshots,
-    TokenisedChunk,
-    TokenisedChunks,
 )
+
+
+class TokenisedChunk(Chunk, frozen=True):
+    """Chunk with the extra columns the `chunks` table needs.
+
+    Written during extraction, stored in DB, consumed by FTS.
+    No code outside the extraction loop reads these fields
+    from the model — they exist only to flow into DuckDB.
+    The added fields split by role: `content_tokens` and
+    `name_tokens` are the code-aware tokenisations BM25/FTS
+    queries against; `extraction_serial` is a storage
+    column, not part of chunk identity, which is derived from
+    file/blob/name/line only.  Chunks carry no `repo_id` — the
+    store is content-addressed and repo attribution lives in
+    `file_snapshots`.
+    """
+
+    content_tokens: str = ""
+    name_tokens: str = ""
+    extraction_serial: int = 1
+
+
+TokenisedChunks = TypeAdapter(list[TokenisedChunk])
 
 
 class ChunkStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `upsert_chunks.sql`.
 
-    No `repo_id` column: the chunk store is content-addressed and
-    shared across repos (repo attribution lives in `file_snapshots`).
+    No `repo_id` and no `file_path` column: the chunk store is
+    content-addressed and shared across repos and paths (both live in
+    `file_snapshots`, joined on blob_sha + file_language).
     No `embedding` column: embeddings are always NULL on
     initial insert and set later via `update_embedding(s)`.
     """
 
     id = dy.String(nullable=False)
     blob_sha = dy.String(nullable=False)
-    file_path = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in ChunkKind)
     name = dy.String(nullable=False)
     scope = dy.String(nullable=False)
     language = dy.String(nullable=False)
+    file_language = dy.String(nullable=False)
     content = dy.String(nullable=False)
     content_tokens = dy.String(nullable=False)
     name_tokens = dy.String(nullable=False)
@@ -72,6 +101,8 @@ class EdgeStagingRow(dy.Schema):
     target_id = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in EdgeKind)
     snapshot_sha = dy.String(nullable=False)
+    source_path = dy.String(nullable=False)
+    target_path = dy.String(nullable=False)
 
 
 class FileSnapshotStagingRow(dy.Schema):

@@ -5,7 +5,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk
@@ -35,7 +36,15 @@ def test_concurrent_write_then_read(
                 repo_id=1,
             )
             ws.insert_edges(
-                [Edge(source_id=math_func.id, target_id=http_func.id, kind=EdgeKind.IMPORTS)],
+                [
+                    Edge(
+                        source_id=math_func.id,
+                        target_id=http_func.id,
+                        kind=EdgeKind.IMPORTS,
+                        source_path=math_func.file_path,
+                        target_path=http_func.file_path,
+                    )
+                ],
                 "head",
                 repo_id=1,
             )

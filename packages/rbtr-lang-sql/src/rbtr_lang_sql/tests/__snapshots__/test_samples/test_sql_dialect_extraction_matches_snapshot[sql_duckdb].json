@@ -1,12 +1,12 @@
 [
   {
-    "id": "098a5708c3152ca7",
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- DuckDB dialect sample — LIST/STRUCT types, CTAS, CREATE MACRO.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0202263c4558210b"
   },
   {
-    "id": "589702d5e5e39965",
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
     "kind": "class",
     "name": "users",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TABLE users (\n    id BIGINT PRIMARY KEY,\n    email VARCHAR NOT NULL,\n    tags VARCHAR[],\n    profile STRUCT(name VARCHAR, age INTEGER)",
     "line_start": 3,
     "line_end": 7,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "bbc0c1d3c758c83c"
   },
   {
-    "id": "2b82cab5b30ccb16",
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
     "kind": "class",
     "name": "recent",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TABLE recent AS SELECT * FROM users LIMIT 10",
     "line_start": 10,
     "line_end": 10,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9a7eceaf6e76be85"
   },
   {
-    "id": "39ca92738c80678e",
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
     "kind": "class",
     "name": "emails",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE VIEW emails AS SELECT email FROM users",
     "line_start": 14,
     "line_end": 14,
@@ -69,6 +72,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c401891794cc2bc1"
   }
 ]

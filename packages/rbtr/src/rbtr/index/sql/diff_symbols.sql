@@ -25,11 +25,12 @@ WITH head AS (
     c.id,
     fs.repo_id,
     c.blob_sha,
-    c.file_path,
+    fs.file_path,
     c.kind,
     c.name,
     c.scope,
     c.language,
+    c.file_language,
     c.content,
     c.line_start,
     c.line_end,
@@ -39,7 +40,7 @@ WITH head AS (
   INNER JOIN file_snapshots AS fs
     ON
       c.blob_sha = fs.blob_sha
-      AND c.file_path = fs.file_path
+      AND c.file_language = fs.detected_language
   WHERE
     fs.repo_id = $repo_id
     AND fs.snapshot_sha = $head_sha
@@ -48,7 +49,7 @@ WITH head AS (
       $scope_all
       OR EXISTS (
         SELECT 1 FROM _file_paths AS fp
-        WHERE fp.file_path = c.file_path
+        WHERE fp.file_path = fs.file_path
       )
     )
 ),
@@ -58,11 +59,12 @@ base AS (
     c.id,
     fs.repo_id,
     c.blob_sha,
-    c.file_path,
+    fs.file_path,
     c.kind,
     c.name,
     c.scope,
     c.language,
+    c.file_language,
     c.content,
     c.line_start,
     c.line_end,
@@ -72,7 +74,7 @@ base AS (
   INNER JOIN file_snapshots AS fs
     ON
       c.blob_sha = fs.blob_sha
-      AND c.file_path = fs.file_path
+      AND c.file_language = fs.detected_language
   WHERE
     fs.repo_id = $repo_id
     AND fs.snapshot_sha = $base_sha
@@ -81,7 +83,7 @@ base AS (
       $scope_all
       OR EXISTS (
         SELECT 1 FROM _file_paths AS fp
-        WHERE fp.file_path = c.file_path
+        WHERE fp.file_path = fs.file_path
       )
     )
 )
@@ -97,6 +99,7 @@ SELECT
   h.name,
   h.scope,
   h.language,
+  h.file_language,
   h.content,
   h.line_start,
   h.line_end,
@@ -125,6 +128,7 @@ SELECT
   b.name,
   b.scope,
   b.language,
+  b.file_language,
   b.content,
   b.line_start,
   b.line_end,
@@ -156,6 +160,7 @@ SELECT
   h.name,
   h.scope,
   h.language,
+  h.file_language,
   h.content,
   h.line_start,
   h.line_end,

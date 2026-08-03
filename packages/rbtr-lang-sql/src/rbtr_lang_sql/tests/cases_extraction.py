@@ -202,20 +202,20 @@ def case_sql_insert_select() -> SymbolCase:
     return "sql", src, [("function", "archive", "")]
 
 
-# ── Anonymous statements (no nameable target) ────────────────────────
+# ── Unnamed statements (no nameable target) ──────────────────────────
 
 
 @case(tags=["symbol"])
 def case_sql_select_no_table() -> SymbolCase:
-    """A SELECT with no table is anonymous."""
-    return "sql", "SELECT 1;\n", [("function", "<anonymous>", "")]
+    """A SELECT with no table has no name."""
+    return "sql", "SELECT 1;\n", [("function", "", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_union() -> SymbolCase:
-    """A top-level UNION (set_operation) is one anonymous function chunk."""
+    """A top-level UNION (set_operation) is one unnamed function chunk."""
     src = "SELECT id FROM a UNION SELECT id FROM b;\n"
-    return "sql", src, [("function", "<anonymous>", "")]
+    return "sql", src, [("function", "", "")]
 
 
 @case(tags=["symbol"])

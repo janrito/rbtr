@@ -128,7 +128,7 @@ def test_match_by_text_prepends_query_instruction(mocker: MockerFixture) -> None
 
     store = IndexStore()
     spy = mocker.patch.object(
-        store, "_match_similar", return_value=ScoredChunkResultRow.create_empty()
+        store, "match_similar_frame", return_value=ScoredChunkResultRow.create_empty()
     )
 
     store.match_by_text("abc123", "find this", top_k=5, repo_id=1, embedder=embedder)

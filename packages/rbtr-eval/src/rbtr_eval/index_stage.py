@@ -18,7 +18,6 @@ models) stays shared on the user's platformdirs cache.
 from __future__ import annotations
 
 import hashlib
-import shutil
 from importlib import resources
 from pathlib import Path
 
@@ -106,19 +105,6 @@ def _embedding_report(store: IndexStore) -> str:
     )
 
 
-def _install_rbtrignore(repo_path: Path) -> None:
-    """Copy a per-repo `.rbtrignore` into the cloned repo if one exists.
-
-    Ignore files are stored in `rbtr_eval/rbtrignore/<slug>` and
-    copied into the repo root before indexing.
-    """
-    slug = repo_path.name
-    ignore_dir = resources.files("rbtr_eval.rbtrignore")
-    src = ignore_dir.joinpath(slug)
-    if src.is_file():
-        shutil.copy2(str(src), repo_path / ".rbtrignore")
-
-
 def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     """Compute a content-hash for DVC sentinel files.
 
@@ -160,7 +146,6 @@ class IndexCmd(BaseModel):
 
         for repo_path in sorted(p for p in self.repos_dir.iterdir() if p.is_dir()):
             repo_path = repo_path.resolve()
-            _install_rbtrignore(repo_path)
             dir_flags = [
                 "--data-dir",
                 str(self.data_dir),

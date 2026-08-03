@@ -83,7 +83,7 @@ def _collect_scored_candidates(
             rows.append(
                 {
                     "query_idx": idx,
-                    "file_path": r.file_path,
+                    "file_paths": r.file_paths,
                     "scope": r.scope,
                     "name": r.name,
                     "line_start": r.line_start,

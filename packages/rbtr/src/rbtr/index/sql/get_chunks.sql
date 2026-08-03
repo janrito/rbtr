@@ -7,11 +7,12 @@ SELECT
   c.id,
   fs.repo_id,
   c.blob_sha,
-  c.file_path,
+  fs.file_path,
   c.kind,
   c.name,
   c.scope,
   c.language,
+  c.file_language,
   c.content,
   c.line_start,
   c.line_end,
@@ -21,11 +22,11 @@ FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON
     c.blob_sha = fs.blob_sha
-    AND c.file_path = fs.file_path
+    AND c.file_language = fs.detected_language
 WHERE
   fs.repo_id = $repo_id
   AND fs.snapshot_sha = $snapshot_sha
   AND ($file_path IS NULL OR fs.file_path = $file_path)
   AND ($kind IS NULL OR c.kind = $kind)
   AND ($name IS NULL OR c.name = $name)
-ORDER BY c.file_path, c.line_start
+ORDER BY fs.file_path, c.line_start

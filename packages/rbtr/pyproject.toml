@@ -49,6 +49,11 @@ rbtr = "rbtr.cli:main"
 [project.entry-points.pytest11]
 rbtr = "rbtr.testing"
 
+# The fallback language ships with core, and is discovered the same way
+# every other language is.
+[project.entry-points."rbtr.languages"]
+plaintext = "rbtr.languages.plaintext:plaintext"
+
 # Optional language plugins are wired here as extras during the
 # language-plugin-packaging migration.
 [project.optional-dependencies]

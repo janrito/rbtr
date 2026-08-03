@@ -37,7 +37,7 @@ def _hit(*, repo_path: str | None) -> SearchHitOut:
     """A search hit for one file, optionally repo-attributed."""
     return SearchHitOut(
         repo_path=repo_path,
-        file_path="src/main.py",
+        file_paths=["src/main.py"],
         kind=ChunkKind.FUNCTION,
         name="main",
         content="def main(): ...",
@@ -86,7 +86,7 @@ e = 6
 f = 7
 """
     hit = SearchHitOut(
-        file_path="src/big.py",
+        file_paths=["src/big.py"],
         kind=ChunkKind.FUNCTION,
         name="big",
         language="python",
@@ -112,7 +112,7 @@ def visible_top():
     return 1
 """
     hit = SearchHitOut(
-        file_path="src/top.py",
+        file_paths=["src/top.py"],
         kind=ChunkKind.FUNCTION,
         name="top",
         language="python",
