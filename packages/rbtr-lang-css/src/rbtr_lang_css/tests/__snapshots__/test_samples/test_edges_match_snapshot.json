@@ -1,5 +1,8 @@
 [
+  "css.css::@import \"partials/dark.css\"; -> partials/dark.css::.greeting--dark [imports]",
   "css.css::@import \"theme.css\"; -> theme.css::--greeting-color [imports]",
   "css.css::@import \"theme.css\"; -> theme.css:::root [imports]",
-  "css.css::@import url(\"reset.css\"); -> reset.css::* [imports]"
+  "css.css::@import url(\"reset.css\"); -> reset.css::* [imports]",
+  "partials/dark.css::@import \"palette.css\"; -> partials/palette.css::--ink [imports]",
+  "partials/dark.css::@import \"palette.css\"; -> partials/palette.css:::root [imports]"
 ]

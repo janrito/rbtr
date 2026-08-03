@@ -343,6 +343,82 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "guides/setup.md",
+    "kind": "doc_section",
+    "name": "Setup",
+    "scope": "",
+    "language": "markdown",
+    "file_language": "markdown",
+    "content": "# Setup\n\nLinked from `markdown.md`. Links its own sibling by bare name, which only\nresolves relative to this directory.\n\nSee [the troubleshooting notes](troubleshooting.md) when a step fails.",
+    "line_start": 1,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "b80fb0dc49cf8182"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "guides/setup.md",
+    "kind": "import",
+    "name": "troubleshooting.md",
+    "scope": "",
+    "language": "markdown",
+    "file_language": "markdown",
+    "content": "troubleshooting.md",
+    "line_start": 6,
+    "line_end": 6,
+    "metadata": {
+      "module": "troubleshooting.md",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "0c8c655bc8b80ed2"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "guides/troubleshooting.md",
+    "kind": "doc_section",
+    "name": "Troubleshooting",
+    "scope": "",
+    "language": "markdown",
+    "file_language": "markdown",
+    "content": "# Troubleshooting\n\nLinked from `guides/setup.md` as a bare sibling.",
+    "line_start": 1,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "62f2dfbaa2ad968d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "guides/troubleshooting.md",
+    "kind": "doc_section",
+    "name": "A step failed",
+    "scope": "Troubleshooting",
+    "language": "markdown",
+    "file_language": "markdown",
+    "content": "## A step failed\n\nRe-run it.",
+    "line_start": 5,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "ebc6602dd94fa459"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "locales.md",
     "kind": "doc_section",
     "name": "Locales",
@@ -370,14 +446,14 @@
     "file_language": "markdown",
     "content": "# Greeter\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
-    "line_end": 16,
+    "line_end": 18,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "ac69663600c24355"
+    "id": "3518e5e677ddcfcb"
   },
   {
     "blob_sha": "sha1",
@@ -389,14 +465,14 @@
     "file_language": "markdown",
     "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-greeting).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
-    "line_end": 16,
+    "line_end": 18,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "7c96e05b4924825e"
+    "id": "666fe40dd1fa7d09"
   },
   {
     "blob_sha": "sha1",
@@ -406,16 +482,16 @@
     "scope": "Greeter::Usage",
     "language": "markdown",
     "file_language": "markdown",
-    "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.",
+    "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.\n\nStart with [the setup guide](guides/setup.md).",
     "line_start": 13,
-    "line_end": 16,
+    "line_end": 18,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "3e53d2b4cc932be3"
+    "id": "f8f354ddd2c76ada"
   },
   {
     "blob_sha": "sha1",
@@ -473,5 +549,24 @@
       "language_hint": ""
     },
     "id": "e2eaba79a5fca49f"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "markdown.md",
+    "kind": "import",
+    "name": "guides/setup.md",
+    "scope": "",
+    "language": "markdown",
+    "file_language": "markdown",
+    "content": "guides/setup.md",
+    "line_start": 18,
+    "line_end": 18,
+    "metadata": {
+      "module": "guides/setup.md",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "767aab4ee8a878dc"
   }
 ]

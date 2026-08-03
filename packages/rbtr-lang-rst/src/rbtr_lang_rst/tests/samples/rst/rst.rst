@@ -20,3 +20,5 @@ Locales
 ~~~~~~~
 
 Supported locales live in :mod:`greeter.locales`.
+
+See :doc:`topics/intro` to begin.

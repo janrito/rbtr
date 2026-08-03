@@ -248,6 +248,120 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<!-- Linked from html.html. Its script src is a bare sibling, which only\n     resolves relative to this directory. -->",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "685e10d015c11d95"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "kind": "doc_section",
+    "name": "head",
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<head>\n    <script src=\"about.js\"></script>\n  </head>",
+    "line_start": 4,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "3b7525e08faf54be"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "kind": "import",
+    "name": "<script src=\"about.js\"></script>",
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<script src=\"about.js\"></script>",
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": "about.js",
+      "names": "",
+      "dots": "",
+      "language_hint": "javascript"
+    },
+    "id": "869b48c31de20a5d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "kind": "doc_section",
+    "name": "body",
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<body>\n    <h1>About</h1>\n  </body>",
+    "line_start": 7,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "8c81895e570fa47d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.js",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "javascript",
+    "file_language": "javascript",
+    "content": "// Referenced from pages/about.html as a bare sibling.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "1086b120f17a34b9"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.js",
+    "kind": "function",
+    "name": "describe",
+    "scope": "",
+    "language": "javascript",
+    "file_language": "javascript",
+    "content": "function describe() {\n  return \"about\";\n}",
+    "line_start": 2,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "e8f56e596019719c"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "styles.css",
     "kind": "class",
     "name": ".greeter",
