@@ -1,6 +1,82 @@
 [
   {
     "blob_sha": "sha1",
+    "file_path": "api/openapi.yaml",
+    "kind": "config_key",
+    "name": "openapi",
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "# Refers into its bare sibling, which only resolves relative to this directory.\nopenapi: 3.1.0",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "6bf100cae9e931b4"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "api/openapi.yaml",
+    "kind": "config_key",
+    "name": "paths",
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "paths:\n  /greeting:\n    $ref: \"paths.yaml\"\n",
+    "line_start": 3,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "ffc37f267764c8bd"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "api/openapi.yaml",
+    "kind": "import",
+    "name": "$ref: \"paths.yaml\"",
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "$ref: \"paths.yaml\"",
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": "paths.yaml",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "41cb39ef48e43af8"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "api/paths.yaml",
+    "kind": "config_key",
+    "name": "get",
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "# Referred to from api/openapi.yaml as a bare sibling.\nget:\n  summary: A greeting\n  responses:\n    \"200\":\n      description: OK\n",
+    "line_start": 1,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "5df3fcb6f09459b7"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "kind": "comment",
     "name": "",

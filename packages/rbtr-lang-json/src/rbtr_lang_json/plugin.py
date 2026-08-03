@@ -16,7 +16,18 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
+from typing import TYPE_CHECKING
+
+from rbtr.domain.models import ImportMeta
+from rbtr.languages.registration import (
+    ImportResolver,
+    LanguageRegistration,
+    QueryExtraction,
+    load_query,
+)
+
+if TYPE_CHECKING:
+    from tree_sitter import Node
 
 json = LanguageRegistration(
     id="json",
@@ -25,5 +36,23 @@ json = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "json"),
     ),
-    extraction_serial=2,
+    extraction_serial=3,
 )
+
+
+@json.import_extractor
+def split_pointer_fragment(
+    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
+) -> ImportMeta:
+    """Separate a JSON pointer from the document it points into.
+
+    `{"$ref": "defs.json#/Named"}` reaches `defs.json`, and the pointer
+    after the `#` names what it wants inside it, which is the same shape a
+    Markdown link to a heading has.
+    """
+    meta = resolver(node, captures)
+    if "#" in meta.module:
+        module, _, pointer = meta.module.partition("#")
+        meta.module = module
+        meta.names = pointer.lstrip("/").replace("/", ".")
+    return meta

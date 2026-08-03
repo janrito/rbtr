@@ -1,5 +1,7 @@
 [
+  "partials/dark.scss::@use \"tokens\"; -> partials/tokens.scss::$ink [imports]",
   "scss.scss::@forward \"theme\"; -> theme.scss::$radius [imports]",
   "scss.scss::@import \"reset\"; -> reset.scss::* [imports]",
-  "scss.scss::@use \"config\"; -> config.scss::$brand [imports]"
+  "scss.scss::@use \"config\"; -> config.scss::$brand [imports]",
+  "scss.scss::@use \"partials/dark\"; -> partials/dark.scss::.greeting--dark [imports]"
 ]

@@ -26,13 +26,10 @@ NAME_CAPTURE_KEY: dict[str, str] = {
 }
 """Maps a structural capture name to its paired `@_*_name` helper capture."""
 
-# Node types whose captured text needs delimiter stripping → (open, close).
-DELIMITER_STRIP: dict[str, tuple[str, str]] = {
-    "system_lib_string": ("<", ">"),
-    "string_literal": ('"', '"'),
-    "interpreted_string_literal": ('"', '"'),
-    "string": ('"', '"'),
-}
+# Delimiters a captured import string may be wrapped in, opening to closing.
+# C writes `#include <stdio.h>`, and a language that quotes with either mark
+# writes both `require "b"` and `require 'b'`.
+STRING_DELIMITERS: dict[str, str] = {"<": ">", '"': '"', "'": "'"}
 
 
 class DefaultName:
@@ -78,12 +75,12 @@ class DefaultScope:
 class DefaultImport:
     """Built-in import-metadata resolver: read captures, strip delimiters.
 
-    For languages whose query captures all the import metadata they need. Strips
-    delimiters by the capture node's type: `<>` from `system_lib_string`, `"`
-    from `string_literal` / `interpreted_string_literal` / `string`. Richer
-    imports (Python/JS multi-name, Rust scoped paths) override and delegate to
-    this. Examples: C `#include <stdio.h>` → `stdio.h`; Go `import "fmt"` →
-    `fmt`; Java `import java.util.List;` → `java.util.List`.
+    For languages whose query captures all the import metadata they need. A
+    captured module wrapped in a matching pair from `STRING_DELIMITERS` is
+    unwrapped; anything else is read as it stands. Richer imports (Python/JS
+    multi-name, Rust scoped paths) override and delegate to this. Examples: C
+    `#include <stdio.h>` → `stdio.h`; Go `import "fmt"` → `fmt`; Ruby `require
+    'b'` → `b`; Java `import java.util.List;` → `java.util.List`.
     """
 
     def __call__(self, _node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
@@ -100,7 +97,7 @@ class DefaultImport:
         if not (nodes and nodes[0].text):
             return None
         raw = nodes[0].text.decode()
-        delims = DELIMITER_STRIP.get(nodes[0].type)
-        if delims and raw.startswith(delims[0]) and raw.endswith(delims[1]):
-            raw = raw[len(delims[0]) : -len(delims[1])]
+        for opening, closing in STRING_DELIMITERS.items():
+            if len(raw) > 1 and raw.startswith(opening) and raw.endswith(closing):
+                return raw[1:-1]
         return raw

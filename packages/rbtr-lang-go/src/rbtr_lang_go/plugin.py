@@ -18,9 +18,13 @@ Extracted chunks::
 
 from __future__ import annotations
 
+import re
+
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
-# ── Query ────────────────────────────────────────────────────────────
+# ── Manifest ─────────────────────────────────────────────────────────
+
+_MODULE_LINE = re.compile(r"^\s*module\s+(\S+)", re.MULTILINE)
 
 
 # ── Plugin ───────────────────────────────────────────────────────────
@@ -34,5 +38,20 @@ go = LanguageRegistration(
         query=load_query(__package__, "go"),
         scope_types=frozenset({"type_spec"}),
     ),
+    package_directory=True,
     extraction_serial=4,
+    manifest="go.mod",
 )
+
+
+@go.manifest_reader
+def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
+    """Strip the module path `go.mod` declares from every import.
+
+    Imports inside a module are written from the module root, so `module
+    example.com/m` makes `example.com/m/b` the directory `b`.
+    """
+    match = _MODULE_LINE.search(text)
+    if match is None:
+        return ()
+    return ((f"{match.group(1)}/", ""),)

@@ -1,5 +1,8 @@
 [
+  "guides/setup.md::troubleshooting.md -> guides/troubleshooting.md::A step failed [documents]",
+  "guides/setup.md::troubleshooting.md -> guides/troubleshooting.md::Troubleshooting [documents]",
   "markdown.md::api.md#format-greeting -> api.md::format-greeting [documents]",
   "markdown.md::config.md -> config.md::Configuration [documents]",
+  "markdown.md::guides/setup.md -> guides/setup.md::Setup [documents]",
   "markdown.md::locales.md -> locales.md::Locales [documents]"
 ]

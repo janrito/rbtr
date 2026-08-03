@@ -210,6 +210,120 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "css.css",
+    "kind": "import",
+    "name": "@import \"partials/dark.css\";",
+    "scope": "",
+    "language": "css",
+    "file_language": "css",
+    "content": "@import \"partials/dark.css\";",
+    "line_start": 38,
+    "line_end": 38,
+    "metadata": {
+      "module": "partials/dark.css",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "8b2906e0d46c28e6"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.css",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "css",
+    "file_language": "css",
+    "content": "/* Imported by css.css. Imports its own sibling by bare name, which only\n   resolves relative to this directory. */",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "30e3b78720e6932b"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.css",
+    "kind": "import",
+    "name": "@import \"palette.css\";",
+    "scope": "",
+    "language": "css",
+    "file_language": "css",
+    "content": "@import \"palette.css\";",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "palette.css",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "11011a8ec682e572"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.css",
+    "kind": "class",
+    "name": ".greeting--dark",
+    "scope": "",
+    "language": "css",
+    "file_language": "css",
+    "content": ".greeting--dark {\n  color: var(--ink);\n}",
+    "line_start": 5,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "7beceb826171befc"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/palette.css",
+    "kind": "class",
+    "name": ":root",
+    "scope": "",
+    "language": "css",
+    "file_language": "css",
+    "content": "/* Imported by partials/dark.css as a bare sibling. */\n:root {\n  --ink: #eeeeee;\n}",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "acdf532d0945bb9d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/palette.css",
+    "kind": "variable",
+    "name": "--ink",
+    "scope": ":root",
+    "language": "css",
+    "file_language": "css",
+    "content": "--ink: #eeeeee;",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "ec54218724ce0cb6"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "reset.css",
     "kind": "class",
     "name": "*",

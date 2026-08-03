@@ -868,9 +868,10 @@ Log behaviour is asserted on captured event dicts via
 The extraction engine lives in `rbtr.languages`, beside the
 `LanguageRegistration` contract and the manager that runs it: `treesitter`
 (query execution and doc-span recovery), `extract` (per-file strategy dispatch
-and injection), `edges` (import/doc inference), and `chunks` (the plaintext
-fallback). `rbtr.index` depends on `languages` in just two places — the build
-loop, which composes extraction with storage, and `classify`, which reuses the
+and injection), `edges` (import/doc inference), and `chunks` (the
+plaintext fallback, and the span arithmetic every chunker shares).
+`rbtr.index` depends on `languages` in just two places — the build loop,
+which composes extraction with storage, and `classify`, which reuses the
 language registry for search — while `languages` reaches down only to the
 `rbtr.domain` kernel (`models`, `identity`), so the dependency stays
 one-directional.
@@ -937,14 +938,50 @@ for the dispatch chain.
 - **Import edges** - structural (tree-sitter import
   extractor) or text-search fallback.
 - **Doc edges** - markdown sections mentioning symbol names.
+- **Data references** - a JSON Schema or OpenAPI `$ref`, a
+  tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
+  `path` dependency. A `$ref`'s pointer names a key inside the
+  document it reaches, as a Markdown link's fragment names a
+  heading, so a data language's keys are in the symbol index.
 
-Import resolution maps a module string to a repo file:
-relative paths directly, absolute/dotted paths by matching
-the dotted path as a *suffix* of a candidate file path (so
+Import resolution maps a module string to a repo file. A
+reference carrying its own depth — `../b`, or a `dots` the
+extractor set — is anchored to the importing file and has one
+place to look. Anything else is tried from the repository root
+first, then, for a `ModuleStyle.PATH` language, beside the
+importing file: `@import "b.css"` in `css/a.css` means
+`css/b.css`, and the root is tried first so a reference that
+already resolves keeps the file it resolved to. Failing both, a
+dotted path matches as a *suffix* of a candidate file path (so
 `rbtr.index.store` → `…/rbtr/index/store.py`) — which lets a
 single index span a monorepo. `module_style` and
 `source_roots` tune the mapping per language; ambiguous
-matches are dropped rather than guessed.
+matches are dropped rather than guessed, and a file never
+resolves to itself.
+
+Some references name a directory rather than a file. Where the
+language names a directory's stand-in — `__init__.py`,
+`index.js`, `mod.rs`, a crate's `Cargo.toml` — `index_files`
+resolves it to that one file. Where every file in the directory
+belongs to the unit instead, the language says `package_directory`
+and the reference reaches all of them: a Go package is its
+directory, a Terraform module is a directory of `.tf` files. A
+Markdown link to a directory reaches nothing, which is why this
+is declared rather than assumed.
+
+A prefix a language's imports carry may be written down in the
+repository rather than in the language: `go.mod` states `module
+example.com/m`, which makes `example.com/m/b` the directory `b`.
+A registration names such a file as its `manifest`, the
+extraction loop reads it while the content is in hand, and
+`build_resolution_map` turns it into path substitutions — the
+edge pass itself reads no files.
+
+Whether each language's own syntax reaches a file is pinned per
+language by `test_import_resolution.py`, which extracts two real
+files in nested directories and follows the edge. Nested because
+two files at the repository root cannot tell a sibling reference
+from a root-relative one.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*

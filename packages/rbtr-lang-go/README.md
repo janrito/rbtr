@@ -10,7 +10,9 @@ Go support for [rbtr](../rbtr). Optional plugin — install with
 - **Classes** — `struct`, `interface`, and named types.
 - **Variables** — package-level `var` / `const` (and grouped blocks).
 - **Imports** — `import` declarations (single and grouped), for cross-file
-  edges.
+  edges. An import path carries the module prefix `go.mod` declares, which is
+  read from the repository and stripped, and it names a package — a directory
+  — so the edge reaches every `.go` file in it.
 
 Leading `//` doc comments fold into the symbol's content.
 
