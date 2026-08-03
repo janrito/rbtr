@@ -195,7 +195,9 @@ export function renderSearchResult(
   const show = options.expanded ? results : results.slice(0, 5);
 
   for (const r of show) {
-    let path = shortenPath(r.file_path);
+    // One result, every location it was found at: identical content is
+    // one chunk reachable through each of its paths.
+    let path = r.file_paths.map(shortenPath).join(", ");
     if (r.repo_path) {
       const repoName = r.repo_path.replace(/\/+$/, "").split("/").pop() ?? r.repo_path;
       path = `${repoName}/${path}`;

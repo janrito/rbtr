@@ -234,7 +234,7 @@ export interface SearchResponse {
 export interface SearchHitOut {
   name: string;
   kind: ChunkKind;
-  file_path: string;
+  file_paths: string[];
   scope?: string;
   language?: string;
   content: string;
