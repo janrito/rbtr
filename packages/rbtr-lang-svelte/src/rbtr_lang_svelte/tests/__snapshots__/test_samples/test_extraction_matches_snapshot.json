@@ -21,6 +21,25 @@
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "svelte",
+    "file_language": "svelte",
+    "content": "<!--\n  Svelte single-file component.\n\n  The SFC plugin delegates the <script> block to TypeScript and the\n  <style> block to SCSS; their symbols carry those languages and their\n  imports resolve through the matching resolver. The markup template is\n  not extracted.\n-->",
+    "line_start": 1,
+    "line_end": 8,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "5f2bbd1d04760dc6"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "Greeting.svelte",
     "kind": "import",
     "name": "import { greet } from \"./greeter\";",
     "scope": "",
