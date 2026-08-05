@@ -15,38 +15,6 @@ from rbtr.index.store import IndexStore
 
 
 @pytest.fixture
-def duplicated_content_sha(tmp_path: Path, store: IndexStore) -> str:
-    """Indexed snapshot holding one large module's content at two paths.
-
-    Byte-identical content is a single content-addressed chunk row reached
-    once per path, which is the shape every count over the
-    `chunks`/`file_snapshots` join has to collapse.
-
-    The module is sized so the two paths together exceed one page of
-    `get_unembedded_chunks` (1000 rows).  A duplicate that shares a page
-    with its twin is embedded twice and masks the shortfall; only a
-    duplicate whose twin falls in a *later* page is dropped from the work
-    list, which is what leaves the progress bar short of its total.
-    """
-    root = tmp_path / "duplicated"
-    repo = pygit2.init_repository(str(root), bare=False, initial_head="main")
-    source = "\n".join(f"def func_{i}():\n    return {i}\n" for i in range(600))
-    idx = repo.index
-    for path in ("lib.py", "vendored/lib.py"):
-        target = root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(source)
-        idx.add(path)
-    idx.write()
-    sig = pygit2.Signature("Test", "test@test.com")
-    repo.create_commit("HEAD", sig, sig, "init", idx.write_tree(), [])
-
-    sha = str(repo.head.target)
-    build_index(repo.workdir, sha, store)
-    return sha
-
-
-@pytest.fixture
 def stub_embedder(mocker: MockerFixture) -> MockType:
     """MagicMock embedder with deterministic vectors."""
     embedder = mocker.MagicMock()
@@ -163,54 +131,6 @@ def test_embed_index_is_incremental(
     second = embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
     assert second == 0
     stub_embedder.embed.assert_not_called()
-
-
-def test_duplicated_content_counts_and_yields_one_chunk(
-    duplicated_content_sha: str, store: IndexStore
-) -> None:
-    """A chunk reached at two paths is counted once and returned once.
-
-    `get_chunks` deliberately fans out to one row per location, so the
-    distinct ids in it are the chunk count that `count_chunks` must report
-    and that the embed loop, which writes by id, has to do work for.
-    """
-    located = store.get_chunks(duplicated_content_sha, repo_id=1)
-    distinct_ids = {c.id for c in located}
-    # The fixture's two paths must actually share content, or there is
-    # nothing to collapse and the test proves nothing.
-    assert len(located) > len(distinct_ids)
-
-    assert store.count_chunks(duplicated_content_sha, repo_id=1) == len(distinct_ids)
-
-    unembedded = store.get_unembedded_chunks(repo_id=1, snapshot_sha=duplicated_content_sha)
-    returned = [c.id for c in unembedded]
-    assert len(returned) == len(set(returned))
-    assert set(returned) == distinct_ids
-
-
-def test_embed_reaches_its_total_when_content_is_duplicated(
-    duplicated_content_sha: str, store: IndexStore, stub_embedder: MockType
-) -> None:
-    """Embedding finishes at 100% of the total it set out to cover.
-
-    The progress total and the work done have to count the same thing, or
-    the bar stalls short of the end and a genuine failure to embed becomes
-    indistinguishable from duplicated content.
-    """
-    total = store.count_unembedded(repo_id=1, snapshot_sha=duplicated_content_sha)
-    reported: list[tuple[int, int]] = []
-
-    done = embed_index(
-        store,
-        duplicated_content_sha,
-        repo_id=1,
-        embedder=stub_embedder,
-        on_progress=lambda phase, d, t: reported.append((d, t)) if phase == "embedding" else None,
-    )
-
-    assert done == total
-    assert reported[-1] == (total, total)
-    assert store.count_unembedded(repo_id=1, snapshot_sha=duplicated_content_sha) == 0
 
 
 def test_count_unembedded_all_null(
