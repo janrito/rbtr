@@ -318,11 +318,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
     ).pipe(QueryRow.validate, cast=True)
 
     content = _sampled_content(two_repos, sampled)
-    joined = (
-        sampled.with_columns(pl.col("symbol_kind").cast(pl.String))
-        .join(content, on=["slug", *IDENTITY_COLUMNS], how="left")
-        .sort("slug")
-    )
+    joined = sampled.join(content, on=["slug", *IDENTITY_COLUMNS], how="left").sort("slug")
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]

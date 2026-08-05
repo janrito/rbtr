@@ -83,10 +83,13 @@ def _annotate_truncation(
     if trunc.is_empty():
         return outcomes
 
+    # The frame arrives straight from DuckDB rather than through a schema,
+    # so its columns carry SQL's types and are cast to the outcome's here.
     trunc = trunc.with_columns(
         pl.col("path").str.split("/").list.last().alias("slug"),
         pl.col("line_start").cast(pl.UInt32),
         pl.col("line_end").cast(pl.UInt32),
+        pl.col("symbol_kind").cast(SearchOutcome.symbol_kind.dtype),
     ).select("slug", *IDENTITY_COLUMNS)
 
     join_keys = ["slug", *IDENTITY_COLUMNS]
@@ -334,6 +337,10 @@ def _aggregate(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Metrics]:
             outcomes.group_by("arm", *dims)
             .agg(*aggs)
             .with_columns(*sentinels)
+            # A rollup either groups by the kind, giving the outcome's enum,
+            # or covers every kind, giving the sentinel — which no enum of
+            # kinds holds. The levels concatenate on the wider type.
+            .with_columns(pl.col("symbol_kind").cast(pl.String))
             .select(key_cols + val_cols)
         )
 

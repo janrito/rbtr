@@ -270,13 +270,12 @@ def paraphrase_symbols(
     concept QueryRows.
     """
     symbols = _load_symbol_content(store, repo_path, repo_id).with_columns(
-        pl.col("kind").cast(pl.String).alias("symbol_kind"),
+        pl.col("kind").alias("symbol_kind"),
     )
     join_keys = list(IDENTITY_COLUMNS)
 
     joined = (
         queries.select("slug", *join_keys)
-        .with_columns(pl.col("symbol_kind").cast(pl.String))
         .unique(subset=join_keys)
         .join(symbols.select(*join_keys, "language", "content"), on=join_keys, how="inner")
     )
@@ -335,7 +334,7 @@ def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.D
     by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
     frames = [
         store.get_chunks_frame(ref.snapshot_sha, repo_id=ref.repo_id)
-        .with_columns(pl.col("kind").cast(pl.String).alias("symbol_kind"))
+        .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
         for ref in store.list_latest_refs()
@@ -360,7 +359,7 @@ def _render_paraphrase_report(
 
     # Look up source content for sampled examples from the index.
     sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
-    examples_df = sampled.with_columns(pl.col("symbol_kind").cast(pl.String)).join(
+    examples_df = sampled.join(
         _sampled_content(store, sampled),
         on=["slug", *IDENTITY_COLUMNS],
         how="left",

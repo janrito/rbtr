@@ -29,6 +29,21 @@ IDENTITY_COLUMNS: tuple[str, ...] = (
 """Identifies one target chunk. Two chunks can start on one line, so
 the span needs both ends and the kind."""
 
+_CHUNK_KIND_VALUES: tuple[str, ...] = tuple(k.value for k in ChunkKind)
+"""Categories of every `symbol_kind` enum in this module.
+
+A `pl.Enum` dtype is identified by its category list *in order*, so two
+enums built from differently ordered categories are different dtypes and
+refuse to join.  These categories are therefore taken from `ChunkKind` in
+declaration order, matching `rbtr.index.results.ChunkContentRow.kind`, and
+frames read from the index store join eval frames without a cast.  Sorting,
+filtering or otherwise reordering this tuple breaks that silently, at the
+join rather than here.
+"""
+
+_EXCLUDED_KIND_VALUES: tuple[str, ...] = tuple(k.value for k in EXCLUDED_KINDS)
+"""Kinds the eval generates no queries for; excluded from target columns."""
+
 
 class ArmKind(StrEnum):
     """One expansion configuration measured per query.
@@ -61,7 +76,7 @@ _HIT_COLUMNS: dict[str, dy.Column] = {
     "name": dy.String(),
     "line_start": dy.UInt32(),
     "line_end": dy.UInt32(),
-    "symbol_kind": dy.String(),
+    "symbol_kind": dy.Enum(_CHUNK_KIND_VALUES),
 }
 
 
@@ -71,8 +86,9 @@ class QueryRow(dy.Schema):
     The per-repo `<slug>.parquet` file is the
     persisted form of this schema.  `measure` and `tune`
     read those files via `pl.read_parquet` + `QueryRow.validate`.
-    `symbol_kind` is any `ChunkKind` the eval measures — every kind
-    except `EXCLUDED_KINDS`.
+    `symbol_kind` spans the whole `ChunkKind` domain, so a target frame
+    joins one read from the index store; a `check` restricts the values
+    to the kinds the eval measures — every kind except `EXCLUDED_KINDS`.
 
     The key is `IDENTITY_COLUMNS` within a `slug`, plus the
     `provenance` that generated the text: one target yields at most one
@@ -86,8 +102,9 @@ class QueryRow(dy.Schema):
     line_start = dy.UInt32(primary_key=True)
     line_end = dy.UInt32(primary_key=True)
     symbol_kind = dy.Enum(
-        (k.value for k in ChunkKind if k not in EXCLUDED_KINDS),
+        _CHUNK_KIND_VALUES,
         primary_key=True,
+        check=lambda kind: ~kind.is_in(_EXCLUDED_KIND_VALUES),
     )
     language = dy.String()
     provenance = dy.String(primary_key=True)
@@ -107,7 +124,7 @@ class ExpansionRow(dy.Schema):
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
     line_end = dy.UInt32(primary_key=True)
-    symbol_kind = dy.String(primary_key=True)
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES, primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String()
     keywords = dy.List(dy.String())
@@ -159,7 +176,7 @@ class SearchQuery(dy.Schema):
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
     line_end = dy.UInt32(primary_key=True)
-    symbol_kind = dy.String(primary_key=True)
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES, primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String()
     query_text = dy.String()
@@ -219,6 +236,10 @@ class Metrics(dy.Schema):
     arm = dy.String(primary_key=True)
     slug = dy.String(primary_key=True)
     language = dy.String(primary_key=True)
+    # A grouping dimension, not a target's kind: it holds a `ChunkKind`
+    # or the sentinel standing for every kind at once, so it is a
+    # different column from the `symbol_kind` the other schemas carry
+    # and does not share their enum.
     symbol_kind = dy.String(primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String(primary_key=True)
@@ -265,7 +286,7 @@ class ScoredCandidate(dy.Schema):
     name = dy.String()
     line_start = dy.UInt32()
     line_end = dy.UInt32()
-    symbol_kind = dy.String()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
     semantic = dy.Float64()
     lexical = dy.Float64()
     name_match = dy.Float64()
@@ -295,7 +316,7 @@ class QueryMeta(dy.Schema):
     name = dy.String()
     line_start = dy.UInt32()
     line_end = dy.UInt32()
-    symbol_kind = dy.String()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
 
 
 class DetailedOutcome(dy.Schema):
@@ -325,7 +346,7 @@ class RerankerCandidate(dy.Schema):
     name = dy.String()
     line_start = dy.UInt32()
     line_end = dy.UInt32()
-    symbol_kind = dy.String()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
     fusion = dy.Float64()
     reranker = dy.Float64()
     latency_ms = dy.Float64(min=0.0)

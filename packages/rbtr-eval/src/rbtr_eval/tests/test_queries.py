@@ -21,6 +21,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
+from rbtr.index.results import ChunkContentRow
 from rbtr_eval.queries import load_all_queries, subsample
 from rbtr_eval.schemas import QueryRow
 
@@ -158,3 +159,18 @@ def test_load_all_queries(tmp_path: Path) -> None:
     # All provenances present.
     provenances = set(result["provenance"].to_list())
     assert provenances == {"name", "docstring", "concept"}
+
+
+def test_target_kind_dtype_matches_the_index_store() -> None:
+    """A query's `symbol_kind` shares the dtype of a stored chunk's `kind`.
+
+    `paraphrase` joins sampled queries against chunk frames read from the
+    store.  A `pl.Enum` is identified by its categories *in order*, so the
+    two sides join only while both list `ChunkKind` in declaration order,
+    and reordering either one fails the join rather than this assertion.
+    Pinning the dtypes equal here names the coupling where it can be read.
+    """
+    assert (
+        QueryRow.create_empty().schema["symbol_kind"]
+        == ChunkContentRow.create_empty().schema["kind"]
+    )
