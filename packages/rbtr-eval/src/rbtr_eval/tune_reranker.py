@@ -156,13 +156,15 @@ def _rank_all_blends(
         .filter(pl.col("rank") <= 10)
     )
 
-    # Find target rank: join on the identity columns.
+    # Find target rank: the candidate holds every location its content
+    # sits at, so the target's file is one of them.
     target_ranks = (
         scored.join(
             meta.select("query_idx", "file_path", "scope", "name", "line_start"),
-            on=["query_idx", "file_path", "scope", "name", "line_start"],
+            on=["query_idx", "scope", "name", "line_start"],
             how="inner",
         )
+        .filter(pl.col("file_paths").list.contains(pl.col("file_path")))
         .group_by("pool", "blend_weight", "query_idx")
         .agg(pl.col("rank").min().alias("rank"))
     )

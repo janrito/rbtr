@@ -162,10 +162,14 @@ def _rescore_and_rank(
     )
     top = ranked.filter(pl.col("rank") <= 10)
 
+    target = top.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
+        pl.col("file_paths").list.contains(pl.col("file_path"))
+    )
+
     return (
         queries.join(
-            top.select("query_idx", "file_path", "scope", "name", "line_start", "rank"),
-            on=["query_idx", "file_path", "scope", "name", "line_start"],
+            target.select("query_idx", "scope", "name", "line_start", "rank"),
+            on=["query_idx", "scope", "name", "line_start"],
             how="left",
         )
         .select("slug", "language", "provenance", "rank")

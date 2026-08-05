@@ -24,7 +24,7 @@ def case_rescore_target_at_rank_one() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -38,7 +38,7 @@ def case_rescore_target_at_rank_one() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -83,7 +83,7 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -97,7 +97,7 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -141,7 +141,7 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows = [
         {
             "query_idx": 0,
-            "file_path": f"c{i}.py",
+            "file_paths": [f"c{i}.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
@@ -158,7 +158,7 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows.append(
         {
             "query_idx": 0,
-            "file_path": "target.py",
+            "file_paths": ["target.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
@@ -239,7 +239,7 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 0: target wins.
             {
                 "query_idx": 0,
-                "file_path": "target0.py",
+                "file_paths": ["target0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -253,7 +253,7 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other0.py",
+                "file_paths": ["other0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -268,7 +268,7 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 1: target is 3rd of 3.
             {
                 "query_idx": 1,
-                "file_path": "other1a.py",
+                "file_paths": ["other1a.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -282,7 +282,7 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "other1b.py",
+                "file_paths": ["other1b.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
@@ -296,7 +296,7 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "target1.py",
+                "file_paths": ["target1.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
