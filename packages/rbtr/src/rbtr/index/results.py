@@ -118,12 +118,20 @@ class ChunkContentRow(dy.Schema):
     `get_chunks_frame` returns this shape so callers that
     only need identity + source text skip the full
     `ChunkResultRow` round-trip through `list[Chunk]`.
+
+    Addressing a chunk needs the whole span and the kind, not just
+    where it starts: a fenced shell line is a `doc_section` for the
+    command and a `comment` for the trailing comment, both anonymous
+    and both beginning on that line, and a SQL statement takes the name
+    of the CTE it selects from, which starts where it does.
     """
 
     file_path = dy.String(primary_key=True)
     scope = dy.String(primary_key=True)
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
+    line_end = dy.UInt32(primary_key=True)
+    kind = dy.Enum((k.value for k in ChunkKind), primary_key=True)
     language = dy.String()
     content = dy.String()
 

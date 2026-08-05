@@ -44,6 +44,7 @@ from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
+    IDENTITY_COLUMNS,
     ArmKind,
     ExpansionRow,
     Metrics,
@@ -84,15 +85,11 @@ def _annotate_truncation(
 
     trunc = trunc.with_columns(
         pl.col("path").str.split("/").list.last().alias("slug"),
-    ).select(
-        "slug",
-        pl.col("file_path").alias("query_file"),
-        pl.col("scope").alias("query_scope"),
-        pl.col("name").alias("query_name"),
-        pl.col("line_start").cast(pl.UInt32).alias("query_line_start"),
-    )
+        pl.col("line_start").cast(pl.UInt32),
+        pl.col("line_end").cast(pl.UInt32),
+    ).select("slug", *IDENTITY_COLUMNS)
 
-    join_keys = ["slug", "query_file", "query_scope", "query_name", "query_line_start"]
+    join_keys = ["slug", *IDENTITY_COLUMNS]
     trunc_marked = trunc.unique().with_columns(
         pl.lit(True).alias("_is_truncated"),
     )
@@ -194,10 +191,11 @@ def _run_searches(
                         "arm": arm.value,
                         "slug": query["slug"],
                         "language": query["language"],
-                        "query_file": query["file_path"],
-                        "query_scope": query["scope"],
-                        "query_name": query["name"],
-                        "query_line_start": query["line_start"],
+                        "file_path": query["file_path"],
+                        "scope": query["scope"],
+                        "name": query["name"],
+                        "line_start": query["line_start"],
+                        "line_end": query["line_end"],
                         "provenance": query["provenance"],
                         "symbol_kind": query["symbol_kind"],
                         "query_kind": query_kind,
@@ -209,6 +207,8 @@ def _run_searches(
                                 "scope": h.scope,
                                 "name": h.name,
                                 "line_start": h.line_start,
+                                "line_end": h.line_end,
+                                "symbol_kind": h.kind.value,
                             }
                             for h in resp.results
                         ],
@@ -234,16 +234,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
     appendix.  Left-joins back so queries whose target never
     appeared keep a null rank.
     """
-    outcome_keys = [
-        "arm",
-        "slug",
-        "language",
-        "query_file",
-        "query_scope",
-        "query_name",
-        "query_line_start",
-        "provenance",
-    ]
+    outcome_keys = ["arm", "slug", "language", *IDENTITY_COLUMNS, "provenance"]
     exploded = (
         batch.select(
             *outcome_keys,
@@ -255,6 +246,8 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
             pl.col("hits").struct.field("scope").alias("hit_scope"),
             pl.col("hits").struct.field("name").alias("hit_name"),
             pl.col("hits").struct.field("line_start").alias("hit_line_start"),
+            pl.col("hits").struct.field("line_end").alias("hit_line_end"),
+            pl.col("hits").struct.field("symbol_kind").alias("hit_symbol_kind"),
             pl.int_range(1, pl.len() + 1, dtype=pl.UInt8).over(outcome_keys).alias("hit_rank"),
         )
     )
@@ -263,10 +256,15 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
         exploded.filter(
             # A hit covers every path its content sits at, so the target
             # file counts as found when it is one of them.
-            pl.col("hit_file_paths").list.contains(pl.col("query_file"))
-            & (pl.col("hit_scope") == pl.col("query_scope"))
-            & (pl.col("hit_name") == pl.col("query_name"))
-            & (pl.col("hit_line_start") == pl.col("query_line_start"))
+            pl.col("hit_file_paths").list.contains(pl.col("file_path"))
+            & (pl.col("hit_scope") == pl.col("scope"))
+            & (pl.col("hit_name") == pl.col("name"))
+            & (pl.col("hit_line_start") == pl.col("line_start"))
+            # The span's end and the kind separate two chunks that begin
+            # on one line — without them a hit on the sibling scores as
+            # a hit on the target.
+            & (pl.col("hit_line_end") == pl.col("line_end"))
+            & (pl.col("hit_symbol_kind") == pl.col("symbol_kind"))
         )
         .group_by(outcome_keys)
         .agg(pl.col("hit_rank").min().alias("rank"))

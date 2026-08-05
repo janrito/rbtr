@@ -16,6 +16,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.index.store import IndexStore
 from rbtr_eval.extract import extract_queries, queries_for_symbol
+from rbtr_eval.schemas import IDENTITY_COLUMNS
 
 
 @parametrize_with_cases(
@@ -34,6 +35,7 @@ def test_generates_expected_provenances(
         name=name,
         symbol_kind="function",
         line_start=1,
+        line_end=content.count("\n") + 1,
         language=language,
         content=content,
     )
@@ -43,9 +45,24 @@ def test_generates_expected_provenances(
 
 @pytest.fixture
 def mixed_kind_index(tmp_path: Path) -> tuple[IndexStore, int, str]:
-    """A repo whose chunks span comment, config_key, function, variable, import."""
+    """A repo whose chunks span comment, config_key, function, variable, import.
+
+    `guide.md` holds a fenced bash block whose one line is both a
+    command and a trailing comment, so the index contains two anonymous
+    chunks sharing a location — the shape that collides when a target is
+    addressed by location alone.
+    """
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
+    (repo_path / "guide.md").write_text(
+        """\
+# Guide
+
+```bash
+uv run dvc repro    # run every stage end-to-end
+```
+"""
+    )
     (repo_path / "lib.py").write_text(
         "import os\n\n"
         "MAX_RETRIES = 3\n\n"
@@ -103,12 +120,29 @@ def test_generated_queries_target_real_chunks(
     store, repo_id, sha = mixed_kind_index
     queries, _, _ = extract_queries(store, "test", repo_id, sha, min_per_language=1)
     chunk_ids = {
-        (c.file_path, c.scope, c.name, c.line_start) for c in store.get_chunks(sha, repo_id=repo_id)
+        (c.file_path, c.scope, c.name, c.line_start, c.line_end, c.kind.value)
+        for c in store.get_chunks(sha, repo_id=repo_id)
     }
     for row in queries.iter_rows(named=True):
-        assert (
-            row["file_path"],
-            row["scope"],
-            row["name"],
-            row["line_start"],
-        ) in chunk_ids
+        assert tuple(row[c] for c in IDENTITY_COLUMNS) in chunk_ids
+
+
+def test_two_chunks_on_one_line_are_two_targets(
+    mixed_kind_index: tuple[IndexStore, int, str],
+) -> None:
+    """A shared location yields a query each, not one colliding key.
+
+    A fenced bash line is both an anonymous `doc_section` (the command)
+    and an anonymous `comment` (its trailing comment), at one
+    `line_start`. Each is separately searchable, so each is its own
+    target and the span and kind are what tell them apart.
+    """
+    store, repo_id, sha = mixed_kind_index
+    queries, _, _ = extract_queries(store, "test", repo_id, sha, min_per_language=1)
+
+    fenced = queries.filter(
+        (pl.col("file_path") == "guide.md")
+        & (pl.col("line_start") == 4)
+        & (pl.col("provenance") == "body")
+    )
+    assert set(fenced["symbol_kind"].cast(pl.String).to_list()) == {"comment", "doc_section"}

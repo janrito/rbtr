@@ -31,23 +31,23 @@ def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
     missing target (with top-1 still populated), and the left-join shape
     (every input row appears exactly once).
     """
-    scored = _score_outcomes(batch).sort("query_name")
+    scored = _score_outcomes(batch).sort("name")
 
     # Row preservation: every input row survives exactly once.
     assert scored.height == batch.height
 
     # Rank per target: found → 1, foo → 2 (line-disambiguated), absent → null.
-    by_name = dict(zip(scored["query_name"], scored["rank"], strict=True))
+    by_name = dict(zip(scored["name"], scored["rank"], strict=True))
     assert by_name == {"found": 1, "foo": 2, "absent": None}
 
     # Missing target keeps its top-1 fields populated.
-    absent = scored.filter(pl.col("query_name") == "absent").row(0, named=True)
+    absent = scored.filter(pl.col("name") == "absent").row(0, named=True)
     assert absent["top_file"] == "a.py"
     assert absent["top_name"] == "bar"
 
     # Line disambiguation: the line-99 hit is top-1 even though the
     # rank-2 match is at line 10.
-    foo = scored.filter(pl.col("query_name") == "foo").row(0, named=True)
+    foo = scored.filter(pl.col("name") == "foo").row(0, named=True)
     assert foo["top_file"] == "q.py"
     assert foo["top_line"] == 99
     assert foo["top_name"] == "foo"
@@ -155,7 +155,7 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
                 slug="alpha",
                 target="load",
                 latency_ms=1.0,
-                query_file="vendor/q.py",
+                file_path="vendor/q.py",
                 hits=[hit("vendor/q.py", "", "load")],
             ),
             outcome_row(
@@ -164,11 +164,11 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
         ]
     ).pipe(SearchBatch.validate, cast=True)
 
-    annotated = _annotate_truncation(_score_outcomes(batch), indexed_copy).sort("query_file")
+    annotated = _annotate_truncation(_score_outcomes(batch), indexed_copy).sort("file_path")
 
-    marked = annotated.filter(pl.col("query_name") == "load")
-    assert marked["query_file"].to_list() == ["q.py", "vendor/q.py"]
+    marked = annotated.filter(pl.col("name") == "load")
+    assert marked["file_path"].to_list() == ["q.py", "vendor/q.py"]
     assert marked["target_truncated"].to_list() == [True, True]
 
-    unmarked = annotated.filter(pl.col("query_name") == "other")
+    unmarked = annotated.filter(pl.col("name") == "other")
     assert unmarked["target_truncated"].to_list() == [False]

@@ -21,14 +21,26 @@ from rbtr_eval.tests.cases_corpus import HEAD
 
 
 def hit(
-    file_path: str, scope: str, name: str, line_start: int = 1
+    file_path: str,
+    scope: str,
+    name: str,
+    line_start: int = 1,
+    line_end: int | None = None,
+    symbol_kind: str = "function",
 ) -> dict[str, str | int | list[str]]:
-    """Build one hit-struct dict; keeps `SearchBatch` row literals readable."""
+    """Build one hit-struct dict; keeps `SearchBatch` row literals readable.
+
+    A hit spans one line unless *line_end* says otherwise, which is what
+    a case needs when two chunks share a `line_start` and only the span
+    or the kind tells them apart.
+    """
     return {
         "file_paths": [file_path],
         "scope": scope,
         "name": name,
         "line_start": line_start,
+        "line_end": line_start if line_end is None else line_end,
+        "symbol_kind": symbol_kind,
     }
 
 
@@ -38,23 +50,25 @@ def outcome_row(
     target: str,
     latency_ms: float,
     hits: list[dict[str, str | int | list[str]]],
-    query_file: str = "q.py",
-    query_line_start: int = 1,
+    file_path: str = "q.py",
+    line_start: int = 1,
+    line_end: int | None = None,
     language: str = "python",
     provenance: str = "docstring",
     symbol_kind: str = "function",
     arm: str = "none",
     query_kind: str = "concept",
 ) -> dict[str, str | int | float | list[dict[str, str | int | list[str]]] | None]:
-    """Build one `SearchBatch` row; `target` sets query_name."""
+    """Build one `SearchBatch` row; `target` is the target chunk's name."""
     return {
         "arm": arm,
         "slug": slug,
         "language": language,
-        "query_file": query_file,
-        "query_scope": "",
-        "query_name": target,
-        "query_line_start": query_line_start,
+        "file_path": file_path,
+        "scope": "",
+        "name": target,
+        "line_start": line_start,
+        "line_end": line_start if line_end is None else line_end,
         "provenance": provenance,
         "symbol_kind": symbol_kind,
         "query_kind": query_kind,

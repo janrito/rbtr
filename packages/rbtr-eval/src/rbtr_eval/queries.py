@@ -19,7 +19,7 @@ import dataframely as dy
 import polars as pl
 
 from rbtr.index.classify import classify_query
-from rbtr_eval.schemas import QueryRow
+from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryRow
 
 
 def with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:
@@ -65,7 +65,12 @@ def subsample(
     Samples up to `queries_per_cell` rows from each
     cell defined by `strat_keys`. Cells with fewer
     rows keep everything.
+
+    Sorting spans the whole target identity so the order is total: two
+    chunks can share a location, and a tie there would leave the sample
+    order to chance.
     """
+    sort_keys = list(dict.fromkeys([*strat_keys, *IDENTITY_COLUMNS]))
     return (
         queries.group_by(*strat_keys)
         .map_groups(
@@ -75,7 +80,7 @@ def subsample(
                 shuffle=False,
             )
         )
-        .sort([*strat_keys, "file_path", "line_start", "scope", "name"])
+        .sort(sort_keys)
         .pipe(QueryRow.validate, cast=True)
     )
 
