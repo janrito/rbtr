@@ -613,11 +613,24 @@ whether it is indexed yet).
 a time. The `_job_worker` serialises all write tasks
 through `asyncio.Semaphore(1)` + `asyncio.to_thread()`.
 Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes. Compaction is the one
+and run concurrently with writes. `store.py` imports pyarrow
+eagerly because duckdb's [Multiple Python Threads
+guide][ddb-threads] requires the interop library to be imported
+before threading starts — it names pandas, and the Arrow path
+needs pyarrow the same way. Without it, a frame reaches duckdb as
+an Arrow stream and registering one from a thread that then exits
+corrupts the connection. Rebuilding the FTS index on a long-lived
+thread does not avoid this, and nor does closing the writer's
+cursor before it exits: the registration does the damage, not the
+writing.
+
+Compaction is the one
 write that swaps the connection: it publishes the rewritten
 file as a fresh connection (`IndexStore._adopt_connection`)
 and each thread rebinds its cursor on the next read, so a
 `gc` rewrite never blocks or cuts off an in-flight search.
+
+[ddb-threads]: https://duckdb.org/docs/current/guides/python/multiple_threads
 
 **GPU model serialisation:** The daemon manages two GPU
 models: `Embedder` (embedding) and `Reranker`

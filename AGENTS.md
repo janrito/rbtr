@@ -171,6 +171,9 @@ Language-plugin conventions (queries, chunkers, captures,
 
 - Prefer maintained libraries over reimplementing.
 - Don't install unused dependencies.
+- **Read a dependency's concurrency documentation before
+  threading against it.** Record each constraint it imposes at
+  the code that satisfies it, and cover it with a test.
 - **Use `just` recipes for all CI tasks.**
   `just fmt` / `just lint` (or `fmt-py`, `fmt-sql`, `fmt-md`
   and `lint-*`). `just test` for the full suite;
