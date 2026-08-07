@@ -1,4 +1,4 @@
-"""Shared data builders for the rbtr-eval test suite.
+"""Shared data builders and corpus fixtures for the rbtr-eval suite.
 
 `hit` / `outcome_row` assemble `SearchBatch` rows for the measure
 pipeline tests. They are called only from fixtures and case
@@ -7,17 +7,30 @@ functions, never from test bodies.
 `seed_corpus` seeds an `IndexStore` from a `CorpusScenario`;
 `chunk` builds one tokenised chunk for the tests that write index
 rows directly.
+
+`mixed_kind_repo` is the suite's one real repo and `mixed_kind_ref` the
+same repo built into the reused `store` fixture. Both `extract` and
+`paraphrase` measure against it, so a kind it stops producing fails in
+both places.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from rbtr.domain.models import ChunkKind, FileSnapshot
+import pygit2
+import pytest
+
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
+from rbtr.tests.conftest import make_commit, store
 from rbtr_eval.tests.cases_corpus import HEAD
+
+__all__ = ["store"]  # re-declared here so rbtr-eval tests can request it
 
 
 def hit(
@@ -140,3 +153,55 @@ def snap(snapshot_sha: str, chunk: TokenisedChunk, *, path: str | None = None) -
         blob_sha=chunk.blob_sha,
         detected_language=chunk.file_language,
     )
+
+
+@pytest.fixture
+def mixed_kind_repo(tmp_path: Path) -> pygit2.Repository:
+    """A committed repo whose chunks span every measurable kind.
+
+    `guide.md` holds a fenced bash block whose one line is both a
+    command and a trailing comment, so the index contains two anonymous
+    chunks sharing a location — the shape that collides when a target is
+    addressed by location alone.  `lib.py` carries a standalone comment,
+    the anonymous kind no named-symbol fixture reaches.
+    """
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
+    make_commit(
+        repo,
+        {
+            "guide.md": b"""\
+# Guide
+
+```bash
+uv run dvc repro    # run every stage end-to-end
+```
+""",
+            "lib.py": b"""\
+import os
+
+MAX_RETRIES = 3
+
+# tune the backoff multiplier for flaky networks
+
+def connect(host):
+    \"\"\"Open a connection to the given host.\"\"\"
+    return os.environ.get(host)
+""",
+            "pyproject.toml": b"""\
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+""",
+        },
+    )
+    return repo
+
+
+@pytest.fixture
+def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, store: IndexStore) -> SnapshotRef:
+    """`mixed_kind_repo` built into `store`, addressed at its one commit."""
+    head = str(mixed_kind_repo.head.target)
+    with store.session() as ws:
+        repo_id = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
+    build_index(mixed_kind_repo.workdir, head, store)
+    return SnapshotRef(repo_id=repo_id, snapshot_sha=head)

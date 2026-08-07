@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
 import dataframely as dy
 import minijinja
 import polars as pl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
 from pydantic_ai.models import Model
@@ -48,13 +47,24 @@ _MIN_YIELD = 0.5
 # ── Deps ─────────────────────────────────────────────────────────────
 
 
-@dataclass
-class SymbolContext:
+class SymbolContext(BaseModel):
     """Per-symbol data passed as pydantic-ai deps."""
 
     language: str
     symbol_kind: ChunkKind
     excluded_identifiers: list[str]
+
+    @field_validator("excluded_identifiers", mode="after")
+    @classmethod
+    def _drop_empty(cls, value: list[str]) -> list[str]:
+        """Drop the empty string, which excludes nothing.
+
+        It is a substring of every paraphrase, so it fails the whole
+        output validator and reads as an empty pair of backticks in the
+        instructions. An anonymous chunk contributes one, having no
+        name to withhold.
+        """
+        return [i for i in value if i]
 
 
 # ── Agent ────────────────────────────────────────────────────────────
@@ -171,8 +181,12 @@ def _excluded_identifiers(name: str, scope: str, file_path: str) -> list[str]:
     Includes the symbol name, scope parts, and path segments
     (stems ≥ 3 chars) so the paraphrase describes intent
     without leaking the symbol's identity.
+
+    An unnamed chunk contributes no name: the empty string is a
+    substring of every paraphrase, so admitting it would reject
+    each one and leave comments and raw chunks unparaphrased.
     """
-    excluded = {name}
+    excluded = {name} if name else set()
     if scope:
         excluded.add(scope)
         for part in scope.split(SCOPE_SEPARATOR):
