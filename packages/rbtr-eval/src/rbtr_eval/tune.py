@@ -36,6 +36,7 @@ from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.schemas import (
+    IDENTITY_COLUMNS,
     DetailedOutcome,
     ImpactComparison,
     QueryMeta,
@@ -87,6 +88,8 @@ def _collect_scored_candidates(
                     "scope": r.scope,
                     "name": r.name,
                     "line_start": r.line_start,
+                    "line_end": r.line_end,
+                    "symbol_kind": r.kind.value,
                     "semantic": signals.semantic,
                     "lexical": signals.lexical,
                     "name_match": signals.name_match,
@@ -112,10 +115,7 @@ def _collect_scored_candidates(
             "language",
             "provenance",
             "query_kind",
-            "file_path",
-            "scope",
-            "name",
-            "line_start",
+            *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
     )
@@ -162,10 +162,16 @@ def _rescore_and_rank(
     )
     top = ranked.filter(pl.col("rank") <= 10)
 
+    target = top.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
+        pl.col("file_paths").list.contains(pl.col("file_path"))
+    )
+
     return (
         queries.join(
-            top.select("query_idx", "file_path", "scope", "name", "line_start", "rank"),
-            on=["query_idx", "file_path", "scope", "name", "line_start"],
+            target.select(
+                "query_idx", "scope", "name", "line_start", "line_end", "symbol_kind", "rank"
+            ),
+            on=["query_idx", "scope", "name", "line_start", "line_end", "symbol_kind"],
             how="left",
         )
         .select("slug", "language", "provenance", "rank")

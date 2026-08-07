@@ -18,6 +18,32 @@ from pydantic import BaseModel, Field
 from rbtr.domain.models import ChunkKind
 from rbtr_eval.kinds import EXCLUDED_KINDS
 
+IDENTITY_COLUMNS: tuple[str, ...] = (
+    "file_path",
+    "scope",
+    "name",
+    "line_start",
+    "line_end",
+    "symbol_kind",
+)
+"""Identifies one target chunk. Two chunks can start on one line, so
+the span needs both ends and the kind."""
+
+_CHUNK_KIND_VALUES: tuple[str, ...] = tuple(k.value for k in ChunkKind)
+"""Categories of every `symbol_kind` enum in this module.
+
+A `pl.Enum` dtype is identified by its category list *in order*, so two
+enums built from differently ordered categories are different dtypes and
+refuse to join.  These categories are therefore taken from `ChunkKind` in
+declaration order, matching `rbtr.index.results.ChunkContentRow.kind`, and
+frames read from the index store join eval frames without a cast.  Sorting,
+filtering or otherwise reordering this tuple breaks that silently, at the
+join rather than here.
+"""
+
+_EXCLUDED_KIND_VALUES: tuple[str, ...] = tuple(k.value for k in EXCLUDED_KINDS)
+"""Kinds the eval generates no queries for; excluded from target columns."""
+
 
 class ArmKind(StrEnum):
     """One expansion configuration measured per query.
@@ -49,6 +75,8 @@ _HIT_COLUMNS: dict[str, dy.Column] = {
     "scope": dy.String(),
     "name": dy.String(),
     "line_start": dy.UInt32(),
+    "line_end": dy.UInt32(),
+    "symbol_kind": dy.Enum(_CHUNK_KIND_VALUES),
 }
 
 
@@ -58,8 +86,13 @@ class QueryRow(dy.Schema):
     The per-repo `<slug>.parquet` file is the
     persisted form of this schema.  `measure` and `tune`
     read those files via `pl.read_parquet` + `QueryRow.validate`.
-    `symbol_kind` is any `ChunkKind` the eval measures — every kind
-    except `EXCLUDED_KINDS`.
+    `symbol_kind` spans the whole `ChunkKind` domain, so a target frame
+    joins one read from the index store; a `check` restricts the values
+    to the kinds the eval measures — every kind except `EXCLUDED_KINDS`.
+
+    The key is `IDENTITY_COLUMNS` within a `slug`, plus the
+    `provenance` that generated the text: one target yields at most one
+    name, one body and one docstring query.
     """
 
     slug = dy.String(primary_key=True)
@@ -67,20 +100,31 @@ class QueryRow(dy.Schema):
     scope = dy.String(primary_key=True)
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
-    symbol_kind = dy.Enum(k.value for k in ChunkKind if k not in EXCLUDED_KINDS)
+    line_end = dy.UInt32(primary_key=True)
+    symbol_kind = dy.Enum(
+        _CHUNK_KIND_VALUES,
+        primary_key=True,
+        check=lambda kind: ~kind.is_in(_EXCLUDED_KIND_VALUES),
+    )
     language = dy.String()
     provenance = dy.String(primary_key=True)
     text = dy.String()
 
 
 class ExpansionRow(dy.Schema):
-    """Pre-generated keywords and variants for a query."""
+    """Pre-generated keywords and variants for a query.
+
+    Keyed like `QueryRow`, so `measure` joins expansions onto queries on
+    the target they were generated for.
+    """
 
     slug = dy.String(primary_key=True)
     file_path = dy.String(primary_key=True)
     scope = dy.String(primary_key=True)
     name = dy.String(primary_key=True)
     line_start = dy.UInt32(primary_key=True)
+    line_end = dy.UInt32(primary_key=True)
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES, primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String()
     keywords = dy.List(dy.String())
@@ -116,22 +160,24 @@ class RepoHeader(dy.Schema):
 class SearchQuery(dy.Schema):
     """Identity and classification of one measured query.
 
-    The `(arm, slug, language, query_file, query_scope, query_name,
-    query_line_start, provenance)` key identifies the search; `arm` is
-    the expansion configuration, `symbol_kind` the target chunk's kind,
-    `query_kind` the `classify_query` shape.  `SearchBatch` and
-    `SearchOutcome` extend this with the raw hits and the scored rank.
+    The search is identified by `arm`, `slug`, the target
+    (`IDENTITY_COLUMNS`, under those same names) and `provenance`; `arm`
+    is the expansion configuration and `query_kind` the
+    `classify_query` shape.  `SearchBatch` and `SearchOutcome` extend
+    this with the raw hits and the scored rank, and a hit's own columns
+    carry a `hit_` prefix so the two never collide.
     """
 
     arm = dy.String(primary_key=True)
     slug = dy.String(primary_key=True)
     language = dy.String(primary_key=True)
-    query_file = dy.String(primary_key=True)
-    query_scope = dy.String(primary_key=True)
-    query_name = dy.String(primary_key=True)
-    query_line_start = dy.UInt32(primary_key=True)
+    file_path = dy.String(primary_key=True)
+    scope = dy.String(primary_key=True)
+    name = dy.String(primary_key=True)
+    line_start = dy.UInt32(primary_key=True)
+    line_end = dy.UInt32(primary_key=True)
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES, primary_key=True)
     provenance = dy.String(primary_key=True)
-    symbol_kind = dy.String()
     query_kind = dy.String()
     query_text = dy.String()
     latency_ms = dy.Float64(min=0.0)
@@ -190,6 +236,10 @@ class Metrics(dy.Schema):
     arm = dy.String(primary_key=True)
     slug = dy.String(primary_key=True)
     language = dy.String(primary_key=True)
+    # A grouping dimension, not a target's kind: it holds a `ChunkKind`
+    # or the sentinel standing for every kind at once, so it is a
+    # different column from the `symbol_kind` the other schemas carry
+    # and does not share their enum.
     symbol_kind = dy.String(primary_key=True)
     provenance = dy.String(primary_key=True)
     query_kind = dy.String(primary_key=True)
@@ -224,13 +274,19 @@ class ScoredCandidate(dy.Schema):
 
     Produced by `tune._collect_scored_candidates`; consumed
     by `tune._rescore_and_rank`.
+
+    `file_paths` holds every location the candidate's content sits at,
+    as the daemon returns it, so a target is reached when its path is
+    one of them.
     """
 
     query_idx = dy.UInt32()
-    file_path = dy.String()
+    file_paths = dy.List(dy.String())
     scope = dy.String()
     name = dy.String()
     line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
     semantic = dy.Float64()
     lexical = dy.Float64()
     name_match = dy.Float64()
@@ -259,6 +315,8 @@ class QueryMeta(dy.Schema):
     scope = dy.String()
     name = dy.String()
     line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
 
 
 class DetailedOutcome(dy.Schema):
@@ -283,10 +341,12 @@ class RerankerCandidate(dy.Schema):
 
     pool = dy.Int64(min=1)
     query_idx = dy.UInt32()
-    file_path = dy.String()
+    file_paths = dy.List(dy.String())
     scope = dy.String()
     name = dy.String()
     line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(_CHUNK_KIND_VALUES)
     fusion = dy.Float64()
     reranker = dy.Float64()
     latency_ms = dy.Float64(min=0.0)

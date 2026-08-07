@@ -3,7 +3,11 @@ SELECT DISTINCT
   fs.file_path,
   c.scope,
   c.name,
-  c.line_start
+  c.line_start,
+  c.line_end,
+  -- The eval's name for the column, so the frame joins onto a query
+  -- without being renamed on arrival.
+  c.kind AS symbol_kind
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON

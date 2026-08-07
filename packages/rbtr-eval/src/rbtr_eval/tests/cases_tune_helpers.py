@@ -24,10 +24,12 @@ def case_rescore_target_at_rank_one() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.1,
                 "name_match": 0.1,
@@ -38,10 +40,12 @@ def case_rescore_target_at_rank_one() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.9,
                 "name_match": 0.1,
@@ -64,6 +68,8 @@ def case_rescore_target_at_rank_one() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -83,10 +89,12 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.1,
                 "name_match": 0.1,
@@ -97,10 +105,12 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.9,
                 "name_match": 0.1,
@@ -123,6 +133,8 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -141,10 +153,12 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows = [
         {
             "query_idx": 0,
-            "file_path": f"c{i}.py",
+            "file_paths": [f"c{i}.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
+            "line_end": 1,
+            "symbol_kind": "function",
             "semantic": 0.8 - i * 0.05,
             "lexical": 0.8 - i * 0.05,
             "name_match": 0.5,
@@ -158,10 +172,12 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows.append(
         {
             "query_idx": 0,
-            "file_path": "target.py",
+            "file_paths": ["target.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
+            "line_end": 1,
+            "symbol_kind": "function",
             "semantic": 0.01,
             "lexical": 0.01,
             "name_match": 0.01,
@@ -184,6 +200,8 @@ def case_rescore_target_outside_top_10() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -213,6 +231,8 @@ def case_rescore_empty_candidates() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -239,10 +259,12 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 0: target wins.
             {
                 "query_idx": 0,
-                "file_path": "target0.py",
+                "file_paths": ["target0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.9,
                 "name_match": 0.5,
@@ -253,10 +275,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other0.py",
+                "file_paths": ["other0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.1,
                 "name_match": 0.5,
@@ -268,10 +292,12 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 1: target is 3rd of 3.
             {
                 "query_idx": 1,
-                "file_path": "other1a.py",
+                "file_paths": ["other1a.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.9,
                 "name_match": 0.5,
@@ -282,10 +308,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "other1b.py",
+                "file_paths": ["other1b.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.8,
                 "lexical": 0.8,
                 "name_match": 0.5,
@@ -296,10 +324,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "target1.py",
+                "file_paths": ["target1.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.1,
                 "name_match": 0.5,
@@ -322,6 +352,8 @@ def case_rescore_multiple_queries() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             },
             {
                 "query_idx": 1,
@@ -333,6 +365,8 @@ def case_rescore_multiple_queries() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             },
         ]
     ).pipe(QueryMeta.validate, cast=True)

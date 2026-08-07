@@ -18,12 +18,16 @@ from pydantic_ai import ModelResponse
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pytest_cases import fixture, parametrize_with_cases
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, SnapshotRef
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
+from rbtr.tests.conftest import make_commit
 from rbtr_eval.paraphrase import (
     SymbolContext,
     _excluded_identifiers,
@@ -31,7 +35,7 @@ from rbtr_eval.paraphrase import (
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.schemas import QueryRow
+from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryRow
 
 # ── _excluded_identifiers ────────────────────────────────────────────
 
@@ -56,6 +60,7 @@ from rbtr_eval.schemas import QueryRow
         ("foo", "Bar::Baz", "x.py", {"foo", "Bar::Baz", "Bar", "Baz"}, set()),
         ("foo", "", "a/b.py", {"foo"}, {"a", "b"}),
         ("foo", "", "src/store.py", {"foo", "store"}, {"store.py"}),
+        ("", "", "src/lib.py", {"lib", "src"}, {""}),
     ],
     ids=[
         "name-and-scope",
@@ -63,6 +68,7 @@ from rbtr_eval.schemas import QueryRow
         "nested-scope",
         "short-segments-skipped",
         "stem-stripped",
+        "anonymous-chunk",
     ],
 )
 def test_excluded_identifiers_derivation(
@@ -82,10 +88,23 @@ def test_excluded_identifiers_derivation(
 # ── Agent: output_validator rejects excluded identifiers ─────────────
 
 
+def test_symbol_context_drops_the_empty_identifier() -> None:
+    """An anonymous chunk contributes no name, and a name it has not
+    withheld excludes nothing — so the empty string never reaches the
+    instructions or the output validator.
+    """
+    deps = SymbolContext(
+        language="python",
+        symbol_kind=ChunkKind.COMMENT,
+        excluded_identifiers=["", "lib"],
+    )
+    assert deps.excluded_identifiers == ["lib"]
+
+
 @pytest.fixture
 def symbol_deps() -> SymbolContext:
     return SymbolContext(
-        language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=["greet"]
+        language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=["connect"]
     )
 
 
@@ -103,10 +122,12 @@ def clean_model() -> FunctionModel:
 
 @pytest.fixture
 def excluded_model() -> FunctionModel:
-    """LLM whose paraphrase leaks the excluded `greet` identifier."""
+    """LLM whose paraphrase leaks the excluded `connect` identifier."""
 
     def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[TextPart(content='{"text": "the greet function says hello"}')])
+        return ModelResponse(
+            parts=[TextPart(content='{"text": "the connect function opens a socket"}')]
+        )
 
     return FunctionModel(_respond)
 
@@ -121,7 +142,7 @@ def test_output_validator_retries_on_excluded(
     """
     with pytest.raises(UnexpectedModelBehavior):
         paraphrase_agent.run_sync(
-            "```python\ndef greet(): pass\n```",
+            "```python\ndef connect(): pass\n```",
             deps=symbol_deps,
             model=excluded_model,
         )
@@ -132,7 +153,7 @@ def test_output_validator_accepts_clean_response(
 ) -> None:
     """A response without excluded identifiers passes the validator."""
     result = paraphrase_agent.run_sync(
-        "```python\ndef greet(): pass\n```",
+        "```python\ndef connect(): pass\n```",
         deps=symbol_deps,
         model=clean_model,
     )
@@ -142,103 +163,76 @@ def test_output_validator_accepts_clean_response(
 # ── End-to-end: paraphrase_symbols ──────────────────────────────────
 
 
-@pytest.fixture
-def mini_repo(tmp_path: Path) -> tuple[Path, IndexStore, int]:
-    """A minimal git repo with one documented Python function, indexed."""
-    repo_path = tmp_path / "repo"
-    repo_path.mkdir()
-    repo = pygit2.init_repository(str(repo_path), bare=False)
-    src = repo_path / "lib.py"
-    src.write_text('def greet(name):\n    """Return a greeting."""\n    return f"hi {name}"\n')
-    index = repo.index
-    index.add("lib.py")
-    index.write()
-    tree_oid = index.write_tree()
-    sig = pygit2.Signature("Test", "test@test.com")
-    repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
-
-    from rbtr.index.build import build_index  # deferred: heavy native libs
-
-    resolved = str(repo_path.resolve())
-    store = IndexStore(writable=True)
-    with store.session() as ws:
-        repo_id = ws.register_repo(resolved)
-    head = str(repo.head.target)
-    build_index(repo.workdir, head, store)
-    return repo_path, store, repo_id
-
-
-@pytest.fixture
-def mini_queries() -> dy.DataFrame[QueryRow]:
-    """A QueryRow frame pointing at the symbol in mini_repo."""
-    return pl.DataFrame(
-        [
-            {
-                "slug": "test",
-                "file_path": "lib.py",
-                "scope": "",
-                "name": "greet",
-                "line_start": 1,
-                "symbol_kind": "function",
-                "language": "python",
-                "provenance": "docstring",
-                "text": "Return a greeting.",
-            }
-        ]
-    ).pipe(QueryRow.validate, cast=True)
-
-
-def test_paraphrase_symbols_produces_concept_rows(
-    mini_repo: tuple[Path, IndexStore, int],
-    mini_queries: dy.DataFrame[QueryRow],
+@fixture
+@parametrize_with_cases("queries", cases=".cases_paraphrase")
+def paraphrase_result(
+    queries: dy.DataFrame[QueryRow],
+    mixed_kind_repo: pygit2.Repository,
+    store: IndexStore,
+    mixed_kind_ref: SnapshotRef,
     clean_model: FunctionModel,
-) -> None:
-    """End-to-end: dedup → content lookup → LLM → validated output."""
-    repo_path, store, repo_id = mini_repo
+) -> tuple[dy.DataFrame[QueryRow], dy.DataFrame[QueryRow]]:
+    """Paraphrase the targeted chunk of the corpus."""
     result = paraphrase_symbols(
-        mini_queries,
+        queries,
         store,
-        str(repo_path.resolve()),
-        repo_id,
+        mixed_kind_repo.workdir,
+        mixed_kind_ref.repo_id,
         model=clean_model,
         concurrency=1,
     )
+    return queries, result
+
+
+def test_paraphrase_symbols_produces_concept_rows(
+    paraphrase_result: tuple[dy.DataFrame[QueryRow], dy.DataFrame[QueryRow]],
+) -> None:
+    """End-to-end: dedup → content lookup → LLM → validated output.
+
+    An anonymous chunk yields a row like any other: its empty name
+    stays out of the exclusion list rather than matching every
+    paraphrase and rejecting them all.
+    """
+    queries, result = paraphrase_result
 
     assert result.height == 1
     row = result.row(0, named=True)
     assert row["provenance"] == "concept"
-    assert row["name"] == "greet"
+    assert row["name"] == queries["name"][0]
     assert row["file_path"] == "lib.py"
-    assert "greet" not in str(row["text"]).lower()
 
 
+@parametrize_with_cases("queries", cases=".cases_paraphrase", has_tag="named")
 def test_paraphrase_symbols_skips_when_excluded_in_response(
-    mini_repo: tuple[Path, IndexStore, int],
-    mini_queries: dy.DataFrame[QueryRow],
+    queries: dy.DataFrame[QueryRow],
+    mixed_kind_repo: pygit2.Repository,
+    store: IndexStore,
+    mixed_kind_ref: SnapshotRef,
     excluded_model: FunctionModel,
 ) -> None:
     """Responses containing excluded identifiers exhaust retries and are dropped."""
-    repo_path, store, repo_id = mini_repo
     result = paraphrase_symbols(
-        mini_queries,
+        queries,
         store,
-        str(repo_path.resolve()),
-        repo_id,
+        mixed_kind_repo.workdir,
+        mixed_kind_ref.repo_id,
         model=excluded_model,
         concurrency=1,
     )
     assert result.height == 0
 
 
+@parametrize_with_cases("queries", cases=".cases_paraphrase", has_tag="named")
 def test_paraphrase_symbols_deduplicates_across_provenances(
-    mini_repo: tuple[Path, IndexStore, int], mini_queries: dy.DataFrame[QueryRow]
+    queries: dy.DataFrame[QueryRow],
+    mixed_kind_repo: pygit2.Repository,
+    store: IndexStore,
+    mixed_kind_ref: SnapshotRef,
 ) -> None:
     """Multiple provenances for the same symbol produce one LLM call."""
-    name_row = mini_queries.with_columns(
-        pl.lit("name").alias("provenance"),
-        pl.lit("greet").alias("text"),
+    both = pl.concat([queries, queries.with_columns(pl.lit("name").alias("provenance"))]).pipe(
+        QueryRow.validate, cast=True
     )
-    both = pl.concat([mini_queries, name_row]).pipe(QueryRow.validate, cast=True)
     assert both.height == 2
 
     call_count = 0
@@ -253,12 +247,11 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
             parts=[TextPart(content='{"text": "produce a friendly welcome message for someone"}')]
         )
 
-    repo_path, store, repo_id = mini_repo
     result = paraphrase_symbols(
         both,
         store,
-        str(repo_path.resolve()),
-        repo_id,
+        mixed_kind_repo.workdir,
+        mixed_kind_ref.repo_id,
         model=FunctionModel(counting_fn),
         concurrency=1,
     )
@@ -271,28 +264,23 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
 
 @pytest.fixture
-def two_repos(tmp_path: Path) -> IndexStore:
+def two_repos(tmp_path: Path, store: IndexStore) -> IndexStore:
     """Two indexed repos whose `lib.py` differ only in the return value.
 
     A corpus repeats paths across repos, so `greet` at `lib.py:1`
     exists twice with different source text.
     """
-    from rbtr.index.build import build_index  # deferred: heavy native libs
-
-    store = IndexStore(writable=True)
     for slug, greeting in (("alpha", "hi"), ("beta", "yo")):
-        path = tmp_path / slug
-        path.mkdir()
-        repo = pygit2.init_repository(str(path), bare=False)
-        (path / "lib.py").write_text(f'def greet(name):\n    return f"{greeting} {{name}}"\n')
-        index = repo.index
-        index.add("lib.py")
-        index.write()
-        sig = pygit2.Signature("Test", "test@test.com")
-        repo.create_commit("HEAD", sig, sig, "init", index.write_tree(), [])
+        repo = pygit2.init_repository(str(tmp_path / slug), bare=False, initial_head="main")
+        head = str(
+            make_commit(
+                repo,
+                {"lib.py": f'def greet(name):\n    return f"{greeting} {{name}}"\n'.encode()},
+            )
+        )
         with store.session() as ws:
-            ws.register_repo(str(path.resolve()))
-        build_index(repo.workdir, str(repo.head.target), store)
+            ws.register_repo(normalise_repo_path(repo.workdir))
+        build_index(repo.workdir, head, store)
     return store
 
 
@@ -306,6 +294,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
                 "scope": "",
                 "name": "greet",
                 "line_start": 1,
+                "line_end": 2,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "name",
@@ -316,11 +305,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
     ).pipe(QueryRow.validate, cast=True)
 
     content = _sampled_content(two_repos, sampled)
-    joined = sampled.join(
-        content,
-        on=["slug", "file_path", "scope", "name", "line_start"],
-        how="left",
-    ).sort("slug")
+    joined = sampled.join(content, on=["slug", *IDENTITY_COLUMNS], how="left").sort("slug")
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]

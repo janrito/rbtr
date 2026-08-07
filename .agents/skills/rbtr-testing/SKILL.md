@@ -11,6 +11,23 @@ user-invocable: false
 
 # rbtr testing conventions
 
+## Before you write
+
+Search first — `rbtr_search`, grep, whatever fits — and show what
+came back. The result in the transcript, not the claim you looked.
+
+- **Reuse what exists.** Check the conftests up the tree before
+  adding a fixture or builder. `rbtr.tests.conftest` is importable
+  from any package's tests, so `store`, `git_repo`, `make_commit`
+  and friends are always in reach. Building a second repo, store
+  or corpus when one is on the shelf is the costliest mistake here.
+- **Count before copying.** The nearest example is not the
+  convention; the majority is. `build_index` is module-level in
+  seven files and deferred in two.
+- **Subtract before finishing.** What did you add that already
+  existed? A helper wrapping one literal, a second corpus, a
+  dataclass carrying what a frame carries — delete it.
+
 ## Workflow
 
 **Red/green TDD.** Write a failing test first, then write the

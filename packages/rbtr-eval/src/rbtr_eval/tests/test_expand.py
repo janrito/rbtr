@@ -17,7 +17,7 @@ from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.expand import expand_queries
+from rbtr_eval.expand import _render_expansion_report, expand_queries
 from rbtr_eval.schemas import ExpansionRow, QueryRow
 
 if TYPE_CHECKING:
@@ -87,6 +87,7 @@ def concept_query() -> dy.DataFrame[QueryRow]:
                 "scope": "",
                 "name": "load_config",
                 "line_start": 1,
+                "line_end": 1,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "docstring",
@@ -107,6 +108,7 @@ def mixed_queries() -> dy.DataFrame[QueryRow]:
                 "scope": "",
                 "name": "load_config",
                 "line_start": 1,
+                "line_end": 1,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "docstring",
@@ -118,6 +120,7 @@ def mixed_queries() -> dy.DataFrame[QueryRow]:
                 "scope": "",
                 "name": "get_chunks",
                 "line_start": 20,
+                "line_end": 20,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "body",
@@ -179,3 +182,19 @@ def test_expand_mixed_queries(
     code_row = result.filter(pl.col("name") == "get_chunks").row(0, named=True)
     assert len(code_row["keywords"]) > 0
     assert len(code_row["variants"]) > 0
+
+
+def test_expansion_report_joins_queries_onto_expansions(
+    concept_query: dy.DataFrame[QueryRow], expansion_model: FunctionModel
+) -> None:
+    """The report's examples carry the query text joined from `QueryRow`.
+
+    `ExpansionRow` does not hold `text`, so the report joins it back on the
+    target identity.  Asserting the text reaches the output proves the join
+    matched, rather than merely that it did not raise.
+    """
+    result = expand_queries(concept_query, model=expansion_model, concurrency=1)
+
+    report = _render_expansion_report(result, concept_query, "test-model")
+
+    assert "how does configuration loading work" in report
