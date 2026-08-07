@@ -4,7 +4,8 @@ Chunks are keyed by content, so a copy of an already-indexed file needs
 no re-extraction and no second row: it is the same row, reached through
 `file_snapshots` at a second path. These tests pin that a copy stays
 visible, that the same bytes under two languages stay separate, and that
-sharing a row does not make two locations rank as one.
+sharing a row does not make two locations rank as one, and that counting
+the index collapses the copies it fans out into.
 """
 
 from __future__ import annotations
@@ -98,6 +99,26 @@ def test_a_copy_adds_a_location_without_demoting_the_source(
     assert len(hits) == 1, f"the copies did not collapse: {[r.file_paths for r in results]}"
     assert hits[0].file_paths == ["node_modules/dup.py", "src/dup.py"]
     assert hits[0].file_penalty == 1.0, "the vendored copy set the penalty"
+
+
+# ── Counts are per chunk ─────────────────────────────────────────────
+
+
+def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotRef) -> None:
+    """A chunk at two paths counts once, and is one unit of embedding work.
+
+    Embedding writes the row the copies share, so a count that left them
+    fanned out would set the progress total above the work there is to do.
+    """
+    located = dup_store.get_chunks(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id)
+    chunks = {c.id for c in located}
+    assert len(located) > len(chunks), "nothing was duplicated"
+
+    assert dup_store.count_chunks(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id) == len(chunks)
+    assert dup_store.count_unembedded(dup_ref.repo_id, dup_ref.snapshot_sha) == len(chunks)
+
+    unembedded = dup_store.get_unembedded_chunks(dup_ref.repo_id, dup_ref.snapshot_sha)
+    assert sorted(c.id for c in unembedded) == sorted(chunks)
 
 
 # ── Edges are per location ───────────────────────────────────────────
