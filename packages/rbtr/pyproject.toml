@@ -94,7 +94,7 @@ all = [
 test = [
   # Held below 9.1: pytest-cases 3.10.1 breaks on pytest 9.1's changed
   # IdMaker signature. Drop the bound once pytest-cases is compatible.
-  "pytest<9.1",
+  "pytest<9.2",
   "pytest-cases>=3.10.1",
   "syrupy>=5.3.4",
 ]
