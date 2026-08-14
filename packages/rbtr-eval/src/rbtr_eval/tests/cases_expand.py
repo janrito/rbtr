@@ -16,7 +16,7 @@ import dataframely as dy
 import polars as pl
 from pytest_cases import case
 
-from rbtr_eval.schemas import QueryRow
+from rbtr_eval.shared_schemas import QueryRow
 
 if TYPE_CHECKING:
     from pydantic_ai.models.function import FunctionModel

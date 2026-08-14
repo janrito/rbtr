@@ -13,7 +13,7 @@ from pytest_cases import parametrize_with_cases
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.store import IndexStore
 from rbtr_eval.extract import extract_queries, queries_for_symbol
-from rbtr_eval.schemas import IDENTITY_COLUMNS
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS
 
 
 @parametrize_with_cases(

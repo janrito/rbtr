@@ -35,7 +35,7 @@ from rbtr_eval.paraphrase import (
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryRow
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
 # ── _excluded_identifiers ────────────────────────────────────────────
 

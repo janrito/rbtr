@@ -40,7 +40,7 @@ from rbtr.domain.models import QueryKind
 from rbtr.index.classify import classify_query
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.queries import load_all_queries
-from rbtr_eval.schemas import ExpansionRow, QueryRow
+from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 log = logging.getLogger(__name__)
 
