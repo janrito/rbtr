@@ -473,5 +473,100 @@
       "language_hint": ""
     },
     "id": "c5b79b393f2730e2"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.c",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "/* Includes its own sibling by bare name. */",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "0754ac7dd958f3ae"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.c",
+    "kind": "import",
+    "name": "#include \"text.h\"",
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "#include \"text.h\"\n",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "text.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "94415905fb20f19f"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.c",
+    "kind": "function",
+    "name": "text_length",
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "int text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}",
+    "line_start": 4,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "9de16b293ce6c7f8"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.h",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "/* Included by util/text.c as a bare sibling, which only resolves relative\n   to this directory. */",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "9ff3e5ac780a7e90"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.h",
+    "kind": "variable",
+    "name": "GREETER_UTIL_TEXT_H",
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "#define GREETER_UTIL_TEXT_H\n",
+    "line_start": 4,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "46c2713ca66abfa3"
   }
 ]

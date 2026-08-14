@@ -1,0 +1,7 @@
+// Used by scss.scss. Uses its own sibling by bare name, which only
+// resolves relative to this directory.
+@use "tokens";
+
+.greeting--dark {
+  color: tokens.$ink;
+}

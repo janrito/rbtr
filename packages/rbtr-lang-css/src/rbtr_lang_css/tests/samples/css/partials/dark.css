@@ -1,0 +1,7 @@
+/* Imported by css.css. Imports its own sibling by bare name, which only
+   resolves relative to this directory. */
+@import "palette.css";
+
+.greeting--dark {
+  color: var(--ink);
+}
