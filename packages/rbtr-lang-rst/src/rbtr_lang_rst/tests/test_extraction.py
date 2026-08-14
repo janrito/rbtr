@@ -23,6 +23,27 @@ def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> No
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
+def test_rst_headingless_paragraphs_span_their_own_lines() -> None:
+    """A file with no headings spans each paragraph over the lines it occupies.
+
+    Taken from django's `docs/README.rst`, where the one-line paragraph
+    followed by a blank line and a bullet list reported line 7 to line 6.
+    """
+    src = """\
+The documentation in this tree is in plain text files and can be viewed using
+any text file viewer.
+
+It uses `ReST`_ (reStructuredText), and the `Sphinx`_ documentation system.
+
+To create an HTML version of the docs:
+
+* Install Sphinx (using ``python -m pip install Sphinx`` or some other method).
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION]
+    assert spans == [(1, 2), (4, 4), (6, 6)]
+
+
 def test_rst_hierarchy_from_adornment_order() -> None:
     """RST reconstructs hierarchy from adornment character order."""
     src = """\
