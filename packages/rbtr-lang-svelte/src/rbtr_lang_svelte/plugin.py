@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser
 
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -55,7 +54,6 @@ def _template_chunk(
     line_start = min(n.start_point[0] for n in nodes)
     line_end = max(n.end_point[0] for n in nodes)
     return Chunk(
-        id=make_chunk_id(file_path, blob_sha, name, line_start),
         blob_sha=blob_sha,
         file_path=file_path,
         kind=ChunkKind.DOC_SECTION,
