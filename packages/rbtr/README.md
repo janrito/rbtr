@@ -600,6 +600,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 from tree_sitter import Parser
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
@@ -624,8 +625,24 @@ def chunk_example(
     if ranges is not None:
         parser.included_ranges = ranges  # serve as an injection target
     tree = parser.parse(content.encode())
-    # ... walk tree, yield Chunk objects ...
+    for node in tree.root_node.children:
+        yield Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            kind=ChunkKind.DOC_SECTION,
+            name="",
+            scope="",
+            content=node.text.decode(),
+            line_start=node.start_point[0] + 1,
+            line_end=last_line(node),
+        )
 ```
+
+Spans are 1-based and inclusive. Take the last line from
+`last_line`: tree-sitter rows are 0-based, and a node that
+consumes its trailing newline ends at column 0 of a row it does
+not occupy, so adding one to the end row overshoots such a node
+by a line.
 
 ### Testing the plugin
 
