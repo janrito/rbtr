@@ -9,17 +9,14 @@ from the repository root happens to work when both files sit at the
 root, which hides the most common shape of all: a file naming its
 sibling.
 
-Cases marked `xfail` record a resolution rbtr does not yet reach. The
-mark is strict, so closing a gap turns its case red and prompts the
-mark's removal.
+A language that cannot yet follow its own syntax belongs here with a
+strict `xfail` naming what is missing, so closing the gap turns the case
+red and prompts the mark's removal.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-import pytest
-from pytest_cases import case
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -31,9 +28,10 @@ class ImportScenario:
     importer_source: str
     target: str
     target_source: str
-
-
-# ── Resolving a reference to a file ──────────────────────────────────
+    # Files the repository holds that neither imports nor is imported, but
+    # which resolution reads: `go.mod` declares the module prefix every Go
+    # import carries.
+    extra_files: dict[str, str] = field(default_factory=dict)
 
 
 def case_python() -> ImportScenario:
@@ -172,12 +170,6 @@ import { helper } from './b.js';
     )
 
 
-# ── Not resolving yet ────────────────────────────────────────────────
-#
-# Each mark is strict, so closing a gap turns its case red and prompts
-# the mark's removal.
-
-
 def case_css() -> ImportScenario:
     """CSS `@import` names a sibling stylesheet."""
     return ImportScenario(
@@ -265,13 +257,13 @@ def case_ruby() -> ImportScenario:
     )
 
 
-@case(
-    marks=pytest.mark.xfail(
-        reason="the module prefix declared in go.mod is not stripped", strict=True
-    )
-)
 def case_go() -> ImportScenario:
-    """Go resolves an import naming a package inside the module."""
+    """Go resolves an import naming a package directory inside the module.
+
+    The imported file is named for what it holds rather than for its
+    directory, because a Go package is the directory and a file in it may
+    be called anything. `go.mod` declares the prefix the import carries.
+    """
     return ImportScenario(
         language="go",
         importer="a/main.go",
@@ -280,16 +272,12 @@ package main
 
 import "example.com/m/b"
 """,
-        target="b/b.go",
+        target="b/lib.go",
         target_source="package b\n\nfunc Helper() int {\n\treturn 1\n}\n",
+        extra_files={"go.mod": "module example.com/m\n\ngo 1.24\n"},
     )
 
 
-@case(
-    marks=pytest.mark.xfail(
-        reason="a module block's source is not extracted as an import", strict=True
-    )
-)
 def case_hcl() -> ImportScenario:
     """Terraform resolves a module block's source directory."""
     return ImportScenario(
