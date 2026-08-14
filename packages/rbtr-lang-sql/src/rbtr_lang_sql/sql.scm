@@ -56,7 +56,7 @@
 ; groups can't express. DML patterns are anchored at (program (statement …))
 ; so each top-level statement yields exactly one chunk: select and delete
 ; keep their target in a sibling from, so the whole statement is captured.
-; A set_operation (UNION/INTERSECT/EXCEPT) has no single table → <anonymous>.
+; A set_operation (UNION/INTERSECT/EXCEPT) has no single table → unnamed.
 
 (create_trigger (keyword_trigger) . (object_reference name: (identifier) @_var_name)) @variable
 
