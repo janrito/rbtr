@@ -24,12 +24,14 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
+from tree_sitter import Parser
 
 from rbtr.domain.models import Chunk, Edge
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
+    from tree_sitter import Language
 
 
 def render_edges(edges: list[Edge], chunks: list[Chunk]) -> list[str]:
@@ -77,3 +79,43 @@ def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     plugin package needs no conftest to snapshot `Chunk`/`Edge` output.
     """
     return snapshot.use_extension(PydanticSnapshotExtension)
+
+
+class DroppedBlocks(AssertionError):
+    """Top-level blocks of a chunker-owned document that no chunk reaches."""
+
+    def __init__(self, file_path: str, dropped: list[tuple[str, int]]) -> None:
+        super().__init__(f"{file_path}: no chunk reaches {dropped}")
+
+
+def assert_document_fully_chunked(
+    file_path: str,
+    text: str,
+    chunks: list[Chunk],
+    grammar: Language,
+) -> None:
+    """Every top-level block of a chunker-owned document reaches a chunk.
+
+    A chunker partitions a whole document, unlike a query, which selects
+    the definitions out of one — so for a chunker every top-level block is
+    content and none may be dropped. A block counts as reached when some
+    chunk overlaps its lines, which is what an injected `<script>`'s
+    chunks do to the element holding them.
+
+    Call it from a plugin whose extraction is a chunker: prose (markdown,
+    rst) and single-file components (svelte, vue).
+    """
+    spans = [(c.line_start, c.line_end) for c in chunks if c.file_path == file_path]
+    root = Parser(grammar).parse(text.encode()).root_node
+    dropped = [
+        (node.type, node.start_point[0] + 1)
+        for node in root.children
+        if node.is_named
+        and not any(
+            start <= node.end_point[0] + 1 and node.start_point[0] + 1 <= end
+            for start, end in spans
+        )
+    ]
+    if dropped:
+        # Raised rather than asserted: this ships, and `-O` strips an assert.
+        raise DroppedBlocks(file_path, dropped)
