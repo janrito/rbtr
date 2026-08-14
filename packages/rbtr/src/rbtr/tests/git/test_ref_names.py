@@ -70,3 +70,22 @@ def test_unborn_head_does_not_raise(tmp_path: Path) -> None:
     assert repo.head_is_unborn
     result = names_for_commits(str(tmp_path / "empty_repo"), ["deadbeef" * 5])
     assert result == {"deadbeef" * 5: []}
+
+
+def test_naming_a_dirty_repo_writes_nothing_to_it(sample_repo: SampleRepo) -> None:
+    """Describing a repository must not add objects to it.
+
+    The label used to come from `worktree_tree_sha`, which writes a tree
+    and a blob per modified file into the repository it is asked about.
+    Reading a status wrote to the thing being read.
+    """
+    workdir = Path(sample_repo.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
+    (workdir / "dirty.py").write_text("x = 1\n")
+
+    # Opened fresh: an `Odb` held from before does not see objects
+    # written since, and would compare equal whatever the code did.
+    before = set(pygit2.Repository(sample_repo.repo.path).odb)
+
+    names_for_commits(sample_repo.repo.workdir, [str(sample_repo.base)])
+
+    assert set(pygit2.Repository(sample_repo.repo.path).odb) == before
