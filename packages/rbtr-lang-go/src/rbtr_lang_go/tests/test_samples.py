@@ -28,10 +28,21 @@ def project() -> list[tuple[str, str]]:
 
 
 @pytest.fixture
-def chunks(project: list[tuple[str, str]]) -> list[Chunk]:
+def sources(project: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The project's source files, which is every file but `go.mod`.
+
+    A manifest is data the resolver reads, not source a grammar parses;
+    a build chunks it as plaintext.
+    """
+    manager = get_manager()
+    return [(path, text) for path, text in project if manager.detect_language(path)]
+
+
+@pytest.fixture
+def chunks(sources: list[tuple[str, str]]) -> list[Chunk]:
     manager = get_manager()
     out: list[Chunk] = []
-    for path, text in project:
+    for path, text in sources:
         lang = manager.detect_language(path) or "go"
         out.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
     return out
@@ -41,7 +52,9 @@ def chunks(project: list[tuple[str, str]]) -> list[Chunk]:
 def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
     manager = get_manager()
     repo_files = {path for path, _ in project}
-    return infer_import_edges(chunks, repo_files, build_resolution_map(manager))
+    manifests = {path: text for path, text in project if path == "go.mod"}
+    resolution = build_resolution_map(manager, manifests=manifests)
+    return infer_import_edges(chunks, repo_files, resolution)
 
 
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
@@ -56,9 +69,9 @@ def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     } <= kinds
 
 
-def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
+def test_parses_cleanly(sources: list[tuple[str, str]]) -> None:
     manager = get_manager()
-    for path, text in project:
+    for path, text in sources:
         grammar = manager.grammar(manager.detect_language(path) or "go")
         assert grammar is not None
         assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
