@@ -9,14 +9,14 @@
     "file_language": "markdown",
     "content": "# API",
     "line_start": 1,
-    "line_end": 24,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "10019cfd0e3607d0"
+    "id": "2c7daedc00c3c7d6"
   },
   {
     "blob_sha": "sha1",
@@ -28,14 +28,14 @@
     "file_language": "markdown",
     "content": "## format-greeting\n\nFormats a greeting for a name.\n\nCall it from Python:\n\n```python\nfrom greeter import format_greeting\n\n\ndef demo() -> str:\n    return format_greeting(\"Ada\")\n```\n\nOr wrap it in a shell helper:\n\n```sh\ngreet() {\n  format-greeting \"$1\"\n}\n```",
     "line_start": 3,
-    "line_end": 24,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "b5905947f413f82e"
+    "id": "109d715f42693cb8"
   },
   {
     "blob_sha": "sha1",
@@ -104,14 +104,14 @@
     "file_language": "markdown",
     "content": "# Configuration\n\nGreeter configuration options.",
     "line_start": 1,
-    "line_end": 4,
+    "line_end": 3,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "33a3328c1ef79ea4"
+    "id": "48cef8211b89a8e9"
   },
   {
     "blob_sha": "sha1",
@@ -123,14 +123,14 @@
     "file_language": "markdown",
     "content": "# Embedding\n\nExamples embedded in the docs, each extracted in its own language —\nincluding code nested two levels deep.\n\nThe greeter config, in YAML:\n\n```yaml\nservice: greeter\nlocales:\n  - en\n  - fr\n```\n\nThe same in TOML:\n\n```toml\n[service]\nname = \"greeter\"\n```\n\nEmbedded in a page — the stylesheet is an import and the inline script is\nextracted as JavaScript:\n\n```html\n<head>\n  <link rel=\"stylesheet\" href=\"greeter.css\">\n</head>\n<body>\n  <main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>\n</body>\n```\n\nAnd a component — Markdown delegates to the Svelte chunker, which in turn\ndelegates its `<script>` to TypeScript and its `<style>` to SCSS:\n\n```svelte\n<script lang=\"ts\">\n  export let name: string;\n\n  function shout(): string {\n    return name.toUpperCase();\n  }\n</script>\n\n<h1>Hello {name}</h1>\n\n<style lang=\"scss\">\n  h1 {\n    color: $brand;\n  }\n</style>\n```",
     "line_start": 1,
-    "line_end": 60,
+    "line_end": 59,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "b404b50f986224f6"
+    "id": "df44fb0751a2e287"
   },
   {
     "blob_sha": "sha1",
@@ -161,14 +161,14 @@
     "file_language": "markdown",
     "content": "locales:\n  - en\n  - fr\n",
     "line_start": 10,
-    "line_end": 13,
+    "line_end": 12,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "60fd8c5af4db1493"
+    "id": "4a87589526263838"
   },
   {
     "blob_sha": "sha1",
@@ -180,14 +180,14 @@
     "file_language": "markdown",
     "content": "[service]\nname = \"greeter\"\n",
     "line_start": 18,
-    "line_end": 20,
+    "line_end": 19,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "4d4960f5b3afb220"
+    "id": "2bb023144a0bc124"
   },
   {
     "blob_sha": "sha1",
@@ -218,14 +218,14 @@
     "file_language": "markdown",
     "content": "<link rel=\"stylesheet\" href=\"greeter.css\">\n",
     "line_start": 27,
-    "line_end": 28,
+    "line_end": 27,
     "metadata": {
       "module": "greeter.css",
       "names": "",
       "dots": "",
       "language_hint": "css"
     },
-    "id": "b4f262286c611427"
+    "id": "e2edbae5555f2f19"
   },
   {
     "blob_sha": "sha1",
@@ -351,14 +351,14 @@
     "file_language": "markdown",
     "content": "# Locales\n\nSupported locales: en, fr.",
     "line_start": 1,
-    "line_end": 4,
+    "line_end": 3,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "babdfc73af134b88"
+    "id": "263a624af44dc6c0"
   },
   {
     "blob_sha": "sha1",
@@ -370,14 +370,14 @@
     "file_language": "markdown",
     "content": "# Greeter\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "9edee133d6094e29"
+    "id": "ac69663600c24355"
   },
   {
     "blob_sha": "sha1",
@@ -389,14 +389,14 @@
     "file_language": "markdown",
     "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-greeting).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "a450b176c35465d0"
+    "id": "7c96e05b4924825e"
   },
   {
     "blob_sha": "sha1",
@@ -408,14 +408,14 @@
     "file_language": "markdown",
     "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.",
     "line_start": 13,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "dee1707bc696e924"
+    "id": "3e53d2b4cc932be3"
   },
   {
     "blob_sha": "sha1",

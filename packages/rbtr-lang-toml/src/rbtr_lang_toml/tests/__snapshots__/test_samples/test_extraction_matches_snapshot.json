@@ -28,14 +28,14 @@
     "file_language": "toml",
     "content": "[project]\nname = \"greeter\"\nversion = \"1.0.0\"\n\n",
     "line_start": 3,
-    "line_end": 7,
+    "line_end": 6,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "27fbda12b2ace1a3"
+    "id": "810e02a3ef287aee"
   },
   {
     "blob_sha": "sha1",
@@ -47,14 +47,14 @@
     "file_language": "toml",
     "content": "[tool.greeter]\ndefault_greeting = \"Hello\"\nlocale = \"en\"\n\n",
     "line_start": 7,
-    "line_end": 11,
+    "line_end": 10,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "6ee80484512ce28a"
+    "id": "0c56dae5307aca27"
   },
   {
     "blob_sha": "sha1",
@@ -66,14 +66,14 @@
     "file_language": "toml",
     "content": "[tool.greeter.limits]\nmax_length = 280\n\n",
     "line_start": 11,
-    "line_end": 14,
+    "line_end": 13,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "96268d42a50117fa"
+    "id": "52a55cfee81b7ca6"
   },
   {
     "blob_sha": "sha1",
@@ -85,14 +85,14 @@
     "file_language": "toml",
     "content": "[[locales]]\ncode = \"en\"\n\n",
     "line_start": 14,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "d451d293e50d02f4"
+    "id": "1a4a2f317d869574"
   },
   {
     "blob_sha": "sha1",
@@ -104,13 +104,13 @@
     "file_language": "toml",
     "content": "[[locales]]\ncode = \"fr\"\n",
     "line_start": 17,
-    "line_end": 19,
+    "line_end": 18,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "07b8eb89d6873489"
+    "id": "e4ea148cac83b325"
   }
 ]
