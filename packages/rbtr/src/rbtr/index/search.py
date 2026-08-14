@@ -453,6 +453,12 @@ def materialise_scored(
     (`match_line_offset` / `matched_terms`) via `with_match_preview`,
     tokenised the same way BM25 saw the query. When `None`, those
     fields keep their `ScoredChunk` defaults.
+
+    Candidates arrive as `(chunk, path)` pairs — the join emits a row
+    per location, so location-sensitive signals like `file_penalty`
+    apply per path. They are collapsed here, after ranking: one result
+    per chunk *per repo*, carrying every path it was found at there and
+    keeping the row of its best-scoring location.
     """
     if frame.is_empty():
         return []
@@ -463,7 +469,18 @@ def materialise_scored(
             offset_expr.alias("match_line_offset"),
             terms_expr.alias("matched_terms"),
         ]
-    rows = frame.with_columns(preview_cols).to_dicts()
+    collapsed = (
+        frame.with_columns(preview_cols)
+        .sort("score", descending=True)
+        # Keyed by repo as well as chunk: one repo's copy of shared
+        # content is a separate result, attributed to it.
+        .group_by("id", "repo_id", maintain_order=True)
+        .agg(
+            pl.col("file_path").unique().sort().alias("file_paths"),
+            pl.all().exclude("id", "repo_id", "file_path").first(),
+        )
+    )
+    rows = collapsed.to_dicts()
     for row in rows:
         row["query_kind"] = query_kind
         if repo_paths is not None:
@@ -571,14 +588,14 @@ def _retrieve(
     """
     # ── Channel 1: BM25 lexical ─────────────────────────────
     pool_size = top_k * config.retrieval_multiplier_lexical
-    lex_frame = store._match_fulltext(refs, lex_query, top_k=pool_size)
+    lex_frame = store.match_fulltext_frame(refs, lex_query, top_k=pool_size)
 
     # ── Channel 2: semantic (embedding cosine) ───────────────
     sem_frame = ScoredChunkResultRow.create_empty()
     if query_vecs:
         try:
             sem_fetch = top_k * config.retrieval_multiplier_semantic
-            raw_sem = store._match_similar(
+            raw_sem = store.match_similar_frame(
                 refs,
                 query_vecs,
                 sem_fetch,
@@ -588,7 +605,7 @@ def _retrieve(
             pass
 
     # ── Channel 3: name match ───────────────────────────────
-    name_frame = store._match_by_name(refs, query)
+    name_frame = store.match_by_name_frame(refs, query)
 
     # ── Merge candidates with scores via outer joins ─────────
     chunk_cols = list(ChunkResultRow.columns())
@@ -622,7 +639,7 @@ def _retrieve(
 
     # ── Proximity (diff distance) ────────────────────────
     if changed_files:
-        edge_frame = store._get_edges_frame(refs)
+        edge_frame = store.get_edges_frame(refs)
         # Build paths frame: candidates + unknown neighbours.
         edge_ids = pl.concat(
             [
@@ -634,7 +651,7 @@ def _retrieve(
         paths_frame = ChunkPathResultRow.cast(scored.select("id", "file_path"))
         unknown_ids = unknown["id"].to_list()
         if unknown_ids:
-            extra = store._fetch_chunk_paths(refs, unknown_ids)
+            extra = store.chunk_paths_frame(refs, unknown_ids)
             paths_frame = ChunkPathResultRow.cast(pl.concat([paths_frame, extra]))
 
         scored = compute_proximity(

@@ -199,7 +199,7 @@ def _run_searches(
                         "latency_ms": latency_ms,
                         "hits": [
                             {
-                                "file_path": h.file_path,
+                                "file_paths": h.file_paths,
                                 "scope": h.scope,
                                 "name": h.name,
                                 "line_start": h.line_start,
@@ -245,7 +245,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
         )
         .explode("hits", empty_as_null=True)
         .with_columns(
-            pl.col("hits").struct.field("file_path").alias("hit_file_path"),
+            pl.col("hits").struct.field("file_paths").alias("hit_file_paths"),
             pl.col("hits").struct.field("scope").alias("hit_scope"),
             pl.col("hits").struct.field("name").alias("hit_name"),
             pl.col("hits").struct.field("line_start").alias("hit_line_start"),
@@ -255,7 +255,9 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
 
     ranks = (
         exploded.filter(
-            (pl.col("hit_file_path") == pl.col("query_file"))
+            # A hit covers every path its content sits at, so the target
+            # file counts as found when it is one of them.
+            pl.col("hit_file_paths").list.contains(pl.col("query_file"))
             & (pl.col("hit_scope") == pl.col("query_scope"))
             & (pl.col("hit_name") == pl.col("query_name"))
             & (pl.col("hit_line_start") == pl.col("query_line_start"))
@@ -266,7 +268,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
 
     tops = exploded.filter(pl.col("hit_rank") == 1).select(
         *outcome_keys,
-        pl.col("hit_file_path").alias("top_file"),
+        pl.col("hit_file_paths").list.first().alias("top_file"),
         pl.col("hit_line_start").alias("top_line"),
         pl.col("hit_name").alias("top_name"),
     )
