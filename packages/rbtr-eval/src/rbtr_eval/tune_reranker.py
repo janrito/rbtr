@@ -30,7 +30,12 @@ from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryMeta, QueryRow
+from rbtr_eval.shared_schemas import (
+    IDENTITY_COLUMNS,
+    MATCH_COLUMNS,
+    QueryMeta,
+    QueryRow,
+)
 
 
 class RerankerCandidate(dy.Schema):
@@ -182,7 +187,7 @@ def _rank_all_blends(
     ranks = (
         scored.join(
             meta.select("query_idx", *IDENTITY_COLUMNS),
-            on=["query_idx", "scope", "name", "line_start", "line_end", "symbol_kind"],
+            on=["query_idx", *MATCH_COLUMNS],
             how="inner",
         )
         .filter(pl.col("file_paths").list.contains(pl.col("file_path")))
