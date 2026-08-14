@@ -28,6 +28,7 @@ from rbtr.config import config
 from rbtr.domain.models import (
     Chunk,
     Edge,
+    FileOutcome,
     FileSnapshot,
     IndexResult,
 )
@@ -142,7 +143,6 @@ def _extract_and_store_chunks(
             max_file_size=config.max_file_size,
             ignore=ignore,
         ):
-            result.stats.total_files += 1
             repo_files.add(entry.path)
 
             # Resolve language: extension first, then stored detection.
@@ -159,7 +159,7 @@ def _extract_and_store_chunks(
             chunks: list[Chunk] = []
             serial = 1
             if changed is not None and entry.path not in changed:
-                result.stats.skipped_files += 1
+                result.stats.record(FileOutcome.SKIPPED_UNCHANGED)
             else:
                 # Content sniff, for a new file whose extension says nothing.
                 if not detected_lang:
@@ -174,19 +174,21 @@ def _extract_and_store_chunks(
 
                 # Blob dedup gate.
                 if store.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
-                    result.stats.skipped_files += 1
+                    result.stats.record(FileOutcome.SKIPPED_CURRENT)
                 else:
                     try:
                         # Delete old chunks before re-extraction (language may
                         # have changed, producing different chunk IDs).
                         session.delete_chunks_for_blobs({entry.blob_sha}, detected_lang)
                         chunks = extract_file(entry, detected_lang)
-                        if chunks:
-                            result.stats.parsed_files += 1
+                        result.stats.record(
+                            FileOutcome.PARSED if chunks else FileOutcome.EXTRACTED_EMPTY
+                        )
                     except Exception:
                         msg = f"Failed to index {entry.path}"
                         log.exception("index_file_failed", path=entry.path)
                         result.errors.append(msg)
+                        result.stats.record(FileOutcome.FAILED)
                         # The row below records the file either way, so
                         # without this it is indexed but unreachable.
                         chunks = [host_presence_chunk(entry.path, entry.blob_sha, detected_lang)]
@@ -200,12 +202,14 @@ def _extract_and_store_chunks(
 
         session.replace_snapshots(snapshot_sha, snapshots, repo_id=repo_id)
 
+    # Every outcome that occurred, by name: a file that ran and produced
+    # nothing shows up as `extracted_empty` instead of vanishing between
+    # `parsed` and `skipped`.
     log.info(
         "extracted_files",
         total=result.stats.total_files,
-        parsed=result.stats.parsed_files,
-        skipped=result.stats.skipped_files,
         sha=snapshot_sha[:12],
+        **{outcome.value: count for outcome, count in result.stats.outcomes.items()},
     )
     return result, repo_files
 
