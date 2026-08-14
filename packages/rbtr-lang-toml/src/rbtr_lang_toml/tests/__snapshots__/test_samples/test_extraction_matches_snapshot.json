@@ -1,6 +1,25 @@
 [
   {
     "blob_sha": "sha1",
+    "file_path": "crates/helper/Cargo.toml",
+    "kind": "config_key",
+    "name": "package",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "# Reached from the root manifest's `path` dependency: the reference names\n# this directory, and this manifest stands for it.\n[package]\nname = \"helper\"\nversion = \"0.1.0\"\n",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "fe7065b1fd42886f"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "comment",
     "name": "",
@@ -102,15 +121,53 @@
     "scope": "",
     "language": "toml",
     "file_language": "toml",
-    "content": "[[locales]]\ncode = \"fr\"\n",
+    "content": "[[locales]]\ncode = \"fr\"\n\n",
     "line_start": 17,
-    "line_end": 18,
+    "line_end": 19,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "e4ea148cac83b325"
+    "id": "07b8eb89d6873489"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "config_key",
+    "name": "dependencies",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "[dependencies]\nhelper = { path = \"crates/helper\" }\n",
+    "line_start": 20,
+    "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "e38a60287b94f718"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "import",
+    "name": "path = \"crates/helper\"",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "path = \"crates/helper\"",
+    "line_start": 21,
+    "line_end": 21,
+    "metadata": {
+      "module": "crates/helper",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "bb6218d7bbc421e1"
   }
 ]

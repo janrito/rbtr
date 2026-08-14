@@ -1,0 +1,6 @@
+# Referred to from api/openapi.yaml as a bare sibling.
+get:
+  summary: A greeting
+  responses:
+    "200":
+      description: OK
