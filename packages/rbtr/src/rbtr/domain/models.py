@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -156,22 +157,21 @@ class Chunk(BaseModel, frozen=True):
     @computed_field  # type: ignore[prop-decorator]  # pydantic needs the property last
     @property
     def id(self) -> str:
-        """This chunk's identity: a hash of its content, not its location.
+        """A hash of what this chunk is: content, language, role, span.
 
         Byte-identical files share every chunk, so a copy of an indexed
-        file needs no re-extraction and no second row. The path is
-        deliberately absent: `file_snapshots` is the sole authority on
-        where a chunk lives, and one found at four paths is a single row
-        joined four ways.
+        file resolves to the row already there. Location is the province
+        of `file_snapshots`, which holds every path a chunk is reachable
+        at.
 
-        `file_language` is here because the dedup gate asks whether a
-        blob was extracted as *this* language: the empty blob yields an
-        identical chunk under python and under html, and without it the
-        second file is skipped and never indexed. `kind` and `line_end`
-        are here because a chunk is a span with a role, and both are
-        needed — an rst `doc_section` and a `:mod:` reference can share
-        a name and a starting line while spanning different lines and
-        meaning different things.
+        `file_language` — the language the file was read as — is part of
+        it because the same bytes read as two languages are two
+        extractions: the empty blob is one chunk under python and
+        another under html, and the dedup gate asks after each
+        separately. `kind` and `line_end` are part of it because a chunk
+        is a span with a role, and an rst `doc_section` and a `:mod:`
+        reference can share a name and a starting line while spanning
+        different lines and meaning different things.
         """
         raw = (
             f"{self.blob_sha}:{self.file_language}:{self.kind}:"
@@ -248,14 +248,13 @@ class FileSnapshot(BaseModel):
 
 
 class Edge(BaseModel):
-    """A directed relationship between two chunks, at two locations.
+    """A directed relationship between content at two locations.
 
-    Chunks are content, so one chunk can sit at several paths; an edge
-    is between content *at a location*. `docx/helpers.py` importing its
-    sibling and `xlsx/helpers.py` importing a different sibling are two
-    edges from one import chunk, and the paths are what tells them
-    apart. Without them, a duplicated file pools its copies' referrers
-    and `find-refs` cannot say which one it means.
+    A chunk is content and sits at as many paths as hold those bytes, so
+    the paths are part of the relationship: `docx/helpers.py` importing
+    its sibling and `xlsx/helpers.py` importing a different one are two
+    edges from a single import chunk, distinguished by where each end
+    sits. `find-refs` reports the location that did the referring.
     """
 
     source_id: str
@@ -305,16 +304,58 @@ FileSnapshots = TypeAdapter(list[FileSnapshot])
 Edges = TypeAdapter(list[Edge])
 
 
+class FileOutcome(StrEnum):
+    """What a build did with one file.
+
+    Exactly one is recorded per file, so the counts derived from the
+    tally agree with each other and with the loop. Every path through
+    the loop has a member here, including `EXTRACTED_EMPTY` — a file
+    that was extracted and yielded nothing, which a build log names so
+    that a run reporting few parsed files says why.
+    """
+
+    PARSED = "parsed"
+    SKIPPED_UNCHANGED = "skipped_unchanged"  # not in the incremental diff
+    SKIPPED_CURRENT = "skipped_current"  # the blob was already extracted
+    EXTRACTED_EMPTY = "extracted_empty"  # ran, produced nothing
+    FAILED = "failed"
+
+
 class IndexStats(BaseModel):
-    """Summary statistics for a completed index."""
+    """Summary statistics for a completed index.
+
+    `outcomes` holds one entry per file and is the only thing stored or
+    sent; the file counts are properties over it, so they cannot
+    disagree with each other or with what the loop did.
+    """
 
     total_chunks: int = 0
     total_edges: int = 0
-    total_files: int = 0
-    skipped_files: int = 0
-    parsed_files: int = 0
+    outcomes: Counter[FileOutcome] = Field(default_factory=Counter)
     embedded_chunks: int = 0
     elapsed_seconds: float = 0.0
+
+    def record(self, outcome: FileOutcome) -> None:
+        """Tally one file's outcome."""
+        self.outcomes[outcome] += 1
+
+    @property
+    def total_files(self) -> int:
+        """Files the build considered."""
+        return sum(self.outcomes.values())
+
+    @property
+    def parsed_files(self) -> int:
+        """Files that were extracted and produced at least one chunk."""
+        return self.outcomes[FileOutcome.PARSED]
+
+    @property
+    def skipped_files(self) -> int:
+        """Files the build did not extract, for either reason."""
+        return (
+            self.outcomes[FileOutcome.SKIPPED_UNCHANGED]
+            + self.outcomes[FileOutcome.SKIPPED_CURRENT]
+        )
 
 
 # ── GC / session types ────────────────────────────────────────
