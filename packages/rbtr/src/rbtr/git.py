@@ -15,7 +15,7 @@ Public surface
 - `is_binary`           — null-byte heuristic
 - `read_head`           — tolerant HEAD read for polling
 - `worktree_tree_sha`   — working-tree identity (tree SHA or None)
-- `filter_tree_shas`    — batch tree-type check
+- `non_commit_shas`     — which indexed shas are not commits
 - `resolve_ref`         — unified ref → SHA resolution
 - `list_files`          — file listing (git tree or working tree)
 - `read_blob`           — single blob read
@@ -252,17 +252,33 @@ def _is_tree_sha(repo: pygit2.Repository, sha: str) -> bool:
         return obj is not None and obj.type == pygit2.GIT_OBJECT_TREE
 
 
-def filter_tree_shas(repo_path: str, shas: list[str]) -> list[str]:
-    """Return the subset of *shas* that are tree objects in the repo.
+def non_commit_shas(repo_path: str, shas: list[str]) -> list[str]:
+    """Return the subset of *shas* that do not name a commit.
 
-    Opens the repo once and checks each SHA.  Returns an empty
-    list if the repo is missing or unreadable.
+    A worktree snapshot is named by a tree `worktree_tree_sha` wrote,
+    which nothing references, so the user's own `git gc` prunes it.
+    Asking which shas *are* trees strands those rows in the index —
+    git answers "not a tree" for an object it no longer has, and the
+    caller keeps the row forever. Asking which are *not* commits drops
+    them, so a pruned object cleans up instead of accumulating.
+
+    Returns an empty list if the repo is missing or unreadable.
     """
     try:
         repo = _open_repo(repo_path)
     except RbtrError:
         return []
-    return [sha for sha in shas if _is_tree_sha(repo, sha)]
+    return [sha for sha in shas if not _is_commit_sha(repo, sha)]
+
+
+def _is_commit_sha(repo: pygit2.Repository, sha: str) -> bool:
+    """Return `True` if *sha* is a commit object in *repo*."""
+    try:
+        obj = repo.get(sha)
+    except (ValueError, pygit2.GitError):
+        return False
+    else:
+        return obj is not None and obj.type == pygit2.GIT_OBJECT_COMMIT
 
 
 def resolve_ref(repo_path: str, ref: str) -> str:
