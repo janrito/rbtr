@@ -4,6 +4,8 @@ SELECT
   source_id,
   target_id,
   kind,
-  snapshot_sha
+  snapshot_sha,
+  source_path,
+  target_path
 FROM _stg
 ON CONFLICT DO NOTHING
