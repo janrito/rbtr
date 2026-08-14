@@ -86,8 +86,8 @@ flowchart TD
 | `paraphrase-report` | summarise paraphrase quality                                        | `data/PARAPHRASE.md`                                          |
 | `profile`           | profile the sampled query set before it is measured                 | `data/DATASET.md`                                             |
 | `expand`            | LLM-generate keywords/variants for all queries                      | `data/expansion/expansions.parquet`                           |
-| `index`             | chunk repos into the DuckDB index (no embeddings)                   | `data/index/`                                                 |
-| `embed`             | embed all chunks                                                    | `data/index/`                                                 |
+| `index`             | chunk repos into the DuckDB index (no embeddings)                   | `data/index/`, `data/INDEX.md`                                |
+| `embed`             | embed all chunks                                                    | `data/index/`, `data/EMBEDDING.md`                            |
 | `measure`           | replay every query under each expansion arm; aggregate              | `data/metrics.json`, `data/BENCHMARKS.md`                     |
 | `tune`              | Bayesian-optimise fusion weights                                    | `data/TUNING.md`                                              |
 | `tune-reranker`     | grid-search reranker pool size and blend weight per kind            | `data/RERANKER_TUNING.md`                                     |
@@ -138,6 +138,22 @@ reason expansion and reranking were built.
 four arms — `none`, `keywords`, `variants`, `both`. Keywords
 feed BM25, variants feed the semantic channel, so the arms
 separate which channel each form of expansion actually helps.
+
+**The corpus is each clone's HEAD.** `dvc.yaml` indexes the
+repos without naming a ref and then runs `gc --keep-head-only`
+per repo, so each has exactly one indexed snapshot. The `index`
+and `embed` stages refuse to write a report when that does not
+hold — a second snapshot, from a worktree the daemon indexed
+while the run was in flight, would add its counts to every
+total.
+
+**Chunks and chunk locations are both reported.**
+[`data/INDEX.md`](data/INDEX.md) counts a chunk once and counts
+it again for each file holding it, because a chunk is content
+and identical content in several files is one row. The gap
+between the two is how much of the corpus is repeated content.
+Edges are counted per location, so a duplicated file's import
+reaches the sibling beside each copy.
 
 **Weight tuning is a recommendation, not a change.** `tune`
 reports the best `(α, β, γ)` per query kind; adopting them is
