@@ -226,5 +226,100 @@
       "language_hint": ""
     },
     "id": "a20a92b7069da8d3"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "less.less",
+    "kind": "import",
+    "name": "@import \"partials/dark.less\";",
+    "scope": "",
+    "language": "less",
+    "file_language": "less",
+    "content": "@import \"partials/dark.less\";",
+    "line_start": 40,
+    "line_end": 40,
+    "metadata": {
+      "module": "partials/dark.less",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "1a7586aaf6a8d9af"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.less",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "less",
+    "file_language": "less",
+    "content": "// Imported by less.less. Imports its own sibling by bare name, which only\n// resolves relative to this directory.",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "e0a8aefe746d1fe6"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.less",
+    "kind": "import",
+    "name": "@import \"tokens.less\";",
+    "scope": "",
+    "language": "less",
+    "file_language": "less",
+    "content": "@import \"tokens.less\";",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "tokens.less",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "b8856ac1553fbc10"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.less",
+    "kind": "class",
+    "name": ".greeting--dark",
+    "scope": "",
+    "language": "less",
+    "file_language": "less",
+    "content": ".greeting--dark {\n  color: @ink;\n}",
+    "line_start": 5,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "97351d499b111481"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/tokens.less",
+    "kind": "variable",
+    "name": "@ink",
+    "scope": "",
+    "language": "less",
+    "file_language": "less",
+    "content": "// Imported by partials/dark.less as a bare sibling.\n@ink: #eeeeee;",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "42c36ec05d16f246"
   }
 ]

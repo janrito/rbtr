@@ -39,6 +39,82 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "partials/dark.scss",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "scss",
+    "file_language": "scss",
+    "content": "// Used by scss.scss. Uses its own sibling by bare name, which only\n// resolves relative to this directory.",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "c6843977ca6a1f31"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.scss",
+    "kind": "import",
+    "name": "@use \"tokens\";",
+    "scope": "",
+    "language": "scss",
+    "file_language": "scss",
+    "content": "@use \"tokens\";",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "tokens",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "fb5ca20e552f6628"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/dark.scss",
+    "kind": "class",
+    "name": ".greeting--dark",
+    "scope": "",
+    "language": "scss",
+    "file_language": "scss",
+    "content": ".greeting--dark {\n  color: tokens.$ink;\n}",
+    "line_start": 5,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "1f9af74673427ce0"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partials/tokens.scss",
+    "kind": "variable",
+    "name": "$ink",
+    "scope": "",
+    "language": "scss",
+    "file_language": "scss",
+    "content": "// Used by partials/dark.scss as a bare sibling.\n$ink: #eeeeee;",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "6422526823945bc5"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "reset.scss",
     "kind": "comment",
     "name": "",
@@ -359,6 +435,25 @@
       "language_hint": ""
     },
     "id": "a56c5673f0ac04b8"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "scss.scss",
+    "kind": "import",
+    "name": "@use \"partials/dark\";",
+    "scope": "",
+    "language": "scss",
+    "file_language": "scss",
+    "content": "@use \"partials/dark\";",
+    "line_start": 55,
+    "line_end": 55,
+    "metadata": {
+      "module": "partials/dark",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "f356c78c2fc2927d"
   },
   {
     "blob_sha": "sha1",
