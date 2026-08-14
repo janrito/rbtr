@@ -1,12 +1,12 @@
 [
   {
-    "id": "d39ad69c069b6285",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "#!/usr/bin/env bash\n# Greeter — print greetings for named recipients.\n#\n# Bash has no classes or methods; the plugin extracts functions,\n# top-level variable assignments (including export/declare/readonly),\n# aliases, and source/. imports.",
     "line_start": 1,
     "line_end": 6,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e4307a2c6ea35a81"
   },
   {
-    "id": "ca906d45e5c8e1da",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "import",
     "name": "source ./lib/colours.sh",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "source ./lib/colours.sh",
     "line_start": 8,
     "line_end": 8,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9265bcd393cdbfc7"
   },
   {
-    "id": "19b95c899d99e1f5",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "import",
     "name": ". /etc/greeter.conf",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": ". /etc/greeter.conf",
     "line_start": 9,
     "line_end": 9,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9e439113ee561e27"
   },
   {
-    "id": "dbf8d8210a1c9118",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "DEFAULT_GREETING",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "DEFAULT_GREETING=\"Hello\"",
     "line_start": 11,
     "line_end": 11,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "38cfd35861b45035"
   },
   {
-    "id": "610d295f73434926",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "# trailing comment: its own chunk",
     "line_start": 11,
     "line_end": 11,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c8b87f6c0550268b"
   },
   {
-    "id": "aa482bbea0e16ce3",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "LOCALE",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.\nLOCALE=\"${LANG:-en}\"",
     "line_start": 13,
     "line_end": 15,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d74e7f5621a74641"
   },
   {
-    "id": "fd2d219510e272c5",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "API_URL",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "export API_URL=\"https://example.com\"",
     "line_start": 16,
     "line_end": 16,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1139af1e903fa001"
   },
   {
-    "id": "28c8e045bbc3c2fc",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "MAX_RETRIES",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "readonly MAX_RETRIES=3",
     "line_start": 17,
     "line_end": 17,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b892bc4e4a150620"
   },
   {
-    "id": "46c076160d937a23",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "COUNTER",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "declare -i COUNTER=0",
     "line_start": 18,
     "line_end": 18,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2a9cfb0b1658749c"
   },
   {
-    "id": "9be9ed61fbcec8cf",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "variable",
     "name": "greet",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "alias greet=\"format_greeting\"",
     "line_start": 19,
     "line_end": 19,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2b5409aa288fb92c"
   },
   {
-    "id": "1c05f30beda1010c",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "function",
     "name": "format_greeting",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "# Format a greeting for a single recipient.\nformat_greeting() {\n    local name=\"$1\"\n    echo \"${DEFAULT_GREETING}, ${name} (${LOCALE})\"\n}",
     "line_start": 21,
     "line_end": 25,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b57d1fd8270452eb"
   },
   {
-    "id": "f6bed6e22b836142",
     "blob_sha": "sha1",
     "file_path": "bash.sh",
     "kind": "function",
     "name": "greet_all",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "# Greet every argument in turn.\ngreet_all() {\n    for name in \"$@\"; do\n        format_greeting \"$name\"\n    done\n}",
     "line_start": 27,
     "line_end": 32,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "938eaca775c955f0"
   },
   {
-    "id": "c01f22efbc31cfad",
     "blob_sha": "sha1",
     "file_path": "lib/colours.sh",
     "kind": "variable",
     "name": "RED",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "#!/usr/bin/env bash\n# Terminal colour codes.\nRED='\\033[0;31m'",
     "line_start": 1,
     "line_end": 3,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a0e8a338025ec509"
   },
   {
-    "id": "472aaed6fa440473",
     "blob_sha": "sha1",
     "file_path": "lib/colours.sh",
     "kind": "variable",
     "name": "RESET",
     "scope": "",
     "language": "bash",
+    "file_language": "bash",
     "content": "RESET='\\033[0m'",
     "line_start": 4,
     "line_end": 4,
@@ -249,6 +262,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "19e70f62367c0169"
   }
 ]

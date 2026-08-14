@@ -21,6 +21,7 @@ import pytest
 
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -36,9 +37,62 @@ def daemon_commit(fake_repo: str) -> str:
 
 
 @pytest.fixture
-def daemon_edges() -> list[Edge]:
+def daemon_chunks() -> list[TokenisedChunk]:
+    """A function, a variable, a class, and an import of the function."""
     return [
-        Edge(source_id="imp_config", target_id="fn_config", kind=EdgeKind.IMPORTS),
+        make_chunk(
+            "fn_config",
+            name="load_config",
+            content="def load_config(path):\n    return open(path).read()\n",
+            path="src/config.py",
+            blob="blob_config",
+            kind=ChunkKind.FUNCTION,
+        ),
+        make_chunk(
+            "var_config",
+            name="MAX_SIZE",
+            content="MAX_SIZE = 100\n",
+            path="src/config.py",
+            blob="blob_config",
+            kind=ChunkKind.VARIABLE,
+        ),
+        make_chunk(
+            "cls_app",
+            name="Application",
+            content="class Application:\n    pass\n",
+            path="src/app.py",
+            blob="blob_app",
+            kind=ChunkKind.CLASS,
+        ),
+        make_chunk(
+            "imp_config",
+            name="from config import load_config",
+            content="from config import load_config",
+            path="src/app.py",
+            blob="blob_app",
+            kind=ChunkKind.IMPORT,
+        ),
+    ]
+
+
+@pytest.fixture
+def daemon_edges(daemon_chunks: list[TokenisedChunk]) -> list[Edge]:
+    """The import chunk edges into the function it imports.
+
+    Built from the chunks themselves: an id is derived from content, so
+    an edge written with a literal would point at nothing.
+    """
+    by_name = {c.name: c for c in daemon_chunks}
+    imp = by_name["from config import load_config"]
+    fn = by_name["load_config"]
+    return [
+        Edge(
+            source_id=imp.id,
+            target_id=fn.id,
+            kind=EdgeKind.IMPORTS,
+            source_path=imp.file_path,
+            target_path=fn.file_path,
+        ),
     ]
 
 
@@ -65,48 +119,14 @@ def unindexed_store(fake_repo: str) -> Generator[IndexStore]:
 def seeded_store(
     fake_repo: str,
     daemon_commit: str,
+    daemon_chunks: list[TokenisedChunk],
     daemon_edges: list[Edge],
 ) -> Generator[IndexStore]:
     """In-memory store pre-loaded with daemon test data for one repo."""
     store = IndexStore(writable=True)
+    chunks = daemon_chunks
     with store.session() as ws:
         repo_id = ws.register_repo(fake_repo)
-        # A function, a class, and an import (the import edges into
-        # the function — see daemon_edges).
-        chunks = [
-            make_chunk(
-                "fn_config",
-                name="load_config",
-                content="def load_config(path):\n    return open(path).read()\n",
-                path="src/config.py",
-                blob="blob_config",
-                kind=ChunkKind.FUNCTION,
-            ),
-            make_chunk(
-                "var_config",
-                name="MAX_SIZE",
-                content="MAX_SIZE = 100\n",
-                path="src/config.py",
-                blob="blob_config",
-                kind=ChunkKind.VARIABLE,
-            ),
-            make_chunk(
-                "cls_app",
-                name="Application",
-                content="class Application:\n    pass\n",
-                path="src/app.py",
-                blob="blob_app",
-                kind=ChunkKind.CLASS,
-            ),
-            make_chunk(
-                "imp_config",
-                name="from config import load_config",
-                content="from config import load_config",
-                path="src/app.py",
-                blob="blob_app",
-                kind=ChunkKind.IMPORT,
-            ),
-        ]
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(

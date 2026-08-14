@@ -13,6 +13,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_search import SearchScenario
@@ -35,7 +36,7 @@ def test_fts_finds_hit(fts_hit: tuple[IndexStore, SearchScenario]) -> None:
     store, s = fts_hit
     results = store.match_fulltext("head", s.query, repo_id=1)
     assert len(results) > 0
-    assert results[0][0].id == s.expected_hit_ids[0]
+    assert results[0][0].name == s.expected_hit_names[0]
 
 
 # ── FTS empty ───────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ def test_name_search_finds_hit(name_hit: tuple[IndexStore, SearchScenario]) -> N
     store, s = name_hit
     results = store.match_by_name("head", s.query, repo_id=1)
     assert len(results) > 0
-    assert results[0].id == s.expected_hit_ids[0]
+    assert results[0].name == s.expected_hit_names[0]
 
 
 @fixture
@@ -116,7 +117,7 @@ def test_fts_scoped_to_repo(multi_repo_store: tuple[IndexStore, int, int]) -> No
     store, repo_one, repo_two = multi_repo_store
     r1 = store.match_fulltext("head", "alpha", repo_id=repo_one)
     assert len(r1) > 0
-    assert all(c.id.startswith("r1") for c, _score in r1)
+    assert all(c.name == "alpha_func" for c, _score in r1)
 
     r2 = store.match_fulltext("head", "alpha", repo_id=repo_two)
     assert r2 == []
@@ -131,20 +132,22 @@ def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_store: IndexSto
     store = shared_chunk_store
     r1 = store.match_fulltext("head", "shared", repo_id=1)
     r2 = store.match_fulltext("head", "shared", repo_id=2)
-    assert [c.id for c, _score in r1] == ["shared_fn"]
-    assert [c.id for c, _score in r2] == ["shared_fn"]
+    assert [c.name for c, _score in r1] == ["shared_fn"]
+    assert [c.name for c, _score in r2] == ["shared_fn"]
 
 
-def test_shared_chunk_found_via_semantic_from_both_repos(shared_chunk_store: IndexStore) -> None:
+def test_shared_chunk_found_via_semantic_from_both_repos(
+    shared_chunk_store: IndexStore, shared_chunk: TokenisedChunk
+) -> None:
     """A shared chunk's single embedding is reachable by semantic search from either repo."""
     store = shared_chunk_store
     with store.session() as ws:
-        ws.update_embeddings(["shared_fn"], [[1.0, 0.0, 0.0, 0.0]])
+        ws.update_embeddings([shared_chunk.id], [[1.0, 0.0, 0.0, 0.0]])
     query_vec = [1.0, 0.0, 0.0, 0.0]
     r1 = store.match_similar("head", query_vec, top_k=5, repo_id=1)
     r2 = store.match_similar("head", query_vec, top_k=5, repo_id=2)
-    assert [c.id for c, _score in r1] == ["shared_fn"]
-    assert [c.id for c, _score in r2] == ["shared_fn"]
+    assert [c.name for c, _score in r1] == ["shared_fn"]
+    assert [c.name for c, _score in r2] == ["shared_fn"]
 
 
 def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
@@ -157,7 +160,7 @@ def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
         SnapshotRef(repo_id=2, snapshot_sha="head"),
     ]
     results = store.search(refs, "shared", top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
-    shared = [r for r in results if r.id == "shared_fn"]
+    shared = [r for r in results if r.name == "shared_fn"]
     assert {r.repo_path for r in shared} == {"/repo1", "/repo2"}
 
 
@@ -169,9 +172,9 @@ def test_cross_repo_search_merges_both_repos(multi_repo_store: tuple[IndexStore,
         SnapshotRef(repo_id=repo_two, snapshot_sha="head"),
     ]
     results = store.search(refs, "func", top_k=10)
-    ids = {r.id for r in results}
-    assert "r1_a" in ids
-    assert "r2_b" in ids
+    names = {r.name for r in results}
+    assert "alpha_func" in names
+    assert "beta_func" in names
 
 
 def test_single_ref_search_scopes_to_one_repo(
@@ -180,26 +183,21 @@ def test_single_ref_search_scopes_to_one_repo(
     """One ref excludes the other repo's chunks."""
     store, repo_one, _repo_two = multi_repo_store
     results = store.search([SnapshotRef(repo_id=repo_one, snapshot_sha="head")], "func", top_k=10)
-    ids = {r.id for r in results}
-    assert "r1_a" in ids
-    assert "r2_b" not in ids
+    names = {r.name for r in results}
+    assert "alpha_func" in names
+    assert "beta_func" not in names
 
 
 @pytest.fixture
 def semantic_store(store: IndexStore) -> IndexStore:
     """Store with two embedded chunks at different distances."""
-    s = SearchScenario(
-        chunks=[
-            make_chunk("close", name="close_match", path="close.py"),
-            make_chunk("far", name="far_match", path="far.py"),
-        ],
-        query="",
-    )
-    seed_store(store, s.chunks)
+    close = make_chunk("close", name="close_match", path="close.py")
+    far = make_chunk("far", name="far_match", path="far.py")
+    seed_store(store, [close, far])
     vec_close = [0.9, 0.1, 0.1, 0.1]
     vec_far = [0.3, 0.7, 0.7, 0.7]
     with store.session() as ws:
-        ws.update_embeddings(["close", "far"], [vec_close, vec_far])
+        ws.update_embeddings([close.id, far.id], [vec_close, vec_far])
     return store
 
 
@@ -208,17 +206,17 @@ def test_match_similar_ranks_by_cosine(semantic_store: IndexStore) -> None:
     query_vec = [1.0, 0.0, 0.0, 0.0]
     results = semantic_store.match_similar("head", query_vec, top_k=2, repo_id=1)
     assert len(results) >= 2
-    assert results[0][0].id == "close"
+    assert results[0][0].name == "close_match"
 
 
 def test_match_similar_single_vector(semantic_store: IndexStore) -> None:
     """Single vector returns closest chunk first."""
     query_vec = [1.0, 0.0, 0.0, 0.0]
-    result = semantic_store._match_similar(
+    result = semantic_store.match_similar_frame(
         [SnapshotRef(repo_id=1, snapshot_sha="head")], [query_vec], top_k=2
     )
     assert len(result) >= 2
-    assert result["id"].to_list()[0] == "close"
+    assert result["name"].to_list()[0] == "close_match"
 
 
 def test_match_similar_picks_best_score(semantic_store: IndexStore) -> None:
@@ -227,16 +225,16 @@ def test_match_similar_picks_best_score(semantic_store: IndexStore) -> None:
     vec_a = [1.0, 0.0, 0.0, 0.0]
     # vec_b is close to "far" chunk ([0.3, 0.7, ...]).
     vec_b = [0.0, 1.0, 0.0, 0.0]
-    result = semantic_store._match_similar(
+    result = semantic_store.match_similar_frame(
         [SnapshotRef(repo_id=1, snapshot_sha="head")], [vec_a, vec_b], top_k=2
     )
-    ids = result["id"].to_list()
-    assert "close" in ids
-    assert "far" in ids
+    names = result["name"].to_list()
+    assert "close_match" in names
+    assert "far_match" in names
     # Each chunk should score better with the multi-vector query
     # than with only the *other* vector (the one it's far from).
-    scores = dict(zip(result["id"].to_list(), result["score"].to_list(), strict=True))
-    assert scores["close"] > scores["far"]  # vec_a boosts "close" more
+    scores = dict(zip(names, result["score"].to_list(), strict=True))
+    assert scores["close_match"] > scores["far_match"]  # vec_a boosts "close" more
 
 
 def test_match_similar_empty(store: IndexStore) -> None:
@@ -244,7 +242,9 @@ def test_match_similar_empty(store: IndexStore) -> None:
     s = SearchScenario(chunks=[make_chunk("x")], query="")
     seed_store(store, s.chunks)
     vec = [1.0, 0.0, 0.0, 0.0]
-    result = store._match_similar([SnapshotRef(repo_id=1, snapshot_sha="head")], [vec], top_k=5)
+    result = store.match_similar_frame(
+        [SnapshotRef(repo_id=1, snapshot_sha="head")], [vec], top_k=5
+    )
     assert len(result) == 0
 
 
@@ -256,11 +256,11 @@ def test_unseeded_chunks_have_no_embedding(store: IndexStore) -> None:
 
 
 def test_seeded_chunks_have_embedding_flag(store: IndexStore) -> None:
-    s = SearchScenario(chunks=[make_chunk("a")], query="")
-    seed_store(store, s.chunks)
+    chunk = make_chunk("a")
+    seed_store(store, [chunk])
     vec = [0.5, 0.5, 0.5, 0.5]
     with store.session() as ws:
-        ws.update_embeddings(["a"], [vec])
+        ws.update_embeddings([chunk.id], [vec])
     chunks = store.get_chunks("head", repo_id=1)
     assert chunks[0].has_embedding
 
@@ -291,7 +291,7 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     s = SearchScenario(
         chunks=[make_chunk("a", name="persistent_func")],
         query="persistent",
-        expected_hit_ids=["a"],
+        expected_hit_names=["persistent_func"],
     )
     store = IndexStore(db_path, writable=True)
     seed_store(store, s.chunks)
@@ -318,7 +318,15 @@ def unified_store(store: IndexStore) -> IndexStore:
     seed_store(store, s.chunks)
     with store.session() as ws:
         ws.insert_edges(
-            [Edge(source_id="b", target_id="a", kind=EdgeKind.IMPORTS)],
+            [
+                Edge(
+                    source_id="b",
+                    target_id="a",
+                    kind=EdgeKind.IMPORTS,
+                    source_path="src/b.py",
+                    target_path="src/a.py",
+                )
+            ],
             "head",
             repo_id=1,
         )

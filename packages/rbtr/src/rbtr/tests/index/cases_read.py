@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, FileSnapshot
+from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
 
@@ -27,7 +28,7 @@ class ChunkQueryScenario:
     file_path: str | None = None
     kind: ChunkKind | None = None
     name: str | None = None
-    expected_ids: list[str] = field(default_factory=list)
+    expected_names: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ def case_get_chunks_unfiltered() -> ChunkQueryScenario:
     return ChunkQueryScenario(
         chunks=[c1, c2],
         snapshots=[make_snap("head", "a.py", c1.blob_sha), make_snap("head", "b.py", c2.blob_sha)],
-        expected_ids=["fn1", "fn2"],
+        expected_names=["fn1", "fn2"],
     )
 
 
@@ -66,7 +67,7 @@ def case_get_chunks_by_file_path() -> ChunkQueryScenario:
         chunks=[c1, c2],
         snapshots=[make_snap("head", "a.py", c1.blob_sha), make_snap("head", "b.py", c2.blob_sha)],
         file_path="a.py",
-        expected_ids=["fn1"],
+        expected_names=["fn1"],
     )
 
 
@@ -79,7 +80,7 @@ def case_get_chunks_by_kind() -> ChunkQueryScenario:
         chunks=[c1, c2],
         snapshots=[make_snap("head", "f.py", c1.blob_sha), make_snap("head", "b.py", c2.blob_sha)],
         kind=ChunkKind.CLASS,
-        expected_ids=["cls1"],
+        expected_names=["cls1"],
     )
 
 
@@ -92,7 +93,7 @@ def case_get_chunks_by_name() -> ChunkQueryScenario:
         chunks=[c1, c2],
         snapshots=[make_snap("head", "f.py", c1.blob_sha), make_snap("head", "b.py", c2.blob_sha)],
         name="helper",
-        expected_ids=["fn1"],
+        expected_names=["helper"],
     )
 
 
@@ -104,25 +105,24 @@ def case_get_chunks_nonexistent_file() -> ChunkQueryScenario:
         chunks=[c1],
         snapshots=[make_snap("head", "f.py", c1.blob_sha)],
         file_path="nope.py",
-        expected_ids=[],
+        expected_names=[],
     )
 
 
 @case(tags=["get_chunks"])
 def case_get_chunks_same_blob_two_paths() -> ChunkQueryScenario:
-    """Identical content at two paths does not cross-contaminate.
+    """Identical content at two paths is one chunk, returned once.
 
-    Both chunks share one `blob_sha` but sit at different paths, so the
-    `(blob_sha, file_path)` join must return only the queried path's
-    chunk — never the same-blob chunk at the other path.
+    The blob backs `a.py` and `b.py`, so there is a single chunk reached
+    through either. Asking for one path returns it once — not twice for
+    the two snapshot rows that share the blob.
     """
-    at_a = make_chunk("at_a", path="a.py", blob="b")
-    at_b = make_chunk("at_b", path="b.py", blob="b")
+    shared = make_chunk("shared", path="a.py", blob="b")
     return ChunkQueryScenario(
-        chunks=[at_a, at_b],
+        chunks=[shared],
         snapshots=[make_snap("head", "a.py", "b"), make_snap("head", "b.py", "b")],
         file_path="a.py",
-        expected_ids=["at_a"],
+        expected_names=["shared"],
     )
 
 
@@ -160,11 +160,10 @@ def case_blob_is_current_different_language() -> BlobCurrentScenario:
 @case(tags=["blob_is_current"])
 def case_blob_is_current_same_language_and_serial() -> BlobCurrentScenario:
     """Blob stored as 'markdown' v1, queried with same → True."""
-    c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
-    c = c.model_copy(update={"language": "markdown"})
+    c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
         chunks=[c],
-        snapshots=[make_snap("head", "f.py", c.blob_sha)],
+        snapshots=[make_snap("head", "f.py", c.blob_sha, "markdown")],
         query_blob=c.blob_sha,
         query_language="markdown",
         serial_map={"markdown": 1},
@@ -175,11 +174,10 @@ def case_blob_is_current_same_language_and_serial() -> BlobCurrentScenario:
 @case(tags=["blob_is_current"])
 def case_blob_is_current_different_serial() -> BlobCurrentScenario:
     """Blob stored at serial 1, queried with serial 2 → False."""
-    c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION)
-    c = c.model_copy(update={"language": "markdown"})
+    c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
         chunks=[c],
-        snapshots=[make_snap("head", "f.py", c.blob_sha)],
+        snapshots=[make_snap("head", "f.py", c.blob_sha, "markdown")],
         query_blob=c.blob_sha,
         query_language="markdown",
         serial_map={"markdown": 2},
@@ -222,15 +220,15 @@ def case_blob_is_current_detected_language_changed() -> BlobCurrentScenario:
 @case(tags=["blob_is_current"])
 def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
     """SFC blob: host + embedded chunks all at current serials → True."""
-    host = make_chunk("tpl", blob="sfc").model_copy(
-        update={"language": "svelte", "extraction_serial": 2}
+    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
+        update={"extraction_serial": 2}
     )
-    ts = make_chunk("fn", blob="sfc").model_copy(
-        update={"language": "typescript", "extraction_serial": 7}
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
+        update={"extraction_serial": 7}
     )
     return BlobCurrentScenario(
         chunks=[host, ts],
-        snapshots=[make_snap("head", "C.svelte", "sfc")],
+        snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
         query_blob="sfc",
         query_language="svelte",
         serial_map={"svelte": 2, "typescript": 7, "": 1},
@@ -241,15 +239,15 @@ def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
 @case(tags=["blob_is_current"])
 def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
     """SFC blob: a delegated chunk stale vs the current embedded serial → False."""
-    host = make_chunk("tpl", blob="sfc").model_copy(
-        update={"language": "svelte", "extraction_serial": 2}
+    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
+        update={"extraction_serial": 2}
     )
-    ts = make_chunk("fn", blob="sfc").model_copy(
-        update={"language": "typescript", "extraction_serial": 7}
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
+        update={"extraction_serial": 7}
     )
     return BlobCurrentScenario(
         chunks=[host, ts],
-        snapshots=[make_snap("head", "C.svelte", "sfc")],
+        snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
         query_blob="sfc",
         query_language="svelte",
         serial_map={"svelte": 2, "typescript": 8, "": 1},

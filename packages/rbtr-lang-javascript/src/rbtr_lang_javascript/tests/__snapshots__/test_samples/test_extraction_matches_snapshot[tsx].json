@@ -1,12 +1,12 @@
 [
   {
-    "id": "59824b79f9115833",
     "blob_sha": "sha1",
     "file_path": "labels.ts",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "// Default UI labels.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b0eec444d8e60c22"
   },
   {
-    "id": "9eda4ff1fcf8b613",
     "blob_sha": "sha1",
     "file_path": "labels.ts",
     "kind": "variable",
     "name": "INITIAL_LABEL",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "INITIAL_LABEL = \"Click\"",
     "line_start": 2,
     "line_end": 2,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e15fcebf90273140"
   },
   {
-    "id": "d8aa0f5124441a8e",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "// Counter — a small React component rendering a clickable count.\n//\n// The tsx plugin uses the `language_tsx` grammar, not\n// `language_typescript`, which cannot parse JSX (a `.tsx` file parses\n// with errors under the plain TypeScript grammar). It runs the same\n// query as the typescript plugin against the JSX-aware grammar, so it\n// extracts function declarations, arrow-function consts, module\n// variables, imports, and interfaces (as classes — the CounterProps\n// interface below).",
     "line_start": 1,
     "line_end": 9,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "49a537d969adcd13"
   },
   {
-    "id": "00949e6667d737dd",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "import",
     "name": "import { useState } from \"react\";",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "import { useState } from \"react\";",
     "line_start": 11,
     "line_end": 11,
@@ -69,16 +72,17 @@
       "names": "useState",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "6cc02cbe179fd402"
   },
   {
-    "id": "8220d10bba33f28b",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "import",
     "name": "import type { ReactNode } from \"react\";",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "import type { ReactNode } from \"react\";",
     "line_start": 12,
     "line_end": 12,
@@ -87,16 +91,17 @@
       "names": "ReactNode",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "317478445b3c1bfa"
   },
   {
-    "id": "5cadb51ac810019c",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "import",
     "name": "import { INITIAL_LABEL } from \"./labels\";",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "import { INITIAL_LABEL } from \"./labels\";",
     "line_start": 13,
     "line_end": 13,
@@ -105,16 +110,17 @@
       "names": "INITIAL_LABEL",
       "dots": "1",
       "language_hint": ""
-    }
+    },
+    "id": "ef93f49242442e61"
   },
   {
-    "id": "45fac1ec4bc2cbc1",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "variable",
     "name": "INITIAL_COUNT",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "INITIAL_COUNT: number = 0",
     "line_start": 15,
     "line_end": 15,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c6fcfee749df034c"
   },
   {
-    "id": "3e6c2336a2c128c6",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "class",
     "name": "CounterProps",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "/** Props for the Counter component. */\ninterface CounterProps {\n  label: string;\n}",
     "line_start": 17,
     "line_end": 20,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "76be0c7bddd72f9c"
   },
   {
-    "id": "1d5235346ee98118",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "/** A button that increments a counter on each click. */",
     "line_start": 22,
     "line_end": 22,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "4a383838d37cc3d6"
   },
   {
-    "id": "4d394e5eaf569e94",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "function",
     "name": "Counter",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "function Counter({ label }: CounterProps): ReactNode {\n  const [count, setCount] = useState(INITIAL_COUNT);\n  return (\n    <button onClick={() => setCount(count + 1)}>\n      {label}: {count}\n    </button>\n  );\n}",
     "line_start": 23,
     "line_end": 30,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "5cbd4a63e11c44bd"
   },
   {
-    "id": "c9822de44bf5114b",
     "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "kind": "function",
     "name": "Badge",
     "scope": "",
     "language": "tsx",
+    "file_language": "tsx",
     "content": "/** Render a static badge as a span. */\nconst Badge = (text: string): ReactNode => <span className=\"badge\">{text}</span>;",
     "line_start": 32,
     "line_end": 33,
@@ -195,6 +205,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0b533208f078f9ef"
   }
 ]

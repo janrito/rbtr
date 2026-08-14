@@ -15,8 +15,9 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
@@ -97,7 +98,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
 
     chunks_c1 = [
         TokenisedChunk(
-            id="fn_config_v1",
             blob_sha="blob_config_v1",
             file_path="src/config.py",
             kind=ChunkKind.FUNCTION,
@@ -109,7 +109,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             line_end=2,
         ),
         TokenisedChunk(
-            id="cls_app",
             blob_sha="blob_app",
             file_path="src/app.py",
             kind=ChunkKind.CLASS,
@@ -121,7 +120,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             line_end=4,
         ),
         TokenisedChunk(
-            id="imp_config",
             blob_sha="blob_app",
             file_path="src/app.py",
             kind=ChunkKind.IMPORT,
@@ -136,7 +134,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
 
     chunks_c2 = [
         TokenisedChunk(
-            id="fn_config_v2",
             blob_sha="blob_config_v2",
             file_path="src/config.py",
             kind=ChunkKind.FUNCTION,
@@ -151,8 +148,26 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         chunks_c1[2],  # import unchanged
     ]
 
-    edges_c1 = [Edge(source_id="imp_config", target_id="fn_config_v1", kind=EdgeKind.IMPORTS)]
-    edges_c2 = [Edge(source_id="imp_config", target_id="fn_config_v2", kind=EdgeKind.IMPORTS)]
+    # The import edges into whichever version of the function the
+    # commit holds; ids come from the chunks, being content-derived.
+    edges_c1 = [
+        Edge(
+            source_id=chunks_c1[2].id,
+            target_id=chunks_c1[0].id,
+            kind=EdgeKind.IMPORTS,
+            source_path=chunks_c1[2].file_path,
+            target_path=chunks_c1[0].file_path,
+        )
+    ]
+    edges_c2 = [
+        Edge(
+            source_id=chunks_c2[2].id,
+            target_id=chunks_c2[0].id,
+            kind=EdgeKind.IMPORTS,
+            source_path=chunks_c2[2].file_path,
+            target_path=chunks_c2[0].file_path,
+        )
+    ]
 
     with store.session() as ws:
         for c in chunks_c1:

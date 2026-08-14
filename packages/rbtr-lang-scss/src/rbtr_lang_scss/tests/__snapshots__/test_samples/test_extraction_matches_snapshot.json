@@ -1,12 +1,12 @@
 [
   {
-    "id": "897ac2fbef604138",
     "blob_sha": "sha1",
     "file_path": "config.scss",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "// Imported by scss.scss via `@use \"config\"`.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "10b9e0c7ef48dbc6"
   },
   {
-    "id": "39312074cb776ca1",
     "blob_sha": "sha1",
     "file_path": "config.scss",
     "kind": "variable",
     "name": "$brand",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "$brand: #00aa77;",
     "line_start": 3,
     "line_end": 3,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "52e340a0eb1936f5"
   },
   {
-    "id": "c5c1d3e1ed13e889",
     "blob_sha": "sha1",
     "file_path": "reset.scss",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "// Imported by scss.scss via `@import \"reset\"`.",
     "line_start": 1,
     "line_end": 1,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "10b9e0c7ef48dbc6"
   },
   {
-    "id": "ca618b519a5d17c6",
     "blob_sha": "sha1",
     "file_path": "reset.scss",
     "kind": "class",
     "name": "*",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "* {\n  margin: 0;\n  padding: 0;\n}",
     "line_start": 3,
     "line_end": 6,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "719eb53fd28a4226"
   },
   {
-    "id": "4a217db49a2b17b5",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "// Greeter theme (SCSS).\n//\n// The SCSS plugin extracts $-variables, @mixin and @function definitions,\n// rule sets (including %placeholders and nested rules), @media/@charset/\n// @keyframes as doc sections, and @use/@forward/@import as imports.",
     "line_start": 1,
     "line_end": 5,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "cff1e9ff754e1d2d"
   },
   {
-    "id": "9c79559af6a0cb62",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "config_key",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@charset \"UTF-8\";",
     "line_start": 7,
     "line_end": 7,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1acf400ee24cb6b3"
   },
   {
-    "id": "1f0198d6bc929161",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "import",
     "name": "@use \"config\";",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@use \"config\";",
     "line_start": 9,
     "line_end": 9,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "5b65dc8850d3d6d5"
   },
   {
-    "id": "cf7865de50f3fafd",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "import",
     "name": "@forward \"theme\";",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@forward \"theme\";",
     "line_start": 10,
     "line_end": 10,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d5fd0a10aa078b1b"
   },
   {
-    "id": "c1d6fcb5e3fac8a5",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "import",
     "name": "@import \"reset\";",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@import \"reset\";",
     "line_start": 11,
     "line_end": 11,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b8bb8586a8f0b2f3"
   },
   {
-    "id": "faa218eb01099bf6",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "variable",
     "name": "$primary",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "$primary: #333;",
     "line_start": 13,
     "line_end": 13,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "eb470061d1a7b0d7"
   },
   {
-    "id": "5d75324f09c4352f",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "variable",
     "name": "$spacing",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "$spacing: 8px;",
     "line_start": 14,
     "line_end": 14,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f2f236eb0be1b193"
   },
   {
-    "id": "6facb9e386edb697",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "function",
     "name": "flex-center",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@mixin flex-center($direction: row) {\n  display: flex;\n  flex-direction: $direction;\n  align-items: center;\n}",
     "line_start": 16,
     "line_end": 20,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e0552982f0d82fec"
   },
   {
-    "id": "6516223d5f986f51",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "function",
     "name": "rem",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@function rem($px) {\n  @return $px * 1rem;\n}",
     "line_start": 22,
     "line_end": 24,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d473ca15da3fdc5f"
   },
   {
-    "id": "3205387087aed863",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
     "name": "%card-base",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "%card-base {\n  border-radius: 4px;\n  padding: $spacing;\n}",
     "line_start": 26,
     "line_end": 29,
@@ -249,16 +262,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8f095b47d2535eb6"
   },
   {
-    "id": "bbd96a4892c6537a",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": ".greeter {\n  color: $primary;\n  @include flex-center(column);\n\n  &:hover {\n    color: blue;\n  }\n}",
     "line_start": 31,
     "line_end": 38,
@@ -267,16 +281,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a2cb287a9ded83d2"
   },
   {
-    "id": "0db402fd896394ea",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
     "name": "&:hover",
     "scope": ".greeter",
     "language": "scss",
+    "file_language": "scss",
     "content": "&:hover {\n    color: blue;\n  }",
     "line_start": 35,
     "line_end": 37,
@@ -285,16 +300,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c80bf42a8e0a332e"
   },
   {
-    "id": "9d1da3a16c28d4ba",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: rem(14);\n  }\n}",
     "line_start": 40,
     "line_end": 44,
@@ -303,16 +319,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "458eced79f685c08"
   },
   {
-    "id": "2c28098a955d9ab2",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": ".greeter {\n    font-size: rem(14);\n  }",
     "line_start": 41,
     "line_end": 43,
@@ -321,16 +338,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "065098f107e87ec7"
   },
   {
-    "id": "f3d13cefdaa9e70c",
     "blob_sha": "sha1",
     "file_path": "scss.scss",
     "kind": "class",
     "name": "greeting-fade",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
     "line_start": 46,
     "line_end": 53,
@@ -339,16 +357,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a56c5673f0ac04b8"
   },
   {
-    "id": "ea49b7b51ccc2830",
     "blob_sha": "sha1",
     "file_path": "theme.scss",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "// Re-exported by scss.scss via `@forward \"theme\"`.",
     "line_start": 1,
     "line_end": 1,
@@ -357,16 +376,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "10b9e0c7ef48dbc6"
   },
   {
-    "id": "262ba62fce660d22",
     "blob_sha": "sha1",
     "file_path": "theme.scss",
     "kind": "variable",
     "name": "$radius",
     "scope": "",
     "language": "scss",
+    "file_language": "scss",
     "content": "$radius: 6px;",
     "line_start": 3,
     "line_end": 3,
@@ -375,6 +395,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1780202d18786446"
   }
 ]

@@ -20,8 +20,17 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import (
+    Chunk,
+    ChunkKind,
+    Edge,
+    EdgeKind,
+    FileSnapshot,
+    SnapshotRef,
+)
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.index.build import build_index
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 # ═════════════════════════════════════════════════════════════════════
@@ -30,25 +39,37 @@ from rbtr.index.store import IndexStore
 
 
 def make_chunk(
-    chunk_id: str,
+    handle: str,
     *,
     name: str = "",
     content: str = "",
     path: str = "f.py",
     blob: str = "",
     kind: ChunkKind = ChunkKind.FUNCTION,
+    language: str = "",
+    file_language: str | None = None,
 ) -> TokenisedChunk:
     """Build a minimal `TokenisedChunk` with auto-tokenised fields.
+
+    *handle* is a short label for the chunk within a test: it seeds the
+    default `name` and `blob_sha`, which is what keeps two fixture chunks
+    distinct. It is not the id — that is derived from the content, so
+    assert against a fixture's `.id` or its `name`, never a literal.
 
     Chunks are content-addressed and carry no `repo_id`; which repo a
     chunk belongs to is decided by the snapshot that references its
     blob (see `seed_store`'s `repo_id`).
+
+    `file_language` defaults to *language*, which is what a file in one
+    language yields. Pass it separately for an embedded chunk, whose own
+    language differs from its file's — and match it to the
+    `detected_language` of the `make_snap` rows that reference the blob,
+    or the two will not pair up.
     """
-    name = name or chunk_id
+    name = name or handle
     content = content or f"def {name}(): pass"
     return TokenisedChunk(
-        id=chunk_id,
-        blob_sha=blob or f"blob_{chunk_id}",
+        blob_sha=blob or f"blob_{handle}",
         file_path=path,
         kind=kind,
         name=name,
@@ -57,12 +78,18 @@ def make_chunk(
         name_tokens=tokenise_code(name),
         line_start=1,
         line_end=1,
+        language=language,
+        file_language=language if file_language is None else file_language,
     )
 
 
-def make_snap(sha: str, path: str, blob: str) -> FileSnapshot:
-    """Build a `FileSnapshot`."""
-    return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob)
+def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapshot:
+    """Build a `FileSnapshot`.
+
+    *language* is the file's detected language, which pairs the snapshot
+    with the chunks extracted from it.
+    """
+    return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
 
 
 def seed_store(
@@ -109,19 +136,25 @@ def seed_store(
 
 
 @pytest.fixture
-def shared_chunk_store(store: IndexStore) -> IndexStore:
+def shared_chunk() -> TokenisedChunk:
+    """The single chunk that `shared_chunk_store`'s two repos share."""
+    return make_chunk("shared_fn", path="x.py", blob="b_shared")
+
+
+@pytest.fixture
+def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> IndexStore:
     """A store where one chunk is shared by repo 1 and repo 2.
 
     Models byte-identical content in two worktrees/clones of one
     repository: the blob (and so the chunk `id`) coincides. The chunk
     is inserted **once**; each repo records a snapshot referencing the
-    same `(blob_sha, file_path)` — mirroring the `blob_is_current` skip that
-    happens when a second repo indexes already-chunked content.
+    same blob — mirroring the `blob_is_current` skip that happens when a
+    second repo indexes already-chunked content.
     """
     with store.session() as ws:
         ws.register_repo("/repo1")
         ws.register_repo("/repo2")
-        ws.add_chunk(make_chunk("shared_fn", path="x.py", blob="b_shared"))
+        ws.add_chunk(shared_chunk)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=1)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
         ws.mark_indexed(1, "head")
@@ -195,6 +228,86 @@ def diff_repo(tmp_path: Path) -> pygit2.Repository:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# Duplicated content (for test_duplicate_content.py)
+#
+# Copies land in a *second* commit because that is when the bug bites:
+# the originals are already committed, so the dedup gate sees their
+# blobs and skips the copies.  In one commit the copies survive by
+# accident, the chunk buffer not having flushed yet.
+#
+# `src/caller.py` is a weaker match for the ranking query: min-max
+# normalisation scores every candidate 0.0 when they all tie, so a
+# penalty needs something to separate.
+
+
+@pytest.fixture
+def dup_store(tmp_path: Path, store: IndexStore) -> IndexStore:
+    """Originals, then verbatim copies at new paths, both built."""
+    shared = b'''\
+"""Shared helpers."""
+
+
+def parse_manifest(text):
+    """Read a manifest and return its entries."""
+    return [line for line in text.splitlines() if line]
+'''
+    api = b"""\
+export function describeEndpoint(name) {
+  return `endpoint ${name}`;
+}
+"""
+    dup = b'''\
+def normalise_widget(widget):
+    """Normalise a widget before serialisation."""
+    return widget.strip().lower()
+'''
+    caller = b'''\
+from dup import normalise_widget
+
+
+def render_widget(widget):
+    """Render a widget for display."""
+    return normalise_widget(widget)
+'''
+
+    repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
+    sig = pygit2.Signature("Test", "test@test.com")
+    commits: list[str] = []
+    for message, files in (
+        (
+            "Originals",
+            {
+                "src/shared.py": shared,
+                "types/api.d.ts": api,
+                "src/dup.py": dup,
+                "src/caller.py": caller,
+            },
+        ),
+        ("Copies", {"lib/shared.py": shared, "dist/api.js": api, "node_modules/dup.py": dup}),
+    ):
+        for path, content in files.items():
+            full = tmp_path / path
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_bytes(content)
+            repo.index.add(path)
+        repo.index.write()
+        parents = [repo.head.target] if commits else []
+        tree = repo.index.write_tree()
+        commits.append(str(repo.create_commit("HEAD", sig, sig, message, tree, parents)))
+
+    build_index(repo.workdir, commits[0], store)
+    build_index(repo.workdir, commits[1], store, base_sha=commits[0])
+    return store
+
+
+@pytest.fixture
+def dup_ref(dup_store: IndexStore) -> SnapshotRef:
+    """The duplicated repo at its head commit."""
+    ref = dup_store.latest_ref(dup_store.list_repos()[0])
+    assert ref is not None
+    return ref
+
+
 # Ranking dataset (for test_search_ranking.py, test_search_structural.py)
 # ═════════════════════════════════════════════════════════════════════
 #
@@ -222,7 +335,6 @@ class AppConfig:
     timeout: float = 30.0
 """
     return TokenisedChunk(
-        id="config_class",
         blob_sha="blob_config",
         file_path="src/config.py",
         kind=ChunkKind.CLASS,
@@ -245,7 +357,6 @@ def load_config(path: str) -> AppConfig:
     return AppConfig(**data)
 """
     return TokenisedChunk(
-        id="load_config",
         blob_sha="blob_config",
         file_path="src/config.py",
         kind=ChunkKind.FUNCTION,
@@ -263,7 +374,6 @@ def ranking_import_config() -> Chunk:
     name = "from config import AppConfig"
     content = "from config import AppConfig, load_config"
     return TokenisedChunk(
-        id="import_config",
         blob_sha="blob_server",
         file_path="src/server.py",
         kind=ChunkKind.IMPORT,
@@ -285,7 +395,6 @@ def start_server(config: AppConfig) -> None:
     app.run(host="0.0.0.0", port=config.port)
 """
     return TokenisedChunk(
-        id="start_server",
         blob_sha="blob_server",
         file_path="src/server.py",
         kind=ChunkKind.FUNCTION,
@@ -311,7 +420,6 @@ def test_load_config():
     config = load_config("empty.json")
 """
     return TokenisedChunk(
-        id="test_config",
         blob_sha="blob_test_config",
         file_path="tests/test_config.py",
         kind=ChunkKind.FUNCTION,
@@ -334,7 +442,6 @@ Use `load_config` to load an `AppConfig` from a JSON file.
 Set `database_url` and `max_retries` as needed.
 """
     return TokenisedChunk(
-        id="doc_config",
         blob_sha="blob_docs",
         file_path="docs/setup.md",
         kind=ChunkKind.DOC_SECTION,
@@ -367,38 +474,55 @@ def ranking_chunks(
 
 
 @pytest.fixture
-def ranking_edges() -> list[Edge]:
+def ranking_edges(
+    ranking_config_class: Chunk,
+    ranking_load_config: Chunk,
+    ranking_import_config: Chunk,
+    ranking_start_server: Chunk,
+    ranking_test_config: Chunk,
+    ranking_doc_section: Chunk,
+) -> list[Edge]:
     """Edge graph used by importance / structural ranking tests.
 
-    `config_class` receives 2 inbound edges (import, start_server).
-    `load_config` receives 3 inbound edges (import, call, doc).
-    `start_server` receives 0.
+    The config class receives 2 inbound edges (import, start_server),
+    `load_config` 3 (import, call, doc), and `start_server` none. Edges
+    carry the chunks' real ids, so they point at rows that exist.
     """
     return [
         Edge(
-            source_id="import_config",
-            target_id="config_class",
+            source_id=ranking_import_config.id,
+            target_id=ranking_config_class.id,
             kind=EdgeKind.IMPORTS,
+            source_path=ranking_import_config.file_path,
+            target_path=ranking_config_class.file_path,
         ),
         Edge(
-            source_id="import_config",
-            target_id="load_config",
+            source_id=ranking_import_config.id,
+            target_id=ranking_load_config.id,
             kind=EdgeKind.IMPORTS,
+            source_path=ranking_import_config.file_path,
+            target_path=ranking_load_config.file_path,
         ),
         Edge(
-            source_id="start_server",
-            target_id="config_class",
+            source_id=ranking_start_server.id,
+            target_id=ranking_config_class.id,
             kind=EdgeKind.IMPORTS,
+            source_path=ranking_start_server.file_path,
+            target_path=ranking_config_class.file_path,
         ),
         Edge(
-            source_id="test_config",
-            target_id="load_config",
+            source_id=ranking_test_config.id,
+            target_id=ranking_load_config.id,
             kind=EdgeKind.CALLS,
+            source_path=ranking_test_config.file_path,
+            target_path=ranking_load_config.file_path,
         ),
         Edge(
-            source_id="doc_config",
-            target_id="load_config",
+            source_id=ranking_doc_section.id,
+            target_id=ranking_load_config.id,
             kind=EdgeKind.DOCUMENTS,
+            source_path=ranking_doc_section.file_path,
+            target_path=ranking_load_config.file_path,
         ),
     ]
 
@@ -438,7 +562,6 @@ def ranking_store(
 @pytest.fixture
 def math_func() -> TokenisedChunk:
     return TokenisedChunk(
-        id="math_1",
         blob_sha="blob_math",
         file_path="src/math_utils.py",
         kind=ChunkKind.FUNCTION,
@@ -457,7 +580,6 @@ def calculate_standard_deviation(values: list[float]) -> float:
 @pytest.fixture
 def http_func() -> TokenisedChunk:
     return TokenisedChunk(
-        id="http_1",
         blob_sha="blob_http",
         file_path="src/api/client.py",
         kind=ChunkKind.FUNCTION,
@@ -477,7 +599,6 @@ async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:
 @pytest.fixture
 def string_func() -> TokenisedChunk:
     return TokenisedChunk(
-        id="string_1",
         blob_sha="blob_string",
         file_path="src/text/normalize.py",
         kind=ChunkKind.FUNCTION,
@@ -497,7 +618,6 @@ def normalize_whitespace(text: str) -> str:
 def math_class() -> Chunk:
     """Shares `blob_sha='blob_math'` with `math_func` on purpose."""
     return TokenisedChunk(
-        id="math_class_1",
         blob_sha="blob_math",
         file_path="src/math_utils.py",
         kind=ChunkKind.CLASS,
@@ -530,7 +650,6 @@ def all_store_chunks(
 @pytest.fixture
 def gc_chunk_x() -> Chunk:
     return TokenisedChunk(
-        id="cx",
         blob_sha="blob_x",
         file_path="x.py",
         kind=ChunkKind.FUNCTION,
@@ -544,7 +663,6 @@ def gc_chunk_x() -> Chunk:
 @pytest.fixture
 def gc_chunk_y() -> Chunk:
     return TokenisedChunk(
-        id="cy",
         blob_sha="blob_y",
         file_path="y.py",
         kind=ChunkKind.FUNCTION,
@@ -558,7 +676,6 @@ def gc_chunk_y() -> Chunk:
 @pytest.fixture
 def gc_chunk_z() -> Chunk:
     return TokenisedChunk(
-        id="cz",
         blob_sha="blob_z",
         file_path="z.py",
         kind=ChunkKind.FUNCTION,
@@ -574,14 +691,32 @@ def gc_chunk_z() -> Chunk:
 
 @pytest.fixture
 def edge_math_calls_class() -> Edge:
-    return Edge(source_id="math_1", target_id="math_class_1", kind=EdgeKind.CALLS)
+    return Edge(
+        source_id="math_1",
+        target_id="math_class_1",
+        kind=EdgeKind.CALLS,
+        source_path="src/math_1.py",
+        target_path="src/math_class_1.py",
+    )
 
 
 @pytest.fixture
 def edge_a_calls_b() -> Edge:
-    return Edge(source_id="a", target_id="b", kind=EdgeKind.CALLS)
+    return Edge(
+        source_id="a",
+        target_id="b",
+        kind=EdgeKind.CALLS,
+        source_path="src/a.py",
+        target_path="src/b.py",
+    )
 
 
 @pytest.fixture
 def edge_c_imports_d() -> Edge:
-    return Edge(source_id="c", target_id="d", kind=EdgeKind.IMPORTS)
+    return Edge(
+        source_id="c",
+        target_id="d",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/c.py",
+        target_path="src/d.py",
+    )

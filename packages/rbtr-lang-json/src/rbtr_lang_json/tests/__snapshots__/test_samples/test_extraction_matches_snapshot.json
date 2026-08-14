@@ -1,12 +1,12 @@
 [
   {
-    "id": "0b774143d92e16f9",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "name",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"name\": \"greeter\"",
     "line_start": 2,
     "line_end": 2,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3b6dd850e3e3752a"
   },
   {
-    "id": "54a915ff53825252",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "version",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"version\": \"1.0.0\"",
     "line_start": 3,
     "line_end": 3,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a059576fe1473efe"
   },
   {
-    "id": "cfbbdfe2bde40fed",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "defaults",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"defaults\": {\n    \"greeting\": \"Hello\",\n    \"locale\": \"en\"\n  }",
     "line_start": 4,
     "line_end": 7,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "cc300e28219ead37"
   },
   {
-    "id": "29b185429b752875",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "greeting",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"greeting\": \"Hello\"",
     "line_start": 5,
     "line_end": 5,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "4129601aeeaeb683"
   },
   {
-    "id": "09a53d90a2485af8",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "locale",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"locale\": \"en\"",
     "line_start": 6,
     "line_end": 6,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9681039edbb00040"
   },
   {
-    "id": "228dee714cb21401",
     "blob_sha": "sha1",
     "file_path": "json.json",
     "kind": "config_key",
     "name": "locales",
     "scope": "",
     "language": "json",
+    "file_language": "json",
     "content": "\"locales\": [\"en\", \"fr\"]",
     "line_start": 8,
     "line_end": 8,
@@ -105,6 +110,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "832e35f22ae9a561"
   }
 ]
