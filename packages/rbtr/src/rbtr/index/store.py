@@ -532,7 +532,11 @@ class IndexStore:
         return str(row[0]) if row else ""
 
     def count_unembedded(self, repo_id: int, snapshot_sha: str) -> int:
-        """Count chunks visible at *snapshot_sha* that lack embeddings."""
+        """Count chunks visible at *snapshot_sha* that lack embeddings.
+
+        Counts chunks, so content held at several paths counts once — the
+        figure embedding progress is measured against.
+        """
         row = self._cursor.execute(
             _COUNT_UNEMBEDDED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
@@ -544,7 +548,9 @@ class IndexStore:
         """Return chunks at *snapshot_sha* with `embedding IS NULL`.
 
         Results are ordered deterministically by `(file_path, line_start)`
-        and capped at *limit*.
+        and capped at *limit*.  A chunk appears once however many paths
+        hold its content, carrying the first of them, because embedding it
+        writes the one content-addressed row every path shares.
         """
         params = {
             "repo_id": repo_id,
@@ -560,7 +566,12 @@ class IndexStore:
         return frame_to_chunks(frame)
 
     def count_chunks(self, snapshot_sha: str, repo_id: int) -> int:
-        """Count chunks visible at *snapshot_sha* without loading them."""
+        """Count chunks visible at *snapshot_sha* without loading them.
+
+        Counts chunks, so content held at several paths counts once.  A
+        count of locations — what a file count compares against — is a
+        different figure and no caller asks this for it.
+        """
         row = self._cursor.execute(
             _COUNT_CHUNKS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
