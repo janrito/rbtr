@@ -14,6 +14,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
@@ -464,3 +465,41 @@ def test_run_gc_all_freed_matches_physical_deletion(global_gc: GlobalGcFixture) 
     assert after is not None
     assert counts.chunks == before[0] - after[0]
     assert global_gc.store.count_orphan_chunks() == 0
+
+
+def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
+    gc: GcFixture,
+) -> None:
+    """Pruning must not strand a worktree snapshot in the index.
+
+    `worktree_tree_sha` writes the tree into the user's repository and
+    nothing references it, so `git gc` there prunes it. The daemon's
+    post-build cleanup finds worktree snapshots by asking git which
+    indexed shas are tree objects, which is a question git can stop
+    being able to answer about rows rbtr still holds.
+    """
+    workdir = Path(gc.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
+
+    (workdir / "a.py").write_text("stale\n")
+    stale_sha = worktree_tree_sha(gc.repo.workdir)
+    assert stale_sha is not None
+    (workdir / "a.py").write_text("current\n")
+    current_sha = worktree_tree_sha(gc.repo.workdir)
+    assert current_sha is not None
+
+    with gc.store.session() as ws:
+        ws.mark_indexed(gc.repo_id, gc.c3)
+        ws.mark_indexed(gc.repo_id, stale_sha)
+        ws.mark_indexed(gc.repo_id, current_sha)
+
+    # What `git gc` does to an unreferenced loose object.
+    loose = Path(gc.repo.path) / "objects" / stale_sha[:2] / stale_sha[2:]
+    assert loose.exists(), "the tree should have been written as a loose object"
+    loose.unlink()
+
+    DaemonServer._drop_stale_worktree_shas(  # the unit under test
+        gc.store, gc.repo_id, gc.repo_path, keep=current_sha
+    )
+
+    assert gc.store.has_indexed(gc.repo_id, stale_sha) is False
+    assert gc.store.has_indexed(gc.repo_id, current_sha) is True
