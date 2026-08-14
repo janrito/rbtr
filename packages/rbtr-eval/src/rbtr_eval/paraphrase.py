@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from importlib import resources
 from pathlib import Path
 
@@ -150,9 +151,18 @@ Output: where to set the build output path"""
 
 @paraphrase_agent.output_validator
 def _check_excluded(ctx: RunContext[SymbolContext], data: ConceptQuery) -> ConceptQuery:
-    lower = data.text.lower()
+    """Reject a paraphrase that names the symbol it describes.
+
+    Matched on word boundaries rather than as a substring. A symbol
+    called `o`, `s` or `str` occurs inside ordinary English words, so
+    substring matching rejected every attempt and the row was dropped
+    once its retries ran out — 88 of them in one run, the names being
+    `model`, `session`, `version`, `chunks` and the like. Dropping
+    exactly the symbols whose names are ordinary words biases the
+    corpus against what people most often search for.
+    """
     for ident in ctx.deps.excluded_identifiers:
-        if ident.lower() in lower:
+        if re.search(rf"(?<!\w){re.escape(ident)}(?!\w)", data.text, re.IGNORECASE):
             raise ModelRetry(ident)
     return data
 

@@ -21,6 +21,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
+from rbtr.errors import RbtrError
 from rbtr.index.results import ChunkContentRow
 from rbtr_eval.queries import load_all_queries, subsample
 from rbtr_eval.shared_schemas import QueryRow
@@ -134,31 +135,68 @@ def test_load_all_queries(tmp_path: Path) -> None:
     extract_a.write_parquet(per_repo_dir / "repo_a.parquet")
     extract_b.write_parquet(per_repo_dir / "repo_b.parquet")
 
-    # One concept parquet.
-    concept = pl.DataFrame(
-        [
-            {
-                **base_row,
-                "slug": "repo_a",
-                "file_path": "a.py",
-                "name": "fn_a",
-                "line_start": 1,
-                "provenance": "concept",
-                "text": "a concept query",
-            },
-        ]
-    )
-    concept.write_parquet(concept_dir / "repo_a.parquet")
+    # A concept parquet per repo, as `paraphrase` writes them.
+    for slug, path, fn in (("repo_a", "a.py", "fn_a"), ("repo_b", "b.py", "fn_b")):
+        pl.DataFrame(
+            [
+                {
+                    **base_row,
+                    "slug": slug,
+                    "file_path": path,
+                    "name": fn,
+                    "line_start": 1,
+                    "provenance": "concept",
+                    "text": "a concept query",
+                },
+            ]
+        ).write_parquet(concept_dir / f"{slug}.parquet")
 
     result = load_all_queries(per_repo_dir, concept_dir)
 
     # Validates as QueryRow (load_all_queries does this internally).
     result.pipe(QueryRow.validate, cast=True)
     # Row count = sum of extract + concept rows.
-    assert result.height == 3
+    assert result.height == 4
     # All provenances present.
     provenances = set(result["provenance"].to_list())
     assert provenances == {"name", "docstring", "concept"}
+
+
+def test_a_repo_without_concept_queries_is_refused(tmp_path: Path) -> None:
+    """A repo missing from the concept directory stops the load.
+
+    `paraphrase` writes one parquet per repo unconditionally, so a
+    missing one means the stage did not finish for that repo. Loading
+    anyway measures a smaller corpus without saying so — which is how a
+    published tuning run came to sit on 1534 queries instead of 1595.
+    """
+    per_repo_dir = tmp_path / "per-repo"
+    per_repo_dir.mkdir()
+    concept_dir = tmp_path / "concept"
+    concept_dir.mkdir()
+
+    base_row = {
+        "scope": "",
+        "name": "fn",
+        "line_start": 1,
+        "line_end": 1,
+        "symbol_kind": "function",
+        "language": "python",
+        "text": "a query",
+    }
+
+    pl.DataFrame(
+        [{**base_row, "slug": "repo_a", "file_path": "a.py", "provenance": "name"}]
+    ).write_parquet(per_repo_dir / "repo_a.parquet")
+    pl.DataFrame(
+        [{**base_row, "slug": "repo_b", "file_path": "b.py", "provenance": "name"}]
+    ).write_parquet(per_repo_dir / "repo_b.parquet")
+    pl.DataFrame(
+        [{**base_row, "slug": "repo_a", "file_path": "a.py", "provenance": "concept"}]
+    ).write_parquet(concept_dir / "repo_a.parquet")
+
+    with pytest.raises(RbtrError, match="repo_b"):
+        load_all_queries(per_repo_dir, concept_dir)
 
 
 def test_target_kind_dtype_matches_the_index_store() -> None:
