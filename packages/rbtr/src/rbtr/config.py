@@ -77,11 +77,14 @@ class RerankerSettings(BaseModel):
 
 
 class WeightTriple(BaseModel):
-    """Fusion channel weights (must sum to 1.0)."""
+    """Fusion channel weights (must sum to 1.0).
 
-    alpha: float = Field(ge=0.0, le=1.0)
-    beta: float = Field(ge=0.0, le=1.0)
-    gamma: float = Field(ge=0.0, le=1.0)
+    `score = alpha * semantic + beta * lexical + gamma * name`
+    """
+
+    alpha: float = Field(ge=0.0, le=1.0, description="Semantic: embedding cosine similarity.")
+    beta: float = Field(ge=0.0, le=1.0, description="Lexical: BM25 keyword match.")
+    gamma: float = Field(ge=0.0, le=1.0, description="Name-match: identifier matching.")
 
     @model_validator(mode="after")
     def _check_sum(self) -> Self:
