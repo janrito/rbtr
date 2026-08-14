@@ -1,53 +1,54 @@
 # Index summary
 
-| metric | value   |
-| ------ | ------- |
-| chunks | 162,295 |
-| edges  | 32,485  |
+| metric          | value   |
+| --------------- | ------- |
+| chunks          | 161,928 |
+| chunk locations | 164,361 |
+| edges           | 49,514  |
 
 ## Repos
 
-| repo               | chunks | edges |
-| ------------------ | ------ | ----- |
-| anthropics__skills | 4692   | 1145  |
-| astral-sh__uv      | 35610  | 9950  |
-| badlogic__pi-mono  | 27381  | 4211  |
-| django__django     | 87749  | 16307 |
-| rbtr__rbtr         | 6863   | 872   |
+| repo               | chunks | locations | edges |
+| ------------------ | ------ | --------- | ----- |
+| anthropics__skills | 4824   | 6139      | 1316  |
+| astral-sh__uv      | 34703  | 34943     | 5552  |
+| badlogic__pi-mono  | 27991  | 28010     | 25251 |
+| django__django     | 87350  | 88187     | 16347 |
+| rbtr__rbtr         | 7071   | 7082      | 1048  |
 
 ## Chunk kinds
 
 | kind        | n     | outbound_edges | inbound_edges |
 | ----------- | ----- | -------------- | ------------- |
-| method      | 38164 | 0              | 3214          |
-| import      | 33032 | 32485          | 0             |
-| doc_section | 22231 | 0              | 6747          |
-| class       | 18959 | 0              | 13015         |
-| config_key  | 16665 | 0              | 2016          |
-| function    | 12145 | 0              | 4751          |
-| comment     | 11009 | 0              | 0             |
-| variable    | 8279  | 0              | 2722          |
-| raw_chunk   | 1811  | 0              | 20            |
+| method      | 38164 | 0              | 6456          |
+| import      | 33790 | 49514          | 0             |
+| doc_section | 24049 | 0              | 9828          |
+| class       | 18941 | 0              | 13459         |
+| config_key  | 16651 | 0              | 9904          |
+| function    | 12140 | 0              | 5665          |
+| comment     | 8541  | 0              | 0             |
+| variable    | 8237  | 0              | 4167          |
+| raw_chunk   | 1415  | 0              | 35            |
 
 ## Languages
 
-| lang        | n     | outbound_edges | inbound_edges |
-| ----------- | ----- | -------------- | ------------- |
-| python      | 64584 | 12576          | 17266         |
-| rust        | 27331 | 2438           | 2412          |
-| markdown    | 16143 | 10375          | 6749          |
-| rst         | 15509 | 4404           | 4             |
-| json        | 15386 | 0              | 510           |
-| typescript  | 14411 | 2533           | 3722          |
-| javascript  | 2941  | 4              | 181           |
-| css         | 2053  | 0              | 1             |
-| (plaintext) | 1130  | 0              | 14            |
-| toml        | 989   | 0              | 1420          |
-| bash        | 686   | 0              | 120           |
-| html        | 498   | 155            | 0             |
-| yaml        | 310   | 0              | 86            |
-| java        | 131   | 0              | 0             |
-| sql         | 73    | 0              | 0             |
-| go          | 59    | 0              | 0             |
-| ruby        | 39    | 0              | 0             |
-| c           | 22    | 0              | 0             |
+| lang       | n     | outbound_edges | inbound_edges |
+| ---------- | ----- | -------------- | ------------- |
+| python     | 64351 | 12578          | 17218         |
+| rust       | 25242 | 1349           | 1262          |
+| rst        | 16403 | 4431           | 2             |
+| markdown   | 16050 | 23036          | 9325          |
+| json       | 15569 | 180            | 8674          |
+| typescript | 14627 | 7333           | 10789         |
+| javascript | 2944  | 13             | 293           |
+| css        | 2053  | 2              | 3             |
+| bash       | 1341  | 0              | 685           |
+| plaintext  | 1131  | 0              | 33            |
+| toml       | 1086  | 419            | 1177          |
+| html       | 468   | 173            | 0             |
+| yaml       | 337   | 0              | 53            |
+| java       | 131   | 0              | 0             |
+| sql        | 75    | 0              | 0             |
+| go         | 59    | 0              | 0             |
+| ruby       | 39    | 0              | 0             |
+| c          | 22    | 0              | 0             |
