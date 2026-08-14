@@ -28,14 +28,14 @@
     "file_language": "c",
     "content": "#include <stdio.h>\n",
     "line_start": 8,
-    "line_end": 9,
+    "line_end": 8,
     "metadata": {
       "module": "stdio.h",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "53045c9351052fe1"
+    "id": "9bff01cc40e3cda4"
   },
   {
     "blob_sha": "sha1",
@@ -47,14 +47,14 @@
     "file_language": "c",
     "content": "#include \"greeter.h\"\n",
     "line_start": 9,
-    "line_end": 10,
+    "line_end": 9,
     "metadata": {
       "module": "greeter.h",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "5f947ae347a065ba"
+    "id": "f841654bacd2cd5a"
   },
   {
     "blob_sha": "sha1",
@@ -66,14 +66,14 @@
     "file_language": "c",
     "content": "#define MAX_NAME 64\n",
     "line_start": 11,
-    "line_end": 12,
+    "line_end": 11,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "cfdc26883fa91336"
+    "id": "4887328b39e1ad46"
   },
   {
     "blob_sha": "sha1",
@@ -85,14 +85,14 @@
     "file_language": "c",
     "content": "#define SQUARE(x) ((x) * (x))\n",
     "line_start": 12,
-    "line_end": 13,
+    "line_end": 12,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "9b224fca48455a07"
+    "id": "8d3e9e31880f6c2d"
   },
   {
     "blob_sha": "sha1",
@@ -370,14 +370,14 @@
     "file_language": "c",
     "content": "#define GREETER_H\n",
     "line_start": 6,
-    "line_end": 7,
+    "line_end": 6,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "205ff6d0f624e963"
+    "id": "901edb57f11ddea3"
   },
   {
     "blob_sha": "sha1",
@@ -389,14 +389,14 @@
     "file_language": "c",
     "content": "#define MAX_NAME 64\n",
     "line_start": 8,
-    "line_end": 9,
+    "line_end": 8,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "654c34e46e417c12"
+    "id": "4789087046c6a5de"
   },
   {
     "blob_sha": "sha1",
