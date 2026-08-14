@@ -1,12 +1,12 @@
 [
   {
-    "id": "4c81fa35133b40f2",
     "blob_sha": "sha1",
     "file_path": "api.md",
     "kind": "doc_section",
     "name": "API",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "# API",
     "line_start": 1,
     "line_end": 24,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "10019cfd0e3607d0"
   },
   {
-    "id": "31926f465277bc3a",
     "blob_sha": "sha1",
     "file_path": "api.md",
     "kind": "doc_section",
     "name": "format-greeting",
     "scope": "API",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "## format-greeting\n\nFormats a greeting for a name.\n\nCall it from Python:\n\n```python\nfrom greeter import format_greeting\n\n\ndef demo() -> str:\n    return format_greeting(\"Ada\")\n```\n\nOr wrap it in a shell helper:\n\n```sh\ngreet() {\n  format-greeting \"$1\"\n}\n```",
     "line_start": 3,
     "line_end": 24,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b5905947f413f82e"
   },
   {
-    "id": "a506206919841452",
     "blob_sha": "sha1",
     "file_path": "api.md",
     "kind": "import",
     "name": "from greeter import format_greeting",
     "scope": "",
     "language": "python",
+    "file_language": "markdown",
     "content": "from greeter import format_greeting",
     "line_start": 10,
     "line_end": 10,
@@ -51,16 +53,17 @@
       "names": "format_greeting",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "74f03a6de992dc7f"
   },
   {
-    "id": "67279506d1545bb8",
     "blob_sha": "sha1",
     "file_path": "api.md",
     "kind": "function",
     "name": "demo",
     "scope": "",
     "language": "python",
+    "file_language": "markdown",
     "content": "def demo() -> str:\n    return format_greeting(\"Ada\")",
     "line_start": 13,
     "line_end": 14,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c34727a853e41eca"
   },
   {
-    "id": "7a4703203f71b0cf",
     "blob_sha": "sha1",
     "file_path": "api.md",
     "kind": "function",
     "name": "greet",
     "scope": "",
     "language": "bash",
+    "file_language": "markdown",
     "content": "greet() {\n  format-greeting \"$1\"\n}",
     "line_start": 20,
     "line_end": 22,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "8c2a2674bc4397a4"
   },
   {
-    "id": "3ad1924164e7ff92",
     "blob_sha": "sha1",
     "file_path": "config.md",
     "kind": "doc_section",
     "name": "Configuration",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "# Configuration\n\nGreeter configuration options.",
     "line_start": 1,
     "line_end": 4,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "33a3328c1ef79ea4"
   },
   {
-    "id": "a07c6280b6b72cff",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "doc_section",
     "name": "Embedding",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "# Embedding\n\nExamples embedded in the docs, each extracted in its own language —\nincluding code nested two levels deep.\n\nThe greeter config, in YAML:\n\n```yaml\nservice: greeter\nlocales:\n  - en\n  - fr\n```\n\nThe same in TOML:\n\n```toml\n[service]\nname = \"greeter\"\n```\n\nEmbedded in a page — the stylesheet is an import and the inline script is\nextracted as JavaScript:\n\n```html\n<head>\n  <link rel=\"stylesheet\" href=\"greeter.css\">\n</head>\n<body>\n  <main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>\n</body>\n```\n\nAnd a component — Markdown delegates to the Svelte chunker, which in turn\ndelegates its `<script>` to TypeScript and its `<style>` to SCSS:\n\n```svelte\n<script lang=\"ts\">\n  export let name: string;\n\n  function shout(): string {\n    return name.toUpperCase();\n  }\n</script>\n\n<h1>Hello {name}</h1>\n\n<style lang=\"scss\">\n  h1 {\n    color: $brand;\n  }\n</style>\n```",
     "line_start": 1,
     "line_end": 60,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b404b50f986224f6"
   },
   {
-    "id": "f7b93e9d583f37fb",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "config_key",
     "name": "service",
     "scope": "",
     "language": "yaml",
+    "file_language": "markdown",
     "content": "service: greeter",
     "line_start": 9,
     "line_end": 9,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ae1d52dfa09eb7d3"
   },
   {
-    "id": "ee32c29d4bb258d2",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "config_key",
     "name": "locales",
     "scope": "",
     "language": "yaml",
+    "file_language": "markdown",
     "content": "locales:\n  - en\n  - fr\n",
     "line_start": 10,
     "line_end": 13,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "60fd8c5af4db1493"
   },
   {
-    "id": "720abd335b592da1",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "config_key",
     "name": "service",
     "scope": "",
     "language": "toml",
+    "file_language": "markdown",
     "content": "[service]\nname = \"greeter\"\n",
     "line_start": 18,
     "line_end": 20,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "4d4960f5b3afb220"
   },
   {
-    "id": "dde01fdcfbaf35fe",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "doc_section",
     "name": "head",
     "scope": "",
     "language": "html",
+    "file_language": "markdown",
     "content": "<head>\n  <link rel=\"stylesheet\" href=\"greeter.css\">\n</head>",
     "line_start": 26,
     "line_end": 28,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0bbeff81bcd42bd8"
   },
   {
-    "id": "237cf8cd884f0889",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "import",
     "name": "<link rel=\"stylesheet\" href=\"greeter.css\">",
     "scope": "",
     "language": "html",
+    "file_language": "markdown",
     "content": "<link rel=\"stylesheet\" href=\"greeter.css\">\n",
     "line_start": 27,
     "line_end": 28,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": "css"
-    }
+    },
+    "id": "b4f262286c611427"
   },
   {
-    "id": "648732774bcd70e1",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "doc_section",
     "name": "body",
     "scope": "",
     "language": "html",
+    "file_language": "markdown",
     "content": "<body>\n  <main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>\n</body>",
     "line_start": 29,
     "line_end": 37,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3b2d426c7972f32c"
   },
   {
-    "id": "d5a2a0b511006ed9",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "doc_section",
     "name": "main",
     "scope": "",
     "language": "html",
+    "file_language": "markdown",
     "content": "<main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>",
     "line_start": 30,
     "line_end": 36,
@@ -249,16 +262,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "5020fa98112d45ed"
   },
   {
-    "id": "3c90b98fdfca2398",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "function",
     "name": "mount",
     "scope": "",
     "language": "javascript",
+    "file_language": "markdown",
     "content": "function mount() {\n        return greet(\"Ada\");\n      }",
     "line_start": 32,
     "line_end": 34,
@@ -267,16 +281,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "bcc80c45d1374028"
   },
   {
-    "id": "fa22ee7555d55068",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "doc_section",
     "name": "embedding",
     "scope": "",
     "language": "svelte",
+    "file_language": "markdown",
     "content": "<h1>Hello {name}</h1>",
     "line_start": 52,
     "line_end": 52,
@@ -285,16 +300,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "92cc8afb35010155"
   },
   {
-    "id": "4447dc40f1fe4853",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "function",
     "name": "shout",
     "scope": "",
     "language": "typescript",
+    "file_language": "markdown",
     "content": "function shout(): string {\n    return name.toUpperCase();\n  }",
     "line_start": 47,
     "line_end": 49,
@@ -303,16 +319,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "7a73639f5e543f37"
   },
   {
-    "id": "ff44cea1c6365f3c",
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "kind": "class",
     "name": "h1",
     "scope": "",
     "language": "scss",
+    "file_language": "markdown",
     "content": "h1 {\n    color: $brand;\n  }",
     "line_start": 55,
     "line_end": 57,
@@ -321,16 +338,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "4698b4e4c0f8f62f"
   },
   {
-    "id": "28a545073daa5946",
     "blob_sha": "sha1",
     "file_path": "locales.md",
     "kind": "doc_section",
     "name": "Locales",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "# Locales\n\nSupported locales: en, fr.",
     "line_start": 1,
     "line_end": 4,
@@ -339,16 +357,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "babdfc73af134b88"
   },
   {
-    "id": "e3e544e26089db67",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "doc_section",
     "name": "Greeter",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "# Greeter\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
     "line_end": 17,
@@ -357,16 +376,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9edee133d6094e29"
   },
   {
-    "id": "0f8107d00ba18621",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "doc_section",
     "name": "Usage",
     "scope": "Greeter",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-greeting).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
     "line_end": 17,
@@ -375,16 +395,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a450b176c35465d0"
   },
   {
-    "id": "14b9d728e5d4cd68",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "doc_section",
     "name": "Locales",
     "scope": "Greeter::Usage",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.",
     "line_start": 13,
     "line_end": 17,
@@ -393,16 +414,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "dee1707bc696e924"
   },
   {
-    "id": "b12622bb4964947e",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "import",
     "name": "config.md",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "config.md",
     "line_start": 7,
     "line_end": 7,
@@ -411,16 +433,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f34c1ab828fe105d"
   },
   {
-    "id": "4b065fa2fc20ac27",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "import",
     "name": "api.md#format-greeting",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "api.md#format-greeting",
     "line_start": 8,
     "line_end": 8,
@@ -429,16 +452,17 @@
       "names": "format-greeting",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "fb745bd0eb9bde56"
   },
   {
-    "id": "2b980c3ee2e79b0c",
     "blob_sha": "sha1",
     "file_path": "markdown.md",
     "kind": "import",
     "name": "locales.md",
     "scope": "",
     "language": "markdown",
+    "file_language": "markdown",
     "content": "locales.md",
     "line_start": 15,
     "line_end": 15,
@@ -447,6 +471,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e2eaba79a5fca49f"
   }
 ]

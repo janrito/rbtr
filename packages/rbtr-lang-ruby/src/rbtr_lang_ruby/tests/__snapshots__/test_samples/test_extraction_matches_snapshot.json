@@ -1,12 +1,12 @@
 [
   {
-    "id": "355bea7b642b491e",
     "blob_sha": "sha1",
     "file_path": "config.rb",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# frozen_string_literal: true",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "16e7f0488dd01998"
   },
   {
-    "id": "a06b8af62f4980b1",
     "blob_sha": "sha1",
     "file_path": "config.rb",
     "kind": "variable",
     "name": "DEFAULT_LOCALE",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Greeter configuration.\nDEFAULT_LOCALE = \"en\"",
     "line_start": 3,
     "line_end": 4,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "32b6464c28d5298b"
   },
   {
-    "id": "2d759bd7cb2f9d1b",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# frozen_string_literal: true",
     "line_start": 1,
     "line_end": 1,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "16e7f0488dd01998"
   },
   {
-    "id": "043d8ce5b8a53d28",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Greeter — format greetings for named recipients.\n#\n# The Ruby plugin extracts top-level defs (as functions), classes and\n# modules, defs inside them (as methods), constant assignments (as\n# variables, scoped to their class/module), the RSpec describe/it DSL\n# (groups as classes, examples as functions), and require /\n# require_relative imports.",
     "line_start": 3,
     "line_end": 9,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "451436cb9495c8e3"
   },
   {
-    "id": "3a508a4e16d0d19f",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "import",
     "name": "require \"json\"",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "require \"json\"",
     "line_start": 11,
     "line_end": 11,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "55888f95be8c407e"
   },
   {
-    "id": "bacb38957467db61",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "import",
     "name": "require_relative \"./config\"",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "require_relative \"./config\"",
     "line_start": 12,
     "line_end": 12,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "1",
       "language_hint": ""
-    }
+    },
+    "id": "6f6e733c7294dbdc"
   },
   {
-    "id": "0cf0518aee8b7086",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "variable",
     "name": "DEFAULT_GREETING",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "DEFAULT_GREETING = \"Hello\"",
     "line_start": 14,
     "line_end": 14,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0c28350e9069a2c7"
   },
   {
-    "id": "e054cebe5b83523b",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# trailing comment: its own chunk",
     "line_start": 14,
     "line_end": 14,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ed4ca5590a0f51ed"
   },
   {
-    "id": "2f471e188db05d9f",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.",
     "line_start": 16,
     "line_end": 17,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b9eb0ec1fcda7627"
   },
   {
-    "id": "fe403668c6d553ec",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
     "name": "Shoutable",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Mixin providing a shout helper.\nmodule Shoutable\n  def shout(message)\n    message.upcase\n  end\nend",
     "line_start": 19,
     "line_end": 24,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e30c23f14bbed540"
   },
   {
-    "id": "8b92d4431649a2ee",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
     "name": "shout",
     "scope": "Shoutable",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "def shout(message)\n    message.upcase\n  end",
     "line_start": 21,
     "line_end": 23,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a8d8716691e53686"
   },
   {
-    "id": "99a79271c6865a8a",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
     "name": "Greeter",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Formats greetings with a prefix.\nclass Greeter\n  include Shoutable\n\n  MAX_NAME_LENGTH = 64\n\n  def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end\n\n  # Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end\n\n  def self.default\n    new(DEFAULT_GREETING)\n  end\nend",
     "line_start": 26,
     "line_end": 44,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1e1f11916c4f30a1"
   },
   {
-    "id": "bd976b1644031dca",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "variable",
     "name": "MAX_NAME_LENGTH",
     "scope": "Greeter",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "MAX_NAME_LENGTH = 64",
     "line_start": 30,
     "line_end": 30,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "023bd4450cd467e2"
   },
   {
-    "id": "32e4ed5125a7157c",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
     "name": "initialize",
     "scope": "Greeter",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end",
     "line_start": 32,
     "line_end": 34,
@@ -249,16 +262,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "97a4b17df8cf5cb8"
   },
   {
-    "id": "8d161d3542d9341d",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
     "name": "greet",
     "scope": "Greeter",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end",
     "line_start": 36,
     "line_end": 39,
@@ -267,16 +281,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "50c202645f9e2fc6"
   },
   {
-    "id": "6008d0eed4d60ea2",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "method",
     "name": "default",
     "scope": "Greeter",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "def self.default\n    new(DEFAULT_GREETING)\n  end",
     "line_start": 41,
     "line_end": 43,
@@ -285,16 +300,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e7912cb64a05b9fe"
   },
   {
-    "id": "cef6c9825ae73071",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "function",
     "name": "format_greeting",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# Top-level helper that builds a greeter and greets.\ndef format_greeting(name)\n  Greeter.new.greet(name)\nend",
     "line_start": 46,
     "line_end": 49,
@@ -303,16 +319,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3f0252c2b63ec688"
   },
   {
-    "id": "ee6ba5d88918b295",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
     "name": "Greeter",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "# RSpec-style specification exercising the describe/it DSL.\nRSpec.describe Greeter do\n  describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end\nend",
     "line_start": 51,
     "line_end": 58,
@@ -321,16 +338,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "40e1158328623a05"
   },
   {
-    "id": "67303bad40d6fa81",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "class",
     "name": "#greet",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end",
     "line_start": 53,
     "line_end": 57,
@@ -339,16 +357,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "6557c0dbc5a0d319"
   },
   {
-    "id": "8ce512c7eb208fff",
     "blob_sha": "sha1",
     "file_path": "ruby.rb",
     "kind": "function",
     "name": "includes the configured prefix",
     "scope": "",
     "language": "ruby",
+    "file_language": "ruby",
     "content": "it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end",
     "line_start": 54,
     "line_end": 56,
@@ -357,6 +376,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "62cc3ae125d0a288"
   }
 ]

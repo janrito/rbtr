@@ -1,12 +1,12 @@
 [
   {
-    "id": "e48159540e402421",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; A tree-sitter query file exercising every construct rbtr should index:\n; named nodes with fields, anonymous nodes, alternation lists, groupings,\n; predicates, wildcards, negated fields, anchors, quantifiers, supertypes,\n; and a MISSING-node pattern. Every top-level pattern is one doc section.",
     "line_start": 1,
     "line_end": 4,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "91411c21fd288abd"
   },
   {
-    "id": "95bcbb40fa68e03d",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
     "name": "definition.function",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; Named-node patterns with a field and an outer definition capture.\n(function_definition\n  name: (identifier) @function\n  body: (_) @_body) @definition.function",
     "line_start": 6,
     "line_end": 9,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "22635e30fc3ec0ec"
   },
   {
-    "id": "b9d016d76766b006",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
     "name": "definition.class",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "(class_definition\n  name: (identifier) @type) @definition.class",
     "line_start": 11,
     "line_end": 12,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2f7ccba614073350"
   },
   {
-    "id": "12955e88d71fa702",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
     "name": "keyword",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; Alternation list and a bare anonymous-node matcher.\n[\"if\" \"else\" \"while\" \"return\"] @keyword",
     "line_start": 14,
     "line_end": 15,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "68190efc87150b38"
   },
   {
-    "id": "0a7aae7f30c848e6",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
     "name": "keyword.coroutine",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "\"async\" @keyword.coroutine",
     "line_start": 17,
     "line_end": 17,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "4587431c020385fb"
   },
   {
-    "id": "9fd153dd462c97fe",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; Wildcard child, a negated field, anchors, and quantifiers.\n(call_expression\n  function: (_) @call\n  !type_arguments)",
     "line_start": 19,
     "line_end": 22,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "efd9cbebd9a590b9"
   },
   {
-    "id": "08bf92e385e51759",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "(array . (identifier) @first (_)* @rest)",
     "line_start": 24,
     "line_end": 24,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "7d959afd205ade46"
   },
   {
-    "id": "d4b473df03d82d82",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; Groupings with predicates: regex match, alternation, and an injection.\n((identifier) @constant\n  (#match? @constant \"^[A-Z][A-Z_]+$\"))",
     "line_start": 26,
     "line_end": 28,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0ef0b2c93e4c6519"
   },
   {
-    "id": "fa51260b21d08e68",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "((identifier) @type.builtin\n  (#any-of? @type.builtin \"int\" \"str\" \"bool\"))",
     "line_start": 30,
     "line_end": 31,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d90c7294ccaddc1d"
   },
   {
-    "id": "005bca176ae4b980",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "((comment) @injection.content\n  (#set! injection.language \"markdown\"))",
     "line_start": 33,
     "line_end": 34,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a89ebd6b36363bf2"
   },
   {
-    "id": "cf19ec3f8c8c0c41",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
     "name": "definition.function",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "; Supertype/subtype match and a MISSING-node pattern.\n(declaration/function_definition) @definition.function",
     "line_start": 36,
     "line_end": 37,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "d208be73ec2bbd8a"
   },
   {
-    "id": "c001bdd71bc27782",
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
     "kind": "doc_section",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "tree_sitter_query",
+    "file_language": "tree_sitter_query",
     "content": "(binary_expression (MISSING identifier))",
     "line_start": 39,
     "line_end": 39,
@@ -213,6 +224,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "cbe537008a79992a"
   }
 ]

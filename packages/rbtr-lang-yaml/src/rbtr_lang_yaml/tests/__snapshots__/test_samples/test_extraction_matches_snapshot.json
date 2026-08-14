@@ -1,12 +1,12 @@
 [
   {
-    "id": "957ce9efcea8b572",
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "yaml",
+    "file_language": "yaml",
     "content": "# Greeter CI workflow.",
     "line_start": 1,
     "line_end": 1,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "97943055c48aca06"
   },
   {
-    "id": "46fb2b74a6219cb5",
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "kind": "config_key",
     "name": "name",
     "scope": "",
     "language": "yaml",
+    "file_language": "yaml",
     "content": "name: greeter",
     "line_start": 3,
     "line_end": 3,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "029d3b7d58437d49"
   },
   {
-    "id": "1029f92582006cd2",
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "kind": "config_key",
     "name": "on",
     "scope": "",
     "language": "yaml",
+    "file_language": "yaml",
     "content": "on:\n  push:\n    branches: [main]",
     "line_start": 5,
     "line_end": 7,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "94aa8e807730971c"
   },
   {
-    "id": "cf83a8c2ba169eec",
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "kind": "config_key",
     "name": "jobs",
     "scope": "",
     "language": "yaml",
+    "file_language": "yaml",
     "content": "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: just check\n",
     "line_start": 9,
     "line_end": 15,
@@ -69,6 +72,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b5df111468a68b81"
   }
 ]

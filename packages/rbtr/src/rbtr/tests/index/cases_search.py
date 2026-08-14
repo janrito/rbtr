@@ -10,18 +10,19 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, TokenisedChunk
+from rbtr.domain.models import ChunkKind
+from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk
 
 
 @dataclass(frozen=True)
 class SearchScenario:
-    """Seed data + query + expected hit IDs."""
+    """Seed data + query + the names the hits should carry."""
 
     chunks: list[TokenisedChunk]
     query: str
-    expected_hit_ids: list[str] = field(default_factory=list)
+    expected_hit_names: list[str] = field(default_factory=list)
 
 
 # ── FTS hits ────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ def case_fts_content_keyword() -> SearchScenario:
     return SearchScenario(
         chunks=[make_chunk("a", name="greet", content="def greet(): print('hello')")],
         query="hello",
-        expected_hit_ids=["a"],
+        expected_hit_names=["greet"],
     )
 
 
@@ -43,7 +44,7 @@ def case_fts_camel_case_split() -> SearchScenario:
     return SearchScenario(
         chunks=[make_chunk("a", name="AgentDeps")],
         query="agent",
-        expected_hit_ids=["a"],
+        expected_hit_names=["AgentDeps"],
     )
 
 
@@ -53,7 +54,7 @@ def case_fts_snake_case_split() -> SearchScenario:
     return SearchScenario(
         chunks=[make_chunk("a", name="parse_json_response")],
         query="json",
-        expected_hit_ids=["a"],
+        expected_hit_names=["parse_json_response"],
     )
 
 
@@ -87,7 +88,7 @@ def case_name_substring_match() -> SearchScenario:
     return SearchScenario(
         chunks=[make_chunk("a", name="calculate_standard_deviation")],
         query="standard",
-        expected_hit_ids=["a"],
+        expected_hit_names=["calculate_standard_deviation"],
     )
 
 
@@ -116,5 +117,5 @@ def case_unified_search_without_embeddings() -> SearchScenario:
             make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION),
         ],
         query="config",
-        expected_hit_ids=["a", "b"],
+        expected_hit_names=["AppConfig", "load_config"],
     )
