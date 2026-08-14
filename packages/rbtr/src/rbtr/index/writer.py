@@ -28,10 +28,16 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts, TokenisedChunk
+from rbtr.domain.models import Edge, FileSnapshot, GcCounts
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
-from rbtr.index.staging import chunks_frame, edges_frame, embeddings_frame, file_snapshots_frame
+from rbtr.index.staging import (
+    TokenisedChunk,
+    chunks_frame,
+    edges_frame,
+    embeddings_frame,
+    file_snapshots_frame,
+)
 
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
@@ -274,20 +280,25 @@ class WriteSession:
         self._chunks_modified = True
         self._chunk_buffer.clear()
 
-    def delete_chunks_for_blobs(self, blob_shas: set[str]) -> None:
-        """Delete all chunks for the given blob SHAs (globally).
+    def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:
+        """Delete the given blobs' chunks extracted as *file_language*.
 
-        Called before re-inserting chunks when the detected
-        language changed (e.g. a new plugin was registered).
-        Chunks are content-addressed and shared across repos, so
-        a blob's chunks are deleted globally; chunking is
-        deterministic per extraction serial, so every repo sees the
-        same chunks for the blob.
+        Called before re-inserting chunks when a blob must be
+        re-extracted. Chunks are content-addressed and shared across
+        repos and paths, so a blob's chunks are deleted globally;
+        chunking is deterministic per extraction serial, so every repo
+        sees the same chunks for the blob. The delete is confined to one
+        `file_language`: the same bytes extracted as another language are
+        different chunks, and taking them too would leave those files
+        with nothing to find.
         """
         if not blob_shas:
             return
         self._require_active()
-        self._cursor.execute(_DELETE_CHUNKS_FOR_BLOBS_SQL, {"blob_shas": list(blob_shas)})
+        self._cursor.execute(
+            _DELETE_CHUNKS_FOR_BLOBS_SQL,
+            {"blob_shas": list(blob_shas), "file_language": file_language},
+        )
         self._chunks_modified = True
 
     def add_watched_refs(self, repo_id: int, refs: list[str]) -> None:

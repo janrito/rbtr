@@ -2,11 +2,11 @@ INSERT INTO chunks
 SELECT
   id,
   blob_sha,
-  file_path,
   kind,
   name,
   scope,
   language,
+  file_language,
   extraction_serial,
   content,
   content_tokens,
@@ -19,11 +19,11 @@ SELECT
 FROM _stg
 ON CONFLICT (id) DO UPDATE SET
   blob_sha = excluded.blob_sha,
-  file_path = excluded.file_path,
   kind = excluded.kind,
   name = excluded.name,
   scope = excluded.scope,
   language = excluded.language,
+  file_language = excluded.file_language,
   extraction_serial = excluded.extraction_serial,
   content = excluded.content,
   content_tokens = excluded.content_tokens,

@@ -30,18 +30,23 @@ CREATE TABLE IF NOT EXISTS file_snapshots (
 
 CREATE TABLE IF NOT EXISTS chunks (
   -- Content-addressed store: `id` is a blake2b hash of
-  -- (file_path, blob_sha, name, line_start) and is therefore
-  -- globally unique and repo-independent.  Identical content in
-  -- several repos/worktrees is one row here; per-repo attribution
-  -- lives entirely in `file_snapshots` (joined on blob_sha +
-  -- file_path).  See ARCHITECTURE.md "Content-addressed chunks".
+  -- (blob_sha, file_language, kind, name, line_start, line_end) and is
+  -- therefore globally unique and location-independent.  Identical
+  -- content at several paths, in several repos, or in several
+  -- worktrees is one row here; where it lives is entirely
+  -- `file_snapshots`, joined on blob_sha + file_language =
+  -- detected_language.  See ARCHITECTURE.md "Content-addressed
+  -- chunks".
   id TEXT NOT NULL,
   blob_sha TEXT NOT NULL,
-  file_path TEXT NOT NULL,
   kind TEXT NOT NULL,
   name TEXT NOT NULL,
   scope TEXT NOT NULL DEFAULT '',
+  -- The chunk's own language; `file_language` is the language the
+  -- file was extracted as.  A python fence in a markdown document
+  -- has language='python', file_language='markdown'.
   language TEXT NOT NULL DEFAULT '',
+  file_language TEXT NOT NULL DEFAULT '',
   extraction_serial INTEGER NOT NULL DEFAULT 1,
   content TEXT NOT NULL,
   content_tokens TEXT NOT NULL DEFAULT '',
@@ -57,12 +62,20 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 CREATE TABLE IF NOT EXISTS edges (
+  -- An edge relates content at a location to content at a location:
+  -- chunks are content-addressed, so a duplicated file's import chunk
+  -- is one row in `chunks` but imports a different sibling from each
+  -- of its paths.  The paths are therefore part of the key.
   repo_id INTEGER NOT NULL,
   source_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   snapshot_sha TEXT NOT NULL,
-  PRIMARY KEY (repo_id, snapshot_sha, source_id, target_id, kind)
+  source_path TEXT NOT NULL,
+  target_path TEXT NOT NULL,
+  PRIMARY KEY (
+    repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path
+  )
 );
 
 CREATE TABLE IF NOT EXISTS indexed_snapshots (
@@ -79,7 +92,7 @@ CREATE TABLE IF NOT EXISTS watched_refs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_blob
-ON chunks (blob_sha, file_path);
+ON chunks (blob_sha, file_language);
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_repo_commit
 ON file_snapshots (repo_id, snapshot_sha);

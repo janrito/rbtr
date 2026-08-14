@@ -75,6 +75,7 @@ class _ChunkIdentity(dy.Schema):
     name = dy.String(nullable=False)
     scope = dy.String(nullable=False)
     language = dy.String(nullable=False)
+    file_language = dy.String(nullable=False)
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
@@ -152,6 +153,8 @@ class EdgeResultRow(dy.Schema):
     source_id = dy.String(nullable=False)
     target_id = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in EdgeKind)
+    source_path = dy.String(nullable=False)
+    target_path = dy.String(nullable=False)
 
 
 class InboundDegreeResultRow(dy.Schema):
