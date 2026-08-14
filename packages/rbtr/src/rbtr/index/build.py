@@ -95,6 +95,20 @@ class ExtractedFile:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class _Extracted:
+    """What extraction leaves behind for the edge pass.
+
+    The edge pass reads no files, so anything it needs from their content
+    has to be carried here: *manifests* holds the text of the files
+    languages declare as their `manifest`.
+    """
+
+    result: IndexResult
+    repo_files: set[str]
+    manifests: dict[str, str]
+
+
 def _extract_and_store_chunks(
     *,
     store: IndexStore,
@@ -103,7 +117,7 @@ def _extract_and_store_chunks(
     repo_id: int,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
-) -> tuple[IndexResult, set[str]]:
+) -> _Extracted:
     """Stream files, extract chunks, write snapshots.
 
     When *base_sha* is provided, only files that changed between
@@ -134,6 +148,14 @@ def _extract_and_store_chunks(
     snapshots: list[FileSnapshot] = []
     result = IndexResult()
     repo_files: set[str] = set()  # collected for edge inference
+    # Files a language declares as its manifest, read while their content is
+    # in hand: resolution needs them, and the edge pass sees only paths.
+    manifest_names = {
+        reg.manifest
+        for lang_id in mgr.all_language_ids()
+        if (reg := mgr.get_registration(lang_id)) is not None and reg.manifest
+    }
+    manifests: dict[str, str] = {}
 
     with store.session() as session:
         session.sweep()
@@ -146,6 +168,8 @@ def _extract_and_store_chunks(
             ignore=ignore,
         ):
             repo_files.add(entry.path)
+            if entry.path in manifest_names:
+                manifests[entry.path] = entry.content.decode(errors="replace")
 
             # Resolve language: extension first, then stored detection.
             # Every file needs it, including one that is skipped below:
@@ -217,7 +241,7 @@ def _extract_and_store_chunks(
         sha=snapshot_sha[:12],
         **{outcome.value: count for outcome, count in result.stats.outcomes.items()},
     )
-    return result, repo_files
+    return _Extracted(result=result, repo_files=repo_files, manifests=manifests)
 
 
 def _infer_and_store_edges(
@@ -225,6 +249,7 @@ def _infer_and_store_edges(
     store: IndexStore,
     chunks: list[Chunk],
     repo_files: set[str],
+    manifests: dict[str, str],
     snapshot_sha: str,
     repo_id: int,
     on_progress: ProgressCallback,
@@ -232,7 +257,7 @@ def _infer_and_store_edges(
     """Infer cross-file edges and write them. Returns edge count."""
     on_progress("edges", 0, 0)
     mgr = get_manager()
-    resolution_map = build_resolution_map(mgr)
+    resolution_map = build_resolution_map(mgr, manifests=manifests)
     edges: list[Edge] = []
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
@@ -315,7 +340,7 @@ def build_index(
         repo_id = session.register_repo(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
-    result, repo_files = _extract_and_store_chunks(
+    extracted = _extract_and_store_chunks(
         store=store,
         repo_path=repo_path,
         snapshot_sha=snapshot_sha,
@@ -326,13 +351,15 @@ def build_index(
 
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
+    result = extracted.result
     all_chunks = store.get_chunks(snapshot_sha, repo_id=repo_id)
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(
         store=store,
         chunks=all_chunks,
-        repo_files=repo_files,
+        repo_files=extracted.repo_files,
+        manifests=extracted.manifests,
         snapshot_sha=snapshot_sha,
         repo_id=repo_id,
         on_progress=on_progress,
