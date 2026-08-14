@@ -43,7 +43,9 @@ def _dropped_languages_table(headers: dy.DataFrame[RepoHeader]) -> str:
     dropped = (
         headers.select("slug", "dropped_languages")
         .filter(pl.col("dropped_languages").list.len() > 0)
-        .explode("dropped_languages")
+        # Polars 2.0 changes this default; the filter above means no empty
+        # list reaches here either way.
+        .explode("dropped_languages", empty_as_null=True)
     )
     if dropped.height == 0:
         return "None — every language met the threshold."
