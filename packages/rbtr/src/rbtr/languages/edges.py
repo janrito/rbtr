@@ -358,6 +358,9 @@ def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
             ChunkKind.CLASS,
             ChunkKind.METHOD,
             ChunkKind.VARIABLE,
+            # A data language defines its keys: a `$ref` into a schema names
+            # one, as an import names a function.
+            ChunkKind.CONFIG_KEY,
         ):
             key = (c.file_path, c.name)
             # First definition wins (top-level preferred over nested).
