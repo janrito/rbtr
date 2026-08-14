@@ -256,7 +256,14 @@ dev = [
 ]
 
 [tool.importlinter]
-root_package = "rbtr"
+root_packages = ["rbtr", "rbtr_eval"]
+
+[[tool.importlinter.contracts]]
+name = "The eval harness sits above the product"
+type = "layers"
+# One-way permission: the harness measures the product, so it imports
+# it freely; the product must never reach back into the harness.
+layers = ["rbtr_eval", "rbtr"]
 
 [[tool.importlinter.contracts]]
 name = "Layered architecture"

@@ -19,7 +19,7 @@ import dataframely as dy
 import polars as pl
 
 from rbtr.index.classify import classify_query
-from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryRow
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
 
 def with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:

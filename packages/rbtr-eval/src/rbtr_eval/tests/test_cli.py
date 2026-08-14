@@ -24,7 +24,7 @@ from pydantic_settings import CliApp
 
 from rbtr.index.store import IndexStore
 from rbtr_eval.cli import RbtrEval
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 
 @pytest.fixture

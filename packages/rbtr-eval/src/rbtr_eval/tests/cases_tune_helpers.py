@@ -6,7 +6,8 @@ import dataframely as dy
 import polars as pl
 from pytest_cases import case
 
-from rbtr_eval.schemas import QueryMeta, ScoredCandidate
+from rbtr_eval.shared_schemas import QueryMeta
+from rbtr_eval.tune import ScoredCandidate
 
 # ── _rescore_and_rank ────────────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ import pytest
 
 from rbtr.index.results import ChunkContentRow
 from rbtr_eval.queries import load_all_queries, subsample
-from rbtr_eval.schemas import QueryRow
+from rbtr_eval.shared_schemas import QueryRow
 
 
 @pytest.fixture

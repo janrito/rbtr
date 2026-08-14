@@ -88,7 +88,7 @@ stages:
         - src/rbtr_eval/extract.py
         - src/rbtr_eval/kinds.py
         - src/rbtr_eval/queries.py
-        - src/rbtr_eval/schemas.py
+        - src/rbtr_eval/shared_schemas.py
         - ../rbtr/src/rbtr
         - data/.chunks-ready
       outs:
@@ -109,7 +109,7 @@ stages:
         --concurrency ${paraphrase_concurrency}
       deps:
         - src/rbtr_eval/paraphrase.py
-        - src/rbtr_eval/schemas.py
+        - src/rbtr_eval/shared_schemas.py
         - src/rbtr_eval/kinds.py
         - src/rbtr_eval/formatting.py
         - ../rbtr/src/rbtr
@@ -128,7 +128,7 @@ stages:
       && uv run rumdl fmt ${paraphrase_report}
     deps:
       - src/rbtr_eval/paraphrase.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/templates/paraphrase.md.j2
@@ -152,7 +152,7 @@ stages:
       - src/rbtr_eval/profile.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/queries.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/templates/dataset.md.j2
       - ../rbtr/src/rbtr
@@ -176,7 +176,7 @@ stages:
     deps:
       - src/rbtr_eval/expand.py
       - src/rbtr_eval/queries.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/templates/expansion.md.j2
@@ -268,7 +268,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/benchmarks.md.j2
       - src/rbtr_eval/templates/mrr_by_repo.vl.json
@@ -316,7 +316,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/tuning.md.j2
       - src/rbtr_eval/templates/convergence.vl.json
@@ -359,7 +359,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/reranker_tuning.md.j2
       - ../rbtr/src/rbtr

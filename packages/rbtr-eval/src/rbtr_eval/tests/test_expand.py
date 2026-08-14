@@ -18,7 +18,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_cases import parametrize_with_cases
 
 from rbtr_eval.expand import _render_expansion_report, expand_queries
-from rbtr_eval.schemas import ExpansionRow, QueryRow
+from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage

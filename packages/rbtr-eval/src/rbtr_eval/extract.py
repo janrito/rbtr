@@ -25,7 +25,7 @@ from rbtr.languages.treesitter import extract_doc_spans
 from rbtr_eval.corpus import corpus_ref
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import subsample
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
 _QUERY_MIN_LEN = 15
