@@ -200,9 +200,7 @@ def case_rescore_empty_candidates() -> tuple[
     float,
 ]:
     """Zero candidates for a query -> null rank, near-zero MRR."""
-    candidates = pl.DataFrame(schema=ScoredCandidate.to_polars_schema()).pipe(
-        ScoredCandidate.validate, cast=True
-    )
+    candidates = ScoredCandidate.create_empty()
     meta = pl.DataFrame(
         [
             {
