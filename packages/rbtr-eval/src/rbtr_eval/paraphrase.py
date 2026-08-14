@@ -37,7 +37,7 @@ from rbtr.git import read_head
 from rbtr.index.results import ChunkContentRow
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
-from rbtr_eval.schemas import ConceptQuery, QueryRow
+from rbtr_eval.schemas import IDENTITY_COLUMNS, ConceptQuery, QueryRow
 
 log = logging.getLogger(__name__)
 
@@ -199,6 +199,7 @@ async def _paraphrase_one(
     name: str,
     symbol_kind: ChunkKind,
     line_start: int,
+    line_end: int,
     language: str,
     content: str,
     model: str | Model,
@@ -241,6 +242,7 @@ async def _paraphrase_one(
             "name": name,
             "symbol_kind": symbol_kind.value,
             "line_start": line_start,
+            "line_end": line_end,
             "language": language,
             "provenance": "concept",
             "text": result.output.text,
@@ -267,11 +269,14 @@ def paraphrase_symbols(
     concurrently for each symbol, and returns validated
     concept QueryRows.
     """
-    symbols = _load_symbol_content(store, repo_path, repo_id)
-    join_keys = ["file_path", "scope", "name", "line_start"]
+    symbols = _load_symbol_content(store, repo_path, repo_id).with_columns(
+        pl.col("kind").cast(pl.String).alias("symbol_kind"),
+    )
+    join_keys = list(IDENTITY_COLUMNS)
 
     joined = (
-        queries.select("slug", *join_keys, "symbol_kind")
+        queries.select("slug", *join_keys)
+        .with_columns(pl.col("symbol_kind").cast(pl.String))
         .unique(subset=join_keys)
         .join(symbols.select(*join_keys, "language", "content"), on=join_keys, how="inner")
     )
@@ -298,6 +303,7 @@ def paraphrase_symbols(
                         row["name"],
                         ChunkKind(row["symbol_kind"]),
                         row["line_start"],
+                        row["line_end"],
                         row["language"],
                         row["content"],
                         model,
@@ -329,14 +335,15 @@ def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.D
     by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
     frames = [
         store.get_chunks_frame(ref.snapshot_sha, repo_id=ref.repo_id)
-        .select("file_path", "scope", "name", "line_start", "content")
+        .with_columns(pl.col("kind").cast(pl.String).alias("symbol_kind"))
+        .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
         for ref in store.list_latest_refs()
         if by_id.get(ref.repo_id) in slugs
     ]
     if not frames:
         return pl.DataFrame(schema={**sampled.schema, "content": pl.String}).select(
-            "slug", "file_path", "scope", "name", "line_start", "content"
+            "slug", *IDENTITY_COLUMNS, "content"
         )
     return pl.concat(frames)
 
@@ -353,9 +360,9 @@ def _render_paraphrase_report(
 
     # Look up source content for sampled examples from the index.
     sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
-    examples_df = sampled.join(
+    examples_df = sampled.with_columns(pl.col("symbol_kind").cast(pl.String)).join(
         _sampled_content(store, sampled),
-        on=["slug", "file_path", "scope", "name", "line_start"],
+        on=["slug", *IDENTITY_COLUMNS],
         how="left",
     )
     examples = [

@@ -118,6 +118,7 @@ def queries_for_symbol(
     name: str,
     symbol_kind: str,
     line_start: int,
+    line_end: int,
     language: str,
     content: str,
 ) -> list[dict[str, str | int]]:
@@ -138,6 +139,7 @@ def queries_for_symbol(
             "name": name,
             "symbol_kind": symbol_kind,
             "line_start": line_start,
+            "line_end": line_end,
             "language": language,
             "provenance": provenance,
             "text": text,
@@ -228,6 +230,7 @@ def extract_queries(
                 name=c.name,
                 symbol_kind=c.kind.value,
                 line_start=c.line_start,
+                line_end=c.line_end,
                 language=c.language,
                 content=c.content,
             )
