@@ -166,3 +166,40 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     assert good_reads > 0, "reader never got results"
 
     store.close()
+
+
+def test_store_survives_threads_that_write_and_exit(
+    math_func: TokenisedChunk, http_func: TokenisedChunk
+) -> None:
+    """A thread may write and exit; another thread still reads the store.
+
+    The build worker is such a thread. Without pyarrow imported before
+    threading, duckdb leaves the connection corrupt when the writing
+    thread dies, and this segfaults instead of failing.
+    """
+    store = IndexStore(writable=True)
+    seen: list[int] = []
+
+    def write(chunk: TokenisedChunk) -> None:
+        with store.session() as session:
+            session.add_chunk(chunk)
+            session.insert_snapshots(
+                [
+                    FileSnapshot(
+                        snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
+                    )
+                ],
+                repo_id=1,
+            )
+
+    def read() -> None:
+        seen.append(len(store.get_chunks("head", repo_id=1)))
+
+    for chunk in (math_func, http_func):
+        for work in (lambda c=chunk: write(c), read):
+            thread = threading.Thread(target=work)
+            thread.start()
+            thread.join()
+
+    assert seen == [1, 2]
+    store.close()
