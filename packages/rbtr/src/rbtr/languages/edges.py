@@ -213,6 +213,29 @@ def _pick_by_importer(
     return ranked[0]
 
 
+def _resolve_unanchored(
+    module: str,
+    file_path: str,
+    repo_files: set[str],
+    resolution: ImportResolution,
+) -> str | None:
+    """Resolve a reference that names no starting point of its own.
+
+    The repository root is tried first, so a reference that already
+    resolved keeps the file it resolved to. A path-style reference that
+    finds nothing there names a sibling: `@import "b.css"` in
+    `css/a.css` means `css/b.css`.
+    """
+    importer_ext = PurePosixPath(file_path).suffix
+    from_root = _resolve_module_to_file(module, repo_files, resolution, importer_ext)
+    if from_root is not None or resolution.module_style is not ModuleStyle.PATH:
+        return from_root
+    beside_importer = _relative_module(file_path, 1, module)
+    if beside_importer is None or beside_importer == module:
+        return None
+    return _resolve_module_to_file(beside_importer, repo_files, resolution, importer_ext)
+
+
 def _resolve_import_to_file(
     meta: ImportMeta,
     file_path: str,
@@ -224,10 +247,9 @@ def _resolve_import_to_file(
     Handles relative imports (extractor-set `dots` or PATH-style
     `./`/`../` prefixes), then delegates to `_resolve_module_to_file`.
 
-    A PATH-style reference that names no directory is relative to the
-    file it sits in: `@import "b.css"` in `css/a.css` means
-    `css/b.css`. Repository-root resolution is tried first, so a
-    reference that already resolves keeps the file it resolved to.
+    A reference carrying its own depth (`../b`, or an extractor-set
+    `dots`) is anchored to the importing file and has one place to look;
+    anything else goes through `_resolve_unanchored`.
     """
     module = meta.module or ""
 
@@ -235,25 +257,20 @@ def _resolve_import_to_file(
     dots = int(meta.dots) if meta.dots else 0
     if not dots and resolution is not None and resolution.module_style is ModuleStyle.PATH:
         dots, module = parse_path_relative(module)
+    if resolution is None:
+        return None
 
     if dots:
-        relative = _relative_module(file_path, dots, module)
-        if relative is None:
+        anchored = _relative_module(file_path, dots, module)
+        if anchored is None:
             return None
-        module = relative
+        return _resolve_module_to_file(
+            anchored, repo_files, resolution, PurePosixPath(file_path).suffix
+        )
 
-    if not module or resolution is None:
+    if not module:
         return None
-    importer_ext = PurePosixPath(file_path).suffix
-    from_root = _resolve_module_to_file(module, repo_files, resolution, importer_ext)
-    if from_root is not None or dots:
-        return from_root
-    if resolution.module_style is not ModuleStyle.PATH:
-        return None
-    beside_importer = _relative_module(file_path, 1, module)
-    if beside_importer is None or beside_importer == module:
-        return None
-    return _resolve_module_to_file(beside_importer, repo_files, resolution, importer_ext)
+    return _resolve_unanchored(module, file_path, repo_files, resolution)
 
 
 def _relative_module(file_path: str, dots: int, module: str) -> str | None:
@@ -332,11 +349,6 @@ def _edge(imp: Chunk, target: Chunk, kind: EdgeKind) -> Edge:
     )
 
 
-def _edge_kind_for(language: str) -> EdgeKind:
-    """Prose languages document what they reference; code imports it."""
-    return EdgeKind.DOCUMENTS if language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
-
-
 def _named_target(
     name: str,
     target_file: str,
@@ -368,7 +380,8 @@ def _structural_import_edges(
     link to *every* non-import chunk in the target file — the
     entire file is brought into scope.
     """
-    edge_kind = _edge_kind_for(imp.language)
+    # Prose documents what it references; code imports it.
+    edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
 
     target_file = _resolve_import_to_file(imp.metadata, imp.file_path, repo_files, resolution)
     if target_file is None:
