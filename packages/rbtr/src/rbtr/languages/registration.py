@@ -76,6 +76,12 @@ class ModuleStyle(StrEnum):
 
 type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
 type ImportExtractor = Callable[[ImportResolver, Node, dict[str, list[Node]]], ImportMeta]
+type ManifestReader = Callable[[str], tuple[tuple[str, str], ...]]
+"""Reads a manifest's text into `(prefix, replacement)` path substitutions.
+
+A language whose imports carry a prefix the directory layout does not have
+declares where that prefix is written down: Go's `go.mod` states `module
+example.com/m`, so `example.com/m/b` is the directory `b`."""
 """Import-metadata resolver and its wrap-style override.
 
 `ImportResolver` — `(node, captures) -> ImportMeta` — is the resolver the
@@ -304,6 +310,18 @@ class LanguageRegistration:
     before resolution (first matching prefix wins), for alias prefixes that
     don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
     `crate::` resolves under `src/`.  Empty → no rewriting."""
+    package_directory: bool = False
+    """Whether a directory is itself a unit of this language, so a reference
+    naming one reaches every file inside it: a Go package is its directory and
+    a Terraform module is a directory of `.tf` files, each file belonging to
+    the whole.  Languages that name a directory's stand-in file instead say so
+    with `index_files`; for the rest a directory is only a place, and a link to
+    one reaches nothing."""
+    manifest: str = ""
+    """Repository file whose text supplies further `path_substitutions`, read
+    per repository rather than declared here — Go's `go.mod` names the module
+    prefix its own imports carry.  Empty → the language's substitutions are
+    the same in every repository.  Paired with `manifest_reader`."""
     extraction_serial: int = 1
     """Extraction cache key: a manually-bumped stamp that invalidates a
     language's stored chunks.  Every chunk records its language's serial;
@@ -335,6 +353,9 @@ class LanguageRegistration:
     _import_resolver: ImportResolver = field(
         default_factory=DefaultImport, init=False, compare=False, repr=False
     )
+    _manifest_reader: ManifestReader | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         if not _VALID_ID.fullmatch(self.id):
@@ -363,6 +384,16 @@ class LanguageRegistration:
         """Compose a custom import-metadata resolver over the current one."""
         object.__setattr__(self, "_import_resolver", functools.partial(fn, self._import_resolver))
         return fn
+
+    def manifest_reader(self, fn: ManifestReader) -> ManifestReader:
+        """Set the reader for this language's `manifest`."""
+        object.__setattr__(self, "_manifest_reader", fn)
+        return fn
+
+    def substitutions_from_manifest(self, text: str) -> tuple[tuple[str, str], ...]:
+        """Substitutions this repository's manifest adds, if any."""
+        reader = self._manifest_reader
+        return reader(text) if reader is not None else ()
 
     def chunker(self, fn: Chunker) -> Chunker:
         """Set a custom chunker as the extraction strategy (`ChunkExtraction`).

@@ -180,7 +180,13 @@ def case_import_relative() -> EdgeScenario:
 
 
 def case_import_relative_dot_only_unresolved() -> EdgeScenario:
-    """from . import utils — dots=1 only; package __init__ missing."""
+    """from . import utils — dots=1 only; package __init__ missing.
+
+    Python names a directory's stand-in with `index_files`, so a package
+    without `__init__.py` resolves to nothing. A directory is only a unit
+    in a language that says so, and Python does not: `import pkg` binds
+    the package, not the modules beside it.
+    """
     return EdgeScenario(
         chunks=[
             ChunkSpec(
