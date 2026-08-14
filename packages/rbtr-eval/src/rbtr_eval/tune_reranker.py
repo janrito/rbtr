@@ -76,7 +76,7 @@ def _collect_candidates(
                     {
                         "pool": pool,
                         "query_idx": idx,
-                        "file_path": r.file_path,
+                        "file_paths": r.file_paths,
                         "scope": r.scope,
                         "name": r.name,
                         "line_start": r.line_start,
