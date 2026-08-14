@@ -6,6 +6,8 @@
 //! variables), and `use` imports. A struct and its impl both yield a
 //! class chunk.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use crate::config::LOCALE;
@@ -20,6 +22,7 @@ static FALLBACK_LOCALE: &str = "en"; // trailing comment: its own chunk
 // Second line of the same block.
 
 /// A greeter holding a prefix.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Greeter {
     prefix: String,
     seen: HashMap<String, u32>,
