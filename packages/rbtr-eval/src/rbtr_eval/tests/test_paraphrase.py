@@ -42,48 +42,24 @@ from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
 
 @pytest.mark.parametrize(
-    ("name", "scope", "file_path", "present", "absent"),
+    ("name", "scope", "expected"),
     [
-        (
-            "compact_history",
-            "Session",
-            "src/engine.py",
-            {"compact_history", "Session", "engine", "src"},
-            set(),
-        ),
-        (
-            "foo",
-            "",
-            "packages/rbtr/src/rbtr/index/store.py",
-            {"foo", "store", "index", "rbtr", "packages", "src"},
-            set(),
-        ),
-        ("foo", "Bar::Baz", "x.py", {"foo", "Bar::Baz", "Bar", "Baz"}, set()),
-        ("foo", "", "a/b.py", {"foo"}, {"a", "b"}),
-        ("foo", "", "src/store.py", {"foo", "store"}, {"store.py"}),
-        ("", "", "src/lib.py", {"lib", "src"}, {""}),
+        ("compact_history", "Session", {"compact_history", "Session"}),
+        ("foo", "Bar::Baz", {"foo", "Bar::Baz", "Bar", "Baz"}),
+        ("foo", "", {"foo"}),
+        ("", "", set()),
     ],
-    ids=[
-        "name-and-scope",
-        "path-segments",
-        "nested-scope",
-        "short-segments-skipped",
-        "stem-stripped",
-        "anonymous-chunk",
-    ],
+    ids=["name-and-scope", "nested-scope", "name-only", "anonymous-chunk"],
 )
-def test_excluded_identifiers_derivation(
-    name: str, scope: str, file_path: str, present: set[str], absent: set[str]
-) -> None:
-    """Identifiers to exclude are derived from name, scope, and path.
+def test_excluded_identifiers_derivation(name: str, scope: str, expected: set[str]) -> None:
+    """Only the symbol's own name and scope are withheld.
 
-    `present` must all appear (so the LLM is told to avoid them);
-    `absent` must not (short path segments are skipped, file stems are
-    stripped of their extension).
+    These are what search matches a query against: the full-text index
+    covers the name and content tokens, and the embedding is the name
+    followed by the content. An anonymous chunk withholds nothing,
+    having no name to give away.
     """
-    result = set(_excluded_identifiers(name, scope, file_path))
-    assert present <= result
-    assert absent.isdisjoint(result)
+    assert set(_excluded_identifiers(name, scope)) == expected
 
 
 # ── Agent: output_validator rejects excluded identifiers ─────────────
