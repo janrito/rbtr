@@ -31,9 +31,9 @@ vars:
   # changes are silently ignored — desirable for reproducibility.
   - concept_dir: data/concept
   - expansion_dir: data/expansion
-  - expansion_model: openai-chat:zai-org/GLM-5.2
+  - expansion_model: openai-chat:deepseek/deepseek-v4-flash-0731
   - expansion_concurrency: 20
-  - paraphrase_model: openai-chat:zai-org/GLM-5.2
+  - paraphrase_model: openai-chat:deepseek/deepseek-v4-flash-0731
   - repos:
       - slug: rbtr__rbtr
         url: ../..
@@ -47,7 +47,6 @@ vars:
         url: https://github.com/anthropics/skills
 
 stages:
-
   config:
     cmd: >-
       python -m rbtr --json
