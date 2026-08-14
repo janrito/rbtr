@@ -124,10 +124,21 @@ export interface SearchRequest {
 }
 /**
  * Fusion channel weights (must sum to 1.0).
+ *
+ * `score = alpha * semantic + beta * lexical + gamma * name`
  */
 export interface WeightTriple {
+  /**
+   * Semantic: embedding cosine similarity.
+   */
   alpha: number;
+  /**
+   * Lexical: BM25 keyword match.
+   */
   beta: number;
+  /**
+   * Name-match: identifier matching.
+   */
   gamma: number;
 }
 export interface ReadSymbolRequest {
