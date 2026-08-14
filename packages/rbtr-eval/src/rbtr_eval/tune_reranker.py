@@ -90,7 +90,7 @@ def _collect_candidates(
             if on_progress is not None:
                 on_progress(done, total)
 
-    candidates = pl.DataFrame(rows, schema=RerankerCandidate.to_polars_schema()).pipe(
+    candidates = pl.DataFrame(rows, schema=RerankerCandidate.create_empty().schema).pipe(
         RerankerCandidate.validate, cast=True
     )
 
