@@ -635,8 +635,9 @@ class IndexStore:
         """Return all chunks at *snapshot_sha* as a content-only frame.
 
         The frame is validated through `ChunkContentRow` and
-        contains identity columns (`file_path`, `scope`,
-        `name`, `line_start`) plus `language` and `content`.
+        contains identity columns (`file_path`, `scope`, `name`,
+        `line_start`, `line_end`, `kind`) plus `language` and
+        `content`.
         """
         params = {
             "repo_id": repo_id,
@@ -648,7 +649,16 @@ class IndexStore:
         return (
             self._cursor.execute(_GET_CHUNKS_SQL, params)
             .pl()
-            .select("file_path", "scope", "name", "line_start", "language", "content")
+            .select(
+                "file_path",
+                "scope",
+                "name",
+                "line_start",
+                "line_end",
+                "kind",
+                "language",
+                "content",
+            )
             .pipe(ChunkContentRow.validate, cast=True)
         )
 

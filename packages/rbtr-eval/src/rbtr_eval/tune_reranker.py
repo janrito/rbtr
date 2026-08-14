@@ -29,7 +29,7 @@ from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import QueryMeta, QueryRow, RerankerCandidate
+from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryMeta, QueryRow, RerankerCandidate
 
 # ── Candidate collection ────────────────────────────────────────────────────
 
@@ -80,6 +80,8 @@ def _collect_candidates(
                         "scope": r.scope,
                         "name": r.name,
                         "line_start": r.line_start,
+                        "line_end": r.line_end,
+                        "symbol_kind": r.kind.value,
                         "fusion": signals.fusion,
                         "reranker": signals.reranker,
                         "latency_ms": latency_ms,
@@ -103,10 +105,7 @@ def _collect_candidates(
             "language",
             "provenance",
             "query_kind",
-            "file_path",
-            "scope",
-            "name",
-            "line_start",
+            *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
     )
@@ -156,12 +155,12 @@ def _rank_all_blends(
         .filter(pl.col("rank") <= 10)
     )
 
-    # Find target rank: the candidate holds every location its content
-    # sits at, so the target's file is one of them.
-    target_ranks = (
+    # The candidate holds every location its content sits at, so the
+    # target's file is one of them.
+    ranks = (
         scored.join(
-            meta.select("query_idx", "file_path", "scope", "name", "line_start"),
-            on=["query_idx", "scope", "name", "line_start"],
+            meta.select("query_idx", *IDENTITY_COLUMNS),
+            on=["query_idx", "scope", "name", "line_start", "line_end", "symbol_kind"],
             how="inner",
         )
         .filter(pl.col("file_paths").list.contains(pl.col("file_path")))
@@ -181,7 +180,7 @@ def _rank_all_blends(
 
     return (
         all_keys.join(
-            target_ranks,
+            ranks,
             on=["pool", "blend_weight", "query_idx"],
             how="left",
         )

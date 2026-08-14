@@ -43,6 +43,7 @@ def queries() -> dy.DataFrame[QueryRow]:
                         "scope": "",
                         "name": f"fn_{kind}_{i}",
                         "line_start": i + 1,
+                        "line_end": i + 1,
                         "symbol_kind": "function",
                         "language": lang,
                         "provenance": kind,
@@ -97,6 +98,7 @@ def test_load_all_queries(tmp_path: Path) -> None:
 
     base_row = {
         "scope": "",
+        "line_end": 1,
         "symbol_kind": "function",
         "language": "python",
     }
