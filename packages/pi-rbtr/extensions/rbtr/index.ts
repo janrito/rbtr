@@ -910,7 +910,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
                   },
                 ],
                 details: { fromDaemon: true, response: resp },
@@ -931,7 +931,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
                   },
                 ],
                 details: { fromCli: true, results: [] },
@@ -996,7 +996,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (resp.chunks.length === 0) {
               return {
                 content: [
-                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                  {
+                    type: "text",
+                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
+                  },
                 ],
                 details: { fromDaemon: true, response: resp, symbol: params.symbol },
               };
@@ -1013,7 +1016,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (!text) {
               return {
                 content: [
-                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                  {
+                    type: "text",
+                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
+                  },
                 ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
               };
@@ -1078,7 +1084,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
                   },
                 ],
                 details: { fromDaemon: true, response: resp },
@@ -1098,7 +1104,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
                   },
                 ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
