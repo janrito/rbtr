@@ -6,7 +6,7 @@ WITH repo_chunks AS (
   INNER JOIN chunks AS c
     ON
       fs.blob_sha = c.blob_sha
-      AND fs.file_path = c.file_path
+      AND fs.detected_language = c.file_language
   GROUP BY fs.repo_id
 ),
 
