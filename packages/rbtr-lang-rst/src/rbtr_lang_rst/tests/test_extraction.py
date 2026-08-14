@@ -41,7 +41,45 @@ To create an HTML version of the docs:
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
     spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION]
-    assert spans == [(1, 2), (4, 4), (6, 6)]
+    assert spans == [(1, 2), (4, 4), (6, 6), (8, 8)]
+
+
+def test_rst_headingless_file_yields_every_top_level_block() -> None:
+    """Without headings, each top-level block is its own section.
+
+    A bullet list, a link target and a directive are content someone
+    searches for, so none is dropped for want of a heading above it.
+    """
+    src = """\
+An opening paragraph.
+
+* a bullet item
+* another item
+
+1. an enumerated item
+
+.. note::
+   A directive body.
+
+.. _ReST: https://docutils.sourceforge.io/rst.html
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    sections = [c.content.split("\n")[0] for c in chunks if c.kind == ChunkKind.DOC_SECTION]
+    assert sections == [
+        "An opening paragraph.",
+        "* a bullet item",
+        "1. an enumerated item",
+        ".. note::",
+        ".. _ReST: https://docutils.sourceforge.io/rst.html",
+    ]
+
+
+def test_rst_headingless_file_still_extracts_references() -> None:
+    """A document's references are found whether or not it has a heading."""
+    src = "See :doc:`guide` and :func:`do_stuff` for details.\n"
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    assert [c.metadata.module or c.metadata.names for c in imports] == ["guide", "do_stuff"]
 
 
 def test_rst_hierarchy_from_adornment_order() -> None:
