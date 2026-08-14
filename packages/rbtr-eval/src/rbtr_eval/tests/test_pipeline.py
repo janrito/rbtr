@@ -16,8 +16,7 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.index.store import IndexStore
-from rbtr_eval.measure import _aggregate, _annotate_truncation, _score_outcomes
-from rbtr_eval.schemas import SearchBatch
+from rbtr_eval.measure import SearchBatch, _aggregate, _annotate_truncation, _score_outcomes
 from rbtr_eval.tests.conftest import chunk, hit, outcome_row, snap
 
 # ── scoring ──────────────────────────────────────────────────────────────────

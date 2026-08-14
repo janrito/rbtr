@@ -12,7 +12,7 @@ import dataframely as dy
 import polars as pl
 from pytest_cases import case
 
-from rbtr_eval.schemas import SearchBatch
+from rbtr_eval.measure import SearchBatch
 
 from .conftest import hit, outcome_row
 

@@ -36,7 +36,14 @@ from rbtr.git import read_head
 from rbtr.index.results import ChunkContentRow
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
-from rbtr_eval.schemas import IDENTITY_COLUMNS, ConceptQuery, QueryRow
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
+
+
+class ConceptQuery(BaseModel):
+    """LLM output: a one-sentence concept description."""
+
+    text: str = Field(min_length=15, max_length=200)
+
 
 log = logging.getLogger(__name__)
 

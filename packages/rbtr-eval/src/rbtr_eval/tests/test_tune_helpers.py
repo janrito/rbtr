@@ -17,8 +17,10 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr_eval.queries import with_query_kind
-from rbtr_eval.schemas import QueryMeta, QueryRow, ScoredCandidate, TuneReport
+from rbtr_eval.shared_schemas import QueryMeta, QueryRow
 from rbtr_eval.tune import (
+    ScoredCandidate,
+    TuneReport,
     _mean_mrr,
     _rescore_and_rank,
     _simplex_from_unit_square,
