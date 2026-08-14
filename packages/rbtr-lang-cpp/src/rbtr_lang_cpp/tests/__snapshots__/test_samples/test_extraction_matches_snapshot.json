@@ -511,5 +511,157 @@
       "language_hint": ""
     },
     "id": "2bb64e668a2a5b28"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.cpp",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "// Includes its own sibling by bare name.",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "5e64beb001683f72"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.cpp",
+    "kind": "import",
+    "name": "#include \"text.hpp\"",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "#include \"text.hpp\"\n",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "text.hpp",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "fb2af874c5cc11ee"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.cpp",
+    "kind": "class",
+    "name": "util",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "namespace util {\nint text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}\n}",
+    "line_start": 4,
+    "line_end": 12,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "aba2dc306bc05835"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.cpp",
+    "kind": "function",
+    "name": "text_length",
+    "scope": "util",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "int text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}",
+    "line_start": 5,
+    "line_end": 11,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "cdbbcb11532f416f"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.cpp",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "// namespace util",
+    "line_start": 12,
+    "line_end": 12,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "934b477a1c1fa2fb"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.hpp",
+    "kind": "comment",
+    "name": "",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "// Included by util/text.cpp as a bare sibling, which only resolves relative\n// to this directory.",
+    "line_start": 1,
+    "line_end": 2,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "8b27d316b85bab80"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.hpp",
+    "kind": "class",
+    "name": "util",
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "namespace util {\nint text_length(const char *s);\n}",
+    "line_start": 5,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "946d2331a1747786"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.hpp",
+    "kind": "function",
+    "name": "text_length",
+    "scope": "util",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "int text_length(const char *s);",
+    "line_start": 6,
+    "line_end": 6,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "553c654c74ae85d5"
   }
 ]
