@@ -292,16 +292,16 @@
     "scope": "Greeter::Usage",
     "language": "rst",
     "file_language": "rst",
-    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.",
+    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.\n\nSee :doc:`topics/intro` to begin.",
     "line_start": 19,
-    "line_end": 22,
+    "line_end": 24,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "c8b62cb49603f3c0"
+    "id": "aa5c404b1bbf9294"
   },
   {
     "blob_sha": "sha1",
@@ -435,5 +435,81 @@
       "language_hint": ""
     },
     "id": "361a041706674ba3"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "rst.rst",
+    "kind": "import",
+    "name": ":doc:`topics/intro`",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": ":doc:`topics/intro`",
+    "line_start": 24,
+    "line_end": 24,
+    "metadata": {
+      "module": "topics/intro",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "dd3f2ef7bfca0f2b"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "topics/detail.rst",
+    "kind": "doc_section",
+    "name": "Detail",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "Detail\n======\n\nReferenced from ``topics/intro.rst`` as a bare sibling.",
+    "line_start": 1,
+    "line_end": 4,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "fdbf799456e37bcc"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "topics/intro.rst",
+    "kind": "doc_section",
+    "name": "Intro",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": "Intro\n=====\n\nReferenced from ``rst.rst``. The role below names a bare sibling, which\nonly resolves relative to this directory.\n\nSee :doc:`detail` for the long version.",
+    "line_start": 1,
+    "line_end": 7,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "5d5166d37657cf76"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "topics/intro.rst",
+    "kind": "import",
+    "name": ":doc:`detail`",
+    "scope": "",
+    "language": "rst",
+    "file_language": "rst",
+    "content": ":doc:`detail`",
+    "line_start": 7,
+    "line_end": 7,
+    "metadata": {
+      "module": "detail",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "f5679afbbf9d4f3e"
   }
 ]

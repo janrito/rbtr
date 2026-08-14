@@ -3,5 +3,7 @@
   "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::Greeting [imports]",
   "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::greet [imports]",
   "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::render [imports]",
-  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::withDefault [imports]"
+  "cpp.cpp::#include \"greeter.hpp\" -> greeter.hpp::withDefault [imports]",
+  "util/text.cpp::#include \"text.hpp\" -> util/text.hpp::text_length [imports]",
+  "util/text.cpp::#include \"text.hpp\" -> util/text.hpp::util [imports]"
 ]
