@@ -66,7 +66,9 @@ toml = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "toml"),
     ),
-    extraction_serial=4,
+    # A `path` dependency names a directory, which its manifest stands for.
+    index_files=frozenset({"Cargo.toml", "pyproject.toml"}),
+    extraction_serial=5,
 )
 
 
