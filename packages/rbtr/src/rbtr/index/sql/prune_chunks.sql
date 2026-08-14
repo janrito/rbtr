@@ -9,5 +9,5 @@ WHERE NOT EXISTS (
   FROM file_snapshots AS fs
   WHERE
     fs.blob_sha = chunks.blob_sha
-    AND fs.file_path = chunks.file_path
+    AND chunks.file_language = fs.detected_language
 )
