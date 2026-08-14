@@ -22,7 +22,7 @@ type ToolResult = Parameters<typeof extractPayload>[0];
 const hit: SearchHitOut = {
   name: "load_config",
   kind: "function",
-  file_path: "src/config.py",
+  file_paths: ["src/config.py"],
   content: "def load_config(): ...",
   line_start: 1,
   line_end: 3,
@@ -126,7 +126,7 @@ describe("renderSearchResult", () => {
   const previewHit: SearchHitOut = {
     name: "load_config",
     kind: "function",
-    file_path: "src/config.py",
+    file_paths: ["src/config.py"],
     content: "def load_config(path):\n    return read(path)",
     line_start: 1,
     line_end: 2,
@@ -138,7 +138,7 @@ describe("renderSearchResult", () => {
   const plainHit: SearchHitOut = {
     name: "helper",
     kind: "function",
-    file_path: "src/util.py",
+    file_paths: ["src/util.py"],
     content: "def helper():\n    return UNIQUE_BODY",
     line_start: 1,
     line_end: 2,
@@ -148,7 +148,7 @@ describe("renderSearchResult", () => {
   const windowHit: SearchHitOut = {
     name: "big",
     kind: "function",
-    file_path: "src/big.py",
+    file_paths: ["src/big.py"],
     content: "def big():\na = 1\nGAP = 2\nc = 3\nd = 4\nNEEDLE = 5\ne = 6\nf = 7",
     line_start: 1,
     line_end: 8,

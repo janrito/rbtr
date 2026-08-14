@@ -29,7 +29,7 @@ def test_importance_boosts_highly_imported_symbol(
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "config", top_k=10
     )
 
-    r_config = assert_in_results(results, "config_class")
+    r_config = assert_in_results(results, "AppConfig")
     r_server = assert_in_results(results, "start_server")
     assert r_config.importance > r_server.importance
 
@@ -44,7 +44,7 @@ def test_importance_reflects_edge_count(ranking_store: IndexStore, ranking_commi
         [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "config", top_k=10
     )
 
-    r_class = assert_in_results(results, "config_class")
+    r_class = assert_in_results(results, "AppConfig")
     r_fn = assert_in_results(results, "load_config")
     assert r_fn.importance > r_class.importance
 
@@ -80,7 +80,7 @@ def test_proximity_boosts_chunks_in_changed_file(
         changed_files=changed,
     )
 
-    r_import = assert_in_results(results, "import_config")
+    r_import = assert_in_results(results, "from config import AppConfig")
     r_server = assert_in_results(results, "start_server")
     assert r_import.proximity == 1.5
     assert r_server.proximity == 1.5
@@ -153,7 +153,7 @@ def test_distant_file_gets_no_proximity_boost(
         changed_files=changed,
     )
 
-    r_doc = assert_in_results(results, "doc_config")
+    r_doc = assert_in_results(results, "Configuration")
     assert r_doc.proximity == 1.0
 
 
@@ -174,9 +174,10 @@ def test_proximity_changes_ranking(ranking_store: IndexStore, ranking_commit: st
         changed_files={"src/server.py"},
     )
 
-    ids_no_diff = [r.id for r in results_no_diff]
-    ids_with_diff = [r.id for r in results_with_diff]
-    assert "import_config" in ids_no_diff, "import_config not found without diff"
-    assert "import_config" in ids_with_diff, "import_config not found with diff"
+    names_no_diff = [r.name for r in results_no_diff]
+    names_with_diff = [r.name for r in results_with_diff]
+    imp = "from config import AppConfig"
+    assert imp in names_no_diff, "the import is missing without diff context"
+    assert imp in names_with_diff, "the import is missing with diff context"
     # Import should rank better (lower index) with diff context.
-    assert ids_with_diff.index("import_config") <= ids_no_diff.index("import_config")
+    assert names_with_diff.index(imp) <= names_no_diff.index(imp)

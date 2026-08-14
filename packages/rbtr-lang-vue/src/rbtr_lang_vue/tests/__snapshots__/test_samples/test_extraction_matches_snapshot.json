@@ -1,12 +1,12 @@
 [
   {
-    "id": "f096de4d550eae9e",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "doc_section",
     "name": "Counter",
     "scope": "",
     "language": "vue",
+    "file_language": "vue",
     "content": "<template>\n  <button class=\"counter\" @click=\"increment\">{{ store.count }}</button>\n</template>",
     "line_start": 25,
     "line_end": 27,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2d9684af8fe8407a"
   },
   {
-    "id": "5c48ddf4bbfa419d",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "typescript",
+    "file_language": "vue",
     "content": "// Vue single-file component.\n//\n// The SFC plugin delegates the <script setup> block to TypeScript and\n// the <style> block to SCSS, reusing the same chunker as Svelte. The\n// template is not extracted.",
     "line_start": 2,
     "line_end": 6,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b2db703d3d672cf1"
   },
   {
-    "id": "40a74200c1fd369b",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "import",
     "name": "import { makeStore } from \"./store\";",
     "scope": "",
     "language": "typescript",
+    "file_language": "vue",
     "content": "import { makeStore } from \"./store\";",
     "line_start": 7,
     "line_end": 7,
@@ -51,16 +53,17 @@
       "names": "makeStore",
       "dots": "1",
       "language_hint": ""
-    }
+    },
+    "id": "1cfd125b5b3415da"
   },
   {
-    "id": "d7f67f6fbf12dfbf",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "variable",
     "name": "store",
     "scope": "",
     "language": "typescript",
+    "file_language": "vue",
     "content": "store = makeStore()",
     "line_start": 9,
     "line_end": 9,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0f0210e4987a3cb8"
   },
   {
-    "id": "90647aaec921d52a",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "function",
     "name": "increment",
     "scope": "",
     "language": "typescript",
+    "file_language": "vue",
     "content": "function increment(): void {\n  store.count += 1;\n}",
     "line_start": 11,
     "line_end": 13,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "61fa74abaa7133d2"
   },
   {
-    "id": "b5729f9a4fb2d24f",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "variable",
     "name": "$accent",
     "scope": "",
     "language": "scss",
+    "file_language": "vue",
     "content": "$accent: #00aa77;",
     "line_start": 17,
     "line_end": 17,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "3fc66b02183bd14a"
   },
   {
-    "id": "4f5676d9f6c78505",
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
     "kind": "class",
     "name": ".counter",
     "scope": "",
     "language": "scss",
+    "file_language": "vue",
     "content": ".counter {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 19,
     "line_end": 22,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a942fe2380dc00d4"
   },
   {
-    "id": "fb44653fa0ee40c9",
     "blob_sha": "sha1",
     "file_path": "store.ts",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "// Imported by Counter.vue's <script setup> block.",
     "line_start": 1,
     "line_end": 1,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b0eec444d8e60c22"
   },
   {
-    "id": "cabed843f5e49145",
     "blob_sha": "sha1",
     "file_path": "store.ts",
     "kind": "function",
     "name": "makeStore",
     "scope": "",
     "language": "typescript",
+    "file_language": "typescript",
     "content": "function makeStore(): { count: number } {\n  return { count: 0 };\n}",
     "line_start": 3,
     "line_end": 5,
@@ -159,6 +167,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a264a8c3d2ecd498"
   }
 ]
