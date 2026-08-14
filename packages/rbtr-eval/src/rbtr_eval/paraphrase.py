@@ -192,16 +192,24 @@ def _load_symbol_content(
 # ── Excluded identifiers ─────────────────────────────────────────────
 
 
-def _excluded_identifiers(name: str, scope: str, file_path: str) -> list[str]:
+def _excluded_identifiers(name: str, scope: str) -> list[str]:
     """Build the list of identifiers the LLM must not use.
 
-    Includes the symbol name, scope parts, and path segments
-    (stems ≥ 3 chars) so the paraphrase describes intent
-    without leaking the symbol's identity.
+    The symbol's name and the parts of its scope — what search can
+    match a query against directly. The full-text index covers
+    `name_tokens` and `content_tokens`, and the embedding is the name
+    followed by the content, so withholding the name is what stops a
+    concept query being answered by an exact match on it.
 
-    An unnamed chunk contributes no name: the empty string is a
-    substring of every paraphrase, so admitting it would reject
-    each one and leave comments and raw chunks unparaphrased.
+    The file path is not withheld. No search channel matches it, so
+    excluding its segments protected nothing while banning ordinary
+    words: a chunk in `index/search.py` cannot be described without
+    "index" or "search", and every attempt was rejected until the
+    retries ran out and the row was dropped.
+
+    An unnamed chunk contributes no name: the empty string would be
+    withheld from every paraphrase, leaving comments and raw chunks
+    unparaphrased.
     """
     excluded = {name} if name else set()
     if scope:
@@ -209,10 +217,6 @@ def _excluded_identifiers(name: str, scope: str, file_path: str) -> list[str]:
         for part in scope.split(SCOPE_SEPARATOR):
             if part:
                 excluded.add(part)
-    for segment in Path(file_path).parts:
-        stem = Path(segment).stem
-        if stem and len(stem) >= 3:
-            excluded.add(stem)
     return sorted(excluded)
 
 
@@ -237,7 +241,7 @@ async def _paraphrase_one(
     semaphore: asyncio.Semaphore,
 ) -> None:
     """Call the LLM for one symbol; append a QueryRow dict on success."""
-    excluded = _excluded_identifiers(name, scope, file_path)
+    excluded = _excluded_identifiers(name, scope)
     deps = SymbolContext(language=language, symbol_kind=symbol_kind, excluded_identifiers=excluded)
     async with semaphore:
         try:
