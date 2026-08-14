@@ -27,6 +27,7 @@ from rbtr.index.store import IndexStore
 from rbtr_eval.paraphrase import (
     SymbolContext,
     _excluded_identifiers,
+    _sampled_content,
     paraphrase_agent,
     paraphrase_symbols,
 )
@@ -264,3 +265,63 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
     assert call_count == 1
     assert result.height == 1
+
+
+# ── Report examples ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def two_repos(tmp_path: Path) -> IndexStore:
+    """Two indexed repos whose `lib.py` differ only in the return value.
+
+    A corpus repeats paths across repos, so `greet` at `lib.py:1`
+    exists twice with different source text.
+    """
+    from rbtr.index.build import build_index  # deferred: heavy native libs
+
+    store = IndexStore(writable=True)
+    for slug, greeting in (("alpha", "hi"), ("beta", "yo")):
+        path = tmp_path / slug
+        path.mkdir()
+        repo = pygit2.init_repository(str(path), bare=False)
+        (path / "lib.py").write_text(f'def greet(name):\n    return f"{greeting} {{name}}"\n')
+        index = repo.index
+        index.add("lib.py")
+        index.write()
+        sig = pygit2.Signature("Test", "test@test.com")
+        repo.create_commit("HEAD", sig, sig, "init", index.write_tree(), [])
+        with store.session() as ws:
+            ws.register_repo(str(path.resolve()))
+        build_index(repo.workdir, str(repo.head.target), store)
+    return store
+
+
+def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> None:
+    """Repos sharing a path each contribute their own source text."""
+    sampled = pl.DataFrame(
+        [
+            {
+                "slug": slug,
+                "file_path": "lib.py",
+                "scope": "",
+                "name": "greet",
+                "line_start": 1,
+                "symbol_kind": "function",
+                "language": "python",
+                "provenance": "name",
+                "text": "greet someone",
+            }
+            for slug in ("alpha", "beta")
+        ]
+    ).pipe(QueryRow.validate, cast=True)
+
+    content = _sampled_content(two_repos, sampled)
+    joined = sampled.join(
+        content,
+        on=["slug", "file_path", "scope", "name", "line_start"],
+        how="left",
+    ).sort("slug")
+
+    assert joined.height == 2
+    assert 'f"hi {name}"' in joined["content"][0]
+    assert 'f"yo {name}"' in joined["content"][1]
