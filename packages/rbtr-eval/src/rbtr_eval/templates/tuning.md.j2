@@ -14,7 +14,42 @@ The search score fuses three channels:
 
 ## Result
 
+One row per query kind. Each kind is tuned as its own
+optimisation, against its own query set, so the rows are
+three separate results rather than parts of one.
+
+`std error` is the standard error of the delta, taken over
+the per-query differences between the two arms. The verdict
+is `recommend` only where the delta exceeds twice that
+error; otherwise this run cannot tell the tuned weights
+from the current ones, and the recommended config below
+comments that kind out.
+
+What the MRR measures: each trial reorders a pool of 50
+candidates fetched once per query under the current default
+weights, and scores the target's position in the top 10.
+The reranker takes no part. `pool ceiling` is the share of
+queries whose target reached that pool at all — a target the
+defaults did not retrieve scores zero under every weight
+triple, so the MRR cannot rise above the ceiling, and a
+weight set whose merit would be retrieving something new
+earns nothing for it here. These figures answer "which of
+these weightings orders this pool best", not "how well does
+search work", and are not comparable with the MRR in
+`BENCHMARKS.md`.
+
 {{ result_table }}
+
+## Top-trial spread
+
+The range each weight covers across a study's ten
+best-scoring trials, and the MRR those trials span. Wide
+weight ranges beside a narrow `mrr_range` mean the
+objective cannot separate the weights it is choosing
+between, and the single triple above is one point drawn
+from a plateau.
+
+{{ spread_table }}
 
 ## Impact by dimension
 
