@@ -306,11 +306,27 @@ def _structural_import_edges(
                         target = c
                         break
             if target is not None:
-                edges.append(Edge(source_id=imp.id, target_id=target.id, kind=edge_kind))
+                edges.append(
+                    Edge(
+                        source_id=imp.id,
+                        target_id=target.id,
+                        kind=edge_kind,
+                        source_path=imp.file_path,
+                        target_path=target.file_path,
+                    )
+                )
     else:
         # Bare import → edge to every non-import chunk in the file.
         for target in file_chunks_index.get(target_file, []):
-            edges.append(Edge(source_id=imp.id, target_id=target.id, kind=edge_kind))
+            edges.append(
+                Edge(
+                    source_id=imp.id,
+                    target_id=target.id,
+                    kind=edge_kind,
+                    source_path=imp.file_path,
+                    target_path=target.file_path,
+                )
+            )
 
     return edges
 
@@ -366,7 +382,15 @@ def _text_search_import_edges(
         for target_file in files:
             target = file_symbols.get(target_file)
             if target is not None:
-                edges.append(Edge(source_id=imp.id, target_id=target.id, kind=EdgeKind.IMPORTS))
+                edges.append(
+                    Edge(
+                        source_id=imp.id,
+                        target_id=target.id,
+                        kind=EdgeKind.IMPORTS,
+                        source_path=imp.file_path,
+                        target_path=target.file_path,
+                    )
+                )
 
     return edges
 
@@ -403,7 +427,15 @@ def infer_import_edges(
             for name in imp.metadata.names.split(","):
                 for (_, sym_name), chunk in symbol_index.items():
                     if sym_name == name:
-                        edges.append(Edge(source_id=imp.id, target_id=chunk.id, kind=edge_kind))
+                        edges.append(
+                            Edge(
+                                source_id=imp.id,
+                                target_id=chunk.id,
+                                kind=edge_kind,
+                                source_path=imp.file_path,
+                                target_path=chunk.file_path,
+                            )
+                        )
                         break
         elif has_file:
             # Structural: tree-sitter gave us exact module/names.
