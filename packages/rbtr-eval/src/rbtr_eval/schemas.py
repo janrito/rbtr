@@ -227,7 +227,7 @@ class ScoredCandidate(dy.Schema):
     """
 
     query_idx = dy.UInt32()
-    file_path = dy.String()
+    file_paths = dy.List(dy.String())
     scope = dy.String()
     name = dy.String()
     line_start = dy.UInt32()
@@ -283,7 +283,7 @@ class RerankerCandidate(dy.Schema):
 
     pool = dy.Int64(min=1)
     query_idx = dy.UInt32()
-    file_path = dy.String()
+    file_paths = dy.List(dy.String())
     scope = dy.String()
     name = dy.String()
     line_start = dy.UInt32()
