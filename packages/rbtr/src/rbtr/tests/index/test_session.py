@@ -12,8 +12,9 @@ from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, TokenisedChunk
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
 from rbtr.errors import RbtrError
+from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
 from .cases_store_repos import RepoSequence
@@ -31,7 +32,7 @@ def test_clean_exit_commits(store: IndexStore) -> None:
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
 
     chunks = store.get_chunks("c1", repo_id=1)
-    assert any(c.id == "a" for c in chunks)
+    assert any(c.name == "a" for c in chunks)
 
 
 def test_exception_rolls_back(store: IndexStore) -> None:
@@ -92,10 +93,10 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
         )
         ws.insert_snapshots([make_snap("head", "a.py", "b2a")], repo_id=2)
 
-    r1_ids = {c.id for c in store.get_chunks("head", repo_id=1)}
-    r2_ids = {c.id for c in store.get_chunks("head", repo_id=2)}
-    assert r1_ids == {"r1_a", "r1_b"}
-    assert r2_ids == {"r2_a"}
+    r1_names = {c.name for c in store.get_chunks("head", repo_id=1)}
+    r2_names = {c.name for c in store.get_chunks("head", repo_id=2)}
+    assert r1_names == {"r1_a", "r1_b"}
+    assert r2_names == {"r2_a"}
 
 
 # ── Sweep behaviour ─────────────────────────────────────────────────
@@ -198,7 +199,7 @@ def test_empty_operations_are_noops(store: IndexStore) -> None:
         ws.insert_snapshots([], repo_id=1)
         ws.insert_edges([], "c1", repo_id=1)
         ws.update_embeddings([], [])
-        ws.delete_chunks_for_blobs(set())
+        ws.delete_chunks_for_blobs(set(), file_language="")
 
 
 # ── register_repo ────────────────────────────────────────────────────
@@ -267,8 +268,20 @@ def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
 
 def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
     """Replacing edges for one commit doesn't touch another."""
-    e1 = Edge(source_id="a", target_id="b", kind=EdgeKind.IMPORTS)
-    e2 = Edge(source_id="c", target_id="d", kind=EdgeKind.IMPORTS)
+    e1 = Edge(
+        source_id="a",
+        target_id="b",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/a.py",
+        target_path="src/b.py",
+    )
+    e2 = Edge(
+        source_id="c",
+        target_id="d",
+        kind=EdgeKind.IMPORTS,
+        source_path="src/c.py",
+        target_path="src/d.py",
+    )
 
     with store.session() as ws:
         ws.register_repo("/repo")
@@ -294,8 +307,10 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
     """
     with store.session() as ws:
         ws.register_repo("/repo")
-        ws.add_chunk(make_chunk("a"))
-        ws.add_chunk(make_chunk("b", blob="blob_b", path="g.py"))
+        chunk_a = make_chunk("a")
+        chunk_b = make_chunk("b", blob="blob_b", path="g.py")
+        ws.add_chunk(chunk_a)
+        ws.add_chunk(chunk_b)
         ws.insert_snapshots(
             [
                 make_snap("c1", "f.py", "blob_a"),
@@ -310,7 +325,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
 
     vec = [0.1, 0.2, 0.3]
     with store.session() as ws:
-        ws.update_embeddings(["a", "b"], [vec, vec], truncated=[True, False])
+        ws.update_embeddings([chunk_a.id, chunk_b.id], [vec, vec], truncated=[True, False])
 
     # After embedding — both flagged as embedded.
     chunks = store.get_chunks("c1", repo_id=1)
@@ -322,8 +337,8 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
         "SELECT id, embedding_truncated FROM chunks ORDER BY id"
     ).fetchall()
     by_id = {row[0]: row[1] for row in rows}
-    assert by_id["a"] is True
-    assert by_id["b"] is False
+    assert by_id[chunk_a.id] is True
+    assert by_id[chunk_b.id] is False
 
 
 def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
@@ -333,8 +348,10 @@ def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
     length; the staging frame enforces this.
     """
     with store.session() as ws:
-        ws.add_chunk(make_chunk("a"))
-        ws.add_chunk(make_chunk("b", blob="blob_b", path="g.py"))
+        chunk_a = make_chunk("a")
+        chunk_b = make_chunk("b", blob="blob_b", path="g.py")
+        ws.add_chunk(chunk_a)
+        ws.add_chunk(chunk_b)
         with pytest.raises(ValidationError):
             ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
 

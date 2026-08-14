@@ -44,12 +44,13 @@ def recovery_store_fully_embedded() -> Generator[IndexStore]:
     store = IndexStore(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo("/test/repo")
-        ws.add_chunk(make_chunk("chunk1", name="foo", path="test.py", blob="blob1"))
+        chunk = make_chunk("chunk1", name="foo", path="test.py", blob="blob1")
+        ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="sha1", file_path="test.py", blob_sha="blob1")],
             repo_id=repo_id,
         )
-        ws.update_embeddings(["chunk1"], [[0.1, 0.2, 0.3]])
+        ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
         ws.mark_indexed(repo_id, "sha1")
     yield store
     store.close()

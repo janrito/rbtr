@@ -130,9 +130,9 @@ Body text.
 Just some plain text.
 Nothing special.
 """,
-            "",
+            "plaintext",
             ChunkKind.RAW_CHUNK,
-            None,
+            "",
             1,
             id="unknown-ext-plain",
         ),

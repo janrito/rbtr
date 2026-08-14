@@ -1,12 +1,12 @@
 [
   {
-    "id": "0c6600a920da6f7a",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "/* Greeter styles.\n *\n * The CSS plugin extracts rule sets, @media, @charset, and @keyframes\n * as doc sections, and @import statements as imports. */",
     "line_start": 1,
     "line_end": 4,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "9a0889317229f181"
   },
   {
-    "id": "d38c6f13e7d1f1f6",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "config_key",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "@charset \"UTF-8\";",
     "line_start": 6,
     "line_end": 6,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "201b42fa975466e2"
   },
   {
-    "id": "57227f716d5abf82",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "import",
     "name": "@import url(\"reset.css\");",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "@import url(\"reset.css\");",
     "line_start": 8,
     "line_end": 8,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "cbf97254020d81bd"
   },
   {
-    "id": "8e8cf908ddfdc18a",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "import",
     "name": "@import \"theme.css\";",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "@import \"theme.css\";",
     "line_start": 9,
     "line_end": 9,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "832cecbb8b3403fe"
   },
   {
-    "id": "643120e24579e242",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
     "name": ":root",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": ":root {\n  --greeting-color: #333;\n}",
     "line_start": 11,
     "line_end": 13,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e62985770721d590"
   },
   {
-    "id": "7927be2ae9966e1c",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "variable",
     "name": "--greeting-color",
     "scope": ":root",
     "language": "css",
+    "file_language": "css",
     "content": "--greeting-color: #333;",
     "line_start": 12,
     "line_end": 12,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "b90cc82662414f51"
   },
   {
-    "id": "5d0ae5edc801e00b",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": ".greeter {\n  color: var(--greeting-color);\n  font-weight: bold;\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
     "line_start": 15,
     "line_end": 21,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0e53178978ed3263"
   },
   {
-    "id": "bde2f382ecc89b91",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
     "name": ".greeting-label",
     "scope": ".greeter",
     "language": "css",
+    "file_language": "css",
     "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
     "line_start": 18,
     "line_end": 20,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "32e37f98d1abb442"
   },
   {
-    "id": "c5c45e34a7d10d24",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
     "line_start": 23,
     "line_end": 27,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "139fd08b20e2104e"
   },
   {
-    "id": "901cf6a2b4f1e93a",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
     "name": ".greeter",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": ".greeter {\n    font-size: 14px;\n  }",
     "line_start": 24,
     "line_end": 26,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "bc40befb59eb6693"
   },
   {
-    "id": "0a3a01fd3738a147",
     "blob_sha": "sha1",
     "file_path": "css.css",
     "kind": "class",
     "name": "greeting-fade",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
     "line_start": 29,
     "line_end": 36,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ac5a0c0be7138359"
   },
   {
-    "id": "8d3da5c38b0da34b",
     "blob_sha": "sha1",
     "file_path": "reset.css",
     "kind": "class",
     "name": "*",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": "* {\n  margin: 0;\n}",
     "line_start": 1,
     "line_end": 3,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f3d13f9312e11df2"
   },
   {
-    "id": "99f917f38f753e71",
     "blob_sha": "sha1",
     "file_path": "theme.css",
     "kind": "class",
     "name": ":root",
     "scope": "",
     "language": "css",
+    "file_language": "css",
     "content": ":root {\n  --greeting-color: #333;\n}",
     "line_start": 1,
     "line_end": 3,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "53ac44be42ab8233"
   },
   {
-    "id": "5e10cca1e6d1f2eb",
     "blob_sha": "sha1",
     "file_path": "theme.css",
     "kind": "variable",
     "name": "--greeting-color",
     "scope": ":root",
     "language": "css",
+    "file_language": "css",
     "content": "--greeting-color: #333;",
     "line_start": 2,
     "line_end": 2,
@@ -249,6 +262,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "dfc190708e8af07c"
   }
 ]

@@ -17,7 +17,6 @@ from rbtr.domain.models import Chunk, ChunkKind, ImportMeta, QueryKind, ScoredCh
 def function_chunk() -> Chunk:
     """A function chunk — no import metadata."""
     return Chunk(
-        id="abc123",
         blob_sha="deadbeef",
         file_path="src/app.py",
         kind=ChunkKind.FUNCTION,
@@ -34,7 +33,6 @@ def function_chunk() -> Chunk:
 def import_chunk() -> Chunk:
     """An import chunk — carries populated import metadata."""
     return Chunk(
-        id="def456",
         blob_sha="cafef00d",
         file_path="src/app.py",
         kind=ChunkKind.IMPORT,
@@ -86,7 +84,7 @@ def scored_chunk() -> ScoredChunk:
     return ScoredChunk(
         id="abc123",
         blob_sha="deadbeef",
-        file_path="src/app.py",
+        file_paths=["src/app.py"],
         kind=ChunkKind.FUNCTION,
         query_kind=QueryKind.IDENTIFIER,
         name="load_config",
