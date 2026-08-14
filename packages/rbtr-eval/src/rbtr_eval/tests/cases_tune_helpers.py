@@ -143,6 +143,61 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
 
 
 @case(tags=["rescore"])
+def case_rescore_sibling_sharing_most_of_the_identity() -> tuple[
+    dy.DataFrame[ScoredCandidate],
+    dy.DataFrame[QueryMeta],
+    tuple[float, float, float],
+    list[int | None],
+    float,
+]:
+    """A chunk at the same path, scope, name and start line is not the target.
+
+    Two chunks can open on one line — a fenced shell line is both a
+    command and its trailing comment — so identity needs the span's end
+    and the kind as well. The sibling outscores the target here, so a
+    join that matched on less would report rank 1 and MRR 1.0 for a hit
+    on the wrong chunk.
+    """
+    shared = {
+        "query_idx": 0,
+        "file_paths": ["target.py"],
+        "scope": "",
+        "name": "fn",
+        "line_start": 1,
+        "lexical": 0.1,
+        "name_match": 0.1,
+        "kind_boost": 1.0,
+        "file_penalty": 1.0,
+        "importance": 1.0,
+        "proximity": 1.0,
+    }
+    candidates = pl.DataFrame(
+        [
+            {**shared, "line_end": 2, "symbol_kind": "comment", "semantic": 0.9},
+            {**shared, "line_end": 5, "symbol_kind": "function", "semantic": 0.1},
+        ]
+    ).pipe(ScoredCandidate.validate, cast=True)
+    meta = pl.DataFrame(
+        [
+            {
+                "query_idx": 0,
+                "slug": "repo",
+                "language": "python",
+                "provenance": "name",
+                "query_kind": "identifier",
+                "file_path": "target.py",
+                "scope": "",
+                "name": "fn",
+                "line_start": 1,
+                "line_end": 5,
+                "symbol_kind": "function",
+            }
+        ]
+    ).pipe(QueryMeta.validate, cast=True)
+    return candidates, meta, (0.8, 0.1, 0.1), [2], 0.5
+
+
+@case(tags=["rescore"])
 def case_rescore_target_outside_top_10() -> tuple[
     dy.DataFrame[ScoredCandidate],
     dy.DataFrame[QueryMeta],

@@ -33,6 +33,17 @@ IDENTITY_COLUMNS: tuple[str, ...] = (
 """Identifies one target chunk. Two chunks can start on one line, so
 the span needs both ends and the kind."""
 
+MATCH_COLUMNS: tuple[str, ...] = tuple(c for c in IDENTITY_COLUMNS if c != "file_path")
+"""`IDENTITY_COLUMNS` without `file_path`, for joining a search result to
+the query whose target it is.
+
+A result carries every path its content sits at, so the target's path is
+matched by membership against `file_paths` rather than by equality. The
+rest of the identity still has to match column for column: derived from
+`IDENTITY_COLUMNS` so a column added there cannot be missed here, which
+would widen the join and let a sibling chunk score as the target.
+"""
+
 
 class QueryRow(dy.Schema):
     """One row per sampled query, emitted by `extract`.
