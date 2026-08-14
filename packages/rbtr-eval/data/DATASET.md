@@ -1,7 +1,7 @@
 # rbtr search-quality dataset
 
 Characterisation of the query set **before** measurement — the input
-to the benchmark, not its results. 3618 queries across
+to the benchmark, not its results. 3623 queries across
 5 repos and 14 languages.
 
 The three axes are independent: `symbol_kind` is the target chunk,
@@ -14,30 +14,30 @@ The indexed commit and sampled sizes per repo.
 
 | slug                 | sha            | symbols | sampled queries |
 | -------------------- | -------------- | ------- | --------------- |
-| `anthropics__skills` | `5128e1865d67` | 4155    | 434             |
-| `astral-sh__uv`      | `cfe5277bc422` | 28197   | 510             |
-| `badlogic__pi-mono`  | `a0a16c7762e6` | 23980   | 385             |
-| `django__django`     | `e78a46a8fb29` | 67009   | 428             |
-| `rbtr__rbtr`         | `d6ebe41d8953` | 5922    | 338             |
+| `anthropics__skills` | `5128e1865d67` | 5462    | 431             |
+| `astral-sh__uv`      | `cfe5277bc422` | 27256   | 505             |
+| `badlogic__pi-mono`  | `a0a16c7762e6` | 24302   | 369             |
+| `django__django`     | `e78a46a8fb29` | 67406   | 415             |
+| `rbtr__rbtr`         | `d6ebe41d8953` | 5973    | 345             |
 
 ## Queries per language
 
 | language   | n   |
 | ---------- | --- |
-| python     | 898 |
-| typescript | 521 |
+| python     | 885 |
+| typescript | 516 |
 | javascript | 431 |
-| css        | 355 |
-| markdown   | 281 |
-| rust       | 248 |
-| bash       | 233 |
-| json       | 200 |
-|            | 107 |
+| bash       | 389 |
+| css        | 349 |
+| rust       | 249 |
+| markdown   | 199 |
+| json       | 197 |
 | yaml       | 92  |
 | sql        | 80  |
-| toml       | 74  |
-| html       | 58  |
-| rst        | 40  |
+| rst        | 69  |
+| toml       | 68  |
+| plaintext  | 60  |
+| html       | 39  |
 
 ## Target coverage — `symbol_kind` × `provenance`
 
@@ -46,14 +46,14 @@ generation strategies. A kind absent here is not measured.
 
 | symbol_kind | body | concept | docstring | name | total |
 | ----------- | ---- | ------- | --------- | ---- | ----- |
-| variable    | 174  | 295     | 76        | 177  | 722   |
-| class       | 136  | 251     | 110       | 137  | 634   |
-| function    | 130  | 244     | 122       | 130  | 626   |
-| method      | 100  | 164     | 60        | 100  | 424   |
-| config_key  | 80   | 157     | 21        | 80   | 338   |
-| comment     | 167  | 163     | 0         | 0    | 330   |
-| raw_chunk   | 56   | 119     | 0         | 99   | 274   |
-| doc_section | 70   | 130     | 0         | 70   | 270   |
+| variable    | 182  | 307     | 76        | 186  | 751   |
+| function    | 131  | 257     | 122       | 131  | 641   |
+| class       | 136  | 257     | 110       | 137  | 640   |
+| method      | 100  | 175     | 60        | 100  | 435   |
+| doc_section | 130  | 198     | 0         | 75   | 403   |
+| comment     | 178  | 178     | 0         | 0    | 356   |
+| config_key  | 80   | 156     | 21        | 80   | 337   |
+| raw_chunk   | 30   | 30      | 0         | 0    | 60    |
 
 ## Target × request shape — `symbol_kind` × `query_kind`
 
@@ -62,14 +62,14 @@ axes are independent of provenance.
 
 | symbol_kind | concept | identifier | code | total |
 | ----------- | ------- | ---------- | ---- | ----- |
-| variable    | 313     | 296        | 113  | 722   |
-| class       | 246     | 254        | 134  | 634   |
-| function    | 243     | 253        | 130  | 626   |
-| method      | 165     | 170        | 89   | 424   |
-| config_key  | 158     | 157        | 23   | 338   |
-| comment     | 178     | 143        | 9    | 330   |
-| raw_chunk   | 122     | 137        | 15   | 274   |
-| doc_section | 140     | 103        | 27   | 270   |
+| variable    | 322     | 313        | 116  | 751   |
+| function    | 257     | 252        | 132  | 641   |
+| class       | 257     | 247        | 136  | 640   |
+| method      | 175     | 171        | 89   | 435   |
+| doc_section | 205     | 146        | 52   | 403   |
+| comment     | 190     | 154        | 12   | 356   |
+| config_key  | 157     | 152        | 28   | 337   |
+| raw_chunk   | 32      | 11         | 17   | 60    |
 
 ## Not measured
 
@@ -87,18 +87,15 @@ threshold:
 | `anthropics__skills` | `ruby`       | 35       |
 | `astral-sh__uv`      | `c`          | 3        |
 | `astral-sh__uv`      | `javascript` | 41       |
-| `astral-sh__uv`      | `rst`        | 5        |
-| `badlogic__pi-mono`  | ``           | 10       |
 | `badlogic__pi-mono`  | `c`          | 14       |
 | `badlogic__pi-mono`  | `html`       | 6        |
+| `badlogic__pi-mono`  | `plaintext`  | 48       |
 | `badlogic__pi-mono`  | `python`     | 7        |
 | `badlogic__pi-mono`  | `yaml`       | 32       |
-| `django__django`     | `bash`       | 22       |
 | `django__django`     | `toml`       | 9        |
-| `rbtr__rbtr`         | ``           | 36       |
-| `rbtr__rbtr`         | `bash`       | 28       |
 | `rbtr__rbtr`         | `css`        | 2        |
 | `rbtr__rbtr`         | `javascript` | 1        |
+| `rbtr__rbtr`         | `plaintext`  | 48       |
 | `rbtr__rbtr`         | `rust`       | 1        |
 | `rbtr__rbtr`         | `toml`       | 45       |
 | `rbtr__rbtr`         | `yaml`       | 13       |
@@ -111,57 +108,64 @@ scatter here is that difference made visible.
 
 | provenance  | concept | identifier | code  | n    |
 | ----------- | ------- | ---------- | ----- | ---- |
-| `body`      | 3.5%    | 40.0%      | 56.5% | 913  |
-| `concept`   | 98.6%   | 1.4%       | 0.0%  | 1523 |
-| `docstring` | 5.9%    | 90.0%      | 4.1%  | 389  |
-| `name`      | 1.0%    | 98.0%      | 1.0%  | 793  |
+| `body`      | 2.9%    | 40.1%      | 57.0% | 967  |
+| `concept`   | 98.6%   | 1.3%       | 0.1%  | 1558 |
+| `docstring` | 5.9%    | 88.7%      | 5.4%  | 389  |
+| `name`      | 1.1%    | 97.7%      | 1.1%  | 709  |
 
 ## Examples
 
 Sampled queries per provenance — the actual text fed to search,
 verbatim.
 
-**`body` → code** · python · `class` · PyodideFinder
+**`body` → code** · python · `method` · __str__
 
 ````text
-class PyodideFinder(Finder):
-    implementation = ImplementationName.CPYTHON
+def __str__(self) -> str:
+        return (self.family + "_" + self.variant) if self.variant else self.family
 ````
 
-**`body` → code** · rust · `class` · RevisionId
+**`body` → code** · rst · `doc_section` ·
 
 ````text
-impl AsRef<Path> for RevisionId {
-    fn as_ref(&self) -> &Path {
-        self.0.as_ref()
-    }
-}
+[package.optional-dependencies]
+grpc = [
+    { name = "grpcio" },
+]
 ````
 
-**`body` → identifier** · python · `comment` · <anonymous>
+**`body` → code** · rust · `class` · MarkerOperator
 
 ````text
-# via
-    #   -c requirements.txt
-    #   pydantic
+impl Display for MarkerOperator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
 ````
 
-**`concept` → concept** · rust · `variable` · Python
+**`concept` → concept** · rust · `class` · IntoIter
 
 ````text
-trampoline acting as a proxy executable to launch the interpreter
+iterate over flat dependency groups by name
 ````
 
-**`concept` → concept** · css · `variable` · --proton
+**`concept` → concept** · css · `variable` · --white
 
 ````text
-how to define a custom CSS color variable with a hex value
+what color value does the white CSS variable define
 ````
 
-**`concept` → concept** · toml · `raw_chunk` · rustfmt.toml
+**`concept` → concept** · css · `class` · .toclink
 
 ````text
-how to configure formatting settings in a TOML configuration file
+reset the color of table of contents anchor links
+````
+
+**`docstring` → code** · rust · `class` · InstalledVersion
+
+````text
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 ````
 
 **`docstring` → identifier** · python · `variable` · USE_UV_EXECUTABLE
@@ -170,32 +174,26 @@ how to configure formatting settings in a TOML configuration file
 # Use the `uv build-backend` command rather than `uv-build`.
 ````
 
-**`docstring` → identifier** · rust · `function` · extra_build_requires_for
+**`docstring` → identifier** · rust · `function` · collect_build_hints
 
 ````text
-/// Determine the extra build requirements for the given package name.
+/// Collect hints from a build [`Error`] by inspecting its inner types.
 ````
 
-**`docstring` → identifier** · rust · `class` · PrioritizedDist
+**`name` → identifier** · python · `method` · interpreter
 
 ````text
-/// Create a new [`PrioritizedDist`] from the given wheel distribution.
+ELFFile::interpreter
 ````
 
-**`name` → identifier** · python · `method` · key
+**`name` → identifier** · rust · `function` · find_python_from_active_python
 
 ````text
-PythonDownload::key
+tests::find_python_from_active_python
 ````
 
-**`name` → identifier** · rust · `class` · Username
+**`name` → identifier** · rust · `method` · get
 
 ````text
-Username
-````
-
-**`name` → identifier** · rust · `method` · fmt
-
-````text
-MarkerValue::fmt
+TextStoreMode::get
 ````
