@@ -225,6 +225,12 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
 Must accommodate the first search when the embedding model \
 is still loading.",
     )
+    daemon_max_retries: int = Field(
+        default=3,
+        description="Number of times the daemon client retries a request "
+        "that timed out, reconnecting the socket between attempts.  "
+        "0 disables retry.",
+    )
     daemon_start_timeout: float = Field(
         default=60.0,
         description="Backstop seconds to wait for a spawned daemon to bind "

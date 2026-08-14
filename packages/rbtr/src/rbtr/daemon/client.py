@@ -7,7 +7,9 @@ validated through pydantic `TypeAdapter`.
 
 The client is synchronous (plain `zmq.Socket`, not async)
 because the CLI is a short-lived process with no event loop.
-Timeouts: 10 s receive, 5 s send.
+Timeouts: 30 s receive (``Config.daemon_recv_timeout_ms``),
+5 s send.  On a recv timeout the client retries with
+reconnect; see `DaemonClient.send`.
 
 Usage::
 
@@ -218,11 +220,12 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
 
 
 class DaemonClient:
-    """Sync ZMQ REQ client.
+    """Sync ZMQ REQ client with retry on timeout.
 
     Reads the RPC endpoint from the status file on first `send()`.
-    A single client instance holds one REQ socket — calls are
-    serialised (ZMQ REQ enforces strict send/recv alternation).
+    On a recv timeout, destroys the poisoned REQ socket (which is
+    stuck in "waiting for reply" state) and retries with a fresh
+    connection.  See ARCHITECTURE.md § Daemon for rationale.
     """
 
     def __init__(
@@ -230,11 +233,13 @@ class DaemonClient:
         runtime_dir: Path | None = None,
         *,
         recv_timeout_ms: int | None = None,
+        max_retries: int | None = None,
     ) -> None:
         self._runtime_dir = runtime_dir or config.runtime_dir
         self._recv_timeout_ms = (
             recv_timeout_ms if recv_timeout_ms is not None else config.daemon_recv_timeout_ms
         )
+        self._max_retries = max_retries if max_retries is not None else config.daemon_max_retries
         self._ctx: zmq.Context[zmq.Socket[bytes]] | None = None
         self._sock: zmq.Socket[bytes] | None = None
 
@@ -250,33 +255,75 @@ class DaemonClient:
         self.close()
 
     def _connect(self) -> zmq.Socket[bytes]:
-        """Read status file and connect the socket."""
+        """Read status file and connect a fresh REQ socket."""
         status = read_status(self._runtime_dir)
         if status is None:
             msg = "Daemon not running (no status file)"
             raise DaemonBusyError(msg)
         self._ctx = zmq.Context()
         sock = self._ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.LINGER, 0)
         sock.setsockopt(zmq.RCVTIMEO, self._recv_timeout_ms)
         sock.setsockopt(zmq.SNDTIMEO, 5_000)
         sock.connect(status.rpc)
         self._sock = sock
         return sock
 
+    def _reconnect(self) -> zmq.Socket[bytes]:
+        """Destroy the current socket and connect a fresh one.
+
+        After a recv timeout the REQ socket is stuck in
+        "waiting for reply" state and cannot send again.
+        The only recovery is to destroy it and create a new
+        one.
+        """
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
+        if self._ctx is not None:
+            self._ctx.term()
+            self._ctx = None
+        return self._connect()
+
+    def _backoff(self, attempt: int) -> None:
+        """Log a retry warning and sleep for exponential backoff."""
+        delay = float(2 ** (attempt + 1))  # 2, 4, 8 … s
+        log.warning(
+            "daemon_retry",
+            attempt=attempt + 1,
+            max_retries=self._max_retries,
+            delay_s=delay,
+        )
+        time.sleep(delay)
+
     def send(self, request: Request) -> Response:
         """Send a request, return the typed response.
 
-        Raises `DaemonBusyError` if the daemon is unreachable.
+        Retries up to ``daemon_max_retries`` times on recv
+        timeout, reconnecting the socket between attempts
+        with exponential backoff (2, 4, 8 … seconds).  Raises
+        `DaemonBusyError` when all attempts are exhausted.
         """
-        sock = self._sock or self._connect()
+        payload = request.model_dump_json().encode()
+        last_exc: zmq.ZMQError | None = None
 
-        try:
-            sock.send(request.model_dump_json().encode())
-            raw = sock.recv()
-        except zmq.ZMQError as exc:
-            raise DaemonBusyError from exc
+        for attempt in range(1 + self._max_retries):
+            sock = self._sock or self._connect()
+            try:
+                sock.send(payload)
+                raw = sock.recv()
+            except zmq.ZMQError as exc:
+                last_exc = exc
+                if attempt < self._max_retries:
+                    self._backoff(attempt)
+                    self._reconnect()
+                    continue
+                raise DaemonBusyError from exc
+            return response_adapter.validate_json(raw)
 
-        return response_adapter.validate_json(raw)
+        # Unreachable: the loop either returns or raises on the
+        # final iteration.  Keeps mypy happy.
+        raise DaemonBusyError from last_exc
 
     def send_or_raise(self, request: Request) -> Response:
         """Like `send`, but raises `RbtrError` on `ErrorResponse`."""

@@ -551,7 +551,12 @@ the tasks below it are the work it spawns.
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
-  ZMQ.
+  ZMQ. `send()` retries with reconnect on recv timeout:
+  after a timeout the REQ socket is
+  stuck in “waiting for reply” state and must be destroyed
+  and recreated. Retries up to `max_retries` times
+  (default 3) with exponential backoff. All requests are
+  idempotent, so duplicate delivery is harmless.
 
 ### Watched refs
 
