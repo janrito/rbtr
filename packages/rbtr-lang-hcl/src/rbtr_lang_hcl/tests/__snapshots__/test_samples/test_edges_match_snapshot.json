@@ -1,1 +1,5 @@
-[]
+[
+  "main.tf::module \"greeter\" {\n  source = \"./modules/greeter\"\n} -> modules/greeter/main.tf::output greeting [imports]",
+  "main.tf::module \"greeter\" {\n  source = \"./modules/greeter\"\n} -> modules/greeter/main.tf::variable name [imports]",
+  "main.tf::module \"greeter\" {\n  source = \"./modules/greeter\"\n} -> modules/greeter/versions.tf::terraform [imports]"
+]
