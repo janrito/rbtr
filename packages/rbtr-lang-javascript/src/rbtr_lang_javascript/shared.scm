@@ -21,3 +21,9 @@
 
 (method_definition
   name: (property_identifier) @_method_name) @method
+
+; A re-export reads from another module, so it resolves as an import, and
+; it is how a symbol reaches a consumer that never names its defining
+; file.
+(export_statement
+  source: (string (string_fragment) @_import_module)) @import

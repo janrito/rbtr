@@ -79,6 +79,25 @@
     "blob_sha": "sha1",
     "file_path": "python.py",
     "kind": "import",
+    "name": "from __future__ import annotations",
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "from __future__ import annotations",
+    "line_start": 14,
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "479d6b4b06efa7cc"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "python.py",
+    "kind": "import",
     "name": "import os",
     "scope": "",
     "language": "python",
@@ -98,20 +117,39 @@
     "blob_sha": "sha1",
     "file_path": "python.py",
     "kind": "import",
+    "name": "import os.path as osp",
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "import os.path as osp",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "os.path",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "df492926528bfa30"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "python.py",
+    "kind": "import",
     "name": "from functools import lru_cache",
     "scope": "",
     "language": "python",
     "file_language": "python",
     "content": "from functools import lru_cache",
-    "line_start": 17,
-    "line_end": 17,
+    "line_start": 18,
+    "line_end": 18,
     "metadata": {
       "module": "functools",
       "names": "lru_cache",
       "dots": "",
       "language_hint": ""
     },
-    "id": "31c182915772bed3"
+    "id": "51d6889362d6fbd8"
   },
   {
     "blob_sha": "sha1",
@@ -122,15 +160,15 @@
     "language": "python",
     "file_language": "python",
     "content": "from pathlib import Path as P",
-    "line_start": 18,
-    "line_end": 18,
+    "line_start": 19,
+    "line_end": 19,
     "metadata": {
       "module": "pathlib",
       "names": "Path",
       "dots": "",
       "language_hint": ""
     },
-    "id": "d897c7a8d4e6075e"
+    "id": "82596e40b5cddb35"
   },
   {
     "blob_sha": "sha1",
@@ -141,15 +179,15 @@
     "language": "python",
     "file_language": "python",
     "content": "from .config import LOCALE",
-    "line_start": 20,
-    "line_end": 20,
+    "line_start": 21,
+    "line_end": 21,
     "metadata": {
       "module": "config",
       "names": "LOCALE",
       "dots": "1",
       "language_hint": ""
     },
-    "id": "7344106b955269f7"
+    "id": "2ed24d12b7cfe30c"
   },
   {
     "blob_sha": "sha1",
@@ -160,15 +198,15 @@
     "language": "python",
     "file_language": "python",
     "content": "type GreetingList = list[str]",
-    "line_start": 22,
-    "line_end": 22,
+    "line_start": 23,
+    "line_end": 23,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "7e54431cb6cced3f"
+    "id": "5a0b65ab15c43c79"
   },
   {
     "blob_sha": "sha1",
@@ -179,15 +217,15 @@
     "language": "python",
     "file_language": "python",
     "content": "DEFAULT_GREETING = \"Hello\"",
-    "line_start": 24,
-    "line_end": 24,
+    "line_start": 25,
+    "line_end": 25,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "bc8840f4da397a74"
+    "id": "662b56676dcd85d9"
   },
   {
     "blob_sha": "sha1",
@@ -198,15 +236,15 @@
     "language": "python",
     "file_language": "python",
     "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
-    "line_start": 25,
-    "line_end": 25,
+    "line_start": 26,
+    "line_end": 26,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "dd64da1b70e85770"
+    "id": "89ac218f83d39f84"
   },
   {
     "blob_sha": "sha1",
@@ -217,15 +255,15 @@
     "language": "python",
     "file_language": "python",
     "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
-    "line_start": 25,
-    "line_end": 25,
+    "line_start": 26,
+    "line_end": 26,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "76e8d1acd30cfc12"
+    "id": "f59fb45b47181f25"
   },
   {
     "blob_sha": "sha1",
@@ -236,15 +274,15 @@
     "language": "python",
     "file_language": "python",
     "content": "MAX_RECIPIENTS: int = 100",
-    "line_start": 26,
-    "line_end": 26,
+    "line_start": 27,
+    "line_end": 27,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "befe37da8c1b68ff"
+    "id": "420c1c7134cac624"
   },
   {
     "blob_sha": "sha1",
@@ -255,15 +293,15 @@
     "language": "python",
     "file_language": "python",
     "content": "# trailing comment: not folded, its own chunk",
-    "line_start": 26,
-    "line_end": 26,
+    "line_start": 27,
+    "line_end": 27,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "571ddf62d31ac950"
+    "id": "9758c6cfb2e4fc86"
   },
   {
     "blob_sha": "sha1",
@@ -274,15 +312,15 @@
     "language": "python",
     "file_language": "python",
     "content": "# Section: greeting helpers.\n# A standalone block between definitions.",
-    "line_start": 28,
-    "line_end": 29,
+    "line_start": 29,
+    "line_end": 30,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "9b2d010a2f00bcde"
+    "id": "1cd0a40dcf750dcf"
   },
   {
     "blob_sha": "sha1",
@@ -293,15 +331,15 @@
     "language": "python",
     "file_language": "python",
     "content": "# Leading doc comment folded into format_greeting.\ndef format_greeting(name: str) -> str:\n    \"\"\"Return a greeting for ``name`` in the configured locale.\"\"\"\n\n    def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()\n\n    return f\"{DEFAULT_GREETING}, {normalise(name)} ({LOCALE})\"",
-    "line_start": 32,
-    "line_end": 40,
+    "line_start": 33,
+    "line_end": 41,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "c2d32314293e870f"
+    "id": "07f780afe34f832f"
   },
   {
     "blob_sha": "sha1",
@@ -312,15 +350,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()",
-    "line_start": 36,
-    "line_end": 38,
+    "line_start": 37,
+    "line_end": 39,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "e5eca568ed96edc3"
+    "id": "640a3da9f90df1ab"
   },
   {
     "blob_sha": "sha1",
@@ -331,15 +369,15 @@
     "language": "python",
     "file_language": "python",
     "content": "async def fetch_remote_greeting(url: str) -> str:\n    \"\"\"Fetch a greeting template from a remote source.\"\"\"\n    return os.environ.get(\"GREETING\", DEFAULT_GREETING)",
-    "line_start": 43,
-    "line_end": 45,
+    "line_start": 44,
+    "line_end": 46,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "d770163700191cd1"
+    "id": "8169bc94456142b8"
   },
   {
     "blob_sha": "sha1",
@@ -350,15 +388,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
-    "line_start": 49,
-    "line_end": 51,
+    "line_start": 50,
+    "line_end": 52,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "606a6d0c451b9b9e"
+    "id": "eb0e1237e14c20cb"
   },
   {
     "blob_sha": "sha1",
@@ -369,15 +407,15 @@
     "language": "python",
     "file_language": "python",
     "content": "class Greeter:\n    \"\"\"Stateful greeter holding a prefix and recipient log.\"\"\"\n\n    def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []\n\n    def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)\n\n    @property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)\n\n    @staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()\n\n    @classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
-    "line_start": 54,
-    "line_end": 79,
+    "line_start": 55,
+    "line_end": 80,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "357e45d7075860db"
+    "id": "7624e0c692fb11f2"
   },
   {
     "blob_sha": "sha1",
@@ -388,15 +426,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []",
-    "line_start": 57,
-    "line_end": 59,
+    "line_start": 58,
+    "line_end": 60,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "d06472d11359c232"
+    "id": "8b5737f1d5f8265a"
   },
   {
     "blob_sha": "sha1",
@@ -407,15 +445,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)",
-    "line_start": 61,
-    "line_end": 64,
+    "line_start": 62,
+    "line_end": 65,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "81595cbc6d9c46e1"
+    "id": "966765d257a7ffce"
   },
   {
     "blob_sha": "sha1",
@@ -426,15 +464,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
-    "line_start": 67,
-    "line_end": 69,
+    "line_start": 68,
+    "line_end": 70,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "069713c99703f474"
+    "id": "c748f4dd7a7d49ff"
   },
   {
     "blob_sha": "sha1",
@@ -445,15 +483,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
-    "line_start": 72,
-    "line_end": 74,
+    "line_start": 73,
+    "line_end": 75,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "c4535d28f4e7ee39"
+    "id": "d3d098dc03b10302"
   },
   {
     "blob_sha": "sha1",
@@ -464,15 +502,15 @@
     "language": "python",
     "file_language": "python",
     "content": "def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
-    "line_start": 77,
-    "line_end": 79,
+    "line_start": 78,
+    "line_end": 80,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "1ddca68125137137"
+    "id": "e64ddefa4df1e58f"
   },
   {
     "blob_sha": "sha1",
@@ -483,14 +521,14 @@
     "language": "python",
     "file_language": "python",
     "content": "def config_path() -> P:\n    \"\"\"Return the path to the greeter config file.\"\"\"\n    return P.home() / \".greeter\"",
-    "line_start": 82,
-    "line_end": 84,
+    "line_start": 83,
+    "line_end": 85,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
     },
-    "id": "1507465f3ef2926f"
+    "id": "64cbb79e676b4e9d"
   }
 ]
