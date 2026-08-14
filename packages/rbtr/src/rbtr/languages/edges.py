@@ -223,6 +223,11 @@ def _resolve_import_to_file(
 
     Handles relative imports (extractor-set `dots` or PATH-style
     `./`/`../` prefixes), then delegates to `_resolve_module_to_file`.
+
+    A PATH-style reference that names no directory is relative to the
+    file it sits in: `@import "b.css"` in `css/a.css` means
+    `css/b.css`. Repository-root resolution is tried first, so a
+    reference that already resolves keeps the file it resolved to.
     """
     module = meta.module or ""
 
@@ -240,7 +245,15 @@ def _resolve_import_to_file(
     if not module or resolution is None:
         return None
     importer_ext = PurePosixPath(file_path).suffix
-    return _resolve_module_to_file(module, repo_files, resolution, importer_ext)
+    from_root = _resolve_module_to_file(module, repo_files, resolution, importer_ext)
+    if from_root is not None or dots:
+        return from_root
+    if resolution.module_style is not ModuleStyle.PATH:
+        return None
+    beside_importer = _relative_module(file_path, 1, module)
+    if beside_importer is None or beside_importer == module:
+        return None
+    return _resolve_module_to_file(beside_importer, repo_files, resolution, importer_ext)
 
 
 def _relative_module(file_path: str, dots: int, module: str) -> str | None:

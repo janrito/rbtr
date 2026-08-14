@@ -45,7 +45,5 @@ def test_language_import_reaches_the_imported_file(scenario: ImportScenario) -> 
         build_resolution_map(manager),
     )
 
-    assert any(e.target_path == scenario.target for e in edges), (
-        f"{scenario.language}: {scenario.importer} names {scenario.target}, "
-        f"but inference produced {[e.target_path for e in edges]}"
-    )
+    reached = [e.target_path for e in edges]
+    assert scenario.target in reached, f"{scenario.importer} names {scenario.target}, got {reached}"

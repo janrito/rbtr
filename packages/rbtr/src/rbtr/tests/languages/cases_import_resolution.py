@@ -33,13 +33,7 @@ class ImportScenario:
     target_source: str
 
 
-_SIBLING = (
-    "a bare sibling reference resolves from the repository root, "
-    "not from the importing file's directory"
-)
-
-
-# ── Resolving today ──────────────────────────────────────────────────
+# ── Resolving a reference to a file ──────────────────────────────────
 
 
 def case_python() -> ImportScenario:
@@ -179,9 +173,11 @@ import { helper } from './b.js';
 
 
 # ── Not resolving yet ────────────────────────────────────────────────
+#
+# Each mark is strict, so closing a gap turns its case red and prompts
+# the mark's removal.
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_css() -> ImportScenario:
     """CSS `@import` names a sibling stylesheet."""
     return ImportScenario(
@@ -193,7 +189,6 @@ def case_css() -> ImportScenario:
     )
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_scss() -> ImportScenario:
     """SCSS `@use` names a sibling stylesheet."""
     return ImportScenario(
@@ -205,7 +200,6 @@ def case_scss() -> ImportScenario:
     )
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_less() -> ImportScenario:
     """Less `@import` names a sibling stylesheet."""
     return ImportScenario(
@@ -217,7 +211,6 @@ def case_less() -> ImportScenario:
     )
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_html() -> ImportScenario:
     """An HTML `<script src>` names a sibling script."""
     return ImportScenario(
@@ -229,7 +222,6 @@ def case_html() -> ImportScenario:
     )
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_markdown() -> ImportScenario:
     """A Markdown link names a sibling document."""
     return ImportScenario(
@@ -241,7 +233,6 @@ def case_markdown() -> ImportScenario:
     )
 
 
-@case(marks=pytest.mark.xfail(reason=_SIBLING, strict=True))
 def case_rst() -> ImportScenario:
     """An rST `:doc:` role names a sibling document."""
     return ImportScenario(
@@ -263,7 +254,6 @@ Body.
     )
 
 
-@case(marks=pytest.mark.xfail(reason="the module string keeps its quotes", strict=True))
 def case_ruby() -> ImportScenario:
     """Ruby resolves a `require_relative` sibling."""
     return ImportScenario(
