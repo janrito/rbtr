@@ -10,7 +10,10 @@ adornment characters* (RST has no fixed heading levels), each section a chunk
 scoped by its ancestors. Cross-references are extracted as imports.
 
 - **Sections** — headings (underline and overline adornments) → doc sections,
-  with `scope` the `::` chain of enclosing sections.
+  with `scope` the `::` chain of enclosing sections. A document with no
+  heading at all — a README, a changelog — gives each top-level block its own
+  section instead: paragraphs, lists, directives, literal blocks, link
+  targets.
 - **References** — the `:func:` / `:class:` / `:meth:` / `:mod:` / `:doc:`
   roles, `` `text <target>`_ `` references, and `.. toctree::` entries →
   imports. External URLs and same-file anchors are skipped.

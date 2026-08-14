@@ -13,7 +13,12 @@ Rust support for [rbtr](../rbtr). Optional plugin — install with
 - **Imports** — `use` declarations (scoped paths resolved), for cross-file
   edges.
 
-Leading `///` / `//!` doc comments fold into the symbol's content.
+- **Attributes** — `#[derive(...)]`, `#[serde(...)]` and the rest fold into
+  the item below them, so a type is findable by the traits it derives. A
+  module-level `#![allow(...)]`, with no item under it, is its own chunk.
+
+Leading `///` / `//!` doc comments fold into the symbol's content, together
+with any attribute between the comment and the item.
 
 ## Chunks produced
 
