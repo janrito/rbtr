@@ -1,6 +1,9 @@
 -- sqlfluff:templater:placeholder:repo_id:1
 -- sqlfluff:templater:placeholder:snapshot_sha:'abc'
-SELECT
+-- One row per chunk, not per location: embedding writes by chunk id, so a
+-- chunk whose content sits at several paths is one unit of work.  The
+-- ORDER BY picks which location represents it.
+SELECT DISTINCT ON (c.id)
   c.id,
   fs.repo_id,
   c.blob_sha,
