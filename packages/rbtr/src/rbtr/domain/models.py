@@ -238,7 +238,7 @@ class ScoredChunk(BaseModel, frozen=True):
     matched_terms: list[str] = Field(default_factory=list)
 
 
-class FileSnapshot(BaseModel):
+class FileSnapshot(BaseModel, frozen=True):
     """A file in a snapshot's tree, mapping path to blob SHA."""
 
     snapshot_sha: str
@@ -247,7 +247,7 @@ class FileSnapshot(BaseModel):
     detected_language: str = ""
 
 
-class Edge(BaseModel):
+class Edge(BaseModel, frozen=True):
     """A directed relationship between content at two locations.
 
     A chunk is content and sits at as many paths as hold those bytes, so
