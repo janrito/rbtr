@@ -18,6 +18,7 @@ from pathlib import Path
 import dataframely as dy
 import polars as pl
 
+from rbtr.errors import RbtrError
 from rbtr.index.classify import classify_query
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
@@ -45,9 +46,23 @@ def load_all_queries(
 
     Reads all `*.parquet` files from both directories
     and returns a validated `QueryRow` frame.
+
+    Raises `RbtrError` when a repo has no concept file. `paraphrase`
+    writes one per repo unconditionally, so a missing one means the
+    stage did not finish for that repo — and because both directories
+    are globbed, loading anyway would measure a smaller corpus and
+    move every figure without saying why.
     """
     query_files = sorted(per_repo_dir.glob("*.parquet"))
     concept_files = sorted(concept_dir.glob("*.parquet"))
+    missing = {f.name for f in query_files} - {f.name for f in concept_files}
+    if missing:
+        msg = (
+            f"no concept queries for {', '.join(sorted(missing))} under {concept_dir}: "
+            "paraphrase did not finish for every repo. Restore the file "
+            "(`dvc checkout`) or re-run the stage."
+        )
+        raise RbtrError(msg)
     return pl.concat(
         [pl.read_parquet(f) for f in query_files + concept_files],
     ).pipe(QueryRow.validate, cast=True)
