@@ -15,6 +15,7 @@ from collections.abc import Iterator
 
 from rbtr.config import config
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.plaintext import PLAINTEXT
 
 # ── Prose format detection ─────────────────────────────────────────
 
@@ -78,8 +79,14 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
 
 
 def chunk_plaintext(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
-    """Chunk plain text or unsupported file types."""
-    yield from _raw_chunks(file_path, blob_sha, content)
+    """Chunk plain text or unsupported file types.
+
+    The chunks carry `PLAINTEXT`, which is the language they are in:
+    that is what stops `extract_file` deciding the file produced nothing
+    in its own language and appending a presence chunk to every one.
+    """
+    for chunk in _raw_chunks(file_path, blob_sha, content):
+        yield chunk.model_copy(update={"language": PLAINTEXT})
 
 
 def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
