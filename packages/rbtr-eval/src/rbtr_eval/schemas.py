@@ -43,7 +43,9 @@ class ArmKind(StrEnum):
 # explodes the list into per-hit rows and computes `rank` /
 # `top_*` declaratively.
 _HIT_COLUMNS: dict[str, dy.Column] = {
-    "file_path": dy.String(),
+    # Every location the hit's content sits at: identical content is one
+    # chunk, so a hit reaches the target file when it is one of these.
+    "file_paths": dy.List(dy.String()),
     "scope": dy.String(),
     "name": dy.String(),
     "line_start": dy.UInt32(),

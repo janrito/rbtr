@@ -244,7 +244,7 @@ def _render_find_refs_response(response: FindRefsResponse) -> None:
 
 
 def _render_scored_result(search_hit: SearchHitOut) -> None:
-    path = _short_path(search_hit.file_path)
+    path = ", ".join(_short_path(p) for p in search_hit.file_paths)
     if search_hit.repo_path is not None:
         path = f"{os.path.basename(search_hit.repo_path.rstrip('/'))}/{path}"
 
