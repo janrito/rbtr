@@ -25,11 +25,33 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
+from rbtr.domain.models import ChunkKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryMeta, QueryRow, RerankerCandidate
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryMeta, QueryRow
+
+
+class RerankerCandidate(dy.Schema):
+    """One row per (pool, query, result) from the daemon.
+
+    Produced by `tune_reranker._collect_candidates`;
+    consumed by `tune_reranker._rank_all_blends`.
+    """
+
+    pool = dy.Int64(min=1)
+    query_idx = dy.UInt32()
+    file_paths = dy.List(dy.String())
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+    fusion = dy.Float64()
+    reranker = dy.Float64()
+    latency_ms = dy.Float64(min=0.0)
+
 
 # ── Candidate collection ────────────────────────────────────────────────────
 

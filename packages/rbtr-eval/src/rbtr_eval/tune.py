@@ -29,21 +29,94 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import WeightTriple, config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.domain.models import QueryKind
+from rbtr.domain.models import ChunkKind, QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import (
-    IDENTITY_COLUMNS,
-    DetailedOutcome,
-    ImpactComparison,
-    QueryMeta,
-    QueryRow,
-    ScoredCandidate,
-    TuneReport,
-)
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryMeta, QueryRow
+
+
+class ScoredCandidate(dy.Schema):
+    """One candidate per query, carrying all component scores.
+
+    Produced by `tune._collect_scored_candidates`; consumed
+    by `tune._rescore_and_rank`.
+
+    `file_paths` holds every location the candidate's content sits at,
+    as the daemon returns it, so a target is reached when its path is
+    one of them.
+    """
+
+    query_idx = dy.UInt32()
+    file_paths = dy.List(dy.String())
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+    semantic = dy.Float64()
+    lexical = dy.Float64()
+    name_match = dy.Float64()
+    kind_boost = dy.Float64()
+    file_penalty = dy.Float64()
+    importance = dy.Float64()
+    proximity = dy.Float64()
+
+
+class DetailedOutcome(dy.Schema):
+    """Per-query rank from a single weight configuration.
+
+    Produced by `tune._rescore_and_rank`; consumed by
+    `tune._impact_comparison`.
+    """
+
+    slug = dy.String()
+    language = dy.String()
+    provenance = dy.String()
+    rank = dy.UInt8(nullable=True, min=1, max=10)
+
+
+class ImpactComparison(dy.Schema):
+    """Side-by-side MRR for baseline vs best weights.
+
+    One row per rollup dimension (repo, language, provenance,
+    and `__all__` sentinels for rollups).
+    """
+
+    slug = dy.String()
+    language = dy.String()
+    provenance = dy.String()
+    baseline_mrr = dy.Float64(min=0.0, max=1.0)
+    best_mrr = dy.Float64(min=0.0, max=1.0)
+    delta = dy.Float64(min=-1.0, max=1.0)
+    baseline_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
+    best_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
+    delta_ndcg_at_10 = dy.Float64(min=-1.0, max=1.0)
+
+
+class TuneReport(dy.Schema):
+    """Shape of the on-disk `tuned-params.json` file.
+
+    One row per `QueryKind` (concept, identifier, code).
+    """
+
+    kind = dy.String()
+    best_alpha = dy.Float64(min=0.0, max=1.0)
+    best_beta = dy.Float64(min=0.0, max=1.0)
+    best_gamma = dy.Float64(min=0.0, max=1.0)
+    score_best = dy.Float64(min=0.0, max=1.0)
+    current_alpha = dy.Float64(min=0.0, max=1.0)
+    current_beta = dy.Float64(min=0.0, max=1.0)
+    current_gamma = dy.Float64(min=0.0, max=1.0)
+    score_current = dy.Float64(min=0.0, max=1.0)
+    delta = dy.Float64(min=-1.0, max=1.0)
+    metric = dy.String()
+    n_trials = dy.UInt32(min=1)
+    n_queries = dy.UInt32(min=0)
+    elapsed_seconds = dy.Float64(min=0.0)
+
 
 # ── Scored-candidate collection ──────────────────────────────────────────────
 

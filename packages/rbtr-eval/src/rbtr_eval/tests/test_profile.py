@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 
 from rbtr_eval.profile import _render_report
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 
 @pytest.fixture
