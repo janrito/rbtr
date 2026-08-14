@@ -7,6 +7,7 @@ no-API-call tests.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -145,6 +146,63 @@ def test_output_validator_retries_on_excluded(
             "```python\ndef connect(): pass\n```",
             deps=symbol_deps,
             model=excluded_model,
+        )
+
+
+@pytest.mark.parametrize(
+    ("excluded", "text"),
+    [
+        ("o", "how to open the door and read a value"),
+        ("str", "convert a number into its string representation"),
+        ("chunk", "how a document is chunked before indexing"),
+    ],
+)
+def test_an_excluded_name_inside_a_longer_word_is_allowed(excluded: str, text: str) -> None:
+    """The name is withheld as a word, not as a substring.
+
+    A symbol called `o` or `str` sits inside ordinary English, so
+    substring matching rejected every paraphrase and dropped the row
+    once its retries ran out — 88 of them in one run.
+    """
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=json.dumps({"text": text}))])
+
+    result = paraphrase_agent.run_sync(
+        "```python\ndef f(): pass\n```",
+        deps=SymbolContext(
+            language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=[excluded]
+        ),
+        model=FunctionModel(_respond),
+    )
+
+    assert result.output.text == text
+
+
+@pytest.mark.parametrize(
+    ("excluded", "text"),
+    [
+        ("chunks", "where chunks are written to the store"),
+        ("o", "the letter o is returned"),
+    ],
+)
+def test_a_paraphrase_that_uses_the_name_is_refused(excluded: str, text: str) -> None:
+    """Word-boundary matching still withholds the name itself.
+
+    The looser rule must not let a query name the symbol it describes,
+    which is what would let search win on an exact match.
+    """
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=json.dumps({"text": text}))])
+
+    with pytest.raises(UnexpectedModelBehavior):
+        paraphrase_agent.run_sync(
+            "```python\ndef f(): pass\n```",
+            deps=SymbolContext(
+                language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=[excluded]
+            ),
+            model=FunctionModel(_respond),
         )
 
 
