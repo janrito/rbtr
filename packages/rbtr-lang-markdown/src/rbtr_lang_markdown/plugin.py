@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.languages.chunks import chunk_plaintext
 from rbtr.languages.registration import LanguageRegistration, load_query
@@ -233,7 +232,6 @@ def _extract_links(
                 module, names = dest.rsplit("#", 1)
 
             yield Chunk(
-                id=make_chunk_id(file_path, blob_sha, f"link:{dest}", dest_node.start_point[0]),
                 blob_sha=blob_sha,
                 file_path=file_path,
                 kind=ChunkKind.IMPORT,

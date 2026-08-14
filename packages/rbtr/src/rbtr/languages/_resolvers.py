@@ -40,7 +40,9 @@ class DefaultName:
 
     For symbol captures (`@function`, `@class`, …) the name is the paired
     `@_fn_name` / `@_cls_name` helper capture; for `@import` it is the statement
-    text; otherwise `"<anonymous>"`. An override delegates to this.
+    text; otherwise empty. A construct with no name carries none: `kind` says
+    whether one was expected, and readers label it from its location. An
+    override delegates to this.
     """
 
     def __call__(self, capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
@@ -51,7 +53,7 @@ class DefaultName:
             return first_text.decode()
         if capture_name == "import" and node.text:
             return node.text.decode().strip()[:120]
-        return "<anonymous>"
+        return ""
 
 
 class DefaultScope:
