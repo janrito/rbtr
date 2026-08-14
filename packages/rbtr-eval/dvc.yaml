@@ -210,7 +210,6 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/rbtrignore
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${repos_dir}
