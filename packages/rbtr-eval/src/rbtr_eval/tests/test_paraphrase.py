@@ -31,7 +31,7 @@ from rbtr_eval.paraphrase import (
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.schemas import QueryRow
+from rbtr_eval.schemas import IDENTITY_COLUMNS, QueryRow
 
 # ── _excluded_identifiers ────────────────────────────────────────────
 
@@ -179,6 +179,7 @@ def mini_queries() -> dy.DataFrame[QueryRow]:
                 "scope": "",
                 "name": "greet",
                 "line_start": 1,
+                "line_end": 3,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "docstring",
@@ -306,6 +307,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
                 "scope": "",
                 "name": "greet",
                 "line_start": 1,
+                "line_end": 2,
                 "symbol_kind": "function",
                 "language": "python",
                 "provenance": "name",
@@ -316,11 +318,11 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
     ).pipe(QueryRow.validate, cast=True)
 
     content = _sampled_content(two_repos, sampled)
-    joined = sampled.join(
-        content,
-        on=["slug", "file_path", "scope", "name", "line_start"],
-        how="left",
-    ).sort("slug")
+    joined = (
+        sampled.with_columns(pl.col("symbol_kind").cast(pl.String))
+        .join(content, on=["slug", *IDENTITY_COLUMNS], how="left")
+        .sort("slug")
+    )
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]

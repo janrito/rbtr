@@ -21,7 +21,7 @@ from .conftest import hit, outcome_row
 def case_ranks_and_top_hits() -> dy.DataFrame[SearchBatch]:
     """Three queries exercising every ranking behaviour.
 
-    * `foo` has `query_line_start=10`; only the hit at line 10 matches,
+    * `foo` has `line_start=10`; only the hit at line 10 matches,
       so the line-99 hit (same file/scope/name) does not, and the
       target lands at rank 2 — covering line-based disambiguation
       (e.g. getters / setters of the same name at different lines).
@@ -34,7 +34,7 @@ def case_ranks_and_top_hits() -> dy.DataFrame[SearchBatch]:
                 slug="r",
                 target="foo",
                 latency_ms=1.0,
-                query_line_start=10,
+                line_start=10,
                 hits=[hit("q.py", "", "foo", 99), hit("q.py", "", "foo", 10)],
             ),
             outcome_row(
