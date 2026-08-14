@@ -52,3 +52,29 @@ source ./env.sh
     assert len(imports) == 2
     modules = {c.metadata.module for c in imports}
     assert modules == {"./env.sh", "/etc/profile"}
+
+
+def test_bash_top_level_commands_are_searchable() -> None:
+    """A script's commands are what it does, so none is left out.
+
+    A deploy script may define nothing at all, and before this its every
+    command sat in no chunk.
+    """
+    src = """\
+set -euo pipefail
+
+DEST=/srv/app
+
+rsync -a ./build/ "$DEST"
+
+if [ -d "$DEST" ]; then
+  systemctl restart app
+fi
+"""
+    chunks = list(extract_file(FileEntry("deploy.sh", "sha1", src.encode()), "bash"))
+    covered = {line for c in chunks for line in range(c.line_start, c.line_end + 1)}
+    lines = src.splitlines()
+    uncovered = [
+        lines[i - 1] for i in range(1, len(lines) + 1) if i not in covered and lines[i - 1].strip()
+    ]
+    assert uncovered == []

@@ -1,4 +1,6 @@
 [
+  "typescript.ts::export * from \"./config\"; -> config.ts::LOCALE [imports]",
+  "typescript.ts::export { Locale } from \"./types\"; -> types.ts::Formatter [imports]",
   "typescript.ts::import type { Formatter } from \"./types\"; -> types.ts::Formatter [imports]",
   "typescript.ts::import { LOCALE } from \"./config\"; -> config.ts::LOCALE [imports]"
 ]

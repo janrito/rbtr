@@ -62,3 +62,7 @@ namespace util {
     return value.trim();
   }
 }
+
+// Re-exported so a consumer reaches these without naming their file.
+export { Locale } from "./types";
+export * from "./config";
