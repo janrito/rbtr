@@ -54,3 +54,25 @@ impl Svc {
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rust")
     svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
     assert len(svc_classes) == 2  # struct + impl
+
+
+def test_rust_attribute_belongs_to_the_item_below_it() -> None:
+    """A derive list is searchable, as part of the type it describes.
+
+    An attribute is a sibling of its item in the tree, so without this it
+    sits in no chunk and `#[derive(Serialize)]` cannot be found at all.
+    """
+    src = """\
+#![allow(dead_code)]
+
+#[derive(Serialize, Debug)]
+pub struct Config {
+    name: String,
+}
+"""
+    chunks = list(extract_file(FileEntry("input", "sha1", src.encode()), "rust"))
+    struct = next(c for c in chunks if c.name == "Config")
+    assert struct.line_start == 3
+    assert "#[derive(Serialize, Debug)]" in struct.content
+    module_attribute = next(c for c in chunks if c.kind == ChunkKind.COMMENT)
+    assert module_attribute.content == "#![allow(dead_code)]"
