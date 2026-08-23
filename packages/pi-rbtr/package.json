@@ -28,7 +28,7 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
+    "@biomejs/biome": "^2.5.9",
     "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
@@ -36,9 +36,9 @@
     "@sinclair/typebox": "*",
     "json-schema-to-typescript": "^15.0.4",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
-    "zeromq": "^6.5.0"
+    "zeromq": "^6.6.0"
   }
 }
