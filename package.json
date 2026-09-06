@@ -1,4 +1,7 @@
 {
   "private": true,
-  "workspaces": ["packages/pi-rbtr"]
+  "workspaces": ["packages/pi-rbtr"],
+  "devDependencies": {
+    "@graphql-inspector/cli": "4.0.3"
+  }
 }
