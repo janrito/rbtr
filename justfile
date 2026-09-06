@@ -93,7 +93,7 @@ test-py:
     uv run pytest
 
 test-ts:
-    cd packages/pi-rbtr && uv run bunx vitest run
+    cd packages/pi-rbtr && uv run bunx vitest run b1a3e253 (Capture daemon stdout/stderr to daemon.stderr instead of /dev/null)
 
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
