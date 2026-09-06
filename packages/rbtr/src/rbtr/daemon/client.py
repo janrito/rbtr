@@ -127,17 +127,21 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     if allow_missing_plugins:
         cmd.append("--allow-missing-plugins")
 
-    # The daemon configures its own rotating JSON log sink
-    # (`configure_logging(to_file=True)`), so we no longer redirect the
-    # child's streams to the log file — that would pin the rotated
-    # inode and interleave raw stderr with structured records.
+    # Structured logs go to the rotating JSON `daemon.log` via
+    # `configure_logging(to_file=True)` inside the child.  Stdout
+    # and stderr go to a separate `daemon.stderr` file (truncated
+    # each start) so native crashes, uncaught exceptions, and
+    # C-library output are captured without corrupting the JSON
+    # log or pinning the rotated inode.
+    stderr_fh = config.daemon_stderr.open("w")
     proc = subprocess.Popen(  # noqa: S603 - trusted args
         cmd,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=stderr_fh,
+        stderr=stderr_fh,
         start_new_session=True,
     )
+    stderr_fh.close()  # child inherited the fd; parent doesn't need it
 
     # Wait for any live daemon to appear (it writes its status
     # file after binding sockets).  If the daemon that comes up
@@ -161,14 +165,17 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
             return status
         if proc.poll() is not None:
             if grace_after_exit <= 0:
-                msg = f"Daemon failed to start. Check {config.daemon_log} for the reason."
+                msg = (
+                    f"Daemon failed to start. "
+                    f"Check {config.daemon_log} and {config.daemon_stderr} for the reason."
+                )
                 raise RbtrError(msg)
             grace_after_exit -= 1
 
     proc.terminate()
     msg = (
         f"Daemon did not become ready within {config.daemon_start_timeout:g}s. "
-        f"Check {config.daemon_log} for the reason."
+        f"Check {config.daemon_log} and {config.daemon_stderr} for the reason."
     )
     raise RbtrError(msg)
 

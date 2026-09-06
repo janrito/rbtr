@@ -21,6 +21,7 @@ Derived paths are exposed as computed fields:
                    for sockets + status file
 - `db_path`      — `data_dir / db_name`
 - `daemon_log`   — `log_dir / "daemon.log"`
+- `daemon_stderr` — `log_dir / "daemon.stderr"`
 - `daemon_rpc`   — `runtime_dir / "daemon.rpc"`
 - `daemon_pub`   — `runtime_dir / "daemon.pub"`
 
@@ -299,6 +300,11 @@ Disable in tests or resource-constrained environments.",
     @property
     def daemon_log(self) -> Path:
         return self.log_dir / "daemon.log"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def daemon_stderr(self) -> Path:
+        return self.log_dir / "daemon.stderr"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
