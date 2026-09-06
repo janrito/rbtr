@@ -59,10 +59,10 @@ lint-md *FILES:
     uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
 fmt-ts:
-    bunx @biomejs/biome check --fix packages/pi-rbtr skills/review-github-pr/queries
+    bun run biome check --fix packages/pi-rbtr skills/review-github-pr/queries
 
 lint-ts:
-    bunx @biomejs/biome check packages/pi-rbtr skills/review-github-pr/queries
+    bun run biome check packages/pi-rbtr skills/review-github-pr/queries
 
 typecheck: typecheck-py typecheck-ts
 
@@ -70,7 +70,7 @@ typecheck-py:
     uv run mypy
 
 typecheck-ts:
-    cd packages/pi-rbtr && bunx tsc --noEmit
+    bun run tsc -p packages/pi-rbtr --noEmit
 
 # Regenerate the pi-rbtr TypeScript protocol types from the
 # Python models (via `rbtr schema-dump`).  The generated file is
@@ -83,7 +83,7 @@ schema-check:
 
 validate-graphql:
     curl -sf "https://docs.github.com/public/fpt/schema.docs.graphql" -o /tmp/github-schema.graphql
-    bunx --bun @graphql-inspector/cli validate \
+    bun run graphql-inspector validate \
         "skills/review-github-pr/queries/*.graphql" \
         /tmp/github-schema.graphql
 
@@ -93,7 +93,7 @@ test-py:
     uv run pytest
 
 test-ts:
-    cd packages/pi-rbtr && uv run bunx vitest run b1a3e253 (Capture daemon stdout/stderr to daemon.stderr instead of /dev/null)
+    cd packages/pi-rbtr && uv run bun run vitest run
 
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
