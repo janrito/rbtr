@@ -25,9 +25,8 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
-from rbtr.languages.chunks import chunk_plaintext
+from rbtr.languages.chunks import chunk_plaintext, last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
 if TYPE_CHECKING:
@@ -159,7 +158,7 @@ def _extract_sections(
                 "language": "markdown",
                 "content": text,
                 "line_start": line_start,
-                "line_end": node.end_point[0] + 1,
+                "line_end": last_line(node),
             }
         )
 
@@ -233,7 +232,6 @@ def _extract_links(
                 module, names = dest.rsplit("#", 1)
 
             yield Chunk(
-                id=make_chunk_id(file_path, blob_sha, f"link:{dest}", dest_node.start_point[0]),
                 blob_sha=blob_sha,
                 file_path=file_path,
                 kind=ChunkKind.IMPORT,
@@ -242,7 +240,7 @@ def _extract_links(
                 content=dest,
                 metadata=ImportMeta(module=module, names=names),
                 line_start=dest_node.start_point[0] + 1,
-                line_end=dest_node.end_point[0] + 1,
+                line_end=last_line(dest_node),
             )
 
 
@@ -254,7 +252,7 @@ markdown = LanguageRegistration(
     extensions=frozenset({".md"}),
     grammar_module="tree_sitter_markdown",
     injection_query=load_query(__package__, "injections"),
-    extraction_serial=4,
+    extraction_serial=5,
 )
 
 markdown.chunker(chunk_markdown)

@@ -22,9 +22,10 @@ from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
 from rbtr.languages.treesitter import extract_doc_spans
+from rbtr_eval.corpus import corpus_ref
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import subsample
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
 _QUERY_MIN_LEN = 15
@@ -117,6 +118,7 @@ def queries_for_symbol(
     name: str,
     symbol_kind: str,
     line_start: int,
+    line_end: int,
     language: str,
     content: str,
 ) -> list[dict[str, str | int]]:
@@ -137,15 +139,16 @@ def queries_for_symbol(
             "name": name,
             "symbol_kind": symbol_kind,
             "line_start": line_start,
+            "line_end": line_end,
             "language": language,
             "provenance": provenance,
             "text": text,
         }
 
-    # Name query for chunks with a real name; anonymous chunks
+    # Name query for chunks with a real name; unnamed chunks
     # (comments, raw chunks) and heading-less paragraphs yield
     # body / docstring only.
-    if name and name != "<anonymous>":
+    if name:
         name_text = f"{scope}{SCOPE_SEPARATOR}{name}" if scope else name
         queries.append(_row("name", name_text))
 
@@ -176,17 +179,6 @@ def queries_for_symbol(
                 break  # one docstring per symbol
 
     return queries
-
-
-def resolve_repo(store: IndexStore, slug: str) -> tuple[int, str]:
-    """Find a repo in the store by slug; return `(repo_id, sha)`."""
-    for repo in store.list_repos():
-        if Path(repo.repo_path).name == slug:
-            commits = store.list_indexed_snapshots(repo.repo_id)
-            if commits:
-                return repo.repo_id, commits[0][0]
-    msg = f"repo {slug} not found or not indexed"
-    raise SystemExit(msg)
 
 
 def extract_queries(
@@ -238,6 +230,7 @@ def extract_queries(
                 name=c.name,
                 symbol_kind=c.kind.value,
                 line_start=c.line_start,
+                line_end=c.line_end,
                 language=c.language,
                 content=c.content,
             )
@@ -265,13 +258,13 @@ class ExtractCmd(BaseModel):
 
     def cli_cmd(self) -> None:
         store = IndexStore(str(self.data_dir / "index.duckdb"), writable=True)
-        repo_id, sha = resolve_repo(store, self.slug)
+        ref = corpus_ref(store, self.slug)
 
         all_queries, n_symbols, dropped = extract_queries(
             store,
             self.slug,
-            repo_id,
-            sha,
+            ref.repo_id,
+            ref.snapshot_sha,
             min_per_language=self.min_per_language,
         )
         sampled = subsample(
@@ -284,7 +277,7 @@ class ExtractCmd(BaseModel):
         header = pl.DataFrame(
             {
                 "slug": [self.slug],
-                "sha": [sha],
+                "sha": [ref.snapshot_sha],
                 "seed": [self.seed],
                 "queries_per_cell": [self.queries_per_cell],
                 "n_documented": [n_symbols],

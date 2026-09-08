@@ -1,12 +1,12 @@
 [
   {
-    "id": "887fc539661de5d0",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- Greeter schema — tables, views, and statements for greetings.\n--\n-- The SQL plugin extracts one chunk per top-level statement: CREATE\n-- TABLE/VIEW (as classes), CREATE FUNCTION and DML/CTEs (as functions),\n-- and CREATE SCHEMA/INDEX/SEQUENCE (as variables). There is no import\n-- concept. CREATE PROCEDURE and PRAGMA do not parse and live in the\n-- xfail registry instead.",
     "line_start": 1,
     "line_end": 7,
@@ -15,16 +15,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "fcb24b55c55b71af"
   },
   {
-    "id": "1f1becdaa3cac89c",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "variable",
     "name": "greet",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE SCHEMA greet",
     "line_start": 9,
     "line_end": 9,
@@ -33,16 +34,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "2bf9543268256917"
   },
   {
-    "id": "8b25052fe70e2cbc",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- trailing comment: its own chunk",
     "line_start": 9,
     "line_end": 9,
@@ -51,16 +53,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "98756ee52a748b1e"
   },
   {
-    "id": "4b0851e1f91e97d4",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "-- Standalone note, separated by blank lines from any statement.\n-- Second line of the same block.",
     "line_start": 11,
     "line_end": 12,
@@ -69,16 +72,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0c438a2a19d6d59e"
   },
   {
-    "id": "1b834e8b156c7afd",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "class",
     "name": "greeters",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE TABLE greeters (\n    id INTEGER PRIMARY KEY,\n    prefix TEXT NOT NULL\n)",
     "line_start": 14,
     "line_end": 17,
@@ -87,16 +91,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "119e8882c4026de1"
   },
   {
-    "id": "cae4d6ca8356c23f",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "variable",
     "name": "idx_greeters_prefix",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE INDEX idx_greeters_prefix ON greeters (prefix)",
     "line_start": 19,
     "line_end": 19,
@@ -105,16 +110,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "ab3497f2cf28a336"
   },
   {
-    "id": "3c1c9768a01fdca9",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "variable",
     "name": "greeting_id_seq",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE SEQUENCE greeting_id_seq",
     "line_start": 21,
     "line_end": 21,
@@ -123,16 +129,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1fdfd3531b021310"
   },
   {
-    "id": "3c137da27845e97a",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "class",
     "name": "active_greeters",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE VIEW active_greeters AS\nSELECT id, prefix FROM greeters WHERE prefix IS NOT NULL",
     "line_start": 23,
     "line_end": 24,
@@ -141,16 +148,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "42074e751143db09"
   },
   {
-    "id": "0a8a1081ac811150",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "shout",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "CREATE FUNCTION shout(message TEXT) RETURNS TEXT AS 'SELECT upper(message)'",
     "line_start": 26,
     "line_end": 26,
@@ -159,16 +167,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "e809c9a3ee5d5686"
   },
   {
-    "id": "2c831614d59c0057",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "recent",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "WITH recent AS (\n    SELECT id FROM greeters\n)\n\nSELECT id FROM recent",
     "line_start": 28,
     "line_end": 32,
@@ -177,16 +186,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "330f6d8ac830cc9f"
   },
   {
-    "id": "2c831614d59c0057",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "recent",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "recent AS (\n    SELECT id FROM greeters\n)",
     "line_start": 28,
     "line_end": 30,
@@ -195,16 +205,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "a2b86ca2dd9035b0"
   },
   {
-    "id": "dee2f96e5bd6b23d",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "greeters",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "INSERT INTO greeters (id, prefix) VALUES (1, 'Hello')",
     "line_start": 34,
     "line_end": 34,
@@ -213,16 +224,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "c68ef3a9070b8b98"
   },
   {
-    "id": "544a1f37929e64b0",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "greeters",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "UPDATE greeters SET prefix = 'Hi' WHERE id = 1",
     "line_start": 36,
     "line_end": 36,
@@ -231,16 +243,17 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "f9b1fae7ce538957"
   },
   {
-    "id": "249f05c933adec0d",
     "blob_sha": "sha1",
     "file_path": "sql.sql",
     "kind": "function",
     "name": "greeters",
     "scope": "",
     "language": "sql",
+    "file_language": "sql",
     "content": "DELETE FROM greeters WHERE id = 1",
     "line_start": 38,
     "line_end": 38,
@@ -249,6 +262,7 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "6af17e06c316e1a8"
   }
 ]

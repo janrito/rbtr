@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import time
+from enum import StrEnum
 from importlib import resources
 from pathlib import Path
 
@@ -36,23 +37,166 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.domain.models import QueryKind
+from rbtr.domain.models import ChunkKind, QueryKind
 from rbtr.index.classify import classify_query
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import (
-    ArmKind,
-    ExpansionRow,
-    Metrics,
-    MetricsFile,
-    QueryRow,
-    RepoHeader,
-    SearchBatch,
-    SearchOutcome,
-)
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, ExpansionRow, QueryRow, RepoHeader
+
+
+class ArmKind(StrEnum):
+    """One expansion configuration measured per query.
+
+    `measure` runs every query under each arm so the ablation
+    can isolate the effect of each expansion channel.
+
+    `NONE`     — no expansion (raw query only).
+    `KEYWORDS` — keyword expansion only (lexical channel).
+    `VARIANTS` — variant expansion only (semantic channel).
+    `BOTH`     — both channels.
+    """
+
+    NONE = "none"
+    KEYWORDS = "keywords"
+    VARIANTS = "variants"
+    BOTH = "both"
+
+
+class Hit(dy.Schema):
+    """One search result the daemon returned for a query.
+
+    Nested as the struct inside `SearchBatch.hits`, one entry per
+    `ScoredResult`; the ranking pipeline in `measure` explodes the list
+    into per-hit rows and computes `rank` / `top_*` declaratively.
+    """
+
+    file_paths = dy.List(dy.String())
+    """Every location the hit's content sits at.
+
+    Identical content is one chunk, so a hit reaches the target file
+    when that file is one of these.
+    """
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+
+
+class SearchQuery(dy.Schema):
+    """Identity and classification of one measured query.
+
+    The search is identified by `arm`, `slug`, the target
+    (`IDENTITY_COLUMNS`, under those same names) and `provenance`; `arm`
+    is the expansion configuration and `query_kind` the
+    `classify_query` shape.  `SearchBatch` and `SearchOutcome` extend
+    this with the raw hits and the scored rank, and a hit's own columns
+    carry a `hit_` prefix so the two never collide.
+    """
+
+    arm = dy.String(primary_key=True)
+    slug = dy.String(primary_key=True)
+    language = dy.String(primary_key=True)
+    file_path = dy.String(primary_key=True)
+    scope = dy.String(primary_key=True)
+    name = dy.String(primary_key=True)
+    line_start = dy.UInt32(primary_key=True)
+    line_end = dy.UInt32(primary_key=True)
+    symbol_kind = dy.Enum((k.value for k in ChunkKind), primary_key=True)
+    provenance = dy.String(primary_key=True)
+    query_kind = dy.String()
+    query_text = dy.String()
+    latency_ms = dy.Float64(min=0.0)
+
+
+class SearchBatch(SearchQuery):
+    """Raw output of `_run_searches` before `_score_outcomes` runs.
+
+    `hits` carries the top-10 results from the daemon as a
+    list-of-struct; ranking turns this into `SearchOutcome` with
+    scalar `rank` / `top_*` columns.
+    """
+
+    hits = dy.List(dy.Struct(Hit.columns()))
+    expansion_kind = dy.String(nullable=True)
+    expansion_n_keywords = dy.UInt8(nullable=True)
+    expansion_n_variants = dy.UInt8(nullable=True)
+
+
+class SearchOutcome(SearchQuery):
+    """One scored search: the rank the target landed at and the top-1
+    hit for diagnostics.  `rank` / `top_*` are null when the target
+    does not appear in the top 10.
+    """
+
+    rank = dy.UInt8(nullable=True, min=1, max=10)
+    top_file = dy.String(nullable=True)
+    top_line = dy.UInt32(nullable=True)
+    top_name = dy.String(nullable=True)
+    target_truncated = dy.Bool()
+
+
+class Metrics(dy.Schema):
+    """Per-arm headline metrics plus rollups.
+
+    Every level is partitioned by `arm` (always a real
+    `ArmKind` value, never a sentinel).  Within an arm, the
+    `slug` / `language` / `symbol_kind` / `provenance` /
+    `query_kind` dimensions use the `'__all__'` sentinel for the
+    dimensions a level does not span:
+
+    * per group           → slug, language, provenance real
+    * per repo+lang       → provenance == '__all__'
+    * per language        → slug == '__all__', provenance == '__all__'
+    * per provenance      → slug == '__all__', language == '__all__'
+    * per symbol_kind      → slug/language/provenance == '__all__'
+    * per query_kind      → slug/language/symbol_kind/provenance == '__all__'
+    * per (symbol_kind, query_kind) → slug/language/provenance == '__all__'
+    * global              → all '__all__'
+
+    `median_rank` is null when every query missed.
+    `search_p50_ms` / `search_p95_ms` come from the latency column
+    on `SearchOutcome`.
+    """
+
+    arm = dy.String(primary_key=True)
+    slug = dy.String(primary_key=True)
+    language = dy.String(primary_key=True)
+    # A grouping dimension, not a target's kind: it holds a `ChunkKind`
+    # or the sentinel standing for every kind at once, so it is a
+    # different column from the `symbol_kind` the other schemas carry
+    # and does not share their enum.
+    symbol_kind = dy.String(primary_key=True)
+    provenance = dy.String(primary_key=True)
+    query_kind = dy.String(primary_key=True)
+    n_queries = dy.UInt32(min=0)
+    hit_at_1 = dy.Float64(min=0.0, max=1.0)
+    hit_at_3 = dy.Float64(min=0.0, max=1.0)
+    hit_at_10 = dy.Float64(min=0.0, max=1.0)
+    mrr = dy.Float64(min=0.0, max=1.0)
+    ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
+    median_rank = dy.Float64(nullable=True, min=1.0, max=10.0)
+    not_found_pct = dy.Float64(min=0.0, max=1.0)
+    search_p50_ms = dy.Float64(min=0.0)
+    search_p95_ms = dy.Float64(min=0.0)
+
+
+class MetricsFile(Metrics):
+    """Shape of the on-disk `metrics.json` file.
+
+    `Metrics` joined with per-slug SHA on `slug` (`__all__` rows stay
+    null on `sha`), plus run metadata as literal columns so the JSON
+    file carries everything DVC's metrics parser might want.
+    """
+
+    sha = dy.String(nullable=True)
+    seed = dy.UInt32()
+    queries_per_cell = dy.UInt32(min=1)
+    elapsed_seconds = dy.Float64(min=0.0)
+
 
 _ALL = "__all__"
 
@@ -82,17 +226,16 @@ def _annotate_truncation(
     if trunc.is_empty():
         return outcomes
 
+    # The frame arrives straight from DuckDB rather than through a schema,
+    # so its columns carry SQL's types and are cast to the outcome's here.
     trunc = trunc.with_columns(
         pl.col("path").str.split("/").list.last().alias("slug"),
-    ).select(
-        "slug",
-        pl.col("file_path").alias("query_file"),
-        pl.col("scope").alias("query_scope"),
-        pl.col("name").alias("query_name"),
-        pl.col("line_start").cast(pl.UInt32).alias("query_line_start"),
-    )
+        pl.col("line_start").cast(pl.UInt32),
+        pl.col("line_end").cast(pl.UInt32),
+        pl.col("symbol_kind").cast(SearchOutcome.symbol_kind.dtype),
+    ).select("slug", *IDENTITY_COLUMNS)
 
-    join_keys = ["slug", "query_file", "query_scope", "query_name", "query_line_start"]
+    join_keys = ["slug", *IDENTITY_COLUMNS]
     trunc_marked = trunc.unique().with_columns(
         pl.lit(True).alias("_is_truncated"),
     )
@@ -115,11 +258,17 @@ def _search(
     keywords: list[str] | None = None,
     variants: list[str] | None = None,
 ) -> SearchResponse:
-    """One search call via the daemon client."""
+    """One search call via the daemon client, against HEAD.
+
+    Naming `HEAD` explicitly pins the measurement to the snapshot
+    the queries were extracted from (`rbtr_eval.corpus`); left
+    unset, the daemon would prefer an indexed dirty worktree.
+    """
     request = SearchRequest(
         repo_path=str(repo_path),
         query=query,
         limit=10,
+        ref="HEAD",
         keywords=keywords,
         variants=variants,
     )
@@ -188,10 +337,11 @@ def _run_searches(
                         "arm": arm.value,
                         "slug": query["slug"],
                         "language": query["language"],
-                        "query_file": query["file_path"],
-                        "query_scope": query["scope"],
-                        "query_name": query["name"],
-                        "query_line_start": query["line_start"],
+                        "file_path": query["file_path"],
+                        "scope": query["scope"],
+                        "name": query["name"],
+                        "line_start": query["line_start"],
+                        "line_end": query["line_end"],
                         "provenance": query["provenance"],
                         "symbol_kind": query["symbol_kind"],
                         "query_kind": query_kind,
@@ -199,10 +349,12 @@ def _run_searches(
                         "latency_ms": latency_ms,
                         "hits": [
                             {
-                                "file_path": h.file_path,
+                                "file_paths": h.file_paths,
                                 "scope": h.scope,
                                 "name": h.name,
                                 "line_start": h.line_start,
+                                "line_end": h.line_end,
+                                "symbol_kind": h.kind.value,
                             }
                             for h in resp.results
                         ],
@@ -228,16 +380,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
     appendix.  Left-joins back so queries whose target never
     appeared keep a null rank.
     """
-    outcome_keys = [
-        "arm",
-        "slug",
-        "language",
-        "query_file",
-        "query_scope",
-        "query_name",
-        "query_line_start",
-        "provenance",
-    ]
+    outcome_keys = ["arm", "slug", "language", *IDENTITY_COLUMNS, "provenance"]
     exploded = (
         batch.select(
             *outcome_keys,
@@ -245,20 +388,29 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
         )
         .explode("hits", empty_as_null=True)
         .with_columns(
-            pl.col("hits").struct.field("file_path").alias("hit_file_path"),
+            pl.col("hits").struct.field("file_paths").alias("hit_file_paths"),
             pl.col("hits").struct.field("scope").alias("hit_scope"),
             pl.col("hits").struct.field("name").alias("hit_name"),
             pl.col("hits").struct.field("line_start").alias("hit_line_start"),
+            pl.col("hits").struct.field("line_end").alias("hit_line_end"),
+            pl.col("hits").struct.field("symbol_kind").alias("hit_symbol_kind"),
             pl.int_range(1, pl.len() + 1, dtype=pl.UInt8).over(outcome_keys).alias("hit_rank"),
         )
     )
 
     ranks = (
         exploded.filter(
-            (pl.col("hit_file_path") == pl.col("query_file"))
-            & (pl.col("hit_scope") == pl.col("query_scope"))
-            & (pl.col("hit_name") == pl.col("query_name"))
-            & (pl.col("hit_line_start") == pl.col("query_line_start"))
+            # A hit covers every path its content sits at, so the target
+            # file counts as found when it is one of them.
+            pl.col("hit_file_paths").list.contains(pl.col("file_path"))
+            & (pl.col("hit_scope") == pl.col("scope"))
+            & (pl.col("hit_name") == pl.col("name"))
+            & (pl.col("hit_line_start") == pl.col("line_start"))
+            # The span's end and the kind separate two chunks that begin
+            # on one line — without them a hit on the sibling scores as
+            # a hit on the target.
+            & (pl.col("hit_line_end") == pl.col("line_end"))
+            & (pl.col("hit_symbol_kind") == pl.col("symbol_kind"))
         )
         .group_by(outcome_keys)
         .agg(pl.col("hit_rank").min().alias("rank"))
@@ -266,7 +418,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
 
     tops = exploded.filter(pl.col("hit_rank") == 1).select(
         *outcome_keys,
-        pl.col("hit_file_path").alias("top_file"),
+        pl.col("hit_file_paths").list.first().alias("top_file"),
         pl.col("hit_line_start").alias("top_line"),
         pl.col("hit_name").alias("top_name"),
     )
@@ -328,6 +480,10 @@ def _aggregate(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Metrics]:
             outcomes.group_by("arm", *dims)
             .agg(*aggs)
             .with_columns(*sentinels)
+            # A rollup either groups by the kind, giving the outcome's enum,
+            # or covers every kind, giving the sentinel — which no enum of
+            # kinds holds. The levels concatenate on the wider type.
+            .with_columns(pl.col("symbol_kind").cast(pl.String))
             .select(key_cols + val_cols)
         )
 

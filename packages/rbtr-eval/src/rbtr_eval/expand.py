@@ -40,7 +40,7 @@ from rbtr.domain.models import QueryKind
 from rbtr.index.classify import classify_query
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.queries import load_all_queries
-from rbtr_eval.schemas import ExpansionRow, QueryRow
+from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 log = logging.getLogger(__name__)
 
@@ -207,6 +207,8 @@ async def _expand_one(
     scope: str,
     name: str,
     line_start: int,
+    line_end: int,
+    symbol_kind: str,
     provenance: str,
     text: str,
     kind: QueryKind,
@@ -247,6 +249,8 @@ async def _expand_one(
             "scope": scope,
             "name": name,
             "line_start": line_start,
+            "line_end": line_end,
+            "symbol_kind": symbol_kind,
             "provenance": provenance,
             "query_kind": kind.value,
             "keywords": output.keywords,
@@ -301,6 +305,8 @@ def expand_queries(
                         row["scope"],
                         row["name"],
                         row["line_start"],
+                        row["line_end"],
+                        row["symbol_kind"],
                         row["provenance"],
                         row["text"],
                         QueryKind(row["query_kind"]),

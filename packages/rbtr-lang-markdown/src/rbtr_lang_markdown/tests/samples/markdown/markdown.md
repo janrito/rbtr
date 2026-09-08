@@ -14,3 +14,5 @@ not treated as a cross-reference.
 
 Supported locales are documented in [the locales table](locales.md).
 Jump to [the usage section](#usage) for examples.
+
+Start with [the setup guide](guides/setup.md).

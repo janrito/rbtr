@@ -1,0 +1,5 @@
+# Reached from the root manifest's `path` dependency: the reference names
+# this directory, and this manifest stands for it.
+[package]
+name = "helper"
+version = "0.1.0"

@@ -26,7 +26,7 @@ has no node for them.
 
 `name` is the statement's target object; `scope` is always empty (SQL
 has no nesting). A statement with no nameable target (`SELECT 1`, a
-`UNION`) is named `<anonymous>`.
+`UNION`) carries no name.
 
 ```sql
 CREATE TABLE users (id INT, name TEXT);   -- class    "users"

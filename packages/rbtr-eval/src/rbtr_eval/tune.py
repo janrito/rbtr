@@ -3,7 +3,7 @@
 Bayesian-optimise the rbtr search fusion weights `(alpha,
 beta, gamma)` against every per-repo query set, using the
 index in the shared home.  Reports best vs current weights
-in `data/tuned-params.json`; never edits source.
+in `data/TUNING.md`; never edits source.
 
 Uses Optuna's TPESampler on a unit-square reparameterisation
 of the simplex (2 free dimensions).  Each trial evaluates
@@ -14,7 +14,9 @@ returns MRR.  Ask-and-tell interface for progress control.
 from __future__ import annotations
 
 import json
+import math
 import time
+from enum import StrEnum
 from importlib import resources
 from pathlib import Path
 
@@ -29,20 +31,155 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import WeightTriple, config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.domain.models import QueryKind
+from rbtr.domain.models import ChunkKind, QueryKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import (
-    DetailedOutcome,
-    ImpactComparison,
+from rbtr_eval.shared_schemas import (
+    IDENTITY_COLUMNS,
+    MATCH_COLUMNS,
     QueryMeta,
     QueryRow,
-    ScoredCandidate,
-    TuneReport,
 )
+
+
+class Verdict(StrEnum):
+    """Whether a tuned weight triple is worth adopting.
+
+    A tuning delta is a difference between two means over a few hundred
+    queries, so it carries an error of its own.  `RECOMMEND` says the
+    delta is larger than twice that error; `WITHHOLD` says the run
+    cannot tell the tuned weights from the current ones.
+    """
+
+    RECOMMEND = "recommend"
+    WITHHOLD = "withhold"
+
+
+class ScoredCandidate(dy.Schema):
+    """One candidate per query, carrying all component scores.
+
+    Produced by `tune._collect_scored_candidates`; consumed
+    by `tune._rescore_and_rank`.
+
+    `file_paths` holds every location the candidate's content sits at,
+    as the daemon returns it, so a target is reached when its path is
+    one of them.
+    """
+
+    query_idx = dy.UInt32()
+    file_paths = dy.List(dy.String())
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+    semantic = dy.Float64()
+    lexical = dy.Float64()
+    name_match = dy.Float64()
+    kind_boost = dy.Float64()
+    file_penalty = dy.Float64()
+    importance = dy.Float64()
+    proximity = dy.Float64()
+
+
+class DetailedOutcome(dy.Schema):
+    """Per-query rank from a single weight configuration.
+
+    Produced by `tune._rescore_and_rank`; consumed by
+    `tune._impact_comparison` and `tune._paired_delta_se`.
+
+    `query_idx` identifies the query within its kind's run, so two
+    frames scored under different weights can be compared query by
+    query rather than only in aggregate.
+    """
+
+    query_idx = dy.UInt32(min=0)
+    slug = dy.String()
+    language = dy.String()
+    provenance = dy.String()
+    rank = dy.UInt8(nullable=True, min=1, max=10)
+
+
+class ImpactComparison(dy.Schema):
+    """Side-by-side MRR for baseline vs best weights.
+
+    One row per rollup dimension (repo, language, provenance,
+    and `__all__` sentinels for rollups).
+    """
+
+    slug = dy.String()
+    language = dy.String()
+    provenance = dy.String()
+    baseline_mrr = dy.Float64(min=0.0, max=1.0)
+    best_mrr = dy.Float64(min=0.0, max=1.0)
+    delta = dy.Float64(min=-1.0, max=1.0)
+    baseline_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
+    best_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
+    delta_ndcg_at_10 = dy.Float64(min=-1.0, max=1.0)
+
+
+class TuneReport(dy.Schema):
+    """One study's outcome, one row per `QueryKind`.
+
+    Held in memory for the length of the run and rendered into
+    `TUNING.md`; nothing persists it.
+    """
+
+    kind = dy.String()
+    best_alpha = dy.Float64(min=0.0, max=1.0)
+    best_beta = dy.Float64(min=0.0, max=1.0)
+    best_gamma = dy.Float64(min=0.0, max=1.0)
+    score_best = dy.Float64(min=0.0, max=1.0)
+    current_alpha = dy.Float64(min=0.0, max=1.0)
+    current_beta = dy.Float64(min=0.0, max=1.0)
+    current_gamma = dy.Float64(min=0.0, max=1.0)
+    score_current = dy.Float64(min=0.0, max=1.0)
+    delta = dy.Float64(min=-1.0, max=1.0)
+    delta_se = dy.Float64(min=0.0, max=1.0)
+    """Standard error of `delta`, from the per-query paired differences."""
+    verdict = dy.Enum(tuple(v.value for v in Verdict))
+    pool_recall = dy.Float64(min=0.0, max=1.0)
+    """Share of queries whose target reached the pool the trials rerank.
+
+    The objective cannot exceed this: a target the default weights did
+    not retrieve is unscoreable by every weight triple.
+    """
+    metric = dy.String()
+    n_trials = dy.UInt32(min=1)
+    n_queries = dy.UInt32(min=0)
+    elapsed_seconds = dy.Float64(min=0.0)
+
+
+class TrialSpread(dy.Schema):
+    """One row of TUNING.md's top-trial spread table.
+
+    One row per `QueryKind`.  The weight ranges are taken over the ten
+    best-scoring trials of that kind's study and `mrr_range` over their
+    scores, so wide ranges beside a narrow `mrr_range` say the
+    objective cannot separate the weights it is choosing between.
+
+    Validated because the trials arrive as hand-built
+    `dict[str, float | int | str]` rows whose dtypes polars infers from
+    the Python objects — the same untyped boundary the INDEX.md count
+    rows cross from a DuckDB cursor.
+    """
+
+    kind = dy.String()
+    n_top = dy.UInt32(min=1)
+    alpha_min = dy.Float64(min=0.0, max=1.0)
+    alpha_max = dy.Float64(min=0.0, max=1.0)
+    beta_min = dy.Float64(min=0.0, max=1.0)
+    beta_max = dy.Float64(min=0.0, max=1.0)
+    gamma_min = dy.Float64(min=0.0, max=1.0)
+    gamma_max = dy.Float64(min=0.0, max=1.0)
+    mrr_range = dy.Float64(min=0.0, max=1.0)
+
+
+type TrialRow = dict[str, float | int | str]
+"""One Optuna trial's record: its kind, index, weights and scores."""
 
 # ── Scored-candidate collection ──────────────────────────────────────────────
 
@@ -83,10 +220,12 @@ def _collect_scored_candidates(
             rows.append(
                 {
                     "query_idx": idx,
-                    "file_path": r.file_path,
+                    "file_paths": r.file_paths,
                     "scope": r.scope,
                     "name": r.name,
                     "line_start": r.line_start,
+                    "line_end": r.line_end,
+                    "symbol_kind": r.kind.value,
                     "semantic": signals.semantic,
                     "lexical": signals.lexical,
                     "name_match": signals.name_match,
@@ -99,7 +238,7 @@ def _collect_scored_candidates(
         if on_progress is not None:
             on_progress(offset + i, total)
 
-    candidates = pl.DataFrame(rows, schema=ScoredCandidate.to_polars_schema()).pipe(
+    candidates = pl.DataFrame(rows, schema=ScoredCandidate.create_empty().schema).pipe(
         ScoredCandidate.validate, cast=True
     )
 
@@ -112,10 +251,7 @@ def _collect_scored_candidates(
             "language",
             "provenance",
             "query_kind",
-            "file_path",
-            "scope",
-            "name",
-            "line_start",
+            *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
     )
@@ -123,6 +259,31 @@ def _collect_scored_candidates(
 
 
 # ── Re-score and rank ─────────────────────────────────────────────────────────
+
+
+def _pool_recall(
+    candidates: dy.DataFrame[ScoredCandidate],
+    queries: dy.DataFrame[QueryMeta],
+) -> float:
+    """Fraction of queries whose target is anywhere in the retrieved pool.
+
+    The ceiling on the tuning objective.  The pool is fetched once,
+    under the *current default* weights, and every trial reranks that
+    same frame — so a target the defaults did not retrieve scores zero
+    for every triple, and a weight set whose merit would be retrieving
+    it earns nothing for that.  Reported so a low objective can be read
+    for what it is: either the ranking is poor, or the answer was never
+    in the pool to rank.
+    """
+    in_pool = candidates.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
+        pl.col("file_paths").list.contains(pl.col("file_path"))
+    )
+    hits = queries.join(
+        in_pool.select("query_idx", *MATCH_COLUMNS),
+        on=["query_idx", *MATCH_COLUMNS],
+        how="semi",
+    )
+    return hits.height / queries.height
 
 
 def _rescore_and_rank(
@@ -162,13 +323,17 @@ def _rescore_and_rank(
     )
     top = ranked.filter(pl.col("rank") <= 10)
 
+    target = top.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
+        pl.col("file_paths").list.contains(pl.col("file_path"))
+    )
+
     return (
         queries.join(
-            top.select("query_idx", "file_path", "scope", "name", "line_start", "rank"),
-            on=["query_idx", "file_path", "scope", "name", "line_start"],
+            target.select("query_idx", *MATCH_COLUMNS, "rank"),
+            on=["query_idx", *MATCH_COLUMNS],
             how="left",
         )
-        .select("slug", "language", "provenance", "rank")
+        .select("query_idx", "slug", "language", "provenance", "rank")
         .pipe(DetailedOutcome.validate, cast=True)
     )
 
@@ -198,6 +363,79 @@ def _mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
     return ranks.select(*search_metric_aggs()).get_column("mrr").item()
 
 
+def _paired_delta_se(
+    baseline: dy.DataFrame[DetailedOutcome],
+    best: dy.DataFrame[DetailedOutcome],
+) -> float:
+    """Standard error of the MRR difference between two weight triples.
+
+    Both arms rank the same queries over the same candidate pool and
+    differ only in the weights, so the comparison is paired: the error
+    is taken over the *per-query differences* in reciprocal rank, not
+    over each arm's own spread.  That distinction dominates the result
+    — most queries rank identically under both arms and contribute a
+    difference of exactly zero, which an unpaired error would instead
+    count as two large and independent variances.
+
+    A rank outside the top 10 arrives null and scores 0, matching
+    `search_metric_aggs`.  Returns 0.0 when fewer than two queries are
+    compared, there being no spread to measure.
+    """
+    reciprocal = pl.col("rank").cast(pl.Float64).pow(-1).fill_null(0.0)
+    paired = baseline.select("query_idx", reciprocal.alias("base_rr")).join(
+        best.select("query_idx", reciprocal.alias("best_rr")),
+        on="query_idx",
+    )
+    if paired.height < 2:
+        return 0.0
+
+    spread = paired.select(
+        (pl.col("best_rr") - pl.col("base_rr")).std().alias("sd"),
+    ).item()
+    return float(spread) / math.sqrt(paired.height)
+
+
+def _top_trial_spread(trials: list[TrialRow]) -> dy.DataFrame[TrialSpread]:
+    """Per-kind weight ranges over the ten best-scoring trials.
+
+    Each kind is its own study, so trials are ranked within a kind and
+    never pooled across them.  A study that ran fewer than ten trials
+    reports the spread over what it has, which `n_top` states.
+    """
+    ranked = (
+        pl.DataFrame(trials)
+        .sort("mrr", descending=True)
+        .group_by("kind", maintain_order=True)
+        .head(10)
+    )
+    return (
+        ranked.group_by("kind")
+        .agg(
+            pl.len().cast(pl.UInt32).alias("n_top"),
+            pl.col("alpha").min().alias("alpha_min"),
+            pl.col("alpha").max().alias("alpha_max"),
+            pl.col("beta").min().alias("beta_min"),
+            pl.col("beta").max().alias("beta_max"),
+            pl.col("gamma").min().alias("gamma_min"),
+            pl.col("gamma").max().alias("gamma_max"),
+            (pl.col("mrr").max() - pl.col("mrr").min()).alias("mrr_range"),
+        )
+        # Kind order follows `QueryKind`, so the spread reads against
+        # the Result table row for row.
+        .sort(pl.col("kind").cast(pl.Enum(tuple(k.value for k in QueryKind))))
+        .pipe(TrialSpread.validate, cast=True)
+    )
+
+
+def _verdict(delta: float, delta_se: float) -> Verdict:
+    """Whether *delta* clears twice its own standard error.
+
+    Strict, so a delta exactly twice its error withholds: a tie is not
+    evidence.  A negative delta can never clear it.
+    """
+    return Verdict.RECOMMEND if delta > 2 * delta_se else Verdict.WITHHOLD
+
+
 # ── Simplex parameterisation ─────────────────────────────────────────────────
 
 
@@ -214,7 +452,7 @@ def _simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
 
 def _render_tuning_report(
     report: dy.DataFrame[TuneReport],
-    trials_data: list[dict[str, float | int]],
+    trials_data: list[TrialRow],
     impact: dy.DataFrame[ImpactComparison],
     dist: pl.DataFrame,
     report_dir: Path | None = None,
@@ -232,22 +470,27 @@ def _render_tuning_report(
         {"best_alpha": "alpha", "best_beta": "beta", "best_gamma": "gamma"}
     )
 
-    score_current = r["score_current"][0]
-    score_best = r["score_best"][0]
-    delta = r["delta"][0]
-    pct = (delta / score_current * 100) if score_current != 0 else 0.0
+    # One row per kind: each is a separate optimisation over its own
+    # query set, so a single current/recommended pair would describe
+    # one kind and misdescribe the others.
+    pct = (
+        pl.when(pl.col("score_current") != 0)
+        .then(pl.col("delta") / pl.col("score_current") * 100)
+        .otherwise(0.0)
+        .round(1)
+    )
+    signed_pct = pl.when(pct >= 0).then(pl.lit("+")).otherwise(pl.lit("")) + pct.cast(pl.String)
 
-    result_df = pl.DataFrame(
-        {
-            "metric": [r["metric"][0]],
-            "current": [score_current],
-            "recommended": [score_best],
-            "delta": [delta],
-        }
-    ).with_columns(
-        pl.col("current").cast(pl.String).alias("current"),
-        pl.col("recommended").cast(pl.String).alias("recommended"),
-        (pl.col("delta").cast(pl.String) + pl.lit(f" ({pct:+.1f}%)")).alias("delta"),
+    result_df = r.select(
+        "kind",
+        "metric",
+        pl.col("score_current").cast(pl.String).alias("current"),
+        pl.col("score_best").cast(pl.String).alias("recommended"),
+        (pl.col("delta").cast(pl.String) + pl.lit(" (") + signed_pct + pl.lit("%)")).alias("delta"),
+        (pl.lit("± ") + pl.col("delta_se").round(4).cast(pl.String)).alias("std error"),
+        pl.col("verdict").cast(pl.String).alias("verdict"),
+        pl.col("n_queries").alias("n"),
+        pl.col("pool_recall").round(4).alias("pool ceiling"),
     )
 
     template = resources.files("rbtr_eval.templates").joinpath("tuning.md.j2").read_text()
@@ -280,6 +523,7 @@ def _render_tuning_report(
         template,
         weights_table=md_table(weights_df),
         result_table=md_table(result_df),
+        spread_table=md_table(_top_trial_spread(trials_data)),
         impact_table=md_table(impact_display),
         sample_table=md_table(dist),
         toml_snippet=_toml_snippet(report),
@@ -380,17 +624,37 @@ def _impact_comparison(
 _TunedWeights = TypeAdapter(dict[QueryKind, WeightTriple])
 
 
-def _toml_snippet(report: dy.DataFrame[TuneReport]) -> str:
-    """Build a TOML config snippet from tuning results."""
-    selected = report.select(
+def _weights_toml(rows: pl.DataFrame) -> str:
+    """Serialise *rows*' tuned weights as a `[search_weights]` block.
+
+    Takes a subset of a `TuneReport` — filtering by verdict drops the
+    schema — and reads only `kind` and the three `best_*` columns.
+    Empty in, empty out: a kind set with no members has no block.
+    """
+    selected = rows.select(
         "kind",
         pl.col("best_alpha").alias("alpha"),
         pl.col("best_beta").alias("beta"),
         pl.col("best_gamma").alias("gamma"),
     )
     raw = dict(zip(selected["kind"], selected.drop("kind").to_dicts(), strict=True))
+    if not raw:
+        return ""
     serialised = _TunedWeights.dump_python(_TunedWeights.validate_python(raw), mode="json")
     return tomli_w.dumps({"search_weights": serialised}).strip()
+
+
+def _toml_snippet(report: dy.DataFrame[TuneReport]) -> str:
+    """Build a TOML config snippet from tuning results.
+
+    A kind whose verdict is `WITHHOLD` is emitted commented out: its
+    numbers stay readable, but pasting the snippet whole ships only the
+    weights this run can tell apart from the current ones.
+    """
+    recommended = _weights_toml(report.filter(pl.col("verdict") == Verdict.RECOMMEND))
+    withheld = _weights_toml(report.filter(pl.col("verdict") == Verdict.WITHHOLD))
+    commented = "\n".join(f"# {line}" if line else "#" for line in withheld.splitlines())
+    return "\n".join(part for part in (recommended, commented) if part).strip()
 
 
 # ── Optuna study runner ──────────────────────────────────────────────────
@@ -399,7 +663,7 @@ type StudyResult = tuple[
     tuple[float, float, float],
     float,
     dy.DataFrame[DetailedOutcome],
-    list[dict[str, float | int]],
+    list[TrialRow],
 ]
 
 
@@ -408,17 +672,23 @@ def _run_study(
     meta: dy.DataFrame[QueryMeta],
     baseline_ranks: dy.DataFrame[DetailedOutcome],
     *,
+    kind: str,
     n_trials: int,
     seed: int,
 ) -> StudyResult:
-    """Run one Optuna study and return `(best_weights, best_mrr, best_ranks, trials_data)`."""
+    """Run one Optuna study and return `(best_weights, best_mrr, best_ranks, trials_data)`.
+
+    Every trial row carries *kind*: the three studies' trials are
+    concatenated for reporting, and a spread taken across the pooled
+    rows would describe none of them.
+    """
     sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.create_study(direction="maximize", sampler=sampler)
 
     best_mrr = float("-inf")
     best_weights: tuple[float, float, float] = (0.0, 0.0, 0.0)
     best_ranks = baseline_ranks
-    trials_data: list[dict[str, float | int]] = []
+    trials_data: list[TrialRow] = []
 
     for trial_idx in range(n_trials):
         trial = study.ask()
@@ -438,7 +708,8 @@ def _run_study(
             best_ranks = trial_ranks
 
         alpha, beta, gamma = weights
-        trial_row: dict[str, float | int] = {
+        trial_row: TrialRow = {
+            "kind": kind,
             "trial": trial_idx + 1,
             "alpha": alpha,
             "beta": beta,
@@ -505,7 +776,7 @@ class TuneCmd(BaseModel):
         total_queries = sum(kq.height for kq in kind_queries.values())
 
         report_rows: list[dict[str, float | str | int | None]] = []
-        all_trials_data: list[dict[str, float | int]] = []
+        all_trials_data: list[TrialRow] = []
         all_baseline_ranks: list[dy.DataFrame[DetailedOutcome]] = []
         all_best_ranks: list[dy.DataFrame[DetailedOutcome]] = []
 
@@ -538,6 +809,7 @@ class TuneCmd(BaseModel):
                     candidates,
                     meta,
                     baseline_ranks,
+                    kind=kind,
                     n_trials=self.n_trials,
                     seed=self.seed,
                 )
@@ -547,6 +819,8 @@ class TuneCmd(BaseModel):
                 all_trials_data.extend(trials_data)
 
                 best_alpha, best_beta, best_gamma = best_weights
+                delta = best_mrr - baseline_mrr
+                delta_se = _paired_delta_se(baseline_ranks, best_ranks)
                 report_rows.append(
                     {
                         "kind": kind,
@@ -558,7 +832,10 @@ class TuneCmd(BaseModel):
                         "current_beta": rbtr_config.search_weights[QueryKind(kind)].beta,
                         "current_gamma": rbtr_config.search_weights[QueryKind(kind)].gamma,
                         "score_current": baseline_mrr,
-                        "delta": best_mrr - baseline_mrr,
+                        "delta": delta,
+                        "delta_se": delta_se,
+                        "verdict": _verdict(delta, delta_se),
+                        "pool_recall": _pool_recall(candidates, meta),
                         "metric": "MRR",
                         "n_trials": self.n_trials,
                         "n_queries": n_queries,
@@ -591,7 +868,7 @@ class TuneCmd(BaseModel):
     def _write_output(
         self,
         report: dy.DataFrame[TuneReport],
-        trials_data: list[dict[str, float | int]],
+        trials_data: list[TrialRow],
         impact: dy.DataFrame[ImpactComparison],
         dist: pl.DataFrame,
     ) -> None:

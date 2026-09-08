@@ -6,7 +6,8 @@ import dataframely as dy
 import polars as pl
 from pytest_cases import case
 
-from rbtr_eval.schemas import QueryMeta, ScoredCandidate
+from rbtr_eval.shared_schemas import QueryMeta
+from rbtr_eval.tune import ScoredCandidate
 
 # ── _rescore_and_rank ────────────────────────────────────────────────────────
 
@@ -24,10 +25,12 @@ def case_rescore_target_at_rank_one() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.1,
                 "name_match": 0.1,
@@ -38,10 +41,12 @@ def case_rescore_target_at_rank_one() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.9,
                 "name_match": 0.1,
@@ -64,6 +69,8 @@ def case_rescore_target_at_rank_one() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -83,10 +90,12 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
         [
             {
                 "query_idx": 0,
-                "file_path": "target.py",
+                "file_paths": ["target.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.1,
                 "name_match": 0.1,
@@ -97,10 +106,12 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other.py",
+                "file_paths": ["other.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.9,
                 "name_match": 0.1,
@@ -123,10 +134,67 @@ def case_rescore_target_drops_to_rank_two() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
     return candidates, meta, (0.1, 0.8, 0.1), [2], 0.5
+
+
+@case(tags=["rescore"])
+def case_rescore_sibling_sharing_most_of_the_identity() -> tuple[
+    dy.DataFrame[ScoredCandidate],
+    dy.DataFrame[QueryMeta],
+    tuple[float, float, float],
+    list[int | None],
+    float,
+]:
+    """A chunk at the same path, scope, name and start line is not the target.
+
+    Two chunks can open on one line — a fenced shell line is both a
+    command and its trailing comment — so identity needs the span's end
+    and the kind as well. The sibling outscores the target here, so a
+    join that matched on less would report rank 1 and MRR 1.0 for a hit
+    on the wrong chunk.
+    """
+    shared = {
+        "query_idx": 0,
+        "file_paths": ["target.py"],
+        "scope": "",
+        "name": "fn",
+        "line_start": 1,
+        "lexical": 0.1,
+        "name_match": 0.1,
+        "kind_boost": 1.0,
+        "file_penalty": 1.0,
+        "importance": 1.0,
+        "proximity": 1.0,
+    }
+    candidates = pl.DataFrame(
+        [
+            {**shared, "line_end": 2, "symbol_kind": "comment", "semantic": 0.9},
+            {**shared, "line_end": 5, "symbol_kind": "function", "semantic": 0.1},
+        ]
+    ).pipe(ScoredCandidate.validate, cast=True)
+    meta = pl.DataFrame(
+        [
+            {
+                "query_idx": 0,
+                "slug": "repo",
+                "language": "python",
+                "provenance": "name",
+                "query_kind": "identifier",
+                "file_path": "target.py",
+                "scope": "",
+                "name": "fn",
+                "line_start": 1,
+                "line_end": 5,
+                "symbol_kind": "function",
+            }
+        ]
+    ).pipe(QueryMeta.validate, cast=True)
+    return candidates, meta, (0.8, 0.1, 0.1), [2], 0.5
 
 
 @case(tags=["rescore"])
@@ -141,10 +209,12 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows = [
         {
             "query_idx": 0,
-            "file_path": f"c{i}.py",
+            "file_paths": [f"c{i}.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
+            "line_end": 1,
+            "symbol_kind": "function",
             "semantic": 0.8 - i * 0.05,
             "lexical": 0.8 - i * 0.05,
             "name_match": 0.5,
@@ -158,10 +228,12 @@ def case_rescore_target_outside_top_10() -> tuple[
     rows.append(
         {
             "query_idx": 0,
-            "file_path": "target.py",
+            "file_paths": ["target.py"],
             "scope": "",
             "name": "fn",
             "line_start": 1,
+            "line_end": 1,
+            "symbol_kind": "function",
             "semantic": 0.01,
             "lexical": 0.01,
             "name_match": 0.01,
@@ -184,6 +256,8 @@ def case_rescore_target_outside_top_10() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -200,9 +274,7 @@ def case_rescore_empty_candidates() -> tuple[
     float,
 ]:
     """Zero candidates for a query -> null rank, near-zero MRR."""
-    candidates = pl.DataFrame(schema=ScoredCandidate.to_polars_schema()).pipe(
-        ScoredCandidate.validate, cast=True
-    )
+    candidates = ScoredCandidate.create_empty()
     meta = pl.DataFrame(
         [
             {
@@ -215,6 +287,8 @@ def case_rescore_empty_candidates() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             }
         ]
     ).pipe(QueryMeta.validate, cast=True)
@@ -241,10 +315,12 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 0: target wins.
             {
                 "query_idx": 0,
-                "file_path": "target0.py",
+                "file_paths": ["target0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.9,
                 "name_match": 0.5,
@@ -255,10 +331,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 0,
-                "file_path": "other0.py",
+                "file_paths": ["other0.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.1,
                 "name_match": 0.5,
@@ -270,10 +348,12 @@ def case_rescore_multiple_queries() -> tuple[
             # Query 1: target is 3rd of 3.
             {
                 "query_idx": 1,
-                "file_path": "other1a.py",
+                "file_paths": ["other1a.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.9,
                 "lexical": 0.9,
                 "name_match": 0.5,
@@ -284,10 +364,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "other1b.py",
+                "file_paths": ["other1b.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.8,
                 "lexical": 0.8,
                 "name_match": 0.5,
@@ -298,10 +380,12 @@ def case_rescore_multiple_queries() -> tuple[
             },
             {
                 "query_idx": 1,
-                "file_path": "target1.py",
+                "file_paths": ["target1.py"],
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
                 "semantic": 0.1,
                 "lexical": 0.1,
                 "name_match": 0.5,
@@ -324,6 +408,8 @@ def case_rescore_multiple_queries() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             },
             {
                 "query_idx": 1,
@@ -335,6 +421,8 @@ def case_rescore_multiple_queries() -> tuple[
                 "scope": "",
                 "name": "fn",
                 "line_start": 1,
+                "line_end": 1,
+                "symbol_kind": "function",
             },
         ]
     ).pipe(QueryMeta.validate, cast=True)

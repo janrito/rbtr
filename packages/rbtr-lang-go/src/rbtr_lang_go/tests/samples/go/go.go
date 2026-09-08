@@ -8,7 +8,7 @@ package greet
 import (
 	"fmt"
 
-	"greeter/util"
+	"example.com/greeter/greeter"
 )
 
 // DefaultGreeting is the fallback prefix.
@@ -34,7 +34,7 @@ type Formatter interface {
 
 // Greet greets a single recipient.
 func (g Greeter) Greet(name string) string {
-	return fmt.Sprintf("%s, %s", g.Prefix, util.Trim(name))
+	return fmt.Sprintf("%s, %s", g.Prefix, greeter.Trim(name))
 }
 
 // FormatGreeting formats a greeting via a Greeter.

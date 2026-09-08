@@ -255,8 +255,10 @@ a repo meets content is **`file_snapshots`**, which maps
 `(repo_id, snapshot_sha, file_path) -> blob_sha`. So:
 
 - A chunk is reached by joining `file_snapshots` on `(blob_sha,
-  file_path)`; the repo scope and a result row's `repo_id` come from that
-  join, never from the chunk.
+  file_language)`; the repo scope, a result row's `repo_id`, and its
+  path all come from that join, never from the chunk. A chunk carries no
+  path: identical content at four paths is one row reached four ways,
+  and a search result lists every location it was found at.
 - Byte-identical content in several repos/worktrees/clones is **one**
   physical `chunks` row, shared. `file_snapshots` rows (one per repo)
   point at it.
@@ -308,7 +310,7 @@ erDiagram
     repos ||--o{ indexed_snapshots : "repo_id"
     repos ||--o{ watched_refs : "repo_id"
 
-    file_snapshots }o--o{ chunks : "blob_sha + file_path (content-addressed, shared)"
+    file_snapshots }o--o{ chunks : "blob_sha + file_language (content-addressed, shared)"
     edges }o--|| chunks : "source_id = id"
     edges }o--|| chunks : "target_id = id"
 
@@ -365,15 +367,15 @@ erDiagram
 
 ### Record identity
 
-| Table               | Natural key                                                                                                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                |
-| `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                           |
-| `chunks`            | `(id)` = `blake2b(file_path:blob_sha:name:line_start, digest_size=8)` — content-addressed, shared across repos |
-| `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind)` — the whole tuple is the key                             |
-| `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                      |
-| `watched_refs`      | `(repo_id, ref)`                                                                                               |
-| `meta`              | `(key)`                                                                                                        |
+| Table               | Natural key                                                                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
+| `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
+| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across repos and paths                                                                |
+| `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
+| `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
+| `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
+| `meta`              | `(key)`                                                                                                                                                                                                   |
 
 ### Embedding column
 
@@ -409,15 +411,21 @@ snapshot's file tree:
 FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
-  AND c.file_path = fs.file_path
+  AND c.file_language = fs.detected_language
 WHERE fs.repo_id = ? AND fs.snapshot_sha = ?
 ```
 
-The repo scope and the result row's `repo_id` both come from
-`file_snapshots` (or `_snapshot_refs`), never from the chunk — the
-chunk is repo-less. A chunk shared by several repos therefore
-fans out to one result row per repo via this join, preserving
-cross-repo attribution.
+The repo scope, the result row's `repo_id`, and the path all come from
+`file_snapshots` (or `_snapshot_refs`), never from the chunk — the chunk
+is repo-less and path-less. A chunk shared by several repos, or found at
+several paths within one, fans out to one row per location through this
+join, which is how a location-sensitive signal like the file-category
+penalty still sees each path. Search collapses those rows afterwards,
+keeping the best-scoring one and listing every path on the result.
+
+The language is part of the join because it is part of a chunk's
+identity: the same bytes extracted as two languages are two chunks, and
+each must pair with the files read as that language.
 
 ### Registered frames as query inputs
 
@@ -507,6 +515,10 @@ from every index in the field. Applying one everywhere means
 bumping `schema_version`, so that each database is rebuilt
 with it.
 
+`chunks` carries two: a span ends on or after the line it
+starts on, and truncation describes an embedding that exists.
+Both arrived with a `schema_version` bump for that reason.
+
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
 
@@ -551,7 +563,12 @@ the tasks below it are the work it spawns.
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
-  ZMQ.
+  ZMQ. `send()` retries with reconnect on recv timeout:
+  after a timeout the REQ socket is
+  stuck in “waiting for reply” state and must be destroyed
+  and recreated. Retries up to `max_retries` times
+  (default 3) with exponential backoff. All requests are
+  idempotent, so duplicate delivery is harmless.
 
 ### Watched refs
 
@@ -601,11 +618,24 @@ whether it is indexed yet).
 a time. The `_job_worker` serialises all write tasks
 through `asyncio.Semaphore(1)` + `asyncio.to_thread()`.
 Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes. Compaction is the one
+and run concurrently with writes. `store.py` imports pyarrow
+eagerly because duckdb's [Multiple Python Threads
+guide][ddb-threads] requires the interop library to be imported
+before threading starts — it names pandas, and the Arrow path
+needs pyarrow the same way. Without it, a frame reaches duckdb as
+an Arrow stream and registering one from a thread that then exits
+corrupts the connection. Rebuilding the FTS index on a long-lived
+thread does not avoid this, and nor does closing the writer's
+cursor before it exits: the registration does the damage, not the
+writing.
+
+Compaction is the one
 write that swaps the connection: it publishes the rewritten
 file as a fresh connection (`IndexStore._adopt_connection`)
 and each thread rebinds its cursor on the next read, so a
 `gc` rewrite never blocks or cuts off an in-flight search.
+
+[ddb-threads]: https://duckdb.org/docs/current/guides/python/multiple_threads
 
 **GPU model serialisation:** The daemon manages two GPU
 models: `Embedder` (embedding) and `Reranker`
@@ -856,9 +886,10 @@ Log behaviour is asserted on captured event dicts via
 The extraction engine lives in `rbtr.languages`, beside the
 `LanguageRegistration` contract and the manager that runs it: `treesitter`
 (query execution and doc-span recovery), `extract` (per-file strategy dispatch
-and injection), `edges` (import/doc inference), and `chunks` (the plaintext
-fallback). `rbtr.index` depends on `languages` in just two places — the build
-loop, which composes extraction with storage, and `classify`, which reuses the
+and injection), `edges` (import/doc inference), and `chunks` (the
+plaintext fallback, and the span arithmetic every chunker shares).
+`rbtr.index` depends on `languages` in just two places — the build loop,
+which composes extraction with storage, and `classify`, which reuses the
 language registry for search — while `languages` reaches down only to the
 `rbtr.domain` kernel (`models`, `identity`), so the dependency stays
 one-directional.
@@ -925,14 +956,50 @@ for the dispatch chain.
 - **Import edges** - structural (tree-sitter import
   extractor) or text-search fallback.
 - **Doc edges** - markdown sections mentioning symbol names.
+- **Data references** - a JSON Schema or OpenAPI `$ref`, a
+  tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
+  `path` dependency. A `$ref`'s pointer names a key inside the
+  document it reaches, as a Markdown link's fragment names a
+  heading, so a data language's keys are in the symbol index.
 
-Import resolution maps a module string to a repo file:
-relative paths directly, absolute/dotted paths by matching
-the dotted path as a *suffix* of a candidate file path (so
+Import resolution maps a module string to a repo file. A
+reference carrying its own depth — `../b`, or a `dots` the
+extractor set — is anchored to the importing file and has one
+place to look. Anything else is tried from the repository root
+first, then, for a `ModuleStyle.PATH` language, beside the
+importing file: `@import "b.css"` in `css/a.css` means
+`css/b.css`, and the root is tried first so a reference that
+already resolves keeps the file it resolved to. Failing both, a
+dotted path matches as a *suffix* of a candidate file path (so
 `rbtr.index.store` → `…/rbtr/index/store.py`) — which lets a
 single index span a monorepo. `module_style` and
 `source_roots` tune the mapping per language; ambiguous
-matches are dropped rather than guessed.
+matches are dropped rather than guessed, and a file never
+resolves to itself.
+
+Some references name a directory rather than a file. Where the
+language names a directory's stand-in — `__init__.py`,
+`index.js`, `mod.rs`, a crate's `Cargo.toml` — `index_files`
+resolves it to that one file. Where every file in the directory
+belongs to the unit instead, the language says `package_directory`
+and the reference reaches all of them: a Go package is its
+directory, a Terraform module is a directory of `.tf` files. A
+Markdown link to a directory reaches nothing, which is why this
+is declared rather than assumed.
+
+A prefix a language's imports carry may be written down in the
+repository rather than in the language: `go.mod` states `module
+example.com/m`, which makes `example.com/m/b` the directory `b`.
+A registration names such a file as its `manifest`, the
+extraction loop reads it while the content is in hand, and
+`build_resolution_map` turns it into path substitutions — the
+edge pass itself reads no files.
+
+Whether each language's own syntax reaches a file is pinned per
+language by `test_import_resolution.py`, which extracts two real
+files in nested directories and follows the edge. Nested because
+two files at the repository root cannot tell a sibling reference
+from a root-relative one.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
@@ -1341,9 +1408,13 @@ distribution:
   as their wrap `resolver` argument and delegate to it, so plugins never
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
-- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`.
-- `rbtr.domain.identity.make_chunk_id`.
-- `rbtr.languages.chunks.chunk_plaintext`.
+- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
+  `id` is a property over its own fields, so a plugin yields chunks and
+  never computes an identity.
+- `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
+  which turns a tree-sitter end point into the 1-based last line a
+  node occupies. The query engine and every chunker share it, so a
+  span means the same thing in every language.
 
 One dependency crosses *between* plugins rather than to core:
 scss and less import `css_nesting_scope` from the css plugin
@@ -1499,6 +1570,12 @@ unstaged, untracked, deleted). Properties:
 Tree SHAs never collide with commit SHAs (different git
 object types), so they coexist safely in `indexed_snapshots`.
 
+Describing an indexed SHA back to the user — `status` naming a
+worktree snapshot rather than printing a hash — tests the SHAs
+already in hand with `is_tree_sha`, which reads. It does not
+recompute `worktree_tree_sha`, which would write a tree and a
+blob per changed file into the repository being described.
+
 ### What a worktree build writes
 
 The working tree is indexed under its tree SHA in the
@@ -1520,14 +1597,14 @@ When a worktree build runs, the store receives:
 
 Queries scope results through `file_snapshots` exactly as for
 commits ([Snapshot resolution](#snapshot-resolution)) — the join is
-on `blob_sha + file_path`, with the repo scope coming from the
-snapshot, never the chunk:
+on `blob_sha + file_language`, with the repo scope *and the path*
+coming from the snapshot, never the chunk:
 
 ```sql
 FROM chunks c
 JOIN file_snapshots fs
   ON c.blob_sha = fs.blob_sha
-  AND c.file_path = fs.file_path
+  AND c.file_language = fs.detected_language
 WHERE fs.repo_id = $repo_id AND fs.snapshot_sha = $snapshot_sha
 ```
 
@@ -1606,7 +1683,12 @@ each poll cycle:
 - `poll_watched()` resolves each watched ref (HEAD is the
   default) and checks `indexed_snapshots`.
 - `poll_worktree()` computes `worktree_tree_sha` and
-  checks `has_indexed`. Read-only — never writes.
+  checks `has_indexed`. It writes no index rows, but computing
+  the SHA writes git objects into the repository being polled:
+  a tree, plus a blob for each changed file whose content git
+  does not already hold. No ref reaches them, so `git gc` may
+  prune them at any time — which is why neither cleanup nor
+  labelling may ask git to look one up again.
 
 #### Dirty repo (first edit)
 
@@ -1674,10 +1756,15 @@ tree_A is cleaned up by:
    in-memory state.
 2. **The watcher is read-only.** All writes go through
    `WriteSession` on the job worker thread.
-3. **Stale tree SHAs are cleaned eagerly.** After each
+3. **Stale worktree SHAs are cleaned eagerly.** After each
    build, `_drop_stale_worktree_shas` scans
-   `indexed_snapshots` and drops any tree-type SHA that
-   isn't the one just built.
+   `indexed_snapshots` and drops any indexed SHA that is not a
+   commit and is not the one just built. The gate asks whether
+   a SHA *is not a commit*, rather than whether it is a tree,
+   so a row whose object git has already pruned is still
+   dropped. Labelling asks the opposite question, because the
+   two tolerate different mistakes: dropping a SHA that names
+   nothing is harmless, calling it a worktree is a lie.
 4. **GC protects the current tree SHA.** `_resolve_drop_set`
    calls `worktree_tree_sha` and excludes it. Stale tree
    SHAs are included in the drop set (not reachable from

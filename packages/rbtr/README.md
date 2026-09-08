@@ -586,6 +586,46 @@ swift.import_extractor(extract_swift_imports)  # reuse an existing function
 An override that does not delegate simply ignores its `resolver`.
 Unset ones fall back to the engine defaults.
 
+### How your language's references resolve
+
+An `@import` capture gives the edge graph a module string. Turning that
+into a file is the registration's job, and every language spells it
+differently:
+
+| Field                | Says                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `module_style`       | whether a reference is a path (`./b`, `b.css`) or a dotted name (`pkg.b`)                    |
+| `source_roots`       | directory prefixes tried in turn, for a language whose imports are written from a `src` root |
+| `path_substitutions` | prefix rewrites, for an alias that is not a directory — Rust's `crate::` under `src/`        |
+| `index_files`        | the file that stands for a directory: `__init__.py`, `index.js`, `mod.rs`, `Cargo.toml`      |
+| `package_directory`  | that a directory *is* a unit, so a reference to one reaches every file in it                 |
+| `manifest`           | a repository file whose text supplies further substitutions, read per repository             |
+
+A path-style reference naming no directory is resolved beside the file
+making it, so `@import "b.css"` in `css/a.css` reaches `css/b.css`. Set
+`package_directory` only where the language means the whole directory — a
+Go package, a Terraform module — since it otherwise makes a link to a
+directory reach every file inside.
+
+`manifest` is for a prefix written down in the repository rather than in
+the language. Go declares one:
+
+```python
+go = LanguageRegistration(..., manifest="go.mod", package_directory=True)
+
+
+@go.manifest_reader
+def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
+    """`module example.com/m` makes `example.com/m/b` the directory `b`."""
+    match = re.search(r"^\s*module\s+(\S+)", text, re.MULTILINE)
+    return ((f"{match.group(1)}/", ""),) if match else ()
+```
+
+Add a case to `test_import_resolution.py` for the language: two real files
+in a subdirectory, one referencing the other, asserting the edge lands.
+Nested because two files at the repository root cannot tell a reference to
+a sibling from a reference from the root.
+
 ### Chunker-based plugin
 
 When the language's structural units can't be expressed
@@ -599,8 +639,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 from tree_sitter import Parser
-from rbtr.domain.identity import make_chunk_id
 from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration
 
 if TYPE_CHECKING:
@@ -625,8 +665,24 @@ def chunk_example(
     if ranges is not None:
         parser.included_ranges = ranges  # serve as an injection target
     tree = parser.parse(content.encode())
-    # ... walk tree, yield Chunk objects ...
+    for node in tree.root_node.children:
+        yield Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            kind=ChunkKind.DOC_SECTION,
+            name="",
+            scope="",
+            content=node.text.decode(),
+            line_start=node.start_point[0] + 1,
+            line_end=last_line(node),
+        )
 ```
+
+Spans are 1-based and inclusive. Take the last line from
+`last_line`: tree-sitter rows are 0-based, and a node that
+consumes its trailing newline ends at column 0 of a row it does
+not occupy, so adding one to the end row overshoots such a node
+by a line.
 
 ### Testing the plugin
 

@@ -1,6 +1,6 @@
 {
   "kind": "daemon_config",
-  "rbtr_version": "2026.7.0.dev1",
+  "rbtr_version": "2026.6.1",
   "config": {
     "data_dir": "data/index",
     "config_dir": "data/config",
@@ -42,6 +42,8 @@
     "idle_poll_interval": 5.0,
     "busy_poll_interval": 30.0,
     "daemon_recv_timeout_ms": 30000,
+    "daemon_max_retries": 3,
+    "daemon_start_timeout": 60.0,
     "warmup": true,
     "retrieval_multiplier_lexical": 5,
     "retrieval_multiplier_semantic": 10,
@@ -70,19 +72,19 @@
     {
       "language": "bash",
       "package": "rbtr-lang-bash",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 4
+      "version": "2026.6.1",
+      "extraction_serial": 5
     },
     {
       "language": "c",
       "package": "rbtr-lang-c",
-      "version": "2026.7.0.dev1",
+      "version": "2026.6.1",
       "extraction_serial": 4
     },
     {
       "language": "cpp",
       "package": "rbtr-lang-cpp",
-      "version": "2026.7.0.dev1",
+      "version": "2026.6.1",
       "extraction_serial": 6
     },
     {
@@ -106,7 +108,7 @@
     {
       "language": "html",
       "package": "rbtr-lang-html",
-      "version": "2026.7.0.dev1",
+      "version": "2026.6.1",
       "extraction_serial": 3
     },
     {
@@ -118,14 +120,14 @@
     {
       "language": "javascript",
       "package": "rbtr-lang-javascript",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 5
+      "version": "2026.6.1",
+      "extraction_serial": 6
     },
     {
       "language": "json",
       "package": "rbtr-lang-json",
       "version": "2026.6.1",
-      "extraction_serial": 2
+      "extraction_serial": 3
     },
     {
       "language": "less",
@@ -136,20 +138,26 @@
     {
       "language": "markdown",
       "package": "rbtr-lang-markdown",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 4
+      "version": "2026.6.1",
+      "extraction_serial": 5
+    },
+    {
+      "language": "plaintext",
+      "package": "rbtr",
+      "version": "2026.6.1",
+      "extraction_serial": 1
     },
     {
       "language": "python",
       "package": "rbtr-lang-python",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 5
+      "version": "2026.6.1",
+      "extraction_serial": 6
     },
     {
       "language": "rst",
       "package": "rbtr-lang-rst",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 3
+      "version": "2026.6.1",
+      "extraction_serial": 4
     },
     {
       "language": "ruby",
@@ -161,7 +169,7 @@
       "language": "rust",
       "package": "rbtr-lang-rust",
       "version": "2026.6.1",
-      "extraction_serial": 5
+      "extraction_serial": 6
     },
     {
       "language": "scss",
@@ -179,13 +187,13 @@
       "language": "svelte",
       "package": "rbtr-lang-svelte",
       "version": "2026.6.1",
-      "extraction_serial": 1
+      "extraction_serial": 3
     },
     {
       "language": "toml",
       "package": "rbtr-lang-toml",
       "version": "2026.6.1",
-      "extraction_serial": 4
+      "extraction_serial": 5
     },
     {
       "language": "tree_sitter_query",
@@ -196,26 +204,26 @@
     {
       "language": "tsx",
       "package": "rbtr-lang-javascript",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 2
+      "version": "2026.6.1",
+      "extraction_serial": 3
     },
     {
       "language": "typescript",
       "package": "rbtr-lang-javascript",
-      "version": "2026.7.0.dev1",
-      "extraction_serial": 5
+      "version": "2026.6.1",
+      "extraction_serial": 6
     },
     {
       "language": "vue",
       "package": "rbtr-lang-vue",
       "version": "2026.6.1",
-      "extraction_serial": 1
+      "extraction_serial": 2
     },
     {
       "language": "yaml",
       "package": "rbtr-lang-yaml",
       "version": "2026.6.1",
-      "extraction_serial": 4
+      "extraction_serial": 5
     }
   ]
 }

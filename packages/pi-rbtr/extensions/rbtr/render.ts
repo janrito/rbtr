@@ -105,6 +105,13 @@ export function fileScopeSuffix(args: Record<string, unknown>, theme: Theme): st
   return theme.fg("dim", ` in ${label}`);
 }
 
+/** Dim `@ref` suffix when the call targets a specific indexed snapshot. */
+function refSuffix(args: Record<string, unknown>, theme: Theme): string {
+  const ref = str(args.ref);
+  if (!ref) return "";
+  return theme.fg("dim", ` @${ref}`);
+}
+
 // ── Search ──────────────────────────────────────────────────────
 
 function scoreStyle(theme: Theme, score: number): string {
@@ -168,6 +175,7 @@ export function renderSearchCall(args: Record<string, unknown>, theme: Theme): T
   const query = str(args.query);
   let text = theme.fg("toolTitle", theme.bold("rbtr_search "));
   text += query === null ? invalidArg(theme) : query ? theme.fg("accent", `"${query}"`) : theme.fg("toolOutput", "...");
+  text += refSuffix(args, theme);
   const extras: string[] = [];
   if (args.limit) extras.push(`limit: ${args.limit}`);
   const keywords = decodeStringList(args.keywords);
@@ -195,7 +203,9 @@ export function renderSearchResult(
   const show = options.expanded ? results : results.slice(0, 5);
 
   for (const r of show) {
-    let path = shortenPath(r.file_path);
+    // One result, every location it was found at: identical content is
+    // one chunk reachable through each of its paths.
+    let path = r.file_paths.map(shortenPath).join(", ");
     if (r.repo_path) {
       const repoName = r.repo_path.replace(/\/+$/, "").split("/").pop() ?? r.repo_path;
       path = `${repoName}/${path}`;
@@ -241,7 +251,14 @@ export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme
   const symbol = str(args.symbol);
   const label =
     symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) + label + fileScopeSuffix(args, theme), 0, 0);
+  return new Text(
+    theme.fg("toolTitle", theme.bold("rbtr_read_symbol ")) +
+      label +
+      refSuffix(args, theme) +
+      fileScopeSuffix(args, theme),
+    0,
+    0,
+  );
 }
 
 export function renderReadSymbolResult(
@@ -286,7 +303,7 @@ export function renderReadSymbolResult(
 export function renderListSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
   const file = str(args.file);
   const label = file === null ? invalidArg(theme) : file ? theme.fg("accent", file) : theme.fg("toolOutput", "...");
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_list_symbols ")) + label, 0, 0);
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_list_symbols ")) + label + refSuffix(args, theme), 0, 0);
 }
 
 export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
@@ -312,7 +329,14 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
   const symbol = str(args.symbol);
   const label =
     symbol === null ? invalidArg(theme) : symbol ? theme.fg("accent", symbol) : theme.fg("toolOutput", "...");
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) + label + fileScopeSuffix(args, theme), 0, 0);
+  return new Text(
+    theme.fg("toolTitle", theme.bold("rbtr_find_refs ")) +
+      label +
+      refSuffix(args, theme) +
+      fileScopeSuffix(args, theme),
+    0,
+    0,
+  );
 }
 
 export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {

@@ -1,7 +1,9 @@
 """Ranking assertion helpers for search tests.
 
-Each helper produces a clear failure message naming the chunk
-IDs involved so test output is immediately actionable.
+Each helper produces a clear failure message naming the chunks
+involved so test output is immediately actionable. Chunks are
+identified by `name`: an id is a content hash, so a literal one in a
+test would say nothing about what failed.
 """
 
 from __future__ import annotations
@@ -18,10 +20,10 @@ SymbolId = tuple[str, str]
 # ── Private projections ─────────────────────────────────────────────
 
 
-def _rank_in(results: list[ScoredChunk], chunk_id: str) -> int | None:
-    """Return 1-indexed rank of *chunk_id*, or None if absent."""
+def _rank_in(results: list[ScoredChunk], name: str) -> int | None:
+    """Return 1-indexed rank of the chunk called *name*, or None."""
     for i, r in enumerate(results, 1):
-        if r.id == chunk_id:
+        if r.name == name:
             return i
     return None
 
@@ -38,19 +40,19 @@ def assert_outranks(results: list[ScoredChunk], higher: str, lower: str) -> None
     assert r_hi < r_lo, f"{higher} (rank {r_hi}) did not outrank {lower} (rank {r_lo})"
 
 
-def assert_ranked_within(results: list[ScoredChunk], chunk_id: str, *, top: int) -> None:
-    """Assert *chunk_id* appears within the top *top* results."""
-    r = _rank_in(results, chunk_id)
-    assert r is not None, f"{chunk_id} not found in results"
-    assert r <= top, f"{chunk_id} ranked {r}, expected within top {top}"
+def assert_ranked_within(results: list[ScoredChunk], name: str, *, top: int) -> None:
+    """Assert the chunk called *name* appears within the top *top*."""
+    r = _rank_in(results, name)
+    assert r is not None, f"{name} not found in results"
+    assert r <= top, f"{name} ranked {r}, expected within top {top}"
 
 
-def assert_in_results(results: list[ScoredChunk], chunk_id: str) -> ScoredChunk:
-    """Assert *chunk_id* is present and return its `ScoredChunk`."""
+def assert_in_results(results: list[ScoredChunk], name: str) -> ScoredChunk:
+    """Assert a chunk called *name* is present and return it."""
     for r in results:
-        if r.id == chunk_id:
+        if r.name == name:
             return r
-    msg = f"{chunk_id} not found in results"
+    msg = f"{name} not found in results"
     raise AssertionError(msg)
 
 

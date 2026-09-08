@@ -31,9 +31,9 @@ vars:
   # changes are silently ignored — desirable for reproducibility.
   - concept_dir: data/concept
   - expansion_dir: data/expansion
-  - expansion_model: openai-chat:zai-org/GLM-5.2
+  - expansion_model: openai-chat:deepseek/deepseek-v4-flash-0731
   - expansion_concurrency: 20
-  - paraphrase_model: openai-chat:zai-org/GLM-5.2
+  - paraphrase_model: openai-chat:deepseek/deepseek-v4-flash-0731
   - repos:
       - slug: rbtr__rbtr
         url: ../..
@@ -47,7 +47,6 @@ vars:
         url: https://github.com/anthropics/skills
 
 stages:
-
   config:
     cmd: >-
       python -m rbtr --json
@@ -88,7 +87,7 @@ stages:
         - src/rbtr_eval/extract.py
         - src/rbtr_eval/kinds.py
         - src/rbtr_eval/queries.py
-        - src/rbtr_eval/schemas.py
+        - src/rbtr_eval/shared_schemas.py
         - ../rbtr/src/rbtr
         - data/.chunks-ready
       outs:
@@ -109,10 +108,9 @@ stages:
         --concurrency ${paraphrase_concurrency}
       deps:
         - src/rbtr_eval/paraphrase.py
-        - src/rbtr_eval/schemas.py
+        - src/rbtr_eval/shared_schemas.py
         - src/rbtr_eval/kinds.py
         - src/rbtr_eval/formatting.py
-        - src/rbtr_eval/sql/all_chunk_content.sql
         - ../rbtr/src/rbtr
         - ${per_repo_dir}/${item.slug}.parquet
         - data/.chunks-ready
@@ -129,10 +127,9 @@ stages:
       && uv run rumdl fmt ${paraphrase_report}
     deps:
       - src/rbtr_eval/paraphrase.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/formatting.py
-      - src/rbtr_eval/sql/all_chunk_content.sql
       - src/rbtr_eval/templates/paraphrase.md.j2
       - ../rbtr/src/rbtr
       - ${concept_dir}
@@ -154,7 +151,7 @@ stages:
       - src/rbtr_eval/profile.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/queries.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/templates/dataset.md.j2
       - ../rbtr/src/rbtr
@@ -178,7 +175,7 @@ stages:
     deps:
       - src/rbtr_eval/expand.py
       - src/rbtr_eval/queries.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/templates/expansion.md.j2
@@ -210,7 +207,11 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/rbtrignore
+      - src/rbtr_eval/sql/index_repos.sql
+      - src/rbtr_eval/sql/index_kinds.sql
+      - src/rbtr_eval/sql/index_languages.sql
+      - src/rbtr_eval/sql/index_totals.sql
+      - src/rbtr_eval/templates/index.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${repos_dir}
@@ -233,6 +234,9 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
+      - src/rbtr_eval/sql/embedding_repos.sql
+      - src/rbtr_eval/sql/embedding_totals.sql
+      - src/rbtr_eval/templates/embedding.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - data/.chunks-ready
@@ -263,7 +267,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/benchmarks.md.j2
       - src/rbtr_eval/templates/mrr_by_repo.vl.json
@@ -311,7 +315,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/tuning.md.j2
       - src/rbtr_eval/templates/convergence.vl.json
@@ -354,7 +358,7 @@ stages:
       - src/rbtr_eval/formatting.py
       - src/rbtr_eval/queries.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/schemas.py
+      - src/rbtr_eval/shared_schemas.py
       - src/rbtr_eval/kinds.py
       - src/rbtr_eval/templates/reranker_tuning.md.j2
       - ../rbtr/src/rbtr

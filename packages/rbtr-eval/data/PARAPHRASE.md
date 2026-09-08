@@ -7,189 +7,201 @@ developer searches with different words than the code uses.
 
 ## Summary
 
-| metric          | value                         |
-| --------------- | ----------------------------- |
-| model           | `openai-chat:zai-org/GLM-5.2` |
-| concept queries | 1523                          |
+| metric          | value                                         |
+| --------------- | --------------------------------------------- |
+| model           | `openai-chat:deepseek/deepseek-v4-flash-0731` |
+| concept queries | 1558                                          |
 
 ## Per repo
 
 | slug               | n   |
 | ------------------ | --- |
-| anthropics__skills | 300 |
-| astral-sh__uv      | 385 |
-| badlogic__pi-mono  | 275 |
-| django__django     | 338 |
-| rbtr__rbtr         | 225 |
+| anthropics__skills | 304 |
+| astral-sh__uv      | 399 |
+| badlogic__pi-mono  | 282 |
+| django__django     | 331 |
+| rbtr__rbtr         | 242 |
 
 ## Per language
 
 | language   | n   |
 | ---------- | --- |
-| python     | 367 |
+| python     | 365 |
 | typescript | 205 |
-| javascript | 171 |
-| css        | 148 |
-| markdown   | 127 |
-| rust       | 118 |
-| json       | 98  |
-| bash       | 92  |
-|            | 47  |
-| yaml       | 39  |
-| toml       | 34  |
+| javascript | 179 |
+| bash       | 168 |
+| css        | 145 |
+| rust       | 119 |
+| markdown   | 99  |
+| json       | 97  |
+| yaml       | 40  |
+| rst        | 34  |
 | sql        | 31  |
-| html       | 26  |
-| rst        | 20  |
+| plaintext  | 30  |
+| toml       | 29  |
+| html       | 17  |
 
 ## Examples
 
 Randomly sampled symbols showing the source code (LLM input)
 and the generated concept query (LLM output).
 
-### `CreateUserInput` (`anthropics__skills`)
+### `c_signal` (`django__django`)
 
 ````python
-class CreateUserInput(BaseModel):
-    model_config = ConfigDict(
-        str_strip_whitespace=True,
-        validate_assignment=True
-    )
-
-    name: str = Field(..., description="User's full name", min_length=1, max_length=100)
-    email: str = Field(..., description="User's email address", pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
-    age: int = Field(..., description="User's age", ge=0, le=150)
-
-    @field_validator('email')
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Email cannot be empty")
-        return v.lower()
+c_signal = Signal()
 ````
 
-> **concept:** validate user registration data with name, email, and age constraints
+> **concept:** how to create a new signal instance
 
-### `cfg(all(target_env = "msvc", target_os = "windows"))` (`astral-sh__uv`)
-
-````toml
-# statically link the C runtime so the executable does not depend on
-# that shared/dynamic library.
-#
-# See: https://github.com/astral-sh/ruff/issues/11503
-[target.'cfg(all(target_env = "msvc", target_os = "windows"))']
-rustflags = ["-C", "target-feature=+crt-static"]
-
-````
-
-> **concept:** how to statically link the C runtime on Windows MSVC builds
-
-### `<anonymous>` (`astral-sh__uv`)
+### `Python` (`astral-sh__uv`)
 
 ````rust
-// disable all rust entry points, requires enabling compiler-builtins-mem
+/// The trampoline should just execute Python, it's a proxy Python executable.
+    Python
 ````
 
-> **concept:** How to disable Rust entry points and enable compiler-builtins-mem feature
+> **concept:** what does the trampoline executable do in a proxy setup
 
-### `restoreEditor` (`badlogic__pi-mono`)
+### `chunks` (`rbtr__rbtr`)
 
-````typescript
-// Restore editor helper
-		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
-		};
+````sql
+-- sqlfluff:templater:placeholder:repo_id:1
+-- sqlfluff:templater:placeholder:head_sha:'def'
+-- sqlfluff:templater:placeholder:base_sha:'abc'
+SELECT
+  c.id,
+  c.blob_sha,
+  c.file_path,
+  c.kind,
+  c.name,
+  c.scope,
+  c.language,
+  c.content,
+  c.line_start,
+  c.line_end,
+  c.metadata,
+  c.embedding IS NOT NULL AS has_embedding
+FROM chunks AS c
+INNER JOIN file_snapshots AS fs
+  ON
+    c.repo_id = fs.repo_id
+    AND c.blob_sha = fs.blob_sha
+    AND c.file_path = fs.file_path
+WHERE
+  fs.repo_id = $repo_id
+  AND fs.commit_sha = $head_sha
+  AND fs.file_path NOT IN (
+    SELECT file_snapshots.file_path FROM file_snapshots
+    WHERE
+      file_snapshots.repo_id = $repo_id
+      AND file_snapshots.commit_sha = $base_sha
+  )
+ORDER BY c.file_path, c.line_start
 ````
 
-> **concept:** Restore the editor component back into its container and set focus
+> **concept:** select code snippets from files that were added in the latest commit
 
-### `[0.63.1] - 2026-03-27` (`badlogic__pi-mono`)
-
-````markdown
-## [0.63.1] - 2026-03-27
-````
-
-> **concept:** What changed in the latest patch release updates
-
-### `<anonymous>` (`django__django`)
+### `o` (`django__django`)
 
 ````javascript
-// Call the preDispatch hook for the mapped type, and let it bail if desired
+function o(e){if(C.documentMode){var t=_.get(this,"handle"),n=ce.event.fix(e);n.type="focusin"===e.type?"focus":"blur",n.isSimulated=!0,t(e),n.target===n.currentTarget&&t(n)}else ce.event.simulate(i,e.target,ce.event.fix(e))}
 ````
 
-> **concept:** how to call preDispatch hook before event dispatch
+> **concept:** simulate focus and blur events for older browsers
 
-### `ImportedModelBackend` (`django__django`)
+### `DOWNLOAD_PREFIX` (`django__django`)
+
+````bash
+DOWNLOAD_PREFIX="https://www.djangoproject.com/download"
+````
+
+> **concept:** where to find the base URL for downloading Django releases
+
+### `SessionTreeNode` (`badlogic__pi-mono`)
+
+````typescript
+/** A session tree node for hierarchical display */
+interface SessionTreeNode {
+	session: SessionInfo;
+	children: SessionTreeNode[];
+}
+````
+
+> **concept:** represent hierarchical session data in a tree structure
+
+### `__init__` (`anthropics__skills`)
 
 ````python
-class ImportedModelBackend(ModelBackend):
-    pass
+def __init__(self, command: str, args: list[str] = None, env: dict[str, str] = None):
+        super().__init__()
+        self.command = command
+        self.args = args or []
+        self.env = env
 ````
 
-> **concept:** custom authentication backend that extends Django's default model backend
+> **concept:** Find code that initializes a server connection with a command line
+> program
 
-### `make_id` (`django__django`)
+### `` (`badlogic__pi-mono`)
+
+````javascript
+// If a new directory is created, explicitly watch it
+  // This ensures newly created artifact folders are monitored without restart
+````
+
+> **concept:** how to watch newly created directories for file monitoring
+
+### `name` (`astral-sh__uv`)
+
+````yaml
+# Publish a release to crates.io.
+#
+# Assumed to run as a subworkflow of .github/workflows/release.yml; specifically, as a publish job
+# within `cargo-dist`.
+name: "Publish to crates.io"
+````
+
+> **concept:** publishing a crate release to crates.io as part of the release workflow
+
+### `SearchRequest` (`rbtr__rbtr`)
 
 ````python
-def make_id(target):
-            """
-            Simulate id() reuse for distinct senders with non-overlapping
-            lifetimes that would require memory contention to reproduce.
-            """
-            if isinstance(target, Sender):
-                return 0
-            return _make_id(target)
+class SearchRequest(BaseModel):
+    """Search the code index.
+
+    `alpha` / `beta` / `gamma` override the per-`QueryKind`
+    fusion weights for the duration of the call.  All-or-nothing:
+    either all three are supplied (override applies uniformly
+    across query kinds) or none are (per-kind defaults apply).
+    When supplied they must each be in `[0.0, 1.0]` and sum to
+    `1.0` within `1e-6`.
+    """
+
+    model_config = _STRICT
+    kind: Literal["search"] = "search"
+    path: str
+    query: str
+    limit: int = 10
+    ref: str | None = None
+    alpha: float | None = Field(default=None, ge=0.0, le=1.0)
+    beta: float | None = Field(default=None, ge=0.0, le=1.0)
+    gamma: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _check_weights(self) -> Self:
+        supplied = [w for w in (self.alpha, self.beta, self.gamma) if w is not None]
+        if not supplied:
+            return self
+        if len(supplied) != 3:
+            msg = "alpha, beta, gamma must all be supplied together (or none)"
+            raise ValueError(msg)
+        total = supplied[0] + supplied[1] + supplied[2]
+        if abs(total - 1.0) > 1e-6:
+            msg = f"alpha + beta + gamma must sum to 1.0; got {total:.6f}"
+            raise ValueError(msg)
+        return self
 ````
 
-> **concept:** Generate a simulated Python object id to test sender memory address reuse
-> with non-overlapping lifetimes
-
-### `runtime_dir` (`rbtr__rbtr`)
-
-````python
-def runtime_dir(self) -> Path:
-        """Per-`data_dir` runtime dir for sockets + status file.
-
-        Keyed on `hash(resolve(data_dir))` so two daemons
-        against different data dirs get independent runtime
-        dirs.  Lives under `platformdirs.user_runtime_path('rbtr')`.
-        """
-        base = platformdirs.user_runtime_path(RBTR_NAME, ensure_exists=True)
-        key = hashlib.sha256(str(self.data_dir.resolve()).encode()).hexdigest()[:16]
-        path = base / key
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-````
-
-> **concept:** Get a unique per-data-directory runtime path for daemon sockets and
-> status files
-
-### `make_content_response` (`rbtr__rbtr`)
-
-````python
-def make_content_response(content: str = "") -> CreateChatCompletionResponse:
-    """Build a plain chat-completion response with text content only."""
-    return {
-        "id": "stub",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "stub",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": content,
-                },
-                "logprobs": None,
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
-````
-
-> **concept:** create a fake chat completion API response with stub text content for
-> testing
+> **concept:** model representing a request to search the code index with optional
+> fusion weights

@@ -1,11 +1,13 @@
 -- sqlfluff:templater:placeholder:repo_id:1
 -- sqlfluff:templater:placeholder:snapshot_sha:'abc'
-SELECT count(*) AS n
+-- A chunk is content-addressed and reached once per location holding its
+-- content, so the join fans out and the ids are counted distinctly.
+SELECT count(DISTINCT c.id) AS n
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs
   ON
     c.blob_sha = fs.blob_sha
-    AND c.file_path = fs.file_path
+    AND c.file_language = fs.detected_language
 WHERE
   fs.repo_id = $repo_id
   AND fs.snapshot_sha = $snapshot_sha

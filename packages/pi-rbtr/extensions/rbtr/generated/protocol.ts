@@ -124,10 +124,21 @@ export interface SearchRequest {
 }
 /**
  * Fusion channel weights (must sum to 1.0).
+ *
+ * `score = alpha * semantic + beta * lexical + gamma * name`
  */
 export interface WeightTriple {
+  /**
+   * Semantic: embedding cosine similarity.
+   */
   alpha: number;
+  /**
+   * Lexical: BM25 keyword match.
+   */
   beta: number;
+  /**
+   * Name-match: identifier matching.
+   */
   gamma: number;
 }
 export interface ReadSymbolRequest {
@@ -209,13 +220,17 @@ export interface BuildIndexResponse {
 }
 /**
  * Summary statistics for a completed index.
+ *
+ * `outcomes` holds one entry per file and is the only thing stored or
+ * sent; the file counts are properties over it, so they cannot
+ * disagree with each other or with what the loop did.
  */
 export interface IndexStats {
   total_chunks?: number;
   total_edges?: number;
-  total_files?: number;
-  skipped_files?: number;
-  parsed_files?: number;
+  outcomes?: {
+    [k: string]: number;
+  };
   embedded_chunks?: number;
   elapsed_seconds?: number;
 }
@@ -234,7 +249,7 @@ export interface SearchResponse {
 export interface SearchHitOut {
   name: string;
   kind: ChunkKind;
-  file_path: string;
+  file_paths: string[];
   scope?: string;
   language?: string;
   content: string;

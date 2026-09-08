@@ -32,7 +32,7 @@ vue = LanguageRegistration(
     extensions=frozenset({".vue"}),
     grammar_factory=_vue_grammar,
     injection_query=load_query("rbtr_lang_svelte", "injections"),
-    extraction_serial=1,
+    extraction_serial=2,
 )
 
 vue.chunker(chunk_sfc)

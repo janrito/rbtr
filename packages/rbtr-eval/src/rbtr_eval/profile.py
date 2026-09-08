@@ -28,7 +28,7 @@ from rbtr.domain.models import QueryKind
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import load_all_queries, with_query_kind
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 _EXAMPLES_PER_PROVENANCE = 3
 
@@ -43,7 +43,9 @@ def _dropped_languages_table(headers: dy.DataFrame[RepoHeader]) -> str:
     dropped = (
         headers.select("slug", "dropped_languages")
         .filter(pl.col("dropped_languages").list.len() > 0)
-        .explode("dropped_languages")
+        # Polars 2.0 changes this default; the filter above means no empty
+        # list reaches here either way.
+        .explode("dropped_languages", empty_as_null=True)
     )
     if dropped.height == 0:
         return "None — every language met the threshold."

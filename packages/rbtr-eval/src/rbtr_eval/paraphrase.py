@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import re
 from importlib import resources
 from pathlib import Path
 
 import dataframely as dy
 import minijinja
 import polars as pl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, ModelHTTPError
 from pydantic_ai.models import Model
@@ -37,28 +37,42 @@ from rbtr.git import read_head
 from rbtr.index.results import ChunkContentRow
 from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
-from rbtr_eval.schemas import ConceptQuery, QueryRow
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
+
+
+class ConceptQuery(BaseModel):
+    """LLM output: a one-sentence concept description."""
+
+    text: str = Field(min_length=15, max_length=200)
+
 
 log = logging.getLogger(__name__)
 
 # Fail the stage rather than write a dataset gutted by endpoint errors.
 _MIN_YIELD = 0.5
 
-_ALL_CHUNK_CONTENT_SQL = (
-    resources.files("rbtr_eval.sql").joinpath("all_chunk_content.sql").read_text()
-)
-
 
 # ── Deps ─────────────────────────────────────────────────────────────
 
 
-@dataclass
-class SymbolContext:
+class SymbolContext(BaseModel):
     """Per-symbol data passed as pydantic-ai deps."""
 
     language: str
     symbol_kind: ChunkKind
     excluded_identifiers: list[str]
+
+    @field_validator("excluded_identifiers", mode="after")
+    @classmethod
+    def _drop_empty(cls, value: list[str]) -> list[str]:
+        """Drop the empty string, which excludes nothing.
+
+        It is a substring of every paraphrase, so it fails the whole
+        output validator and reads as an empty pair of backticks in the
+        instructions. An anonymous chunk contributes one, having no
+        name to withhold.
+        """
+        return [i for i in value if i]
 
 
 # ── Agent ────────────────────────────────────────────────────────────
@@ -137,9 +151,18 @@ Output: where to set the build output path"""
 
 @paraphrase_agent.output_validator
 def _check_excluded(ctx: RunContext[SymbolContext], data: ConceptQuery) -> ConceptQuery:
-    lower = data.text.lower()
+    """Reject a paraphrase that names the symbol it describes.
+
+    Matched on word boundaries rather than as a substring. A symbol
+    called `o`, `s` or `str` occurs inside ordinary English words, so
+    substring matching rejected every attempt and the row was dropped
+    once its retries ran out — 88 of them in one run, the names being
+    `model`, `session`, `version`, `chunks` and the like. Dropping
+    exactly the symbols whose names are ordinary words biases the
+    corpus against what people most often search for.
+    """
     for ident in ctx.deps.excluded_identifiers:
-        if ident.lower() in lower:
+        if re.search(rf"(?<!\w){re.escape(ident)}(?!\w)", data.text, re.IGNORECASE):
             raise ModelRetry(ident)
     return data
 
@@ -169,23 +192,31 @@ def _load_symbol_content(
 # ── Excluded identifiers ─────────────────────────────────────────────
 
 
-def _excluded_identifiers(name: str, scope: str, file_path: str) -> list[str]:
+def _excluded_identifiers(name: str, scope: str) -> list[str]:
     """Build the list of identifiers the LLM must not use.
 
-    Includes the symbol name, scope parts, and path segments
-    (stems ≥ 3 chars) so the paraphrase describes intent
-    without leaking the symbol's identity.
+    The symbol's name and the parts of its scope — what search can
+    match a query against directly. The full-text index covers
+    `name_tokens` and `content_tokens`, and the embedding is the name
+    followed by the content, so withholding the name is what stops a
+    concept query being answered by an exact match on it.
+
+    The file path is not withheld. No search channel matches it, so
+    excluding its segments protected nothing while banning ordinary
+    words: a chunk in `index/search.py` cannot be described without
+    "index" or "search", and every attempt was rejected until the
+    retries ran out and the row was dropped.
+
+    An unnamed chunk contributes no name: the empty string would be
+    withheld from every paraphrase, leaving comments and raw chunks
+    unparaphrased.
     """
-    excluded = {name}
+    excluded = {name} if name else set()
     if scope:
         excluded.add(scope)
         for part in scope.split(SCOPE_SEPARATOR):
             if part:
                 excluded.add(part)
-    for segment in Path(file_path).parts:
-        stem = Path(segment).stem
-        if stem and len(stem) >= 3:
-            excluded.add(stem)
     return sorted(excluded)
 
 
@@ -203,13 +234,14 @@ async def _paraphrase_one(
     name: str,
     symbol_kind: ChunkKind,
     line_start: int,
+    line_end: int,
     language: str,
     content: str,
     model: str | Model,
     semaphore: asyncio.Semaphore,
 ) -> None:
     """Call the LLM for one symbol; append a QueryRow dict on success."""
-    excluded = _excluded_identifiers(name, scope, file_path)
+    excluded = _excluded_identifiers(name, scope)
     deps = SymbolContext(language=language, symbol_kind=symbol_kind, excluded_identifiers=excluded)
     async with semaphore:
         try:
@@ -245,6 +277,7 @@ async def _paraphrase_one(
             "name": name,
             "symbol_kind": symbol_kind.value,
             "line_start": line_start,
+            "line_end": line_end,
             "language": language,
             "provenance": "concept",
             "text": result.output.text,
@@ -271,11 +304,13 @@ def paraphrase_symbols(
     concurrently for each symbol, and returns validated
     concept QueryRows.
     """
-    symbols = _load_symbol_content(store, repo_path, repo_id)
-    join_keys = ["file_path", "scope", "name", "line_start"]
+    symbols = _load_symbol_content(store, repo_path, repo_id).with_columns(
+        pl.col("kind").alias("symbol_kind"),
+    )
+    join_keys = list(IDENTITY_COLUMNS)
 
     joined = (
-        queries.select("slug", *join_keys, "symbol_kind")
+        queries.select("slug", *join_keys)
         .unique(subset=join_keys)
         .join(symbols.select(*join_keys, "language", "content"), on=join_keys, how="inner")
     )
@@ -302,6 +337,7 @@ def paraphrase_symbols(
                         row["name"],
                         ChunkKind(row["symbol_kind"]),
                         row["line_start"],
+                        row["line_end"],
                         row["language"],
                         row["content"],
                         model,
@@ -321,6 +357,31 @@ def paraphrase_symbols(
 # ── Report ───────────────────────────────────────────────────────────
 
 
+def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.DataFrame:
+    """Source text for *sampled*, keyed by the symbol's full identity.
+
+    A corpus holds one snapshot per repo and repeats paths across
+    them — `README.md` and `setup.py` sit in most of them — so the
+    slug is part of the key, and content is read per repo rather
+    than from one frame spanning the corpus.
+    """
+    slugs = set(sampled["slug"].unique())
+    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
+    frames = [
+        store.get_chunks_frame(ref.snapshot_sha, repo_id=ref.repo_id)
+        .with_columns(pl.col("kind").alias("symbol_kind"))
+        .select(*IDENTITY_COLUMNS, "content")
+        .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
+        for ref in store.list_latest_refs()
+        if by_id.get(ref.repo_id) in slugs
+    ]
+    if not frames:
+        return pl.DataFrame(schema={**sampled.schema, "content": pl.String}).select(
+            "slug", *IDENTITY_COLUMNS, "content"
+        )
+    return pl.concat(frames)
+
+
 def _render_paraphrase_report(
     concepts: dy.DataFrame[QueryRow],
     model: str,
@@ -332,11 +393,10 @@ def _render_paraphrase_report(
     lang_table = concepts.group_by("language").agg(pl.len().alias("n")).sort("n", descending=True)
 
     # Look up source content for sampled examples from the index.
-    sampled = concepts.sample(10, seed=42)
-    content_frame = store._cursor.execute(_ALL_CHUNK_CONTENT_SQL).pl()
+    sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
     examples_df = sampled.join(
-        content_frame,
-        on=["file_path", "name", "line_start"],
+        _sampled_content(store, sampled),
+        on=["slug", *IDENTITY_COLUMNS],
         how="left",
     )
     examples = [

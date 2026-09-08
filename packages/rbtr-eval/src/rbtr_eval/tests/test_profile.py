@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 
 from rbtr_eval.profile import _render_report
-from rbtr_eval.schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 
 @pytest.fixture
@@ -31,6 +31,7 @@ def queries() -> dy.DataFrame[QueryRow]:
             "file_path": "a.py",
             "name": "load_config",
             "line_start": 1,
+            "line_end": 1,
             "symbol_kind": "function",
             "provenance": "name",
             "text": "load_config",
@@ -40,6 +41,7 @@ def queries() -> dy.DataFrame[QueryRow]:
             "file_path": "a.py",
             "name": "load_config",
             "line_start": 1,
+            "line_end": 1,
             "symbol_kind": "function",
             "provenance": "concept",
             "text": "how does configuration loading resolve overrides",
@@ -49,6 +51,7 @@ def queries() -> dy.DataFrame[QueryRow]:
             "file_path": "README.md",
             "name": "Getting Started",
             "line_start": 3,
+            "line_end": 3,
             "symbol_kind": "doc_section",
             "language": "markdown",
             "provenance": "body",

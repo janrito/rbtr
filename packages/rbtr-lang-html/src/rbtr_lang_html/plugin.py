@@ -97,7 +97,7 @@ def _element_name(
     tag_nodes = captures.get("_tag")
     if tag_nodes and tag_nodes[0].text:
         return tag_nodes[0].text.decode()
-    return "<anonymous>"
+    return ""
 
 
 @html.import_extractor

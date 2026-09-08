@@ -25,11 +25,38 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
+from rbtr.domain.models import ChunkKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
 from rbtr_eval.rbtr_cli import daemon_session
-from rbtr_eval.schemas import QueryMeta, QueryRow, RerankerCandidate
+from rbtr_eval.shared_schemas import (
+    IDENTITY_COLUMNS,
+    MATCH_COLUMNS,
+    QueryMeta,
+    QueryRow,
+)
+
+
+class RerankerCandidate(dy.Schema):
+    """One row per (pool, query, result) from the daemon.
+
+    Produced by `tune_reranker._collect_candidates`;
+    consumed by `tune_reranker._rank_all_blends`.
+    """
+
+    pool = dy.Int64(min=1)
+    query_idx = dy.UInt32()
+    file_paths = dy.List(dy.String())
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+    fusion = dy.Float64()
+    reranker = dy.Float64()
+    latency_ms = dy.Float64(min=0.0)
+
 
 # ── Candidate collection ────────────────────────────────────────────────────
 
@@ -76,10 +103,12 @@ def _collect_candidates(
                     {
                         "pool": pool,
                         "query_idx": idx,
-                        "file_path": r.file_path,
+                        "file_paths": r.file_paths,
                         "scope": r.scope,
                         "name": r.name,
                         "line_start": r.line_start,
+                        "line_end": r.line_end,
+                        "symbol_kind": r.kind.value,
                         "fusion": signals.fusion,
                         "reranker": signals.reranker,
                         "latency_ms": latency_ms,
@@ -90,7 +119,7 @@ def _collect_candidates(
             if on_progress is not None:
                 on_progress(done, total)
 
-    candidates = pl.DataFrame(rows, schema=RerankerCandidate.to_polars_schema()).pipe(
+    candidates = pl.DataFrame(rows, schema=RerankerCandidate.create_empty().schema).pipe(
         RerankerCandidate.validate, cast=True
     )
 
@@ -103,10 +132,7 @@ def _collect_candidates(
             "language",
             "provenance",
             "query_kind",
-            "file_path",
-            "scope",
-            "name",
-            "line_start",
+            *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
     )
@@ -156,13 +182,15 @@ def _rank_all_blends(
         .filter(pl.col("rank") <= 10)
     )
 
-    # Find target rank: join on the identity columns.
-    target_ranks = (
+    # The candidate holds every location its content sits at, so the
+    # target's file is one of them.
+    ranks = (
         scored.join(
-            meta.select("query_idx", "file_path", "scope", "name", "line_start"),
-            on=["query_idx", "file_path", "scope", "name", "line_start"],
+            meta.select("query_idx", *IDENTITY_COLUMNS),
+            on=["query_idx", *MATCH_COLUMNS],
             how="inner",
         )
+        .filter(pl.col("file_paths").list.contains(pl.col("file_path")))
         .group_by("pool", "blend_weight", "query_idx")
         .agg(pl.col("rank").min().alias("rank"))
     )
@@ -179,7 +207,7 @@ def _rank_all_blends(
 
     return (
         all_keys.join(
-            target_ranks,
+            ranks,
             on=["pool", "blend_weight", "query_idx"],
             how="left",
         )

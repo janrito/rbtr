@@ -21,6 +21,7 @@ Derived paths are exposed as computed fields:
                    for sockets + status file
 - `db_path`      — `data_dir / db_name`
 - `daemon_log`   — `log_dir / "daemon.log"`
+- `daemon_stderr` — `log_dir / "daemon.stderr"`
 - `daemon_rpc`   — `runtime_dir / "daemon.rpc"`
 - `daemon_pub`   — `runtime_dir / "daemon.pub"`
 
@@ -77,11 +78,14 @@ class RerankerSettings(BaseModel):
 
 
 class WeightTriple(BaseModel):
-    """Fusion channel weights (must sum to 1.0)."""
+    """Fusion channel weights (must sum to 1.0).
 
-    alpha: float = Field(ge=0.0, le=1.0)
-    beta: float = Field(ge=0.0, le=1.0)
-    gamma: float = Field(ge=0.0, le=1.0)
+    `score = alpha * semantic + beta * lexical + gamma * name`
+    """
+
+    alpha: float = Field(ge=0.0, le=1.0, description="Semantic: embedding cosine similarity.")
+    beta: float = Field(ge=0.0, le=1.0, description="Lexical: BM25 keyword match.")
+    gamma: float = Field(ge=0.0, le=1.0, description="Name-match: identifier matching.")
 
     @model_validator(mode="after")
     def _check_sum(self) -> Self:
@@ -225,6 +229,12 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
 Must accommodate the first search when the embedding model \
 is still loading.",
     )
+    daemon_max_retries: int = Field(
+        default=3,
+        description="Number of times the daemon client retries a request "
+        "that timed out, reconnecting the socket between attempts.  "
+        "0 disables retry.",
+    )
     daemon_start_timeout: float = Field(
         default=60.0,
         description="Backstop seconds to wait for a spawned daemon to bind "
@@ -290,6 +300,11 @@ Disable in tests or resource-constrained environments.",
     @property
     def daemon_log(self) -> Path:
         return self.log_dir / "daemon.log"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def daemon_stderr(self) -> Path:
+        return self.log_dir / "daemon.stderr"
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -37,7 +37,9 @@ session that inserts chunks rebuilds it.
 
 See the "Blob dedup and language invalidation" section in
 `ARCHITECTURE.md` for the full flow.  `blob_is_current` gates
-extraction by `(blob_sha, language)`.  The `blob_is_current`
+extraction by `(blob_sha, file_language)` — the language the *file* was
+read as, not a chunk's own, so an empty `.html` is still extracted after
+an identical empty `.py`.  The `blob_is_current`
 docstring documents the semantics and prose special case.
 """
 
@@ -51,6 +53,9 @@ from pathlib import Path
 import dataframely as dy
 import duckdb
 import polars as pl
+
+# duckdb requires this imported before any thread uses a connection.
+import pyarrow  # type: ignore[import-untyped]  # noqa: F401
 import structlog
 
 from rbtr.config import WeightTriple, config
@@ -446,7 +451,7 @@ class IndexStore:
 
         The chunk store is content-addressed and shared, so orphan
         status is global: a chunk is an orphan iff no snapshot
-        anywhere references its `(blob_sha, file_path)`.
+        anywhere references its `(blob_sha, file_language)`.
         """
         row = self._cursor.execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone()
         return int(row[0]) if row else 0
@@ -457,7 +462,7 @@ class IndexStore:
         *dropped* is the chunks the drop set would free; *kept_shared*
         is candidate chunks retained because a ref outside the drop set
         (another ref of this repo, or any other repo) still references
-        their `(blob_sha, file_path)`.  Read-only — it computes the
+        their `(blob_sha, file_language)`.  Read-only — it computes the
         split from the reference graph without simulating the drop, so
         it serves dry-run and real runs alike.
         """
@@ -527,7 +532,11 @@ class IndexStore:
         return str(row[0]) if row else ""
 
     def count_unembedded(self, repo_id: int, snapshot_sha: str) -> int:
-        """Count chunks visible at *snapshot_sha* that lack embeddings."""
+        """Count chunks visible at *snapshot_sha* that lack embeddings.
+
+        Counts chunks, so content held at several paths counts once — the
+        figure embedding progress is measured against.
+        """
         row = self._cursor.execute(
             _COUNT_UNEMBEDDED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
@@ -539,7 +548,9 @@ class IndexStore:
         """Return chunks at *snapshot_sha* with `embedding IS NULL`.
 
         Results are ordered deterministically by `(file_path, line_start)`
-        and capped at *limit*.
+        and capped at *limit*.  A chunk appears once however many paths
+        hold its content, carrying the first of them, because embedding it
+        writes the one content-addressed row every path shares.
         """
         params = {
             "repo_id": repo_id,
@@ -555,7 +566,12 @@ class IndexStore:
         return frame_to_chunks(frame)
 
     def count_chunks(self, snapshot_sha: str, repo_id: int) -> int:
-        """Count chunks visible at *snapshot_sha* without loading them."""
+        """Count chunks visible at *snapshot_sha* without loading them.
+
+        Counts chunks, so content held at several paths counts once.  A
+        count of locations — what a file count compares against — is a
+        different figure and no caller asks this for it.
+        """
         row = self._cursor.execute(
             _COUNT_CHUNKS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
         ).fetchone()
@@ -619,8 +635,9 @@ class IndexStore:
         """Return all chunks at *snapshot_sha* as a content-only frame.
 
         The frame is validated through `ChunkContentRow` and
-        contains identity columns (`file_path`, `scope`,
-        `name`, `line_start`) plus `language` and `content`.
+        contains identity columns (`file_path`, `scope`, `name`,
+        `line_start`, `line_end`, `kind`) plus `language` and
+        `content`.
         """
         params = {
             "repo_id": repo_id,
@@ -632,11 +649,20 @@ class IndexStore:
         return (
             self._cursor.execute(_GET_CHUNKS_SQL, params)
             .pl()
-            .select("file_path", "scope", "name", "line_start", "language", "content")
+            .select(
+                "file_path",
+                "scope",
+                "name",
+                "line_start",
+                "line_end",
+                "kind",
+                "language",
+                "content",
+            )
             .pipe(ChunkContentRow.validate, cast=True)
         )
 
-    def _get_edges_frame(
+    def get_edges_frame(
         self,
         refs: list[SnapshotRef],
         *,
@@ -664,7 +690,7 @@ class IndexStore:
         repo_id: int,
     ) -> list[Edge]:
         """Query edges scoped to *snapshot_sha*."""
-        frame = self._get_edges_frame(
+        frame = self.get_edges_frame(
             [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)],
             source_id=source_id,
             target_id=target_id,
@@ -675,6 +701,8 @@ class IndexStore:
                 source_id=row["source_id"],
                 target_id=row["target_id"],
                 kind=EdgeKind(row["kind"]),
+                source_path=row["source_path"],
+                target_path=row["target_path"],
             )
             for row in frame.iter_rows(named=True)
         ]
@@ -733,7 +761,9 @@ class IndexStore:
 
     # ── Match (internal frame, public chunk) ─────────────────────
 
-    def _match_by_name(self, refs: list[SnapshotRef], pattern: str) -> dy.DataFrame[ChunkResultRow]:
+    def match_by_name_frame(
+        self, refs: list[SnapshotRef], pattern: str
+    ) -> dy.DataFrame[ChunkResultRow]:
         """Return name-matched chunks as a validated frame.
 
         Resolution is tiered: exact → case-insensitive exact →
@@ -758,10 +788,12 @@ class IndexStore:
         prefix, then substring.  Returns only the best tier.
         """
         return frame_to_chunks(
-            self._match_by_name([SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], pattern)
+            self.match_by_name_frame(
+                [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], pattern
+            )
         )
 
-    def _match_similar(
+    def match_similar_frame(
         self,
         refs: list[SnapshotRef],
         query_embeddings: list[list[float]],
@@ -799,7 +831,7 @@ class IndexStore:
     ) -> list[tuple[Chunk, float]]:
         """Find the *top_k* chunks most similar to *query_embedding*."""
         return scored_to_chunks(
-            self._match_similar(
+            self.match_similar_frame(
                 [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], [query_embedding], top_k
             )
         )
@@ -819,7 +851,7 @@ class IndexStore:
         prefix = config.query_instruction
         text = f"{prefix}{query}" if prefix else query
         query_embedding = embedder.embed_single(text)
-        return self._match_similar(
+        return self.match_similar_frame(
             [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], [query_embedding], top_k
         )
 
@@ -839,7 +871,7 @@ class IndexStore:
 
     # ── FTS ──────────────────────────────────────────────────────────
 
-    def _match_fulltext(
+    def match_fulltext_frame(
         self,
         refs: list[SnapshotRef],
         query: str,
@@ -880,12 +912,12 @@ class IndexStore:
         Raises `IndexNotBuiltError` if no FTS index exists.
         """
         return scored_to_chunks(
-            self._match_fulltext(
+            self.match_fulltext_frame(
                 [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], query, top_k
             )
         )
 
-    def _fetch_chunk_paths(
+    def chunk_paths_frame(
         self, refs: list[SnapshotRef], chunk_ids: list[str]
     ) -> dy.DataFrame[ChunkPathResultRow]:
         """Return `(id, file_path)` for the given chunk IDs."""

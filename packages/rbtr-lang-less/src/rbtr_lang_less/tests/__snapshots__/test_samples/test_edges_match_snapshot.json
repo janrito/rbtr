@@ -1,3 +1,5 @@
 [
-  "less.less::@import \"base\"; -> base.less::@bg [imports]"
+  "less.less::@import \"base\"; -> base.less::@bg [imports]",
+  "less.less::@import \"partials/dark.less\"; -> partials/dark.less::.greeting--dark [imports]",
+  "partials/dark.less::@import \"tokens.less\"; -> partials/tokens.less::@ink [imports]"
 ]

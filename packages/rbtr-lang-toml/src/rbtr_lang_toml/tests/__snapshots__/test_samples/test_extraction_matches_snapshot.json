@@ -1,12 +1,31 @@
 [
   {
-    "id": "0f7331db8376dc51",
+    "blob_sha": "sha1",
+    "file_path": "crates/helper/Cargo.toml",
+    "kind": "config_key",
+    "name": "package",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "# Reached from the root manifest's `path` dependency: the reference names\n# this directory, and this manifest stands for it.\n[package]\nname = \"helper\"\nversion = \"0.1.0\"\n",
+    "line_start": 1,
+    "line_end": 5,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "fe7065b1fd42886f"
+  },
+  {
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "comment",
-    "name": "<anonymous>",
+    "name": "",
     "scope": "",
     "language": "toml",
+    "file_language": "toml",
     "content": "# Greeter configuration.",
     "line_start": 1,
     "line_end": 1,
@@ -15,89 +34,94 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "50ad5e5473caed7a"
   },
   {
-    "id": "aca44469d96b1a46",
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "config_key",
     "name": "project",
     "scope": "",
     "language": "toml",
+    "file_language": "toml",
     "content": "[project]\nname = \"greeter\"\nversion = \"1.0.0\"\n\n",
     "line_start": 3,
-    "line_end": 7,
+    "line_end": 6,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "810e02a3ef287aee"
   },
   {
-    "id": "560c0c380ad868c2",
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "config_key",
     "name": "greeter",
     "scope": "tool",
     "language": "toml",
+    "file_language": "toml",
     "content": "[tool.greeter]\ndefault_greeting = \"Hello\"\nlocale = \"en\"\n\n",
     "line_start": 7,
-    "line_end": 11,
+    "line_end": 10,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "0c56dae5307aca27"
   },
   {
-    "id": "87947a59988f071e",
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "config_key",
     "name": "limits",
     "scope": "tool::greeter",
     "language": "toml",
+    "file_language": "toml",
     "content": "[tool.greeter.limits]\nmax_length = 280\n\n",
     "line_start": 11,
-    "line_end": 14,
+    "line_end": 13,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "52a55cfee81b7ca6"
   },
   {
-    "id": "de2aa469858315e0",
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "config_key",
     "name": "locales",
     "scope": "",
     "language": "toml",
+    "file_language": "toml",
     "content": "[[locales]]\ncode = \"en\"\n\n",
     "line_start": 14,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "",
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "1a4a2f317d869574"
   },
   {
-    "id": "5b785d1f1a39b9ad",
     "blob_sha": "sha1",
     "file_path": "toml.toml",
     "kind": "config_key",
     "name": "locales",
     "scope": "",
     "language": "toml",
-    "content": "[[locales]]\ncode = \"fr\"\n",
+    "file_language": "toml",
+    "content": "[[locales]]\ncode = \"fr\"\n\n",
     "line_start": 17,
     "line_end": 19,
     "metadata": {
@@ -105,6 +129,45 @@
       "names": "",
       "dots": "",
       "language_hint": ""
-    }
+    },
+    "id": "07b8eb89d6873489"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "config_key",
+    "name": "dependencies",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "[dependencies]\nhelper = { path = \"crates/helper\" }\n",
+    "line_start": 20,
+    "line_end": 21,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "e38a60287b94f718"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "toml.toml",
+    "kind": "import",
+    "name": "path = \"crates/helper\"",
+    "scope": "",
+    "language": "toml",
+    "file_language": "toml",
+    "content": "path = \"crates/helper\"",
+    "line_start": 21,
+    "line_end": 21,
+    "metadata": {
+      "module": "crates/helper",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    },
+    "id": "bb6218d7bbc421e1"
   }
 ]

@@ -858,9 +858,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "For code fragments (e.g. `for item in self._cache`): omit both `keywords` and `variants`.",
       "Leave `scope` as the default 'workspace' for almost every search: the user is working in this repo and wants answers from it. 'workspace' searches only the current project.",
       "Only set `scope: 'all'` (search every indexed repo, merged into one ranked list with each hit labelled by repo) when the task genuinely spans repos: the user is working across sibling checkouts of one system (e.g. a frontend and its backend), a monorepo that was split into separate checkouts, or has explicitly asked how this project integrates with or depends on another indexed one. Cross-repo results pull in code from unrelated projects and dilute relevance, so do not reach for 'all' just because a 'workspace' search came back thin — refine the query first.",
+      "Pass `ref` to search a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, searches the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
+      ref: Type.Optional(
+        Type.String({
+          description:
+            "Git ref to read from (branch, tag, or SHA). Must be indexed. Defaults to the working tree if dirty, HEAD if clean.",
+        }),
+      ),
       limit: Type.Optional(Type.Number({ description: "Maximum results to return (default: 10)" })),
       keywords: Type.Optional(
         Type.Array(Type.String(), {
@@ -892,6 +899,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "search",
               repo_path: ctx.cwd,
               query: params.query,
+              ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.limit !== undefined ? { limit: params.limit } : {}),
               ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
               ...(params.variants !== undefined ? { variants: params.variants } : {}),
@@ -902,7 +910,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
                   },
                 ],
                 details: { fromDaemon: true, response: resp },
@@ -913,6 +921,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
+            if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
             const result = await runRbtr(pi, resolved, args, { signal, timeout: 30_000 });
@@ -922,7 +931,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "keywords", "variants", "scope"])}`,
+                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
                   },
                 ],
                 details: { fromCli: true, results: [] },
@@ -949,12 +958,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Typical chain: rbtr_search → pick a hit → pass its `name` field as the `symbol` parameter to rbtr_read_symbol for the full body. Then rbtr_find_refs on the same name to see callers.",
       "If the tool returns 'Symbol not found', the symbol either doesn't exist at the indexed ref or lives in a file type the parser doesn't cover; fall back to grep + read.",
       "Pass file_paths to disambiguate a name that exists in several files — only symbols defined in the listed files are returned.",
+      "Pass `ref` to read from a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
         description:
           "Symbol name as stored in the index. Examples: 'fuse_scores', 'HttpClient.retry', 'rbtr.index.search.fuse_scores'.",
       }),
+      ref: Type.Optional(
+        Type.String({
+          description:
+            "Git ref to read from (branch, tag, or SHA). Must be indexed. Defaults to the working tree if dirty, HEAD if clean.",
+        }),
+      ),
       file_paths: Type.Optional(
         Type.Array(Type.String(), {
           description:
@@ -974,12 +990,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "read_symbol",
               repo_path: ctx.cwd,
               symbol: params.symbol,
+              ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
             if (resp.chunks.length === 0) {
               return {
                 content: [
-                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                  {
+                    type: "text",
+                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
+                  },
                 ],
                 details: { fromDaemon: true, response: resp, symbol: params.symbol },
               };
@@ -989,13 +1009,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const readArgs = ["read-symbol", params.symbol];
+            if (params.ref !== undefined) readArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
             const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: 30_000 });
             const text = result.stdout.trim();
             if (!text) {
               return {
                 content: [
-                  { type: "text", text: `Symbol not found: ${params.symbol}${echoArgs(params, ["file_paths"])}` },
+                  {
+                    type: "text",
+                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
+                  },
                 ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
               };
@@ -1021,11 +1045,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Use grep when you need every raw occurrence of an identifier including inside strings / comments / unsupported file types.",
       "Chain after rbtr_search or rbtr_read_symbol: you've identified the symbol, now find who depends on it.",
       "Pass file_paths to disambiguate a name that exists in several files — references are resolved only against symbols defined in the listed files.",
+      "Pass `ref` to query references at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
         description: "Symbol name (same format as rbtr_read_symbol: bare / class-qualified / module-qualified).",
       }),
+      ref: Type.Optional(
+        Type.String({
+          description:
+            "Git ref to read from (branch, tag, or SHA). Must be indexed. Defaults to the working tree if dirty, HEAD if clean.",
+        }),
+      ),
       file_paths: Type.Optional(
         Type.Array(Type.String(), {
           description:
@@ -1045,6 +1076,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "find_refs",
               repo_path: ctx.cwd,
               symbol: params.symbol,
+              ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
             });
             if (resp.refs.length === 0) {
@@ -1052,7 +1084,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
                   },
                 ],
                 details: { fromDaemon: true, response: resp },
@@ -1063,6 +1095,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const findArgs = ["find-refs", params.symbol];
+            if (params.ref !== undefined) findArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
             const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: 30_000 });
             const text = result.stdout.trim();
@@ -1071,7 +1104,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 content: [
                   {
                     type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["file_paths"])}`,
+                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
                   },
                 ],
                 details: { fromCli: true, symbol: params.symbol, found: false },
@@ -1179,9 +1212,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Use rbtr_list_symbols before reading a large file. A few KB of structure tells you whether the content you need is actually in this file before you pay to load it.",
       "Good starting point when a user asks 'what's in file X' or 'walk me through X.py' — list symbols, then rbtr_read_symbol on the ones that matter.",
       "Don't use it for small files (<200 lines); just read them.",
+      "Pass `ref` to list symbols at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       file: Type.String({ description: "File path relative to the repo root (e.g. 'src/rbtr/index/search.py')." }),
+      ref: Type.Optional(
+        Type.String({
+          description:
+            "Git ref to read from (branch, tag, or SHA). Must be indexed. Defaults to the working tree if dirty, HEAD if clean.",
+        }),
+      ),
     }),
     renderCall: (args, theme) => renderListSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
@@ -1196,6 +1236,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               kind: "list_symbols",
               repo_path: ctx.cwd,
               file_path: params.file,
+              ...(params.ref !== undefined ? { ref: params.ref } : {}),
             });
             if (resp.chunks.length === 0) {
               return {
@@ -1207,7 +1248,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const result = await runRbtr(pi, resolved, ["list-symbols", params.file], {
+            const listArgs = ["list-symbols", params.file];
+            if (params.ref !== undefined) listArgs.push("--ref", params.ref);
+            const result = await runRbtr(pi, resolved, listArgs, {
               signal,
               timeout: 30_000,
             });
