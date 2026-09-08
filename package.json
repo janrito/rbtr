@@ -2,7 +2,7 @@
   "private": true,
   "workspaces": ["packages/pi-rbtr"],
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
+    "@biomejs/biome": "^2.5.12",
     "@graphql-inspector/cli": "4.0.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
