@@ -1680,8 +1680,8 @@ a rebuild where nothing changed skips all files.
 
 ### Staleness detection
 
-`has_indexed(repo_id, tree_sha)` is the staleness check —
-the same mechanism as commits. When the user edits a file,
+`has_indexed`, asked about the worktree's tree SHA, is the
+staleness check — the same mechanism as commits. When the user edits a file,
 `worktree_tree_sha` returns a different SHA,
 `has_indexed` misses, and a rebuild is triggered. When
 the same content is polled again, `has_indexed` hits and

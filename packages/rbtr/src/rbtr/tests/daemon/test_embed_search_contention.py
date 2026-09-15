@@ -208,8 +208,8 @@ def test_search_results_correct_during_embed(
     # Direct search for comparison.
     sha = str(pygit2.Repository(contention_repo).head.target)
     direct_results = embeddable_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=sha)],
         "func_0",
+        within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
         top_k=5,
         embedder=embedder,
     )

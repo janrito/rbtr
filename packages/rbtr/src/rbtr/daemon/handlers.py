@@ -165,8 +165,8 @@ def handle_search(
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = store.search(
-        refs,
         request.query,
+        within=refs,
         top_k=request.limit,
         embedder=embedder,
         kind=override,

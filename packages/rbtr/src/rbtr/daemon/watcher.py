@@ -92,8 +92,8 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
 
     For each registered repo, computes the current tree SHA via
     `worktree_tree_sha`.  If the tree is dirty (tree SHA differs
-    from HEAD's tree) and `has_indexed(repo_id, tree_sha)` is
-    False, returns a `DirtyWorktree` so the worker can rebuild.
+    from HEAD's tree) and `has_indexed` misses that tree, returns a
+    `DirtyWorktree` so the worker can rebuild.
 
     Read-only — never writes to the store.  All writes are done
     by the job worker thread via `WriteSession`.

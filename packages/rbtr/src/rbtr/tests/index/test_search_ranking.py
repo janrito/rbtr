@@ -25,7 +25,7 @@ def test_class_definition_outranks_its_import(
 ) -> None:
     """CLASS (1.5) outranks IMPORT (0.3) for 'AppConfig'."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "AppConfig", top_k=10
+        "AppConfig", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert_outranks(results, "AppConfig", "from config import AppConfig")
 
@@ -43,7 +43,7 @@ def test_source_function_outranks_test_with_higher_tf(
     it once.  File-category penalty (0.5 on test) resolves this.
     """
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
+        "load_config", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert_outranks(results, "load_config", "test_load_config")
 
@@ -51,7 +51,7 @@ def test_source_function_outranks_test_with_higher_tf(
 def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Doc section (0.8) ranks below source function (1.0) for 'load_config'."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
+        "load_config", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert_outranks(results, "load_config", "Configuration")
 
@@ -67,7 +67,7 @@ def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit:
     name match (score 1.0).
     """
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "start_server", top_k=10
+        "start_server", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
 
     assert len(results) >= 1
@@ -77,7 +77,7 @@ def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit:
 def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Query 'AppConfig' finds the class definition at rank 1."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "AppConfig", top_k=10
+        "AppConfig", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
 
     assert len(results) >= 1
@@ -96,7 +96,7 @@ def test_high_df_term_still_finds_definition(
     (CLASS=1.5) lifts the definition above high-TF test content.
     """
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "config", top_k=10
+        "config", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert_ranked_within(results, "AppConfig", top=2)
 
@@ -107,7 +107,7 @@ def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: s
     Kind boost (CLASS=1.5 vs DOC_SECTION=0.8) resolves it.
     """
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "database", top_k=10
+        "database", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert_ranked_within(results, "AppConfig", top=2)
 
@@ -118,7 +118,7 @@ def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: s
 def test_score_breakdown_is_populated(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Every ScoredChunk has non-negative signal values."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "AppConfig", top_k=10
+        "AppConfig", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
 
     assert len(results) >= 1
@@ -137,7 +137,7 @@ def test_score_breakdown_is_populated(ranking_store: IndexStore, ranking_commit:
 def test_results_sorted_by_score(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Results are returned in descending score order."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "config", top_k=10
+        "config", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
 
     scores = [r.score for r in results]
@@ -147,7 +147,7 @@ def test_results_sorted_by_score(ranking_store: IndexStore, ranking_commit: str)
 def test_no_results_for_gibberish(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Gibberish query returns empty list."""
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "zzz_xyzzy_999", top_k=10
+        "zzz_xyzzy_999", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert results == []
 
@@ -162,13 +162,13 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     keywords containing real terms surface matching chunks.
     """
     no_results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "zzz_xyzzy_999", top_k=10
+        "zzz_xyzzy_999", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     assert no_results == []
 
     with_keywords = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         "zzz_xyzzy_999",
+        within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
         keywords=["config", "load"],
     )
@@ -191,7 +191,7 @@ def test_match_preview_populated_for_lexical_hit(
     tokens, so it anchors there with the terms populated.
     """
     results = ranking_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], "load_config", top_k=10
+        "load_config", within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)], top_k=10
     )
     hit = next(r for r in results if r.name == "load_config")
     assert hit.match_line_offset is not None

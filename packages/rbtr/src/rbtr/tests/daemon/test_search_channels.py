@@ -184,8 +184,8 @@ def test_daemon_and_direct_search_produce_identical_results(
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
     direct_results = channel_store.search(
-        [SnapshotRef(repo_id=1, snapshot_sha=sha)],
         query,
+        within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
         top_k=5,
         embedder=embedder,
         reranker=channel_server._reranker,

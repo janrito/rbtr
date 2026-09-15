@@ -807,7 +807,7 @@ def test_symbol_in_an_embedded_fence_is_searchable(
     sha = str(multilang_repo.head.target)
     build_index(multilang_repo.workdir, sha, store)
 
-    results = store.search([SnapshotRef(repo_id=1, snapshot_sha=sha)], "handle", top_k=10)
+    results = store.search("handle", within=[SnapshotRef(repo_id=1, snapshot_sha=sha)], top_k=10)
 
     assert [r.file_paths for r in results if r.name == "handle"] == [["api.md"]]
 

@@ -873,9 +873,9 @@ class IndexStore:
 
     def search(
         self,
-        refs: list[SnapshotRef],
         query: str,
         *,
+        within: list[SnapshotRef],
         top_k: int = 10,
         changed_files: set[str] | None = None,
         embedder: Embedder | None = None,
@@ -891,15 +891,15 @@ class IndexStore:
         """Search across one or more repo refs.
 
         Delegates to `search.search()`.  See that function for
-        details.  A one-element *refs* list is a single-repo
+        details.  A one-element *within* list is a single-repo
         search; many refs fan the query across repos.  *repo_paths*
         maps `repo_id` to a path so cross-repo results carry their
         origin.
         """
         return search(
             self,
-            refs,
             query,
+            within=within,
             top_k=top_k,
             changed_files=changed_files,
             embedder=embedder,

@@ -669,9 +669,9 @@ def _has_semantic(candidates: dy.DataFrame[FusionInputRow]) -> bool:
 
 def search(
     store: IndexStore,
-    refs: list[SnapshotRef],
     query: str,
     *,
+    within: list[SnapshotRef],
     top_k: int = 10,
     changed_files: set[str] | None = None,
     embedder: Embedder | None = None,
@@ -686,7 +686,7 @@ def search(
 ) -> list[ScoredChunk]:
     """Fused search combining lexical, semantic, and name signals.
 
-    *refs* lists the `(repo_id, snapshot_sha)` snapshots to search
+    *within* lists the `(repo_id, snapshot_sha)` snapshots to search
     across.  One ref is a single-repo search; many refs fan the
     query across repos and merge results into one ranked list.
 
@@ -711,7 +711,7 @@ def search(
 
     candidates = _retrieve(
         store,
-        refs,
+        within,
         query,
         lex_query,
         query_vecs,

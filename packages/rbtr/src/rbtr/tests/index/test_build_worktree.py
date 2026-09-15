@@ -155,7 +155,7 @@ def test_search_returns_worktree_content(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store)
 
-    results = store.search([SnapshotRef(repo_id=1, snapshot_sha=wt_sha)], "helper")
+    results = store.search("helper", within=[SnapshotRef(repo_id=1, snapshot_sha=wt_sha)])
     helpers = [r for r in results if r.name == "helper"]
     assert len(helpers) == 1
     assert "99" in helpers[0].content
