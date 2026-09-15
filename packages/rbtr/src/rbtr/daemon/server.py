@@ -359,7 +359,7 @@ class DaemonServer:
             return
         with store.session() as ws:
             for sha in stale:
-                ws.drop_snapshot(repo_id, sha)
+                ws.drop_snapshot(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
                 log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
     async def _run_embed_async(self, job: EmbedJob) -> None:

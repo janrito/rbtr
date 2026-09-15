@@ -77,7 +77,7 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                 )
                 snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
             ws.insert_snapshots(snaps, repo_id=repo_id)
-            ws.mark_indexed(repo_id, head)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
         store.close()
     store = IndexStore.from_config(writable=True)
     yield ChurnedIndex(

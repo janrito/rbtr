@@ -103,7 +103,7 @@ def gc(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
                 repo_id=repo_id,
             )
-            ws.mark_indexed(repo_id, sha)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     yield GcFixture(
         repo=repo, store=store, repo_path=repo_path, repo_id=repo_id, c1=c1, c2=c2, c3=c3
     )
@@ -242,7 +242,7 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
             [FileSnapshot(snapshot_sha="other_head", file_path="a.py", blob_sha="b0")],
             repo_id=other,
         )
-        ws.mark_indexed(other, "other_head")
+        ws.mark_indexed(at=SnapshotRef(repo_id=other, snapshot_sha="other_head"))
 
     counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.chunks == 1  # only c2's unshared chunk freed
@@ -309,8 +309,8 @@ def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
 
     # Index HEAD and the tree SHA.
     with gc.store.session() as ws:
-        ws.mark_indexed(gc.repo_id, gc.c3)  # HEAD
-        ws.mark_indexed(gc.repo_id, tree_sha)
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c3))  # HEAD
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=tree_sha))
 
     run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -336,9 +336,9 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
 
     # Index all three.
     with gc.store.session() as ws:
-        ws.mark_indexed(gc.repo_id, gc.c3)  # HEAD
-        ws.mark_indexed(gc.repo_id, stale_sha)
-        ws.mark_indexed(gc.repo_id, current_sha)
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c3))  # HEAD
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=stale_sha))
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=current_sha))
 
     run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -422,15 +422,15 @@ def global_gc(tmp_path: Path, gc_signature: pygit2.Signature) -> Generator[Globa
             [make_snap(a0, "a.py", "a_old"), make_snap(a0, "b.py", "shared")], repo_id=a_id
         )
         ws.insert_snapshots([make_snap(a1, "a.py", "a_head")], repo_id=a_id)
-        ws.mark_indexed(a_id, a0)
-        ws.mark_indexed(a_id, a1)
+        ws.mark_indexed(at=SnapshotRef(repo_id=a_id, snapshot_sha=a0))
+        ws.mark_indexed(at=SnapshotRef(repo_id=a_id, snapshot_sha=a1))
         # Repo B: c0 references b_old; HEAD references shared + b_head.
         ws.insert_snapshots([make_snap(b0, "a.py", "b_old")], repo_id=b_id)
         ws.insert_snapshots(
             [make_snap(b1, "a.py", "b_head"), make_snap(b1, "b.py", "shared")], repo_id=b_id
         )
-        ws.mark_indexed(b_id, b0)
-        ws.mark_indexed(b_id, b1)
+        ws.mark_indexed(at=SnapshotRef(repo_id=b_id, snapshot_sha=b0))
+        ws.mark_indexed(at=SnapshotRef(repo_id=b_id, snapshot_sha=b1))
     yield GlobalGcFixture(store=store, a_id=a_id, b_id=b_id, a0=a0, a1=a1, b0=b0, b1=b1)
     store.close()
 
@@ -517,9 +517,9 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     assert current_sha is not None
 
     with gc.store.session() as ws:
-        ws.mark_indexed(gc.repo_id, gc.c3)
-        ws.mark_indexed(gc.repo_id, stale_sha)
-        ws.mark_indexed(gc.repo_id, current_sha)
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c3))
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=stale_sha))
+        ws.mark_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=current_sha))
 
     # What `git gc` does to an unreferenced loose object.
     loose = Path(gc.repo.path) / "objects" / stale_sha[:2] / stale_sha[2:]

@@ -20,7 +20,7 @@ import pygit2
 import pytest
 
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -136,8 +136,8 @@ def seeded_store(
             ],
             repo_id=repo_id,
         )
-        ws.insert_edges(daemon_edges, daemon_commit, repo_id=repo_id)
-        ws.mark_indexed(repo_id, daemon_commit)
+        ws.insert_edges(daemon_edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
     yield store
     store.close()
 
@@ -182,7 +182,7 @@ def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
             ],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, head)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
     return head
 
 
@@ -273,7 +273,7 @@ def two_repo_server(
                 ],
                 repo_id=repo_id,
             )
-            ws.mark_indexed(repo_id, head)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
 
     server = DaemonServer(
         runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0

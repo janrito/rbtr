@@ -295,8 +295,7 @@ def unified_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
                     target_path="src/a.py",
                 )
             ],
-            head_ref.snapshot_sha,
-            repo_id=head_ref.repo_id,
+            at=head_ref,
         )
     return head_ref
 

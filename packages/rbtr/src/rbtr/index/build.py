@@ -232,7 +232,9 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(snapshot_sha, snapshots, repo_id=repo_id)
+        session.replace_snapshots(
+            snapshots, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
+        )
 
     # Every outcome that occurred, by name, so a run's file count is
     # accounted for in the log line that reports it.
@@ -263,7 +265,7 @@ def _infer_and_store_edges(
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
     with store.session() as session:
-        session.replace_edges(snapshot_sha, edges, repo_id=repo_id)
+        session.replace_edges(edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
@@ -275,7 +277,7 @@ def _mark_indexed_and_cleanup(
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
     with store.session() as session:
-        session.mark_indexed(repo_id, snapshot_sha)
+        session.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
         cleaned = session.cleanup(repo_id)
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(

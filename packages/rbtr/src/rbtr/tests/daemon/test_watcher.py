@@ -92,7 +92,9 @@ def seeded_store(
             repo_id = ws.register_repo(built.path)
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(repo_id, built.shas[marked_index])
+                ws.mark_indexed(
+                    at=SnapshotRef(repo_id=repo_id, snapshot_sha=built.shas[marked_index])
+                )
             symbolic = scenario.watched.get(spec.name, [])
             bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
             ws.add_watched_refs(repo_id, [*symbolic, *bare])
@@ -169,11 +171,11 @@ def wt_store(
         # Mark HEAD indexed (so poll() doesn't interfere).
         if wt_scenario.repo_exists:
             head_sha = pygit2.Repository(wt_repo).head.target
-            ws.mark_indexed(repo_id, str(head_sha))
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(head_sha)))
         if wt_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(wt_repo)
             if tree_sha is not None:
-                ws.mark_indexed(repo_id, tree_sha)
+                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
     yield store
     store.close()
 
@@ -211,7 +213,7 @@ def test_poll_watched_never_forgets_a_vanished_repo(tmp_path: Path, sig: pygit2.
     try:
         with store.session() as ws:
             repo_id = ws.register_repo(str(repo_dir))
-            ws.mark_indexed(repo_id, sha)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
             ws.add_watched_refs(repo_id, ["HEAD"])
         registered_before = store.list_repos()
 

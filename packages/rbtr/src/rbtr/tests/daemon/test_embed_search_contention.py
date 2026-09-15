@@ -125,7 +125,7 @@ def embeddable_store(contention_repo: str) -> Generator[IndexStore]:
             ],
             repo_id=repo_id,
         )
-        session.mark_indexed(repo_id, sha)
+        session.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     yield store
     store.close()
 

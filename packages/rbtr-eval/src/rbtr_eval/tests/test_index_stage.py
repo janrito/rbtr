@@ -59,10 +59,9 @@ def store_with_residue(tmp_path: Path) -> IndexStore:
                     target_path=fn.file_path,
                 )
             ],
-            INDEXED,
-            repo_id=repo_id,
+            at=SnapshotRef(repo_id=repo_id, snapshot_sha=INDEXED),
         )
-        ws.mark_indexed(repo_id, INDEXED)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=INDEXED))
         ws.update_embeddings([fn.id], [[0.5] * 768])
 
     return store
@@ -85,7 +84,7 @@ def store_with_copy(tmp_path: Path) -> IndexStore:
             [snap(INDEXED, fn), snap(INDEXED, fn, path="vendor/lib.py")],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, INDEXED)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=INDEXED))
 
     return store
 

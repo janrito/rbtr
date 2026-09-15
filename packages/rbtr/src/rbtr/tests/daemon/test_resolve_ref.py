@@ -16,6 +16,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.handlers import _resolve_read_ref
+from rbtr.domain.models import SnapshotRef
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.store import IndexStore
@@ -71,11 +72,11 @@ def ref_store(
     store = IndexStore(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo(ref_repo.workdir)
-        ws.mark_indexed(repo_id, str(ref_repo.head.target))
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(ref_repo.head.target)))
         if ref_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(ref_repo.workdir)
             if tree_sha is not None:
-                ws.mark_indexed(repo_id, tree_sha)
+                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
     yield store
     store.close()
 
@@ -131,7 +132,7 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
     try:
         with store.session() as ws:
             repo_id = ws.register_repo(repo.workdir)
-            ws.mark_indexed(repo_id, older)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
         result = _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
         assert result == older
     finally:

@@ -146,7 +146,7 @@ def run_gc(
         session.sweep()
         total = GcCounts()
         for sha in drop_set:
-            total = total + session.drop_snapshot(repo_id, sha)
+            total = total + session.drop_snapshot(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
         total = total + session.cleanup(repo_id)
         if compact:
             session.compact()

@@ -17,7 +17,7 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.messages import BuildJob, EmbedJob
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -49,7 +49,7 @@ def next_job_store(
             if snap.embedded:
                 ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
             if snap.indexed:
-                ws.mark_indexed(repo_id, snap.snapshot_sha)
+                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snap.snapshot_sha))
     return store, scenario
 
 

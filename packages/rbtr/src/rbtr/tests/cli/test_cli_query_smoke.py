@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
@@ -179,8 +179,8 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ],
             repo_id=repo_id,
         )
-        ws.insert_edges(edges_c1, c1, repo_id=repo_id)
-        ws.mark_indexed(repo_id, c1)
+        ws.insert_edges(edges_c1, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
 
     with store.session() as ws:
         for c in chunks_c2:
@@ -192,8 +192,8 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
             ],
             repo_id=repo_id,
         )
-        ws.insert_edges(edges_c2, c2, repo_id=repo_id)
-        ws.mark_indexed(repo_id, c2)
+        ws.insert_edges(edges_c2, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
 
     store.close()
     return SeededRepo(path=repo_path, c1=c1, c2=c2)

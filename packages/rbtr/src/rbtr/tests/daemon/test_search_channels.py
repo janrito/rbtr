@@ -131,7 +131,7 @@ def channel_store(
             ],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, sha)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     yield store
     store.close()
 

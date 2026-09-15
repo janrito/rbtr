@@ -28,7 +28,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts
+from rbtr.domain.models import Edge, FileSnapshot, GcCounts, SnapshotRef
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.staging import (
@@ -315,42 +315,42 @@ class WriteSession:
         self._require_active()
         self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
 
-    def insert_snapshots(self, snapshots: list[FileSnapshot], repo_id: int) -> None:
+    def insert_snapshots(self, snapshots: list[FileSnapshot], *, repo_id: int) -> None:
         """Batch insert snapshots."""
         if not snapshots:
             return
         self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, file_snapshots_frame(snapshots, repo_id))
 
-    def replace_snapshots(
-        self, snapshot_sha: str, snapshots: list[FileSnapshot], repo_id: int
-    ) -> None:
-        """Atomically replace all snapshots for *snapshot_sha*."""
+    def replace_snapshots(self, snapshots: list[FileSnapshot], *, at: SnapshotRef) -> None:
+        """Atomically replace all snapshots at *at*."""
         self._flush_chunks()
-        self.delete_snapshots(snapshot_sha, repo_id=repo_id)
-        self.insert_snapshots(snapshots, repo_id=repo_id)
+        self.delete_snapshots(at=at)
+        self.insert_snapshots(snapshots, repo_id=at.repo_id)
 
-    def insert_edges(self, edges: list[Edge], snapshot_sha: str, repo_id: int) -> None:
-        """Batch insert edges scoped to *snapshot_sha*."""
+    def insert_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
+        """Batch insert edges scoped to *at*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, snapshot_sha, repo_id))
+        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, at.snapshot_sha, at.repo_id))
 
-    def replace_edges(self, snapshot_sha: str, edges: list[Edge], repo_id: int) -> None:
-        """Atomically replace all edges for *snapshot_sha*."""
-        self.delete_edges(snapshot_sha, repo_id=repo_id)
-        self.insert_edges(edges, snapshot_sha, repo_id=repo_id)
+    def replace_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
+        """Atomically replace all edges at *at*."""
+        self.delete_edges(at=at)
+        self.insert_edges(edges, at=at)
 
-    def delete_snapshots(self, snapshot_sha: str, repo_id: int) -> None:
-        """Remove all file snapshots scoped to *snapshot_sha*."""
+    def delete_snapshots(self, *, at: SnapshotRef) -> None:
+        """Remove all file snapshots scoped to *at*."""
         self._require_active()
         self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
+            _DELETE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
         )
 
-    def delete_edges(self, snapshot_sha: str, repo_id: int) -> None:
-        """Remove edges scoped to *snapshot_sha*."""
+    def delete_edges(self, *, at: SnapshotRef) -> None:
+        """Remove edges scoped to *at*."""
         self._require_active()
-        self._cursor.execute(_DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
+        self._cursor.execute(
+            _DELETE_EDGES_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        )
 
     def update_embeddings(
         self,
@@ -373,25 +373,22 @@ class WriteSession:
         with self._store._registered_views(_emb_stg=frame) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
-    def mark_indexed(self, repo_id: int, snapshot_sha: str) -> None:
+    def mark_indexed(self, *, at: SnapshotRef) -> None:
         """Record a commit as fully indexed."""
         self._require_active()
-        self._cursor.execute(_MARK_INDEXED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
+        self._cursor.execute(
+            _MARK_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        )
 
     # ── GC ───────────────────────────────────────────────────────
 
-    def drop_snapshot(self, repo_id: int, snapshot_sha: str) -> GcCounts:
-        """Remove all trace of *snapshot_sha* from this repo."""
+    def drop_snapshot(self, *, at: SnapshotRef) -> GcCounts:
+        """Remove all trace of the snapshot at *at* from its repo."""
         self._require_active()
-        commit_row = self._cursor.execute(
-            _DROP_SNAPSHOT_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        snap_row = self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        edge_row = self._cursor.execute(
-            _DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
+        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        commit_row = self._cursor.execute(_DROP_SNAPSHOT_SQL, params).fetchone()
+        snap_row = self._cursor.execute(_DELETE_SNAPSHOTS_SQL, params).fetchone()
+        edge_row = self._cursor.execute(_DELETE_EDGES_SQL, params).fetchone()
         chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:

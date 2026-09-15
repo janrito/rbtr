@@ -74,7 +74,7 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
                 repo_id=repo_id,
             )
-            ws.mark_indexed(repo_id, sha)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     store.close()
     return repo_id
 
@@ -100,7 +100,7 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
             [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, tiny_repo.c1)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1))
     store.close()
     return repo_id
 

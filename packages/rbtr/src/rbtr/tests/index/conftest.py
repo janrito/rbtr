@@ -118,7 +118,7 @@ def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef
             ],
             repo_id=ref.repo_id,
         )
-        ws.mark_indexed(ref.repo_id, ref.snapshot_sha)
+        ws.mark_indexed(at=ref)
 
 
 @pytest.fixture
@@ -161,8 +161,8 @@ def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> Index
         ws.add_chunk(shared_chunk)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=1)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
-        ws.mark_indexed(1, "head")
-        ws.mark_indexed(2, "head")
+        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        ws.mark_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
     return store
 
 
@@ -553,7 +553,7 @@ def ranking_store(
             ],
             repo_id=1,
         )
-        ws.insert_edges(ranking_edges, ranking_commit, repo_id=1)
+        ws.insert_edges(ranking_edges, at=SnapshotRef(repo_id=1, snapshot_sha=ranking_commit))
     yield store
     store.close()
 

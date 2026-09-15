@@ -45,8 +45,7 @@ def test_concurrent_write_then_read(
                         target_path=http_func.file_path,
                     )
                 ],
-                "head",
-                repo_id=1,
+                at=SnapshotRef(repo_id=1, snapshot_sha="head"),
             )
 
     t = threading.Thread(target=writer)

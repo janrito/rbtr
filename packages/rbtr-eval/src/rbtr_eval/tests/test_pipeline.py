@@ -15,6 +15,7 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.store import IndexStore
 from rbtr_eval.measure import SearchBatch, _aggregate, _annotate_truncation, _score_outcomes
 from rbtr_eval.tests.conftest import chunk, hit, outcome_row, snap
@@ -132,7 +133,7 @@ def indexed_copy(tmp_path: Path) -> Path:
             [snap("a" * 40, fn), snap("a" * 40, fn, path="vendor/q.py")],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, "a" * 40)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="a" * 40))
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
     store.close()
     return tmp_path
