@@ -254,11 +254,10 @@ class DaemonServer:
 
         async def _async_index(req: Any) -> Response:
             # Writes the watch set, so same treatment as forget.  `_wake`
-            # is set here rather than inside `watch_refs`, because an
-            # `asyncio.Event` may only be set from the loop thread and
-            # the write itself runs in a worker.
+            # is set out here because an `asyncio.Event` may only be set
+            # from the loop thread and the write ran in a worker.
             async with self._write_sem:
-                response = await asyncio.to_thread(handle_build_index, req, self.watch_refs)
+                response = await asyncio.to_thread(handle_build_index, req, store)
             self._wake.set()
             return response
 
@@ -497,38 +496,6 @@ class DaemonServer:
         Returns True if ready, False if timed out.
         """
         return self._ready.wait(timeout=timeout)
-
-    def watch_refs(self, repo_path: str, refs: list[str], *, remove: bool) -> None:
-        """Add or remove watched refs for a repo.
-
-        Records intent in `watched_refs`; `poll_watched` derives the
-        actual build on its next poll.  On *remove*, `"HEAD"` is
-        rejected with `RbtrError` **before any delete** so the whole
-        request fails atomically — HEAD is the default always-watched
-        ref.
-
-        Writes, so it runs in a worker thread under `_write_sem`; the
-        `index` handler wakes the worker afterwards, on the loop.
-        """
-        if self._store is None:
-            return
-        if remove:
-            if HEAD_REF in refs:
-                msg = "HEAD cannot be removed from the watch set"
-                raise RbtrError(msg)
-            repo_id = self._store.get_repo_id(repo_path)
-            if repo_id is None:
-                return  # nothing watched for an unregistered repo
-            with self._store.session() as ws:
-                ws.remove_watched_refs(repo_id, refs)
-            log.info("watched_refs_removed", repo=repo_path, refs=refs)
-            return
-        with self._store.session() as ws:
-            repo_id = ws.register_repo(repo_path)
-            # HEAD is always watched and cannot be removed; ensure it
-            # here so any `index` (not just startup backfill) upholds it.
-            ws.add_watched_refs(repo_id, [HEAD_REF, *refs])
-        log.info("watched_refs_added", repo=repo_path, refs=refs)
 
     def _is_building(self) -> bool:
         """Return True if a build is currently active."""

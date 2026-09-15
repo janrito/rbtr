@@ -9,15 +9,16 @@ The daemon's `_dispatch` wraps every handler call in
 `ErrorResponse` for the protocol. CLI callers let exceptions
 propagate to `main()`, which prints them.
 
-Read handlers access the index via `store` (an `IndexStore`).
-Write-side handlers (GC) also use `store`.
+Every handler takes the index as `store` (an `IndexStore`); the
+writing ones (`gc`, `forget`, `index`) open a session on it, which
+the daemon runs in a thread under its write lock.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -504,25 +505,31 @@ def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
     return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
-class WatchFn(Protocol):
-    """The watch-set mutation the index handler is given (injected).
-
-    Implemented by `DaemonServer.watch_refs`; a `Protocol` (not
-    `Callable[..., None]`) so the keyword-only `remove` stays typed.
-    """
-
-    def __call__(self, repo_path: str, refs: list[str], *, remove: bool) -> None: ...
-
-
 def handle_build_index(
     request: BuildIndexRequest,
-    watch: WatchFn,
+    store: IndexStore,
 ) -> Response:
     """Record (or remove) the request's refs in the repo's watch set.
 
     The worker derives and runs the actual build from `watched_refs`
-    on its next poll. `remove=True` stops watching the given refs;
-    `HEAD` cannot be removed (the daemon rejects it atomically).
+    on its next poll.  `remove=True` stops watching the given refs;
+    `HEAD` is rejected **before any delete**, so a request naming it
+    alongside others changes nothing.  Adding always includes `HEAD`,
+    so a repo first seen here watches it as one seen at startup does.
     """
-    watch(request.repo_path, request.refs, remove=request.remove)
+    if request.remove:
+        if HEAD_REF in request.refs:
+            msg = "HEAD cannot be removed from the watch set"
+            raise RbtrError(msg)
+        repo_id = store.get_repo_id(request.repo_path)
+        if repo_id is None:
+            return OkResponse()  # nothing watched for an unregistered repo
+        with store.session() as ws:
+            ws.remove_watched_refs(repo_id, request.refs)
+        log.info("watched_refs_removed", repo=request.repo_path, refs=request.refs)
+        return OkResponse()
+    with store.session() as ws:
+        repo_id = ws.register_repo(request.repo_path)
+        ws.add_watched_refs(repo_id, [HEAD_REF, *request.refs])
+    log.info("watched_refs_added", repo=request.repo_path, refs=request.refs)
     return OkResponse()
