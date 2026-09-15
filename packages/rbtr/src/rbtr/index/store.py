@@ -71,7 +71,7 @@ from rbtr.domain.models import (
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
-from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
+from rbtr.errors import IndexLockedError, IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
@@ -184,7 +184,7 @@ class IndexStore:
                     "If the daemon is running, route commands through it "
                     "(`rbtr daemon status` to check)."
                 )
-                raise RbtrError(locked_msg) from exc
+                raise IndexLockedError(locked_msg) from exc
             raise
         self._load_fts(self._con)
         self._local = threading.local()
