@@ -152,4 +152,4 @@ def test_find_next_job_picks_the_embed_work(
 
     job = server._find_next_job()
 
-    assert (job.ref if isinstance(job, EmbedJob) else job) == scenario.expected_ref
+    assert (job.at.snapshot_sha if isinstance(job, EmbedJob) else job) == scenario.expected_ref

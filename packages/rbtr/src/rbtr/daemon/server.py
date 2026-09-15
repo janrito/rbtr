@@ -410,8 +410,7 @@ class DaemonServer:
         if store is None or embedder is None:
             return
 
-        ref = SnapshotRef(repo_id=job.repo_id, snapshot_sha=job.ref)
-        pending = await asyncio.to_thread(store.unembedded_chunk_ids, at=ref)
+        pending = await asyncio.to_thread(store.unembedded_chunk_ids, at=job.at)
         if not pending:
             return
         outstanding = len(pending)
@@ -426,7 +425,7 @@ class DaemonServer:
 
         try:
             for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-                page = await asyncio.to_thread(store.get_chunks_by_id, list(page_ids), at=ref)
+                page = await asyncio.to_thread(store.get_chunks_by_id, list(page_ids), at=job.at)
                 for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
                     texts = [embedding_text(c.name, c.content) for c in batch]
                     try:
@@ -465,12 +464,12 @@ class DaemonServer:
                 # run reports an end with nothing embedded and no reason,
                 # and the worker picks the same job up again.
                 log.warning("embedding_made_no_progress", total=outstanding)
-            final = await asyncio.to_thread(store.chunk_counts_for_snapshot, at=ref)
+            final = await asyncio.to_thread(store.chunk_counts_for_snapshot, at=job.at)
             _notify(
                 push,
                 EmbedEndedNotification(
                     repo_path=job.repo_path,
-                    ref=job.ref,
+                    ref=job.at.snapshot_sha,
                     chunks=final.total,
                     embedded=final.embedded,
                     outcome=outcome,
@@ -573,11 +572,7 @@ class DaemonServer:
         for ref, counts in store.chunk_counts_by_snapshot():
             if counts.is_fully_embedded:
                 continue
-            return EmbedJob(
-                repo_path=paths[ref.repo_id],
-                repo_id=ref.repo_id,
-                ref=ref.snapshot_sha,
-            )
+            return EmbedJob(repo_path=paths[ref.repo_id], at=ref)
 
         return None
 
@@ -597,7 +592,7 @@ class DaemonServer:
             case EmbedJob():
                 self._active_embed = ActiveJob(
                     repo_path=job.repo_path,
-                    ref=job.ref,
+                    ref=job.at.snapshot_sha,
                     phase="embedding",
                     current=0,
                     total=0,
@@ -642,7 +637,7 @@ class DaemonServer:
                     "job_kind": "build" if isinstance(job, BuildJob) else "embed",
                 }
                 if isinstance(job, EmbedJob):
-                    job_ctx["ref"] = job.ref
+                    job_ctx["ref"] = job.at.snapshot_sha
                 else:
                     job_ctx["ref"] = job.refs[0][:12]
                 # Bound for the job's lifetime; `to_thread` copies the

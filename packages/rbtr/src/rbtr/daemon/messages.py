@@ -34,7 +34,7 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind
+from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, SnapshotRef
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -76,7 +76,10 @@ class HasRepoPath(Protocol):
 
 
 class BuildJob(BaseModel):
-    """A build-index job, derived from the watch set or a dirty tree."""
+    """A build-index job, derived from the watch set or a dirty tree.
+
+    `refs` holds refs as named, not yet resolved to snapshots.
+    """
 
     model_config = _STRICT
     kind: Literal["build"] = "build"
@@ -86,13 +89,17 @@ class BuildJob(BaseModel):
 
 
 class EmbedJob(BaseModel):
-    """An embed job, derived from a snapshot's unembedded chunks."""
+    """An embed job, derived from a snapshot's unembedded chunks.
+
+    `at` names the snapshot to embed; `repo_path` is what the
+    progress notifications report, and the snapshot does not carry
+    it.
+    """
 
     model_config = _STRICT
     kind: Literal["embed"] = "embed"
     repo_path: str
-    repo_id: int
-    ref: str
+    at: SnapshotRef
 
 
 def _decode_json_array(text: str) -> Any:
