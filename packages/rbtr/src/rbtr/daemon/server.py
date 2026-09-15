@@ -491,9 +491,6 @@ class DaemonServer:
         with store.session() as session:
             session.update_embeddings([c.id for c in batch], vectors, truncated=truncated)
 
-    def register(self, kind: str, handler: RequestHandler) -> None:
-        self._handlers[kind] = handler
-
     def wait_ready(self, timeout: float = 5.0) -> bool:
         """Block until the server is accepting requests.
 

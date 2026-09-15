@@ -42,7 +42,7 @@ def test_dispatch_binds_a_unique_context_per_request(
         structlog.get_logger("t").info("handler_ran")
         return OkResponse()
 
-    server.register("status", handler)
+    server._handlers["status"] = handler
     _dispatch_status(server, fake_repo)
     _dispatch_status(server, fake_repo)
 
@@ -66,7 +66,7 @@ def test_binding_survives_to_thread(
     async def handler(_req: object) -> OkResponse:
         return await asyncio.to_thread(in_thread)
 
-    server.register("status", handler)
+    server._handlers["status"] = handler
     _dispatch_status(server, fake_repo)
 
     threaded = [e for e in log_output.entries if e["event"] == "in_thread"]

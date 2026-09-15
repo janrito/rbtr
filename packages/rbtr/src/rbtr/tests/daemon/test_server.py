@@ -217,7 +217,7 @@ def test_handler_exception_returns_error(running_daemon: DaemonServer) -> None:
         msg = "handler broke"
         raise ValueError(msg)
 
-    running_daemon.register("shutdown", bad_handler)
+    running_daemon._handlers["shutdown"] = bad_handler
 
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ShutdownRequest())
@@ -244,7 +244,7 @@ def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
     async def fail(_request: object) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 
-    running_daemon.register("shutdown", fail)
+    running_daemon._handlers["shutdown"] = fail
 
     with (
         DaemonClient(running_daemon.runtime_dir) as client,

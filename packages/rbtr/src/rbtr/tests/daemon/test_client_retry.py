@@ -70,7 +70,7 @@ def test_retry_succeeds_after_transient_timeout(
             await asyncio.sleep(0.15)
         return StatusResponse()
 
-    running_daemon.register("status", slow_then_fast)
+    running_daemon._handlers["status"] = slow_then_fast
     mock_sleep = mocker.patch("rbtr.daemon.client.time.sleep")
 
     with DaemonClient(
