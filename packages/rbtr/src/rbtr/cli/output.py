@@ -502,7 +502,7 @@ def _fmt_ref(ref: IndexedRef) -> str:
         parts.append(f"{_human(ref.embedded)} embedded [green]✓[/]")
     elif ref.embedded > 0:
         pct = 100 * ref.embedded / ref.total
-        parts.append(f"{_human(ref.embedded)} embedded [yellow]{pct:.0f}%[/]")
+        parts.append(f"{_human(ref.embedded)} embedded [yellow]({pct:.0f}%)[/]")
     else:
         parts.append("[yellow]not embedded[/]")
     return "  ".join(parts)
