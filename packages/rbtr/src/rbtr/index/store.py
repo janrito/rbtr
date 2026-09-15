@@ -90,6 +90,7 @@ from rbtr.index.results import (
     chunk_ids_frame,
     file_paths_frame,
     frame_to_chunks,
+    frame_to_snapshot_counts,
     serial_map_frame,
     snapshot_refs_frame,
 )
@@ -532,19 +533,30 @@ class IndexStore:
         ).fetchone()
         return str(row[0]) if row else ""
 
-    def chunk_counts_frame(
-        self, *, repo_id: int | None = None, snapshot_sha: str | None = None
-    ) -> dy.DataFrame[SnapshotCountsRow]:
-        """Return chunk and embedded counts per indexed snapshot, one row each.
+    def chunk_counts_by_snapshot(
+        self, *, repo_id: int | None = None
+    ) -> list[tuple[SnapshotRef, SnapshotCounts]]:
+        """Return chunk and embedded counts per indexed snapshot, one pair each.
 
-        Spans every repo and snapshot unless *repo_id* or *snapshot_sha*
-        narrows it.  One grouped pass whatever the scope, so the cost does
-        not grow with the number of snapshots asked about — which matters
-        because reading `chunks.embedding` is most of the work.
+        Spans every repo unless *repo_id* narrows it.  One grouped pass
+        whatever the scope, so the cost does not grow with the number of
+        snapshots asked about — which matters because reading
+        `chunks.embedding` is most of the work.
 
-        Every snapshot in `indexed_snapshots` gets a row; one holding no
+        Every snapshot in `indexed_snapshots` gets a pair; one holding no
         chunks counts zero.  Ordered most recently indexed first, ties
         broken by `snapshot_sha`.
+        """
+        return frame_to_snapshot_counts(self._chunk_counts_frame(repo_id=repo_id))
+
+    def _chunk_counts_frame(
+        self, *, repo_id: int | None = None, snapshot_sha: str | None = None
+    ) -> dy.DataFrame[SnapshotCountsRow]:
+        """Back the counts readers with one validated frame.
+
+        *snapshot_sha* narrows to a single snapshot and is meaningful
+        only alongside *repo_id*, which is why it stays private: a SHA
+        on its own matches that commit in every repo.
         """
         return (
             self._cursor.execute(
@@ -563,7 +575,7 @@ class IndexStore:
         holds no chunks, or was never marked indexed, reads as zero of
         zero.
         """
-        frame = self.chunk_counts_frame(repo_id=ref.repo_id, snapshot_sha=ref.snapshot_sha)
+        frame = self._chunk_counts_frame(repo_id=ref.repo_id, snapshot_sha=ref.snapshot_sha)
         if frame.is_empty():
             return SnapshotCounts(total=0, embedded=0)
         row = frame.row(0, named=True)

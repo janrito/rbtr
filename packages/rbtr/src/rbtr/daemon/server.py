@@ -87,7 +87,6 @@ from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.progress import ProgressCallback
 from rbtr.index.reranker import Reranker
-from rbtr.index.results import frame_to_snapshot_counts
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.logging import elapsed_ms
@@ -284,7 +283,7 @@ class DaemonServer:
         but before embedding completed.  Sets `_wake` so the
         DB-polling worker picks up the work.
         """
-        for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame()):
+        for ref, counts in store.chunk_counts_by_snapshot():
             if not counts.is_fully_embedded:
                 log.info(
                     "recovering_embed",
@@ -548,7 +547,7 @@ class DaemonServer:
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
         # `EmbedJob` names the repo by path; the counts carry only its id.
         paths = {repo.repo_id: repo.repo_path for repo in store.list_repos()}
-        for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame()):
+        for ref, counts in store.chunk_counts_by_snapshot():
             if counts.is_fully_embedded:
                 continue
             if f"{ref.repo_id}:{ref.snapshot_sha}" == self._active_key:

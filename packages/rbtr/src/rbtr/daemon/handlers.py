@@ -63,7 +63,7 @@ from rbtr.git import (
     worktree_tree_sha,
 )
 from rbtr.index.gc import run_gc, run_gc_all
-from rbtr.index.results import changed_to_symbols, frame_to_snapshot_counts
+from rbtr.index.results import changed_to_symbols
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
@@ -328,7 +328,7 @@ def handle_status(
     if request.scope == Scope.ALL:
         # Counts before repos, so every repo the counts name has a path
         # here to render it, even one registered between the two calls.
-        counted = frame_to_snapshot_counts(store.chunk_counts_frame())
+        counted = store.chunk_counts_by_snapshot()
         repos = store.list_repos()
         indexed_refs = _indexed_refs(repos, counted)
         watched: list[WatchedRef] = []
@@ -348,7 +348,7 @@ def handle_status(
         workspace = Repo(repo_id=ws_repo_id, repo_path=request.repo_path)
         indexed_refs = _indexed_refs(
             [workspace],
-            frame_to_snapshot_counts(store.chunk_counts_frame(repo_id=ws_repo_id)),
+            store.chunk_counts_by_snapshot(repo_id=ws_repo_id),
         )
         watched = _watched_for_repo(store, ws_repo_id, request.repo_path)
     active_build = None

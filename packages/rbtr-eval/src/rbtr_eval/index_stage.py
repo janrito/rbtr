@@ -28,7 +28,6 @@ from pydantic import BaseModel, Field
 
 from rbtr.cli.output import human_bytes
 from rbtr.domain.models import ChunkKind, SnapshotRef
-from rbtr.index.results import frame_to_snapshot_counts
 from rbtr.index.store import IndexStore
 from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.formatting import md_table
@@ -199,10 +198,7 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     reordering would invalidate every downstream stage.
     """
     outstanding = (
-        {
-            ref: counts.unembedded
-            for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame())
-        }
+        {ref: counts.unembedded for ref, counts in store.chunk_counts_by_snapshot()}
         if embed
         else {}
     )
