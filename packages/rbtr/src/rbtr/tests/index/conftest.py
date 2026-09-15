@@ -92,14 +92,11 @@ def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapsho
     return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
 
 
-def seed_store(
-    store: IndexStore,
-    chunks: list[TokenisedChunk],
-    ref: SnapshotRef,
-    *,
-    mark_indexed: bool = True,
-) -> None:
+def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef) -> None:
     """Insert chunks, and snapshots referencing their blobs, under *ref*.
+
+    *ref* is marked indexed, so the seeded snapshot is one a read can
+    find.
 
     The repo named by *ref* must already be registered: per-repo rows
     hang off a real `repos` row, and the foreign key rejects an id that
@@ -121,18 +118,16 @@ def seed_store(
             ],
             repo_id=ref.repo_id,
         )
-        if mark_indexed:
-            ws.mark_indexed(ref.repo_id, ref.snapshot_sha)
+        ws.mark_indexed(ref.repo_id, ref.snapshot_sha)
 
 
 @pytest.fixture
 def head_ref(store: IndexStore) -> SnapshotRef:
     """Repo `/repo` registered in `store`, at snapshot `head`.
 
-    The id comes back from the registration rather than being assumed,
-    so the ref names a repo that exists.  The path is synthetic: these
-    are store-level tests that never read git, and registration is about
-    identity, not about a directory existing on disk.
+    The id comes back from the registration, so the ref names a repo
+    that exists.  The path is synthetic: these are store-level tests
+    that never read git, and registration establishes identity.
     """
     with store.session() as ws:
         repo_id = ws.register_repo("/repo")
