@@ -241,7 +241,7 @@ class FusedRow(_ChunkIdentity, _SignalColumns):
     reranker = dy.Float64(nullable=False)
 
 
-def snapshot_refs_frame(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
+def snapshot_refs_view(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
     """Build the `_snapshot_refs` join view from a list of `SnapshotRef`."""
     if not refs:
         return SnapshotRefRow.create_empty()
@@ -253,20 +253,20 @@ def snapshot_refs_frame(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]
     ).pipe(SnapshotRefRow.validate, cast=True)
 
 
-def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
+def file_paths_view(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
     """Build the `_file_paths` join view from a list of file paths."""
     if not file_paths:
         return FilePathRow.create_empty()
     return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
 
 
-def chunk_ids_frame(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
+def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     """Build the `_chunk_ids` join view from a page of chunk ids."""
     frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
     return ChunkIdRow.validate(frame, cast=True)
 
 
-def serial_map_frame(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
+def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
     """Build the `_serial_map` join view from a language -> serial map."""
     if not serials:
         return SerialMapRow.create_empty()

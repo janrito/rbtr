@@ -88,12 +88,12 @@ from rbtr.index.results import (
     ScoredChunkResultRow,
     SnapshotCountsRow,
     _decode_metadata,
-    chunk_ids_frame,
-    file_paths_frame,
+    chunk_ids_view,
+    file_paths_view,
     frame_to_chunks,
     frame_to_snapshot_counts,
-    serial_map_frame,
-    snapshot_refs_frame,
+    serial_map_view,
+    snapshot_refs_view,
 )
 from rbtr.index.search import search
 from rbtr.index.writer import WriteSession
@@ -518,7 +518,7 @@ class IndexStore:
         may produce different chunk IDs that the upsert can't
         reconcile.
         """
-        with self._registered_views(_serial_map=serial_map_frame(serials)) as cur:
+        with self._registered_views(_serial_map=serial_map_view(serials)) as cur:
             row = cur.execute(
                 _BLOB_IS_CURRENT_SQL, {"blob_sha": blob_sha, "language": language}
             ).fetchone()
@@ -609,7 +609,7 @@ class IndexStore:
         if not chunk_ids:
             return []
         params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
-        with self._registered_views(_chunk_ids=chunk_ids_frame(chunk_ids)) as cur:
+        with self._registered_views(_chunk_ids=chunk_ids_view(chunk_ids)) as cur:
             frame = (
                 cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
                 .pl()
@@ -663,7 +663,7 @@ class IndexStore:
         """
         if not target_ids:
             return InboundRefResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame([at])) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view([at])) as cur:
             return (
                 cur.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
                 .pl()
@@ -716,7 +716,7 @@ class IndexStore:
             "target_id": target_id,
             "kind": kind_val,
         }
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
             return cur.execute(_GET_EDGES_SQL, params).pl().pipe(EdgeResultRow.validate, cast=True)
 
     def inbound_degrees(
@@ -725,7 +725,7 @@ class IndexStore:
         """Return inbound edge counts for the given chunk IDs."""
         if not chunk_ids:
             return InboundDegreeResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
             return (
                 cur.execute(_INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
                 .pl()
@@ -761,7 +761,7 @@ class IndexStore:
             "base_sha": between.base_sha,
             "scope_all": not file_paths,
         }
-        with self._registered_views(_file_paths=file_paths_frame(file_paths or [])) as cur:
+        with self._registered_views(_file_paths=file_paths_view(file_paths or [])) as cur:
             return (
                 cur.execute(_CHANGED_SYMBOLS_SQL, params)
                 .pl()
@@ -780,7 +780,7 @@ class IndexStore:
         prefix → substring.  Only the best tier that has matches
         is returned.
         """
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
             return (
                 cur.execute(
                     _SEARCH_BY_NAME_SQL,
@@ -819,7 +819,7 @@ class IndexStore:
         """
         vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
         with self._registered_views(
-            _qvecs=vecs_frame, _snapshot_refs=snapshot_refs_frame(within)
+            _qvecs=vecs_frame, _snapshot_refs=snapshot_refs_view(within)
         ) as cur:
             return (
                 cur.execute(_SEARCH_SIMILAR_SQL, {"top_k": top_k})
@@ -841,7 +841,7 @@ class IndexStore:
         tokenised_query = tokenise_code(query)
         if not tokenised_query:
             return ScoredChunkResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
             try:
                 return (
                     cur.execute(
@@ -861,7 +861,7 @@ class IndexStore:
         """Return `(id, file_path)` for the given chunk IDs."""
         if not chunk_ids:
             return ChunkPathResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
             return (
                 cur.execute(_GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
                 .pl()
