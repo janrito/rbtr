@@ -87,6 +87,21 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     return out
 
 
+def pending_builds(store: IndexStore) -> list[WatchedTarget | DirtyWorktree]:
+    """Return the builds that are due, watched refs first.
+
+    The one place that answers "is there a build to run, and which".
+    A watched ref outranks a dirty worktree, so the worktree scan is
+    skipped entirely while any watched ref is stale — worth skipping,
+    because `worktree_tree_sha` stats the whole tree and writes loose
+    objects for a dirty one.
+    """
+    stale = poll_watched(store)
+    if stale:
+        return list(stale)
+    return list(poll_worktree(store))
+
+
 def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
     """Return every repo whose working tree is dirty and not yet indexed.
 

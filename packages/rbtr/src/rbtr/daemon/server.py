@@ -451,9 +451,7 @@ class DaemonServer:
                         return
                     # Stand aside for a build: it wants the worker, which
                     # runs one job at a time, so only returning frees it.
-                    stale = await asyncio.to_thread(watcher.poll_watched, store)
-                    dirty = await asyncio.to_thread(watcher.poll_worktree, store)
-                    if stale or dirty:
+                    if await asyncio.to_thread(watcher.pending_builds, store):
                         outcome = EmbedOutcome.STOOD_ASIDE
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
@@ -581,10 +579,10 @@ class DaemonServer:
     def _find_next_job(self) -> BuildJob | EmbedJob | None:
         """Query the DB for the next piece of work.
 
-        Priority: un-indexed commits (builds) before un-embedded
-        chunks (embeds).  Among embeds the most recently indexed
-        snapshot wins, whichever repo holds it, so a build just
-        finished is embedded before an older backlog elsewhere.
+        Priority: builds before embeds, and `pending_builds` decides
+        which build.  Among embeds the most recently indexed snapshot
+        wins, whichever repo holds it, so a build just finished is
+        embedded before an older backlog elsewhere.
 
         The worker runs one job at a time and clears the active job
         before asking again, so there is nothing in flight to skip.
@@ -597,13 +595,8 @@ class DaemonServer:
         if store is None:
             return None
 
-        # Builds: un-indexed watched refs (HEAD is the default one).
-        for target in watcher.poll_watched(store):
+        for target in watcher.pending_builds(store):
             return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
-
-        # Worktree builds: dirty working trees.
-        for dirty in watcher.poll_worktree(store):
-            return BuildJob(repo_path=dirty.repo_path, refs=(dirty.snapshot_sha,))
 
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
         # `EmbedJob` names the repo by path; the counts carry only its id.
@@ -865,28 +858,25 @@ class DaemonServer:
             if self._store is None:
                 continue
             with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
-                stale_list = await asyncio.to_thread(watcher.poll_watched, self._store)
-                for target in stale_list:
-                    log.info(
-                        "watched_ref_stale",
-                        repo=target.repo_path,
-                        ref=target.ref,
-                        sha=target.snapshot_sha[:12],
-                    )
+                for target in await asyncio.to_thread(watcher.pending_builds, self._store):
+                    match target:
+                        case watcher.WatchedTarget():
+                            log.info(
+                                "watched_ref_stale",
+                                repo=target.repo_path,
+                                ref=target.ref,
+                                sha=target.snapshot_sha[:12],
+                            )
+                        case watcher.DirtyWorktree():
+                            log.info(
+                                "dirty_worktree",
+                                repo=target.repo_path,
+                                tree=target.snapshot_sha[:12],
+                            )
                     _notify(
                         self._notify_push,
                         AutoRebuildNotification(
                             repo_path=target.repo_path, new_ref=target.snapshot_sha
-                        ),
-                    )
-                    self._wake.set()
-                dirty_list = await asyncio.to_thread(watcher.poll_worktree, self._store)
-                for dirty in dirty_list:
-                    log.info("dirty_worktree", repo=dirty.repo_path, tree=dirty.snapshot_sha[:12])
-                    _notify(
-                        self._notify_push,
-                        AutoRebuildNotification(
-                            repo_path=dirty.repo_path, new_ref=dirty.snapshot_sha
                         ),
                     )
                     self._wake.set()
