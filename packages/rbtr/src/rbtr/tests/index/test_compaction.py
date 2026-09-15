@@ -201,7 +201,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     Compaction publishes a fresh connection (RCU) instead of closing the
     live one, so a reader is never cut off mid-query: it finishes on the
     old connection and rebinds on its next call. Two register-pattern
-    read shapes run here (`match_fulltext` and `match_by_name`, both via
+    read shapes run here (`match_fulltext_frame` and `match_by_name`, both via
     `_view`) so the torn-cursor path — a read spanning a swap — is
     covered by more than one query. Any error (notably
     `IndexNotBuiltError`/`CatalogException` from a torn cursor) fails the

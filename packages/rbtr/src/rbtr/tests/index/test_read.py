@@ -1,6 +1,6 @@
 """Read-side behavioural tests for IndexStore.
 
-Covers: get_chunks filters, get_edges filters, blob_is_current
+Covers: get_chunks filters, get_edges_frame filters, blob_is_current
 language matching, chunk upsert, delete_chunks_for_blobs,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
@@ -122,7 +122,7 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
     assert store.blob_is_current("b2", "", {"": 1}) is True
 
 
-# ── get_edges ───────────────────────────────────────────────────────
+# ── get_edges_frame ───────────────────────────────────────────────────────
 
 
 def test_get_edges_returns_all(store: IndexStore) -> None:

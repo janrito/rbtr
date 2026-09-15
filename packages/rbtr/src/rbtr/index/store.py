@@ -62,7 +62,6 @@ from rbtr.config import WeightTriple, config
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
-    Edge,
     EdgeKind,
     QueryKind,
     Repo,
@@ -91,7 +90,6 @@ from rbtr.index.results import (
     chunk_ids_frame,
     file_paths_frame,
     frame_to_chunks,
-    scored_to_chunks,
     serial_map_frame,
     snapshot_refs_frame,
 )
@@ -708,33 +706,6 @@ class IndexStore:
         with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
             return cur.execute(_GET_EDGES_SQL, params).pl().pipe(EdgeResultRow.validate, cast=True)
 
-    def get_edges(
-        self,
-        snapshot_sha: str,
-        *,
-        source_id: str | None = None,
-        target_id: str | None = None,
-        kind: EdgeKind | None = None,
-        repo_id: int,
-    ) -> list[Edge]:
-        """Query edges scoped to *snapshot_sha*."""
-        frame = self.get_edges_frame(
-            [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)],
-            source_id=source_id,
-            target_id=target_id,
-            kind=kind,
-        )
-        return [
-            Edge(
-                source_id=row["source_id"],
-                target_id=row["target_id"],
-                kind=EdgeKind(row["kind"]),
-                source_path=row["source_path"],
-                target_path=row["target_path"],
-            )
-            for row in frame.iter_rows(named=True)
-        ]
-
     def inbound_degrees(
         self, refs: list[SnapshotRef], chunk_ids: list[str]
     ) -> dy.DataFrame[InboundDegreeResultRow]:
@@ -849,54 +820,6 @@ class IndexStore:
                 .pipe(ScoredChunkResultRow.validate, cast=True)
             )
 
-    def match_similar(
-        self,
-        snapshot_sha: str,
-        query_embedding: list[float],
-        top_k: int = 10,
-        *,
-        repo_id: int,
-    ) -> list[tuple[Chunk, float]]:
-        """Find the *top_k* chunks most similar to *query_embedding*."""
-        return scored_to_chunks(
-            self.match_similar_frame(
-                [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], [query_embedding], top_k
-            )
-        )
-
-    def _match_by_text(
-        self,
-        snapshot_sha: str,
-        query: str,
-        top_k: int = 10,
-        *,
-        repo_id: int,
-        embedder: Embedder | None = None,
-    ) -> dy.DataFrame[ScoredChunkResultRow]:
-        """Embed *query* and return similar chunks as a scored frame."""
-        if embedder is None:
-            return ScoredChunkResultRow.create_empty()
-        prefix = config.query_instruction
-        text = f"{prefix}{query}" if prefix else query
-        query_embedding = embedder.embed_single(text)
-        return self.match_similar_frame(
-            [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], [query_embedding], top_k
-        )
-
-    def match_by_text(
-        self,
-        snapshot_sha: str,
-        query: str,
-        top_k: int = 10,
-        *,
-        repo_id: int,
-        embedder: Embedder | None = None,
-    ) -> list[tuple[Chunk, float]]:
-        """Semantic search: embed *query* then find similar chunks."""
-        return scored_to_chunks(
-            self._match_by_text(snapshot_sha, query, top_k, repo_id=repo_id, embedder=embedder)
-        )
-
     # ── FTS ──────────────────────────────────────────────────────────
 
     def match_fulltext_frame(
@@ -922,28 +845,6 @@ class IndexStore:
                 )
             except duckdb.CatalogException as exc:
                 raise IndexNotBuiltError from exc
-
-    def match_fulltext(
-        self,
-        snapshot_sha: str,
-        query: str,
-        top_k: int = 10,
-        *,
-        repo_id: int,
-    ) -> list[tuple[Chunk, float]]:
-        """BM25 keyword search across chunk name and content.
-
-        The *query* is pre-tokenised with `tokenise_code` so
-        that identifier queries (`AgentDeps` -> `agentdeps agent
-        deps`) match the code-aware tokens stored in the index.
-
-        Raises `IndexNotBuiltError` if no FTS index exists.
-        """
-        return scored_to_chunks(
-            self.match_fulltext_frame(
-                [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], query, top_k
-            )
-        )
 
     def chunk_paths_frame(
         self, refs: list[SnapshotRef], chunk_ids: list[str]
