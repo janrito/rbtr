@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from rbtr.cli.output import human_bytes
 from rbtr.domain.models import ChunkKind, SnapshotRef
+from rbtr.index.results import frame_to_snapshot_counts
 from rbtr.index.store import IndexStore
 from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.formatting import md_table
@@ -191,15 +192,27 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     pairs.  ``embed=True`` (embed-ready): also includes the
     unembedded count per commit so the hash changes when embeddings
     are written.
+
+    Snapshots are visited in `list_indexed_snapshots` order and the
+    counts are looked up, rather than iterated in the order the counts
+    query returns them: DVC compares this value between runs, so a
+    reordering would invalidate every downstream stage.
     """
+    outstanding = (
+        {
+            ref: counts.unembedded
+            for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame())
+        }
+        if embed
+        else {}
+    )
     h = hashlib.sha256()
     for repo in store.list_repos():
         for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
             h.update(f"{repo.repo_id}:{sha}".encode())
             if embed:
                 ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
-                unembedded = store.chunk_counts_for_snapshot(ref).unembedded
-                h.update(f":{unembedded}".encode())
+                h.update(f":{outstanding[ref]}".encode())
     return h.hexdigest()
 
 

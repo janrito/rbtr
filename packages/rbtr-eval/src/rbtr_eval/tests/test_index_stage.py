@@ -10,13 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.domain.models import Edge, EdgeKind
+from rbtr.domain.models import Edge, EdgeKind, SnapshotRef
 from rbtr.index.store import IndexStore
 from rbtr_eval.index_stage import (
     _embedding_counts,
     _kind_counts,
     _language_counts,
     _repo_counts,
+    _sentinel_hash,
     _totals,
 )
 from rbtr_eval.tests.conftest import chunk, snap
@@ -124,3 +125,49 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
         {"repo": "repo", "chunks": 1, "locations": 2, "edges": 0}
     ]
     assert _totals(store_with_copy) == (1, 2, 0)
+
+
+# ── DVC sentinel hash ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("embed", "expected"),
+    [
+        (False, "80d06b379c6ccfbbd9dd327e6c595c3af0e74a01731cee298330f7ef2707b012"),
+        (True, "d3e23b5f7fe5de491b8f9ff2eeec02f8d8087cb607f96c6f98633ac4ed6c30ca"),
+    ],
+    ids=["chunks-ready", "embed-ready"],
+)
+def test_the_sentinel_hash_is_fixed_for_a_given_index(
+    store_with_residue: IndexStore, embed: bool, expected: str
+) -> None:
+    """The hash is DVC's change detector, so its value is a contract.
+
+    Pinned to a literal, because a hash that moves for an unchanged
+    index invalidates every downstream stage and forces a full eval
+    re-run.  Recomputing the expected value inside the test would agree
+    with any implementation and catch that move too late.
+    """
+    assert _sentinel_hash(store_with_residue, embed=embed) == expected
+
+
+def test_writing_an_embedding_moves_only_the_embed_ready_hash(
+    store_with_residue: IndexStore,
+) -> None:
+    """Embedding progress is what the embed-ready sentinel tracks.
+
+    The chunks-ready hash covers which snapshots are indexed, so it
+    holds steady while embedding fills vectors in.
+    """
+    before_chunks = _sentinel_hash(store_with_residue, embed=False)
+    before_embed = _sentinel_hash(store_with_residue, embed=True)
+    unembedded = store_with_residue.unembedded_chunk_ids(
+        SnapshotRef(repo_id=1, snapshot_sha=INDEXED)
+    )
+    assert unembedded, "fixture must leave a chunk to embed"
+
+    with store_with_residue.session() as ws:
+        ws.update_embeddings(unembedded, [[0.25] * 768 for _ in unembedded])
+
+    assert _sentinel_hash(store_with_residue, embed=True) != before_embed
+    assert _sentinel_hash(store_with_residue, embed=False) == before_chunks
