@@ -373,9 +373,10 @@ class DaemonServer:
             return
 
         ref = SnapshotRef(repo_id=job.repo_id, snapshot_sha=job.ref)
-        outstanding = (await asyncio.to_thread(store.chunk_counts_for_snapshot, ref)).unembedded
-        if outstanding == 0:
+        pending = await asyncio.to_thread(store.unembedded_chunk_ids, ref)
+        if not pending:
             return
+        outstanding = len(pending)
 
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
@@ -385,12 +386,9 @@ class DaemonServer:
         t0 = time.perf_counter()
 
         try:
-            while True:
-                missing = await asyncio.to_thread(store.get_unembedded_chunks, job.repo_id, job.ref)
-                if not missing:
-                    break
-                before = done
-                for batch in itertools.batched(missing, config.embedding_batch_size, strict=False):
+            for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
+                page = await asyncio.to_thread(store.get_chunks_by_id, ref, list(page_ids))
+                for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
                     texts = [embedding_text(c.name, c.content) for c in batch]
                     try:
                         async with self._gpu_lock:
@@ -416,8 +414,6 @@ class DaemonServer:
                     if stale or dirty:
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
-                if done == before:
-                    break
         finally:
             final = await asyncio.to_thread(store.chunk_counts_for_snapshot, ref)
             _notify(
@@ -528,8 +524,8 @@ class DaemonServer:
         before an older backlog elsewhere.
 
         Walks every repo's watched refs and worktree with git, and reads
-        the embedding column for every indexed snapshot, so it is far
-        too slow for the event loop — `_job_worker` runs it in a thread.
+        the embedding column for every indexed snapshot.  That is slow
+        enough that `_job_worker` runs it in a thread.
         """
         store = self._store
         if store is None:
@@ -631,9 +627,9 @@ class DaemonServer:
             while not self._shutdown:
                 # Off the loop: `_find_next_job` walks git per repo and
                 # reads the embedding column.  Safe in a thread because
-                # every store read goes through a thread-local cursor
-                # (`IndexStore._cursor`, see the DuckDB note at store.py
-                # top) and this path never writes.
+                # it only reads, and every store read goes through a
+                # thread-local cursor (`IndexStore._cursor`, see the
+                # DuckDB note at the top of store.py).
                 job = await asyncio.to_thread(self._find_next_job)
                 if job is None:
                     break

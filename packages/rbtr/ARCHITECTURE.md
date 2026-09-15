@@ -395,6 +395,14 @@ is maintained without a stored dimension:
   uniform length per write batch via the `embedding_dim_is_uniform`
   rule.
 
+The column is also most of the database by size, and a predicate on it
+(`embedding IS NULL`) has to read it. That cost shapes three call paths:
+completeness is counted for a whole repo in one grouped pass rather than
+per snapshot (see [Completion tracking](#completion-tracking)), the
+worker's job search reads that same single result, and the embed loop
+resolves its work list once and then fetches pages by chunk id, so only
+the first read touches the column.
+
 `chunks.embedding_truncated` records whether a chunk's text
 exceeded the model's context window and was truncated before
 embedding (`embeddings.embed` flags it; `update_embeddings.sql`
@@ -442,9 +450,11 @@ win (7–32× for 3 vectors).
 
 - **Reads** register a frame and join against it:
   `_snapshot_refs` (the `(repo_id, snapshot_sha)` snapshots a
-  search spans — see [Cross-repo search](#cross-repo-search))
-  and `_qvecs` (query vectors — see
-  [Multi-vector semantic scan](#multi-vector-semantic-scan)).
+  search spans — see [Cross-repo search](#cross-repo-search)),
+  `_qvecs` (query vectors — see
+  [Multi-vector semantic scan](#multi-vector-semantic-scan)),
+  and `_chunk_ids` (one page of the embed work list, so the
+  fetch never predicates on `chunks.embedding`).
 - **Writes** register a staging frame the upsert reads from:
   `_stg` (chunks / snapshots / edges) and `_emb_stg`
   (embeddings), via `WriteSession._bulk_insert`.
@@ -734,9 +744,11 @@ embed recovery). The watcher itself stays read-only.
 for un-embedded chunks and sets the wake event so the
 DB-polling worker picks up the work. This handles the case
 where the daemon crashed after indexing completed but before
-embedding finished. `embed_index` is incremental
-(`get_unembedded_chunks` returns only `embedding IS NULL`
-rows), so recovery is idempotent.
+embedding finished. Recovery is idempotent because each embed
+job draws up its own work list — `unembedded_chunk_ids` names
+only `embedding IS NULL` chunks — so a job that died halfway
+leaves the rest outstanding and the next one resumes from
+there.
 
 **Transactional writes:** `WriteSession` rolls back on
 exception. No partial state persists.

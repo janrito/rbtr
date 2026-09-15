@@ -167,6 +167,11 @@ class Config(BaseSettings):
         description="Enable verbose llama.cpp output during model loading.",
     )
     embedding_batch_size: int = Field(default=32, description="Batch size for embedding inference.")
+    embedding_page_size: int = Field(
+        default=1000,
+        description="Chunks fetched from the index per embedding page. "
+        "Caps peak memory while embedding a large snapshot.",
+    )
     insert_batch_size: int = Field(
         default=512,
         description="Max chunks buffered before a DuckDB insert flush. "

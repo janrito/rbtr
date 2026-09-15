@@ -1,8 +1,11 @@
 -- sqlfluff:templater:placeholder:repo_id:1
 -- sqlfluff:templater:placeholder:snapshot_sha:'abc'
--- One row per chunk, not per location: embedding writes by chunk id, so a
--- chunk whose content sits at several paths is one unit of work.  The
--- ORDER BY picks which location represents it.
+-- Fetch named chunks at a snapshot, joined to `_chunk_ids`.
+-- One row per chunk: the ORDER BY picks which location represents
+-- content that sits at several paths.
+-- Chunks are matched by id, so the read stays within the columns it
+-- projects.  The caller resolves its work list once and then fetches
+-- each page through here.
 SELECT DISTINCT ON (c.id)
   c.id,
   fs.repo_id,
@@ -19,6 +22,8 @@ SELECT DISTINCT ON (c.id)
   c.metadata,
   FALSE AS has_embedding
 FROM chunks AS c
+INNER JOIN _chunk_ids AS w
+  ON c.id = w.id
 INNER JOIN file_snapshots AS fs
   ON
     c.blob_sha = fs.blob_sha
@@ -26,6 +31,4 @@ INNER JOIN file_snapshots AS fs
 WHERE
   fs.repo_id = $repo_id
   AND fs.snapshot_sha = $snapshot_sha
-  AND c.embedding IS NULL
-ORDER BY fs.file_path, c.line_start
-LIMIT $max_rows
+ORDER BY c.id ASC, fs.file_path ASC, c.line_start ASC

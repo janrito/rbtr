@@ -118,8 +118,7 @@ def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotR
     assert counts.total == len(chunks)
     assert counts.unembedded == len(chunks)
 
-    unembedded = dup_store.get_unembedded_chunks(dup_ref.repo_id, dup_ref.snapshot_sha)
-    assert sorted(c.id for c in unembedded) == sorted(chunks)
+    assert sorted(dup_store.unembedded_chunk_ids(dup_ref)) == sorted(chunks)
 
 
 # ── Edges are per location ───────────────────────────────────────────

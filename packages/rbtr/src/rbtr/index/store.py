@@ -88,6 +88,7 @@ from rbtr.index.results import (
     ScoredChunkResultRow,
     SnapshotCountsRow,
     _decode_metadata,
+    chunk_ids_frame,
     file_paths_frame,
     frame_to_chunks,
     scored_to_chunks,
@@ -124,7 +125,8 @@ _LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
 _COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
 _COUNT_EDGES_SQL = load_sql("count_edges.sql")
 _GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
-_GET_UNEMBEDDED_CHUNKS_SQL = load_sql("get_unembedded_chunks.sql")
+_UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
+_GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
 _HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
 _DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
 _WIPE_SCHEMA_SQL = load_sql("wipe_schema.sql")
@@ -543,8 +545,8 @@ class IndexStore:
         because reading `chunks.embedding` is most of the work.
 
         Every snapshot in `indexed_snapshots` gets a row; one holding no
-        chunks counts zero rather than going missing.  Ordered most
-        recently indexed first, ties broken by `snapshot_sha`.
+        chunks counts zero.  Ordered most recently indexed first, ties
+        broken by `snapshot_sha`.
         """
         return (
             self._cursor.execute(
@@ -569,27 +571,38 @@ class IndexStore:
         row = frame.row(0, named=True)
         return SnapshotCounts(total=row["total"], embedded=row["embedded"])
 
-    def get_unembedded_chunks(
-        self, repo_id: int, snapshot_sha: str, limit: int = 1000
-    ) -> list[Chunk]:
-        """Return chunks at *snapshot_sha* with `embedding IS NULL`.
+    def unembedded_chunk_ids(self, ref: SnapshotRef) -> list[str]:
+        """Return the id of every chunk at *ref* still lacking a vector.
 
-        Results are ordered deterministically by `(file_path, line_start)`
-        and capped at *limit*.  A chunk appears once however many paths
-        hold its content, carrying the first of them, because embedding it
-        writes the one content-addressed row every path shares.
+        One id however many paths hold the content, because embedding
+        writes the single content-addressed row they share.  The whole
+        work list comes back at once: this is the one read on the embed
+        path that touches `chunks.embedding`, and the caller fetches the
+        chunks themselves by id.
         """
-        params = {
-            "repo_id": repo_id,
-            "snapshot_sha": snapshot_sha,
-            "max_rows": limit,
-        }
-        frame = (
-            self._cursor.execute(_GET_UNEMBEDDED_CHUNKS_SQL, params)
-            .pl()
-            .pipe(_decode_metadata)
-            .pipe(ChunkResultRow.validate, cast=True)
-        )
+        rows = self._cursor.execute(
+            _UNEMBEDDED_CHUNK_IDS_SQL,
+            {"repo_id": ref.repo_id, "snapshot_sha": ref.snapshot_sha},
+        ).fetchall()
+        return [str(r[0]) for r in rows]
+
+    def get_chunks_by_id(self, ref: SnapshotRef, chunk_ids: list[str]) -> list[Chunk]:
+        """Return the named chunks as they are seen at *ref*, ordered by id.
+
+        An id that no longer resolves at *ref* is left out of the
+        result, which shortens the page: a chunk can be collected
+        between a work list being drawn up and a page of it being read.
+        """
+        if not chunk_ids:
+            return []
+        params = {"repo_id": ref.repo_id, "snapshot_sha": ref.snapshot_sha}
+        with self._registered_views(_chunk_ids=chunk_ids_frame(chunk_ids)) as cur:
+            frame = (
+                cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
+                .pl()
+                .pipe(_decode_metadata)
+                .pipe(ChunkResultRow.validate, cast=True)
+            )
         return frame_to_chunks(frame)
 
     def distinct_chunk_languages(self) -> set[str]:

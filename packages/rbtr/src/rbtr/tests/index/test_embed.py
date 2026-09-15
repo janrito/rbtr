@@ -8,6 +8,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture, MockType
 
+from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -99,10 +100,23 @@ def test_build_index_without_embedder_leaves_embeddings_null(
     assert all(not c.has_embedding for c in chunks)
 
 
+@pytest.mark.parametrize("page_size", [1000, 2], ids=["one page", "several pages"])
 def test_embed_index_populates_embeddings(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository,
+    store: IndexStore,
+    snapshot_sha: str,
+    stub_embedder: MockType,
+    page_size: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """embed_index fills embedding vectors for an already-indexed commit."""
+    """embed_index fills embedding vectors for an already-indexed commit.
+
+    Run again with a page size below the chunk count, so the second page
+    is reached: at the default of 1000 this fixture fits in one.  A page
+    boundary that dropped the remainder, or embedded a page twice, shows
+    up in the count.
+    """
+    monkeypatch.setattr(config, "embedding_page_size", page_size)
     build_index(git_repo.workdir, snapshot_sha, store)
 
     # All NULL before embed.
@@ -155,33 +169,41 @@ def test_embedding_leaves_nothing_outstanding(
     assert counts.is_fully_embedded
 
 
-def test_get_unembedded_chunks_returns_only_nulls(
+def test_the_work_list_names_only_chunks_without_vectors(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
-    """get_unembedded_chunks returns only chunks without embeddings."""
+    """The one pass over the embedding column decides what is outstanding."""
     build_index(git_repo.workdir, snapshot_sha, store)
+    ref = SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)
 
-    # Partially embed — embed first batch only.
     chunks = store.get_chunks(snapshot_sha, repo_id=1)
     first_chunk = chunks[0]
     with store.session() as ws:
         ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]])
 
-    unembedded = store.get_unembedded_chunks(repo_id=1, snapshot_sha=snapshot_sha)
-    assert len(unembedded) == len(chunks) - 1
-    assert first_chunk.id not in {c.id for c in unembedded}
+    outstanding = store.unembedded_chunk_ids(ref)
+    assert len(outstanding) == len(chunks) - 1
+    assert first_chunk.id not in outstanding
 
 
-def test_get_unembedded_chunks_respects_limit(
+def test_a_page_of_chunks_is_fetched_by_id(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
-    """get_unembedded_chunks limits the number of returned rows."""
-    build_index(git_repo.workdir, snapshot_sha, store)
-    counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))
-    assert counts.unembedded > 1  # need multiple chunks for the test to be meaningful
+    """Pages come back by id, and an id that no longer resolves is dropped.
 
-    limited = store.get_unembedded_chunks(repo_id=1, snapshot_sha=snapshot_sha, limit=1)
-    assert len(limited) == 1
+    A chunk can be collected between the work list being drawn up and a
+    page of it being read, so the page comes back shorter and the loop
+    carries on.
+    """
+    build_index(git_repo.workdir, snapshot_sha, store)
+    ref = SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)
+    outstanding = store.unembedded_chunk_ids(ref)
+    assert len(outstanding) > 2, "fixture must hold enough chunks to page"
+
+    page = store.get_chunks_by_id(ref, outstanding[:2])
+    assert [c.id for c in page] == outstanding[:2]
+
+    assert store.get_chunks_by_id(ref, ["gone", *outstanding[:1]]) == page[:1]
 
 
 def test_build_then_embed_full_idempotency(

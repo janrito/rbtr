@@ -221,3 +221,28 @@ def test_search_results_correct_during_embed(
     # At minimum, both should succeed without error.
     assert isinstance(daemon_names, set)
     assert isinstance(direct_names, set)
+
+
+def test_the_embed_worker_finishes_the_snapshot(
+    contention_server: DaemonServer,
+    contention_repo: str,
+    embeddable_store: IndexStore,
+) -> None:
+    """The worker embeds every chunk in the snapshot.
+
+    The two tests above drive `_run_embed_async` to show search stays
+    responsive while it runs; this one holds it to finishing the work,
+    which is what a paging bug would break.
+    """
+    sha = str(pygit2.Repository(contention_repo).head.target)
+    ref = SnapshotRef(repo_id=1, snapshot_sha=sha)
+
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if embeddable_store.chunk_counts_for_snapshot(ref).is_fully_embedded:
+            break
+        time.sleep(0.05)
+
+    counts = embeddable_store.chunk_counts_for_snapshot(ref)
+    assert counts.total == 50, "fixture did not seed the chunks it claims to"
+    assert counts.is_fully_embedded, f"{counts.unembedded} of {counts.total} left unembedded"

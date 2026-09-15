@@ -67,6 +67,17 @@ class FilePathRow(dy.Schema):
     file_path = dy.String(nullable=False)
 
 
+class ChunkIdRow(dy.Schema):
+    """Backs the cursor-registered `_chunk_ids` join view.
+
+    Not an insert target: the embed path registers one page of its work
+    list here and joins chunks against it by id.  `id` is `String` to
+    match the column on `chunks`.
+    """
+
+    id = dy.String(nullable=False)
+
+
 class SerialMapRow(dy.Schema):
     """Backs the cursor-registered `_serial_map` join view.
 
@@ -249,6 +260,12 @@ def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
     return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
 
 
+def chunk_ids_frame(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
+    """Build the `_chunk_ids` join view from a page of chunk ids."""
+    frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
+    return ChunkIdRow.validate(frame, cast=True)
+
+
 def serial_map_frame(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
     """Build the `_serial_map` join view from a language -> serial map."""
     if not serials:
@@ -302,8 +319,8 @@ def frame_to_snapshot_counts(
 ) -> list[tuple[SnapshotRef, SnapshotCounts]]:
     """Pair every row with the snapshot it describes, in frame order.
 
-    A list, not a mapping: the order is the query's answer to which
-    snapshot comes first, and keying it away would discard that.
+    Returns a list, because the order is the query's answer to which
+    snapshot comes first and a mapping would lose it.
     """
     return [
         (

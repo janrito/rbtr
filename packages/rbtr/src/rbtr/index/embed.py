@@ -1,8 +1,8 @@
 """Index embedding — compute vectors for an already-indexed commit.
 
-`embed_index` fetches un-embedded chunks in pages and processes each page in
-batches.  Each batch gets its own write session so the DuckDB write lock is
-released between batches — higher-priority builds can run in the gaps.
+`embed_index` resolves the whole work list once, then reads it back a page
+at a time and embeds each page in batches.  Each batch commits in its own
+write session, so a transaction covers the write alone.
 
 All heavy work runs synchronously in the calling thread — `rbtr index`
 embeds inline, after chunks and edges are committed.
@@ -35,26 +35,26 @@ def embed_index(
 ) -> int:
     """Embed un-embedded chunks for an already-indexed commit.
 
-    Fetches unembedded chunks in pages and processes each page
-    in batches.  Each batch gets its own write session so the
-    DuckDB write lock is released between batches — higher-priority
-    builds can run in the gaps.
+    Resolves the work list once, then reads it back a page at a time and
+    embeds each page in batches.  Each batch commits in its own write
+    session, so a transaction covers the write alone.
 
     Returns the number of chunks that were embedded.
     """
     ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-    outstanding = store.chunk_counts_for_snapshot(ref).unembedded
-    if outstanding == 0:
+    pending = store.unembedded_chunk_ids(ref)
+    if not pending:
         return 0
 
     on_progress("loading_model", 0, 0)
 
+    outstanding = len(pending)
     done = 0
     t0 = time.perf_counter()
 
-    while missing := store.get_unembedded_chunks(repo_id, snapshot_sha):
-        before = done
-        for batch in itertools.batched(missing, config.embedding_batch_size, strict=False):
+    for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
+        page = store.get_chunks_by_id(ref, list(page_ids))
+        for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]
             try:
                 results = embedder.embed(texts)
@@ -69,8 +69,6 @@ def embed_index(
                 )
             done += len(batch)
             on_progress("embedding", done, outstanding)
-        if done == before:
-            break
 
     log.info("embedded_chunks", done=done, total=outstanding, elapsed_ms=elapsed_ms(t0))
     return done
