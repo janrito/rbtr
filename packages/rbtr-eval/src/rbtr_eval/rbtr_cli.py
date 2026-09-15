@@ -49,7 +49,7 @@ def daemon_session(
     config_dir: Path,
     log_dir: Path,
     *,
-    wait_budget_s: float | None = None,
+    wait_budget_s: float = 600.0,
 ) -> Iterator[DaemonClient]:
     """Start an isolated daemon; yield a client; stop on exit.
 
@@ -68,6 +68,14 @@ def daemon_session(
     within about a second, and we don't fail the caller if
     the stop subprocess returns non-zero (the worker may
     already be gone).
+
+    *wait_budget_s* is ten minutes because a pipeline stage is
+    not a person waiting: a search is 4.9 s at the median and
+    11 s at p99, so anything past a minute means something else
+    on the machine is competing for the GPU.  Riding that out
+    costs the stage seconds; giving up on it costs the hours of
+    searching already done.  Ten minutes of silence means the
+    daemon is broken rather than busy.
     """
     for d in (data_dir, config_dir, log_dir):
         d.mkdir(parents=True, exist_ok=True)

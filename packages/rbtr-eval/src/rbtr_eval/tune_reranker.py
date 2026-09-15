@@ -490,7 +490,6 @@ class TuneRerankerCmd(BaseModel):
                 self.data_dir,
                 self.config_dir,
                 self.log_dir,
-                wait_budget_s=120.0,
             ) as client,
             progress_reporter("tune-reranker") as (on_progress,),
         ):
