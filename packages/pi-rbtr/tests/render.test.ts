@@ -15,6 +15,7 @@ import {
   footerLabel,
   formatWatched,
   renderSearchResult,
+  renderStatusResult,
   renderStatusText,
 } from "../extensions/rbtr/render.js";
 
@@ -171,12 +172,48 @@ describe("renderStatusText", () => {
     expect(renderStatusText(starting).split("\n")).toContain("Building: ffffffffffff — walking 0/0 — 2s");
   });
 
+  test("says the index is missing when no ref is indexed", () => {
+    expect(renderStatusText({ kind: "status" })).toBe("No index found at the configured path.");
+  });
+
+  test("says an indexed repo has nothing running", () => {
+    const idle: StatusResponse = {
+      kind: "status",
+      db_path: "/db",
+      indexed_refs: [{ sha: "a".repeat(40), names: ["HEAD"], total: 10, embedded: 10 }],
+    };
+    expect(renderStatusText(idle).split("\n")).toContain("No active build.");
+  });
+
   test("pads the seconds on the minute boundary", () => {
     const justOverAMinute: StatusResponse = {
       kind: "status",
       active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
     };
     expect(renderStatusText(justOverAMinute).split("\n")).toContain("Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
+  });
+});
+
+describe("renderStatusResult size suffix", () => {
+  function sizeLine(bytes: number | null): string {
+    const response = {
+      kind: "status",
+      indexed_refs: [{ sha: "a".repeat(40), names: [], total: 10, embedded: 10 }],
+      db_size_bytes: bytes,
+    } satisfies StatusResponse;
+    // render() pads each line to the given width.
+    return renderStatusResult(daemonResult(response), { isPartial: false }, plainTheme).render(1000)[0].trimEnd();
+  }
+
+  test("climbs the unit ladder, rounding bytes and fixing one decimal above", () => {
+    expect(sizeLine(512)).toContain(" · 512 B");
+    expect(sizeLine(2048)).toContain(" · 2.0 KB");
+    expect(sizeLine(1_500_000)).toContain(" · 1.4 MB");
+    expect(sizeLine(3 * 1024 ** 3)).toContain(" · 3.0 GB");
+  });
+
+  test("omits the suffix when the daemon sends no size", () => {
+    expect(sizeLine(null)).toBe("✓ 10 symbols");
   });
 });
 

@@ -491,7 +491,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   if (indexed.length === 0) {
     lines.push(theme.fg("error", "✗ No index found"));
   } else if (crossRepo) {
-    lines.push(theme.fg("success", `✓ indexed repos${sizeSuffixRender(response)}`));
+    lines.push(theme.fg("success", `✓ indexed repos${formatSizeSuffix(response)}`));
     const byRepo = new Map<string, typeof indexed>();
     for (const ref of indexed) {
       const key = ref.repo_path ?? "?";
@@ -507,7 +507,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     }
   } else {
     const total = indexed[0].total;
-    lines.push(theme.fg("success", `✓ ${humanCount(total)} symbols${sizeSuffixRender(response)}`));
+    lines.push(theme.fg("success", `✓ ${humanCount(total)} symbols${formatSizeSuffix(response)}`));
     for (const ref of indexed) {
       lines.push(theme.fg("muted", formatIndexedRef(ref)));
     }
@@ -585,7 +585,8 @@ export function humanCount(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-function sizeSuffixRender(response: StatusResponse | undefined): string {
+/** Database size as ` · 1.5 MB`, or nothing when the daemon sends no size. */
+function formatSizeSuffix(response: StatusResponse | undefined): string {
   const bytes = response?.db_size_bytes;
   if (bytes == null) return "";
   let size = bytes;
