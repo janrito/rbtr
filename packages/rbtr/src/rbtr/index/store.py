@@ -541,6 +541,10 @@ class IndexStore:
         narrows it.  One grouped pass whatever the scope, so the cost does
         not grow with the number of snapshots asked about — which matters
         because reading `chunks.embedding` is most of the work.
+
+        Every snapshot in `indexed_snapshots` gets a row; one holding no
+        chunks counts zero rather than going missing.  Ordered most
+        recently indexed first, ties broken by `snapshot_sha`.
         """
         return (
             self._cursor.execute(

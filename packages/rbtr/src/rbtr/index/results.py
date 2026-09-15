@@ -22,6 +22,7 @@ from rbtr.domain.models import (
     Chunks,
     EdgeKind,
     ImportMeta,
+    SnapshotCounts,
     SnapshotRef,
 )
 
@@ -294,6 +295,23 @@ def scored_to_chunks(
     scores = frame["score"].to_list()
     chunks = frame_to_chunks(frame.drop("score").pipe(ChunkResultRow.validate, cast=True))
     return list(zip(chunks, scores, strict=True))
+
+
+def frame_to_snapshot_counts(
+    frame: dy.DataFrame[SnapshotCountsRow],
+) -> list[tuple[SnapshotRef, SnapshotCounts]]:
+    """Pair every row with the snapshot it describes, in frame order.
+
+    A list, not a mapping: the order is the query's answer to which
+    snapshot comes first, and keying it away would discard that.
+    """
+    return [
+        (
+            SnapshotRef(repo_id=row["repo_id"], snapshot_sha=row["snapshot_sha"]),
+            SnapshotCounts(total=row["total"], embedded=row["embedded"]),
+        )
+        for row in frame.iter_rows(named=True)
+    ]
 
 
 def changed_to_symbols(

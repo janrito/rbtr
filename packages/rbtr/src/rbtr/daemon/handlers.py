@@ -16,7 +16,7 @@ Write-side handlers (GC) also use `store`.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Protocol
 
 import structlog
@@ -52,7 +52,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     WatchedRef,
 )
-from rbtr.domain.models import Chunk, GcMode, QueryKind, SnapshotRef
+from rbtr.domain.models import Chunk, GcMode, QueryKind, Repo, SnapshotCounts, SnapshotRef
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import (
     HEAD_REF,
@@ -63,7 +63,7 @@ from rbtr.git import (
     worktree_tree_sha,
 )
 from rbtr.index.gc import run_gc, run_gc_all
-from rbtr.index.results import changed_to_symbols
+from rbtr.index.results import changed_to_symbols, frame_to_snapshot_counts
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
@@ -262,27 +262,33 @@ def handle_changed_symbols(
 type SnapshotStatusFn = Callable[[str], tuple[ActiveJob | None, ActiveJob | None]]
 
 
-def _refs_for_repo(
-    store: IndexStore,
-    repo_id: int,
-    repo_path: str,
+def _indexed_refs(
+    repos: Sequence[Repo],
+    counted: Sequence[tuple[SnapshotRef, SnapshotCounts]],
 ) -> list[IndexedRef]:
-    """Build `IndexedRef`s for one repo's indexed commits."""
-    indexed_shas = [sha for sha, _ in store.list_indexed_snapshots(repo_id)]
-    ref_names = names_for_commits(repo_path, indexed_shas)
-    refs: list[IndexedRef] = []
-    for sha in indexed_shas:
-        counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-        refs.append(
-            IndexedRef(
-                sha=sha,
-                names=ref_names.get(sha, []),
-                total=counts.total,
-                embedded=counts.embedded,
-                repo_path=repo_path,
-            )
+    """Build one `IndexedRef` per counted snapshot, in the order given.
+
+    *counted* already carries every indexed snapshot, its two figures and
+    its display order, so the work left is resolving each repo's symbolic
+    ref names — one git call per repo.
+    """
+    paths = {repo.repo_id: repo.repo_path for repo in repos}
+    shas: dict[int, list[str]] = {}
+    for ref, _ in counted:
+        shas.setdefault(ref.repo_id, []).append(ref.snapshot_sha)
+    names = {
+        repo_id: names_for_commits(paths[repo_id], of_repo) for repo_id, of_repo in shas.items()
+    }
+    return [
+        IndexedRef(
+            sha=ref.snapshot_sha,
+            names=names[ref.repo_id].get(ref.snapshot_sha, []),
+            total=count.total,
+            embedded=count.embedded,
+            repo_path=paths[ref.repo_id],
         )
-    return refs
+        for ref, count in counted
+    ]
 
 
 def _watched_for_repo(
@@ -320,10 +326,13 @@ def handle_status(
 ) -> StatusResponse:
     """Report index status for the workspace repo or every repo."""
     if request.scope == Scope.ALL:
-        indexed_refs: list[IndexedRef] = []
+        # Counts before repos, so every repo the counts name has a path
+        # here to render it, even one registered between the two calls.
+        counted = frame_to_snapshot_counts(store.chunk_counts_frame())
+        repos = store.list_repos()
+        indexed_refs = _indexed_refs(repos, counted)
         watched: list[WatchedRef] = []
-        for repo in store.list_repos():
-            indexed_refs.extend(_refs_for_repo(store, repo.repo_id, repo.repo_path))
+        for repo in repos:
             watched.extend(_watched_for_repo(store, repo.repo_id, repo.repo_path))
     else:
         ws_repo_id = store.get_repo_id(request.repo_path)
@@ -336,7 +345,11 @@ def handle_status(
                 active_build=None,
                 active_embed=None,
             )
-        indexed_refs = _refs_for_repo(store, ws_repo_id, request.repo_path)
+        workspace = Repo(repo_id=ws_repo_id, repo_path=request.repo_path)
+        indexed_refs = _indexed_refs(
+            [workspace],
+            frame_to_snapshot_counts(store.chunk_counts_frame(repo_id=ws_repo_id)),
+        )
         watched = _watched_for_repo(store, ws_repo_id, request.repo_path)
     active_build = None
     active_embed = None

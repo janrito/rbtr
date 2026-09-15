@@ -12,10 +12,16 @@ from __future__ import annotations
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.index.results import frame_to_snapshot_counts
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
-from .cases_read import BlobCurrentScenario, ChunkQueryScenario, GcCountScenario
+from .cases_read import (
+    BlobCurrentScenario,
+    ChunkQueryScenario,
+    EmbedOrderScenario,
+    GcCountScenario,
+)
 from .conftest import make_chunk, make_snap
 
 # ── get_chunks ──────────────────────────────────────────────────────
@@ -592,3 +598,40 @@ def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
     assert store.get_repo_id("/r") is None
     assert store.has_indexed(1, "headsha") is False
     assert store.has_indexed(1, "treesha") is False
+
+
+# ── snapshot counts ──────────────────────────────────────────────────
+
+
+def test_an_indexed_snapshot_with_no_chunks_counts_zero(store: IndexStore) -> None:
+    """A commit that yielded nothing to index is still reported, at zero.
+
+    `mark_indexed` records completion for any tree, including one that
+    held nothing extractable, so the query answers for it with a row of
+    zeroes and the caller reads a figure rather than supplying one.
+    """
+    with store.session() as ws:
+        ws.register_repo("/r")
+        ws.mark_indexed(1, "c1")
+
+    counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    assert counts.total == 0
+    assert counts.is_fully_embedded, "nothing outstanding means no embed work"
+    assert store.chunk_counts_frame(repo_id=1)["snapshot_sha"].to_list() == ["c1"]
+
+
+@parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")
+def test_counts_come_back_in_embed_order(scenario: EmbedOrderScenario, store: IndexStore) -> None:
+    """Order decides which snapshot is embedded next, so the query fixes it.
+
+    Asserted through `frame_to_snapshot_counts`, because that is what
+    both the status handler and the job picker actually read.
+    """
+    for shas in scenario.transactions:
+        with store.session() as ws:
+            ws.register_repo("/r")
+            for sha in shas:
+                ws.mark_indexed(1, sha)
+
+    counted = frame_to_snapshot_counts(store.chunk_counts_frame(repo_id=1))
+    assert [ref.snapshot_sha for ref, _ in counted] == scenario.expected

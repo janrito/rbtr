@@ -32,6 +32,15 @@ class ChunkQueryScenario:
 
 
 @dataclass(frozen=True)
+class EmbedOrderScenario:
+    """Snapshots to mark indexed, grouped by transaction, and the order
+    the counts query should return them in."""
+
+    transactions: list[list[str]]
+    expected: list[str]
+
+
+@dataclass(frozen=True)
 class BlobCurrentScenario:
     """Seed data + blob_is_current(serial map) query + expected result."""
 
@@ -346,3 +355,21 @@ def case_gc_split_mixed() -> GcCountScenario:
         expected_dropped=1,
         expected_kept=1,
     )
+
+
+# ── embed_order cases ────────────────────────────────────────────────
+
+
+@case(tags=["embed_order"])
+def case_newest_transaction_is_embedded_first() -> EmbedOrderScenario:
+    """Separate transactions get distinct `indexed_at`, so the newer wins."""
+    return EmbedOrderScenario(transactions=[["c1"], ["c2"]], expected=["c2", "c1"])
+
+
+@case(tags=["embed_order"])
+def case_one_transaction_falls_to_the_sha() -> EmbedOrderScenario:
+    """One transaction stamps one `indexed_at`, so the tie-break decides.
+
+    Without it the pick would be arbitrary and this test flaky.
+    """
+    return EmbedOrderScenario(transactions=[["c3", "c1", "c2"]], expected=["c1", "c2", "c3"])
