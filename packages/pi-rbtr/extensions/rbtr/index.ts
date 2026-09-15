@@ -33,6 +33,8 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
 import { decodeStringList, echoArgs } from "./args.js";
 import {
   type EmbedCounts,
+  formatElapsed,
+  formatJobCounts,
   humanCount,
   isFullyEmbedded,
   renderChangedSymbolsCall,
@@ -345,11 +347,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     const elapsedSuffix = (): string => {
       if (buildStartedAt === null) return "";
-      const s = Math.floor((Date.now() - buildStartedAt) / 1000);
-      if (s < 60) return ` · ${s}s`;
-      const m = Math.floor(s / 60);
-      const rem = s % 60;
-      return ` · ${m}m${String(rem).padStart(2, "0")}s`;
+      return ` · ${formatElapsed(Math.floor((Date.now() - buildStartedAt) / 1000))}`;
     };
 
     try {
@@ -662,14 +660,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
       if (status?.active_build && status.active_build.repo_path === ctx.cwd) {
         const j = status.active_build;
-        const pct = j.total > 0 ? ` (${Math.round((100 * j.current) / j.total)}%)` : "";
         return {
           content: [
             {
               type: "text",
               text:
                 `A build is already in progress for this repository at ${j.ref.slice(0, 12)} ` +
-                `(${j.phase} ${j.current}/${j.total}${pct}). No new build was queued. ` +
+                `(${j.phase} ${formatJobCounts(j)}). No new build was queued. ` +
                 `Use rbtr_status to check progress.`,
             },
           ],

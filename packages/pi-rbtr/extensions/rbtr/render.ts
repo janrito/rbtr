@@ -521,24 +521,25 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   return new Text(lines.join("\n"), 0, 0);
 }
 
-/** Progress as ` (42%)`, or empty while the job has no total to divide by. */
-function jobPercent(job: ActiveJob): string {
-  return job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+/** Progress as `3/10 (30%)`, without the percentage until the total is known. */
+export function formatJobCounts(job: ActiveJob): string {
+  const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+  return `${job.current}/${job.total}${pct}`;
 }
 
 /** Render the running build as one line: ref, phase, progress, elapsed. */
 function formatActiveBuild(job: ActiveJob): string {
-  const progress = `${job.phase} ${job.current}/${job.total}${jobPercent(job)}`;
+  const progress = `${job.phase} ${formatJobCounts(job)}`;
   return `Building: ${job.ref.slice(0, 12)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
 }
 
 /** Render the running embed pass as one line: ref, progress, elapsed. */
 function formatActiveEmbed(job: ActiveJob): string {
-  const progress = `${job.current}/${job.total}${jobPercent(job)}`;
-  return `Embedding: ${job.ref.slice(0, 12)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
+  return `Embedding: ${job.ref.slice(0, 12)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
 }
 
-function formatElapsed(seconds: number): string {
+/** Format a duration for humans: `45s`, `1m05s`. */
+export function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
