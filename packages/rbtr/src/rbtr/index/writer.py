@@ -33,10 +33,10 @@ from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.staging import (
     TokenisedChunk,
-    chunks_frame,
-    edges_frame,
-    embeddings_frame,
-    file_snapshots_frame,
+    staged_chunks,
+    staged_edges,
+    staged_embeddings,
+    staged_file_snapshots,
 )
 
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
@@ -276,7 +276,7 @@ class WriteSession:
         """Write buffered chunks to DuckDB in one batch."""
         if not self._chunk_buffer:
             return
-        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks_frame(self._chunk_buffer))
+        self._bulk_insert(_UPSERT_CHUNKS_SQL, staged_chunks(self._chunk_buffer))
         self._chunks_modified = True
         self._chunk_buffer.clear()
 
@@ -319,7 +319,7 @@ class WriteSession:
         """Batch insert snapshots."""
         if not snapshots:
             return
-        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, file_snapshots_frame(snapshots, repo_id))
+        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, repo_id))
 
     def replace_snapshots(self, snapshots: list[FileSnapshot], *, at: SnapshotRef) -> None:
         """Atomically replace all snapshots at *at*."""
@@ -331,7 +331,7 @@ class WriteSession:
         """Batch insert edges scoped to *at*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, at=at))
+        self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=at))
 
     def replace_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
         """Atomically replace all edges at *at*."""
@@ -369,7 +369,7 @@ class WriteSession:
         self._flush_chunks()
         if truncated is None:
             truncated = [False] * len(ids)
-        frame = embeddings_frame(ids, embeddings, truncated)
+        frame = staged_embeddings(ids, embeddings, truncated)
         with self._store._registered_views(_emb_stg=frame) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 

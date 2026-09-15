@@ -137,7 +137,7 @@ class EmbeddingStagingRow(dy.Schema):
         return lengths == lengths.first()
 
 
-def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
+def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     """Build a staging frame of tokenised chunks for `_bulk_insert`.
 
     Chunks are content-addressed (keyed by `id`) and shared across
@@ -150,7 +150,7 @@ def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     )
 
 
-def edges_frame(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagingRow]:
+def staged_edges(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagingRow]:
     """Build a staging frame of edges scoped to *at*.
 
     Every row in the batch shares *at*, so `repo_id` and `snapshot_sha`
@@ -168,7 +168,7 @@ def edges_frame(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagi
     )
 
 
-def file_snapshots_frame(
+def staged_file_snapshots(
     snapshots: list[FileSnapshot], repo_id: int
 ) -> dy.DataFrame[FileSnapshotStagingRow]:
     """Build a staging frame from a list of `FileSnapshot` models."""
@@ -181,7 +181,7 @@ def file_snapshots_frame(
     )
 
 
-def embeddings_frame(
+def staged_embeddings(
     ids: list[str],
     embeddings: list[list[float]],
     truncated: list[bool],
