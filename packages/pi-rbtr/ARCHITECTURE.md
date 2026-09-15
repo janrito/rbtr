@@ -231,6 +231,12 @@ consistent styling. `renderResult` receives an
 `AgentToolResult<unknown>` — the same object returned by
 the tool's `execute` function.
 
+The plain-text formatters a tool returns to the model live
+in `render.ts` as well — `renderStatusText` beside
+`renderStatusResult`, and the helpers both call. One response
+is rendered twice, for two audiences, and keeping the pair in
+one module is what stops the two renderings drifting apart.
+
 ### Call-line arguments
 
 `renderCall` shows the scoping arguments on the call line so a

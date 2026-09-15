@@ -1,8 +1,11 @@
 /**
- * Custom TUI renderers for rbtr tools.
+ * Renderers and text formatters for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
- * renderResult (collapsed/expanded views).
+ * renderResult (collapsed/expanded views).  The plain-text
+ * formatters a tool returns to the model live here too, beside
+ * the themed renderer of the same response, so the two shapes
+ * of one payload stay in step.
  *
  * Two sources of payload:
  *   - details.response — typed response from the daemon
@@ -20,6 +23,7 @@ import type {
   ChangedSymbol,
   ChangedSymbolsResponse,
   FindRefsResponse,
+  IndexedRef,
   ListSymbolsResponse,
   ReadSymbolResponse,
   RefOut,
@@ -439,11 +443,49 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
 
 // ── Status ──────────────────────────────────────────────────────
 
+/**
+ * Render a `StatusResponse` as multi-line text for the LLM.
+ *
+ * Output is derived solely from the response model — no
+ * external state.  Mirrors the Python CLI shape so the model
+ * sees the same information regardless of transport.
+ */
+export function renderStatusText(status: StatusResponse): string {
+  const lines: string[] = [];
+  const indexed = status.indexed_refs ?? [];
+  if (indexed.length === 0) {
+    lines.push("No index found at the configured path.");
+  } else {
+    const total = indexed[0].total;
+    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
+    lines.push("Refs:");
+    for (const ref of indexed) {
+      lines.push(`  ${formatIndexedRef(ref)}`);
+    }
+  }
+  lines.push(...formatWatched(status.watched ?? []));
+  const job = status.active_build;
+  if (job) {
+    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+    const elapsed = formatElapsed(job.elapsed_seconds);
+    lines.push(`Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`);
+  }
+  const ej = status.active_embed;
+  if (ej) {
+    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
+    const elapsed = formatElapsed(ej.elapsed_seconds);
+    lines.push(`Embedding: ${ej.ref.slice(0, 12)} — ${ej.current}/${ej.total}${pct} — ${elapsed}`);
+  }
+  if (!job && !ej && indexed.length > 0) {
+    lines.push("No active build.");
+  }
+  return lines.join("\n");
+}
+
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
 }
 
-// Output is derived solely from the response model — no external state.
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Checking…"), 0, 0);
 
@@ -468,21 +510,21 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     for (const [repoPath, refs] of byRepo) {
       lines.push(theme.fg("accent", repoPath));
       for (const ref of refs) {
-        lines.push(`  ${theme.fg("muted", fmtRefRender(ref))}`);
+        lines.push(`  ${theme.fg("muted", formatIndexedRef(ref))}`);
       }
     }
   } else {
     const total = indexed[0].total;
-    lines.push(theme.fg("success", `✓ ${humanCountRender(total)} symbols${sizeSuffixRender(response)}`));
+    lines.push(theme.fg("success", `✓ ${humanCount(total)} symbols${sizeSuffixRender(response)}`));
     for (const ref of indexed) {
-      lines.push(theme.fg("muted", fmtRefRender(ref)));
+      lines.push(theme.fg("muted", formatIndexedRef(ref)));
     }
   }
 
   const job = response?.active_build;
   if (job) {
     const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsedRender(job.elapsed_seconds);
+    const elapsed = formatElapsed(job.elapsed_seconds);
     lines.push(
       theme.fg(
         "muted",
@@ -493,7 +535,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   const ej = response?.active_embed;
   if (ej) {
     const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsedRender(ej.elapsed_seconds);
+    const elapsed = formatElapsed(ej.elapsed_seconds);
     lines.push(
       theme.fg(
         "muted",
@@ -505,14 +547,15 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   return new Text(lines.join("\n"), 0, 0);
 }
 
-function formatElapsedRender(seconds: number): string {
+function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}m${String(s).padStart(2, "0")}s`;
 }
 
-function humanCountRender(n: number): string {
+/** Format a count for humans: 42, 1.2k, 11.2k. */
+export function humanCount(n: number): string {
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1)}k`;
 }
@@ -528,14 +571,15 @@ function sizeSuffixRender(response: StatusResponse | undefined): string {
   return ` · ${size.toFixed(1)} GB`;
 }
 
-function fmtRefRender(ref: { sha: string; names?: string[]; total: number; embedded: number }): string {
+/** Render one indexed ref as a single line: sha, names, indexed count, embed state. */
+function formatIndexedRef(ref: IndexedRef): string {
   const label =
     (ref.names ?? []).length > 0 ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})` : ref.sha.slice(0, 12);
   const embedPart =
     ref.embedded >= ref.total
-      ? `${humanCountRender(ref.embedded)} embedded \u2713`
+      ? `${humanCount(ref.embedded)} embedded \u2713`
       : ref.embedded > 0
-        ? `${humanCountRender(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
+        ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
         : "not embedded";
-  return `${label}  ${humanCountRender(ref.total)} indexed  ${embedPart}`;
+  return `${label}  ${humanCount(ref.total)} indexed  ${embedPart}`;
 }

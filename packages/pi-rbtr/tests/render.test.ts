@@ -8,8 +8,14 @@
 
 import { describe, expect, test } from "vitest";
 
-import type { SearchHitOut } from "../extensions/rbtr/generated/protocol.js";
-import { extractPayload, fileScopeSuffix, formatWatched, renderSearchResult } from "../extensions/rbtr/render.js";
+import type { SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/protocol.js";
+import {
+  extractPayload,
+  fileScopeSuffix,
+  formatWatched,
+  renderSearchResult,
+  renderStatusText,
+} from "../extensions/rbtr/render.js";
 
 // Minimal theme: styling is identity so assertions see raw text.
 const plainTheme = {
@@ -108,6 +114,30 @@ describe("formatWatched", () => {
 
   test("empty watch set renders nothing", () => {
     expect(formatWatched([])).toEqual([]);
+  });
+});
+
+describe("renderStatusText", () => {
+  // One response covering every embed state a ref can be in: fully
+  // embedded, partly, not at all, and an empty snapshot.
+  const status: StatusResponse = {
+    kind: "status",
+    db_path: "/db",
+    indexed_refs: [
+      { sha: "a".repeat(40), names: ["HEAD", "main"], total: 1200, embedded: 1200 },
+      { sha: "b".repeat(40), names: [], total: 1200, embedded: 512 },
+      { sha: "c".repeat(40), names: [], total: 1200, embedded: 0 },
+      { sha: "d".repeat(40), names: [], total: 0, embedded: 0 },
+    ],
+  };
+
+  test("renders one line per ref, in the shape the TUI uses", () => {
+    const lines = renderStatusText(status).split("\n");
+    expect(lines).toContain("Index: 1.2k symbols (/db)");
+    expect(lines).toContain("  aaaaaaaaaaaa (HEAD, main)  1.2k indexed  1.2k embedded ✓");
+    expect(lines).toContain("  bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
+    expect(lines).toContain("  cccccccccccc  1.2k indexed  not embedded");
+    expect(lines).toContain("  dddddddddddd  0 indexed  0 embedded ✓");
   });
 });
 

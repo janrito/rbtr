@@ -32,7 +32,7 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
 
 import { decodeStringList, echoArgs } from "./args.js";
 import {
-  formatWatched,
+  humanCount,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -47,6 +47,7 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
+  renderStatusText,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 
@@ -115,67 +116,6 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
       // silent — normal operation
       break;
   }
-}
-
-/**
- * Render a `StatusResponse` as multi-line text for the LLM.
- *
- * Output is derived solely from the response model — no
- * external state.  Mirrors the Python CLI shape so the model
- * sees the same information regardless of transport.
- */
-function renderStatusText(status: StatusResponse): string {
-  const lines: string[] = [];
-  const indexed = status.indexed_refs ?? [];
-  if (indexed.length === 0) {
-    lines.push("No index found at the configured path.");
-  } else {
-    const total = indexed[0].total;
-    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
-    lines.push("Refs:");
-    for (const ref of indexed) {
-      const label =
-        (ref.names ?? []).length > 0
-          ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})`
-          : ref.sha.slice(0, 12);
-      const embedPart =
-        ref.embedded >= ref.total
-          ? `${humanCount(ref.embedded)} embedded`
-          : ref.embedded > 0
-            ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
-            : "not embedded";
-      lines.push(`  ${label} — ${humanCount(ref.total)} indexed, ${embedPart}`);
-    }
-  }
-  lines.push(...formatWatched(status.watched ?? []));
-  const job = status.active_build;
-  if (job) {
-    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsed(job.elapsed_seconds);
-    lines.push(`Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`);
-  }
-  const ej = status.active_embed;
-  if (ej) {
-    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsed(ej.elapsed_seconds);
-    lines.push(`Embedding: ${ej.ref.slice(0, 12)} — ${ej.current}/${ej.total}${pct} — ${elapsed}`);
-  }
-  if (!job && !ej && indexed.length > 0) {
-    lines.push("No active build.");
-  }
-  return lines.join("\n");
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}m${String(s).padStart(2, "0")}s`;
-}
-
-function humanCount(n: number): string {
-  if (n < 1000) return String(n);
-  return `${(n / 1000).toFixed(1)}k`;
 }
 
 /**
