@@ -98,7 +98,7 @@ def test_resolve_read_ref(
         "FEATURE_SHA": feature_sha,
         "TREE_SHA": tree_sha,
     }
-    assert result == expected_map[ref_scenario.expected]
+    assert result.snapshot_sha == expected_map[ref_scenario.expected]
 
 
 # ── require_indexed gating ───────────────────────────────────────────
@@ -134,7 +134,7 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
             repo_id = ws.register_repo(repo.workdir)
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
         result = _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
-        assert result == older
+        assert result == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
     finally:
         store.close()
 

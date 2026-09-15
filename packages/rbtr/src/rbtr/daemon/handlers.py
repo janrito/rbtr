@@ -68,7 +68,6 @@ from rbtr.git import (
     names_for_commits,
     normalise_repo_path,
     resolve_ref,
-    worktree_tree_sha,
 )
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.results import changed_to_symbols
@@ -97,15 +96,15 @@ def _resolve_read_ref(
     requested_ref: str | None,
     *,
     require_indexed: bool = False,
-) -> str:
-    """Resolve a ref for read operations.
+) -> SnapshotRef:
+    """Resolve a ref for read operations to the snapshot it names.
 
-    When *requested_ref* is `None`, checks the current worktree
-    tree SHA via `worktree_tree_sha`.  If dirty and indexed,
-    returns the tree SHA.  Otherwise resolves `"HEAD"`.  Explicit
-    `"HEAD"` always resolves to the committed state.  Falls back
-    to the latest indexed commit when the repo is missing.
-    Raises `RbtrError` if the ref cannot be resolved.
+    When *requested_ref* is `None`, prefers the worktree's tree SHA
+    when the tree is dirty and indexed (`indexed_worktree_ref`).
+    Otherwise resolves `"HEAD"`.  Explicit `"HEAD"` always resolves
+    to the committed state.  Falls back to the latest indexed commit
+    when the repo is missing.  Raises `RbtrError` if the ref cannot
+    be resolved.
 
     When *require_indexed* is set, the resolved SHA must be usable:
 
@@ -117,30 +116,25 @@ def _resolve_read_ref(
       no indexed commits at all. So an older indexed version of a
       symbol is preferred over an error.
     """
+
     explicit = requested_ref is not None
     if requested_ref is None:
-        tree_sha = worktree_tree_sha(repo_path)
-        if tree_sha is not None and store.has_indexed(
-            at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
-        ):
-            return tree_sha
+        if (dirty := store.indexed_worktree_ref(repo_path, repo_id)) is not None:
+            return dirty
         requested_ref = HEAD_REF
     try:
         sha = resolve_ref(repo_path, requested_ref)
     except RbtrError:
-        if requested_ref == HEAD_REF:
-            indexed = store.list_indexed_snapshots(repo_id)
-            if indexed:
-                return indexed[0][0]
+        if requested_ref == HEAD_REF and (latest := store.latest_indexed_ref(repo_id)) is not None:
+            return latest
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
-    if require_indexed and not store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)):
-        if not explicit:
-            indexed = store.list_indexed_snapshots(repo_id)
-            if indexed:
-                return indexed[0][0]
-        _require_indexed(store, repo_id, requested_ref, sha)
-    return sha
+    at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+    if require_indexed and not store.has_indexed(at=at):
+        if not explicit and (latest := store.latest_indexed_ref(repo_id)) is not None:
+            return latest
+        _require_indexed(store, at, requested_ref)
+    return at
 
 
 # ── Read-only handlers ───────────────────────────────────────────────
@@ -168,8 +162,7 @@ def handle_search(
         repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
-        sha = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
-        refs = [SnapshotRef(repo_id=repo_id, snapshot_sha=sha)]
+        refs = [_resolve_read_ref(store, request.repo_path, repo_id, request.ref)]
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = store.search(
@@ -203,40 +196,38 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
 
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    sha = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     scoped = _scope_chunks(store.match_by_name(request.symbol, at=at), request.file_paths)
     return ReadSymbolResponse(chunks=[SymbolOut.from_chunk(c) for c in scoped])
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    sha = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    chunks = store.get_chunks(
-        at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha),
-        file_path=request.file_path,
-    )
+    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    chunks = store.get_chunks(at=at, file_path=request.file_path)
     return ListSymbolsResponse(chunks=[SymbolOut.from_chunk(c) for c in chunks])
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    sha = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = _scope_chunks(store.match_by_name(request.symbol, at=at), request.file_paths)
     frame = store.inbound_refs([chunk.id for chunk in chunks], at=at)
     refs = RefOuts.validate_python(frame.to_dicts())
     return FindRefsResponse(refs=refs)
 
 
-def _require_indexed(store: IndexStore, repo_id: int, requested_ref: str, sha: str) -> None:
-    """Raise `IndexNotBuiltError` if *sha* is not indexed for this repo.
+def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> None:
+    """Raise `IndexNotBuiltError` if the snapshot at *at* is not indexed.
+
+    *requested_ref* is what the client asked for, which the message
+    quotes; *at* is what it resolved to.
 
     The daemon's `_dispatch` upgrades this to an "index is building"
     message when a build is active; inline callers see the plain
     "not indexed" guidance.
     """
-    if store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)):
+    if store.has_indexed(at=at):
         return
     if requested_ref == WORKTREE_REF:
         msg = "Working tree is not indexed yet — run rbtr index first"
@@ -257,8 +248,8 @@ def handle_changed_symbols(
     repo_id = store.resolve_repo(request.repo_path)
     base = resolve_ref(request.repo_path, request.base)
     head = resolve_ref(request.repo_path, request.head)
-    _require_indexed(store, repo_id, request.base, base)
-    _require_indexed(store, repo_id, request.head, head)
+    _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
+    _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
     frame = store.changed_symbols(
         between=SnapshotRange(repo_id=repo_id, base_sha=base, head_sha=head),
         file_paths=request.file_paths,

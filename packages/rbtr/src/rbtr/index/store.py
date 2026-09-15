@@ -377,6 +377,29 @@ class IndexStore:
         rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
         return [str(r[0]) for r in rows]
 
+    def indexed_worktree_ref(self, repo_path: str, repo_id: int) -> SnapshotRef | None:
+        """The worktree's tree SHA, when the tree is dirty and indexed.
+
+        `None` when the worktree matches HEAD's tree, when the repo
+        is gone, or when that tree has never been indexed — in each
+        case the caller wants a commit instead.
+        """
+        tree_sha = worktree_tree_sha(repo_path)
+        if tree_sha is None:
+            return None
+        at = SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
+        return at if self.has_indexed(at=at) else None
+
+    def latest_indexed_ref(self, repo_id: int) -> SnapshotRef | None:
+        """The most recently indexed snapshot for one repo, if any.
+
+        `None` when the repo has never been indexed.
+        """
+        indexed = self.list_indexed_snapshots(repo_id)
+        if not indexed:
+            return None
+        return SnapshotRef(repo_id=repo_id, snapshot_sha=indexed[0][0])
+
     def latest_ref(self, repo: Repo) -> SnapshotRef | None:
         """Resolve the most recent indexed ref for one repo.
 
@@ -385,15 +408,8 @@ class IndexStore:
         to the newest indexed commit.  Returns `None` when the repo
         has no indexed commits at all.
         """
-        tree_sha = worktree_tree_sha(repo.repo_path)
-        if tree_sha is not None and self.has_indexed(
-            at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=tree_sha)
-        ):
-            return SnapshotRef(repo_id=repo.repo_id, snapshot_sha=tree_sha)
-        indexed = self.list_indexed_snapshots(repo.repo_id)
-        if not indexed:
-            return None
-        return SnapshotRef(repo_id=repo.repo_id, snapshot_sha=indexed[0][0])
+        dirty = self.indexed_worktree_ref(repo.repo_path, repo.repo_id)
+        return dirty if dirty is not None else self.latest_indexed_ref(repo.repo_id)
 
     def list_latest_refs(self) -> list[SnapshotRef]:
         """Return one `SnapshotRef` per registered repo with indexed data.
