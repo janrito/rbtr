@@ -18,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -288,6 +289,10 @@ class DaemonClient:
         sock = self._sock or self._connect()
         sock.send(request.model_dump_json().encode())
         deadline = time.monotonic() + self._wait_budget_s
+        # Half the budget gone is the point worth saying out loud: a
+        # slow reply is ordinary, one this far through the patience of
+        # its caller is not.  Said once per request, not per check.
+        report_at = time.monotonic() + self._wait_budget_s / 2
 
         while True:
             try:
@@ -300,12 +305,14 @@ class DaemonClient:
                 if time.monotonic() >= deadline:
                     msg = f"Daemon did not reply within {self._wait_budget_s:g}s"
                     raise DaemonBusyError(msg) from exc
-                log.warning(
-                    "daemon_slow_reply",
-                    kind=request.kind,
-                    waited_s=round(waited, 1),
-                    budget_s=self._wait_budget_s,
-                )
+                if time.monotonic() >= report_at:
+                    report_at = math.inf
+                    log.warning(
+                        "daemon_slow_reply",
+                        kind=request.kind,
+                        waited_s=round(waited, 1),
+                        budget_s=self._wait_budget_s,
+                    )
 
     def send_or_raise(self, request: Request) -> Response:
         """Like `send`, but raises `RbtrError` on `ErrorResponse`."""

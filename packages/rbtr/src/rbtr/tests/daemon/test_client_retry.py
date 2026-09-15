@@ -17,6 +17,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+import structlog
 import zmq
 
 from rbtr.daemon.client import DaemonClient
@@ -75,6 +76,7 @@ def dead_daemon_endpoint(silent_endpoint: Path) -> Path:
 def test_a_late_reply_is_waited_for_not_asked_for_again(
     running_daemon: DaemonServer,
     fake_repo: str,
+    log_output: structlog.testing.LogCapture,
 ) -> None:
     """A daemon slower than one liveness interval is waited for.
 
@@ -103,13 +105,21 @@ def test_a_late_reply_is_waited_for_not_asked_for_again(
 
     assert isinstance(resp, StatusResponse)
     assert calls == 1, f"the daemon served the request {calls} times"
+    slow_replies = [e for e in log_output.entries if e["event"] == "daemon_slow_reply"]
+    assert not slow_replies, f"a reply well inside the budget warned {len(slow_replies)} times"
 
 
 def test_waiting_stops_when_the_budget_is_spent(
     silent_endpoint: Path,
     fake_repo: str,
+    log_output: structlog.testing.LogCapture,
 ) -> None:
-    """A live daemon that never answers exhausts the budget."""
+    """A live daemon that never answers exhausts the budget.
+
+    It says so once on the way, rather than on every check: the
+    waiting is routine, a request halfway through its caller's
+    patience is not.
+    """
     with (
         DaemonClient(
             silent_endpoint,
@@ -119,6 +129,9 @@ def test_waiting_stops_when_the_budget_is_spent(
         pytest.raises(DaemonBusyError),
     ):
         client.send(StatusRequest(repo_path=fake_repo))
+
+    slow_replies = [e for e in log_output.entries if e["event"] == "daemon_slow_reply"]
+    assert len(slow_replies) == 1, f"warned {len(slow_replies)} times for one request"
 
 
 def test_a_dead_daemon_is_not_waited_for(
