@@ -1,19 +1,18 @@
 """Tests for how the embed worker shares the daemon with everything else.
 
-Search and embed contend for the GPU, so they serialise through
-`_gpu_lock`: the real `Embedder` class runs here with a `StubModel`
-injected via `model_loader`, and a concurrent-access detector on
-`StubModel.embed()` proves the race is fixed at the exact call site
-where `llama_cpp` would crash in production.
+Search and embed contend for the GPU and take turns on `_gpu_lock`.
+The real `Embedder` runs here with a `StubModel` injected via
+`model_loader`, and the stub counts concurrent calls to `embed()` —
+the call site where `llama_cpp` would crash in production.
 
-A build contends for something else entirely — the single job worker —
-so the lock cannot serve it.  The worker runs one job at a time, and a
-build starts only once the embed job returns, which is what the last
-test here pins.
+A build wants the job worker instead, which runs one job at a time, so
+a build starts only once the embed job returns.  Writes take a third
+turn on `_write_sem`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Generator
@@ -28,9 +27,11 @@ from rbtr.config import config
 from rbtr.daemon import watcher
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    BuildIndexRequest,
     EmbedEndedNotification,
     EmbedOutcome,
     Notification,
+    Response,
     SearchRequest,
     SearchResponse,
     notification_adapter,
@@ -49,15 +50,13 @@ from .conftest import serving
 
 
 class ConcurrencyDetectingStubModel(StubModel):
-    """StubModel that detects concurrent access, and can be held mid-batch.
+    """StubModel that counts concurrent calls, and can be held mid-batch.
 
-    Concurrent access is the exact defect the embed lock prevents.
+    Two calls at once is the defect `_gpu_lock` prevents.
 
     `first_batch_started` is set as the first batch begins, and that
-    batch then waits for `first_batch_released`, so a test can change
-    the world while the worker is provably inside its first batch —
-    without sleeps, and without a second daemon to drive the loop by
-    hand.
+    batch then waits for `first_batch_released`, so a test can act
+    while the worker is inside its first batch.
     """
 
     def __init__(self) -> None:
@@ -101,10 +100,41 @@ def stub_model() -> ConcurrencyDetectingStubModel:
 
 
 @pytest.fixture
+def embed_held_at_first_batch(
+    stub_model: ConcurrencyDetectingStubModel,
+) -> ConcurrencyDetectingStubModel:
+    """Hold the worker inside its first batch until a test releases it.
+
+    Requested before `running_daemon`, so the stub is holding by the
+    time the worker starts.  Clearing the event later is a race: the
+    stub checks it immediately after reporting that the batch began.
+    """
+    stub_model.first_batch_released.clear()
+    return stub_model
+
+
+@pytest.fixture
 def embedder(stub_model: ConcurrencyDetectingStubModel) -> Generator[Embedder]:
     e = Embedder(model_loader=lambda: stub_model)  # type: ignore[arg-type,return-value]  # StubModel satisfies Llama.embed interface
     yield e
     e.close()
+
+
+@pytest.fixture
+def write_lock_held(running_daemon: DaemonServer) -> Generator[None]:
+    """Hold the daemon's write lock until the test releases it.
+
+    Released here too, so a failed assertion still lets the daemon
+    stop.  Otherwise a writer waits on the lock for ever and the test
+    reports a shutdown timeout instead of what it found.
+    """
+    loop = running_daemon._loop
+    if loop is None:  # `serving` waits for the daemon to listen, so it has one
+        raise RuntimeError
+    asyncio.run_coroutine_threadsafe(running_daemon._write_sem.acquire(), loop).result(timeout=10)
+    yield
+    if running_daemon._write_sem.locked():
+        loop.call_soon_threadsafe(running_daemon._write_sem.release)
 
 
 @pytest.fixture
@@ -219,29 +249,27 @@ def notifications(running_daemon: DaemonServer) -> Generator[list[Notification]]
 
 @pytest.fixture
 def commit_during_first_batch(
+    embed_held_at_first_batch: ConcurrencyDetectingStubModel,
     running_daemon: DaemonServer,
-    stub_model: ConcurrencyDetectingStubModel,
     fake_repo: str,
 ) -> str:
     """Move HEAD on while the worker is inside its first batch.
 
-    Runs after `running_daemon` is serving, so the worker has already
-    started embedding; the stub holds its first batch until this
-    releases it, which is what makes the timing deterministic.  If the
-    worker never starts, the wait times out and the test fails on its
-    own assertions rather than here.
+    The stub is holding when the worker reaches its first batch, so the
+    commit lands while the job is still running.  If the worker never
+    starts, the wait times out and the test fails on its own assertions
+    rather than here.
 
     `make_commit` writes only git objects, so the file goes into the
     working tree too, leaving the tree matching HEAD.
     """
-    stub_model.first_batch_started.wait(timeout=10)
-    stub_model.first_batch_released.clear()
+    embed_held_at_first_batch.first_batch_started.wait(timeout=10)
     repo = pygit2.Repository(fake_repo)
     sha = str(
         make_commit(repo, {"later.py": b"x = 1\n"}, parents=[repo.head.peel(pygit2.Commit).id])
     )
     (Path(fake_repo) / "later.py").write_bytes(b"x = 1\n")
-    stub_model.first_batch_released.set()
+    embed_held_at_first_batch.first_batch_released.set()
     return sha
 
 
@@ -314,9 +342,9 @@ def test_the_embed_worker_finishes_the_snapshot(
 ) -> None:
     """The worker embeds every chunk in the snapshot.
 
-    Nothing interrupts this one: the tests above show the worker
-    standing aside and resuming, while this holds an undisturbed run to
-    finishing the work, which is what a paging bug would break.
+    Nothing interrupts this one.  The tests above cover standing aside
+    and resuming; this one covers a run left alone, which is what a
+    paging bug would break.
     """
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
@@ -380,9 +408,8 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
     """The worker finishes the snapshot, embedding the rest exactly once.
 
     This is what lets the worker drop a job rather than pause it: the
-    remainder is re-derived from `chunks.embedding`, so the build runs
-    in between and the job that follows embeds only the chunks the
-    first run had not reached.
+    remainder comes from `chunks.embedding`, so the build runs in
+    between and the next job embeds only what the first run missed.
 
     Waits on what the runs report rather than on the counts: a run
     writes its chunks before it logs, so the store reads complete first.
@@ -409,3 +436,52 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
     # more would mean a resumed run re-embedded what was already there.
     assert len(runs) > 1, f"expected the job to take more than one run, got {runs}"
     assert sum(runs) == final.total, f"runs embedded {sum(runs)} of {final.total}: {runs}"
+
+
+def test_no_writer_commits_while_the_write_lock_is_held(
+    embed_held_at_first_batch: ConcurrencyDetectingStubModel,
+    running_daemon: DaemonServer,
+    write_lock_held: None,
+    embeddable_store: IndexStore,
+    embedded_snapshot: SnapshotRef,
+    fake_repo: str,
+) -> None:
+    """Every write in the daemon waits for `_write_sem`.
+
+    gc holds that lock while it compacts: it copies the database and
+    renames the copy over the original, so a write that commits on the
+    old connection is lost.  Two writers must wait — the worker
+    embedding a batch, and a handler writing the watch set.
+    """
+    repo_id = embeddable_store.resolve_repo(fake_repo)
+    replies: list[Response] = []
+
+    def ask_to_watch() -> None:
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            replies.append(client.send(BuildIndexRequest(repo_path=fake_repo, refs=["main"])))
+
+    caller = threading.Thread(target=ask_to_watch)
+    caller.start()
+    embed_held_at_first_batch.first_batch_released.set()
+    time.sleep(0.5)
+
+    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert counts.unembedded == counts.total, (
+        f"{counts.total - counts.unembedded} embeddings committed while the lock was held"
+    )
+    assert "main" not in embeddable_store.list_watched_refs(repo_id), (
+        "the watch set was written while the lock was held"
+    )
+
+    running_daemon._loop.call_soon_threadsafe(running_daemon._write_sem.release)  # type: ignore[union-attr]  # the fixture raised if there were no loop
+    caller.join(timeout=20)
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline:
+        if embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+            break
+        time.sleep(0.05)
+
+    assert replies, "the index request never answered"
+    assert "main" in embeddable_store.list_watched_refs(repo_id), f"never written: {replies[0]}"
+    final = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"

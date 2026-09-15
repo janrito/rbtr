@@ -436,13 +436,18 @@ class DaemonServer:
                     except (RuntimeError, ValueError):
                         log.warning("embedding_batch_failed", exc_info=True)
                         continue
-                    await asyncio.to_thread(
-                        self._write_embed_batch,
-                        store,
-                        batch,
-                        [r.vector for r in results],
-                        [r.truncated for r in results],
-                    )
+                    # Under `_write_sem` like every other write: gc
+                    # compacts by copying the database and renaming the
+                    # copy over the original, so a batch that commits on
+                    # the old connection is lost.  gc waits one batch.
+                    async with self._write_sem:
+                        await asyncio.to_thread(
+                            self._write_embed_batch,
+                            store,
+                            batch,
+                            [r.vector for r in results],
+                            [r.truncated for r in results],
+                        )
                     done += len(batch)
                     on_progress("embedding", done, outstanding)
                     if self._shutdown:
