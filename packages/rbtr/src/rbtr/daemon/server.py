@@ -30,7 +30,6 @@ import asyncio
 import atexit
 import contextlib
 import itertools
-import json
 import os
 import signal
 import threading
@@ -77,6 +76,7 @@ from rbtr.daemon.messages import (
     ReadyNotification,
     Response,
     ShutdownRequest,
+    notification_adapter,
     request_adapter,
 )
 from rbtr.daemon.status import remove_status, write_status
@@ -817,25 +817,28 @@ class DaemonServer:
             await pub.send(raw)
 
     def _update_active_from_notification(self, raw: bytes) -> None:
-        """Parse a notification and update active-job progress."""
+        """Carry a progress notification's figures into the active job.
+
+        Validated through the protocol's own adapter, so a change to
+        `ProgressNotification` reaches this rather than silently landing
+        in a default.
+        """
         try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            notification = notification_adapter.validate_json(raw)
+        except ValidationError:
+            log.warning("unparseable_notification", exc_info=True)
             return
-        kind = data.get("kind")
-        if kind != "progress":
+        if not isinstance(notification, ProgressNotification):
             return
-        phase = data.get("phase", "")
-        current = data.get("current", 0)
-        total = data.get("total", 0)
+        progress = {
+            "phase": notification.phase,
+            "current": notification.current,
+            "total": notification.total,
+        }
         if self._active_build is not None:
-            self._active_build = self._active_build.model_copy(
-                update={"phase": phase, "current": current, "total": total}
-            )
+            self._active_build = self._active_build.model_copy(update=progress)
         if self._active_embed is not None:
-            self._active_embed = self._active_embed.model_copy(
-                update={"phase": phase, "current": current, "total": total}
-            )
+            self._active_embed = self._active_embed.model_copy(update=progress)
 
     def _next_poll_interval(self) -> float:
         """Pick the watcher poll interval based on worker state.

@@ -22,18 +22,21 @@ reads it to find the socket paths, bypassing socket discovery.
 
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
-@dataclass
-class DaemonStatus:
-    """Contents of the daemon status file."""
+class DaemonStatus(BaseModel):
+    """Contents of the daemon status file.
+
+    Unknown fields are ignored rather than rejected: a newer daemon may
+    write a field this reader has never heard of, and an older client
+    must still find the endpoints rather than conclude nothing is
+    running.
+    """
 
     pid: int
     rpc: str
@@ -67,19 +70,15 @@ def status_path(home: Path) -> Path:
 
 
 def read_status(home: Path) -> DaemonStatus | None:
-    """Read the daemon status file, or `None` if missing."""
-    path = status_path(home)
+    """Read the daemon status file, or `None` if it is missing or malformed.
+
+    A half-written or outdated file reads as no daemon, which is what a
+    caller can act on; the alternative is a status that claims endpoints
+    it cannot name.
+    """
     try:
-        with open(path) as f:
-            data = json.load(f)
-        return DaemonStatus(
-            pid=data["pid"],
-            rpc=data["rpc"],
-            pub=data["pub"],
-            started_at=data["started_at"],
-            version=data["version"],
-        )
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return DaemonStatus.model_validate_json(status_path(home).read_bytes())
+    except (OSError, ValidationError):
         return None
 
 
@@ -100,14 +99,14 @@ def write_status(
     path = status_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(".daemon.json.tmp")
-    data = {
-        "pid": pid,
-        "rpc": rpc,
-        "pub": pub,
-        "started_at": _iso_now(),
-        "version": version,
-    }
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    status = DaemonStatus(
+        pid=pid,
+        rpc=rpc,
+        pub=pub,
+        started_at=_iso_now(),
+        version=version,
+    )
+    tmp.write_text(status.model_dump_json(indent=2) + "\n")
     tmp.rename(path)
 
 
