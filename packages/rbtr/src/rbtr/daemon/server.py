@@ -80,7 +80,7 @@ from rbtr.daemon.messages import (
     request_adapter,
 )
 from rbtr.daemon.status import remove_status, write_status
-from rbtr.domain.models import SnapshotRef
+from rbtr.domain.models import Chunk, SnapshotRef
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
@@ -482,7 +482,7 @@ class DaemonServer:
     @staticmethod
     def _write_embed_batch(
         store: IndexStore,
-        batch: tuple[Any, ...],
+        batch: tuple[Chunk, ...],
         vectors: list[list[float]],
         truncated: list[bool] | None = None,
     ) -> None:
