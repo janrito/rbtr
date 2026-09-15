@@ -2,10 +2,9 @@
  * Renderers and text formatters for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
- * renderResult (collapsed/expanded views).  The plain-text
- * formatters a tool returns to the model live here too, beside
- * the themed renderer of the same response, so the two shapes
- * of one payload stay in step.
+ * renderResult (collapsed/expanded views), plus the plain-text
+ * formatter it returns to the model where it has one
+ * (renderStatusText).
  *
  * Two sources of payload:
  *   - details.response — typed response from the daemon

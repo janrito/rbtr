@@ -231,11 +231,13 @@ consistent styling. `renderResult` receives an
 `AgentToolResult<unknown>` — the same object returned by
 the tool's `execute` function.
 
-The plain-text formatters a tool returns to the model live
-in `render.ts` as well — `renderStatusText` beside
-`renderStatusResult`, and the helpers both call. One response
-is rendered twice, for two audiences, and keeping the pair in
-one module is what stops the two renderings drifting apart.
+`render.ts` also holds the plain-text formatter a tool
+returns to the model, where it has one: `renderStatusText`
+sits beside `renderStatusResult` and both build their lines
+from the same helpers. Housing the two renderers of one
+response apart does not work — the shared lines drift, and
+the model and the user are told the same figure in two
+shapes.
 
 ### Call-line arguments
 
