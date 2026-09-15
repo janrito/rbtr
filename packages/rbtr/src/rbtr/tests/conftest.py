@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -14,7 +16,9 @@ import pytest
 import structlog
 from pytest_mock import MockerFixture
 
-from rbtr.config import config
+from rbtr.config import Config, config
+from rbtr.daemon.pidfile import is_pid_alive
+from rbtr.daemon.status import read_status
 from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
 
@@ -218,9 +222,28 @@ def repo_path(git_repo: pygit2.Repository) -> str:
     return normalise_repo_path(git_repo.workdir)
 
 
+def terminate_daemon_for(data_dir: Path, *, timeout: float = 5.0) -> None:
+    """Stop a subprocess daemon still running against `data_dir`.
+
+    Reads the daemon's own status file (under the `runtime_dir` that
+    `data_dir` hashes to) for the pid, sends `SIGTERM`, and waits for
+    the process to go.  A daemon that is already gone, or that never
+    wrote a status file, is a no-op.
+    """
+    status = read_status(Config(data_dir=data_dir).runtime_dir)
+    if status is None or not is_pid_alive(status.pid):
+        return
+    os.kill(status.pid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_pid_alive(status.pid):
+            return
+        time.sleep(0.05)
+
+
 @pytest.fixture
-def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Give a test its own on-disk index DB.
+def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
+    """Give a test its own on-disk index DB, and outlive no daemon.
 
     Subprocess CLI smoke tests can't share an in-memory store, so
     they read the on-disk DB at `config.db_path`.  A single shared
@@ -229,12 +252,21 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     Repoint both the subprocess (via the `RBTR_DATA_DIR` env it
     inherits) and the in-process `config` singleton (used by
     `IndexStore.from_config`) at a per-test directory.
+
+    Teardown kills any daemon still serving this data dir.  The
+    daemon smoke tests stop their own daemon in a `finally`, but that
+    does not run when the run is interrupted part-way through a test,
+    and an orphaned daemon then idles indefinitely on a `tmp_path`
+    that no later run will reuse.
     """
     data_dir = tmp_path / "index"
     data_dir.mkdir()
     monkeypatch.setenv("RBTR_DATA_DIR", str(data_dir))
     monkeypatch.setattr(config, "data_dir", data_dir)
-    return data_dir
+    yield data_dir
+    # Fixture finalisers still run when pytest unwinds on Ctrl-C; a
+    # SIGKILLed run skips them, and nothing in-process can cover that.
+    terminate_daemon_for(data_dir)
 
 
 @pytest.fixture(autouse=True)
