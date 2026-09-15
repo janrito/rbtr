@@ -51,9 +51,9 @@ export function formatWatched(watched: WatchedRef[]): string[] {
     if (!w.sha) {
       lines.push(`  ✗ ${repo}${w.ref} — unresolvable`);
     } else if (w.indexed) {
-      lines.push(`  ✓ ${repo}${w.ref} — ${w.sha.slice(0, 12)} indexed`);
+      lines.push(`  ✓ ${repo}${w.ref} — ${shortSha(w.sha)} indexed`);
     } else {
-      lines.push(`  ⟳ ${repo}${w.ref} — ${w.sha.slice(0, 12)} pending`);
+      lines.push(`  ⟳ ${repo}${w.ref} — ${shortSha(w.sha)} pending`);
     }
   }
   return lines;
@@ -530,12 +530,12 @@ export function formatJobCounts(job: ActiveJob): string {
 /** Render the running build as one line: ref, phase, progress, elapsed. */
 function formatActiveBuild(job: ActiveJob): string {
   const progress = `${job.phase} ${formatJobCounts(job)}`;
-  return `Building: ${job.ref.slice(0, 12)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
+  return `Building: ${shortSha(job.ref)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
 }
 
 /** Render the running embed pass as one line: ref, progress, elapsed. */
 function formatActiveEmbed(job: ActiveJob): string {
-  return `Embedding: ${job.ref.slice(0, 12)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
+  return `Embedding: ${shortSha(job.ref)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
 }
 
 /** Format a duration for humans: `45s`, `1m05s`. */
@@ -552,6 +552,11 @@ export type EmbedCounts = { total: number; embedded: number };
 /** Whether every chunk in the snapshot carries an embedding. */
 export function isFullyEmbedded(counts: EmbedCounts): boolean {
   return counts.embedded >= counts.total;
+}
+
+/** Abbreviate a sha to the 12 characters every rbtr surface shows. */
+export function shortSha(sha: string): string {
+  return sha.slice(0, 12);
 }
 
 /**
@@ -600,7 +605,7 @@ function formatSizeSuffix(response: StatusResponse | undefined): string {
 /** Render one indexed ref as a single line: sha, names, indexed count, embed state. */
 function formatIndexedRef(ref: IndexedRef): string {
   const label =
-    (ref.names ?? []).length > 0 ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})` : ref.sha.slice(0, 12);
+    (ref.names ?? []).length > 0 ? `${shortSha(ref.sha)} (${(ref.names ?? []).join(", ")})` : shortSha(ref.sha);
   const embedPart = isFullyEmbedded(ref)
     ? `${humanCount(ref.embedded)} embedded \u2713`
     : ref.embedded > 0

@@ -50,6 +50,7 @@ import {
   renderStatusCall,
   renderStatusResult,
   renderStatusText,
+  shortSha,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 
@@ -638,7 +639,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             {
               type: "text",
               text:
-                `A build is already in progress for this repository at ${j.ref.slice(0, 12)} ` +
+                `A build is already in progress for this repository at ${shortSha(j.ref)} ` +
                 `(${j.phase} ${formatJobCounts(j)}). No new build was queued. ` +
                 `Use rbtr_status to check progress.`,
             },
@@ -656,7 +657,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             content: [
               {
                 type: "text",
-                text: `Index is up to date for HEAD (${headRef.sha.slice(0, 12)}). No action taken.`,
+                text: `Index is up to date for HEAD (${shortSha(headRef.sha)}). No action taken.`,
               },
             ],
             details: { status: "up_to_date", refs, head: headRef.sha },
