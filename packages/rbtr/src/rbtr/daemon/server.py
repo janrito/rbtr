@@ -87,6 +87,7 @@ from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.progress import ProgressCallback
 from rbtr.index.reranker import Reranker
+from rbtr.index.results import frame_to_snapshot_counts
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.logging import elapsed_ms
@@ -283,19 +284,16 @@ class DaemonServer:
         but before embedding completed.  Sets `_wake` so the
         DB-polling worker picks up the work.
         """
-        for repo in store.list_repos():
-            for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
-                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
-                counts = store.chunk_counts_for_snapshot(ref)
-                if not counts.is_fully_embedded:
-                    log.info(
-                        "recovering_embed",
-                        repo_id=repo.repo_id,
-                        sha=sha[:12],
-                        chunks=counts.unembedded,
-                    )
-                    self._wake.set()
-                    return
+        for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame()):
+            if not counts.is_fully_embedded:
+                log.info(
+                    "recovering_embed",
+                    repo_id=ref.repo_id,
+                    sha=ref.snapshot_sha[:12],
+                    chunks=counts.unembedded,
+                )
+                self._wake.set()
+                return
 
     def _run_build(self, job: BuildJob, store: IndexStore, push: zmq.Socket) -> None:
         """Execute a build job.  Called from `_run_job`."""
@@ -525,7 +523,13 @@ class DaemonServer:
 
         Priority: un-indexed commits (builds) before un-embedded
         chunks (embeds).  Skips the repo/ref that is currently
-        active.  Runs in the event loop thread (fast DuckDB read).
+        active.  Among embeds the most recently indexed snapshot wins,
+        whichever repo holds it, so a build just finished is embedded
+        before an older backlog elsewhere.
+
+        Walks every repo's watched refs and worktree with git, and reads
+        the embedding column for every indexed snapshot, so it is far
+        too slow for the event loop — `_job_worker` runs it in a thread.
         """
         store = self._store
         if store is None:
@@ -545,15 +549,19 @@ class DaemonServer:
                 continue
             return BuildJob(repo_path=dirty.repo_path, refs=(dirty.snapshot_sha,))
 
-        # Embeds: indexed commits with un-embedded chunks.
-        for repo in store.list_repos():
-            for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
-                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
-                if not store.chunk_counts_for_snapshot(ref).is_fully_embedded:
-                    key = f"{repo.repo_id}:{sha}"
-                    if key == self._active_key:
-                        continue
-                    return EmbedJob(repo_path=repo.repo_path, repo_id=repo.repo_id, ref=sha)
+        # Embeds: indexed snapshots with un-embedded chunks, newest first.
+        # `EmbedJob` names the repo by path; the counts carry only its id.
+        paths = {repo.repo_id: repo.repo_path for repo in store.list_repos()}
+        for ref, counts in frame_to_snapshot_counts(store.chunk_counts_frame()):
+            if counts.is_fully_embedded:
+                continue
+            if f"{ref.repo_id}:{ref.snapshot_sha}" == self._active_key:
+                continue
+            return EmbedJob(
+                repo_path=paths[ref.repo_id],
+                repo_id=ref.repo_id,
+                ref=ref.snapshot_sha,
+            )
 
         return None
 
@@ -607,10 +615,11 @@ class DaemonServer:
     async def _job_worker(self) -> None:
         """Async task that polls the DB for work and runs jobs.
 
-        Waits on `_wake`, queries the DB via `_find_next_job`,
-        and runs each job via `asyncio.to_thread`.  Builds before
-        embeds (query ordering).  After a build completes, the
-        worker re-checks for embed work before sleeping.
+        Waits on `_wake`, then finds and runs each job via
+        `asyncio.to_thread` — the search for work is itself too slow to
+        sit on the loop.  Builds before embeds (query ordering).  After a
+        build completes, the worker re-checks for embed work before
+        sleeping.
 
         Embed jobs use `_run_embed_async` which acquires
         `_gpu_lock` per-batch, keeping search responsive.
@@ -620,7 +629,12 @@ class DaemonServer:
             await self._wake.wait()
             self._wake.clear()
             while not self._shutdown:
-                job = self._find_next_job()
+                # Off the loop: `_find_next_job` walks git per repo and
+                # reads the embedding column.  Safe in a thread because
+                # every store read goes through a thread-local cursor
+                # (`IndexStore._cursor`, see the DuckDB note at store.py
+                # top) and this path never writes.
+                job = await asyncio.to_thread(self._find_next_job)
                 if job is None:
                     break
                 self._set_active(job)
