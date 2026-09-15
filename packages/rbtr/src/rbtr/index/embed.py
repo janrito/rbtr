@@ -42,7 +42,7 @@ def embed_index(
     Returns the number of chunks that were embedded.
     """
     ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-    pending = store.unembedded_chunk_ids(ref)
+    pending = store.unembedded_chunk_ids(at=ref)
     if not pending:
         return 0
 
@@ -53,7 +53,7 @@ def embed_index(
     t0 = time.perf_counter()
 
     for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-        page = store.get_chunks_by_id(ref, list(page_ids))
+        page = store.get_chunks_by_id(list(page_ids), at=ref)
         for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]
             try:

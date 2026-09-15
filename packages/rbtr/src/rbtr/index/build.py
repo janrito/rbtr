@@ -31,6 +31,7 @@ from rbtr.domain.models import (
     FileOutcome,
     FileSnapshot,
     IndexResult,
+    SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import changed_files, list_files, normalise_repo_path
@@ -352,7 +353,7 @@ def build_index(
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = store.get_chunks(snapshot_sha, repo_id=repo_id)
+    all_chunks = store.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(

@@ -239,10 +239,10 @@ def test_the_embed_worker_finishes_the_snapshot(
 
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        if embeddable_store.chunk_counts_for_snapshot(ref).is_fully_embedded:
+        if embeddable_store.chunk_counts_for_snapshot(at=ref).is_fully_embedded:
             break
         time.sleep(0.05)
 
-    counts = embeddable_store.chunk_counts_for_snapshot(ref)
+    counts = embeddable_store.chunk_counts_for_snapshot(at=ref)
     assert counts.total == 50, "fixture did not seed the chunks it claims to"
     assert counts.is_fully_embedded, f"{counts.unembedded} of {counts.total} left unembedded"

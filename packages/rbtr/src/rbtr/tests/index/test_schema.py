@@ -129,7 +129,7 @@ def test_chunks_survive_matches_scenario(
     store, scenario = reopened
     if not scenario.before.seeded_chunks:
         return
-    chunks = store.get_chunks("head", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if scenario.expected_chunks_survive:
         assert chunks, "expected chunks to survive"
     else:
@@ -142,7 +142,7 @@ def test_embeddings_survive_matches_scenario(
     store, scenario = reopened
     if not scenario.before.seeded_embeddings:
         return
-    chunks = store.get_chunks("head", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if not chunks:
         assert not scenario.expected_chunks_survive
         return
@@ -217,7 +217,9 @@ def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
     store = IndexStore(path, writable=True)  # newer code -> wipe in place
     try:
         assert path.stat().st_ino == inode_before, "wipe must not unlink/recreate the DB file"
-        assert not store.get_chunks("head", repo_id=1), "stale data must be wiped"
+        assert not store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")), (
+            "stale data must be wiped"
+        )
     finally:
         store.close()
 
@@ -244,9 +246,9 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
             repo_id=1,
         )
     ref = SnapshotRef(repo_id=1, snapshot_sha="head")
-    assert len(store1.match_fulltext_frame([ref], "persist", 5)) == 1
+    assert len(store1.match_fulltext_frame("persist", within=[ref], top_k=5)) == 1
     store1.close()
 
     store2 = IndexStore(db_path, writable=True)
-    assert len(store2.match_fulltext_frame([ref], "persist", 5)) == 1
+    assert len(store2.match_fulltext_frame("persist", within=[ref], top_k=5)) == 1
     store2.close()

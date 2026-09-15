@@ -162,7 +162,7 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
     before_chunks = _sentinel_hash(store_with_residue, embed=False)
     before_embed = _sentinel_hash(store_with_residue, embed=True)
     unembedded = store_with_residue.unembedded_chunk_ids(
-        SnapshotRef(repo_id=1, snapshot_sha=INDEXED)
+        at=SnapshotRef(repo_id=1, snapshot_sha=INDEXED)
     )
     assert unembedded, "fixture must leave a chunk to embed"
 

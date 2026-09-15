@@ -18,6 +18,7 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.domain.identity import SCOPE_SEPARATOR
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
@@ -202,7 +203,7 @@ def extract_queries(
     where `dropped_languages` lists the skipped languages and their
     chunk counts.
     """
-    chunks = store.get_chunks(sha, repo_id=repo_id)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     symbols = [c for c in chunks if c.kind not in EXCLUDED_KINDS]
 
     lang_counts = (

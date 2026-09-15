@@ -36,8 +36,7 @@ class ChurnedIndex:
 
     store: IndexStore
     repo_path: str
-    repo_id: int
-    snapshot_sha: str
+    ref: SnapshotRef
     query: str
 
 
@@ -84,8 +83,7 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     yield ChurnedIndex(
         store=store,
         repo_path=fake_repo,
-        repo_id=repo_id,
-        snapshot_sha=head,
+        ref=SnapshotRef(repo_id=repo_id, snapshot_sha=head),
         query="retry backoff",
     )
     store.close()
@@ -102,14 +100,13 @@ def test_gc_compaction_respects_flag(
     data, it does not drop any.
     """
     ci = churned_index
-    ref = SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.chunk_counts_for_snapshot(ref).total
+    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=scenario.compact)
     handle_gc(request, ci.store, allow_compact=True)
 
-    assert ci.store.chunk_counts_for_snapshot(ref).total == before_count
+    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
     if scenario.expect_shrink:
         assert ci.store.data_size_bytes() < before_size
     else:
@@ -150,9 +147,7 @@ def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     handle_gc(request, ci.store, allow_compact=True)
 
-    hits = ci.store.match_fulltext_frame(
-        [SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)], ci.query, 5
-    )
+    hits = ci.store.match_fulltext_frame(ci.query, within=[ci.ref], top_k=5)
     assert len(hits) > 0, "search returned nothing after compaction"
 
 
@@ -179,9 +174,8 @@ def test_gc_compaction_failure_is_non_fatal(
     temp copy is cleaned up, and gc returns its counts.
     """
     ci = churned_index
-    ref = SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.chunk_counts_for_snapshot(ref).total
+    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
     mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
@@ -189,7 +183,7 @@ def test_gc_compaction_failure_is_non_fatal(
 
     assert isinstance(response, GcResponse)  # swallowed, not raised
     assert ci.store.data_size_bytes() == before_size  # rewrite did not take effect
-    assert ci.store.chunk_counts_for_snapshot(ref).total == before_count
+    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
     db_path = Path(ci.store.db_path or "")
     # RCU names each temp `.compact-<uuid>`; none may linger after a fail.
     assert not list(db_path.parent.glob(f"{db_path.name}.compact-*"))
@@ -217,15 +211,16 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
                 assert (
                     len(
                         ci.store.match_fulltext_frame(
-                            [SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)],
                             ci.query,
-                            5,
+                            within=[ci.ref],
+                            top_k=5,
                         )
                     )
                     > 0
                 )
                 assert ci.store.match_by_name(
-                    ci.snapshot_sha, "calculate_retry_backoff_1", repo_id=ci.repo_id
+                    "calculate_retry_backoff_1",
+                    at=ci.ref,
                 )
         except Exception as exc:  # noqa: BLE001 - re-asserted on main thread
             errors.append(exc)

@@ -32,7 +32,7 @@ def test_clean_exit_commits(store: IndexStore) -> None:
         ws.add_chunk(make_chunk("a"))
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
 
-    chunks = store.get_chunks("c1", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert any(c.name == "a" for c in chunks)
 
 
@@ -50,7 +50,7 @@ def test_exception_rolls_back(store: IndexStore) -> None:
     with pytest.raises(RuntimeError):
         _failing_session()
 
-    chunks = store.get_chunks("c1", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert chunks == []
 
 
@@ -94,8 +94,8 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
         )
         ws.insert_snapshots([make_snap("head", "a.py", "b2a")], repo_id=2)
 
-    r1_names = {c.name for c in store.get_chunks("head", repo_id=1)}
-    r2_names = {c.name for c in store.get_chunks("head", repo_id=2)}
+    r1_names = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))}
+    r2_names = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))}
     assert r1_names == {"r1_a", "r1_b"}
     assert r2_names == {"r2_a"}
 
@@ -122,8 +122,8 @@ def test_sweep_cleans_orphans(store: IndexStore) -> None:
     with store.session() as ws:
         ws.sweep()
 
-    assert store.count_file_snapshots(1, "crashed_sha") == 0
-    assert store.count_file_snapshots(1, "good_sha") > 0
+    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) == 0
+    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="good_sha")) > 0
 
 
 def test_sweep_skips_first_build(store: IndexStore) -> None:
@@ -141,7 +141,7 @@ def test_sweep_skips_first_build(store: IndexStore) -> None:
     with store.session() as ws:
         ws.sweep()
 
-    assert store.count_file_snapshots(1, "wip_sha") > 0
+    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="wip_sha")) > 0
 
 
 # ── FTS rebuild ──────────────────────────────────────────────────────
@@ -155,7 +155,9 @@ def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")], repo_id=1)
         ws.mark_indexed(1, "c1")
 
-    results = store.match_fulltext_frame([SnapshotRef(repo_id=1, snapshot_sha="c1")], "searchable")
+    results = store.match_fulltext_frame(
+        "searchable", within=[SnapshotRef(repo_id=1, snapshot_sha="c1")]
+    )
     assert len(results) > 0
 
 
@@ -175,7 +177,7 @@ def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.Mon
             repo_id=1,
         )
 
-    chunks = store.get_chunks("head", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert len(chunks) == 12
 
 
@@ -187,7 +189,7 @@ def test_buffer_flushes_before_dependent_ops(store: IndexStore) -> None:
         # replace_snapshots triggers _flush_chunks internally.
         ws.replace_snapshots("c1", [make_snap("c1", "a.py", "b1")], repo_id=1)
 
-    chunks = store.get_chunks("c1", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert len(chunks) == 1
 
 
@@ -264,7 +266,7 @@ def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
     with store.session() as ws:
         ws.replace_snapshots("c1", [make_snap("c1", "a.py", "b1")], repo_id=1)
 
-    assert store.count_file_snapshots(1, "c2") == 1
+    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
 
 
 def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
@@ -292,8 +294,8 @@ def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
     with store.session() as ws:
         ws.replace_edges("c1", [], repo_id=1)
 
-    assert store.count_edges(1, "c1") == 0
-    assert store.count_edges(1, "c2") == 1
+    assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c1")) == 0
+    assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
 
 
 # ── update_embeddings ────────────────────────────────────────────────
@@ -321,7 +323,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
         )
 
     # Before embedding — chunks have no embedding.
-    chunks = store.get_chunks("c1", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert all(not c.has_embedding for c in chunks)
 
     vec = [0.1, 0.2, 0.3]
@@ -329,7 +331,7 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
         ws.update_embeddings([chunk_a.id, chunk_b.id], [vec, vec], truncated=[True, False])
 
     # After embedding — both flagged as embedded.
-    chunks = store.get_chunks("c1", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert len(chunks) == 2
     assert all(c.has_embedding for c in chunks)
 
@@ -383,12 +385,12 @@ def test_delete_snapshots_hides_chunks(
             ],
             repo_id=1,
         )
-    assert len(store.get_chunks("head", repo_id=1)) == 2
+    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 2
 
     with store.session() as ws:
         ws.delete_snapshots("head", repo_id=1)
 
-    assert store.get_chunks("head", repo_id=1) == []
+    assert store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")) == []
     assert store.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
     assert store.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
 

@@ -385,7 +385,9 @@ class IndexStore:
         has no indexed commits at all.
         """
         tree_sha = worktree_tree_sha(repo.repo_path)
-        if tree_sha is not None and self.has_indexed(repo.repo_id, tree_sha):
+        if tree_sha is not None and self.has_indexed(
+            at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=tree_sha)
+        ):
             return SnapshotRef(repo_id=repo.repo_id, snapshot_sha=tree_sha)
         indexed = self.list_indexed_snapshots(repo.repo_id)
         if not indexed:
@@ -409,10 +411,10 @@ class IndexStore:
 
     # ── Completion tracking (indexed_snapshots) ──────────────────────
 
-    def has_indexed(self, repo_id: int, snapshot_sha: str) -> bool:
-        """Return whether *snapshot_sha* was fully indexed."""
+    def has_indexed(self, *, at: SnapshotRef) -> bool:
+        """Return whether the snapshot at *at* was fully indexed."""
         row = self._cursor.execute(
-            _HAS_INDEXED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
+            _HAS_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
         ).fetchone()
         return row is not None
 
@@ -427,24 +429,24 @@ class IndexStore:
             for r in rows
         ]
 
-    def count_file_snapshots(self, repo_id: int, snapshot_sha: str) -> int:
+    def count_file_snapshots(self, *, at: SnapshotRef) -> int:
         """Return the number of `file_snapshots` rows for this commit.
 
         Read-only. Used by dry-run GC reporting.
         """
         row = self._cursor.execute(
-            _COUNT_FILE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
+            _COUNT_FILE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
         ).fetchone()
         return int(row[0]) if row else 0
 
-    def count_edges(self, repo_id: int, snapshot_sha: str) -> int:
+    def count_edges(self, *, at: SnapshotRef) -> int:
         """Return the number of `edges` rows for this commit.
 
         Read-only. Used by dry-run GC reporting.
         """
         row = self._cursor.execute(
             _COUNT_EDGES_SQL,
-            {"repo_id": repo_id, "snapshot_sha": snapshot_sha},
+            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
         ).fetchone()
         return int(row[0]) if row else 0
 
@@ -567,7 +569,7 @@ class IndexStore:
             .pipe(SnapshotCountsRow.validate, cast=True)
         )
 
-    def chunk_counts_for_snapshot(self, ref: SnapshotRef) -> SnapshotCounts:
+    def chunk_counts_for_snapshot(self, *, at: SnapshotRef) -> SnapshotCounts:
         """Return chunk and embedded counts for one indexed snapshot.
 
         Counts chunks, so content held at several paths counts once — the
@@ -575,14 +577,14 @@ class IndexStore:
         holds no chunks, or was never marked indexed, reads as zero of
         zero.
         """
-        frame = self._chunk_counts_frame(repo_id=ref.repo_id, snapshot_sha=ref.snapshot_sha)
+        frame = self._chunk_counts_frame(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha)
         if frame.is_empty():
             return SnapshotCounts(total=0, embedded=0)
         row = frame.row(0, named=True)
         return SnapshotCounts(total=row["total"], embedded=row["embedded"])
 
-    def unembedded_chunk_ids(self, ref: SnapshotRef) -> list[str]:
-        """Return the id of every chunk at *ref* still lacking a vector.
+    def unembedded_chunk_ids(self, *, at: SnapshotRef) -> list[str]:
+        """Return the id of every chunk at *at* still lacking a vector.
 
         One id however many paths hold the content, because embedding
         writes the single content-addressed row they share.  The whole
@@ -592,20 +594,20 @@ class IndexStore:
         """
         rows = self._cursor.execute(
             _UNEMBEDDED_CHUNK_IDS_SQL,
-            {"repo_id": ref.repo_id, "snapshot_sha": ref.snapshot_sha},
+            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
         ).fetchall()
         return [str(r[0]) for r in rows]
 
-    def get_chunks_by_id(self, ref: SnapshotRef, chunk_ids: list[str]) -> list[Chunk]:
-        """Return the named chunks as they are seen at *ref*, ordered by id.
+    def get_chunks_by_id(self, chunk_ids: list[str], *, at: SnapshotRef) -> list[Chunk]:
+        """Return the named chunks as they are seen at *at*, ordered by id.
 
-        An id that no longer resolves at *ref* is left out of the
+        An id that no longer resolves at *at* is left out of the
         result, which shortens the page: a chunk can be collected
         between a work list being drawn up and a page of it being read.
         """
         if not chunk_ids:
             return []
-        params = {"repo_id": ref.repo_id, "snapshot_sha": ref.snapshot_sha}
+        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
         with self._registered_views(_chunk_ids=chunk_ids_frame(chunk_ids)) as cur:
             frame = (
                 cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
@@ -627,18 +629,17 @@ class IndexStore:
 
     def get_chunks(
         self,
-        snapshot_sha: str,
         *,
+        at: SnapshotRef,
         file_path: str | None = None,
         kind: ChunkKind | None = None,
         name: str | None = None,
-        repo_id: int,
     ) -> list[Chunk]:
-        """Query chunks visible at *snapshot_sha* with optional filters."""
+        """Query chunks visible at *at* with optional filters."""
         kind_val = kind.value if kind is not None else None
         params = {
-            "repo_id": repo_id,
-            "snapshot_sha": snapshot_sha,
+            "repo_id": at.repo_id,
+            "snapshot_sha": at.snapshot_sha,
             "file_path": file_path,
             "kind": kind_val,
             "name": name,
@@ -652,25 +653,24 @@ class IndexStore:
         return frame_to_chunks(frame)
 
     def inbound_refs(
-        self, snapshot_sha: str, target_ids: list[str], *, repo_id: int
+        self, target_ids: list[str], *, at: SnapshotRef
     ) -> dy.DataFrame[InboundRefResultRow]:
-        """Return referrers of the given target chunks at *snapshot_sha*.
+        """Return referrers of the given target chunks at *at*.
 
         One row per inbound edge, resolved to the source (referrer)
         chunk's identity plus the edge kind — powers `find-refs`.
         """
         if not target_ids:
             return InboundRefResultRow.create_empty()
-        refs = snapshot_refs_frame([SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)])
-        with self._registered_views(_snapshot_refs=refs) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame([at])) as cur:
             return (
                 cur.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
                 .pl()
                 .pipe(InboundRefResultRow.validate, cast=True)
             )
 
-    def get_chunks_frame(self, snapshot_sha: str, *, repo_id: int) -> dy.DataFrame[ChunkContentRow]:
-        """Return all chunks at *snapshot_sha* as a content-only frame.
+    def get_chunks_frame(self, *, at: SnapshotRef) -> dy.DataFrame[ChunkContentRow]:
+        """Return all chunks at *at* as a content-only frame.
 
         The frame is validated through `ChunkContentRow` and
         contains identity columns (`file_path`, `scope`, `name`,
@@ -678,8 +678,8 @@ class IndexStore:
         `content`.
         """
         params = {
-            "repo_id": repo_id,
-            "snapshot_sha": snapshot_sha,
+            "repo_id": at.repo_id,
+            "snapshot_sha": at.snapshot_sha,
             "file_path": None,
             "kind": None,
             "name": None,
@@ -702,29 +702,29 @@ class IndexStore:
 
     def get_edges_frame(
         self,
-        refs: list[SnapshotRef],
         *,
+        within: list[SnapshotRef],
         source_id: str | None = None,
         target_id: str | None = None,
         kind: EdgeKind | None = None,
     ) -> dy.DataFrame[EdgeResultRow]:
-        """Return edges scoped to *refs* as a validated frame."""
+        """Return edges scoped to *within* as a validated frame."""
         kind_val = kind.value if kind is not None else None
         params = {
             "source_id": source_id,
             "target_id": target_id,
             "kind": kind_val,
         }
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
             return cur.execute(_GET_EDGES_SQL, params).pl().pipe(EdgeResultRow.validate, cast=True)
 
     def inbound_degrees(
-        self, refs: list[SnapshotRef], chunk_ids: list[str]
+        self, chunk_ids: list[str], *, within: list[SnapshotRef]
     ) -> dy.DataFrame[InboundDegreeResultRow]:
         """Return inbound edge counts for the given chunk IDs."""
         if not chunk_ids:
             return InboundDegreeResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
             return (
                 cur.execute(_INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
                 .pl()
@@ -773,7 +773,7 @@ class IndexStore:
     # ── Match (internal frame, public chunk) ─────────────────────
 
     def match_by_name_frame(
-        self, refs: list[SnapshotRef], pattern: str
+        self, pattern: str, *, within: list[SnapshotRef]
     ) -> dy.DataFrame[ChunkResultRow]:
         """Return name-matched chunks as a validated frame.
 
@@ -781,7 +781,7 @@ class IndexStore:
         prefix → substring.  Only the best tier that has matches
         is returned.
         """
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
             return (
                 cur.execute(
                     _SEARCH_BY_NAME_SQL,
@@ -792,22 +792,19 @@ class IndexStore:
                 .pipe(ChunkResultRow.validate, cast=True)
             )
 
-    def match_by_name(self, snapshot_sha: str, pattern: str, *, repo_id: int) -> list[Chunk]:
+    def match_by_name(self, pattern: str, *, at: SnapshotRef) -> list[Chunk]:
         """Find chunks by name with tiered resolution.
 
         Prefers exact matches, then case-insensitive exact, then
         prefix, then substring.  Returns only the best tier.
         """
-        return frame_to_chunks(
-            self.match_by_name_frame(
-                [SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)], pattern
-            )
-        )
+        return frame_to_chunks(self.match_by_name_frame(pattern, within=[at]))
 
     def match_similar_frame(
         self,
-        refs: list[SnapshotRef],
         query_embeddings: list[list[float]],
+        *,
+        within: list[SnapshotRef],
         top_k: int = 10,
     ) -> dy.DataFrame[ScoredChunkResultRow]:
         """Return cosine-similar chunks across multiple query vectors.
@@ -823,7 +820,7 @@ class IndexStore:
         """
         vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
         with self._registered_views(
-            _qvecs=vecs_frame, _snapshot_refs=snapshot_refs_frame(refs)
+            _qvecs=vecs_frame, _snapshot_refs=snapshot_refs_frame(within)
         ) as cur:
             return (
                 cur.execute(_SEARCH_SIMILAR_SQL, {"top_k": top_k})
@@ -836,15 +833,16 @@ class IndexStore:
 
     def match_fulltext_frame(
         self,
-        refs: list[SnapshotRef],
         query: str,
+        *,
+        within: list[SnapshotRef],
         top_k: int = 10,
     ) -> dy.DataFrame[ScoredChunkResultRow]:
         """Return BM25-matched chunks as a validated scored frame."""
         tokenised_query = tokenise_code(query)
         if not tokenised_query:
             return ScoredChunkResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
             try:
                 return (
                     cur.execute(
@@ -859,12 +857,12 @@ class IndexStore:
                 raise IndexNotBuiltError from exc
 
     def chunk_paths_frame(
-        self, refs: list[SnapshotRef], chunk_ids: list[str]
+        self, chunk_ids: list[str], *, within: list[SnapshotRef]
     ) -> dy.DataFrame[ChunkPathResultRow]:
         """Return `(id, file_path)` for the given chunk IDs."""
         if not chunk_ids:
             return ChunkPathResultRow.create_empty()
-        with self._registered_views(_snapshot_refs=snapshot_refs_frame(refs)) as cur:
+        with self._registered_views(_snapshot_refs=snapshot_refs_frame(within)) as cur:
             return (
                 cur.execute(_GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
                 .pl()

@@ -588,24 +588,20 @@ def _retrieve(
     """
     # ── Channel 1: BM25 lexical ─────────────────────────────
     pool_size = top_k * config.retrieval_multiplier_lexical
-    lex_frame = store.match_fulltext_frame(refs, lex_query, top_k=pool_size)
+    lex_frame = store.match_fulltext_frame(lex_query, within=refs, top_k=pool_size)
 
     # ── Channel 2: semantic (embedding cosine) ───────────────
     sem_frame = ScoredChunkResultRow.create_empty()
     if query_vecs:
         try:
             sem_fetch = top_k * config.retrieval_multiplier_semantic
-            raw_sem = store.match_similar_frame(
-                refs,
-                query_vecs,
-                sem_fetch,
-            )
+            raw_sem = store.match_similar_frame(query_vecs, within=refs, top_k=sem_fetch)
             sem_frame = _filter_semantic(raw_sem, pool_size)
         except duckdb.Error:
             pass
 
     # ── Channel 3: name match ───────────────────────────────
-    name_frame = store.match_by_name_frame(refs, query)
+    name_frame = store.match_by_name_frame(query, within=refs)
 
     # ── Merge candidates with scores via outer joins ─────────
     chunk_cols = list(ChunkResultRow.columns())
@@ -626,7 +622,7 @@ def _retrieve(
 
     # ── Importance (inbound-degree) ──────────────────────
     candidate_ids = scored["id"].to_list()
-    degree_frame = store.inbound_degrees(refs, candidate_ids)
+    degree_frame = store.inbound_degrees(candidate_ids, within=refs)
     if not degree_frame.is_empty():
         imp = degree_frame.with_columns(
             _importance_expr().alias("importance"),
@@ -639,7 +635,7 @@ def _retrieve(
 
     # ── Proximity (diff distance) ────────────────────────
     if changed_files:
-        edge_frame = store.get_edges_frame(refs)
+        edge_frame = store.get_edges_frame(within=refs)
         # Build paths frame: candidates + unknown neighbours.
         edge_ids = pl.concat(
             [
@@ -651,7 +647,7 @@ def _retrieve(
         paths_frame = ChunkPathResultRow.cast(scored.select("id", "file_path"))
         unknown_ids = unknown["id"].to_list()
         if unknown_ids:
-            extra = store.chunk_paths_frame(refs, unknown_ids)
+            extra = store.chunk_paths_frame(unknown_ids, within=refs)
             paths_frame = ChunkPathResultRow.cast(pl.concat([paths_frame, extra]))
 
         scored = compute_proximity(

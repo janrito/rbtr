@@ -312,7 +312,9 @@ class DaemonServer:
                 store,
                 on_progress=_progress_callback(push, job.repo_path),
             )
-            counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+            counts = store.chunk_counts_for_snapshot(
+                at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+            )
             _notify(
                 push,
                 ReadyNotification(
@@ -372,7 +374,7 @@ class DaemonServer:
             return
 
         ref = SnapshotRef(repo_id=job.repo_id, snapshot_sha=job.ref)
-        pending = await asyncio.to_thread(store.unembedded_chunk_ids, ref)
+        pending = await asyncio.to_thread(store.unembedded_chunk_ids, at=ref)
         if not pending:
             return
         outstanding = len(pending)
@@ -386,7 +388,7 @@ class DaemonServer:
 
         try:
             for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-                page = await asyncio.to_thread(store.get_chunks_by_id, ref, list(page_ids))
+                page = await asyncio.to_thread(store.get_chunks_by_id, list(page_ids), at=ref)
                 for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
                     texts = [embedding_text(c.name, c.content) for c in batch]
                     try:
@@ -414,7 +416,7 @@ class DaemonServer:
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
         finally:
-            final = await asyncio.to_thread(store.chunk_counts_for_snapshot, ref)
+            final = await asyncio.to_thread(store.chunk_counts_for_snapshot, at=ref)
             _notify(
                 push,
                 EmbedCompleteNotification(

@@ -20,6 +20,7 @@ import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
+from rbtr.domain.models import SnapshotRef
 from rbtr.git import worktree_tree_sha
 from rbtr.index.store import IndexStore
 
@@ -219,6 +220,8 @@ def test_poll_watched_never_forgets_a_vanished_repo(tmp_path: Path, sig: pygit2.
 
         assert targets == []  # vanished repo yields no build
         assert store.list_repos() == registered_before  # still registered — not purged
-        assert store.has_indexed(repo_id, sha) is True  # its data is intact
+        assert (
+            store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)) is True
+        )  # its data is intact
     finally:
         store.close()

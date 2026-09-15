@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import resolve_ref, worktree_tree_sha
 from rbtr.index.store import IndexStore
@@ -77,7 +78,7 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
                 sha = resolve_ref(repo.repo_path, ref)
             except RbtrError:
                 continue
-            if store.has_indexed(repo.repo_id, sha):
+            if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
                 continue
             if (repo.repo_path, sha) in seen:
                 continue
@@ -102,7 +103,7 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
         sha = worktree_tree_sha(repo.repo_path)
         if sha is None:
             continue
-        if store.has_indexed(repo.repo_id, sha):
+        if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
             continue
         out.append(DirtyWorktree(repo_path=repo.repo_path, repo_id=repo.repo_id, snapshot_sha=sha))
     return out

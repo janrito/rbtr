@@ -26,9 +26,7 @@ def test_identical_files_are_indexed_at_every_path(
     `src/shared.py` and `lib/shared.py` are byte-identical, so they
     share one row; each path must still reach it.
     """
-    paths = {
-        c.file_path for c in dup_store.get_chunks(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id)
-    }
+    paths = {c.file_path for c in dup_store.get_chunks(at=dup_ref)}
 
     assert "src/shared.py" in paths
     assert "lib/shared.py" in paths
@@ -45,7 +43,8 @@ def test_list_symbols_finds_the_duplicated_copy(
     names = [
         c.name
         for c in dup_store.get_chunks(
-            dup_ref.snapshot_sha, repo_id=dup_ref.repo_id, file_path="lib/shared.py"
+            at=dup_ref,
+            file_path="lib/shared.py",
         )
     ]
 
@@ -69,13 +68,15 @@ def test_same_bytes_in_two_languages_keep_separate_chunks(
     declarations = {
         c.language
         for c in dup_store.get_chunks(
-            dup_ref.snapshot_sha, repo_id=dup_ref.repo_id, file_path="types/api.d.ts"
+            at=dup_ref,
+            file_path="types/api.d.ts",
         )
     }
     bundle = {
         c.language
         for c in dup_store.get_chunks(
-            dup_ref.snapshot_sha, repo_id=dup_ref.repo_id, file_path="dist/api.js"
+            at=dup_ref,
+            file_path="dist/api.js",
         )
     }
 
@@ -112,15 +113,15 @@ def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotR
     Embedding writes the row the copies share, so a count that left them
     fanned out would set the progress total above the work there is to do.
     """
-    located = dup_store.get_chunks(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id)
+    located = dup_store.get_chunks(at=dup_ref)
     chunks = {c.id for c in located}
     assert len(located) > len(chunks), "nothing was duplicated"
 
-    counts = dup_store.chunk_counts_for_snapshot(dup_ref)
+    counts = dup_store.chunk_counts_for_snapshot(at=dup_ref)
     assert counts.total == len(chunks)
     assert counts.unembedded == len(chunks)
 
-    assert sorted(dup_store.unembedded_chunk_ids(dup_ref)) == sorted(chunks)
+    assert sorted(dup_store.unembedded_chunk_ids(at=dup_ref)) == sorted(chunks)
 
 
 # ── Edges are per location ───────────────────────────────────────────
@@ -137,7 +138,7 @@ def test_an_import_records_which_copy_it_came_from(
     name the file that actually did the importing rather than every path
     the referring content happens to exist at.
     """
-    edges = dup_store.get_edges_frame([dup_ref])
+    edges = dup_store.get_edges_frame(within=[dup_ref])
     from_caller = edges.filter(pl.col("source_path") == "src/caller.py")
 
     assert len(from_caller) > 0, (

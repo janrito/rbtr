@@ -73,7 +73,7 @@ def test_index_falls_back_to_inline_when_start_fails(
     commits = inline_store.list_indexed_snapshots(repo_id)
     assert len(commits) == 1, "inline fallback did not index HEAD"
     head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
-    assert inline_store.chunk_counts_for_snapshot(head).total > 0, "no symbols extracted"
+    assert inline_store.chunk_counts_for_snapshot(at=head).total > 0, "no symbols extracted"
 
 
 def test_index_refuses_inline_build_when_db_is_locked(

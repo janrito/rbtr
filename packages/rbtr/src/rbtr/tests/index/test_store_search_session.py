@@ -31,7 +31,7 @@ def fts_hit(scenario: SearchScenario, store: IndexStore, head_ref: SnapshotRef) 
 
 
 def test_fts_finds_hit(fts_hit: SearchScenario, store: IndexStore, head_ref: SnapshotRef) -> None:
-    matched = store.match_fulltext_frame([head_ref], fts_hit.query)
+    matched = store.match_fulltext_frame(fts_hit.query, within=[head_ref])
     assert len(matched) > 0
     assert matched["name"].to_list()[0] == fts_hit.expected_hit_names[0]
 
@@ -49,7 +49,7 @@ def fts_empty(scenario: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 def test_fts_returns_empty(
     fts_empty: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 ) -> None:
-    assert len(store.match_fulltext_frame([head_ref], fts_empty.query)) == 0
+    assert len(store.match_fulltext_frame(fts_empty.query, within=[head_ref])) == 0
 
 
 # ── Name search ─────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ def name_hit(scenario: SearchScenario, store: IndexStore, head_ref: SnapshotRef)
 def test_name_search_finds_hit(
     name_hit: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 ) -> None:
-    results = store.match_by_name(head_ref.snapshot_sha, name_hit.query, repo_id=head_ref.repo_id)
+    results = store.match_by_name(name_hit.query, at=head_ref)
     assert len(results) > 0
     assert results[0].name == name_hit.expected_hit_names[0]
 
@@ -82,7 +82,10 @@ def name_empty(
 def test_name_search_returns_empty(
     name_empty: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 ) -> None:
-    results = store.match_by_name(head_ref.snapshot_sha, name_empty.query, repo_id=head_ref.repo_id)
+    results = store.match_by_name(
+        name_empty.query,
+        at=head_ref,
+    )
     assert results == []
 
 
@@ -118,8 +121,10 @@ def test_fts_scoped_to_repo(
     store: IndexStore, repo_one_ref: SnapshotRef, repo_two_ref: SnapshotRef
 ) -> None:
     """FTS results are scoped to the queried repo."""
-    assert store.match_fulltext_frame([repo_one_ref], "alpha")["name"].to_list() == ["alpha_func"]
-    assert len(store.match_fulltext_frame([repo_two_ref], "alpha")) == 0
+    assert store.match_fulltext_frame("alpha", within=[repo_one_ref])["name"].to_list() == [
+        "alpha_func"
+    ]
+    assert len(store.match_fulltext_frame("alpha", within=[repo_two_ref])) == 0
 
 
 def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_store: IndexStore) -> None:
@@ -129,8 +134,8 @@ def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_store: IndexSto
     must surface it for whichever repo scopes the query.
     """
     store = shared_chunk_store
-    r1 = store.match_fulltext_frame([SnapshotRef(repo_id=1, snapshot_sha="head")], "shared")
-    r2 = store.match_fulltext_frame([SnapshotRef(repo_id=2, snapshot_sha="head")], "shared")
+    r1 = store.match_fulltext_frame("shared", within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
+    r2 = store.match_fulltext_frame("shared", within=[SnapshotRef(repo_id=2, snapshot_sha="head")])
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
 
@@ -144,10 +149,10 @@ def test_shared_chunk_found_via_semantic_from_both_repos(
         ws.update_embeddings([shared_chunk.id], [[1.0, 0.0, 0.0, 0.0]])
     query_vec = [1.0, 0.0, 0.0, 0.0]
     r1 = store.match_similar_frame(
-        [SnapshotRef(repo_id=1, snapshot_sha="head")], [query_vec], top_k=5
+        [query_vec], within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
     )
     r2 = store.match_similar_frame(
-        [SnapshotRef(repo_id=2, snapshot_sha="head")], [query_vec], top_k=5
+        [query_vec], within=[SnapshotRef(repo_id=2, snapshot_sha="head")], top_k=5
     )
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
@@ -203,7 +208,7 @@ def semantic_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
 def test_match_similar_single_vector(store: IndexStore, semantic_ref: SnapshotRef) -> None:
     """Single vector returns closest chunk first."""
     query_vec = [1.0, 0.0, 0.0, 0.0]
-    result = store.match_similar_frame([semantic_ref], [query_vec], top_k=2)
+    result = store.match_similar_frame([query_vec], within=[semantic_ref], top_k=2)
     assert len(result) >= 2
     assert result["name"].to_list()[0] == "close_match"
 
@@ -214,7 +219,7 @@ def test_match_similar_picks_best_score(store: IndexStore, semantic_ref: Snapsho
     vec_a = [1.0, 0.0, 0.0, 0.0]
     # vec_b is close to "far" chunk ([0.3, 0.7, ...]).
     vec_b = [0.0, 1.0, 0.0, 0.0]
-    result = store.match_similar_frame([semantic_ref], [vec_a, vec_b], top_k=2)
+    result = store.match_similar_frame([vec_a, vec_b], within=[semantic_ref], top_k=2)
     names = result["name"].to_list()
     assert "close_match" in names
     assert "far_match" in names
@@ -229,13 +234,13 @@ def test_match_similar_empty(store: IndexStore, head_ref: SnapshotRef) -> None:
     s = SearchScenario(chunks=[make_chunk("x")], query="")
     seed_store(store, s.chunks, head_ref)
     vec = [1.0, 0.0, 0.0, 0.0]
-    assert len(store.match_similar_frame([head_ref], [vec], top_k=5)) == 0
+    assert len(store.match_similar_frame([vec], within=[head_ref], top_k=5)) == 0
 
 
 def test_unseeded_chunks_have_no_embedding(store: IndexStore, head_ref: SnapshotRef) -> None:
     s = SearchScenario(chunks=[make_chunk("a")], query="")
     seed_store(store, s.chunks, head_ref)
-    chunks = store.get_chunks(head_ref.snapshot_sha, repo_id=head_ref.repo_id)
+    chunks = store.get_chunks(at=head_ref)
     assert not chunks[0].has_embedding
 
 
@@ -245,7 +250,7 @@ def test_seeded_chunks_have_embedding_flag(store: IndexStore, head_ref: Snapshot
     vec = [0.5, 0.5, 0.5, 0.5]
     with store.session() as ws:
         ws.update_embeddings([chunk.id], [vec])
-    chunks = store.get_chunks(head_ref.snapshot_sha, repo_id=head_ref.repo_id)
+    chunks = store.get_chunks(at=head_ref)
     assert chunks[0].has_embedding
 
 
@@ -265,7 +270,7 @@ def idf_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
 
 def test_idf_neutralised_common_term(store: IndexStore, idf_ref: SnapshotRef) -> None:
     """A term appearing in many chunks is still findable."""
-    assert len(store.match_fulltext_frame([idf_ref], "config")) > 0
+    assert len(store.match_fulltext_frame("config", within=[idf_ref])) > 0
 
 
 @pytest.fixture
