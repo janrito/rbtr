@@ -340,10 +340,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             break;
           }
           case "ready":
-          case "embed_complete":
             buildStartedAt = null;
             footer.setStatic(
               "success",
+              footerLabel({ total: notification.chunks, embedded: notification.embedded }, true),
+            );
+            break;
+          case "embed_ended":
+            // An embed run that stood aside for a build, or stopped on
+            // shutdown, leaves chunks unembedded and will run again —
+            // only a finished one has nothing left to do.
+            buildStartedAt = null;
+            footer.setStatic(
+              notification.outcome === "finished" ? "success" : "muted",
               footerLabel({ total: notification.chunks, embedded: notification.embedded }, true),
             );
             break;

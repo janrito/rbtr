@@ -565,13 +565,33 @@ class AutoRebuildNotification(BaseModel):
     new_ref: str
 
 
-class EmbedCompleteNotification(BaseModel):
+class EmbedOutcome(StrEnum):
+    """How an embed run ended.
+
+    `FINISHED` reached the end of its work list; the other two left
+    chunks unembedded, and the worker picks them up again later.
+    """
+
+    FINISHED = "finished"
+    STOOD_ASIDE = "stood_aside"
+    STOPPED = "stopped"
+
+
+class EmbedEndedNotification(BaseModel):
+    """An embed run ended, however it ended.
+
+    `chunks` and `embedded` are the snapshot's counts as the run left
+    them, so a subscriber can render progress without asking; `outcome`
+    says whether more work on this snapshot is still due.
+    """
+
     model_config = _STRICT
-    kind: Literal["embed_complete"] = "embed_complete"
+    kind: Literal["embed_ended"] = "embed_ended"
     repo_path: str
     ref: str
     chunks: int
     embedded: int
+    outcome: EmbedOutcome
 
 
 class IndexErrorNotification(BaseModel):
@@ -584,7 +604,7 @@ class IndexErrorNotification(BaseModel):
 Notification = Annotated[
     ProgressNotification
     | ReadyNotification
-    | EmbedCompleteNotification
+    | EmbedEndedNotification
     | AutoRebuildNotification
     | IndexErrorNotification,
     Field(discriminator="kind"),

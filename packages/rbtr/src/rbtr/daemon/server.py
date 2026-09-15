@@ -65,8 +65,9 @@ from rbtr.daemon.messages import (
     ActiveJob,
     AutoRebuildNotification,
     BuildJob,
-    EmbedCompleteNotification,
+    EmbedEndedNotification,
     EmbedJob,
+    EmbedOutcome,
     ErrorCode,
     ErrorResponse,
     HasRepoPath,
@@ -412,6 +413,7 @@ class DaemonServer:
         if not pending:
             return
         outstanding = len(pending)
+        outcome = EmbedOutcome.FINISHED
 
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
@@ -441,23 +443,32 @@ class DaemonServer:
                     done += len(batch)
                     on_progress("embedding", done, outstanding)
                     if self._shutdown:
+                        outcome = EmbedOutcome.STOPPED
                         log.info("embedding_stopped_shutdown", done=done, total=outstanding)
                         return
-                    # Yield to higher-priority builds or worktree rebuilds.
+                    # Stand aside for a build: it wants the worker, which
+                    # runs one job at a time, so only returning frees it.
                     stale = await asyncio.to_thread(watcher.poll_watched, store)
                     dirty = await asyncio.to_thread(watcher.poll_worktree, store)
                     if stale or dirty:
+                        outcome = EmbedOutcome.STOOD_ASIDE
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
         finally:
+            if done == 0:
+                # Every batch was rejected by the model.  Without this the
+                # run reports an end with nothing embedded and no reason,
+                # and the worker picks the same job up again.
+                log.warning("embedding_made_no_progress", total=outstanding)
             final = await asyncio.to_thread(store.chunk_counts_for_snapshot, at=ref)
             _notify(
                 push,
-                EmbedCompleteNotification(
+                EmbedEndedNotification(
                     repo_path=job.repo_path,
                     ref=job.ref,
                     chunks=final.total,
                     embedded=final.embedded,
+                    outcome=outcome,
                 ),
             )
             push.close()

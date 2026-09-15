@@ -191,8 +191,10 @@ The extension holds no build state of its own — no promise,
 no "already running" flag. The daemon owns build scheduling
 and de-duplication; build progress reaches the footer
 through the PUB subscription (`progress`, `ready`,
-`embed_complete`, `auto_rebuild`, `index_error`
-notifications), not a local promise chain. The same
+`embed_ended`, `auto_rebuild`, `index_error`
+notifications), not a local promise chain. An `embed_ended`
+carries the outcome, because a run that stood aside for a
+build leaves work due and must not read as finished. The same
 mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
 and `triggerGc` — each a `withFallback` over a daemon RPC
 with a CLI fallback.
