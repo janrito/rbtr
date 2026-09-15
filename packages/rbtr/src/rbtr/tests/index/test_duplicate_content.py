@@ -13,6 +13,7 @@ from __future__ import annotations
 import polars as pl
 
 from rbtr.domain.models import SnapshotRef
+from rbtr.index.search import search
 from rbtr.index.store import IndexStore
 
 # ── Every copy is findable ───────────────────────────────────────────
@@ -96,7 +97,7 @@ def test_a_copy_adds_a_location_without_demoting_the_source(
     the better of the two. Copying a file into `node_modules` therefore
     cannot demote the original.
     """
-    results = dup_store.search("normalise_widget", within=[dup_ref], top_k=10)
+    results = search(dup_store, "normalise_widget", within=[dup_ref], top_k=10)
     hits = [r for r in results if "src/dup.py" in r.file_paths]
 
     assert len(hits) == 1, f"the copies did not collapse: {[r.file_paths for r in results]}"

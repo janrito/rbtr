@@ -197,10 +197,10 @@ All mutations go through `WriteSession`, obtained via
 Sweep is explicit: `ws.sweep()` removes residue from
 crashed builds.
 
-`IndexStore` owns the connection, reads, and search.
-`WriteSession` owns all data mutations. A store created
-with `writable=False` (the default) rejects `session()`
-calls.
+`IndexStore` owns the connection and the reads; `search`
+takes a store and ranks what it returns. `WriteSession`
+owns all data mutations. A store created with
+`writable=False` (the default) rejects `session()` calls.
 
 The build pipeline opens one session per phase:
 register → extract → edges → finalise → (separate) embed.

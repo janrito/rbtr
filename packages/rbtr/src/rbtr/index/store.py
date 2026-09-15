@@ -58,14 +58,12 @@ import polars as pl
 import pyarrow  # type: ignore[import-untyped]  # noqa: F401
 import structlog
 
-from rbtr.config import WeightTriple, config
+from rbtr.config import config
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
     EdgeKind,
-    QueryKind,
     Repo,
-    ScoredChunk,
     SnapshotCounts,
     SnapshotRange,
     SnapshotRef,
@@ -75,8 +73,6 @@ from rbtr.errors import IndexLockedError, IndexNotBuiltError, IndexSchemaTooNewE
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
-from rbtr.index.embeddings import Embedder
-from rbtr.index.reranker import Reranker
 from rbtr.index.results import (
     ChangedSymbolRow,
     ChunkContentRow,
@@ -95,7 +91,6 @@ from rbtr.index.results import (
     serial_map_view,
     snapshot_refs_view,
 )
-from rbtr.index.search import search
 from rbtr.index.writer import WriteSession
 
 log = structlog.get_logger(__name__)
@@ -885,47 +880,3 @@ class IndexStore:
                 .pl()
                 .pipe(ChunkPathResultRow.validate, cast=True)
             )
-
-    # ── Unified search ───────────────────────────────────────────────
-
-    def search(
-        self,
-        query: str,
-        *,
-        within: list[SnapshotRef],
-        top_k: int = 10,
-        changed_files: set[str] | None = None,
-        embedder: Embedder | None = None,
-        kind: QueryKind | None = None,
-        keywords: list[str] | None = None,
-        variants: list[str] | None = None,
-        weights: WeightTriple | None = None,
-        reranker: Reranker | None = None,
-        reranker_pool: int | None = None,
-        reranker_blend_weight: float | None = None,
-        repo_paths: dict[int, str] | None = None,
-    ) -> list[ScoredChunk]:
-        """Search across one or more repo refs.
-
-        Delegates to `search.search()`.  See that function for
-        details.  A one-element *within* list is a single-repo
-        search; many refs fan the query across repos.  *repo_paths*
-        maps `repo_id` to a path so cross-repo results carry their
-        origin.
-        """
-        return search(
-            self,
-            query,
-            within=within,
-            top_k=top_k,
-            changed_files=changed_files,
-            embedder=embedder,
-            kind=kind,
-            keywords=keywords,
-            variants=variants,
-            weights=weights,
-            reranker=reranker,
-            reranker_pool=reranker_pool,
-            reranker_blend_weight=reranker_blend_weight,
-            repo_paths=repo_paths,
-        )

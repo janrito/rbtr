@@ -26,6 +26,7 @@ from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.embeddings import Embedder
+from rbtr.index.search import search
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -178,7 +179,8 @@ def test_daemon_and_direct_search_produce_identical_results(
     # Via direct store.search — the request sent no keywords/variants, so
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
-    direct_results = channel_store.search(
+    direct_results = search(
+        channel_store,
         query,
         within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
         top_k=5,

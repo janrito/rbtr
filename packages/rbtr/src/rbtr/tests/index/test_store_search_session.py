@@ -11,6 +11,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.index.search import search
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -167,7 +168,7 @@ def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
         SnapshotRef(repo_id=1, snapshot_sha="head"),
         SnapshotRef(repo_id=2, snapshot_sha="head"),
     ]
-    results = store.search("shared", within=refs, top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
+    results = search(store, "shared", within=refs, top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
     shared = [r for r in results if r.name == "shared_fn"]
     assert {r.repo_path for r in shared} == {"/repo1", "/repo2"}
 
@@ -176,7 +177,7 @@ def test_cross_repo_search_merges_both_repos(
     store: IndexStore, repo_one_ref: SnapshotRef, repo_two_ref: SnapshotRef
 ) -> None:
     """Two refs return hits from both repos."""
-    results = store.search("func", within=[repo_one_ref, repo_two_ref], top_k=10)
+    results = search(store, "func", within=[repo_one_ref, repo_two_ref], top_k=10)
     names = {r.name for r in results}
     assert "alpha_func" in names
     assert "beta_func" in names
@@ -186,7 +187,7 @@ def test_single_ref_search_scopes_to_one_repo(
     store: IndexStore, repo_one_ref: SnapshotRef, repo_two_ref: SnapshotRef
 ) -> None:
     """One ref excludes the other repo's chunks."""
-    results = store.search("func", within=[repo_one_ref], top_k=10)
+    results = search(store, "func", within=[repo_one_ref], top_k=10)
     names = {r.name for r in results}
     assert "alpha_func" in names
     assert "beta_func" not in names
@@ -303,8 +304,10 @@ def unified_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
 def test_unified_search_returns_results_with_breakdown(
     store: IndexStore, unified_ref: SnapshotRef
 ) -> None:
-    """store.search() returns ScoredChunks with score breakdown."""
-    results = store.search("config", within=[unified_ref])
+    """search(
+    store,
+    ) returns ScoredChunks with score breakdown."""
+    results = search(store, "config", within=[unified_ref])
     assert len(results) > 0
     top = results[0]
     assert top.score >= 0.0
@@ -328,6 +331,6 @@ def test_unified_search_without_embeddings(
     unified_no_embed: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 ) -> None:
     """search() works when no embeddings exist (semantic weight redistributed)."""
-    results = store.search(unified_no_embed.query, within=[head_ref])
+    results = search(store, unified_no_embed.query, within=[head_ref])
     assert len(results) > 0
     assert all(r.score >= 0.0 for r in results)

@@ -40,6 +40,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.embeddings import Embedder
+from rbtr.index.search import search
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -319,7 +320,8 @@ def test_search_results_correct_during_embed(
         assert isinstance(daemon_resp, SearchResponse)
 
     # Direct search for comparison.
-    direct_results = embeddable_store.search(
+    direct_results = search(
+        embeddable_store,
         "func_0",
         within=[embedded_snapshot],
         top_k=5,

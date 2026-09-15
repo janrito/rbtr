@@ -12,6 +12,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult, SnapshotRef
 from rbtr.index.build import build_index
+from rbtr.index.search import search
 from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.treesitter import _get_query
@@ -803,7 +804,7 @@ def test_symbol_in_an_embedded_fence_is_searchable(
     sha = str(multilang_repo.head.target)
     build_index(multilang_repo.workdir, sha, store)
 
-    results = store.search("handle", within=[SnapshotRef(repo_id=1, snapshot_sha=sha)], top_k=10)
+    results = search(store, "handle", within=[SnapshotRef(repo_id=1, snapshot_sha=sha)], top_k=10)
 
     assert [r.file_paths for r in results if r.name == "handle"] == [["api.md"]]
 

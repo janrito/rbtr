@@ -72,6 +72,7 @@ from rbtr.git import (
 )
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.results import changed_to_symbols
+from rbtr.index.search import search
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
@@ -166,7 +167,8 @@ def handle_search(
         refs = [_resolve_read_ref(store, request.repo_path, repo_id, request.ref)]
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
-    results = store.search(
+    results = search(
+        store,
         request.query,
         within=refs,
         top_k=request.limit,
