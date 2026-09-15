@@ -7,13 +7,14 @@ repo. One indexed snapshot per repo, and it is HEAD, is therefore an
 invariant this pipeline maintains rather than a hope about the
 database.
 
-`corpus_refs` states that invariant and refuses to answer when it
-does not hold, which is what entitles the report queries to join
-`indexed_snapshots` directly instead of binding a snapshot set.
+`corpus_refs` states that rule and refuses to answer when it does not
+hold. It is the only thing that builds a `Corpus`, so a report taking
+one reports over a set of snapshots that has been checked.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from rbtr.domain.models import SnapshotRef
@@ -22,7 +23,18 @@ from rbtr.git import head_sha
 from rbtr.index.store import IndexStore
 
 
-def corpus_refs(store: IndexStore) -> list[SnapshotRef]:
+@dataclass(frozen=True, slots=True)
+class Corpus:
+    """The snapshots an eval run measures: one per repo, each at HEAD.
+
+    The report queries join these refs, so every count covers this set
+    and nothing else.
+    """
+
+    refs: tuple[SnapshotRef, ...]
+
+
+def corpus_refs(store: IndexStore) -> Corpus:
     """Every registered repo at HEAD, in registration order.
 
     Raises `RbtrError` when a repo's HEAD is not indexed, or when a
@@ -49,7 +61,7 @@ def corpus_refs(store: IndexStore) -> list[SnapshotRef]:
             )
             raise RbtrError(msg)
         refs.append(SnapshotRef(repo_id=repo.repo_id, snapshot_sha=head))
-    return refs
+    return Corpus(refs=tuple(refs))
 
 
 def corpus_ref(store: IndexStore, slug: str) -> SnapshotRef:
@@ -59,7 +71,7 @@ def corpus_ref(store: IndexStore, slug: str) -> SnapshotRef:
     index fails the checks `corpus_refs` makes.
     """
     paths = {repo.repo_id: repo.repo_path for repo in store.list_repos()}
-    for ref in corpus_refs(store):
+    for ref in corpus_refs(store).refs:
         if Path(paths[ref.repo_id]).name == slug:
             return ref
     msg = f"No indexed repo named {slug!r}. Run the `index` stage first."

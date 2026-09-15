@@ -2,7 +2,7 @@ WITH chunk_counts AS (
   SELECT
     c.kind,
     COUNT(DISTINCT c.id) AS n
-  FROM indexed_snapshots AS s
+  FROM _snapshot_refs AS s
   INNER JOIN file_snapshots AS fs
     ON
       s.repo_id = fs.repo_id
@@ -18,7 +18,7 @@ scoped_edges AS (
   SELECT
     e.source_id,
     e.target_id
-  FROM indexed_snapshots AS s
+  FROM _snapshot_refs AS s
   INNER JOIN edges AS e
     ON
       s.repo_id = e.repo_id

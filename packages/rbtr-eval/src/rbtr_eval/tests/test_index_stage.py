@@ -12,6 +12,7 @@ import pytest
 
 from rbtr.domain.models import Edge, EdgeKind, SnapshotRef
 from rbtr.index.store import IndexStore
+from rbtr_eval.corpus import Corpus
 from rbtr_eval.index_stage import (
     _embedding_counts,
     _kind_counts,
@@ -26,6 +27,17 @@ from rbtr_eval.tests.conftest import chunk, snap
 
 INDEXED = "1" * 40
 RESIDUE = "2" * 40
+
+
+@pytest.fixture
+def corpus() -> Corpus:
+    """The indexed snapshot of the one repo each store fixture registers.
+
+    In the pipeline `corpus_refs` builds this from the repos' HEADs;
+    these stores have no git repo behind them, so the refs are named
+    here.
+    """
+    return Corpus(refs=(SnapshotRef(repo_id=1, snapshot_sha=INDEXED),))
 
 
 @pytest.fixture
@@ -92,38 +104,40 @@ def store_with_copy(tmp_path: Path) -> IndexStore:
 # ── Tests ────────────────────────────────────────────────────────────
 
 
-def test_counts_describe_only_indexed_snapshots(store_with_residue: IndexStore) -> None:
+def test_counts_describe_only_indexed_snapshots(
+    store_with_residue: IndexStore, corpus: Corpus
+) -> None:
     """A snapshot never marked indexed contributes to no count."""
-    assert _repo_counts(store_with_residue).rows(named=True) == [
+    assert _repo_counts(store_with_residue, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "locations": 2, "edges": 1}
     ]
-    assert _totals(store_with_residue) == (2, 2, 1)
-    assert _embedding_counts(store_with_residue).rows(named=True) == [
+    assert _totals(store_with_residue, corpus) == (2, 2, 1)
+    assert _embedding_counts(store_with_residue, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "embedded": 1, "truncated": 0}
     ]
 
 
 def test_dimension_tables_attribute_each_edge_to_both_endpoints(
-    store_with_residue: IndexStore,
+    store_with_residue: IndexStore, corpus: Corpus
 ) -> None:
     """An edge counts outbound for its source kind, inbound for its target."""
-    assert _kind_counts(store_with_residue).rows(named=True) == [
+    assert _kind_counts(store_with_residue, corpus).rows(named=True) == [
         {"kind": "function", "n": 1, "outbound_edges": 0, "inbound_edges": 1},
         {"kind": "import", "n": 1, "outbound_edges": 1, "inbound_edges": 0},
     ]
-    assert _language_counts(store_with_residue).rows(named=True) == [
+    assert _language_counts(store_with_residue, corpus).rows(named=True) == [
         {"lang": "python", "n": 2, "outbound_edges": 1, "inbound_edges": 1}
     ]
 
 
 def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
-    store_with_copy: IndexStore,
+    store_with_copy: IndexStore, corpus: Corpus
 ) -> None:
     """One chunk reached from two paths is one chunk in two places."""
-    assert _repo_counts(store_with_copy).rows(named=True) == [
+    assert _repo_counts(store_with_copy, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 1, "locations": 2, "edges": 0}
     ]
-    assert _totals(store_with_copy) == (1, 2, 0)
+    assert _totals(store_with_copy, corpus) == (1, 2, 0)
 
 
 # ── DVC sentinel hash ────────────────────────────────────────────────

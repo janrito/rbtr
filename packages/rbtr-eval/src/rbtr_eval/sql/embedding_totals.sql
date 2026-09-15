@@ -3,7 +3,7 @@ WITH scoped_chunks AS (
     c.id,
     c.embedding_truncated,
     c.embedding IS NOT NULL AS has_embedding
-  FROM indexed_snapshots AS s
+  FROM _snapshot_refs AS s
   INNER JOIN file_snapshots AS fs
     ON
       s.repo_id = fs.repo_id

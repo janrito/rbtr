@@ -235,7 +235,7 @@ class WriteSession:
         pairs = pl.DataFrame(
             sorted(self._inserted_blobs), schema=["blob_sha", "file_language"], orient="row"
         )
-        with self._store._registered_views(_stg=pairs) as cur:
+        with self._store.reader(_stg=pairs) as cur:
             row = cur.execute(_COUNT_UNCLAIMED_BLOBS_SQL).fetchone()
         return int(row[0]) if row else 0
 
@@ -265,7 +265,7 @@ class WriteSession:
         ]
         if struct_cols:
             frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
-        with self._store._registered_views(_stg=frame) as cur:
+        with self._store.reader(_stg=frame) as cur:
             cur.execute(sql)
 
     # ── Write methods ────────────────────────────────────────────
@@ -400,7 +400,7 @@ class WriteSession:
         if truncated is None:
             truncated = [False] * len(ids)
         frame = staged_embeddings(ids, embeddings, truncated)
-        with self._store._registered_views(_emb_stg=frame) as cur:
+        with self._store.reader(_emb_stg=frame) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
     def mark_indexed(self, *, at: SnapshotRef) -> None:
