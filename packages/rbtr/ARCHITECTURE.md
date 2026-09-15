@@ -396,12 +396,12 @@ is maintained without a stored dimension:
   rule.
 
 The column is also most of the database by size, and a predicate on it
-(`embedding IS NULL`) has to read it. That cost shapes three call paths:
-completeness is counted for a whole repo in one grouped pass rather than
-per snapshot (see [Completion tracking](#completion-tracking)), the
-worker's job search reads that same single result, and the embed loop
-resolves its work list once and then fetches pages by chunk id, so only
-the first read touches the column.
+(`embedding IS NULL`) reads all of it. Three paths depend on that
+predicate, and each issues it once per request: completeness for a whole
+repo comes from one grouped pass (see
+[Completion tracking](#completion-tracking)), the worker's job search
+reads that same result, and the embed loop resolves its work list in one
+pass and then fetches pages by chunk id.
 
 `chunks.embedding_truncated` records whether a chunk's text
 exceeded the model's context window and was truncated before
@@ -453,8 +453,8 @@ win (7–32× for 3 vectors).
   search spans — see [Cross-repo search](#cross-repo-search)),
   `_qvecs` (query vectors — see
   [Multi-vector semantic scan](#multi-vector-semantic-scan)),
-  and `_chunk_ids` (one page of the embed work list, so the
-  fetch never predicates on `chunks.embedding`).
+  and `_chunk_ids` (one page of the embed work list, which the
+  fetch matches chunks against by id).
 - **Writes** register a staging frame the upsert reads from:
   `_stg` (chunks / snapshots / edges) and `_emb_stg`
   (embeddings), via `WriteSession._bulk_insert`.
@@ -745,10 +745,10 @@ for un-embedded chunks and sets the wake event so the
 DB-polling worker picks up the work. This handles the case
 where the daemon crashed after indexing completed but before
 embedding finished. Recovery is idempotent because each embed
-job draws up its own work list — `unembedded_chunk_ids` names
-only `embedding IS NULL` chunks — so a job that died halfway
-leaves the rest outstanding and the next one resumes from
-there.
+job draws up its own work list: `unembedded_chunk_ids` names
+the chunks whose `embedding` is still NULL, so a job that died
+halfway leaves the rest outstanding and the next one resumes
+from there.
 
 **Transactional writes:** `WriteSession` rolls back on
 exception. No partial state persists.
@@ -1846,6 +1846,20 @@ nothing to collect or search. Neither takes a `repo_id`
 argument; both work it out from the path, so a caller cannot
 pair an id with a path it does not belong to. See
 [Repo registration](#repo-registration).
+
+**Embedding completeness is counted.** Whether a snapshot is fully
+embedded is derived, by counting the chunks it reaches and the
+subset of those carrying an `embedding`. The counts are grouped, so
+one pass over the embedding column answers for every snapshot in a
+repo, and the cost follows the size of the column rather than the
+number of snapshots asked about.
+
+A denormalised `embedded` column on `indexed_snapshots` would make
+it a lookup. It loses on correctness, not speed: every write path
+that sets or clears an embedding would have to maintain it, and
+"flag says embedded, column is NULL" becomes a state the schema
+admits. Revisit if one grouped pass grows to dominate a status
+request.
 
 **No foreign keys.** The `repos` mapping would be the natural
 candidate for one, but DuckDB will not delete a row and its
