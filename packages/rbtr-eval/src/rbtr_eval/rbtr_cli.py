@@ -49,7 +49,7 @@ def daemon_session(
     config_dir: Path,
     log_dir: Path,
     *,
-    recv_timeout_ms: int | None = None,
+    wait_budget_s: float | None = None,
 ) -> Iterator[DaemonClient]:
     """Start an isolated daemon; yield a client; stop on exit.
 
@@ -89,7 +89,7 @@ def daemon_session(
     try:
         with DaemonClient(
             runtime_dir=Config(data_dir=data_dir).runtime_dir,
-            recv_timeout_ms=recv_timeout_ms,
+            wait_budget_s=wait_budget_s,
         ) as client:
             yield client
     finally:

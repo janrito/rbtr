@@ -598,12 +598,17 @@ protocol code.
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
-  ZMQ. `send()` retries with reconnect on recv timeout:
-  after a timeout the REQ socket is
-  stuck in “waiting for reply” state and must be destroyed
-  and recreated. Retries up to `max_retries` times
-  (default 3) with exponential backoff. All requests are
-  idempotent, so duplicate delivery is harmless.
+  ZMQ. A request is sent once and the reply waited for, up to
+  `wait_budget_s` (120 s by default, and a caller's to set). While
+  waiting it re-checks every 5 s that the daemon's process is still
+  there, so a daemon that dies is noticed in seconds rather than at
+  the end of the budget. A late reply arrives on the same socket —
+  the REQ socket must be recreated to *send* again, not to keep
+  receiving. Sending again is what waiting replaces: the daemon is
+  either working on the request, in which case a second copy makes it
+  do the work twice and queue behind the first, or it is gone, in
+  which case no copy will be answered. Over IPC a reply is not lost
+  in transit, which is the case a re-send exists for.
 
 ### Watched refs
 

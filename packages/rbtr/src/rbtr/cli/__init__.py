@@ -45,8 +45,8 @@ from rbtr.cli.output import (
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
-    _status,
     is_daemon_running,
+    live_status,
     start_daemon,
     stop_daemon,
     try_daemon,
@@ -159,9 +159,9 @@ class DaemonStart(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        if is_daemon_running():
-            s = _status()
-            print_err(f"[yellow]Daemon already running (PID {s.pid if s else '?'}).[/]")
+        running = live_status(config.runtime_dir)
+        if running is not None:
+            print_err(f"[yellow]Daemon already running (PID {running.pid}).[/]")
             return
 
         try:
@@ -199,8 +199,8 @@ class DaemonStatusCmd(BaseModel):
     """
 
     def cli_cmd(self) -> None:
-        status = _status()
-        if status is None or not is_daemon_running():
+        status = live_status(config.runtime_dir)
+        if status is None:
             emit(DaemonStatusReport(running=False))
             return
         emit(
