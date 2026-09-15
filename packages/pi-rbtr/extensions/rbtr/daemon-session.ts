@@ -101,9 +101,11 @@ export class DaemonSession {
   /**
    * Send a request through the cached RPC endpoint.
    *
-   * Re-queries once on transport failure (covers daemon restart
-   * with a new endpoint) before giving up with
-   * ``DaemonUnavailableError``.  ``RbtrDaemonError`` from the
+   * A busy daemon is waited for rather than asked again (see
+   * ``send``), so a failure here means the daemon is gone or
+   * wedged.  The one refresh-and-retry covers the common case:
+   * a daemon that restarted has a new endpoint, and the request
+   * that failed was never served.  ``RbtrDaemonError`` from the
    * daemon itself is propagated as-is — the caller decides what
    * to do with it.
    */
@@ -121,8 +123,6 @@ export class DaemonSession {
       if (err instanceof Error && err.name === "RbtrDaemonError") {
         throw err;
       }
-      // Transport failure — try one refresh + retry before
-      // giving up.  Covers daemon restart with a new endpoint.
       this.status = null;
       await this.refresh();
       if (!this.rpcEndpoint) {

@@ -173,6 +173,15 @@ no separate guard. See
 for the transport's reconnection and health-check
 behaviour.
 
+Both transports are patient. A tool call allows the daemon
+120 s to reply, because a search that arrives while the
+daemon is indexing waits for the work in front of it, and
+asking again only adds to that queue. The CLI fallback
+allows 150 s, which has to outlast the wait budget of the
+client it spawns. The startup status probe is the exception
+at 5 s: it asks whether a daemon is there at all, and "no"
+is an answer it can use.
+
 ---
 
 ## Index management
@@ -215,7 +224,9 @@ fresh repo still indexes once the daemon is healthy.
 The CLI fallback caps a build at 10 minutes. A fresh build
 with embeddings for a large repository can take several
 minutes (embedding is the bottleneck). Incremental builds
-with blob-SHA dedup typically complete in seconds.
+with blob-SHA dedup typically complete in seconds. Read
+tools have their own budgets — see
+[Transport dispatch](#transport-dispatch-withfallback).
 
 ---
 

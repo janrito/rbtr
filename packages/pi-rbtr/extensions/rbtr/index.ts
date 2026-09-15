@@ -30,6 +30,16 @@ import type { BuildIndexResponse, GcMode, GcResponse, Response, StatusResponse }
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
 
+/**
+ * How long a CLI fallback may take for a read tool.
+ *
+ * Must exceed the CLI client's own wait budget: the daemon it
+ * talks to may be indexing, and killing the process at a shorter
+ * deadline means the waiting the client would have done never
+ * happens.
+ */
+const READ_CLI_TIMEOUT_MS = 150_000;
+
 import { decodeStringList, echoArgs } from "./args.js";
 import {
   footerLabel,
@@ -850,7 +860,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
-            const result = await runRbtr(pi, resolved, args, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -937,7 +947,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const readArgs = ["read-symbol", params.symbol];
             if (params.ref !== undefined) readArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -1023,7 +1033,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const findArgs = ["find-refs", params.symbol];
             if (params.ref !== undefined) findArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -1105,7 +1115,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             for (const fp of params.file_paths ?? []) changedArgs.push("--file-path", fp);
             const result = await runRbtr(pi, resolved, changedArgs, {
               signal,
-              timeout: 30_000,
+              timeout: READ_CLI_TIMEOUT_MS,
             });
             const text = result.stdout.trim();
             if (!text) {
@@ -1178,7 +1188,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (params.ref !== undefined) listArgs.push("--ref", params.ref);
             const result = await runRbtr(pi, resolved, listArgs, {
               signal,
-              timeout: 30_000,
+              timeout: READ_CLI_TIMEOUT_MS,
             });
             const text = result.stdout.trim();
             if (!text) {

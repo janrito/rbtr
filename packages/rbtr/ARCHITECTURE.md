@@ -599,16 +599,16 @@ protocol code.
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
   ZMQ. A request is sent once and the reply waited for, up to
-  `wait_budget_s` (120 s by default, and a caller's to set). While
-  waiting it re-checks every 5 s that the daemon's process is still
-  there, so a daemon that dies is noticed in seconds rather than at
-  the end of the budget. A late reply arrives on the same socket —
-  the REQ socket must be recreated to *send* again, not to keep
-  receiving. Sending again is what waiting replaces: the daemon is
-  either working on the request, in which case a second copy makes it
-  do the work twice and queue behind the first, or it is gone, in
-  which case no copy will be answered. Over IPC a reply is not lost
-  in transit, which is the case a re-send exists for.
+  `wait_budget_s` (120 s by default; a caller sets its own). A late
+  reply arrives on the same socket — a REQ socket must be recreated
+  to *send* again, not to keep receiving. Silence means the daemon
+  is busy or gone, never that the message was lost in transit, so a
+  second copy of the request would only queue behind the first on a
+  daemon already behind. Every 5 s of waiting the client checks the
+  daemon's pid, which is how it tells the two apart: a daemon that
+  dies fails the request in seconds instead of at the end of the
+  budget. Process knowledge stays here, beside `start_daemon` and
+  `stop_daemon`; other clients wait on the socket alone.
 
 ### Watched refs
 

@@ -53,10 +53,16 @@ export interface FakeDaemonHandle extends AsyncDisposable {
  * Start a FakeDaemon.  It serves *reply* for every request it
  * receives and records each request in ``received``.
  *
+ * *replyAfterMs* holds each reply back for that long, which is
+ * how a daemon too busy to answer promptly is modelled.  With no
+ * *reply* at all it receives and never answers.
+ *
  * The socket is cleaned up when the returned handle is disposed
  * (``await using`` / explicit ``[Symbol.asyncDispose]``).
  */
-export async function startFakeDaemon(opts: { reply?: FakeReply } = {}): Promise<FakeDaemonHandle> {
+export async function startFakeDaemon(
+  opts: { reply?: FakeReply; replyAfterMs?: number } = {},
+): Promise<FakeDaemonHandle> {
   // macOS caps unix-domain socket paths at ~104 bytes.
   // Keep the endpoint short: 8 random hex chars, no suffix.
   const dir = mkdtempSync(join(tmpdir(), "rbtr-fd-"));
@@ -85,6 +91,9 @@ export async function startFakeDaemon(opts: { reply?: FakeReply } = {}): Promise
       received.push(request);
       if (opts.reply === undefined) continue;
       const response = typeof opts.reply === "function" ? opts.reply(request) : opts.reply;
+      if (opts.replyAfterMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, opts.replyAfterMs));
+      }
       await rep.send(JSON.stringify(response));
     }
   })();
