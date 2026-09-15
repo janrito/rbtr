@@ -9,13 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pygit2
 import pytest
 
 from rbtr.daemon.handlers import handle_forget
 from rbtr.daemon.messages import ForgetRequest
 from rbtr.errors import RbtrError
-from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
 
 
@@ -49,11 +47,12 @@ def test_forget_refuses_repo_watching_extra_refs(store: IndexStore) -> None:
     assert store.get_repo_id("/repo") == 1  # untouched
 
 
-def test_forget_stale_forgets_only_vanished_repos(store: IndexStore, tmp_path: Path) -> None:
+def test_forget_stale_forgets_only_vanished_repos(
+    store: IndexStore, tmp_path: Path, fake_repo: str
+) -> None:
     """`stale=True` forgets repos whose path no longer resolves and leaves
     live repos alone."""
-    pygit2.init_repository(str(tmp_path / "live"), bare=False, initial_head="main")
-    live = normalise_repo_path(str(tmp_path / "live"))
+    live = fake_repo
     gone = str(tmp_path / "gone")  # never created on disk
     with store.session() as ws:
         ws.register_repo(live)

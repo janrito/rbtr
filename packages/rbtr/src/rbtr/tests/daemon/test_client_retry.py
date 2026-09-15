@@ -51,7 +51,7 @@ def silent_endpoint(runtime_dir: Path) -> Generator[Path]:
 
 
 def test_retry_succeeds_after_transient_timeout(
-    running_server: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
     mocker: MockerFixture,
 ) -> None:
@@ -70,11 +70,11 @@ def test_retry_succeeds_after_transient_timeout(
             await asyncio.sleep(0.15)
         return StatusResponse()
 
-    running_server.register("status", slow_then_fast)
+    running_daemon.register("status", slow_then_fast)
     mock_sleep = mocker.patch("rbtr.daemon.client.time.sleep")
 
     with DaemonClient(
-        running_server.runtime_dir,
+        running_daemon.runtime_dir,
         recv_timeout_ms=50,
         max_retries=3,
     ) as client:

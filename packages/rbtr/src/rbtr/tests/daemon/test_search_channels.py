@@ -13,10 +13,8 @@ similarity.
 
 from __future__ import annotations
 
-import asyncio
 import tempfile
-import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
@@ -31,6 +29,7 @@ from rbtr.index.embeddings import Embedder
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
+from .conftest import serving
 
 # Hand-crafted vectors so cosine similarity is controllable.
 # The query embedding points along dim 0.  Each chunk has
@@ -84,7 +83,8 @@ def channel_vecs() -> tuple[list[float], dict[str, list[float]]]:
 def channel_store(
     fake_repo: str,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-) -> Iterator[IndexStore]:
+    store: IndexStore,
+) -> IndexStore:
     """Store seeded with chunks designed so the channels disagree.
 
     - "find_items": content about searching/finding (semantic
@@ -111,7 +111,6 @@ def channel_store(
         ("ch_greet", "src/greet.py", "greet", "def greet(name): return f'hello {name}'"),
         ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
     ]
-    store = IndexStore(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo(fake_repo)
         chunks = [
@@ -132,15 +131,15 @@ def channel_store(
             repo_id=repo_id,
         )
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-    yield store
-    store.close()
+    return store
 
 
 @pytest.fixture
-def channel_server(
+def running_daemon(
     channel_store: IndexStore,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-) -> Iterator[DaemonServer]:
+) -> Generator[DaemonServer]:
+    """A served daemon whose embedder returns the fixture's query vector."""
     query_vec, _chunk_vecs = channel_vecs
     rd = Path(tempfile.mkdtemp(prefix="rbtr-ch-"))
     server = DaemonServer(rd, store=channel_store, idle_poll_interval=60.0, busy_poll_interval=60.0)
@@ -148,16 +147,12 @@ def channel_server(
     server._embedder = _FakeEmbedder(query_vec)  # type: ignore[assignment]  # fake for testing
     # Re-register handlers so the search lambda captures the fake embedder.
     server._register_index_handlers(channel_store)
-    t = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
-    t.start()
-    assert server.wait_ready(), "daemon did not start within timeout"
-    yield server
-    server.request_shutdown()
-    t.join(timeout=3)
+    with serving(server):
+        yield server
 
 
 def test_daemon_and_direct_search_produce_identical_results(
-    channel_server: DaemonServer,
+    running_daemon: DaemonServer,
     channel_store: IndexStore,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
     fake_repo: str,
@@ -174,7 +169,7 @@ def test_daemon_and_direct_search_produce_identical_results(
     embedder = _FakeEmbedder(query_vec)
 
     # Via daemon.
-    with DaemonClient(channel_server.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         req = SearchRequest(repo_path=fake_repo, query=query, limit=5)
         daemon_resp = client.send_or_raise_as(SearchResponse, req)
     daemon_names = [r.name for r in daemon_resp.results]
@@ -188,7 +183,7 @@ def test_daemon_and_direct_search_produce_identical_results(
         within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
         top_k=5,
         embedder=embedder,
-        reranker=channel_server._reranker,
+        reranker=running_daemon._reranker,
     )
     direct_names = [r.name for r in direct_results]
     direct_scores = [round(r.score, 6) for r in direct_results]
@@ -202,14 +197,14 @@ def test_daemon_and_direct_search_produce_identical_results(
 
 
 def test_different_weights_produce_different_rankings(
-    channel_server: DaemonServer, fake_repo: str
+    running_daemon: DaemonServer, fake_repo: str
 ) -> None:
     """Extreme weight configs must not all produce the same ranking.
 
     If semantic or name channels are dead, alpha=1 and gamma=1
     both fall back to BM25, producing identical results.
     """
-    with DaemonClient(channel_server.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         query = "search"
         sem_resp = client.send_or_raise_as(
             SearchResponse,

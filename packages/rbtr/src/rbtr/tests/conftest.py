@@ -128,6 +128,21 @@ def fake_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
+def second_repo(tmp_path: Path) -> str:
+    """A second `fake_repo`, for anything that needs two repos at once.
+
+    Same shape and same canonical path treatment; only the directory
+    differs, so the two register as distinct repos.
+    """
+    path = tmp_path / "other-repo"
+    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
+    sig = pygit2.Signature("t", "t@t.t")
+    tree = repo.TreeBuilder().write()
+    repo.create_commit("refs/heads/main", sig, sig, "init", tree, [])
+    return normalise_repo_path(str(path))
+
+
+@pytest.fixture
 def store() -> Generator[IndexStore]:
     """In-memory writable IndexStore."""
     s = IndexStore(writable=True)

@@ -18,18 +18,14 @@ from rbtr.tests.conftest import run_cli
 
 
 @pytest.fixture
-def repo_with_stale_watch(tmp_path: Path, isolated_db: Path) -> str:
+def repo_with_stale_watch(fake_repo: str, isolated_db: Path) -> str:
     """A real repo whose watch set holds HEAD, main, and a deleted branch."""
-    path = tmp_path / "repo"
-    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-    repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
     store = IndexStore.from_config(writable=True)
     with store.session() as ws:
-        repo_id = ws.register_repo(str(path))
+        repo_id = ws.register_repo(fake_repo)
         ws.add_watched_refs(repo_id, ["HEAD", "main", "gone-branch"])
     store.close()
-    return str(path)
+    return fake_repo
 
 
 def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db: Path) -> None:
@@ -76,19 +72,14 @@ def test_index_remove_stale_refs_prunes_unresolvable(repo_with_stale_watch: str)
 
 
 @pytest.fixture
-def head_only_repo(tmp_path: Path, isolated_db: Path) -> str:
+def head_only_repo(fake_repo: str, isolated_db: Path) -> str:
     """A real repo registered with HEAD as its only watched ref."""
-    path = tmp_path / "solo"
-    repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-    repo.create_commit("refs/heads/main", sig, sig, "init", repo.TreeBuilder().write(), [])
-    resolved = normalise_repo_path(str(path))
     store = IndexStore.from_config(writable=True)
     with store.session() as ws:
-        repo_id = ws.register_repo(resolved)
+        repo_id = ws.register_repo(fake_repo)
         ws.add_watched_refs(repo_id, ["HEAD"])
     store.close()
-    return str(path)
+    return fake_repo
 
 
 def test_index_remove_no_refs_forgets_head_only_repo(head_only_repo: str) -> None:

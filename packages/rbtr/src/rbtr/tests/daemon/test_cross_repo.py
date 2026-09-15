@@ -7,8 +7,6 @@ workspace and all scopes (see `cases_cross_repo`).
 
 from __future__ import annotations
 
-from collections.abc import Generator
-
 import pytest
 from pytest_cases import parametrize_with_cases
 
@@ -22,7 +20,7 @@ from .cases_cross_repo import ScopeScenario
 
 
 @pytest.fixture
-def two_repos() -> Generator[tuple[IndexStore, dict[int, str]]]:
+def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
     """A store with two indexed repos and their `repo_id -> path` map.
 
     Repo 1 holds chunk `r1_loader`, repo 2 holds `r2_loader`; both
@@ -33,7 +31,6 @@ def two_repos() -> Generator[tuple[IndexStore, dict[int, str]]]:
         1: make_chunk("r1_loader", name="load_alpha", path="alpha.py", blob="b_r1"),
         2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
     }
-    store = IndexStore(writable=True)
     for repo_id, chunk in chunks.items():
         with store.session() as ws:
             ws.register_repo(paths[repo_id])
@@ -47,8 +44,7 @@ def two_repos() -> Generator[tuple[IndexStore, dict[int, str]]]:
                 repo_id=repo_id,
             )
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="head"))
-    yield store, paths
-    store.close()
+    return store, paths
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")

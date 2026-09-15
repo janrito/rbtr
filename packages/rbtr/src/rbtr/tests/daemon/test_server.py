@@ -120,8 +120,8 @@ def test_shutdown_during_warmup_does_not_raise(
     assert errors == [], f"serve() raised on shutdown: {errors!r}"
 
 
-def test_multiple_requests(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         r1 = client.send(StatusRequest(repo_path=fake_repo))
         r2 = client.send(StatusRequest(repo_path=fake_repo))
     assert r1.kind == "status"
@@ -131,11 +131,11 @@ def test_multiple_requests(running_server_with_index: DaemonServer, fake_repo: s
 # ── Error handling ───────────────────────────────────────────────────
 
 
-def test_garbage_returns_error(running_server: DaemonServer) -> None:
+def test_garbage_returns_error(running_daemon: DaemonServer) -> None:
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.setsockopt(zmq.RCVTIMEO, 5000)
-    sock.connect(f"ipc://{running_server.runtime_dir / 'daemon.rpc'}")
+    sock.connect(f"ipc://{running_daemon.runtime_dir / 'daemon.rpc'}")
     sock.send(b"not json")
     raw = sock.recv()
     resp = response_adapter.validate_json(raw)
@@ -145,7 +145,7 @@ def test_garbage_returns_error(running_server: DaemonServer) -> None:
     ctx.term()
 
 
-def test_malformed_argument_returns_field_feedback(running_server: DaemonServer) -> None:
+def test_malformed_argument_returns_field_feedback(running_daemon: DaemonServer) -> None:
     """A structurally-invalid argument is rejected with per-field detail.
 
     The error names the offending field and echoes the received value,
@@ -155,7 +155,7 @@ def test_malformed_argument_returns_field_feedback(running_server: DaemonServer)
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.setsockopt(zmq.RCVTIMEO, 5000)
-    sock.connect(f"ipc://{running_server.runtime_dir / 'daemon.rpc'}")
+    sock.connect(f"ipc://{running_daemon.runtime_dir / 'daemon.rpc'}")
     # file_paths must be a list of strings; element 123 is not a string.
     sock.send(b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":[123]}')
     raw = sock.recv()
@@ -168,7 +168,7 @@ def test_malformed_argument_returns_field_feedback(running_server: DaemonServer)
     ctx.term()
 
 
-def test_json_encoded_list_is_decoded_then_validated(running_server: DaemonServer) -> None:
+def test_json_encoded_list_is_decoded_then_validated(running_daemon: DaemonServer) -> None:
     """A JSON-encoded list arg is decoded, then validated by pydantic.
 
     The unwrap only decodes; it does not type-check. A decoded list of
@@ -178,7 +178,7 @@ def test_json_encoded_list_is_decoded_then_validated(running_server: DaemonServe
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.setsockopt(zmq.RCVTIMEO, 5000)
-    sock.connect(f"ipc://{running_server.runtime_dir / 'daemon.rpc'}")
+    sock.connect(f"ipc://{running_daemon.runtime_dir / 'daemon.rpc'}")
     # file_paths delivered as a JSON string encoding a list of ints.
     sock.send(b'{"kind":"read_symbol","repo_path":"/r","symbol":"x","file_paths":["[1, 2]"]}')
     raw = sock.recv()
@@ -191,7 +191,7 @@ def test_json_encoded_list_is_decoded_then_validated(running_server: DaemonServe
 
 
 def test_non_git_repo_path_returns_error_and_daemon_survives(
-    running_server_with_index: DaemonServer, fake_repo: str, tmp_path: Path
+    running_daemon: DaemonServer, fake_repo: str, tmp_path: Path
 ) -> None:
     """A request with a non-git repo_path must not crash the daemon.
 
@@ -202,7 +202,7 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
     not_git = tmp_path / "not_a_repo"
     not_git.mkdir()
 
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         bad = client.send(StatusRequest(repo_path=str(not_git)))
         assert isinstance(bad, ErrorResponse)
         assert bad.code == ErrorCode.REPO_NOT_FOUND
@@ -212,14 +212,14 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
     assert good.kind == "status"
 
 
-def test_handler_exception_returns_error(running_server: DaemonServer) -> None:
+def test_handler_exception_returns_error(running_daemon: DaemonServer) -> None:
     def bad_handler(_request: object) -> Response:
         msg = "handler broke"
         raise ValueError(msg)
 
-    running_server.register("shutdown", bad_handler)
+    running_daemon.register("shutdown", bad_handler)
 
-    with DaemonClient(running_server.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ShutdownRequest())
     assert isinstance(resp, ErrorResponse)
     assert resp.code == ErrorCode.INTERNAL
@@ -234,37 +234,37 @@ def test_connection_refused(runtime_dir: Path) -> None:
         client.send(ShutdownRequest())
 
 
-def test_send_or_raise_on_success(running_server: DaemonServer) -> None:
-    with DaemonClient(running_server.runtime_dir) as client:
+def test_send_or_raise_on_success(running_daemon: DaemonServer) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send_or_raise(ShutdownRequest())
     assert isinstance(resp, OkResponse)
 
 
-def test_send_or_raise_on_error(running_server: DaemonServer) -> None:
+def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
     def fail(_request: object) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 
-    running_server.register("shutdown", fail)
+    running_daemon.register("shutdown", fail)
 
     with (
-        DaemonClient(running_server.runtime_dir) as client,
+        DaemonClient(running_daemon.runtime_dir) as client,
         pytest.raises(RbtrError, match="boom"),
     ):
         client.send_or_raise(ShutdownRequest())
 
 
-def test_send_or_raise_as_narrows_response(running_server: DaemonServer) -> None:
-    with DaemonClient(running_server.runtime_dir) as client:
+def test_send_or_raise_as_narrows_response(running_daemon: DaemonServer) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send_or_raise_as(OkResponse, ShutdownRequest())
     # mypy would reject a .foo on resp if narrowing didn't work.
     assert resp.kind == "ok"
 
 
 def test_send_or_raise_as_rejects_mismatched_response(
-    running_server: DaemonServer,
+    running_daemon: DaemonServer,
 ) -> None:
     with (
-        DaemonClient(running_server.runtime_dir) as client,
+        DaemonClient(running_daemon.runtime_dir) as client,
         pytest.raises(RbtrError, match=r"expected StatusResponse.*got OkResponse"),
     ):
         client.send_or_raise_as(StatusResponse, ShutdownRequest())

@@ -8,7 +8,6 @@ same question.
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
@@ -106,13 +105,11 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def dirty_store(dirty_unindexed_repo: str) -> Generator[IndexStore]:
+def dirty_store(dirty_unindexed_repo: str, store: IndexStore) -> IndexStore:
     """Store with the dirty repo registered, nothing indexed."""
-    store = IndexStore(writable=True)
     with store.session() as ws:
         ws.register_repo(dirty_unindexed_repo)
-    yield store
-    store.close()
+    return store
 
 
 def test_find_next_job_prefers_stale_watched_ref(
