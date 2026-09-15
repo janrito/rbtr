@@ -10,6 +10,8 @@ the index collapses the copies it fans out into.
 
 from __future__ import annotations
 
+import polars as pl
+
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.store import IndexStore
 
@@ -135,8 +137,10 @@ def test_an_import_records_which_copy_it_came_from(
     name the file that actually did the importing rather than every path
     the referring content happens to exist at.
     """
-    edges = dup_store.get_edges(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id)
-    from_caller = [e for e in edges if e.source_path == "src/caller.py"]
+    edges = dup_store.get_edges_frame([dup_ref])
+    from_caller = edges.filter(pl.col("source_path") == "src/caller.py")
 
-    assert from_caller, f"no edge from the caller: {sorted({e.source_path for e in edges})}"
-    assert all(e.target_path in {"src/dup.py", "node_modules/dup.py"} for e in from_caller)
+    assert len(from_caller) > 0, (
+        f"no edge from the caller: {sorted(edges['source_path'].unique().to_list())}"
+    )
+    assert set(from_caller["target_path"].to_list()) <= {"src/dup.py", "node_modules/dup.py"}

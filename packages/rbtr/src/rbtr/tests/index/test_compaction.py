@@ -150,8 +150,10 @@ def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     handle_gc(request, ci.store, allow_compact=True)
 
-    hits = ci.store.match_fulltext(ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id)
-    assert hits, "search returned nothing after compaction"
+    hits = ci.store.match_fulltext_frame(
+        [SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)], ci.query, 5
+    )
+    assert len(hits) > 0, "search returned nothing after compaction"
 
 
 def test_handle_gc_does_not_compact_without_opt_in(churned_index: ChurnedIndex) -> None:
@@ -212,8 +214,15 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     def reader() -> None:
         try:
             while not stop.is_set():
-                assert ci.store.match_fulltext(
-                    ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id
+                assert (
+                    len(
+                        ci.store.match_fulltext_frame(
+                            [SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)],
+                            ci.query,
+                            5,
+                        )
+                    )
+                    > 0
                 )
                 assert ci.store.match_by_name(
                     ci.snapshot_sha, "calculate_retry_backoff_1", repo_id=ci.repo_id

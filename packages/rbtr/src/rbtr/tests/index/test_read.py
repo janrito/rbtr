@@ -146,7 +146,7 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], "head", repo_id=1)
 
-    edges = store.get_edges("head", repo_id=1)
+    edges = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha="head")])
     assert len(edges) == 2
 
 
@@ -171,9 +171,10 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], "head", repo_id=1)
 
-    edges = store.get_edges("head", kind=EdgeKind.IMPORTS, repo_id=1)
-    assert len(edges) == 1
-    assert edges[0].kind == EdgeKind.IMPORTS
+    edges = store.get_edges_frame(
+        [SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS
+    )
+    assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
 
 
 # ── inbound_refs ─────────────────────────────────────
@@ -274,10 +275,12 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
     with store.session() as ws:
         ws.insert_edges([e2], "head", repo_id=2)
 
-    assert len(store.get_edges("head", repo_id=1)) == 1
-    assert len(store.get_edges("head", repo_id=2)) == 1
-    assert store.get_edges("head", repo_id=1)[0].source_id == "a"
-    assert store.get_edges("head", repo_id=2)[0].source_id == "x"
+    assert store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha="head")])[
+        "source_id"
+    ].to_list() == ["a"]
+    assert store.get_edges_frame([SnapshotRef(repo_id=2, snapshot_sha="head")])[
+        "source_id"
+    ].to_list() == ["x"]
 
 
 # ── Cross-repo content sharing ───────────────────────────────────────

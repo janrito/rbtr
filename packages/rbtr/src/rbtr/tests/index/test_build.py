@@ -111,8 +111,8 @@ def test_build_index_resolves_monorepo_absolute_import(
         and c.file_path == "packages/core/src/core/models.py"
     )
 
-    edges = store.get_edges(sha, target_id=widget.id, repo_id=1)
-    assert any(e.kind == EdgeKind.IMPORTS for e in edges), (
+    edges = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=sha)], target_id=widget.id)
+    assert EdgeKind.IMPORTS.value in edges["kind"].to_list(), (
         "absolute import across packages/*/src produced no inbound edge"
     )
 
@@ -186,10 +186,9 @@ def test_build_index_creates_edges(
     built_index: tuple[IndexStore, IndexResult, str],
 ) -> None:
     store, _result, sha = built_index
-    edges = store.get_edges(sha, repo_id=1)
+    edges = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=sha)])
     assert len(edges) > 0
-    edge_kinds = {e.kind for e in edges}
-    assert EdgeKind.IMPORTS in edge_kinds
+    assert EdgeKind.IMPORTS.value in edges["kind"].to_list()
 
 
 def test_build_index_markdown_chunking(
@@ -206,7 +205,7 @@ def test_build_index_fts_available(
     built_index: tuple[IndexStore, IndexResult, str],
 ) -> None:
     store, _result, sha = built_index
-    results = store.match_fulltext(sha, "helper", repo_id=1)
+    results = store.match_fulltext_frame([SnapshotRef(repo_id=1, snapshot_sha=sha)], "helper")
     assert len(results) > 0
 
 
@@ -281,8 +280,17 @@ def test_build_dedups_across_linked_worktrees(
     assert wt.stats.skipped_files == wt.stats.total_files
 
     # Edges inferred for repo 2 from the shared chunks, matching repo 1.
-    edges_1 = {(e.source_id, e.target_id, e.kind) for e in store.get_edges(snapshot_sha, repo_id=1)}
-    edges_2 = {(e.source_id, e.target_id, e.kind) for e in store.get_edges(snapshot_sha, repo_id=2)}
+    columns = ["source_id", "target_id", "kind"]
+    edges_1 = set(
+        store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
+        .select(columns)
+        .iter_rows()
+    )
+    edges_2 = set(
+        store.get_edges_frame([SnapshotRef(repo_id=2, snapshot_sha=snapshot_sha)])
+        .select(columns)
+        .iter_rows()
+    )
     assert edges_1
     assert edges_1 == edges_2
 
@@ -350,10 +358,10 @@ def test_build_index_idempotent_edges(
 ) -> None:
     """Re-building should not duplicate edges."""
     build_index(git_repo.workdir, snapshot_sha, store)
-    e1 = store.get_edges(snapshot_sha, repo_id=1)
+    e1 = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
 
     build_index(git_repo.workdir, snapshot_sha, store)
-    e2 = store.get_edges(snapshot_sha, repo_id=1)
+    e2 = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
 
     assert len(e1) == len(e2)
 
@@ -513,8 +521,10 @@ def test_build_rebuilds_fts_at_commit(
     """FTS is rebuilt at the end of build_index, not on first search."""
     build_index(git_repo.workdir, snapshot_sha, store)
 
-    # match_fulltext finds results — the build rebuilt FTS.
-    results = store.match_fulltext(snapshot_sha, "helper", repo_id=1)
+    # The FTS query finds results — the build rebuilt the index.
+    results = store.match_fulltext_frame(
+        [SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)], "helper"
+    )
     assert len(results) > 0
 
 

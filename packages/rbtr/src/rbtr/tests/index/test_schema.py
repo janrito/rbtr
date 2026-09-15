@@ -20,7 +20,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.errors import IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.staging import TokenisedChunk
@@ -243,11 +243,10 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
-    results1 = store1.match_fulltext("head", "persist", top_k=5, repo_id=1)
-    assert len(results1) == 1
+    ref = SnapshotRef(repo_id=1, snapshot_sha="head")
+    assert len(store1.match_fulltext_frame([ref], "persist", 5)) == 1
     store1.close()
 
     store2 = IndexStore(db_path, writable=True)
-    results2 = store2.match_fulltext("head", "persist", top_k=5, repo_id=1)
-    assert len(results2) == 1
+    assert len(store2.match_fulltext_frame([ref], "persist", 5)) == 1
     store2.close()

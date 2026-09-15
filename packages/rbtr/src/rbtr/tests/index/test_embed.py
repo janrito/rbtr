@@ -92,7 +92,9 @@ def test_build_index_without_embedder_leaves_embeddings_null(
     assert result.stats.total_chunks > 0
 
     # FTS works.
-    fts_results = store.match_fulltext(snapshot_sha, "helper", repo_id=1)
+    fts_results = store.match_fulltext_frame(
+        [SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)], "helper"
+    )
     assert len(fts_results) > 0
 
     # All embeddings are NULL (no embedder was provided).
@@ -216,7 +218,7 @@ def test_build_then_embed_full_idempotency(
 
     chunks_1 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_1 = {c.id for c in chunks_1}
-    edges_1 = store.get_edges(snapshot_sha, repo_id=1)
+    edges_1 = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
     embeddings_1 = {c.id: c.has_embedding for c in chunks_1}
 
     # Second pass: build + embed.
@@ -232,7 +234,7 @@ def test_build_then_embed_full_idempotency(
     # State is identical.
     chunks_2 = store.get_chunks(snapshot_sha, repo_id=1)
     ids_2 = {c.id for c in chunks_2}
-    edges_2 = store.get_edges(snapshot_sha, repo_id=1)
+    edges_2 = store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
     embeddings_2 = {c.id: c.has_embedding for c in chunks_2}
 
     assert ids_1 == ids_2
@@ -249,7 +251,9 @@ def test_build_without_embed_then_build_with_embed(
     chunks_no_embed = store.get_chunks(snapshot_sha, repo_id=1)
     assert len(chunks_no_embed) > 0
     assert all(not c.has_embedding for c in chunks_no_embed), "All embeddings should be NULL"
-    assert store.get_edges(snapshot_sha, repo_id=1), "Edges should exist"
+    assert len(store.get_edges_frame([SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])) > 0, (
+        "Edges should exist"
+    )
 
     # Second build — chunking is idempotent (all files skipped).
     r2 = build_index(git_repo.workdir, snapshot_sha, store)

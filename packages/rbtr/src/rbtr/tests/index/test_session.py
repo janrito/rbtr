@@ -13,7 +13,7 @@ from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
@@ -155,7 +155,7 @@ def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")], repo_id=1)
         ws.mark_indexed(1, "c1")
 
-    results = store.match_fulltext("c1", "searchable", repo_id=1)
+    results = store.match_fulltext_frame([SnapshotRef(repo_id=1, snapshot_sha="c1")], "searchable")
     assert len(results) > 0
 
 
@@ -393,8 +393,8 @@ def test_delete_snapshots_hides_chunks(
     assert store.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
 
 
-def test_chunk_with_inverted_span_is_rejected(store: IndexStore) -> None:
+def test_chunk_with_inverted_span_is_rejected(store: IndexStore, head_ref: SnapshotRef) -> None:
     """A span that ends before it starts does not reach the table."""
     inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
     with pytest.raises(duckdb.ConstraintException):
-        seed_store(store, [inverted])
+        seed_store(store, [inverted], head_ref)

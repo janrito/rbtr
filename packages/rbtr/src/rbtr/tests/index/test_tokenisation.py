@@ -7,7 +7,7 @@ from collections.abc import Generator
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.store import IndexStore
 
@@ -229,6 +229,8 @@ def test_keyword_searchable_via_fts(
 ) -> None:
     """Every keyword the case declares is findable via FTS."""
     store, case = keyword_store_and_case
-    results = store.match_fulltext("head", case.keyword, top_k=5, repo_id=1)
+    results = store.match_fulltext_frame(
+        [SnapshotRef(repo_id=1, snapshot_sha="head")], case.keyword, 5
+    )
     assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"
-    assert results[0][0].name == case.name
+    assert results["name"].to_list()[0] == case.name
