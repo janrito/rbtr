@@ -172,7 +172,6 @@ class DaemonServer:
         # Job worker state — event loop thread only.
         self._wake = asyncio.Event()
         self._write_sem = asyncio.Semaphore(1)
-        self._active_key: str | None = None
         self._active_build: ActiveJob | None = None
         self._active_embed: ActiveJob | None = None
         self._started_at: float | None = None
@@ -313,8 +312,24 @@ class DaemonServer:
                 self._wake.set()
                 return
 
-    def _run_build(self, job: BuildJob, store: IndexStore, push: zmq.Socket) -> None:
-        """Execute a build job.  Called from `_run_job`."""
+    def _run_build(self, job: BuildJob) -> None:
+        """Run a build job.  Called from `to_thread`.
+
+        Owns the inproc PUSH socket it reports progress on for the
+        duration of the job.
+        """
+        store = self._store
+        if store is None:
+            return
+        push = self._zmq_shadow.socket(zmq.PUSH)
+        push.connect("inproc://progress")
+        try:
+            self._build_refs(job, store, push)
+        finally:
+            push.close()
+
+    def _build_refs(self, job: BuildJob, store: IndexStore, push: zmq.Socket) -> None:
+        """Index each of the job's refs, reporting on *push*."""
         with store.session() as ws:
             repo_id = ws.register_repo(job.repo_path)
 
@@ -369,7 +384,7 @@ class DaemonServer:
         rather than "is a tree", so a row whose object `git gc` has
         already pruned is dropped too.
 
-        Called from `_run_build` inside the worker thread's
+        Called from `_build_refs` inside the worker thread's
         `WriteSession` scope.
         """
         indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id)]
@@ -509,7 +524,7 @@ class DaemonServer:
         self,
         path: str,
     ) -> tuple[ActiveJob | None, ActiveJob | None]:
-        """Return `(active_build, active_embed, pending_builds)`.
+        """Return `(active_build, active_embed)`.
 
         Only returns jobs whose `path` matches so a repo-scoped
         status query doesn't leak activity from unrelated repos.
@@ -540,10 +555,12 @@ class DaemonServer:
         """Query the DB for the next piece of work.
 
         Priority: un-indexed commits (builds) before un-embedded
-        chunks (embeds).  Skips the repo/ref that is currently
-        active.  Among embeds the most recently indexed snapshot wins,
-        whichever repo holds it, so a build just finished is embedded
-        before an older backlog elsewhere.
+        chunks (embeds).  Among embeds the most recently indexed
+        snapshot wins, whichever repo holds it, so a build just
+        finished is embedded before an older backlog elsewhere.
+
+        The worker runs one job at a time and clears the active job
+        before asking again, so there is nothing in flight to skip.
 
         Walks every repo's watched refs and worktree with git, and reads
         the embedding column for every indexed snapshot.  That is slow
@@ -555,16 +572,10 @@ class DaemonServer:
 
         # Builds: un-indexed watched refs (HEAD is the default one).
         for target in watcher.poll_watched(store):
-            key = target.repo_path
-            if key == self._active_key:
-                continue
             return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
 
         # Worktree builds: dirty working trees.
         for dirty in watcher.poll_worktree(store):
-            key = f"{dirty.repo_path}:wt:{dirty.snapshot_sha}"
-            if key == self._active_key:
-                continue
             return BuildJob(repo_path=dirty.repo_path, refs=(dirty.snapshot_sha,))
 
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
@@ -572,8 +583,6 @@ class DaemonServer:
         paths = {repo.repo_id: repo.repo_path for repo in store.list_repos()}
         for ref, counts in store.chunk_counts_by_snapshot():
             if counts.is_fully_embedded:
-                continue
-            if f"{ref.repo_id}:{ref.snapshot_sha}" == self._active_key:
                 continue
             return EmbedJob(
                 repo_path=paths[ref.repo_id],
@@ -588,7 +597,6 @@ class DaemonServer:
         self._started_at = time.monotonic()
         match job:
             case BuildJob():
-                self._active_key = job.repo_path
                 self._active_build = ActiveJob(
                     repo_path=job.repo_path,
                     ref="",
@@ -598,7 +606,6 @@ class DaemonServer:
                     elapsed_seconds=0.0,
                 )
             case EmbedJob():
-                self._active_key = f"{job.repo_id}:{job.ref}"
                 self._active_embed = ActiveJob(
                     repo_path=job.repo_path,
                     ref=job.ref,
@@ -610,25 +617,9 @@ class DaemonServer:
 
     def _clear_active(self) -> None:
         """Clear active-job tracking.  Event loop thread only."""
-        self._active_key = None
         self._active_build = None
         self._active_embed = None
         self._started_at = None
-
-    def _run_job(self, job: BuildJob) -> None:
-        """Run a build job.  Called from `to_thread`.
-
-        Owns the inproc PUSH socket for the duration of the job.
-        """
-        store = self._store
-        if store is None:
-            return
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        try:
-            self._run_build(job, store, push)
-        finally:
-            push.close()
 
     async def _job_worker(self) -> None:
         """Async task that polls the DB for work and runs jobs.
@@ -673,7 +664,7 @@ class DaemonServer:
                             await self._run_embed_async(job)
                         else:
                             async with self._write_sem:
-                                await asyncio.to_thread(self._run_job, job)
+                                await asyncio.to_thread(self._run_build, job)
                     except Exception:
                         log.exception("job_failed", job=str(job))
                     finally:
@@ -832,7 +823,7 @@ class DaemonServer:
         the same stale SHA. Other repos are still detected on the
         busy cadence — no repo is starved.
         """
-        if self._active_key is not None:
+        if self._active_build is not None or self._active_embed is not None:
             return self._busy_poll_interval
         return self._idle_poll_interval
 
