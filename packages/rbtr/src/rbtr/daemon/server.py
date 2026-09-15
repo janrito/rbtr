@@ -83,7 +83,6 @@ from rbtr.daemon.status import remove_status, write_status
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
-from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.progress import ProgressCallback
 from rbtr.index.reranker import Reranker
@@ -363,41 +362,11 @@ class DaemonServer:
                 ws.drop_snapshot(repo_id, sha)
                 log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
-    def _run_embed(self, job: EmbedJob, store: IndexStore, push: zmq.Socket) -> None:
-        """Execute an embed job.  Called from `_run_job`.
-
-        Yields between batches when a higher-priority build is
-        pending.  Remaining chunks are still unembedded so the
-        next call resumes where this one left off.
-        """
-        if self._embedder is None:
-            return
-
-        embed_index(
-            store,
-            job.ref,
-            repo_id=job.repo_id,
-            embedder=self._embedder,
-            on_progress=_progress_callback(push, job.repo_path),
-            should_stop=lambda: bool(watcher.poll_watched(store)),
-        )
-        total = store.count_chunks(job.ref, repo_id=job.repo_id)
-        unembedded = store.count_unembedded(job.repo_id, job.ref)
-        _notify(
-            push,
-            EmbedCompleteNotification(
-                repo_path=job.repo_path,
-                ref=job.ref,
-                chunks=total,
-                embedded=total - unembedded,
-            ),
-        )
-
     async def _run_embed_async(self, job: EmbedJob) -> None:
         """Async embed runner — acquires `_gpu_lock` per-batch.
 
-        Replaces monolithic `to_thread(_run_embed)` so search
-        requests wait at most one batch duration.
+        Releasing the lock between batches bounds how long a
+        concurrent search waits for the GPU to one batch.
         """
         store = self._store
         embedder = self._embedder
@@ -627,8 +596,8 @@ class DaemonServer:
         self._active_embed = None
         self._started_at = None
 
-    def _run_job(self, job: BuildJob | EmbedJob) -> None:
-        """Dispatch a job to the appropriate runner.  Called from `to_thread`.
+    def _run_job(self, job: BuildJob) -> None:
+        """Run a build job.  Called from `to_thread`.
 
         Owns the inproc PUSH socket for the duration of the job.
         """
@@ -638,11 +607,7 @@ class DaemonServer:
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
         try:
-            match job:
-                case BuildJob():
-                    self._run_build(job, store, push)
-                case EmbedJob():
-                    self._run_embed(job, store, push)
+            self._run_build(job, store, push)
         finally:
             push.close()
 

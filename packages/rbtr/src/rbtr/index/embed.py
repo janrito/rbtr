@@ -4,15 +4,14 @@
 batches.  Each batch gets its own write session so the DuckDB write lock is
 released between batches — higher-priority builds can run in the gaps.
 
-All heavy work runs synchronously — the caller (daemon job worker) runs it
-via `asyncio.to_thread()`.
+All heavy work runs synchronously in the calling thread — `rbtr index`
+embeds inline, after chunks and edges are committed.
 """
 
 from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Callable
 
 import structlog
 
@@ -32,7 +31,6 @@ def embed_index(
     repo_id: int,
     embedder: Embedder,
     on_progress: ProgressCallback = _noop_progress,
-    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     """Embed un-embedded chunks for an already-indexed commit.
 
@@ -40,11 +38,6 @@ def embed_index(
     in batches.  Each batch gets its own write session so the
     DuckDB write lock is released between batches — higher-priority
     builds can run in the gaps.
-
-    When *should_stop* returns ``True`` the function commits
-    the current batch and returns early.  The remaining chunks
-    are still ``embedding IS NULL`` so the next call picks up
-    where this one left off.
 
     Returns the number of chunks that were embedded.
     """
@@ -74,9 +67,6 @@ def embed_index(
                 )
             done += len(batch)
             on_progress("embedding", done, total)
-            if should_stop is not None and should_stop():
-                log.info("embedding_preempted", done=done, total=total)
-                return done
         if done == before:
             break
 
