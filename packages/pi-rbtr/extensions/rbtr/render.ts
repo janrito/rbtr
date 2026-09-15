@@ -546,6 +546,14 @@ function formatElapsed(seconds: number): string {
   return `${m}m${String(s).padStart(2, "0")}s`;
 }
 
+/** The two figures that decide embed completeness, as the wire sends them. */
+export type EmbedCounts = { total: number; embedded: number };
+
+/** Whether every chunk in the snapshot carries an embedding. */
+export function isFullyEmbedded(counts: EmbedCounts): boolean {
+  return counts.embedded >= counts.total;
+}
+
 /** Format a count for humans: 42, 1.2k, 11.2k. */
 export function humanCount(n: number): string {
   if (n < 1000) return String(n);
@@ -567,11 +575,10 @@ function sizeSuffixRender(response: StatusResponse | undefined): string {
 function formatIndexedRef(ref: IndexedRef): string {
   const label =
     (ref.names ?? []).length > 0 ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})` : ref.sha.slice(0, 12);
-  const embedPart =
-    ref.embedded >= ref.total
-      ? `${humanCount(ref.embedded)} embedded \u2713`
-      : ref.embedded > 0
-        ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
-        : "not embedded";
+  const embedPart = isFullyEmbedded(ref)
+    ? `${humanCount(ref.embedded)} embedded \u2713`
+    : ref.embedded > 0
+      ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
+      : "not embedded";
   return `${label}  ${humanCount(ref.total)} indexed  ${embedPart}`;
 }

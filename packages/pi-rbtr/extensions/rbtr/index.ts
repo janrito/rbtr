@@ -32,7 +32,9 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
 
 import { decodeStringList, echoArgs } from "./args.js";
 import {
+  type EmbedCounts,
   humanCount,
+  isFullyEmbedded,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -132,11 +134,12 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
  *   rbtr: ● 3.5k symbols · no daemon
  *   rbtr: ○ 3.5k symbols · no daemon · not embedded
  */
-function footerLabel(total: number, embedded: number, daemon: boolean): string {
-  const glyph = embedded >= total ? "●" : "○";
+function footerLabel(counts: EmbedCounts, daemon: boolean): string {
+  const { total, embedded } = counts;
+  const glyph = isFullyEmbedded(counts) ? "●" : "○";
   const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
   if (!daemon) parts.push("no daemon");
-  if (embedded < total) {
+  if (!isFullyEmbedded(counts)) {
     parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
   }
   return parts.join(" · ");
@@ -268,7 +271,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     if (decision.kind === "indexed") {
       const top = (status?.indexed_refs ?? [])[0];
-      if (top) footer.setStatic("success", footerLabel(top.total, top.embedded, session.available));
+      if (top) footer.setStatic("success", footerLabel(top, session.available));
       return;
     }
 
@@ -309,7 +312,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const status = await queryIndexStatus(ctx.cwd);
         const indexed = status?.indexed_refs ?? [];
         if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0].total, indexed[0].embedded, false));
+          footer?.setStatic("success", footerLabel(indexed[0], false));
         } else {
           footer?.setStatic("muted", "rbtr: no index · no daemon");
         }
@@ -319,7 +322,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const status = await queryIndexStatus(ctx.cwd);
         const indexed = status?.indexed_refs ?? [];
         if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0].total, indexed[0].embedded, true));
+          footer?.setStatic("success", footerLabel(indexed[0], true));
         } else {
           footer?.setStatic("muted", "rbtr: no index");
         }
@@ -367,7 +370,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           case "ready":
           case "embed_complete":
             buildStartedAt = null;
-            footer.setStatic("success", footerLabel(notification.chunks, notification.embedded, true));
+            footer.setStatic(
+              "success",
+              footerLabel({ total: notification.chunks, embedded: notification.embedded }, true),
+            );
             break;
           case "auto_rebuild":
             buildStartedAt = Date.now();
