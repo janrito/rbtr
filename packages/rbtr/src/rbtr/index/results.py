@@ -38,6 +38,24 @@ class SnapshotRefRow(dy.Schema):
     snapshot_sha = dy.String(nullable=False)
 
 
+class SnapshotCountsRow(dy.Schema):
+    """Chunk totals for one indexed snapshot: how many, how many embedded.
+
+    `repo_id` is `Int32` to match the column on `file_snapshots`.
+    `total` and `embedded` are `Int64` because DuckDB's `count`
+    returns BIGINT.
+    """
+
+    repo_id = dy.Int32(primary_key=True)
+    snapshot_sha = dy.String(primary_key=True)
+    total = dy.Int64(nullable=False)
+    embedded = dy.Int64(nullable=False)
+
+    @dy.rule()
+    def embedded_within_total(cls) -> pl.Expr:
+        return cls.embedded.col <= cls.total.col
+
+
 class FilePathRow(dy.Schema):
     """Backs the cursor-registered `_file_paths` join view.
 

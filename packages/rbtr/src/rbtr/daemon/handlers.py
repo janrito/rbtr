@@ -272,14 +272,13 @@ def _refs_for_repo(
     ref_names = names_for_commits(repo_path, indexed_shas)
     refs: list[IndexedRef] = []
     for sha in indexed_shas:
-        total = store.count_chunks(sha, repo_id=repo_id)
-        unembedded = store.count_unembedded(repo_id, sha)
+        counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
         refs.append(
             IndexedRef(
                 sha=sha,
                 names=ref_names.get(sha, []),
-                total=total,
-                embedded=total - unembedded,
+                total=counts.total,
+                embedded=counts.embedded,
                 repo_path=repo_path,
             )
         )

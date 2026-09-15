@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -296,15 +296,17 @@ def test_shared_chunk_embedded_once_across_repos(
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
     store = shared_chunk_store
-    assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 1
-    assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 1
+    in_repo1 = SnapshotRef(repo_id=1, snapshot_sha="head")
+    in_repo2 = SnapshotRef(repo_id=2, snapshot_sha="head")
+    assert store.chunk_counts_for_snapshot(in_repo1).unembedded == 1
+    assert store.chunk_counts_for_snapshot(in_repo2).unembedded == 1
 
     with store.session() as ws:
         ws.register_repo("/repo")
         ws.update_embeddings([shared_chunk.id], [[0.1, 0.2, 0.3]])
 
-    assert store.count_unembedded(repo_id=1, snapshot_sha="head") == 0
-    assert store.count_unembedded(repo_id=2, snapshot_sha="head") == 0
+    assert store.chunk_counts_for_snapshot(in_repo1).is_fully_embedded
+    assert store.chunk_counts_for_snapshot(in_repo2).is_fully_embedded
 
 
 def test_cleanup_keeps_chunk_referenced_by_another_repo(

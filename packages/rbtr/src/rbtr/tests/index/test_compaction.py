@@ -21,7 +21,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.daemon.handlers import handle_gc
 from rbtr.daemon.messages import GcRequest, GcResponse
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, SnapshotRef
 from rbtr.git import head_sha
 from rbtr.index.store import IndexStore
 
@@ -102,13 +102,14 @@ def test_gc_compaction_respects_flag(
     data, it does not drop any.
     """
     ci = churned_index
+    ref = SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
+    before_count = ci.store.chunk_counts_for_snapshot(ref).total
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=scenario.compact)
     handle_gc(request, ci.store, allow_compact=True)
 
-    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
+    assert ci.store.chunk_counts_for_snapshot(ref).total == before_count
     if scenario.expect_shrink:
         assert ci.store.data_size_bytes() < before_size
     else:
@@ -176,8 +177,9 @@ def test_gc_compaction_failure_is_non_fatal(
     temp copy is cleaned up, and gc returns its counts.
     """
     ci = churned_index
+    ref = SnapshotRef(repo_id=ci.repo_id, snapshot_sha=ci.snapshot_sha)
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
+    before_count = ci.store.chunk_counts_for_snapshot(ref).total
     mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
@@ -185,7 +187,7 @@ def test_gc_compaction_failure_is_non_fatal(
 
     assert isinstance(response, GcResponse)  # swallowed, not raised
     assert ci.store.data_size_bytes() == before_size  # rewrite did not take effect
-    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
+    assert ci.store.chunk_counts_for_snapshot(ref).total == before_count
     db_path = Path(ci.store.db_path or "")
     # RCU names each temp `.compact-<uuid>`; none may linger after a fail.
     assert not list(db_path.parent.glob(f"{db_path.name}.compact-*"))

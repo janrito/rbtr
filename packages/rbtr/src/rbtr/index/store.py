@@ -67,6 +67,7 @@ from rbtr.domain.models import (
     QueryKind,
     Repo,
     ScoredChunk,
+    SnapshotCounts,
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
@@ -85,6 +86,7 @@ from rbtr.index.results import (
     InboundDegreeResultRow,
     InboundRefResultRow,
     ScoredChunkResultRow,
+    SnapshotCountsRow,
     _decode_metadata,
     file_paths_frame,
     frame_to_chunks,
@@ -114,7 +116,7 @@ _GET_SCHEMA_VERSION_SQL = load_sql("get_schema_version.sql")
 _GET_REPO_SQL = load_sql("get_repo.sql")
 _LIST_REPOS_SQL = load_sql("list_repos.sql")
 _GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
-_COUNT_CHUNKS_SQL = load_sql("count_chunks.sql")
+_CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
 _DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
 _HAS_INDEXED_SQL = load_sql("has_indexed.sql")
 _LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_snapshots.sql")
@@ -122,7 +124,6 @@ _LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
 _COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
 _COUNT_EDGES_SQL = load_sql("count_edges.sql")
 _GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
-_COUNT_UNEMBEDDED_SQL = load_sql("count_unembedded.sql")
 _GET_UNEMBEDDED_CHUNKS_SQL = load_sql("get_unembedded_chunks.sql")
 _HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
 _DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
@@ -531,16 +532,38 @@ class IndexStore:
         ).fetchone()
         return str(row[0]) if row else ""
 
-    def count_unembedded(self, repo_id: int, snapshot_sha: str) -> int:
-        """Count chunks visible at *snapshot_sha* that lack embeddings.
+    def chunk_counts_frame(
+        self, *, repo_id: int | None = None, snapshot_sha: str | None = None
+    ) -> dy.DataFrame[SnapshotCountsRow]:
+        """Return chunk and embedded counts per indexed snapshot, one row each.
+
+        Spans every repo and snapshot unless *repo_id* or *snapshot_sha*
+        narrows it.  One grouped pass whatever the scope, so the cost does
+        not grow with the number of snapshots asked about — which matters
+        because reading `chunks.embedding` is most of the work.
+        """
+        return (
+            self._cursor.execute(
+                _CHUNK_COUNTS_BY_SNAPSHOT_SQL,
+                {"repo_id": repo_id, "snapshot_sha": snapshot_sha},
+            )
+            .pl()
+            .pipe(SnapshotCountsRow.validate, cast=True)
+        )
+
+    def chunk_counts_for_snapshot(self, ref: SnapshotRef) -> SnapshotCounts:
+        """Return chunk and embedded counts for one indexed snapshot.
 
         Counts chunks, so content held at several paths counts once — the
-        figure embedding progress is measured against.
+        figure embedding progress is measured against.  A snapshot that
+        holds no chunks, or was never marked indexed, reads as zero of
+        zero.
         """
-        row = self._cursor.execute(
-            _COUNT_UNEMBEDDED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        return int(row[0]) if row else 0
+        frame = self.chunk_counts_frame(repo_id=ref.repo_id, snapshot_sha=ref.snapshot_sha)
+        if frame.is_empty():
+            return SnapshotCounts(total=0, embedded=0)
+        row = frame.row(0, named=True)
+        return SnapshotCounts(total=row["total"], embedded=row["embedded"])
 
     def get_unembedded_chunks(
         self, repo_id: int, snapshot_sha: str, limit: int = 1000
@@ -564,18 +587,6 @@ class IndexStore:
             .pipe(ChunkResultRow.validate, cast=True)
         )
         return frame_to_chunks(frame)
-
-    def count_chunks(self, snapshot_sha: str, repo_id: int) -> int:
-        """Count chunks visible at *snapshot_sha* without loading them.
-
-        Counts chunks, so content held at several paths counts once.  A
-        count of locations — what a file count compares against — is a
-        different figure and no caller asks this for it.
-        """
-        row = self._cursor.execute(
-            _COUNT_CHUNKS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        return int(row[0]) if row else 0
 
     def distinct_chunk_languages(self) -> set[str]:
         """Return every real language present in the store (global).

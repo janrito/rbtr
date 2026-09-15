@@ -80,6 +80,7 @@ from rbtr.daemon.messages import (
     request_adapter,
 )
 from rbtr.daemon.status import remove_status, write_status
+from rbtr.domain.models import SnapshotRef
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
@@ -284,13 +285,14 @@ class DaemonServer:
         """
         for repo in store.list_repos():
             for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
-                count = store.count_unembedded(repo.repo_id, sha)
-                if count > 0:
+                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
+                counts = store.chunk_counts_for_snapshot(ref)
+                if not counts.is_fully_embedded:
                     log.info(
                         "recovering_embed",
                         repo_id=repo.repo_id,
                         sha=sha[:12],
-                        chunks=count,
+                        chunks=counts.unembedded,
                     )
                     self._wake.set()
                     return
@@ -313,15 +315,14 @@ class DaemonServer:
                 store,
                 on_progress=_progress_callback(push, job.repo_path),
             )
-            total = store.count_chunks(sha, repo_id=repo_id)
-            unembedded = store.count_unembedded(repo_id, sha)
+            counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
             _notify(
                 push,
                 ReadyNotification(
                     repo_path=job.repo_path,
                     ref=sha,
-                    chunks=total,
-                    embedded=total - unembedded,
+                    chunks=counts.total,
+                    embedded=counts.embedded,
                     edges=result.stats.total_edges,
                     elapsed=round(result.stats.elapsed_seconds, 2),
                 ),
@@ -373,8 +374,9 @@ class DaemonServer:
         if store is None or embedder is None:
             return
 
-        total = await asyncio.to_thread(store.count_unembedded, job.repo_id, job.ref)
-        if total == 0:
+        ref = SnapshotRef(repo_id=job.repo_id, snapshot_sha=job.ref)
+        outstanding = (await asyncio.to_thread(store.chunk_counts_for_snapshot, ref)).unembedded
+        if outstanding == 0:
             return
 
         push = self._zmq_shadow.socket(zmq.PUSH)
@@ -406,40 +408,31 @@ class DaemonServer:
                         [r.truncated for r in results],
                     )
                     done += len(batch)
-                    on_progress("embedding", done, total)
+                    on_progress("embedding", done, outstanding)
                     if self._shutdown:
-                        log.info("embedding_stopped_shutdown", done=done, total=total)
+                        log.info("embedding_stopped_shutdown", done=done, total=outstanding)
                         return
                     # Yield to higher-priority builds or worktree rebuilds.
                     stale = await asyncio.to_thread(watcher.poll_watched, store)
                     dirty = await asyncio.to_thread(watcher.poll_worktree, store)
                     if stale or dirty:
-                        log.info("embedding_preempted", done=done, total=total)
+                        log.info("embedding_preempted", done=done, total=outstanding)
                         return
                 if done == before:
                     break
         finally:
-            total_chunks = await asyncio.to_thread(
-                store.count_chunks,
-                job.ref,
-                repo_id=job.repo_id,
-            )
-            unembedded = await asyncio.to_thread(
-                store.count_unembedded,
-                job.repo_id,
-                job.ref,
-            )
+            final = await asyncio.to_thread(store.chunk_counts_for_snapshot, ref)
             _notify(
                 push,
                 EmbedCompleteNotification(
                     repo_path=job.repo_path,
                     ref=job.ref,
-                    chunks=total_chunks,
-                    embedded=total_chunks - unembedded,
+                    chunks=final.total,
+                    embedded=final.embedded,
                 ),
             )
             push.close()
-        log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
+        log.info("embedded_chunks", done=done, total=outstanding, elapsed_ms=elapsed_ms(t0))
 
     @staticmethod
     def _write_embed_batch(
@@ -555,8 +548,8 @@ class DaemonServer:
         # Embeds: indexed commits with un-embedded chunks.
         for repo in store.list_repos():
             for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
-                count = store.count_unembedded(repo.repo_id, sha)
-                if count > 0:
+                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
+                if not store.chunk_counts_for_snapshot(ref).is_fully_embedded:
                     key = f"{repo.repo_id}:{sha}"
                     if key == self._active_key:
                         continue

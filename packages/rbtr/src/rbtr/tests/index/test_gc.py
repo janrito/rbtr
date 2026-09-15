@@ -15,7 +15,7 @@ import pygit2
 import pytest
 
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode
+from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.gc import run_gc, run_gc_all
@@ -231,7 +231,8 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
 
     counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.chunks == 1  # only c2's unshared chunk freed
-    assert gc.store.count_chunks("other_head", repo_id=other) > 0  # shared chunk survives
+    other_head = SnapshotRef(repo_id=other, snapshot_sha="other_head")
+    assert gc.store.chunk_counts_for_snapshot(other_head).total > 0  # shared chunk survives
 
 
 def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
@@ -437,7 +438,8 @@ def test_run_gc_all_keeps_chunk_shared_across_repos(global_gc: GlobalGcFixture) 
     # a_old and b_old freed; shared kept (repo B HEAD still references it).
     assert counts.chunks == 2
     # Shared chunk still queryable from repo B's HEAD.
-    assert global_gc.store.count_chunks(global_gc.b1, repo_id=global_gc.b_id) > 0
+    b_head = SnapshotRef(repo_id=global_gc.b_id, snapshot_sha=global_gc.b1)
+    assert global_gc.store.chunk_counts_for_snapshot(b_head).total > 0
 
 
 def test_run_gc_all_skips_repo_with_vanished_path(

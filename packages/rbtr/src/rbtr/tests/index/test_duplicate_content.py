@@ -114,8 +114,9 @@ def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotR
     chunks = {c.id for c in located}
     assert len(located) > len(chunks), "nothing was duplicated"
 
-    assert dup_store.count_chunks(dup_ref.snapshot_sha, repo_id=dup_ref.repo_id) == len(chunks)
-    assert dup_store.count_unembedded(dup_ref.repo_id, dup_ref.snapshot_sha) == len(chunks)
+    counts = dup_store.chunk_counts_for_snapshot(dup_ref)
+    assert counts.total == len(chunks)
+    assert counts.unembedded == len(chunks)
 
     unembedded = dup_store.get_unembedded_chunks(dup_ref.repo_id, dup_ref.snapshot_sha)
     assert sorted(c.id for c in unembedded) == sorted(chunks)

@@ -11,6 +11,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
@@ -50,7 +51,8 @@ def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db:
         assert repo_id is not None, "repo not registered"
         commits = store.list_indexed_snapshots(repo_id)
         assert len(commits) == 1, "HEAD not indexed"
-        assert store.count_chunks(commits[0][0], repo_id) > 0, "no symbols extracted"
+        head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
+        assert store.chunk_counts_for_snapshot(head).total > 0, "no symbols extracted"
     finally:
         store.close()
 

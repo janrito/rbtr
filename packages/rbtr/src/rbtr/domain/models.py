@@ -285,6 +285,34 @@ class SnapshotRef:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SnapshotCounts:
+    """How many chunks a snapshot holds, and how many carry embeddings.
+
+    Counts chunks: content held at several paths counts once, because
+    embedding it writes the one content-addressed row every path
+    shares.  A snapshot with no chunks reads as fully embedded, having
+    no work outstanding.  `kw_only` forbids positional / tuple-style
+    construction and unpacking.
+
+    `SnapshotCountsRow` establishes `embedded <= total` where the counts
+    are read.
+    """
+
+    total: int
+    embedded: int
+
+    @property
+    def unembedded(self) -> int:
+        """Chunks still awaiting an embedding."""
+        return self.total - self.embedded
+
+    @property
+    def is_fully_embedded(self) -> bool:
+        """Whether every chunk carries an embedding."""
+        return self.embedded == self.total
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Repo:
     """A repository registered in the index: its surrogate id and path.
 

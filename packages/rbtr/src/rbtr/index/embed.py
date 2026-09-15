@@ -16,6 +16,7 @@ import time
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.store import IndexStore
@@ -41,8 +42,9 @@ def embed_index(
 
     Returns the number of chunks that were embedded.
     """
-    total = store.count_unembedded(repo_id, snapshot_sha)
-    if total == 0:
+    ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
+    outstanding = store.chunk_counts_for_snapshot(ref).unembedded
+    if outstanding == 0:
         return 0
 
     on_progress("loading_model", 0, 0)
@@ -66,9 +68,9 @@ def embed_index(
                     truncated=[r.truncated for r in results],
                 )
             done += len(batch)
-            on_progress("embedding", done, total)
+            on_progress("embedding", done, outstanding)
         if done == before:
             break
 
-    log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
+    log.info("embedded_chunks", done=done, total=outstanding, elapsed_ms=elapsed_ms(t0))
     return done

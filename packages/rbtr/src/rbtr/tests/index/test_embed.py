@@ -8,6 +8,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture, MockType
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import EmbedResult
@@ -133,25 +134,25 @@ def test_embed_index_is_incremental(
     stub_embedder.embed.assert_not_called()
 
 
-def test_count_unembedded_all_null(
+def test_a_fresh_build_has_everything_left_to_embed(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
 ) -> None:
-    """count_unembedded returns the total chunk count when none are embedded."""
+    """A build writes chunks but no vectors, so all of them are outstanding."""
     build_index(git_repo.workdir, snapshot_sha, store)
-    total = store.count_chunks(snapshot_sha, repo_id=1)
-    unembedded = store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha)
-    assert unembedded == total
-    assert unembedded > 0
+    counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))
+    assert counts.total > 0
+    assert counts.unembedded == counts.total
 
 
-def test_count_unembedded_after_embedding(
+def test_embedding_leaves_nothing_outstanding(
     git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, stub_embedder: MockType
 ) -> None:
-    """count_unembedded returns 0 after all chunks are embedded."""
+    """Once `embed_index` has run, no chunk is left without a vector."""
     build_index(git_repo.workdir, snapshot_sha, store)
     embed_index(store, snapshot_sha, repo_id=1, embedder=stub_embedder)
 
-    assert store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha) == 0
+    counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))
+    assert counts.is_fully_embedded
 
 
 def test_get_unembedded_chunks_returns_only_nulls(
@@ -176,8 +177,8 @@ def test_get_unembedded_chunks_respects_limit(
 ) -> None:
     """get_unembedded_chunks limits the number of returned rows."""
     build_index(git_repo.workdir, snapshot_sha, store)
-    total = store.count_unembedded(repo_id=1, snapshot_sha=snapshot_sha)
-    assert total > 1  # need multiple chunks for the test to be meaningful
+    counts = store.chunk_counts_for_snapshot(SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))
+    assert counts.unembedded > 1  # need multiple chunks for the test to be meaningful
 
     limited = store.get_unembedded_chunks(repo_id=1, snapshot_sha=snapshot_sha, limit=1)
     assert len(limited) == 1

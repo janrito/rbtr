@@ -15,6 +15,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from rbtr.cli import Index
+from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
@@ -64,4 +65,5 @@ def test_index_falls_back_to_inline_when_start_fails(
     assert repo_id is not None, "inline fallback did not register the repo"
     commits = inline_store.list_indexed_snapshots(repo_id)
     assert len(commits) == 1, "inline fallback did not index HEAD"
-    assert inline_store.count_chunks(commits[0][0], repo_id) > 0, "no symbols extracted"
+    head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
+    assert inline_store.chunk_counts_for_snapshot(head).total > 0, "no symbols extracted"

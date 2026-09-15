@@ -27,7 +27,7 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.cli.output import human_bytes
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, SnapshotRef
 from rbtr.index.store import IndexStore
 from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.formatting import md_table
@@ -197,7 +197,8 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
         for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
             h.update(f"{repo.repo_id}:{sha}".encode())
             if embed:
-                unembedded = store.count_unembedded(repo.repo_id, sha)
+                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
+                unembedded = store.chunk_counts_for_snapshot(ref).unembedded
                 h.update(f":{unembedded}".encode())
     return h.hexdigest()
 
