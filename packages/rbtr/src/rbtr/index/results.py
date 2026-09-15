@@ -2,10 +2,10 @@
 
 Schemas here validate the columns DuckDB projects back to Python
 (`*ResultRow`), the cursor-registered join views (`_snapshot_refs`,
-`_file_paths`, `_serial_map`), and the fusion/ranking frames.  Transforms
-map a validated frame to `Chunk` models.  The write/staging schemas live in
-`staging.py`; the two are kept independent (see the import-linter CQRS
-contracts).
+`_file_paths`, `_serial_map`), and the fusion/ranking frames.  The `*_view`
+builders produce those join inputs; the `*_to_*` transforms map a validated
+frame to domain models.  The write/staging schemas live in `staging.py`; the
+two are kept independent (see the import-linter CQRS contracts).
 
 These are pure functions -- they never touch DuckDB directly.
 """

@@ -435,6 +435,21 @@ The language is part of the join because it is part of a chunk's
 identity: the same bytes extracted as two languages are two chunks, and
 each must pair with the files read as that language.
 
+Because the scope is always a `repo_id` and a `snapshot_sha` together,
+the two travel as one value. `SnapshotRef` carries that pair, and
+`SnapshotRange` carries one `repo_id` with a base and a head SHA for the
+symbol diff — so a query cannot name a snapshot in one repo and a repo
+id from another. Both are internal transport, built where a client path
+is resolved to a `repo_id` and consumed by the store's SQL; neither
+crosses the RPC boundary, because clients name repos by path.
+
+Every read and write on the store takes its scope as a keyword, and the
+keyword says how many snapshots it holds: `at=` one `SnapshotRef`,
+`within=` a list of them, `between=` a `SnapshotRange`. The leading
+positional parameter is what the call asks for — the query, the pattern,
+the chunk ids, the edges to write — so a call site reads as the subject
+first and the scope after it.
+
 ### Registered frames as query inputs
 
 Both reads and writes pass polars frames into DuckDB by
@@ -1118,8 +1133,8 @@ Both modes run the *same* pipeline — `_retrieve` →
 `fuse_scores` → reranker → `materialise_scored`. The only
 difference is the list of refs fed in. Rather than branch
 into parallel SQL or duplicate the channel methods,
-`_retrieve` takes a `list[SnapshotRef]` (one
-`(repo_id, snapshot_sha)` per repo) and each channel query
+`_retrieve` takes a `list[SnapshotRef]` (see
+[Snapshot resolution](#snapshot-resolution)) and each channel query
 joins against a cursor-registered temporary view,
 `_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
 the view holds one row; for `scope=all` it holds one per

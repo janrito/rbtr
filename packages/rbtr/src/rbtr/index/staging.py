@@ -5,8 +5,8 @@
 — which are facts about the table, so they live with the write path
 that fills them.
 
-Each builder converts a list of domain objects (`Chunk`, `Edge`, or
-`FileSnapshot`) into a typed polars frame whose column names match the
+Each `staged_*` builder converts a list of domain objects (`Chunk`, `Edge`,
+or `FileSnapshot`) into a typed polars frame whose column names match the
 corresponding SQL staging view (`_stg`).  Registering a frame as a virtual
 view and running `INSERT INTO ... SELECT` against it is orders of magnitude
 faster than `executemany` for large batches; `duckdb.register` accepts polars
