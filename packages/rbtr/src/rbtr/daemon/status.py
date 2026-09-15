@@ -18,10 +18,15 @@ Format::
 The server atomically writes the file after binding sockets so
 that a client never sees a file with stale endpoints. The client
 reads it to find the socket paths, bypassing socket discovery.
+
+The `pid` is what makes the file more than a set of endpoints: a
+file naming a process that no longer exists describes a daemon
+that is gone, which `is_pid_alive` is here to answer.
 """
 
 from __future__ import annotations
 
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,3 +131,14 @@ def uptime_seconds(started_at: str) -> float:
         tzinfo=UTC,
     )
     return (datetime.now(tz=UTC) - started).total_seconds()
+
+
+def is_pid_alive(pid: int) -> bool:
+    """Check whether a process with *pid* exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but we can't signal it
+    return True

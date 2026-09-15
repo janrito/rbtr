@@ -45,7 +45,6 @@ from rbtr.cli.output import (
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
-    is_daemon_running,
     live_status,
     start_daemon,
     stop_daemon,
@@ -177,7 +176,7 @@ class DaemonStop(BaseModel):
     """Stop the daemon gracefully."""
 
     def cli_cmd(self) -> None:
-        if not is_daemon_running():
+        if live_status(config.runtime_dir) is None:
             print_err("[yellow]Daemon is not running.[/]")
             return
 

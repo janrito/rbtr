@@ -17,8 +17,7 @@ import structlog
 from pytest_mock import MockerFixture
 
 from rbtr.config import Config, config
-from rbtr.daemon.pidfile import is_pid_alive
-from rbtr.daemon.status import read_status
+from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.git import normalise_repo_path
 from rbtr.index.store import IndexStore
 

@@ -38,8 +38,7 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     response_adapter,
 )
-from rbtr.daemon.pidfile import is_pid_alive
-from rbtr.daemon.status import DaemonStatus, read_status, remove_status
+from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
 from rbtr.errors import DaemonBusyError, RbtrError
 
 log = structlog.get_logger(__name__)
@@ -59,11 +58,6 @@ def live_status(runtime_dir: Path) -> DaemonStatus | None:
     if status is None or not is_pid_alive(status.pid):
         return None
     return status
-
-
-def is_daemon_running() -> bool:
-    """Check whether a daemon is currently running."""
-    return live_status(config.runtime_dir) is not None
 
 
 def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
@@ -197,12 +191,9 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
     except Exception:  # best-effort shutdown; anything can fail
         log.debug("graceful_shutdown_failed", exc_info=True)
 
-    # Wait for the process to exit
-    for _ in range(int(timeout / 0.5)):
-        time.sleep(0.5)
-        if not is_pid_alive(pid):
-            remove_status(runtime_dir)
-            return
+    if _exits_within(pid, timeout):
+        remove_status(runtime_dir)
+        return
 
     # Escalate: SIGTERM
     try:
@@ -211,14 +202,21 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
         remove_status(runtime_dir)
         return
 
-    for _ in range(6):  # 3 s at 0.5 s intervals
-        time.sleep(0.5)
-        if not is_pid_alive(pid):
-            remove_status(runtime_dir)
-            return
+    if _exits_within(pid, 3.0):
+        remove_status(runtime_dir)
+        return
 
     msg = f"Daemon (PID {pid}) did not stop cleanly. Check {config.daemon_log} for details."
     raise RbtrError(msg)
+
+
+def _exits_within(pid: int, timeout: float) -> bool:
+    """Whether *pid* stops existing within *timeout* seconds."""
+    for _ in range(int(timeout / 0.5)):
+        time.sleep(0.5)
+        if not is_pid_alive(pid):
+            return True
+    return False
 
 
 class DaemonClient:

@@ -18,8 +18,7 @@ from pathlib import Path
 import pytest
 
 from rbtr.config import Config
-from rbtr.daemon.pidfile import is_pid_alive
-from rbtr.daemon.status import read_status
+from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
