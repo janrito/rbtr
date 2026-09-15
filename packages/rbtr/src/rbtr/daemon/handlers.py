@@ -52,7 +52,15 @@ from rbtr.daemon.messages import (
     StatusResponse,
     WatchedRef,
 )
-from rbtr.domain.models import Chunk, GcMode, QueryKind, Repo, SnapshotCounts, SnapshotRef
+from rbtr.domain.models import (
+    Chunk,
+    GcMode,
+    QueryKind,
+    Repo,
+    SnapshotCounts,
+    SnapshotRange,
+    SnapshotRef,
+)
 from rbtr.errors import IndexNotBuiltError, RbtrError
 from rbtr.git import (
     HEAD_REF,
@@ -251,7 +259,10 @@ def handle_changed_symbols(
     head = resolve_ref(request.repo_path, request.head)
     _require_indexed(store, repo_id, request.base, base)
     _require_indexed(store, repo_id, request.head, head)
-    frame = store.diff_symbols(base, head, repo_id=repo_id, file_paths=request.file_paths)
+    frame = store.diff_symbols(
+        between=SnapshotRange(repo_id=repo_id, base_sha=base, head_sha=head),
+        file_paths=request.file_paths,
+    )
     changes = [
         ChangedSymbol(chunk=SymbolOut.from_chunk(chunk), change=change)
         for chunk, change in changed_to_symbols(frame)

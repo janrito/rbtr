@@ -12,7 +12,7 @@ import dataframely as dy
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChangeKind, Chunk
+from rbtr.domain.models import ChangeKind, Chunk, SnapshotRange
 from rbtr.index.build import build_index
 from rbtr.index.results import ChangedSymbolRow, changed_to_symbols
 from rbtr.index.store import IndexStore
@@ -45,7 +45,10 @@ def diff_result(
             head_sha = str(head_oid)
         build_index(diff_repo.workdir, head_sha, store, base_sha=base_sha)
 
-    frame = store.diff_symbols(base_sha, head_sha, repo_id=1, file_paths=scenario.file_paths)
+    frame = store.diff_symbols(
+        between=SnapshotRange(repo_id=1, base_sha=base_sha, head_sha=head_sha),
+        file_paths=scenario.file_paths,
+    )
     return scenario, frame, changed_to_symbols(frame)
 
 

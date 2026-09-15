@@ -67,6 +67,7 @@ from rbtr.domain.models import (
     Repo,
     ScoredChunk,
     SnapshotCounts,
+    SnapshotRange,
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
@@ -733,10 +734,8 @@ class IndexStore:
 
     def diff_symbols(
         self,
-        base_sha: str,
-        head_sha: str,
         *,
-        repo_id: int,
+        between: SnapshotRange,
         file_paths: list[str] | None = None,
     ) -> dy.DataFrame[ChangedSymbolRow]:
         """Symbol-level diff between two indexed commits.
@@ -757,9 +756,9 @@ class IndexStore:
         file (the `scope_all` flag bypasses the view).
         """
         params = {
-            "repo_id": repo_id,
-            "head_sha": head_sha,
-            "base_sha": base_sha,
+            "repo_id": between.repo_id,
+            "head_sha": between.head_sha,
+            "base_sha": between.base_sha,
             "scope_all": not file_paths,
         }
         with self._registered_views(_file_paths=file_paths_frame(file_paths or [])) as cur:

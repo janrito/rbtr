@@ -285,6 +285,22 @@ class SnapshotRef:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SnapshotRange:
+    """One repo, compared between two indexed snapshots.
+
+    Internal-only transport alongside `SnapshotRef`, built at the
+    daemon's handler boundary and consumed by the store's diff SQL.
+    Both ends share the one `repo_id` the range carries, so a
+    comparison spanning two repos cannot be constructed.  `kw_only`
+    forbids positional / tuple-style construction and unpacking.
+    """
+
+    repo_id: int
+    base_sha: str
+    head_sha: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotCounts:
     """How many chunks a snapshot holds, and how many carry embeddings.
 
