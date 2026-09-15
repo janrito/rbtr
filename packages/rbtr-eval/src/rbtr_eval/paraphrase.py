@@ -186,7 +186,7 @@ def _load_symbol_content(
     if sha is None:
         msg = f"no HEAD in {repo_path}"
         raise SystemExit(msg)
-    return store.get_chunks_frame(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+    return store.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
 
 
 # ── Excluded identifiers ─────────────────────────────────────────────
@@ -368,7 +368,7 @@ def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.D
     slugs = set(sampled["slug"].unique())
     by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
     frames = [
-        store.get_chunks_frame(at=ref)
+        store.chunk_contents(at=ref)
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))

@@ -1,10 +1,10 @@
-"""Scenarios for `IndexStore.diff_symbols`.
+"""Scenarios for `IndexStore.changed_symbols`.
 
 Each case returns a `DiffScenario`: the file set of a *base*
 commit, the file set of a *head* commit, and the exact symbols
 expected in each change bucket. The driver in
-`test_diff_symbols.py` builds both commits, indexes them, runs
-`diff_symbols`, and asserts the buckets match.
+`test_symbol_diff.py` builds both commits, indexes them, runs
+`changed_symbols`, and asserts the buckets match.
 
 Symbols are identified by `(name, scope)`; module-level symbols
 have scope `""`, methods have their class name as scope.

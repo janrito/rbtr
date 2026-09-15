@@ -229,7 +229,7 @@ def test_keyword_searchable_via_fts(
 ) -> None:
     """Every keyword the case declares is findable via FTS."""
     store, case = keyword_store_and_case
-    results = store.match_fulltext_frame(
+    results = store.fulltext_matches(
         case.keyword, within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
     )
     assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"

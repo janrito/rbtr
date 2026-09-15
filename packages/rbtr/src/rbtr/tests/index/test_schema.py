@@ -246,9 +246,9 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
             repo_id=1,
         )
     ref = SnapshotRef(repo_id=1, snapshot_sha="head")
-    assert len(store1.match_fulltext_frame("persist", within=[ref], top_k=5)) == 1
+    assert len(store1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
     store1.close()
 
     store2 = IndexStore(db_path, writable=True)
-    assert len(store2.match_fulltext_frame("persist", within=[ref], top_k=5)) == 1
+    assert len(store2.fulltext_matches("persist", within=[ref], top_k=5)) == 1
     store2.close()

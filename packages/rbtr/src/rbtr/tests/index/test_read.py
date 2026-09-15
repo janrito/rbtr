@@ -1,6 +1,6 @@
 """Read-side behavioural tests for IndexStore.
 
-Covers: get_chunks filters, get_edges_frame filters, blob_is_current
+Covers: get_chunks filters, edges filters, blob_is_current
 language matching, chunk upsert, delete_chunks_for_blobs,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
@@ -120,7 +120,7 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
     assert store.blob_is_current("b2", "", {"": 1}) is True
 
 
-# ── get_edges_frame ───────────────────────────────────────────────────────
+# ── edges ───────────────────────────────────────────────────────
 
 
 def test_get_edges_returns_all(store: IndexStore) -> None:
@@ -144,7 +144,7 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    edges = store.get_edges_frame(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
+    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
     assert len(edges) == 2
 
 
@@ -169,9 +169,7 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    edges = store.get_edges_frame(
-        within=[SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS
-    )
+    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS)
     assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
 
 
@@ -272,10 +270,10 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
     with store.session() as ws:
         ws.insert_edges([e2], at=SnapshotRef(repo_id=2, snapshot_sha="head"))
 
-    assert store.get_edges_frame(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])[
+    assert store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])[
         "source_id"
     ].to_list() == ["a"]
-    assert store.get_edges_frame(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
+    assert store.edges(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
         "source_id"
     ].to_list() == ["x"]
 

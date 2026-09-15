@@ -145,7 +145,7 @@ class ChunkResultRow(_ChunkIdentity):
 class ChunkContentRow(dy.Schema):
     """A subset of chunk columns for content-only lookups.
 
-    `get_chunks_frame` returns this shape so callers that
+    `chunk_contents` returns this shape so callers that
     only need identity + source text skip the full
     `ChunkResultRow` round-trip through `list[Chunk]`.
 
@@ -173,7 +173,7 @@ class ScoredChunkResultRow(ChunkResultRow):
 
 
 class ChangedSymbolRow(ChunkResultRow):
-    """Chunk projection plus a `change_kind` label from `diff_symbols.sql`.
+    """Chunk projection plus a `change_kind` label from `changed_symbols.sql`.
 
     Each `UNION ALL` branch of the query selects one side's columns
     as plain references, so the projection matches `ChunkResultRow`

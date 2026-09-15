@@ -105,7 +105,7 @@ log = structlog.get_logger(__name__)
 _GET_CHUNKS_SQL = load_sql("get_chunks.sql")
 _GET_EDGES_SQL = load_sql("get_edges.sql")
 _INBOUND_REFS_SQL = load_sql("inbound_refs.sql")
-_DIFF_SYMBOLS_SQL = load_sql("diff_symbols.sql")
+_CHANGED_SYMBOLS_SQL = load_sql("changed_symbols.sql")
 _SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
 _SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
 _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
@@ -670,7 +670,7 @@ class IndexStore:
                 .pipe(InboundRefResultRow.validate, cast=True)
             )
 
-    def get_chunks_frame(self, *, at: SnapshotRef) -> dy.DataFrame[ChunkContentRow]:
+    def chunk_contents(self, *, at: SnapshotRef) -> dy.DataFrame[ChunkContentRow]:
         """Return all chunks at *at* as a content-only frame.
 
         The frame is validated through `ChunkContentRow` and
@@ -701,7 +701,7 @@ class IndexStore:
             .pipe(ChunkContentRow.validate, cast=True)
         )
 
-    def get_edges_frame(
+    def edges(
         self,
         *,
         within: list[SnapshotRef],
@@ -732,7 +732,7 @@ class IndexStore:
                 .pipe(InboundDegreeResultRow.validate, cast=True)
             )
 
-    def diff_symbols(
+    def changed_symbols(
         self,
         *,
         between: SnapshotRange,
@@ -752,7 +752,7 @@ class IndexStore:
 
         When *file_paths* is a non-empty list, the diff is scoped to
         those files via the cursor-registered `_file_paths` semi-join
-        in `diff_symbols.sql`; `None` or an empty list diffs every
+        in `changed_symbols.sql`; `None` or an empty list diffs every
         file (the `scope_all` flag bypasses the view).
         """
         params = {
@@ -763,7 +763,7 @@ class IndexStore:
         }
         with self._registered_views(_file_paths=file_paths_frame(file_paths or [])) as cur:
             return (
-                cur.execute(_DIFF_SYMBOLS_SQL, params)
+                cur.execute(_CHANGED_SYMBOLS_SQL, params)
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
@@ -771,7 +771,7 @@ class IndexStore:
 
     # ── Match (internal frame, public chunk) ─────────────────────
 
-    def match_by_name_frame(
+    def name_matches(
         self, pattern: str, *, within: list[SnapshotRef]
     ) -> dy.DataFrame[ChunkResultRow]:
         """Return name-matched chunks as a validated frame.
@@ -797,9 +797,9 @@ class IndexStore:
         Prefers exact matches, then case-insensitive exact, then
         prefix, then substring.  Returns only the best tier.
         """
-        return frame_to_chunks(self.match_by_name_frame(pattern, within=[at]))
+        return frame_to_chunks(self.name_matches(pattern, within=[at]))
 
-    def match_similar_frame(
+    def similar_matches(
         self,
         query_embeddings: list[list[float]],
         *,
@@ -830,7 +830,7 @@ class IndexStore:
 
     # ── FTS ──────────────────────────────────────────────────────────
 
-    def match_fulltext_frame(
+    def fulltext_matches(
         self,
         query: str,
         *,
@@ -855,7 +855,7 @@ class IndexStore:
             except duckdb.CatalogException as exc:
                 raise IndexNotBuiltError from exc
 
-    def chunk_paths_frame(
+    def chunk_paths(
         self, chunk_ids: list[str], *, within: list[SnapshotRef]
     ) -> dy.DataFrame[ChunkPathResultRow]:
         """Return `(id, file_path)` for the given chunk IDs."""

@@ -138,7 +138,7 @@ def test_an_import_records_which_copy_it_came_from(
     name the file that actually did the importing rather than every path
     the referring content happens to exist at.
     """
-    edges = dup_store.get_edges_frame(within=[dup_ref])
+    edges = dup_store.edges(within=[dup_ref])
     from_caller = edges.filter(pl.col("source_path") == "src/caller.py")
 
     assert len(from_caller) > 0, (

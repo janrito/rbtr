@@ -155,7 +155,7 @@ def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")], repo_id=1)
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
 
-    results = store.match_fulltext_frame(
+    results = store.fulltext_matches(
         "searchable", within=[SnapshotRef(repo_id=1, snapshot_sha="c1")]
     )
     assert len(results) > 0

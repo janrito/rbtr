@@ -53,7 +53,7 @@ def test_concurrent_write_then_read(
     t.join()
 
     assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
-    assert len(store.get_edges_frame(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
+    assert len(store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
     store.close()
 
 
@@ -148,7 +148,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         nonlocal good_reads
         while not stop.is_set():
             try:
-                results = store.match_fulltext_frame(
+                results = store.fulltext_matches(
                     "common_term", within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
                 )
                 if len(results) > 0:

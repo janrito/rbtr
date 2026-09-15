@@ -221,7 +221,7 @@ def serve():
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Symbol-diff dataset (for test_diff_symbols.py)
+# Symbol-diff dataset (for test_symbol_diff.py)
 # ═════════════════════════════════════════════════════════════════════
 
 

@@ -1,6 +1,6 @@
 """Cases for read-side store behaviours.
 
-Scenarios for `get_chunks`, `get_edges_frame`, `blob_is_current`,
+Scenarios for `get_chunks`, `edges`, `blob_is_current`,
 upsert, and multi-repo isolation.
 """
 
