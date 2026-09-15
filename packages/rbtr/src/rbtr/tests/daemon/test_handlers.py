@@ -7,6 +7,7 @@ Tests verify typed responses via the actual socket path.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pygit2
@@ -33,6 +34,7 @@ from rbtr.daemon.messages import (
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    Response,
     SearchRequest,
     SearchResponse,
     StatusRequest,
@@ -497,3 +499,33 @@ def test_watch_refs_logs_intent(
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events
     assert "watched_refs_removed" in events
+
+
+def test_a_writing_handler_waits_for_the_write_lock(
+    index_server: DaemonServer, seeded_store: IndexStore, fake_repo: str
+) -> None:
+    """`index` writes only while it holds `_write_sem`.
+
+    `WriteSession` may be opened only off the event loop and serialised
+    against the build/embed worker, which holds the same semaphore: two
+    writers on one DuckDB connection is the hazard.  Dispatched here
+    rather than sent over the socket, because what is asserted is that
+    the write does *not* happen yet, which no client can observe.
+    """
+    repo_id = seeded_store.resolve_repo(fake_repo)
+    raw = BuildIndexRequest(repo_path=fake_repo, refs=["main"]).model_dump_json().encode()
+
+    async def dispatch_while_writes_are_held() -> Response:
+        await index_server._write_sem.acquire()
+        request = asyncio.create_task(index_server._dispatch(raw))
+        await asyncio.sleep(0.2)
+        assert "main" not in seeded_store.list_watched_refs(repo_id), (
+            "the handler wrote the watch set without holding the write lock"
+        )
+        index_server._write_sem.release()
+        return await request
+
+    resp = asyncio.run(dispatch_while_writes_are_held())
+
+    assert isinstance(resp, OkResponse)
+    assert "main" in seeded_store.list_watched_refs(repo_id)

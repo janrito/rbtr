@@ -195,6 +195,11 @@ def serving(server: DaemonServer) -> Iterator[DaemonServer]:
     or not the daemon stopped, so an unasserted join lets a hung daemon
     leak a thread — still holding its store and IPC sockets — into every
     test that follows.
+
+    The wait is long because `serve()` finishes the job in flight before
+    it returns: a test that starts a real build legitimately takes
+    seconds to stop, and more under xdist.  What is being caught is a
+    daemon that never stops, not a slow one.
     """
     thread = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
     thread.start()
@@ -203,7 +208,7 @@ def serving(server: DaemonServer) -> Iterator[DaemonServer]:
         yield server
     finally:
         server.request_shutdown()
-        thread.join(timeout=5)
+        thread.join(timeout=30)
         assert not thread.is_alive(), "daemon thread still running after shutdown"
 
 

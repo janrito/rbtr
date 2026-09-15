@@ -29,7 +29,6 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
-import inspect
 import itertools
 import json
 import os
@@ -94,7 +93,7 @@ from rbtr.logging import elapsed_ms
 log = structlog.get_logger(__name__)
 
 
-type RequestHandler = Callable[[Any], Response | Awaitable[Response]]
+type RequestHandler = Callable[[Any], Awaitable[Response]]
 
 
 def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
@@ -160,7 +159,7 @@ class DaemonServer:
         self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
         self._handlers: dict[str, RequestHandler] = {
             "shutdown": self._handle_shutdown,
-            "daemon_config": handle_daemon_config,
+            "daemon_config": lambda req: asyncio.to_thread(handle_daemon_config, req),
         }
         self._idle_poll_interval = idle_poll_interval
         self._busy_poll_interval = busy_poll_interval
@@ -243,21 +242,41 @@ class DaemonServer:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_gc, req, store, allow_compact=True)
 
+        async def _async_forget(req: Any) -> Response:
+            # Writes, so it takes `_write_sem` and runs in a thread:
+            # `WriteSession` may only be opened off the event loop and
+            # serialised against the build/embed worker.
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_forget, req, store)
+
+        async def _async_index(req: Any) -> Response:
+            # Writes the watch set, so same treatment as forget.  `_wake`
+            # is set here rather than inside `watch_refs`, because an
+            # `asyncio.Event` may only be set from the loop thread and
+            # the write itself runs in a worker.
+            async with self._write_sem:
+                response = await asyncio.to_thread(handle_build_index, req, self.watch_refs)
+            self._wake.set()
+            return response
+
         self._handlers.update(
             {
                 "search": _async_search,
-                "read_symbol": lambda req: handle_read_symbol(req, store),
-                "list_symbols": lambda req: handle_list_symbols(req, store),
-                "find_refs": lambda req: handle_find_refs(req, store),
-                "changed_symbols": lambda req: handle_changed_symbols(req, store),
-                "status": lambda req: handle_status(
+                "read_symbol": lambda req: asyncio.to_thread(handle_read_symbol, req, store),
+                "list_symbols": lambda req: asyncio.to_thread(handle_list_symbols, req, store),
+                "find_refs": lambda req: asyncio.to_thread(handle_find_refs, req, store),
+                "changed_symbols": lambda req: asyncio.to_thread(
+                    handle_changed_symbols, req, store
+                ),
+                "status": lambda req: asyncio.to_thread(
+                    handle_status,
                     req,
                     store,
                     self._snapshot_status,
                 ),
                 "gc": _async_gc,
-                "forget": lambda req: handle_forget(req, store),
-                "index": lambda req: handle_build_index(req, self.watch_refs),
+                "forget": _async_forget,
+                "index": _async_index,
             }
         )
 
@@ -451,13 +470,16 @@ class DaemonServer:
         return self._ready.wait(timeout=timeout)
 
     def watch_refs(self, repo_path: str, refs: list[str], *, remove: bool) -> None:
-        """Add or remove watched refs for a repo, then wake the worker.
+        """Add or remove watched refs for a repo.
 
         Records intent in `watched_refs`; `poll_watched` derives the
         actual build on its next poll.  On *remove*, `"HEAD"` is
         rejected with `RbtrError` **before any delete** so the whole
         request fails atomically — HEAD is the default always-watched
         ref.
+
+        Writes, so it runs in a worker thread under `_write_sem`; the
+        `index` handler wakes the worker afterwards, on the loop.
         """
         if self._store is None:
             return
@@ -478,7 +500,6 @@ class DaemonServer:
             # here so any `index` (not just startup backfill) upholds it.
             ws.add_watched_refs(repo_id, [HEAD_REF, *refs])
         log.info("watched_refs_added", repo=repo_path, refs=refs)
-        self._wake.set()
 
     def _is_building(self) -> bool:
         """Return True if a build is currently active."""
@@ -881,9 +902,7 @@ class DaemonServer:
                 )
             t0 = time.perf_counter()
             try:
-                result = handler(request)
-                if inspect.isawaitable(result):
-                    result = await result
+                result = await handler(request)
             except IndexNotBuiltError as exc:
                 # A ref/symbol that isn't indexed yet: if a build is
                 # running it will become queryable soon, so say so rather
@@ -906,6 +925,6 @@ class DaemonServer:
             log.info("request_complete", elapsed_ms=elapsed_ms(t0))
             return result
 
-    def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
+    async def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
         self.request_shutdown()
         return OkResponse()

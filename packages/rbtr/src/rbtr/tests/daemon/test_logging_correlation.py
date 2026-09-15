@@ -38,7 +38,7 @@ def test_dispatch_binds_a_unique_context_per_request(
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
-    def handler(_req: object) -> OkResponse:
+    async def handler(_req: object) -> OkResponse:
         structlog.get_logger("t").info("handler_ran")
         return OkResponse()
 

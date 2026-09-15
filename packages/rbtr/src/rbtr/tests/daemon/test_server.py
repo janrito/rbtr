@@ -213,7 +213,7 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
 
 
 def test_handler_exception_returns_error(running_daemon: DaemonServer) -> None:
-    def bad_handler(_request: object) -> Response:
+    async def bad_handler(_request: object) -> Response:
         msg = "handler broke"
         raise ValueError(msg)
 
@@ -241,7 +241,7 @@ def test_send_or_raise_on_success(running_daemon: DaemonServer) -> None:
 
 
 def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
-    def fail(_request: object) -> ErrorResponse:
+    async def fail(_request: object) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 
     running_daemon.register("shutdown", fail)
