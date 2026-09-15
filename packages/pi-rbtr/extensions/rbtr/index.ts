@@ -32,11 +32,9 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
 
 import { decodeStringList, echoArgs } from "./args.js";
 import {
-  type EmbedCounts,
+  footerLabel,
   formatElapsed,
   formatJobCounts,
-  humanCount,
-  isFullyEmbedded,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -120,31 +118,6 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
       // silent — normal operation
       break;
   }
-}
-
-/**
- * Format the footer label for an indexed repo.
- *
- * Glyph reflects index + embedding completeness:
- *   ● — fully indexed and fully embedded
- *   ○ — indexed but not (fully) embedded
- *
- * Suffixes after ` · ` for additional state:
- *   rbtr: ● 3.5k symbols
- *   rbtr: ○ 3.5k symbols · not embedded
- *   rbtr: ○ 3.5k symbols · 42% embedded
- *   rbtr: ● 3.5k symbols · no daemon
- *   rbtr: ○ 3.5k symbols · no daemon · not embedded
- */
-function footerLabel(counts: EmbedCounts, daemon: boolean): string {
-  const { total, embedded } = counts;
-  const glyph = isFullyEmbedded(counts) ? "●" : "○";
-  const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
-  if (!daemon) parts.push("no daemon");
-  if (!isFullyEmbedded(counts)) {
-    parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
-  }
-  return parts.join(" · ");
 }
 
 export default function rbtrIndexExtension(pi: ExtensionAPI) {

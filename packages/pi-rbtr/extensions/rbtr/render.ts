@@ -554,6 +554,31 @@ export function isFullyEmbedded(counts: EmbedCounts): boolean {
   return counts.embedded >= counts.total;
 }
 
+/**
+ * Format the footer label for an indexed repo.
+ *
+ * Glyph reflects index + embedding completeness:
+ *   ● — fully indexed and fully embedded
+ *   ○ — indexed but not (fully) embedded
+ *
+ * Suffixes after ` · ` for additional state:
+ *   rbtr: ● 3.5k symbols
+ *   rbtr: ○ 3.5k symbols · not embedded
+ *   rbtr: ○ 3.5k symbols · 42% embedded
+ *   rbtr: ● 3.5k symbols · no daemon
+ *   rbtr: ○ 3.5k symbols · no daemon · not embedded
+ */
+export function footerLabel(counts: EmbedCounts, daemon: boolean): string {
+  const { total, embedded } = counts;
+  const glyph = isFullyEmbedded(counts) ? "●" : "○";
+  const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
+  if (!daemon) parts.push("no daemon");
+  if (!isFullyEmbedded(counts)) {
+    parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
+  }
+  return parts.join(" · ");
+}
+
 /** Format a count for humans: 42, 1.2k, 11.2k. */
 export function humanCount(n: number): string {
   if (n < 1000) return String(n);

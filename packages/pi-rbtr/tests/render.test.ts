@@ -12,6 +12,7 @@ import type { SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/
 import {
   extractPayload,
   fileScopeSuffix,
+  footerLabel,
   formatWatched,
   renderSearchResult,
   renderStatusText,
@@ -176,6 +177,25 @@ describe("renderStatusText", () => {
       active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
     };
     expect(renderStatusText(justOverAMinute).split("\n")).toContain("Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
+  });
+});
+
+describe("footerLabel", () => {
+  test("marks a fully embedded index with a filled glyph and no suffix", () => {
+    expect(footerLabel({ total: 3500, embedded: 3500 }, true)).toBe("rbtr: ● 3.5k symbols");
+  });
+
+  test("reports the percentage while embedding is under way", () => {
+    expect(footerLabel({ total: 3500, embedded: 1470 }, true)).toBe("rbtr: ○ 3.5k symbols · 42% embedded");
+  });
+
+  test("says so when nothing is embedded", () => {
+    expect(footerLabel({ total: 3500, embedded: 0 }, true)).toBe("rbtr: ○ 3.5k symbols · not embedded");
+  });
+
+  test("names a missing daemon before the embed state", () => {
+    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · no daemon");
+    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · no daemon · not embedded");
   });
 });
 
