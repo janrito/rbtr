@@ -331,7 +331,7 @@ class WriteSession:
         """Batch insert edges scoped to *at*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, at.snapshot_sha, at.repo_id))
+        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, at=at))
 
     def replace_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
         """Atomically replace all edges at *at*."""

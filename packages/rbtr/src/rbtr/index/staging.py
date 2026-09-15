@@ -30,6 +30,7 @@ from rbtr.domain.models import (
     Edges,
     FileSnapshot,
     FileSnapshots,
+    SnapshotRef,
 )
 
 
@@ -149,15 +150,19 @@ def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     )
 
 
-def edges_frame(edges: list[Edge], snapshot_sha: str, repo_id: int) -> dy.DataFrame[EdgeStagingRow]:
-    """Build a staging frame of edges scoped to *snapshot_sha*."""
+def edges_frame(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagingRow]:
+    """Build a staging frame of edges scoped to *at*.
+
+    Every row in the batch shares *at*, so `repo_id` and `snapshot_sha`
+    are broadcast here rather than repeated per edge in SQL.
+    """
     if not edges:
         return EdgeStagingRow.create_empty()
     return (
         pl.DataFrame(Edges.dump_python(edges, mode="json"))
         .with_columns(
-            repo_id=pl.lit(repo_id, dtype=pl.Int32),
-            snapshot_sha=pl.lit(snapshot_sha),
+            repo_id=pl.lit(at.repo_id, dtype=pl.Int32),
+            snapshot_sha=pl.lit(at.snapshot_sha),
         )
         .pipe(EdgeStagingRow.validate, cast=True)
     )
