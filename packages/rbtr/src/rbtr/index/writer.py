@@ -39,6 +39,7 @@ from rbtr.index.staging import (
     staged_file_snapshots,
 )
 
+_COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
 _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
@@ -99,17 +100,18 @@ class WriteSession:
     by `id`, no `repo_id`); a repo's claim on a chunk is the
     `file_snapshots` row referencing its blob.
 
-    **Atomicity invariant (load-bearing).** A build must write a
-    commit's chunks **and** its `file_snapshots` in the SAME
-    transaction, so no committed state ever holds a chunk without
-    its snapshot.  The cross-repo orphan sweeps
-    (`sweep_orphan_chunks`, `prune_chunks`) delete any chunk with no
-    referencing snapshot in *any* repo; if a build split chunk and
-    snapshot writes across transactions, a co-tenant repo's sweep
-    could delete chunks this build still needs.  `build_index`
-    upholds this (extraction and `replace_snapshots` share one
-    session) and logs `orphan_chunks_after_build` if it is ever
-    violated.
+    **A chunk enters only for a blob somebody claims.**  The
+    cross-repo sweeps (`sweep_orphan_chunks`, `prune_chunks`) delete
+    every chunk whose `(blob_sha, file_language)` no
+    `file_snapshots` row references, in any repo.  `_commit`
+    therefore refuses a session that inserted chunks for a blob no
+    row claims, rather than committing chunks the next sweep would
+    take — which is why a build writes a snapshot's chunks and its
+    rows in one transaction.  A re-extraction needs no new claim:
+    the blob's existing rows already reference it, which is how one
+    re-chunk reaches every repo sharing the blob.  Orphans still
+    arise the other way round, by removing a claim from a chunk
+    already stored, and that is what the sweeps are for.
 
     **Concurrency warning:** in the daemon, `WriteSession`
     instances must only be created on the job worker thread
@@ -121,6 +123,9 @@ class WriteSession:
         self._store = store
         self._active = False
         self._chunks_modified = False
+        # One entry per (blob_sha, file_language) this session inserted
+        # chunks for, checked against the claims at commit.
+        self._inserted_blobs: set[tuple[str, str]] = set()
         self._compact_requested = False
         # Chunks are content-addressed (keyed by id, no repo_id); the
         # buffer holds repo-independent content flushed via upsert.
@@ -199,15 +204,40 @@ class WriteSession:
             self._commit()
 
     def _commit(self) -> None:
-        """Flush pending chunks, commit, rebuild FTS, then compact if asked."""
+        """Flush pending chunks, commit, rebuild FTS, then compact if asked.
+
+        Rolls back and raises `RuntimeError` when the session inserted
+        chunks and wrote no `file_snapshots` row, rather than
+        committing chunks the next sweep would delete.
+        """
         self._require_active()
         self._flush_chunks()
+        if (unclaimed := self._count_unclaimed_blobs()) > 0:
+            self._cursor.rollback()
+            self._active = False
+            msg = (
+                f"Session inserted chunks for {unclaimed} blob(s) with no "
+                "file_snapshots row: a chunk no repo claims is deleted by "
+                "the next sweep."
+            )
+            raise RuntimeError(msg)
         self._cursor.commit()
         if self._chunks_modified:
             self._rebuild_fts()
         self._active = False
         if self._compact_requested:
             self._do_compact()
+
+    def _count_unclaimed_blobs(self) -> int:
+        """How many inserted blobs no `file_snapshots` row claims."""
+        if not self._inserted_blobs:
+            return 0
+        pairs = pl.DataFrame(
+            sorted(self._inserted_blobs), schema=["blob_sha", "file_language"], orient="row"
+        )
+        with self._store._registered_views(_stg=pairs) as cur:
+            row = cur.execute(_COUNT_UNCLAIMED_BLOBS_SQL).fetchone()
+        return int(row[0]) if row else 0
 
     def _rebuild_fts(self) -> None:
         """(Re)create the BM25 index and neutralise IDF."""
@@ -264,8 +294,7 @@ class WriteSession:
         depends on chunks being in the DB.  Chunks carry no `repo_id`
         (they are keyed by content hash `id` and shared across repos);
         a repo claims a chunk by inserting a `file_snapshots` row for
-        its blob in the same transaction (see the class atomicity
-        invariant).
+        its blob in the same transaction, which `_commit` requires.
         """
         self._require_active()
         self._chunk_buffer.append(chunk)
@@ -278,6 +307,7 @@ class WriteSession:
             return
         self._bulk_insert(_UPSERT_CHUNKS_SQL, staged_chunks(self._chunk_buffer))
         self._chunks_modified = True
+        self._inserted_blobs.update((c.blob_sha, c.file_language) for c in self._chunk_buffer)
         self._chunk_buffer.clear()
 
     def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:

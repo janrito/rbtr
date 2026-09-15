@@ -286,22 +286,6 @@ def _mark_indexed_and_cleanup(
                 edges=cleaned.edges,
                 chunks=cleaned.chunks,
             )
-    # Invariant guard for the content-addressed store: a build commits a
-    # commit's chunks and snapshots in one transaction, and cleanup has
-    # just pruned unreferenced rows, so no chunk should now lack a
-    # snapshot. A non-zero count means chunk and snapshot writes were
-    # split across transactions somewhere — which would let another
-    # repo's *global* orphan sweep delete chunks this repo still needs.
-    # Warn (don't abort) so the condition is visible without breaking
-    # indexing.
-    orphans = store.count_orphan_chunks()
-    if orphans:
-        log.warning(
-            "orphan_chunks_after_build",
-            orphans=orphans,
-            repo_id=repo_id,
-            sha=snapshot_sha[:12],
-        )
 
 
 # ── Public API ───────────────────────────────────────────────────────

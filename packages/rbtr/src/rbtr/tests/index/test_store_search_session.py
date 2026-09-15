@@ -259,7 +259,7 @@ def idf_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
     """`head_ref`, seeded with many chunks sharing a common term."""
     s = SearchScenario(
         chunks=[
-            make_chunk(f"c{i}", name=f"config_{i}", content=f"config = load_{i}()")
+            make_chunk(f"c{i}", name=f"config_{i}", content=f"config = load_{i}()", path=f"c{i}.py")
             for i in range(10)
         ],
         query="config",
@@ -278,8 +278,8 @@ def unified_ref(store: IndexStore, head_ref: SnapshotRef) -> SnapshotRef:
     """`head_ref`, seeded with chunks and one edge between them."""
     s = SearchScenario(
         chunks=[
-            make_chunk("a", name="AppConfig", kind=ChunkKind.CLASS),
-            make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION),
+            make_chunk("a", name="AppConfig", kind=ChunkKind.CLASS, path="a.py"),
+            make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION, path="b.py"),
         ],
         query="config",
     )

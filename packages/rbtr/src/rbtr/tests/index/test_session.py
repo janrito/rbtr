@@ -65,6 +65,21 @@ def test_write_outside_session_raises(store: IndexStore) -> None:
         ws.add_chunk(make_chunk("a"))
 
 
+def test_chunks_cannot_be_committed_without_a_claim(store: IndexStore) -> None:
+    """A session inserting chunks and no `file_snapshots` rows is refused.
+
+    The sweeps delete every chunk no repo claims, so a commit holding
+    an unclaimed chunk leaves it for the next sweep to take.
+    """
+    with store.session() as ws:
+        ws.register_repo("/repo")
+
+    with pytest.raises(RuntimeError, match="file_snapshots"), store.session() as ws:
+        ws.add_chunk(make_chunk("unclaimed"))
+
+    assert store.count_orphan_chunks() == 0
+
+
 def test_read_only_store_rejects_session() -> None:
     """A store created without writable=True rejects session()."""
     store = IndexStore(writable=False)
@@ -357,8 +372,12 @@ def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
     with store.session() as ws:
         chunk_a = make_chunk("a")
         chunk_b = make_chunk("b", blob="blob_b", path="g.py")
+        ws.register_repo("/repo")
         ws.add_chunk(chunk_a)
         ws.add_chunk(chunk_b)
+        ws.insert_snapshots(
+            [make_snap("head", c.file_path, c.blob_sha) for c in (chunk_a, chunk_b)], repo_id=1
+        )
         with pytest.raises(ValidationError):
             ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
 

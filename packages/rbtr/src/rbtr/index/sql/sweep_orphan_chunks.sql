@@ -7,12 +7,11 @@
 -- several paths is collected per path, so dropping one path does not
 -- strand its chunk just because the blob lives on at another path.
 --
--- INVARIANT: this global sweep is correct only because a build
--- commits a commit's chunks and their file_snapshots in the SAME
--- transaction (see WriteSession).  No committed state ever holds a
--- chunk without its snapshot, so a chunk with no referencing snapshot
--- is genuine garbage.  Splitting chunk and snapshot writes across
--- transactions would let this sweep delete another repo's live chunks.
+-- This global sweep is correct because a chunk enters only for a blob
+-- some file_snapshots row already claims: WriteSession._commit refuses
+-- a session that stores chunks for an unclaimed blob.  A chunk with no
+-- referencing snapshot is therefore one whose claims have since been
+-- removed — genuine garbage, not a half-written build.
 DELETE FROM chunks
 WHERE NOT EXISTS (
   SELECT 1

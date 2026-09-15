@@ -255,9 +255,15 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
     *and counted*, even when gc drops no commits — the reporting gap the
     forget->gc smoke test surfaced.
     """
+    # An orphan arises the way production makes one: a chunk stored with
+    # its claim, and the claim later removed.
+    forgotten = SnapshotRef(repo_id=gc.repo_id, snapshot_sha="forgotten")
     with gc.store.session() as ws:
         ws.add_watched_refs(gc.repo_id, [gc.c2])  # keep every commit -> no drops
         ws.add_chunk(make_chunk("orphan", path="z.py", blob="b_orphan"))
+        ws.insert_snapshots([make_snap("forgotten", "z.py", "b_orphan")], repo_id=gc.repo_id)
+    with gc.store.session() as ws:
+        ws.delete_snapshots(at=forgotten)
     assert gc.store.count_orphan_chunks() == 1
 
     counts = run_gc(gc.store, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)

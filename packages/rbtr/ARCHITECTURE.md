@@ -768,9 +768,8 @@ nothing needs carrying across the interruption.
 embed's is one batch. A build's is the whole snapshot:
 chunks and `file_snapshots` commit together, or a co-tenant
 repo's global orphan sweep deletes chunks whose snapshot row
-has not landed (`build_index` checks afterwards with
-`count_orphan_chunks`). So a build runs to completion, which
-its 4.0 s median affords.
+has not landed. `WriteSession` refuses such a commit, so a
+build runs to completion, which its 4.0 s median affords.
 
 Between batches the job asks `watcher.pending_builds`, and
 checks `_shutdown`. Anything else arriving mid-job is served
@@ -1569,15 +1568,15 @@ shared content with another repo leaves the shared chunks intact
 until the last referencing snapshot is gone. Consequently the
 chunk count in `GcCounts` is a global figure, not a per-repo one.
 
-This global sweep rests on a **load-bearing atomicity invariant**: a
-build writes a commit's chunks and its `file_snapshots` in one
-transaction, so no committed state ever holds a chunk without its
-snapshot. An unreferenced chunk is therefore genuine garbage, never a
-half-written build. If a build split chunk and snapshot writes across
-transactions, a co-tenant repo's sweep could delete chunks the build
-still needs. `build_index` upholds the invariant and logs
-`orphan_chunks_after_build` if it is ever violated; see the
-`WriteSession` docstring.
+This global sweep rests on **a chunk entering only for a blob somebody
+claims**. `WriteSession._commit` counts the `(blob_sha,
+file_language)` pairs the session stored chunks for, and rolls back
+when any of them has no `file_snapshots` row — in any repo. An
+unreferenced chunk is therefore one whose claims were removed later,
+never a half-written build, so the sweep cannot take chunks a
+co-tenant repo still needs. The check keys on the blob rather than on
+writing a claim in the same session, which is what lets one
+re-extraction re-chunk a blob for every repo sharing it.
 
 **Compaction.** Deleting rows does not shrink the database file — the
 freed space is kept inside it for reuse, so the file only ever grows.

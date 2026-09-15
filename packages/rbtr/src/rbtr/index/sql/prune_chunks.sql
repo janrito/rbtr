@@ -1,8 +1,8 @@
 -- Cross-repo prune: drop chunks not referenced by any snapshot in
 -- any repo (keyed on blob_sha + file_path).  Like sweep_orphan_chunks,
--- this is safe only because a build commits chunks and their snapshots
--- in one transaction, so an unreferenced chunk is genuine garbage and
--- not a half-written build (see WriteSession's atomicity invariant).
+-- this is safe because WriteSession._commit refuses to store chunks
+-- for a blob no file_snapshots row claims, so an unreferenced chunk is
+-- genuine garbage and not a half-written build.
 DELETE FROM chunks
 WHERE NOT EXISTS (
   SELECT 1
