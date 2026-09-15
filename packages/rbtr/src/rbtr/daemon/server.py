@@ -21,7 +21,7 @@ Lifecycle::
     server = DaemonServer(Path.home() / ".rbtr")
     asyncio.run(server.serve())       # blocks until shutdown
     # or from another thread:
-    server.request_shutdown()         # thread-safe
+    server.request_shutdown()         # schedules the stop on the loop
 """
 
 from __future__ import annotations
@@ -167,6 +167,9 @@ class DaemonServer:
         self._allow_missing_plugins = allow_missing_plugins
         self._store = store
         self._ready = threading.Event()
+        # The loop `serve()` runs on, so `request_shutdown` can reach it
+        # from another thread.  None until then.
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._embedder: Embedder | None = None
         self._reranker: Reranker | None = None
 
@@ -557,8 +560,21 @@ class DaemonServer:
         return active_build, active_embed
 
     def request_shutdown(self) -> None:
+        """Ask the daemon to stop.  Safe to call from any thread.
+
+        `_shutdown` is a plain bool, which the RPC loop reads every
+        100 ms.  Waking the worker is the part that needs care: an
+        `asyncio.Event` may only be touched from the loop thread, so the
+        wake is scheduled on the loop that `serve()` recorded.
+        """
         self._shutdown = True
-        self._wake.set()
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            # Not serving: nothing is waiting on the event, and setting
+            # it here keeps a worker started later from blocking.
+            self._wake.set()
+            return
+        loop.call_soon_threadsafe(self._wake.set)
 
     # ── DB-polling worker ─────────────────────────────────────────────────
 
@@ -705,6 +721,7 @@ class DaemonServer:
                 self._store.distinct_chunk_languages(),
                 allow_missing=self._allow_missing_plugins,
             )
+        self._loop = asyncio.get_running_loop()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._register_atexit()
 
@@ -785,6 +802,7 @@ class DaemonServer:
                         await wt
         finally:
             self._cleanup()
+            self._loop = None
             self._pub_socket = None
             self._notify_push.close()
             progress_pull.close()
