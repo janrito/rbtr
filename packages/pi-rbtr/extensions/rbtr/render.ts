@@ -20,6 +20,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { decodeStringList } from "./args.js";
 
 import type {
+  ActiveJob,
   ChangedSymbol,
   ChangedSymbolsResponse,
   FindRefsResponse,
@@ -465,17 +466,9 @@ export function renderStatusText(status: StatusResponse): string {
   }
   lines.push(...formatWatched(status.watched ?? []));
   const job = status.active_build;
-  if (job) {
-    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsed(job.elapsed_seconds);
-    lines.push(`Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`);
-  }
+  if (job) lines.push(formatActiveBuild(job));
   const ej = status.active_embed;
-  if (ej) {
-    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsed(ej.elapsed_seconds);
-    lines.push(`Embedding: ${ej.ref.slice(0, 12)} — ${ej.current}/${ej.total}${pct} — ${elapsed}`);
-  }
+  if (ej) lines.push(formatActiveEmbed(ej));
   if (!job && !ej && indexed.length > 0) {
     lines.push("No active build.");
   }
@@ -522,29 +515,28 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   }
 
   const job = response?.active_build;
-  if (job) {
-    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsed(job.elapsed_seconds);
-    lines.push(
-      theme.fg(
-        "muted",
-        `⟳ Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`,
-      ),
-    );
-  }
+  if (job) lines.push(theme.fg("muted", `⟳ ${formatActiveBuild(job)}`));
   const ej = response?.active_embed;
-  if (ej) {
-    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsed(ej.elapsed_seconds);
-    lines.push(
-      theme.fg(
-        "muted",
-        `\u21BB Embedding: ${ej.ref.slice(0, 12)} \u2014 ${ej.current}/${ej.total}${pct} \u2014 ${elapsed}`,
-      ),
-    );
-  }
+  if (ej) lines.push(theme.fg("muted", `\u21BB ${formatActiveEmbed(ej)}`));
 
   return new Text(lines.join("\n"), 0, 0);
+}
+
+/** Progress as ` (42%)`, or empty while the job has no total to divide by. */
+function jobPercent(job: ActiveJob): string {
+  return job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+}
+
+/** Render the running build as one line: ref, phase, progress, elapsed. */
+function formatActiveBuild(job: ActiveJob): string {
+  const progress = `${job.phase} ${job.current}/${job.total}${jobPercent(job)}`;
+  return `Building: ${job.ref.slice(0, 12)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
+}
+
+/** Render the running embed pass as one line: ref, progress, elapsed. */
+function formatActiveEmbed(job: ActiveJob): string {
+  const progress = `${job.current}/${job.total}${jobPercent(job)}`;
+  return `Embedding: ${job.ref.slice(0, 12)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
 }
 
 function formatElapsed(seconds: number): string {

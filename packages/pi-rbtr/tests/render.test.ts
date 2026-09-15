@@ -129,6 +129,15 @@ describe("renderStatusText", () => {
       { sha: "c".repeat(40), names: [], total: 1200, embedded: 0 },
       { sha: "d".repeat(40), names: [], total: 0, embedded: 0 },
     ],
+    active_build: {
+      repo_path: "/repo",
+      ref: "e".repeat(40),
+      phase: "chunking",
+      current: 3,
+      total: 10,
+      elapsed_seconds: 65,
+    },
+    active_embed: { repo_path: "/repo", ref: "e".repeat(40), current: 5, total: 20, elapsed_seconds: 12 },
   };
 
   test("renders one line per ref, in the shape the TUI uses", () => {
@@ -138,6 +147,35 @@ describe("renderStatusText", () => {
     expect(lines).toContain("  bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
     expect(lines).toContain("  cccccccccccc  1.2k indexed  not embedded");
     expect(lines).toContain("  dddddddddddd  0 indexed  0 embedded ✓");
+  });
+
+  test("reports the running build and embed pass", () => {
+    const lines = renderStatusText(status).split("\n");
+    expect(lines).toContain("Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
+    expect(lines).toContain("Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
+  });
+
+  test("suppresses the percentage when the job has no total yet", () => {
+    const starting: StatusResponse = {
+      kind: "status",
+      active_build: {
+        repo_path: "/repo",
+        ref: "f".repeat(40),
+        phase: "walking",
+        current: 0,
+        total: 0,
+        elapsed_seconds: 2,
+      },
+    };
+    expect(renderStatusText(starting).split("\n")).toContain("Building: ffffffffffff — walking 0/0 — 2s");
+  });
+
+  test("pads the seconds on the minute boundary", () => {
+    const justOverAMinute: StatusResponse = {
+      kind: "status",
+      active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
+    };
+    expect(renderStatusText(justOverAMinute).split("\n")).toContain("Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
   });
 });
 
