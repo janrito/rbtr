@@ -12,7 +12,6 @@ Serialisation uses `model_dump_json()` / `TypeAdapter.validate_json()`.
 from __future__ import annotations
 
 import os
-from collections.abc import Hashable
 from enum import StrEnum
 from pathlib import PurePath
 from typing import Annotated, Any, Literal, Protocol, runtime_checkable
@@ -73,11 +72,11 @@ class HasRepoPath(Protocol):
     repo_path: str
 
 
-# ── Job types (work queue) ───────────────────────────────────────────
+# ── Job types (what the worker runs) ─────────────────────────────────
 
 
 class BuildJob(BaseModel):
-    """A build-index job for the unified work queue."""
+    """A build-index job, derived from the watch set or a dirty tree."""
 
     model_config = _STRICT
     kind: Literal["build"] = "build"
@@ -85,26 +84,15 @@ class BuildJob(BaseModel):
     refs: tuple[str, ...]
     embed: bool = True
 
-    @property
-    def dedupe_key(self) -> Hashable:
-        return (self.repo_path, self.refs)
-
 
 class EmbedJob(BaseModel):
-    """An embed-index job for the unified work queue."""
+    """An embed job, derived from a snapshot's unembedded chunks."""
 
     model_config = _STRICT
     kind: Literal["embed"] = "embed"
     repo_path: str
     repo_id: int
     ref: str
-
-    @property
-    def dedupe_key(self) -> Hashable:
-        return (self.repo_id, self.ref)
-
-
-Job = Annotated[BuildJob | EmbedJob, Field(discriminator="kind")]
 
 
 def _decode_json_array(text: str) -> Any:
