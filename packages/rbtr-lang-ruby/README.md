@@ -1,7 +1,9 @@
 # rbtr-lang-ruby
 
-Ruby support for [rbtr](../rbtr). Optional plugin — install with
+Ruby support for [rbtr]. Optional plugin — install with
 `pip install rbtr[ruby]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

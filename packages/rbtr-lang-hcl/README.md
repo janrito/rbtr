@@ -1,7 +1,9 @@
 # rbtr-lang-hcl
 
-HCL / Terraform support for [rbtr](../rbtr). Optional plugin — install with
+HCL / Terraform support for [rbtr]. Optional plugin — install with
 `pip install rbtr[hcl]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

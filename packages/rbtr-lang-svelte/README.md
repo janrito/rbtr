@@ -1,8 +1,11 @@
 # rbtr-lang-svelte
 
-Svelte support for [rbtr](../rbtr). Optional plugin — install with
+Svelte support for [rbtr]. Optional plugin — install with
 `pip install rbtr[svelte]`. Also hosts the shared single-file-component
-machinery that [rbtr-lang-vue](../rbtr-lang-vue) reuses.
+machinery that [rbtr-lang-vue] reuses.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
+[rbtr-lang-vue]: https://github.com/janrito/rbtr/tree/main/packages/rbtr-lang-vue#readme
 
 ## What it ingests
 
