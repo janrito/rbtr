@@ -1,7 +1,9 @@
 # rbtr-lang-json
 
-JSON support for [rbtr](../rbtr). Optional plugin — install with
+JSON support for [rbtr]. Optional plugin — install with
 `pip install rbtr[json]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

@@ -1,7 +1,9 @@
 # rbtr-lang-rst
 
-reStructuredText support for [rbtr](../rbtr). A **default** plugin — installed
+reStructuredText support for [rbtr]. A **default** plugin — installed
 with rbtr itself (`pip install rbtr`).
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

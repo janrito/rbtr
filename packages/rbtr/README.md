@@ -127,8 +127,10 @@ rbtr search "how does auth work"  # semantic search
 
 Combines name, keyword, and semantic search into a
 single ranked result. See
-[ARCHITECTURE.md](ARCHITECTURE.md#search-fusion)
+[ARCHITECTURE.md][arch-search-fusion]
 for the fusion algorithm.
+
+[arch-search-fusion]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#search-fusion
 
 Supply `--keywords` and `--variants` (both repeatable) to
 widen retrieval — keywords extend the lexical query,
@@ -329,8 +331,10 @@ Example from `rbtr search --json`:
 {"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_path":"src/rbtr/index/search.py","score":0.49,...}]}
 ```
 
-See [Daemon protocol](ARCHITECTURE.md#daemon-protocol)
+See [Daemon protocol][arch-daemon-protocol]
 for the full response models.
+
+[arch-daemon-protocol]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#daemon-protocol
 
 ## Logs
 
@@ -355,8 +359,10 @@ with any JSON-aware tool:
 tail -f <log_dir>/daemon.log
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#observability) for the logging
+See [ARCHITECTURE.md][arch-observability] for the logging
 pipeline and how requests are correlated.
+
+[arch-observability]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#observability
 
 ## Configuration
 
@@ -404,8 +410,10 @@ stays searchable without structure.
 
 Each language is a separate package. `rbtr config` lists the
 ones this install loaded; the [repository
-README](../../README.md#languages) has the full set with the
+README][repo-languages] has the full set with the
 extra to install for each.
+
+[repo-languages]: https://github.com/janrito/rbtr/blob/main/README.md#languages
 
 Comments are indexed too. A comment block above a definition
 becomes part of that definition's chunk; one standing on its
@@ -420,8 +428,10 @@ HTML and single-file components (Svelte, Vue) extract
 inline `<script>` / `<style>` the same way; an SFC's markup
 template is indexed too, named after the component file.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
+See [ARCHITECTURE.md][arch-language-plugins]
 for how the plugin system works.
+
+[arch-language-plugins]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#language-plugins
 
 ## Writing a language plugin
 
@@ -557,7 +567,9 @@ has one. A block directly above a definition folds into that
 definition's chunk; a block standing on its own becomes a `comment`
 chunk; a comment trailing code stays with that statement. The engine
 does this identically for every language — see
-[ARCHITECTURE](ARCHITECTURE.md) for the rules.
+[ARCHITECTURE][arch] for the rules.
+
+[arch]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md
 
 ### When a query is not enough
 
@@ -791,8 +803,10 @@ at a different serial on the next build; leaving it unchanged keeps the
 existing (now stale) chunks. It is independent of the package version —
 bump it whenever extraction output changes, including during development
 before a release. See
-[ARCHITECTURE.md](ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup)
+[ARCHITECTURE.md][arch-dedup]
 for the dedup mechanism.
+
+[arch-dedup]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup
 
 ## Graceful degradation
 
@@ -815,7 +829,7 @@ just setup    # uv sync + bun install
 just check    # lint, typecheck, and every test suite
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for internals.
+See [ARCHITECTURE.md][arch] for internals.
 
 ## License
 

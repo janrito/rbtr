@@ -1,7 +1,9 @@
 # rbtr-lang-yaml
 
-YAML support for [rbtr](../rbtr). Optional plugin — install with
+YAML support for [rbtr]. Optional plugin — install with
 `pip install rbtr[yaml]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

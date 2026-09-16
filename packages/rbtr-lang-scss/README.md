@@ -1,7 +1,9 @@
 # rbtr-lang-scss
 
-SCSS / Sass support for [rbtr](../rbtr). Optional plugin — install with
+SCSS / Sass support for [rbtr]. Optional plugin — install with
 `pip install rbtr[scss]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

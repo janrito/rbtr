@@ -1,7 +1,9 @@
 # rbtr-lang-sql
 
-SQL support for [rbtr](../rbtr). Optional plugin — install with
+SQL support for [rbtr]. Optional plugin — install with
 `pip install rbtr[sql]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

@@ -1,7 +1,9 @@
 # rbtr-lang-rust
 
-Rust support for [rbtr](../rbtr). Optional plugin — install with
+Rust support for [rbtr]. Optional plugin — install with
 `pip install rbtr[rust]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 
