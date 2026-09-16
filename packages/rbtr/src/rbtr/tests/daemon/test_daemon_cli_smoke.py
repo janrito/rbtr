@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import time
+from collections.abc import Generator
 from pathlib import Path
 
+import pytest
+
 from rbtr.config import Config
-from rbtr.daemon.status import read_status
+from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
@@ -69,6 +73,43 @@ def test_start_when_already_running_is_idempotent(isolated_db: Path) -> None:
         assert "already running" in second.stderr.lower()
     finally:
         run_cli(["daemon", "stop"])
+
+
+@pytest.fixture(scope="module")
+def orphan_pids() -> Generator[list[int]]:
+    """Collect daemon pids that `isolated_db` teardown must have killed.
+
+    Module-scoped, so it is set up before the function-scoped
+    `isolated_db` and finalised *after* it -- which is what lets it
+    observe whether that teardown did its job.
+    """
+    pids: list[int] = []
+    yield pids
+    survivors = [pid for pid in pids if is_pid_alive(pid)]
+    for pid in survivors:  # don't leak them just because the check failed
+        os.kill(pid, signal.SIGKILL)
+    assert not survivors, f"daemons survived isolated_db teardown: {survivors}"
+
+
+def test_daemon_left_running_is_killed_by_fixture_teardown(
+    isolated_db: Path,
+    orphan_pids: list[int],
+) -> None:
+    """A daemon still running at test end must not outlive the run.
+
+    The tests here stop their daemon in a `finally`, which does not run
+    when a run is interrupted part-way through a test; the orphan then
+    idles indefinitely against a `tmp_path` data dir no later run will
+    reuse.  This one deliberately omits `daemon stop` to stand in for
+    that, and `orphan_pids` asserts the teardown killed it.
+    """
+    assert run_cli(["daemon", "start"]).returncode == 0
+
+    status = read_status(Config(data_dir=isolated_db).runtime_dir)
+    assert status is not None, "daemon did not record a status file"
+    assert is_pid_alive(status.pid), "daemon is not running"
+
+    orphan_pids.append(status.pid)
 
 
 def test_start_with_db_lock_held_exits_cleanly(isolated_db: Path) -> None:

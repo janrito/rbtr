@@ -247,8 +247,8 @@ def _importance_expr() -> pl.Expr:
 def compute_proximity(
     scored: pl.DataFrame,
     *,
-    edge_frame: dy.DataFrame[EdgeResultRow],
-    paths_frame: dy.DataFrame[ChunkPathResultRow],
+    edges: dy.DataFrame[EdgeResultRow],
+    chunk_paths: dy.DataFrame[ChunkPathResultRow],
     changed_files: set[str],
 ) -> pl.DataFrame:
     """Add a `prox` column ranking candidates by proximity to the diff.
@@ -264,30 +264,30 @@ def compute_proximity(
     Args:
         scored:        Candidate frame with at least `id` and
                        `file_path` columns.
-        edge_frame:    All edges for the commit (`source_id`,
+        edges:    All edges for the commit (`source_id`,
                        `target_id`).  Used to find neighbours.
-        paths_frame:   Chunk paths (`id`, `file_path`) covering
-                       all IDs in *edge_frame*.  Used to resolve
+        chunk_paths:   Chunk paths (`id`, `file_path`) covering
+                       all IDs in *edges*.  Used to resolve
                        neighbour file paths.
         changed_files: File paths modified in the current diff.
     """
     candidate_id_list = scored["id"].to_list()
 
     has_edge_list: list[str] = []
-    if not edge_frame.is_empty():
+    if not edges.is_empty():
         pairs = pl.concat(
             [
-                edge_frame.select(
+                edges.select(
                     candidate_id=pl.col("source_id"), neighbour_id=pl.col("target_id")
                 ).filter(pl.col("candidate_id").is_in(candidate_id_list)),
-                edge_frame.select(
+                edges.select(
                     candidate_id=pl.col("target_id"), neighbour_id=pl.col("source_id")
                 ).filter(pl.col("candidate_id").is_in(candidate_id_list)),
             ]
         )
         has_edge_list = (
             pairs.join(
-                paths_frame.rename({"file_path": "nb_path"}),
+                chunk_paths.rename({"file_path": "nb_path"}),
                 left_on="neighbour_id",
                 right_on="id",
             )
@@ -588,24 +588,20 @@ def _retrieve(
     """
     # ── Channel 1: BM25 lexical ─────────────────────────────
     pool_size = top_k * config.retrieval_multiplier_lexical
-    lex_frame = store.match_fulltext_frame(refs, lex_query, top_k=pool_size)
+    lex_frame = store.fulltext_matches(lex_query, within=refs, top_k=pool_size)
 
     # ── Channel 2: semantic (embedding cosine) ───────────────
     sem_frame = ScoredChunkResultRow.create_empty()
     if query_vecs:
         try:
             sem_fetch = top_k * config.retrieval_multiplier_semantic
-            raw_sem = store.match_similar_frame(
-                refs,
-                query_vecs,
-                sem_fetch,
-            )
+            raw_sem = store.similar_matches(query_vecs, within=refs, top_k=sem_fetch)
             sem_frame = _filter_semantic(raw_sem, pool_size)
         except duckdb.Error:
             pass
 
     # ── Channel 3: name match ───────────────────────────────
-    name_frame = store.match_by_name_frame(refs, query)
+    name_frame = store.name_matches(query, within=refs)
 
     # ── Merge candidates with scores via outer joins ─────────
     chunk_cols = list(ChunkResultRow.columns())
@@ -626,7 +622,7 @@ def _retrieve(
 
     # ── Importance (inbound-degree) ──────────────────────
     candidate_ids = scored["id"].to_list()
-    degree_frame = store.inbound_degrees(refs, candidate_ids)
+    degree_frame = store.inbound_degrees(candidate_ids, within=refs)
     if not degree_frame.is_empty():
         imp = degree_frame.with_columns(
             _importance_expr().alias("importance"),
@@ -639,25 +635,25 @@ def _retrieve(
 
     # ── Proximity (diff distance) ────────────────────────
     if changed_files:
-        edge_frame = store.get_edges_frame(refs)
+        edges = store.edges(within=refs)
         # Build paths frame: candidates + unknown neighbours.
         edge_ids = pl.concat(
             [
-                edge_frame.select(pl.col("source_id").alias("id")),
-                edge_frame.select(pl.col("target_id").alias("id")),
+                edges.select(pl.col("source_id").alias("id")),
+                edges.select(pl.col("target_id").alias("id")),
             ]
         ).unique()
         unknown = edge_ids.join(scored.select("id"), on="id", how="anti")
-        paths_frame = ChunkPathResultRow.cast(scored.select("id", "file_path"))
+        chunk_paths = ChunkPathResultRow.cast(scored.select("id", "file_path"))
         unknown_ids = unknown["id"].to_list()
         if unknown_ids:
-            extra = store.chunk_paths_frame(refs, unknown_ids)
-            paths_frame = ChunkPathResultRow.cast(pl.concat([paths_frame, extra]))
+            extra = store.chunk_paths(unknown_ids, within=refs)
+            chunk_paths = ChunkPathResultRow.cast(pl.concat([chunk_paths, extra]))
 
         scored = compute_proximity(
             scored,
-            edge_frame=edge_frame,
-            paths_frame=paths_frame,
+            edges=edges,
+            chunk_paths=chunk_paths,
             changed_files=changed_files,
         )
     else:
@@ -673,9 +669,9 @@ def _has_semantic(candidates: dy.DataFrame[FusionInputRow]) -> bool:
 
 def search(
     store: IndexStore,
-    refs: list[SnapshotRef],
     query: str,
     *,
+    within: list[SnapshotRef],
     top_k: int = 10,
     changed_files: set[str] | None = None,
     embedder: Embedder | None = None,
@@ -690,7 +686,7 @@ def search(
 ) -> list[ScoredChunk]:
     """Fused search combining lexical, semantic, and name signals.
 
-    *refs* lists the `(repo_id, snapshot_sha)` snapshots to search
+    *within* lists the `(repo_id, snapshot_sha)` snapshots to search
     across.  One ref is a single-repo search; many refs fan the
     query across repos and merge results into one ranked list.
 
@@ -715,7 +711,7 @@ def search(
 
     candidates = _retrieve(
         store,
-        refs,
+        within,
         query,
         lex_query,
         query_vecs,

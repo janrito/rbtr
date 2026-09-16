@@ -1,8 +1,10 @@
 /**
- * Custom TUI renderers for rbtr tools.
+ * Renderers and text formatters for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
- * renderResult (collapsed/expanded views).
+ * renderResult (collapsed/expanded views), plus the plain-text
+ * formatter it returns to the model where it has one
+ * (renderStatusText).
  *
  * Two sources of payload:
  *   - details.response — typed response from the daemon
@@ -17,9 +19,11 @@ import { Text } from "@mariozechner/pi-tui";
 import { decodeStringList } from "./args.js";
 
 import type {
+  ActiveJob,
   ChangedSymbol,
   ChangedSymbolsResponse,
   FindRefsResponse,
+  IndexedRef,
   ListSymbolsResponse,
   ReadSymbolResponse,
   RefOut,
@@ -47,9 +51,9 @@ export function formatWatched(watched: WatchedRef[]): string[] {
     if (!w.sha) {
       lines.push(`  ✗ ${repo}${w.ref} — unresolvable`);
     } else if (w.indexed) {
-      lines.push(`  ✓ ${repo}${w.ref} — ${w.sha.slice(0, 12)} indexed`);
+      lines.push(`  ✓ ${repo}${w.ref} — ${shortSha(w.sha)} indexed`);
     } else {
-      lines.push(`  ⟳ ${repo}${w.ref} — ${w.sha.slice(0, 12)} pending`);
+      lines.push(`  ⟳ ${repo}${w.ref} — ${shortSha(w.sha)} pending`);
     }
   }
   return lines;
@@ -439,11 +443,41 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
 
 // ── Status ──────────────────────────────────────────────────────
 
+/**
+ * Render a `StatusResponse` as multi-line text for the LLM.
+ *
+ * Output is derived solely from the response model — no
+ * external state.  Mirrors the Python CLI shape so the model
+ * sees the same information regardless of transport.
+ */
+export function renderStatusText(status: StatusResponse): string {
+  const lines: string[] = [];
+  const indexed = status.indexed_refs ?? [];
+  if (indexed.length === 0) {
+    lines.push("No index found at the configured path.");
+  } else {
+    const total = indexed[0].total;
+    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
+    lines.push("Refs:");
+    for (const ref of indexed) {
+      lines.push(`  ${formatIndexedRef(ref)}`);
+    }
+  }
+  lines.push(...formatWatched(status.watched ?? []));
+  const job = status.active_build;
+  if (job) lines.push(formatActiveBuild(job));
+  const ej = status.active_embed;
+  if (ej) lines.push(formatActiveEmbed(ej));
+  if (!job && !ej && indexed.length > 0) {
+    lines.push("No active build.");
+  }
+  return lines.join("\n");
+}
+
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
 }
 
-// Output is derived solely from the response model — no external state.
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Checking…"), 0, 0);
 
@@ -457,7 +491,7 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   if (indexed.length === 0) {
     lines.push(theme.fg("error", "✗ No index found"));
   } else if (crossRepo) {
-    lines.push(theme.fg("success", `✓ indexed repos${sizeSuffixRender(response)}`));
+    lines.push(theme.fg("success", `✓ indexed repos${formatSizeSuffix(response)}`));
     const byRepo = new Map<string, typeof indexed>();
     for (const ref of indexed) {
       const key = ref.repo_path ?? "?";
@@ -468,56 +502,96 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     for (const [repoPath, refs] of byRepo) {
       lines.push(theme.fg("accent", repoPath));
       for (const ref of refs) {
-        lines.push(`  ${theme.fg("muted", fmtRefRender(ref))}`);
+        lines.push(`  ${theme.fg("muted", formatIndexedRef(ref))}`);
       }
     }
   } else {
     const total = indexed[0].total;
-    lines.push(theme.fg("success", `✓ ${humanCountRender(total)} symbols${sizeSuffixRender(response)}`));
+    lines.push(theme.fg("success", `✓ ${humanCount(total)} symbols${formatSizeSuffix(response)}`));
     for (const ref of indexed) {
-      lines.push(theme.fg("muted", fmtRefRender(ref)));
+      lines.push(theme.fg("muted", formatIndexedRef(ref)));
     }
   }
 
   const job = response?.active_build;
-  if (job) {
-    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsedRender(job.elapsed_seconds);
-    lines.push(
-      theme.fg(
-        "muted",
-        `⟳ Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`,
-      ),
-    );
-  }
+  if (job) lines.push(theme.fg("muted", `⟳ ${formatActiveBuild(job)}`));
   const ej = response?.active_embed;
-  if (ej) {
-    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsedRender(ej.elapsed_seconds);
-    lines.push(
-      theme.fg(
-        "muted",
-        `\u21BB Embedding: ${ej.ref.slice(0, 12)} \u2014 ${ej.current}/${ej.total}${pct} \u2014 ${elapsed}`,
-      ),
-    );
-  }
+  if (ej) lines.push(theme.fg("muted", `\u21BB ${formatActiveEmbed(ej)}`));
 
   return new Text(lines.join("\n"), 0, 0);
 }
 
-function formatElapsedRender(seconds: number): string {
+/** Progress as `3/10 (30%)`, without the percentage until the total is known. */
+export function formatJobCounts(job: ActiveJob): string {
+  const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
+  return `${job.current}/${job.total}${pct}`;
+}
+
+/** Render the running build as one line: ref, phase, progress, elapsed. */
+function formatActiveBuild(job: ActiveJob): string {
+  const progress = `${job.phase} ${formatJobCounts(job)}`;
+  return `Building: ${shortSha(job.ref)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
+}
+
+/** Render the running embed pass as one line: ref, progress, elapsed. */
+function formatActiveEmbed(job: ActiveJob): string {
+  return `Embedding: ${shortSha(job.ref)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
+}
+
+/** Format a duration for humans: `45s`, `1m05s`. */
+export function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}m${String(s).padStart(2, "0")}s`;
 }
 
-function humanCountRender(n: number): string {
+/** The two figures that decide embed completeness, as the wire sends them. */
+export type EmbedCounts = { total: number; embedded: number };
+
+/** Whether every chunk in the snapshot carries an embedding. */
+export function isFullyEmbedded(counts: EmbedCounts): boolean {
+  return counts.embedded >= counts.total;
+}
+
+/** Abbreviate a sha to the 12 characters every rbtr surface shows. */
+export function shortSha(sha: string): string {
+  return sha.slice(0, 12);
+}
+
+/**
+ * Format the footer label for an indexed repo.
+ *
+ * Glyph reflects index + embedding completeness:
+ *   ● — fully indexed and fully embedded
+ *   ○ — indexed but not (fully) embedded
+ *
+ * Suffixes after ` · ` for additional state:
+ *   rbtr: ● 3.5k symbols
+ *   rbtr: ○ 3.5k symbols · not embedded
+ *   rbtr: ○ 3.5k symbols · 42% embedded
+ *   rbtr: ● 3.5k symbols · no daemon
+ *   rbtr: ○ 3.5k symbols · no daemon · not embedded
+ */
+export function footerLabel(counts: EmbedCounts, daemon: boolean): string {
+  const { total, embedded } = counts;
+  const glyph = isFullyEmbedded(counts) ? "●" : "○";
+  const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
+  if (!daemon) parts.push("no daemon");
+  if (!isFullyEmbedded(counts)) {
+    parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
+  }
+  return parts.join(" · ");
+}
+
+/** Format a count for humans: 42, 1.2k, 11.2k. */
+export function humanCount(n: number): string {
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-function sizeSuffixRender(response: StatusResponse | undefined): string {
+/** Database size as ` · 1.5 MB`, or nothing when the daemon sends no size. */
+function formatSizeSuffix(response: StatusResponse | undefined): string {
   const bytes = response?.db_size_bytes;
   if (bytes == null) return "";
   let size = bytes;
@@ -528,14 +602,14 @@ function sizeSuffixRender(response: StatusResponse | undefined): string {
   return ` · ${size.toFixed(1)} GB`;
 }
 
-function fmtRefRender(ref: { sha: string; names?: string[]; total: number; embedded: number }): string {
+/** Render one indexed ref as a single line: sha, names, indexed count, embed state. */
+function formatIndexedRef(ref: IndexedRef): string {
   const label =
-    (ref.names ?? []).length > 0 ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})` : ref.sha.slice(0, 12);
-  const embedPart =
-    ref.embedded >= ref.total
-      ? `${humanCountRender(ref.embedded)} embedded \u2713`
-      : ref.embedded > 0
-        ? `${humanCountRender(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
-        : "not embedded";
-  return `${label}  ${humanCountRender(ref.total)} indexed  ${embedPart}`;
+    (ref.names ?? []).length > 0 ? `${shortSha(ref.sha)} (${(ref.names ?? []).join(", ")})` : shortSha(ref.sha);
+  const embedPart = isFullyEmbedded(ref)
+    ? `${humanCount(ref.embedded)} embedded \u2713`
+    : ref.embedded > 0
+      ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
+      : "not embedded";
+  return `${label}  ${humanCount(ref.total)} indexed  ${embedPart}`;
 }

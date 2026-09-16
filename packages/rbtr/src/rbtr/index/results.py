@@ -2,10 +2,10 @@
 
 Schemas here validate the columns DuckDB projects back to Python
 (`*ResultRow`), the cursor-registered join views (`_snapshot_refs`,
-`_file_paths`, `_serial_map`), and the fusion/ranking frames.  Transforms
-map a validated frame to `Chunk` models.  The write/staging schemas live in
-`staging.py`; the two are kept independent (see the import-linter CQRS
-contracts).
+`_file_paths`, `_serial_map`), and the fusion/ranking frames.  The `*_view`
+builders produce those join inputs; the `*_to_*` transforms map a validated
+frame to domain models.  The write/staging schemas live in `staging.py`; the
+two are kept independent (see the import-linter CQRS contracts).
 
 These are pure functions -- they never touch DuckDB directly.
 """
@@ -22,6 +22,7 @@ from rbtr.domain.models import (
     Chunks,
     EdgeKind,
     ImportMeta,
+    SnapshotCounts,
     SnapshotRef,
 )
 
@@ -38,6 +39,24 @@ class SnapshotRefRow(dy.Schema):
     snapshot_sha = dy.String(nullable=False)
 
 
+class SnapshotCountsRow(dy.Schema):
+    """Chunk totals for one indexed snapshot: how many, how many embedded.
+
+    `repo_id` is `Int32` to match the column on `file_snapshots`.
+    `total` and `embedded` are `Int64` because DuckDB's `count`
+    returns BIGINT.
+    """
+
+    repo_id = dy.Int32(primary_key=True)
+    snapshot_sha = dy.String(primary_key=True)
+    total = dy.Int64(nullable=False)
+    embedded = dy.Int64(nullable=False)
+
+    @dy.rule()
+    def embedded_within_total(cls) -> pl.Expr:
+        return cls.embedded.col <= cls.total.col
+
+
 class FilePathRow(dy.Schema):
     """Backs the cursor-registered `_file_paths` join view.
 
@@ -46,6 +65,17 @@ class FilePathRow(dy.Schema):
     """
 
     file_path = dy.String(nullable=False)
+
+
+class ChunkIdRow(dy.Schema):
+    """Backs the cursor-registered `_chunk_ids` join view.
+
+    Not an insert target: the embed path registers one page of its work
+    list here and joins chunks against it by id.  `id` is `String` to
+    match the column on `chunks`.
+    """
+
+    id = dy.String(nullable=False)
 
 
 class SerialMapRow(dy.Schema):
@@ -115,7 +145,7 @@ class ChunkResultRow(_ChunkIdentity):
 class ChunkContentRow(dy.Schema):
     """A subset of chunk columns for content-only lookups.
 
-    `get_chunks_frame` returns this shape so callers that
+    `chunk_contents` returns this shape so callers that
     only need identity + source text skip the full
     `ChunkResultRow` round-trip through `list[Chunk]`.
 
@@ -143,7 +173,7 @@ class ScoredChunkResultRow(ChunkResultRow):
 
 
 class ChangedSymbolRow(ChunkResultRow):
-    """Chunk projection plus a `change_kind` label from `diff_symbols.sql`.
+    """Chunk projection plus a `change_kind` label from `changed_symbols.sql`.
 
     Each `UNION ALL` branch of the query selects one side's columns
     as plain references, so the projection matches `ChunkResultRow`
@@ -211,7 +241,7 @@ class FusedRow(_ChunkIdentity, _SignalColumns):
     reranker = dy.Float64(nullable=False)
 
 
-def snapshot_refs_frame(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
+def snapshot_refs_view(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
     """Build the `_snapshot_refs` join view from a list of `SnapshotRef`."""
     if not refs:
         return SnapshotRefRow.create_empty()
@@ -223,14 +253,20 @@ def snapshot_refs_frame(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]
     ).pipe(SnapshotRefRow.validate, cast=True)
 
 
-def file_paths_frame(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
+def file_paths_view(file_paths: list[str]) -> dy.DataFrame[FilePathRow]:
     """Build the `_file_paths` join view from a list of file paths."""
     if not file_paths:
         return FilePathRow.create_empty()
     return pl.DataFrame({"file_path": file_paths}).pipe(FilePathRow.validate, cast=True)
 
 
-def serial_map_frame(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
+def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
+    """Build the `_chunk_ids` join view from a page of chunk ids."""
+    frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
+    return ChunkIdRow.validate(frame, cast=True)
+
+
+def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
     """Build the `_serial_map` join view from a language -> serial map."""
     if not serials:
         return SerialMapRow.create_empty()
@@ -276,6 +312,23 @@ def scored_to_chunks(
     scores = frame["score"].to_list()
     chunks = frame_to_chunks(frame.drop("score").pipe(ChunkResultRow.validate, cast=True))
     return list(zip(chunks, scores, strict=True))
+
+
+def frame_to_snapshot_counts(
+    frame: dy.DataFrame[SnapshotCountsRow],
+) -> list[tuple[SnapshotRef, SnapshotCounts]]:
+    """Pair every row with the snapshot it describes, in frame order.
+
+    Returns a list, because the order is the query's answer to which
+    snapshot comes first and a mapping would lose it.
+    """
+    return [
+        (
+            SnapshotRef(repo_id=row["repo_id"], snapshot_sha=row["snapshot_sha"]),
+            SnapshotCounts(total=row["total"], embedded=row["embedded"]),
+        )
+        for row in frame.iter_rows(named=True)
+    ]
 
 
 def changed_to_symbols(

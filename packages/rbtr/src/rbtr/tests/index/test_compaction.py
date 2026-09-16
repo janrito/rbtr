@@ -21,7 +21,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.daemon.handlers import handle_gc
 from rbtr.daemon.messages import GcRequest, GcResponse
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, SnapshotRef
 from rbtr.git import head_sha
 from rbtr.index.store import IndexStore
 
@@ -36,8 +36,7 @@ class ChurnedIndex:
 
     store: IndexStore
     repo_path: str
-    repo_id: int
-    snapshot_sha: str
+    ref: SnapshotRef
     query: str
 
 
@@ -78,14 +77,13 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                 )
                 snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
             ws.insert_snapshots(snaps, repo_id=repo_id)
-            ws.mark_indexed(repo_id, head)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
         store.close()
     store = IndexStore.from_config(writable=True)
     yield ChurnedIndex(
         store=store,
         repo_path=fake_repo,
-        repo_id=repo_id,
-        snapshot_sha=head,
+        ref=SnapshotRef(repo_id=repo_id, snapshot_sha=head),
         query="retry backoff",
     )
     store.close()
@@ -103,12 +101,12 @@ def test_gc_compaction_respects_flag(
     """
     ci = churned_index
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
+    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=scenario.compact)
     handle_gc(request, ci.store, allow_compact=True)
 
-    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
+    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
     if scenario.expect_shrink:
         assert ci.store.data_size_bytes() < before_size
     else:
@@ -149,8 +147,8 @@ def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     handle_gc(request, ci.store, allow_compact=True)
 
-    hits = ci.store.match_fulltext(ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id)
-    assert hits, "search returned nothing after compaction"
+    hits = ci.store.fulltext_matches(ci.query, within=[ci.ref], top_k=5)
+    assert len(hits) > 0, "search returned nothing after compaction"
 
 
 def test_handle_gc_does_not_compact_without_opt_in(churned_index: ChurnedIndex) -> None:
@@ -177,7 +175,7 @@ def test_gc_compaction_failure_is_non_fatal(
     """
     ci = churned_index
     before_size = ci.store.data_size_bytes()
-    before_count = ci.store.count_chunks(ci.snapshot_sha, ci.repo_id)
+    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
     mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
@@ -185,7 +183,7 @@ def test_gc_compaction_failure_is_non_fatal(
 
     assert isinstance(response, GcResponse)  # swallowed, not raised
     assert ci.store.data_size_bytes() == before_size  # rewrite did not take effect
-    assert ci.store.count_chunks(ci.snapshot_sha, ci.repo_id) == before_count
+    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
     db_path = Path(ci.store.db_path or "")
     # RCU names each temp `.compact-<uuid>`; none may linger after a fail.
     assert not list(db_path.parent.glob(f"{db_path.name}.compact-*"))
@@ -197,7 +195,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     Compaction publishes a fresh connection (RCU) instead of closing the
     live one, so a reader is never cut off mid-query: it finishes on the
     old connection and rebinds on its next call. Two register-pattern
-    read shapes run here (`match_fulltext` and `match_by_name`, both via
+    read shapes run here (`fulltext_matches` and `match_by_name`, both via
     `_view`) so the torn-cursor path — a read spanning a swap — is
     covered by more than one query. Any error (notably
     `IndexNotBuiltError`/`CatalogException` from a torn cursor) fails the
@@ -210,11 +208,19 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     def reader() -> None:
         try:
             while not stop.is_set():
-                assert ci.store.match_fulltext(
-                    ci.snapshot_sha, ci.query, top_k=5, repo_id=ci.repo_id
+                assert (
+                    len(
+                        ci.store.fulltext_matches(
+                            ci.query,
+                            within=[ci.ref],
+                            top_k=5,
+                        )
+                    )
+                    > 0
                 )
                 assert ci.store.match_by_name(
-                    ci.snapshot_sha, "calculate_retry_backoff_1", repo_id=ci.repo_id
+                    "calculate_retry_backoff_1",
+                    at=ci.ref,
                 )
         except Exception as exc:  # noqa: BLE001 - re-asserted on main thread
             errors.append(exc)

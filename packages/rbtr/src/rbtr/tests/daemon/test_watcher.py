@@ -12,7 +12,6 @@ dirty and not yet indexed.  Scenarios in
 from __future__ import annotations
 
 import shutil
-from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +19,7 @@ import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
+from rbtr.domain.models import SnapshotRef
 from rbtr.git import worktree_tree_sha
 from rbtr.index.store import IndexStore
 
@@ -80,9 +80,9 @@ def built_repos(
 def seeded_store(
     scenario: WatcherScenario,
     built_repos: dict[str, BuiltRepo],
-) -> Generator[IndexStore]:
+    store: IndexStore,
+) -> IndexStore:
     """Register every repo, apply recorded marks, and seed watched refs."""
-    store = IndexStore(writable=True)
     for spec in scenario.repos:
         if not spec.register:
             continue
@@ -91,12 +91,13 @@ def seeded_store(
             repo_id = ws.register_repo(built.path)
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(repo_id, built.shas[marked_index])
+                ws.mark_indexed(
+                    at=SnapshotRef(repo_id=repo_id, snapshot_sha=built.shas[marked_index])
+                )
             symbolic = scenario.watched.get(spec.name, [])
             bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
             ws.add_watched_refs(repo_id, [*symbolic, *bare])
-    yield store
-    store.close()
+    return store
 
 
 @fixture
@@ -160,21 +161,20 @@ def wt_repo(
 def wt_store(
     wt_scenario: WorktreeScenario,
     wt_repo: str,
-) -> Generator[IndexStore]:
+    store: IndexStore,
+) -> IndexStore:
     """Store with the repo registered and optionally tree-SHA-indexed."""
-    store = IndexStore(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo(wt_repo)
         # Mark HEAD indexed (so poll() doesn't interfere).
         if wt_scenario.repo_exists:
             head_sha = pygit2.Repository(wt_repo).head.target
-            ws.mark_indexed(repo_id, str(head_sha))
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(head_sha)))
         if wt_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(wt_repo)
             if tree_sha is not None:
-                ws.mark_indexed(repo_id, tree_sha)
-    yield store
-    store.close()
+                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
+    return store
 
 
 def test_poll_worktree(
@@ -197,28 +197,24 @@ def test_poll_worktree(
         assert result == []
 
 
-def test_poll_watched_never_forgets_a_vanished_repo(tmp_path: Path, sig: pygit2.Signature) -> None:
+def test_poll_watched_never_forgets_a_vanished_repo(
+    fake_repo: str, daemon_commit: str, store: IndexStore
+) -> None:
     """A repo whose checkout has vanished yields no build target and is
     **not** purged. Forgetting is always an explicit action — the daemon
     must never auto-reclaim, since the path may be transiently absent (an
     unmounted volume)."""
-    repo_dir = tmp_path / "gone"
-    repo_dir.mkdir()
-    repo = pygit2.init_repository(str(repo_dir), bare=False, initial_head="main")
-    sha = str(repo.create_commit("refs/heads/main", sig, sig, "c0", repo.TreeBuilder().write(), []))
-    store = IndexStore(writable=True)
-    try:
-        with store.session() as ws:
-            repo_id = ws.register_repo(str(repo_dir))
-            ws.mark_indexed(repo_id, sha)
-            ws.add_watched_refs(repo_id, ["HEAD"])
-        registered_before = store.list_repos()
+    with store.session() as ws:
+        repo_id = ws.register_repo(fake_repo)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
+        ws.add_watched_refs(repo_id, ["HEAD"])
+    registered_before = store.list_repos()
 
-        shutil.rmtree(repo_dir)  # the checkout disappears
-        targets = poll_watched(store)
+    shutil.rmtree(fake_repo)  # the checkout disappears
+    targets = poll_watched(store)
 
-        assert targets == []  # vanished repo yields no build
-        assert store.list_repos() == registered_before  # still registered — not purged
-        assert store.has_indexed(repo_id, sha) is True  # its data is intact
-    finally:
-        store.close()
+    assert targets == []  # vanished repo yields no build
+    assert store.list_repos() == registered_before  # still registered — not purged
+    assert (
+        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit)) is True
+    )  # its data is intact

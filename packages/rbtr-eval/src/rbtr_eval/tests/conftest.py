@@ -110,7 +110,7 @@ def seed_corpus(store: IndexStore, repo_path: Path, head: str, indexed: list[str
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"blob_{sha[:8]}")],
                 repo_id=repo_id,
             )
-            ws.mark_indexed(repo_id, sha)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     return repo_id
 
 

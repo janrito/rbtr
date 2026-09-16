@@ -1,6 +1,6 @@
 """Cases for read-side store behaviours.
 
-Scenarios for `get_chunks`, `get_edges`, `blob_is_current`,
+Scenarios for `get_chunks`, `edges`, `blob_is_current`,
 upsert, and multi-repo isolation.
 """
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
@@ -29,6 +29,15 @@ class ChunkQueryScenario:
     kind: ChunkKind | None = None
     name: str | None = None
     expected_names: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EmbedOrderScenario:
+    """Snapshots to mark indexed, grouped by transaction, and the order
+    the counts query should return them in."""
+
+    transactions: list[list[str]]
+    expected: list[str]
 
 
 @dataclass(frozen=True)
@@ -260,10 +269,9 @@ def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
 
 @dataclass(frozen=True)
 class SnapshotGroup:
-    """FileSnapshots for one commit of one repo, plus the repo to seed under."""
+    """FileSnapshots for one commit of one repo, plus the ref to seed under."""
 
-    repo_id: int
-    snapshot_sha: str
+    ref: SnapshotRef
     snapshots: list[FileSnapshot]
 
 
@@ -288,7 +296,11 @@ def case_gc_split_last_reference() -> GcCountScenario:
     c = make_chunk("only", path="a.py", blob="b1")
     return GcCountScenario(
         chunks=[c],
-        groups=[SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "b1")])],
+        groups=[
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "a.py", "b1")]
+            )
+        ],
         drop_repo_id=1,
         drop_shas=["c1"],
         expected_dropped=1,
@@ -303,8 +315,12 @@ def case_gc_split_shared_cross_repo() -> GcCountScenario:
     return GcCountScenario(
         chunks=[c],
         groups=[
-            SnapshotGroup(1, "c1", [make_snap("c1", "x.py", "b")]),
-            SnapshotGroup(2, "c2", [make_snap("c2", "x.py", "b")]),
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "x.py", "b")]
+            ),
+            SnapshotGroup(
+                SnapshotRef(repo_id=2, snapshot_sha="c2"), [make_snap("c2", "x.py", "b")]
+            ),
         ],
         drop_repo_id=1,
         drop_shas=["c1"],
@@ -320,8 +336,12 @@ def case_gc_split_shared_same_repo_other_ref() -> GcCountScenario:
     return GcCountScenario(
         chunks=[c],
         groups=[
-            SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "b")]),
-            SnapshotGroup(1, "c2", [make_snap("c2", "a.py", "b")]),
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "a.py", "b")]
+            ),
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c2"), [make_snap("c2", "a.py", "b")]
+            ),
         ],
         drop_repo_id=1,
         drop_shas=["c1"],
@@ -338,11 +358,34 @@ def case_gc_split_mixed() -> GcCountScenario:
     return GcCountScenario(
         chunks=[gone, stays],
         groups=[
-            SnapshotGroup(1, "c1", [make_snap("c1", "a.py", "ba"), make_snap("c1", "b.py", "bb")]),
-            SnapshotGroup(1, "c2", [make_snap("c2", "b.py", "bb")]),
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c1"),
+                [make_snap("c1", "a.py", "ba"), make_snap("c1", "b.py", "bb")],
+            ),
+            SnapshotGroup(
+                SnapshotRef(repo_id=1, snapshot_sha="c2"), [make_snap("c2", "b.py", "bb")]
+            ),
         ],
         drop_repo_id=1,
         drop_shas=["c1"],
         expected_dropped=1,
         expected_kept=1,
     )
+
+
+# ── embed_order cases ────────────────────────────────────────────────
+
+
+@case(tags=["embed_order"])
+def case_newest_transaction_is_embedded_first() -> EmbedOrderScenario:
+    """Separate transactions get distinct `indexed_at`, so the newer wins."""
+    return EmbedOrderScenario(transactions=[["c1"], ["c2"]], expected=["c2", "c1"])
+
+
+@case(tags=["embed_order"])
+def case_one_transaction_falls_to_the_sha() -> EmbedOrderScenario:
+    """One transaction stamps one `indexed_at`, so the tie-break decides.
+
+    Without it the pick would be arbitrary and this test flaky.
+    """
+    return EmbedOrderScenario(transactions=[["c3", "c1", "c2"]], expected=["c1", "c2", "c3"])

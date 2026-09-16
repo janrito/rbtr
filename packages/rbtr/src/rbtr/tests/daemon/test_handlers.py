@@ -1,6 +1,6 @@
 """Tests for daemon index handlers — end-to-end via ZMQ.
 
-Uses `running_server_with_index` fixture which starts a real
+Uses `running_daemon` fixture which starts a real
 server backed by an in-memory IndexStore seeded with test data.
 Tests verify typed responses via the actual socket path.
 """
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pygit2
 import pytest
 import structlog
 
@@ -79,8 +80,8 @@ def test_handle_gc_global_rejects_non_watched_mode(mode: GcMode, store: IndexSto
 # ── Search ───────────────────────────────────────────────────────────
 
 
-def test_search_returns_results(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_search_returns_results(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=fake_repo, query="load_config"))
     assert isinstance(resp, SearchResponse)
     assert len(resp.results) > 0
@@ -88,8 +89,8 @@ def test_search_returns_results(running_server_with_index: DaemonServer, fake_re
     assert "load_config" in names
 
 
-def test_search_respects_limit(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_search_respects_limit(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=fake_repo, query="config", limit=1))
     assert isinstance(resp, SearchResponse)
     assert len(resp.results) <= 1
@@ -103,12 +104,12 @@ def test_search_respects_limit(running_server_with_index: DaemonServer, fake_rep
     ],
 )
 def test_search_accepts_expansion_inputs(
-    running_server_with_index: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
     keywords: list[str] | None,
     variants: list[str] | None,
 ) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             SearchRequest(
                 repo_path=fake_repo,
@@ -123,11 +124,11 @@ def test_search_accepts_expansion_inputs(
 
 @pytest.mark.parametrize("explain", [True, False])
 def test_search_query_kind_only_under_explain(
-    running_server_with_index: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
     explain: bool,
 ) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             SearchRequest(repo_path=fake_repo, query="load_config", explain=explain),
         )
@@ -136,11 +137,11 @@ def test_search_query_kind_only_under_explain(
 
 
 def test_search_query_kind_override_without_expansion(
-    running_server_with_index: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
 ) -> None:
     """An explicit query_kind is honoured with no keywords/variants present."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             SearchRequest(
                 repo_path=fake_repo, query="load_config", query_kind="code", explain=True
@@ -153,8 +154,8 @@ def test_search_query_kind_override_without_expansion(
 # ── Read symbol ──────────────────────────────────────────────────────
 
 
-def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_read_symbol(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
@@ -162,29 +163,27 @@ def test_read_symbol(running_server_with_index: DaemonServer, fake_repo: str) ->
     assert "load_config" in names
 
 
-def test_read_symbol_returns_variable(
-    running_server_with_index: DaemonServer, fake_repo: str
-) -> None:
+def test_read_symbol_returns_variable(running_daemon: DaemonServer, fake_repo: str) -> None:
     """Module-level VARIABLE chunks are readable like any other symbol."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="MAX_SIZE"))
     assert isinstance(resp, ReadSymbolResponse)
     names = {c.name for c in resp.chunks}
     assert "MAX_SIZE" in names
 
 
-def test_read_symbol_not_found(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_read_symbol_not_found(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="nonexistent_xyz"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) == 0
 
 
 def test_read_symbol_unindexed_ref_errors(
-    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
 ) -> None:
     """An explicit ref that isn't indexed is an error, not an empty result."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
         )
@@ -193,7 +192,7 @@ def test_read_symbol_unindexed_ref_errors(
 
 
 def test_read_symbol_unindexed_ref_reports_building_when_active(
-    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
 ) -> None:
     """While a build is active, an unindexed ref reports 'building'.
 
@@ -201,7 +200,7 @@ def test_read_symbol_unindexed_ref_reports_building_when_active(
     raises a plain not-indexed error, which `_dispatch` upgrades when a
     build is running.
     """
-    server = running_server_with_index
+    server = running_daemon
     server._active_build = ActiveJob(
         repo_path=fake_repo, ref="x" * 40, phase="parsing", current=1, total=2, elapsed_seconds=0.0
     )
@@ -216,9 +215,7 @@ def test_read_symbol_unindexed_ref_reports_building_when_active(
     assert "building" in resp.message.lower()
 
 
-def test_read_symbol_with_file_paths(
-    running_server_with_index: DaemonServer, fake_repo: str
-) -> None:
+def test_read_symbol_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:
     """`file_paths` narrows the lookup to chunks from the listed files.
 
     Tiered name resolution means `load_config` exact-matches only
@@ -226,7 +223,7 @@ def test_read_symbol_with_file_paths(
     in `src/app.py` (name `from config import load_config`) is a
     substring match at a lower tier and is excluded.
     """
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         unscoped = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
         scoped = client.send(
             ReadSymbolRequest(
@@ -250,7 +247,7 @@ def test_read_symbol_with_file_paths(
 
 
 def test_read_symbol_file_paths_absolute_end_to_end(
-    running_server_with_index: DaemonServer, fake_repo: str
+    running_daemon: DaemonServer, fake_repo: str
 ) -> None:
     """An absolute scoping path resolves through the full wire path.
 
@@ -259,7 +256,7 @@ def test_read_symbol_file_paths_absolute_end_to_end(
     what the daemon deserialises and scopes against stored chunks.
     """
     abs_path = str(Path(fake_repo) / "src/config.py")
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", file_paths=[abs_path])
         )
@@ -269,7 +266,7 @@ def test_read_symbol_file_paths_absolute_end_to_end(
 
 
 def test_read_symbol_implicit_falls_back_when_head_unindexed(
-    running_server_with_index: DaemonServer, fake_repo: str, daemon_commit: str
+    running_daemon: DaemonServer, fake_repo: str, daemon_commit: str
 ) -> None:
     """A moved-but-unindexed HEAD resolves to the latest indexed commit.
 
@@ -277,15 +274,13 @@ def test_read_symbol_implicit_falls_back_when_head_unindexed(
     where the resolved ref isn't indexed: the implicit lookup should
     fall back rather than report the symbol missing.
     """
-    import pygit2
-
     repo = pygit2.Repository(fake_repo)
     sig = pygit2.Signature("t", "t@t.t")
     tree = repo.head.peel(pygit2.Commit).tree.id
     repo.create_commit("HEAD", sig, sig, "second", tree, [repo.head.target])
     assert str(repo.head.target) != daemon_commit
 
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
@@ -294,8 +289,8 @@ def test_read_symbol_implicit_falls_back_when_head_unindexed(
 # ── List symbols ─────────────────────────────────────────────────────
 
 
-def test_list_symbols(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_list_symbols(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
     assert isinstance(resp, ListSymbolsResponse)
     assert len(resp.chunks) >= 1
@@ -304,18 +299,18 @@ def test_list_symbols(running_server_with_index: DaemonServer, fake_repo: str) -
     assert "MAX_SIZE" in names
 
 
-def test_list_symbols_empty_file(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_list_symbols_empty_file(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="nonexistent.py"))
     assert isinstance(resp, ListSymbolsResponse)
     assert len(resp.chunks) == 0
 
 
 def test_list_symbols_unindexed_ref_errors(
-    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
 ) -> None:
     """An explicit ref that isn't indexed is an error, not an empty outline."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py", ref=unindexed_ref)
         )
@@ -326,8 +321,8 @@ def test_list_symbols_unindexed_ref_errors(
 # ── Find refs ────────────────────────────────────────────────────────
 
 
-def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+def test_find_refs(running_daemon: DaemonServer, fake_repo: str) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
     assert len(resp.refs) >= 1
@@ -337,10 +332,10 @@ def test_find_refs(running_server_with_index: DaemonServer, fake_repo: str) -> N
 
 
 def test_find_refs_unindexed_ref_errors(
-    running_server_with_index: DaemonServer, fake_repo: str, unindexed_ref: str
+    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
 ) -> None:
     """An explicit ref that isn't indexed is an error, not empty edges."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(
             FindRefsRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
         )
@@ -348,9 +343,9 @@ def test_find_refs_unindexed_ref_errors(
     assert "not indexed" in resp.message
 
 
-def test_find_refs_with_file_paths(running_server_with_index: DaemonServer, fake_repo: str) -> None:
+def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:
     """`file_paths` narrows name resolution before edges are queried."""
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         scoped = client.send(
             FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/config.py"])
         )
@@ -367,11 +362,11 @@ def test_find_refs_with_file_paths(running_server_with_index: DaemonServer, fake
 
 
 def test_status_with_index(
-    running_server_with_index: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
     daemon_commit: str,
 ) -> None:
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
+    with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=fake_repo))
     assert isinstance(resp, StatusResponse)
     assert resp.db_size_bytes is not None  # populated (0 for the in-memory test store)
@@ -383,94 +378,68 @@ def test_status_with_index(
     assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
 
 
-def test_status_unknown_repo(
-    running_server_with_index: DaemonServer, fake_repo: str, tmp_path: Path
-) -> None:
-    """Status for an unregistered repo returns empty response."""
-    # A real git repo that isn't registered in the store.
-    other = tmp_path / "other"
-    import pygit2
+def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> None:
+    """Status for an unregistered repo returns empty response.
 
-    r = pygit2.init_repository(str(other), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-    r.create_commit("refs/heads/main", sig, sig, "init", r.TreeBuilder().write(), [])
-    with DaemonClient(running_server_with_index.runtime_dir) as client:
-        resp = client.send(StatusRequest(repo_path=str(other)))
+    `second_repo` is a real repo the seeded store never registered —
+    `fake_repo` is the one `running_daemon` serves.
+    """
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(StatusRequest(repo_path=second_repo))
     assert isinstance(resp, StatusResponse)
     assert resp.indexed_refs == []
 
 
-# ── Index (watch_refs) ──────────────────────────────────────────
+# ── Index (the watch set) ───────────────────────────────────────
 #
-# Single-threaded: drive `handle_build_index` against a non-served
-# server (no worker thread) so the watch-set write is observable
-# without socket round-trips or build/embed background activity.
+# `handle_build_index` writes the watch set and nothing else, so these
+# drive it against the store directly.
 
 
-@pytest.fixture
-def index_server(runtime_dir: Path, seeded_store: IndexStore) -> DaemonServer:
-    """A server over the seeded store, not serving (no worker thread)."""
-    return DaemonServer(
-        runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
-    )
-
-
-def test_index_always_watches_head(
-    index_server: DaemonServer, seeded_store: IndexStore, tmp_path: Path
-) -> None:
+def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> None:
     """A repo first seen via `index <ref>` (not startup backfill) still
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
-    handle_build_index(BuildIndexRequest(repo_path=other, refs=["main"]), index_server.watch_refs)
+    handle_build_index(BuildIndexRequest(repo_path=other, refs=["main"]), seeded_store)
     watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
     assert "HEAD" in watched
     assert "main" in watched
 
 
-def test_remove_on_unregistered_repo_is_noop(
-    index_server: DaemonServer, seeded_store: IndexStore, tmp_path: Path
-) -> None:
+def test_remove_on_unregistered_repo_is_noop(seeded_store: IndexStore, tmp_path: Path) -> None:
     """Removing from a repo that was never indexed is a no-op — and must not
     spuriously register the repo."""
     other = str(tmp_path / "unregistered")
     resp = handle_build_index(
-        BuildIndexRequest(repo_path=other, refs=["main"], remove=True), index_server.watch_refs
+        BuildIndexRequest(repo_path=other, refs=["main"], remove=True), seeded_store
     )
     assert isinstance(resp, OkResponse)
     assert seeded_store.get_repo_id(other) is None
 
 
-def test_index_add_then_remove(
-    index_server: DaemonServer, seeded_store: IndexStore, fake_repo: str
-) -> None:
+def test_index_add_then_remove(seeded_store: IndexStore, fake_repo: str) -> None:
     """`index` records a ref in the watch set; `--remove` drops it."""
     repo_id = seeded_store.resolve_repo(fake_repo)
-    added = handle_build_index(
-        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
-    )
+    added = handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     assert isinstance(added, OkResponse)
     assert "main" in seeded_store.list_watched_refs(repo_id)
 
     removed = handle_build_index(
         BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
-        index_server.watch_refs,
+        seeded_store,
     )
     assert isinstance(removed, OkResponse)
     assert "main" not in seeded_store.list_watched_refs(repo_id)
 
 
-def test_index_remove_head_rejected_atomically(
-    index_server: DaemonServer, seeded_store: IndexStore, fake_repo: str
-) -> None:
+def test_index_remove_head_rejected_atomically(seeded_store: IndexStore, fake_repo: str) -> None:
     """`--remove HEAD` fails wholesale: no co-listed ref is deleted."""
     repo_id = seeded_store.resolve_repo(fake_repo)
-    handle_build_index(
-        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
-    )
+    handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     with pytest.raises(RbtrError, match="HEAD"):
         handle_build_index(
             BuildIndexRequest(repo_path=fake_repo, refs=["main", "HEAD"], remove=True),
-            index_server.watch_refs,
+            seeded_store,
         )
     watched = seeded_store.list_watched_refs(repo_id)
     assert "HEAD" in watched
@@ -492,17 +461,15 @@ def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: st
 
 
 def test_watch_refs_logs_intent(
-    index_server: DaemonServer,
+    seeded_store: IndexStore,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """Add and remove each emit a correlated intent event."""
-    handle_build_index(
-        BuildIndexRequest(repo_path=fake_repo, refs=["main"]), index_server.watch_refs
-    )
+    handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     handle_build_index(
         BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
-        index_server.watch_refs,
+        seeded_store,
     )
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events

@@ -12,7 +12,6 @@ Serialisation uses `model_dump_json()` / `TypeAdapter.validate_json()`.
 from __future__ import annotations
 
 import os
-from collections.abc import Hashable
 from enum import StrEnum
 from pathlib import PurePath
 from typing import Annotated, Any, Literal, Protocol, runtime_checkable
@@ -35,7 +34,7 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind
+from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, SnapshotRef
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -73,11 +72,14 @@ class HasRepoPath(Protocol):
     repo_path: str
 
 
-# ── Job types (work queue) ───────────────────────────────────────────
+# ── Job types (what the worker runs) ─────────────────────────────────
 
 
 class BuildJob(BaseModel):
-    """A build-index job for the unified work queue."""
+    """A build-index job, derived from the watch set or a dirty tree.
+
+    `refs` holds refs as named, not yet resolved to snapshots.
+    """
 
     model_config = _STRICT
     kind: Literal["build"] = "build"
@@ -85,26 +87,19 @@ class BuildJob(BaseModel):
     refs: tuple[str, ...]
     embed: bool = True
 
-    @property
-    def dedupe_key(self) -> Hashable:
-        return (self.repo_path, self.refs)
-
 
 class EmbedJob(BaseModel):
-    """An embed-index job for the unified work queue."""
+    """An embed job, derived from a snapshot's unembedded chunks.
+
+    `at` names the snapshot to embed; `repo_path` is what the
+    progress notifications report, and the snapshot does not carry
+    it.
+    """
 
     model_config = _STRICT
     kind: Literal["embed"] = "embed"
     repo_path: str
-    repo_id: int
-    ref: str
-
-    @property
-    def dedupe_key(self) -> Hashable:
-        return (self.repo_id, self.ref)
-
-
-Job = Annotated[BuildJob | EmbedJob, Field(discriminator="kind")]
+    at: SnapshotRef
 
 
 def _decode_json_array(text: str) -> Any:
@@ -565,13 +560,33 @@ class AutoRebuildNotification(BaseModel):
     new_ref: str
 
 
-class EmbedCompleteNotification(BaseModel):
+class EmbedOutcome(StrEnum):
+    """How an embed run ended.
+
+    `FINISHED` reached the end of its work list; the other two left
+    chunks unembedded, and the worker picks them up again later.
+    """
+
+    FINISHED = "finished"
+    STOOD_ASIDE = "stood_aside"
+    STOPPED = "stopped"
+
+
+class EmbedEndedNotification(BaseModel):
+    """An embed run ended, however it ended.
+
+    `chunks` and `embedded` are the snapshot's counts as the run left
+    them, so a subscriber can render progress without asking; `outcome`
+    says whether more work on this snapshot is still due.
+    """
+
     model_config = _STRICT
-    kind: Literal["embed_complete"] = "embed_complete"
+    kind: Literal["embed_ended"] = "embed_ended"
     repo_path: str
     ref: str
     chunks: int
     embedded: int
+    outcome: EmbedOutcome
 
 
 class IndexErrorNotification(BaseModel):
@@ -584,7 +599,7 @@ class IndexErrorNotification(BaseModel):
 Notification = Annotated[
     ProgressNotification
     | ReadyNotification
-    | EmbedCompleteNotification
+    | EmbedEndedNotification
     | AutoRebuildNotification
     | IndexErrorNotification,
     Field(discriminator="kind"),

@@ -45,8 +45,7 @@ from rbtr.cli.output import (
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
-    _status,
-    is_daemon_running,
+    live_status,
     start_daemon,
     stop_daemon,
     try_daemon,
@@ -91,7 +90,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.domain.models import GcMode
-from rbtr.errors import RbtrError
+from rbtr.errors import IndexLockedError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -159,9 +158,9 @@ class DaemonStart(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        if is_daemon_running():
-            s = _status()
-            print_err(f"[yellow]Daemon already running (PID {s.pid if s else '?'}).[/]")
+        running = live_status(config.runtime_dir)
+        if running is not None:
+            print_err(f"[yellow]Daemon already running (PID {running.pid}).[/]")
             return
 
         try:
@@ -177,7 +176,7 @@ class DaemonStop(BaseModel):
     """Stop the daemon gracefully."""
 
     def cli_cmd(self) -> None:
-        if not is_daemon_running():
+        if live_status(config.runtime_dir) is None:
             print_err("[yellow]Daemon is not running.[/]")
             return
 
@@ -199,8 +198,8 @@ class DaemonStatusCmd(BaseModel):
     """
 
     def cli_cmd(self) -> None:
-        status = _status()
-        if status is None or not is_daemon_running():
+        status = live_status(config.runtime_dir)
+        if status is None:
             emit(DaemonStatusReport(running=False))
             return
         emit(
@@ -298,8 +297,17 @@ class Index(BaseModel):
             start_daemon()
         except RbtrError as exc:
             print_err(f"[red]error:[/] failed to start daemon: {exc}")
-            print_err("[dim]Falling back to inline execution.[/]")
-            self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+            # No "falling back" notice before the attempt: when the start
+            # failed on the DuckDB lock, the inline build cannot run
+            # either, and announcing a fallback that can't happen is how
+            # this failure reads as a mystery.  `_run_inline` opens the
+            # store as its first act, so the lock surfaces immediately.
+            try:
+                self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+            except IndexLockedError as locked:
+                print_err(f"[red]error:[/] {locked}")
+                print_err("[dim]Inline indexing needs that same lock, so it was not attempted.[/]")
+                sys.exit(1)
             return
 
         self._report_watch(try_daemon(request), started=True)

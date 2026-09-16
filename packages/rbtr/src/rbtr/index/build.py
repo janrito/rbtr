@@ -31,6 +31,7 @@ from rbtr.domain.models import (
     FileOutcome,
     FileSnapshot,
     IndexResult,
+    SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import changed_files, list_files, normalise_repo_path
@@ -231,7 +232,9 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(snapshot_sha, snapshots, repo_id=repo_id)
+        session.replace_snapshots(
+            snapshots, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
+        )
 
     # Every outcome that occurred, by name, so a run's file count is
     # accounted for in the log line that reports it.
@@ -262,7 +265,7 @@ def _infer_and_store_edges(
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
     with store.session() as session:
-        session.replace_edges(snapshot_sha, edges, repo_id=repo_id)
+        session.replace_edges(edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
@@ -274,7 +277,7 @@ def _mark_indexed_and_cleanup(
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
     with store.session() as session:
-        session.mark_indexed(repo_id, snapshot_sha)
+        session.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
         cleaned = session.cleanup(repo_id)
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(
@@ -283,22 +286,6 @@ def _mark_indexed_and_cleanup(
                 edges=cleaned.edges,
                 chunks=cleaned.chunks,
             )
-    # Invariant guard for the content-addressed store: a build commits a
-    # commit's chunks and snapshots in one transaction, and cleanup has
-    # just pruned unreferenced rows, so no chunk should now lack a
-    # snapshot. A non-zero count means chunk and snapshot writes were
-    # split across transactions somewhere — which would let another
-    # repo's *global* orphan sweep delete chunks this repo still needs.
-    # Warn (don't abort) so the condition is visible without breaking
-    # indexing.
-    orphans = store.count_orphan_chunks()
-    if orphans:
-        log.warning(
-            "orphan_chunks_after_build",
-            orphans=orphans,
-            repo_id=repo_id,
-            sha=snapshot_sha[:12],
-        )
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -352,7 +339,7 @@ def build_index(
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = store.get_chunks(snapshot_sha, repo_id=repo_id)
+    all_chunks = store.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(

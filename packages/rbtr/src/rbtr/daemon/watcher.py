@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import resolve_ref, worktree_tree_sha
 from rbtr.index.store import IndexStore
@@ -77,7 +78,7 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
                 sha = resolve_ref(repo.repo_path, ref)
             except RbtrError:
                 continue
-            if store.has_indexed(repo.repo_id, sha):
+            if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
                 continue
             if (repo.repo_path, sha) in seen:
                 continue
@@ -86,13 +87,28 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     return out
 
 
+def pending_builds(store: IndexStore) -> list[WatchedTarget | DirtyWorktree]:
+    """Return the builds that are due, watched refs first.
+
+    The one place that answers "is there a build to run, and which".
+    A watched ref outranks a dirty worktree, so the worktree scan is
+    skipped entirely while any watched ref is stale — worth skipping,
+    because `worktree_tree_sha` stats the whole tree and writes loose
+    objects for a dirty one.
+    """
+    stale = poll_watched(store)
+    if stale:
+        return list(stale)
+    return list(poll_worktree(store))
+
+
 def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
     """Return every repo whose working tree is dirty and not yet indexed.
 
     For each registered repo, computes the current tree SHA via
     `worktree_tree_sha`.  If the tree is dirty (tree SHA differs
-    from HEAD's tree) and `has_indexed(repo_id, tree_sha)` is
-    False, returns a `DirtyWorktree` so the worker can rebuild.
+    from HEAD's tree) and `has_indexed` misses that tree, returns a
+    `DirtyWorktree` so the worker can rebuild.
 
     Read-only — never writes to the store.  All writes are done
     by the job worker thread via `WriteSession`.
@@ -102,7 +118,7 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
         sha = worktree_tree_sha(repo.repo_path)
         if sha is None:
             continue
-        if store.has_indexed(repo.repo_id, sha):
+        if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
             continue
         out.append(DirtyWorktree(repo_path=repo.repo_path, repo_id=repo.repo_id, snapshot_sha=sha))
     return out

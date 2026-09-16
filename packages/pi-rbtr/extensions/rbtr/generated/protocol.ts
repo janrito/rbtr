@@ -83,9 +83,16 @@ export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
   | ReadyNotification
-  | EmbedCompleteNotification
+  | EmbedEndedNotification
   | AutoRebuildNotification
   | IndexErrorNotification;
+/**
+ * How an embed run ended.
+ *
+ * `FINISHED` reached the end of its work list; the other two left
+ * chunks unembedded, and the worker picks them up again later.
+ */
+export type EmbedOutcome = "finished" | "stood_aside" | "stopped";
 
 export interface ShutdownRequest {
   kind: "shutdown";
@@ -469,12 +476,20 @@ export interface ReadyNotification {
   edges: number;
   elapsed: number;
 }
-export interface EmbedCompleteNotification {
-  kind: "embed_complete";
+/**
+ * An embed run ended, however it ended.
+ *
+ * `chunks` and `embedded` are the snapshot's counts as the run left
+ * them, so a subscriber can render progress without asking; `outcome`
+ * says whether more work on this snapshot is still due.
+ */
+export interface EmbedEndedNotification {
+  kind: "embed_ended";
   repo_path: string;
   ref: string;
   chunks: number;
   embedded: number;
+  outcome: EmbedOutcome;
 }
 export interface AutoRebuildNotification {
   kind: "auto_rebuild";

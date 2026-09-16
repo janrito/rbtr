@@ -167,6 +167,11 @@ class Config(BaseSettings):
         description="Enable verbose llama.cpp output during model loading.",
     )
     embedding_batch_size: int = Field(default=32, description="Batch size for embedding inference.")
+    embedding_page_size: int = Field(
+        default=1000,
+        description="Chunks fetched from the index per embedding page. "
+        "Caps peak memory while embedding a large snapshot.",
+    )
     insert_batch_size: int = Field(
         default=512,
         description="Max chunks buffered before a DuckDB insert flush. "
@@ -223,17 +228,12 @@ Only used by the daemon.",
         description="Seconds between watcher polls while a build is in progress.  \
 Slowed down to avoid flooding the queue with duplicates.  Only used by the daemon.",
     )
-    daemon_recv_timeout_ms: int = Field(
-        default=30_000,
-        description="ZMQ receive timeout (ms) for the daemon client.  \
-Must accommodate the first search when the embedding model \
-is still loading.",
-    )
-    daemon_max_retries: int = Field(
-        default=3,
-        description="Number of times the daemon client retries a request "
-        "that timed out, reconnecting the socket between attempts.  "
-        "0 disables retry.",
+    daemon_wait_budget_s: float = Field(
+        default=120.0,
+        description="Seconds the daemon client waits for one reply before "
+        "giving up.  Covers a cold start (the embedding model loading) and "
+        "a search that queues behind indexing; a caller that would rather "
+        "fail fast passes its own budget.",
     )
     daemon_start_timeout: float = Field(
         default=60.0,

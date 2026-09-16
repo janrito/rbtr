@@ -12,8 +12,6 @@ because it never exercised that code.
 
 from __future__ import annotations
 
-import asyncio
-import threading
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -33,6 +31,8 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.index.store import IndexStore
+
+from .conftest import serving
 
 
 @pytest.fixture
@@ -96,26 +96,25 @@ def daemon_store(tmp_path: Path) -> Generator[IndexStore]:
 
 @pytest.fixture
 def running_daemon(
-    runtime_dir: Path, daemon_store: IndexStore, stub_embedding_model: None
+    runtime_dir: Path,
+    daemon_store: IndexStore,
+    stub_embedding_model: None,
 ) -> Generator[DaemonServer]:
-    """A real daemon serving *daemon_store*.
+    """A served daemon over the disk-backed *daemon_store*.
 
     `runtime_dir` comes from `tests/daemon/conftest.py` and lives
     under a short `/tmp/rbtr*` path (macOS AF_UNIX has a
     103-char limit; `tmp_path` under xdist would exceed it).
     """
-    server = DaemonServer(
-        runtime_dir,
-        store=daemon_store,
-        idle_poll_interval=60.0,
-        busy_poll_interval=60.0,
-    )
-    t = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
-    t.start()
-    assert server.wait_ready(), "daemon did not start within timeout"
-    yield server
-    server.request_shutdown()
-    t.join(timeout=3)
+    with serving(
+        DaemonServer(
+            runtime_dir,
+            store=daemon_store,
+            idle_poll_interval=60.0,
+            busy_poll_interval=60.0,
+        )
+    ) as server:
+        yield server
 
 
 def _wait_for_build_start(client: DaemonClient, repo_path: Path, deadline_s: float) -> None:

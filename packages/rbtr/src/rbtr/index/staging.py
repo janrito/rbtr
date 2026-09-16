@@ -5,8 +5,8 @@
 — which are facts about the table, so they live with the write path
 that fills them.
 
-Each builder converts a list of domain objects (`Chunk`, `Edge`, or
-`FileSnapshot`) into a typed polars frame whose column names match the
+Each `staged_*` builder converts a list of domain objects (`Chunk`, `Edge`,
+or `FileSnapshot`) into a typed polars frame whose column names match the
 corresponding SQL staging view (`_stg`).  Registering a frame as a virtual
 view and running `INSERT INTO ... SELECT` against it is orders of magnitude
 faster than `executemany` for large batches; `duckdb.register` accepts polars
@@ -30,6 +30,7 @@ from rbtr.domain.models import (
     Edges,
     FileSnapshot,
     FileSnapshots,
+    SnapshotRef,
 )
 
 
@@ -136,7 +137,7 @@ class EmbeddingStagingRow(dy.Schema):
         return lengths == lengths.first()
 
 
-def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
+def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     """Build a staging frame of tokenised chunks for `_bulk_insert`.
 
     Chunks are content-addressed (keyed by `id`) and shared across
@@ -149,21 +150,25 @@ def chunks_frame(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
     )
 
 
-def edges_frame(edges: list[Edge], snapshot_sha: str, repo_id: int) -> dy.DataFrame[EdgeStagingRow]:
-    """Build a staging frame of edges scoped to *snapshot_sha*."""
+def staged_edges(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagingRow]:
+    """Build a staging frame of edges scoped to *at*.
+
+    Every row in the batch shares *at*, so `repo_id` and `snapshot_sha`
+    are broadcast here rather than repeated per edge in SQL.
+    """
     if not edges:
         return EdgeStagingRow.create_empty()
     return (
         pl.DataFrame(Edges.dump_python(edges, mode="json"))
         .with_columns(
-            repo_id=pl.lit(repo_id, dtype=pl.Int32),
-            snapshot_sha=pl.lit(snapshot_sha),
+            repo_id=pl.lit(at.repo_id, dtype=pl.Int32),
+            snapshot_sha=pl.lit(at.snapshot_sha),
         )
         .pipe(EdgeStagingRow.validate, cast=True)
     )
 
 
-def file_snapshots_frame(
+def staged_file_snapshots(
     snapshots: list[FileSnapshot], repo_id: int
 ) -> dy.DataFrame[FileSnapshotStagingRow]:
     """Build a staging frame from a list of `FileSnapshot` models."""
@@ -176,7 +181,7 @@ def file_snapshots_frame(
     )
 
 
-def embeddings_frame(
+def staged_embeddings(
     ids: list[str],
     embeddings: list[list[float]],
     truncated: list[bool],

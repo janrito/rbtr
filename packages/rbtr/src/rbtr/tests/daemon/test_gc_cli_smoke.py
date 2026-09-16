@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
@@ -74,7 +74,7 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
                 repo_id=repo_id,
             )
-            ws.mark_indexed(repo_id, sha)
+            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     store.close()
     return repo_id
 
@@ -100,7 +100,7 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
             [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
             repo_id=repo_id,
         )
-        ws.mark_indexed(repo_id, tiny_repo.c1)
+        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1))
     store.close()
     return repo_id
 
@@ -118,8 +118,8 @@ def test_gc_default_keeps_head_drops_unreferenced(
     assert payload["snapshots_dropped"] == 1  # c1 is not a ref tip
 
     store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(repo_id, tiny_repo.c1) is False
-    assert store.has_indexed(repo_id, tiny_repo.c2) is True
+    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
+    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
 
 
 def test_gc_dry_run_changes_nothing(
@@ -133,7 +133,7 @@ def test_gc_dry_run_changes_nothing(
     assert payload["dry_run"] is True
 
     store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(repo_id, tiny_repo.c1) is True
+    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is True
 
 
 def test_gc_watched_only_smoke(
@@ -146,7 +146,9 @@ def test_gc_watched_only_smoke(
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
     store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(repo_id, tiny_repo.c2) is True  # HEAD kept
+    assert (
+        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+    )  # HEAD kept
 
 
 def test_gc_all_repos_reclaims_globally(
@@ -160,8 +162,8 @@ def test_gc_all_repos_reclaims_globally(
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["snapshots_dropped"] == 1  # c1 is not a ref tip
     store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(repo_id, tiny_repo.c1) is False
-    assert store.has_indexed(repo_id, tiny_repo.c2) is True
+    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
+    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
 
 
 def test_gc_no_compact_smoke(
@@ -174,7 +176,9 @@ def test_gc_no_compact_smoke(
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
     store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(repo_id, tiny_repo.c2) is True  # HEAD kept
+    assert (
+        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+    )  # HEAD kept
 
 
 def test_gc_all_repos_rejects_aggressive_mode() -> None:

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import structlog
 
-from rbtr.domain.models import GcCounts, GcMode
+from rbtr.domain.models import GcCounts, GcMode, SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import (
     head_sha,
@@ -146,7 +146,7 @@ def run_gc(
         session.sweep()
         total = GcCounts()
         for sha in drop_set:
-            total = total + session.drop_snapshot(repo_id, sha)
+            total = total + session.drop_snapshot(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
         total = total + session.cleanup(repo_id)
         if compact:
             session.compact()
@@ -237,8 +237,10 @@ def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> G
     file_snapshots = 0
     edges = 0
     for sha in drop_set:
-        file_snapshots += store.count_file_snapshots(repo_id, sha)
-        edges += store.count_edges(repo_id, sha)
+        file_snapshots += store.count_file_snapshots(
+            at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+        )
+        edges += store.count_edges(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     return GcCounts(
         snapshots=total.snapshots,
         file_snapshots=file_snapshots,

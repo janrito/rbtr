@@ -156,7 +156,7 @@ the views on exit — even if the query raises, so a failed query
 can't leak a view onto the cursor:
 
 ```python
-with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
+with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
     return (
         cur.execute(_SEARCH_SQL, {"top_k": top_k})
         .pl()
@@ -166,16 +166,20 @@ with self._registered_views(_repo_refs=repo_refs_frame(refs)) as cur:
 
 Rules:
 
-- **Name views with a leading underscore** (`_repo_refs`,
+- **Name views with a leading underscore** (`_snapshot_refs`,
   `_qvecs`, `_stg`) so the SQL clearly marks them as transient
-  bind inputs, not real tables. The SQL `JOIN _repo_refs` /
+  bind inputs, not real tables. The SQL `JOIN _snapshot_refs` /
   `FROM _stg` against the registered frame.
 - **The registered frame still gets a `dataframely` schema.**
-  Build it through a schema'd frame-builder
-  (`repo_refs_frame`, `chunks_frame`) so its columns and dtypes
-  are declared once and match the table it joins against. A
-  width mismatch (e.g. `Int64` vs the table's `Int32`) is a
-  silent correctness trap DuckDB will paper over.
+  Build it through a schema'd builder — `*_view` for a join
+  input (`snapshot_refs_view`, `chunk_ids_view`), `staged_*`
+  for an upsert source (`staged_chunks`, `staged_edges`) — so
+  its columns and dtypes are declared once and match the table
+  it joins against. A width mismatch (e.g. `Int64` vs the
+  table's `Int32`) is a silent correctness trap DuckDB will
+  paper over, unless the builder validates against a schema
+  that pins the width, which `.pipe(Schema.validate, cast=True)`
+  does.
 - **Encode struct columns to JSON text before registering** when
   the target column is TEXT — DuckDB sees a polars `Struct` as a
   nested type, not a string. `_bulk_insert` does this with
@@ -187,8 +191,8 @@ Rules:
   this.
 - **Register multiple views for one query** when it needs several
   inputs — pass them as separate keyword arguments to
-  `_registered_views` (e.g. `_qvecs=…` + `_repo_refs=…` in the
-  semantic search).
+  `_registered_views` (e.g. `_qvecs=…` + `_snapshot_refs=…` in
+  the semantic search).
 
 This is the polars↔DuckDB bridge: keep data construction and
 validation in polars (schema'd frames), hand the SQL-shaped
@@ -211,8 +215,8 @@ inline. Concretely:
 - You're inserting/updating more than a couple of rows. Stage
   them in a frame and bulk-upsert from the registered view.
 - One query needs to be scoped/filtered by a variable-length set
-  computed in Python (the `_repo_refs` snapshots, the `_qvecs`
-  query vectors).
+  computed in Python (the `_snapshot_refs` snapshots, the
+  `_qvecs` query vectors).
 
 Don't bother when:
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -45,16 +45,15 @@ def test_concurrent_write_then_read(
                         target_path=http_func.file_path,
                     )
                 ],
-                "head",
-                repo_id=1,
+                at=SnapshotRef(repo_id=1, snapshot_sha="head"),
             )
 
     t = threading.Thread(target=writer)
     t.start()
     t.join()
 
-    assert len(store.get_chunks("head", repo_id=1)) == 3
-    assert len(store.get_edges("head", repo_id=1)) == 1
+    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
+    assert len(store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
     store.close()
 
 
@@ -93,7 +92,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     t.start()
 
     first_done.wait(timeout=5)
-    assert len(store.get_chunks("head", repo_id=1)) == 3
+    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
 
     t.join()
     store.close()
@@ -149,7 +148,9 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         nonlocal good_reads
         while not stop.is_set():
             try:
-                results = store.match_fulltext("head", "common_term", top_k=5, repo_id=1)
+                results = store.fulltext_matches(
+                    "common_term", within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
+                )
                 if len(results) > 0:
                     good_reads += 1
             except Exception as exc:  # noqa: BLE001
@@ -193,7 +194,7 @@ def test_store_survives_threads_that_write_and_exit(
             )
 
     def read() -> None:
-        seen.append(len(store.get_chunks("head", repo_id=1)))
+        seen.append(len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))))
 
     for chunk in (math_func, http_func):
         for work in (lambda c=chunk: write(c), read):

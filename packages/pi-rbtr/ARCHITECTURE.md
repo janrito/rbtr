@@ -173,6 +173,15 @@ no separate guard. See
 for the transport's reconnection and health-check
 behaviour.
 
+Both transports are patient. A tool call allows the daemon
+120 s to reply, because a search that arrives while the
+daemon is indexing waits for the work in front of it, and
+asking again only adds to that queue. The CLI fallback
+allows 150 s, which has to outlast the wait budget of the
+client it spawns. The startup status probe is the exception
+at 5 s: it asks whether a daemon is there at all, and "no"
+is an answer it can use.
+
 ---
 
 ## Index management
@@ -191,8 +200,10 @@ The extension holds no build state of its own — no promise,
 no "already running" flag. The daemon owns build scheduling
 and de-duplication; build progress reaches the footer
 through the PUB subscription (`progress`, `ready`,
-`embed_complete`, `auto_rebuild`, `index_error`
-notifications), not a local promise chain. The same
+`embed_ended`, `auto_rebuild`, `index_error`
+notifications), not a local promise chain. An `embed_ended`
+carries the outcome, because a run that stood aside for a
+build leaves work due and must not read as finished. The same
 mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
 and `triggerGc` — each a `withFallback` over a daemon RPC
 with a CLI fallback.
@@ -213,7 +224,9 @@ fresh repo still indexes once the daemon is healthy.
 The CLI fallback caps a build at 10 minutes. A fresh build
 with embeddings for a large repository can take several
 minutes (embedding is the bottleneck). Incremental builds
-with blob-SHA dedup typically complete in seconds.
+with blob-SHA dedup typically complete in seconds. Read
+tools have their own budgets — see
+[Transport dispatch](#transport-dispatch-withfallback).
 
 ---
 
@@ -230,6 +243,14 @@ Both functions receive the pi `Theme` object for
 consistent styling. `renderResult` receives an
 `AgentToolResult<unknown>` — the same object returned by
 the tool's `execute` function.
+
+`render.ts` also holds the plain-text formatter a tool
+returns to the model, where it has one: `renderStatusText`
+sits beside `renderStatusResult` and both build their lines
+from the same helpers. Housing the two renderers of one
+response apart does not work — the shared lines drift, and
+the model and the user are told the same figure in two
+shapes.
 
 ### Call-line arguments
 

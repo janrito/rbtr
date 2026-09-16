@@ -1,7 +1,7 @@
 """Handler tests for `changed_symbols`.
 
 Symbol-level classification is covered exhaustively by the index
-suite (`test_diff_symbols.py`); these tests cover the handler's
+suite (`test_symbol_diff.py`); these tests cover the handler's
 own responsibilities: mapping the diff to labelled `ChangedSymbol`
 items, and rejecting an unindexed ref with a clear error.
 """

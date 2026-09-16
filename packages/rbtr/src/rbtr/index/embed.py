@@ -1,22 +1,22 @@
 """Index embedding — compute vectors for an already-indexed commit.
 
-`embed_index` fetches un-embedded chunks in pages and processes each page in
-batches.  Each batch gets its own write session so the DuckDB write lock is
-released between batches — higher-priority builds can run in the gaps.
+`embed_index` resolves the whole work list once, then reads it back a page
+at a time and embeds each page in batches.  Each batch commits in its own
+write session, so a transaction covers the write alone.
 
-All heavy work runs synchronously — the caller (daemon job worker) runs it
-via `asyncio.to_thread()`.
+All heavy work runs synchronously in the calling thread — `rbtr index`
+embeds inline, after chunks and edges are committed.
 """
 
 from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Callable
 
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.store import IndexStore
@@ -32,34 +32,29 @@ def embed_index(
     repo_id: int,
     embedder: Embedder,
     on_progress: ProgressCallback = _noop_progress,
-    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     """Embed un-embedded chunks for an already-indexed commit.
 
-    Fetches unembedded chunks in pages and processes each page
-    in batches.  Each batch gets its own write session so the
-    DuckDB write lock is released between batches — higher-priority
-    builds can run in the gaps.
-
-    When *should_stop* returns ``True`` the function commits
-    the current batch and returns early.  The remaining chunks
-    are still ``embedding IS NULL`` so the next call picks up
-    where this one left off.
+    Resolves the work list once, then reads it back a page at a time and
+    embeds each page in batches.  Each batch commits in its own write
+    session, so a transaction covers the write alone.
 
     Returns the number of chunks that were embedded.
     """
-    total = store.count_unembedded(repo_id, snapshot_sha)
-    if total == 0:
+    ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
+    pending = store.unembedded_chunk_ids(at=ref)
+    if not pending:
         return 0
 
     on_progress("loading_model", 0, 0)
 
+    outstanding = len(pending)
     done = 0
     t0 = time.perf_counter()
 
-    while missing := store.get_unembedded_chunks(repo_id, snapshot_sha):
-        before = done
-        for batch in itertools.batched(missing, config.embedding_batch_size, strict=False):
+    for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
+        page = store.get_chunks_by_id(list(page_ids), at=ref)
+        for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]
             try:
                 results = embedder.embed(texts)
@@ -73,12 +68,7 @@ def embed_index(
                     truncated=[r.truncated for r in results],
                 )
             done += len(batch)
-            on_progress("embedding", done, total)
-            if should_stop is not None and should_stop():
-                log.info("embedding_preempted", done=done, total=total)
-                return done
-        if done == before:
-            break
+            on_progress("embedding", done, outstanding)
 
-    log.info("embedded_chunks", done=done, total=total, elapsed_ms=elapsed_ms(t0))
+    log.info("embedded_chunks", done=done, total=outstanding, elapsed_ms=elapsed_ms(t0))
     return done

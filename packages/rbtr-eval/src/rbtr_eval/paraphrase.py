@@ -32,7 +32,7 @@ from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.domain.identity import SCOPE_SEPARATOR
-from rbtr.domain.models import CODE_KINDS, ChunkKind
+from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
 from rbtr.git import read_head
 from rbtr.index.results import ChunkContentRow
 from rbtr.index.store import IndexStore
@@ -186,7 +186,7 @@ def _load_symbol_content(
     if sha is None:
         msg = f"no HEAD in {repo_path}"
         raise SystemExit(msg)
-    return store.get_chunks_frame(sha, repo_id=repo_id)
+    return store.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
 
 
 # ── Excluded identifiers ─────────────────────────────────────────────
@@ -368,7 +368,7 @@ def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.D
     slugs = set(sampled["slug"].unique())
     by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
     frames = [
-        store.get_chunks_frame(ref.snapshot_sha, repo_id=ref.repo_id)
+        store.chunk_contents(at=ref)
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))

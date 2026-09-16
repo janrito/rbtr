@@ -1,20 +1,24 @@
-"""Tests for DaemonClient retry on recv timeout.
+"""Tests for how `DaemonClient` waits when a reply is late.
 
 Uses real ZMQ sockets throughout — no mocking of the transport
-layer.  `time.sleep` is patched so the exponential backoff
-doesn't slow the suite.
+layer.  Budgets and the liveness interval are constructor
+arguments, so a daemon "too slow to answer" is a handler that
+sleeps for 150 ms.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
+import sys
+import time
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+import structlog
 import zmq
-from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import StatusRequest, StatusResponse
@@ -50,63 +54,105 @@ def silent_endpoint(runtime_dir: Path) -> Generator[Path]:
     ctx.term()
 
 
-def test_retry_succeeds_after_transient_timeout(
-    running_server: DaemonServer,
-    fake_repo: str,
-    mocker: MockerFixture,
-) -> None:
-    """A slow first response triggers a retry that succeeds.
+@pytest.fixture
+def dead_daemon_endpoint(silent_endpoint: Path) -> Path:
+    """`silent_endpoint`, with the status file naming a dead PID.
 
-    The handler sleeps beyond the client's recv timeout on the
-    first call, then responds immediately on the second.  The
-    client reconnects and retries, receiving the fast response.
+    The PID is a subprocess that has already exited, so it is
+    dead for certain rather than by assumption.
+    """
+    corpse = subprocess.Popen([sys.executable, "-c", ""])
+    corpse.wait(timeout=30)
+    write_status(
+        silent_endpoint,
+        pid=corpse.pid,
+        rpc=f"ipc://{silent_endpoint / 'daemon.rpc'}",
+        pub=f"ipc://{silent_endpoint / 'daemon.pub'}",
+        version="test",
+    )
+    return silent_endpoint
+
+
+def test_a_late_reply_is_waited_for_not_asked_for_again(
+    running_daemon: DaemonServer,
+    fake_repo: str,
+    log_output: structlog.testing.LogCapture,
+) -> None:
+    """A daemon slower than one liveness interval is waited for.
+
+    The handler sleeps past the interval at which the client
+    re-checks that the daemon is alive.  The client keeps
+    waiting on the same socket, so the daemon serves the
+    request once: re-sending would make a busy daemon do the
+    same work twice over.
     """
     calls = 0
 
-    async def slow_then_fast(_request: object) -> StatusResponse:
+    async def slow(_request: object) -> StatusResponse:
         nonlocal calls
         calls += 1
-        if calls == 1:
-            await asyncio.sleep(0.15)
+        await asyncio.sleep(0.15)
         return StatusResponse()
 
-    running_server.register("status", slow_then_fast)
-    mock_sleep = mocker.patch("rbtr.daemon.client.time.sleep")
+    running_daemon._handlers["status"] = slow
 
     with DaemonClient(
-        running_server.runtime_dir,
-        recv_timeout_ms=50,
-        max_retries=3,
+        running_daemon.runtime_dir,
+        wait_budget_s=5.0,
+        liveness_interval_s=0.05,
     ) as client:
         resp = client.send(StatusRequest(repo_path=fake_repo))
 
     assert isinstance(resp, StatusResponse)
-    assert mock_sleep.call_count >= 1
+    assert calls == 1, f"the daemon served the request {calls} times"
+    slow_replies = [e for e in log_output.entries if e["event"] == "daemon_slow_reply"]
+    assert not slow_replies, f"a reply well inside the budget warned {len(slow_replies)} times"
 
 
-@pytest.mark.parametrize(
-    ("max_retries", "expected_sleeps"),
-    [(1, 1), (0, 0)],
-    ids=["one_retry", "no_retries"],
-)
-def test_all_retries_exhausted_raises(
+def test_waiting_stops_when_the_budget_is_spent(
     silent_endpoint: Path,
     fake_repo: str,
-    mocker: MockerFixture,
-    max_retries: int,
-    expected_sleeps: int,
+    log_output: structlog.testing.LogCapture,
 ) -> None:
-    """DaemonBusyError is raised after all retries are spent."""
-    mock_sleep = mocker.patch("rbtr.daemon.client.time.sleep")
+    """A live daemon that never answers exhausts the budget.
 
+    It says so once on the way, rather than on every check: the
+    waiting is routine, a request halfway through its caller's
+    patience is not.
+    """
     with (
         DaemonClient(
             silent_endpoint,
-            recv_timeout_ms=50,
-            max_retries=max_retries,
+            wait_budget_s=0.2,
+            liveness_interval_s=0.05,
         ) as client,
         pytest.raises(DaemonBusyError),
     ):
         client.send(StatusRequest(repo_path=fake_repo))
 
-    assert mock_sleep.call_count == expected_sleeps
+    slow_replies = [e for e in log_output.entries if e["event"] == "daemon_slow_reply"]
+    assert len(slow_replies) == 1, f"warned {len(slow_replies)} times for one request"
+
+
+def test_a_dead_daemon_is_not_waited_for(
+    dead_daemon_endpoint: Path,
+    fake_repo: str,
+) -> None:
+    """Waiting ends as soon as the daemon's process is gone.
+
+    The endpoint still absorbs the request, so nothing but the
+    PID says the daemon has died.  The client must notice on
+    its first liveness check rather than spending the budget.
+    """
+    t0 = time.monotonic()
+    with (
+        DaemonClient(
+            dead_daemon_endpoint,
+            wait_budget_s=30.0,
+            liveness_interval_s=0.05,
+        ) as client,
+        pytest.raises(DaemonBusyError),
+    ):
+        client.send(StatusRequest(repo_path=fake_repo))
+
+    assert time.monotonic() - t0 < 1.0, "waited on a daemon that was not running"

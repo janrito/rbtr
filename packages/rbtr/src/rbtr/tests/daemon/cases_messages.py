@@ -20,7 +20,8 @@ from rbtr.daemon.messages import (
     BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
-    EmbedCompleteNotification,
+    EmbedEndedNotification,
+    EmbedOutcome,
     ErrorCode,
     ErrorResponse,
     FindRefsRequest,
@@ -469,12 +470,15 @@ def case_auto_rebuild() -> MessageScenario:
 
 
 @case(tags=["notification"])
-def case_embed_complete() -> MessageScenario:
+def case_embed_ended() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"embed_complete","repo_path":"/r","ref":"abc","chunks":100,"embedded":42}',
+        raw=(
+            b'{"kind":"embed_ended","repo_path":"/r","ref":"abc","chunks":100,'
+            b'"embedded":42,"outcome":"stood_aside"}'
+        ),
         adapter=notification_adapter,
-        expected_type=EmbedCompleteNotification,
-        checks={"ref": "abc", "embedded": 42},
+        expected_type=EmbedEndedNotification,
+        checks={"ref": "abc", "embedded": 42, "outcome": EmbedOutcome.STOOD_ASIDE},
     )
 
 

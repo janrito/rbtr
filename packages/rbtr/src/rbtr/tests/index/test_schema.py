@@ -20,7 +20,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.errors import IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.staging import TokenisedChunk
@@ -129,7 +129,7 @@ def test_chunks_survive_matches_scenario(
     store, scenario = reopened
     if not scenario.before.seeded_chunks:
         return
-    chunks = store.get_chunks("head", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if scenario.expected_chunks_survive:
         assert chunks, "expected chunks to survive"
     else:
@@ -142,7 +142,7 @@ def test_embeddings_survive_matches_scenario(
     store, scenario = reopened
     if not scenario.before.seeded_embeddings:
         return
-    chunks = store.get_chunks("head", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if not chunks:
         assert not scenario.expected_chunks_survive
         return
@@ -217,7 +217,9 @@ def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
     store = IndexStore(path, writable=True)  # newer code -> wipe in place
     try:
         assert path.stat().st_ino == inode_before, "wipe must not unlink/recreate the DB file"
-        assert not store.get_chunks("head", repo_id=1), "stale data must be wiped"
+        assert not store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")), (
+            "stale data must be wiped"
+        )
     finally:
         store.close()
 
@@ -243,11 +245,10 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
-    results1 = store1.match_fulltext("head", "persist", top_k=5, repo_id=1)
-    assert len(results1) == 1
+    ref = SnapshotRef(repo_id=1, snapshot_sha="head")
+    assert len(store1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
     store1.close()
 
     store2 = IndexStore(db_path, writable=True)
-    results2 = store2.match_fulltext("head", "persist", top_k=5, repo_id=1)
-    assert len(results2) == 1
+    assert len(store2.fulltext_matches("persist", within=[ref], top_k=5)) == 1
     store2.close()

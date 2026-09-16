@@ -28,17 +28,18 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts
+from rbtr.domain.models import Edge, FileSnapshot, GcCounts, SnapshotRef
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.staging import (
     TokenisedChunk,
-    chunks_frame,
-    edges_frame,
-    embeddings_frame,
-    file_snapshots_frame,
+    staged_chunks,
+    staged_edges,
+    staged_embeddings,
+    staged_file_snapshots,
 )
 
+_COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
 _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
@@ -99,17 +100,18 @@ class WriteSession:
     by `id`, no `repo_id`); a repo's claim on a chunk is the
     `file_snapshots` row referencing its blob.
 
-    **Atomicity invariant (load-bearing).** A build must write a
-    commit's chunks **and** its `file_snapshots` in the SAME
-    transaction, so no committed state ever holds a chunk without
-    its snapshot.  The cross-repo orphan sweeps
-    (`sweep_orphan_chunks`, `prune_chunks`) delete any chunk with no
-    referencing snapshot in *any* repo; if a build split chunk and
-    snapshot writes across transactions, a co-tenant repo's sweep
-    could delete chunks this build still needs.  `build_index`
-    upholds this (extraction and `replace_snapshots` share one
-    session) and logs `orphan_chunks_after_build` if it is ever
-    violated.
+    **A chunk enters only for a blob somebody claims.**  The
+    cross-repo sweeps (`sweep_orphan_chunks`, `prune_chunks`) delete
+    every chunk whose `(blob_sha, file_language)` no
+    `file_snapshots` row references, in any repo.  `_commit`
+    therefore refuses a session that inserted chunks for a blob no
+    row claims, rather than committing chunks the next sweep would
+    take — which is why a build writes a snapshot's chunks and its
+    rows in one transaction.  A re-extraction needs no new claim:
+    the blob's existing rows already reference it, which is how one
+    re-chunk reaches every repo sharing the blob.  Orphans still
+    arise the other way round, by removing a claim from a chunk
+    already stored, and that is what the sweeps are for.
 
     **Concurrency warning:** in the daemon, `WriteSession`
     instances must only be created on the job worker thread
@@ -121,6 +123,9 @@ class WriteSession:
         self._store = store
         self._active = False
         self._chunks_modified = False
+        # One entry per (blob_sha, file_language) this session inserted
+        # chunks for, checked against the claims at commit.
+        self._inserted_blobs: set[tuple[str, str]] = set()
         self._compact_requested = False
         # Chunks are content-addressed (keyed by id, no repo_id); the
         # buffer holds repo-independent content flushed via upsert.
@@ -199,15 +204,40 @@ class WriteSession:
             self._commit()
 
     def _commit(self) -> None:
-        """Flush pending chunks, commit, rebuild FTS, then compact if asked."""
+        """Flush pending chunks, commit, rebuild FTS, then compact if asked.
+
+        Rolls back and raises `RuntimeError` when the session inserted
+        chunks and wrote no `file_snapshots` row, rather than
+        committing chunks the next sweep would delete.
+        """
         self._require_active()
         self._flush_chunks()
+        if (unclaimed := self._count_unclaimed_blobs()) > 0:
+            self._cursor.rollback()
+            self._active = False
+            msg = (
+                f"Session inserted chunks for {unclaimed} blob(s) with no "
+                "file_snapshots row: a chunk no repo claims is deleted by "
+                "the next sweep."
+            )
+            raise RuntimeError(msg)
         self._cursor.commit()
         if self._chunks_modified:
             self._rebuild_fts()
         self._active = False
         if self._compact_requested:
             self._do_compact()
+
+    def _count_unclaimed_blobs(self) -> int:
+        """How many inserted blobs no `file_snapshots` row claims."""
+        if not self._inserted_blobs:
+            return 0
+        pairs = pl.DataFrame(
+            sorted(self._inserted_blobs), schema=["blob_sha", "file_language"], orient="row"
+        )
+        with self._store.reader(_stg=pairs) as cur:
+            row = cur.execute(_COUNT_UNCLAIMED_BLOBS_SQL).fetchone()
+        return int(row[0]) if row else 0
 
     def _rebuild_fts(self) -> None:
         """(Re)create the BM25 index and neutralise IDF."""
@@ -235,7 +265,7 @@ class WriteSession:
         ]
         if struct_cols:
             frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
-        with self._store._registered_views(_stg=frame) as cur:
+        with self._store.reader(_stg=frame) as cur:
             cur.execute(sql)
 
     # ── Write methods ────────────────────────────────────────────
@@ -264,8 +294,7 @@ class WriteSession:
         depends on chunks being in the DB.  Chunks carry no `repo_id`
         (they are keyed by content hash `id` and shared across repos);
         a repo claims a chunk by inserting a `file_snapshots` row for
-        its blob in the same transaction (see the class atomicity
-        invariant).
+        its blob in the same transaction, which `_commit` requires.
         """
         self._require_active()
         self._chunk_buffer.append(chunk)
@@ -276,8 +305,9 @@ class WriteSession:
         """Write buffered chunks to DuckDB in one batch."""
         if not self._chunk_buffer:
             return
-        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks_frame(self._chunk_buffer))
+        self._bulk_insert(_UPSERT_CHUNKS_SQL, staged_chunks(self._chunk_buffer))
         self._chunks_modified = True
+        self._inserted_blobs.update((c.blob_sha, c.file_language) for c in self._chunk_buffer)
         self._chunk_buffer.clear()
 
     def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:
@@ -315,42 +345,42 @@ class WriteSession:
         self._require_active()
         self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
 
-    def insert_snapshots(self, snapshots: list[FileSnapshot], repo_id: int) -> None:
+    def insert_snapshots(self, snapshots: list[FileSnapshot], *, repo_id: int) -> None:
         """Batch insert snapshots."""
         if not snapshots:
             return
-        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, file_snapshots_frame(snapshots, repo_id))
+        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, repo_id))
 
-    def replace_snapshots(
-        self, snapshot_sha: str, snapshots: list[FileSnapshot], repo_id: int
-    ) -> None:
-        """Atomically replace all snapshots for *snapshot_sha*."""
+    def replace_snapshots(self, snapshots: list[FileSnapshot], *, at: SnapshotRef) -> None:
+        """Atomically replace all snapshots at *at*."""
         self._flush_chunks()
-        self.delete_snapshots(snapshot_sha, repo_id=repo_id)
-        self.insert_snapshots(snapshots, repo_id=repo_id)
+        self.delete_snapshots(at=at)
+        self.insert_snapshots(snapshots, repo_id=at.repo_id)
 
-    def insert_edges(self, edges: list[Edge], snapshot_sha: str, repo_id: int) -> None:
-        """Batch insert edges scoped to *snapshot_sha*."""
+    def insert_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
+        """Batch insert edges scoped to *at*."""
         if not edges:
             return
-        self._bulk_insert(_INSERT_EDGES_SQL, edges_frame(edges, snapshot_sha, repo_id))
+        self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=at))
 
-    def replace_edges(self, snapshot_sha: str, edges: list[Edge], repo_id: int) -> None:
-        """Atomically replace all edges for *snapshot_sha*."""
-        self.delete_edges(snapshot_sha, repo_id=repo_id)
-        self.insert_edges(edges, snapshot_sha, repo_id=repo_id)
+    def replace_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
+        """Atomically replace all edges at *at*."""
+        self.delete_edges(at=at)
+        self.insert_edges(edges, at=at)
 
-    def delete_snapshots(self, snapshot_sha: str, repo_id: int) -> None:
-        """Remove all file snapshots scoped to *snapshot_sha*."""
+    def delete_snapshots(self, *, at: SnapshotRef) -> None:
+        """Remove all file snapshots scoped to *at*."""
         self._require_active()
         self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
+            _DELETE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
         )
 
-    def delete_edges(self, snapshot_sha: str, repo_id: int) -> None:
-        """Remove edges scoped to *snapshot_sha*."""
+    def delete_edges(self, *, at: SnapshotRef) -> None:
+        """Remove edges scoped to *at*."""
         self._require_active()
-        self._cursor.execute(_DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
+        self._cursor.execute(
+            _DELETE_EDGES_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        )
 
     def update_embeddings(
         self,
@@ -369,29 +399,26 @@ class WriteSession:
         self._flush_chunks()
         if truncated is None:
             truncated = [False] * len(ids)
-        frame = embeddings_frame(ids, embeddings, truncated)
-        with self._store._registered_views(_emb_stg=frame) as cur:
+        frame = staged_embeddings(ids, embeddings, truncated)
+        with self._store.reader(_emb_stg=frame) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
-    def mark_indexed(self, repo_id: int, snapshot_sha: str) -> None:
+    def mark_indexed(self, *, at: SnapshotRef) -> None:
         """Record a commit as fully indexed."""
         self._require_active()
-        self._cursor.execute(_MARK_INDEXED_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha})
+        self._cursor.execute(
+            _MARK_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        )
 
     # ── GC ───────────────────────────────────────────────────────
 
-    def drop_snapshot(self, repo_id: int, snapshot_sha: str) -> GcCounts:
-        """Remove all trace of *snapshot_sha* from this repo."""
+    def drop_snapshot(self, *, at: SnapshotRef) -> GcCounts:
+        """Remove all trace of the snapshot at *at* from its repo."""
         self._require_active()
-        commit_row = self._cursor.execute(
-            _DROP_SNAPSHOT_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        snap_row = self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
-        edge_row = self._cursor.execute(
-            _DELETE_EDGES_SQL, {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
-        ).fetchone()
+        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        commit_row = self._cursor.execute(_DROP_SNAPSHOT_SQL, params).fetchone()
+        snap_row = self._cursor.execute(_DELETE_SNAPSHOTS_SQL, params).fetchone()
+        edge_row = self._cursor.execute(_DELETE_EDGES_SQL, params).fetchone()
         chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchone()
         chunks_deleted = int(chunk_row[0]) if chunk_row else 0
         if chunks_deleted > 0:

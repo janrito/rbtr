@@ -30,9 +30,21 @@ import type { BuildIndexResponse, GcMode, GcResponse, Response, StatusResponse }
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
 
+/**
+ * How long a CLI fallback may take for a read tool.
+ *
+ * Must exceed the CLI client's own wait budget: the daemon it
+ * talks to may be indexing, and killing the process at a shorter
+ * deadline means the waiting the client would have done never
+ * happens.
+ */
+const READ_CLI_TIMEOUT_MS = 150_000;
+
 import { decodeStringList, echoArgs } from "./args.js";
 import {
-  formatWatched,
+  footerLabel,
+  formatElapsed,
+  formatJobCounts,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -47,6 +59,8 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
+  renderStatusText,
+  shortSha,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 
@@ -115,91 +129,6 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
       // silent — normal operation
       break;
   }
-}
-
-/**
- * Render a `StatusResponse` as multi-line text for the LLM.
- *
- * Output is derived solely from the response model — no
- * external state.  Mirrors the Python CLI shape so the model
- * sees the same information regardless of transport.
- */
-function renderStatusText(status: StatusResponse): string {
-  const lines: string[] = [];
-  const indexed = status.indexed_refs ?? [];
-  if (indexed.length === 0) {
-    lines.push("No index found at the configured path.");
-  } else {
-    const total = indexed[0].total;
-    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
-    lines.push("Refs:");
-    for (const ref of indexed) {
-      const label =
-        (ref.names ?? []).length > 0
-          ? `${ref.sha.slice(0, 12)} (${(ref.names ?? []).join(", ")})`
-          : ref.sha.slice(0, 12);
-      const embedPart =
-        ref.embedded >= ref.total
-          ? `${humanCount(ref.embedded)} embedded`
-          : ref.embedded > 0
-            ? `${humanCount(ref.embedded)} embedded (${Math.round((100 * ref.embedded) / ref.total)}%)`
-            : "not embedded";
-      lines.push(`  ${label} — ${humanCount(ref.total)} indexed, ${embedPart}`);
-    }
-  }
-  lines.push(...formatWatched(status.watched ?? []));
-  const job = status.active_build;
-  if (job) {
-    const pct = job.total > 0 ? ` (${Math.round((100 * job.current) / job.total)}%)` : "";
-    const elapsed = formatElapsed(job.elapsed_seconds);
-    lines.push(`Building: ${job.ref.slice(0, 12)} — ${job.phase} ${job.current}/${job.total}${pct} — ${elapsed}`);
-  }
-  const ej = status.active_embed;
-  if (ej) {
-    const pct = ej.total > 0 ? ` (${Math.round((100 * ej.current) / ej.total)}%)` : "";
-    const elapsed = formatElapsed(ej.elapsed_seconds);
-    lines.push(`Embedding: ${ej.ref.slice(0, 12)} — ${ej.current}/${ej.total}${pct} — ${elapsed}`);
-  }
-  if (!job && !ej && indexed.length > 0) {
-    lines.push("No active build.");
-  }
-  return lines.join("\n");
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}m${String(s).padStart(2, "0")}s`;
-}
-
-function humanCount(n: number): string {
-  if (n < 1000) return String(n);
-  return `${(n / 1000).toFixed(1)}k`;
-}
-
-/**
- * Format the footer label for an indexed repo.
- *
- * Glyph reflects index + embedding completeness:
- *   ● — fully indexed and fully embedded
- *   ○ — indexed but not (fully) embedded
- *
- * Suffixes after ` · ` for additional state:
- *   rbtr: ● 3.5k symbols
- *   rbtr: ○ 3.5k symbols · not embedded
- *   rbtr: ○ 3.5k symbols · 42% embedded
- *   rbtr: ● 3.5k symbols · no daemon
- *   rbtr: ○ 3.5k symbols · no daemon · not embedded
- */
-function footerLabel(total: number, embedded: number, daemon: boolean): string {
-  const glyph = embedded >= total ? "●" : "○";
-  const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
-  if (!daemon) parts.push("no daemon");
-  if (embedded < total) {
-    parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
-  }
-  return parts.join(" · ");
 }
 
 export default function rbtrIndexExtension(pi: ExtensionAPI) {
@@ -328,7 +257,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     if (decision.kind === "indexed") {
       const top = (status?.indexed_refs ?? [])[0];
-      if (top) footer.setStatic("success", footerLabel(top.total, top.embedded, session.available));
+      if (top) footer.setStatic("success", footerLabel(top, session.available));
       return;
     }
 
@@ -369,7 +298,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const status = await queryIndexStatus(ctx.cwd);
         const indexed = status?.indexed_refs ?? [];
         if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0].total, indexed[0].embedded, false));
+          footer?.setStatic("success", footerLabel(indexed[0], false));
         } else {
           footer?.setStatic("muted", "rbtr: no index · no daemon");
         }
@@ -379,7 +308,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const status = await queryIndexStatus(ctx.cwd);
         const indexed = status?.indexed_refs ?? [];
         if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0].total, indexed[0].embedded, true));
+          footer?.setStatic("success", footerLabel(indexed[0], true));
         } else {
           footer?.setStatic("muted", "rbtr: no index");
         }
@@ -402,11 +331,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     const elapsedSuffix = (): string => {
       if (buildStartedAt === null) return "";
-      const s = Math.floor((Date.now() - buildStartedAt) / 1000);
-      if (s < 60) return ` · ${s}s`;
-      const m = Math.floor(s / 60);
-      const rem = s % 60;
-      return ` · ${m}m${String(rem).padStart(2, "0")}s`;
+      return ` · ${formatElapsed(Math.floor((Date.now() - buildStartedAt) / 1000))}`;
     };
 
     try {
@@ -425,9 +350,21 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             break;
           }
           case "ready":
-          case "embed_complete":
             buildStartedAt = null;
-            footer.setStatic("success", footerLabel(notification.chunks, notification.embedded, true));
+            footer.setStatic(
+              "success",
+              footerLabel({ total: notification.chunks, embedded: notification.embedded }, true),
+            );
+            break;
+          case "embed_ended":
+            // An embed run that stood aside for a build, or stopped on
+            // shutdown, leaves chunks unembedded and will run again —
+            // only a finished one has nothing left to do.
+            buildStartedAt = null;
+            footer.setStatic(
+              notification.outcome === "finished" ? "success" : "muted",
+              footerLabel({ total: notification.chunks, embedded: notification.embedded }, true),
+            );
             break;
           case "auto_rebuild":
             buildStartedAt = Date.now();
@@ -716,14 +653,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
       if (status?.active_build && status.active_build.repo_path === ctx.cwd) {
         const j = status.active_build;
-        const pct = j.total > 0 ? ` (${Math.round((100 * j.current) / j.total)}%)` : "";
         return {
           content: [
             {
               type: "text",
               text:
-                `A build is already in progress for this repository at ${j.ref.slice(0, 12)} ` +
-                `(${j.phase} ${j.current}/${j.total}${pct}). No new build was queued. ` +
+                `A build is already in progress for this repository at ${shortSha(j.ref)} ` +
+                `(${j.phase} ${formatJobCounts(j)}). No new build was queued. ` +
                 `Use rbtr_status to check progress.`,
             },
           ],
@@ -740,7 +676,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             content: [
               {
                 type: "text",
-                text: `Index is up to date for HEAD (${headRef.sha.slice(0, 12)}). No action taken.`,
+                text: `Index is up to date for HEAD (${shortSha(headRef.sha)}). No action taken.`,
               },
             ],
             details: { status: "up_to_date", refs, head: headRef.sha },
@@ -924,7 +860,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
-            const result = await runRbtr(pi, resolved, args, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -1011,7 +947,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const readArgs = ["read-symbol", params.symbol];
             if (params.ref !== undefined) readArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -1097,7 +1033,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const findArgs = ["find-refs", params.symbol];
             if (params.ref !== undefined) findArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: 30_000 });
+            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
             const text = result.stdout.trim();
             if (!text) {
               return {
@@ -1179,7 +1115,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             for (const fp of params.file_paths ?? []) changedArgs.push("--file-path", fp);
             const result = await runRbtr(pi, resolved, changedArgs, {
               signal,
-              timeout: 30_000,
+              timeout: READ_CLI_TIMEOUT_MS,
             });
             const text = result.stdout.trim();
             if (!text) {
@@ -1252,7 +1188,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (params.ref !== undefined) listArgs.push("--ref", params.ref);
             const result = await runRbtr(pi, resolved, listArgs, {
               signal,
-              timeout: 30_000,
+              timeout: READ_CLI_TIMEOUT_MS,
             });
             const text = result.stdout.trim();
             if (!text) {

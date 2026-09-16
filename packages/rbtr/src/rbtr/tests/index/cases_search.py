@@ -113,8 +113,8 @@ def case_unified_search_without_embeddings() -> SearchScenario:
     """
     return SearchScenario(
         chunks=[
-            make_chunk("a", name="AppConfig", kind=ChunkKind.CLASS),
-            make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION),
+            make_chunk("a", name="AppConfig", kind=ChunkKind.CLASS, path="a.py"),
+            make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION, path="b.py"),
         ],
         query="config",
         expected_hit_names=["AppConfig", "load_config"],

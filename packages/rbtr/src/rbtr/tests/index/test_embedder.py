@@ -14,11 +14,9 @@ from collections.abc import Iterator
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.domain.models import SnapshotRef
 from rbtr.index import _gpu_model
 from rbtr.index.embeddings import Embedder, embedding_text
-from rbtr.index.results import ScoredChunkResultRow
-from rbtr.index.store import IndexStore
+from rbtr.index.search import _embed_query
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -113,34 +111,37 @@ def save_draft(pr: int) -> None:
     assert embedding_text("save_draft", content) == f"save_draft\n{content}"
 
 
-# ── store.match_by_text ──────────────────────────────────────────────
+# ── query embedding ──────────────────────────────────────────────
 
 
-def test_match_by_text_prepends_query_instruction(mocker: MockerFixture) -> None:
+def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:
     """The query is prefixed with the model's instruction before embedding.
 
     The instruction prefix is invisible in the results, so a mock
     embedder is used to observe the text actually embedded — here the
     collaborator call *is* the behaviour under test.
     """
+    prefix = "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
     embedder = mocker.MagicMock()
     embedder.embed_single.return_value = [0.1, 0.2, 0.3]
 
-    store = IndexStore()
-    spy = mocker.patch.object(
-        store, "match_similar_frame", return_value=ScoredChunkResultRow.create_empty()
-    )
+    vectors = _embed_query("find this", embedder, None)
 
-    store.match_by_text("abc123", "find this", top_k=5, repo_id=1, embedder=embedder)
+    embedder.embed_single.assert_called_once_with(f"{prefix}find this")
+    assert vectors == [[0.1, 0.2, 0.3]]
 
-    embedder.embed_single.assert_called_once_with(
-        "Instruct: Given a code search query, retrieve relevant code or documentation"
-        "\nQuery:find this"
-    )
-    spy.assert_called_once_with(
-        [SnapshotRef(repo_id=1, snapshot_sha="abc123")], [[0.1, 0.2, 0.3]], 5
-    )
-    store.close()
+
+def test_query_embedding_prepends_instruction_to_variants(mocker: MockerFixture) -> None:
+    """Expansion variants carry the same prefix as the original query."""
+    prefix = "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
+    embedder = mocker.MagicMock()
+    embedder.embed_single.return_value = [0.1, 0.2, 0.3]
+    embedder.embed.return_value = [mocker.MagicMock(vector=[0.4, 0.5, 0.6])]
+
+    vectors = _embed_query("find this", embedder, ["locate that"])
+
+    embedder.embed.assert_called_once_with([f"{prefix}locate that"])
+    assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 
 
 # ── resolve_gguf_path validation ─────────────────────────────────────

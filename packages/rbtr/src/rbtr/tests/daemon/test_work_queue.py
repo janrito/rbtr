@@ -1,93 +1,90 @@
-"""Tests for startup recovery.
+"""What the daemon decides to work on, and when it wakes to do it.
 
-Recovery sets `DaemonServer._wake` so the DB-polling worker
-picks up un-embedded commits on startup.
+Startup recovery sets `DaemonServer._wake` when an index has embedding
+left to do; `_find_next_job` then picks which build or embed runs next.
+Both read the same scenarios, because both are asking the index the
+same question.
 """
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
 import pytest
+from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.daemon.messages import BuildJob
+from rbtr.daemon.messages import BuildJob, EmbedJob
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
+from .cases_work_queue import NextJobScenario
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def recovery_store_unembedded() -> Generator[IndexStore]:
-    """Store with one indexed but unembedded commit."""
-    store = IndexStore(writable=True)
-    with store.session() as ws:
-        repo_id = ws.register_repo("/test/repo")
-        ws.add_chunk(make_chunk("chunk1", name="foo", path="test.py", blob="blob1"))
-        ws.insert_snapshots(
-            [FileSnapshot(snapshot_sha="sha1", file_path="test.py", blob_sha="blob1")],
-            repo_id=repo_id,
-        )
-        ws.mark_indexed(repo_id, "sha1")
-    yield store
-    store.close()
-
-
-@pytest.fixture
-def recovery_store_fully_embedded() -> Generator[IndexStore]:
-    """Store with one indexed and fully embedded commit."""
-    store = IndexStore(writable=True)
-    with store.session() as ws:
-        repo_id = ws.register_repo("/test/repo")
-        chunk = make_chunk("chunk1", name="foo", path="test.py", blob="blob1")
-        ws.add_chunk(chunk)
-        ws.insert_snapshots(
-            [FileSnapshot(snapshot_sha="sha1", file_path="test.py", blob_sha="blob1")],
-            repo_id=repo_id,
-        )
-        ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
-        ws.mark_indexed(repo_id, "sha1")
-    yield store
-    store.close()
+@fixture
+@parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
+def next_job_store(
+    scenario: NextJobScenario, store: IndexStore
+) -> tuple[IndexStore, NextJobScenario]:
+    for n, snap in enumerate(scenario.snapshots):
+        with store.session() as ws:
+            repo_id = ws.register_repo(snap.repo_path)
+            chunk = make_chunk(f"c{n}", name=f"fn{n}", path=f"f{n}.py", blob=f"blob{n}")
+            ws.add_chunk(chunk)
+            ws.insert_snapshots(
+                [
+                    FileSnapshot(
+                        snapshot_sha=snap.snapshot_sha,
+                        file_path=f"f{n}.py",
+                        blob_sha=f"blob{n}",
+                    )
+                ],
+                repo_id=repo_id,
+            )
+            if snap.embedded:
+                ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
+            if snap.indexed:
+                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snap.snapshot_sha))
+    return store, scenario
 
 
 # ── Startup recovery ────────────────────────────────────────────────
 
 
-def test_startup_recovery_enqueues_embed_jobs(
-    recovery_store_unembedded: IndexStore,
+def test_startup_recovery_wakes_the_worker_for_outstanding_embeds(
+    next_job_store: tuple[IndexStore, NextJobScenario],
     runtime_dir: Path,
 ) -> None:
-    """Unembedded commit → wake event set; construction backfills a HEAD watch."""
+    """A daemon starting on an index with embed work left wakes its worker.
+
+    Recovery and job selection ask the same question of the index, so
+    they read the same scenarios: the wake event follows whether any
+    snapshot has chunks left to embed.
+    """
+    store, scenario = next_job_store
+
     server = DaemonServer(
-        runtime_dir,
-        store=recovery_store_unembedded,
-        idle_poll_interval=60.0,
-        busy_poll_interval=60.0,
+        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
-    assert server._wake.is_set()
-    # `_backfill_head_watches` seeds a HEAD watch for every registered repo.
-    repo_id = recovery_store_unembedded.resolve_repo("/test/repo")
-    assert recovery_store_unembedded.list_watched_refs(repo_id) == ["HEAD"]
+
+    assert server._wake.is_set() == (scenario.expected_ref is not None)
 
 
-def test_startup_recovery_skips_fully_embedded(
-    recovery_store_fully_embedded: IndexStore,
+def test_startup_backfills_a_head_watch_for_every_repo(
+    store: IndexStore,
     runtime_dir: Path,
 ) -> None:
-    """Fully embedded commit → wake event not set."""
-    server = DaemonServer(
-        runtime_dir,
-        store=recovery_store_fully_embedded,
-        idle_poll_interval=60.0,
-        busy_poll_interval=60.0,
-    )
-    assert not server._wake.is_set()
+    """`_backfill_head_watches` gives each registered repo a HEAD watch."""
+    with store.session() as ws:
+        ws.register_repo("/test/repo")
+
+    DaemonServer(runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0)
+
+    assert store.list_watched_refs(store.resolve_repo("/test/repo")) == ["HEAD"]
 
 
 # ── Watched-ref builds & HEAD backfill ───────────────────────────────
@@ -108,13 +105,11 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def dirty_store(dirty_unindexed_repo: str) -> Generator[IndexStore]:
+def dirty_store(dirty_unindexed_repo: str, store: IndexStore) -> IndexStore:
     """Store with the dirty repo registered, nothing indexed."""
-    store = IndexStore(writable=True)
     with store.session() as ws:
         ws.register_repo(dirty_unindexed_repo)
-    yield store
-    store.close()
+    return store
 
 
 def test_find_next_job_prefers_stale_watched_ref(
@@ -136,3 +131,25 @@ def test_find_next_job_prefers_stale_watched_ref(
     job = server._find_next_job()
     assert isinstance(job, BuildJob)
     assert job.refs == (head,)
+
+
+# ── Which job comes next ─────────────────────────────────────────────
+
+
+def test_find_next_job_picks_the_embed_work(
+    next_job_store: tuple[IndexStore, NextJobScenario],
+    runtime_dir: Path,
+) -> None:
+    """`_find_next_job` returns the embed job that is due.
+
+    These repo paths are absent from disk, so ref resolution skips the
+    watched-ref and worktree branches and the embed branch decides.
+    """
+    store, scenario = next_job_store
+    server = DaemonServer(
+        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
+
+    job = server._find_next_job()
+
+    assert (job.at.snapshot_sha if isinstance(job, EmbedJob) else job) == scenario.expected_ref

@@ -146,6 +146,22 @@ def case_status_grouped_by_repo() -> RenderScenario:
     )
 
 
+@case(tags=["status"])
+def case_status_brackets_a_partial_embed_percentage() -> RenderScenario:
+    """A partly embedded ref shows its percentage in brackets."""
+    return RenderScenario(
+        model=StatusResponse(
+            db_path="/db",
+            indexed_refs=[
+                IndexedRef(sha="a" * 40, total=1200, embedded=512, repo_path="/projects/one")
+            ],
+        ),
+        # The count and the percentage are asserted apart: the percentage
+        # carries its own colour, so ANSI sits between them in TTY mode.
+        expected=("512 embedded", "(43%)"),
+    )
+
+
 @case(tags=["gc"])
 def case_gc_reports_freed_chunks_and_scope() -> RenderScenario:
     """GC output shows chunks freed and the repo scope, beside per-repo counts."""

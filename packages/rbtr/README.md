@@ -294,6 +294,10 @@ The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
 keeps HEAD plus the listed refs; `--orphans` sweeps residue
 from crashed builds.
 
+If the daemon is mid-build or mid-embed when you run it, gc waits
+for that work to commit before it starts — usually a second or two,
+longer if a large repo is building.
+
 After deleting, gc rewrites the index file to hand the freed disk
 space back to the operating system — deleting alone keeps that space
 inside the file, so it never shrinks on its own. The rewrite reports

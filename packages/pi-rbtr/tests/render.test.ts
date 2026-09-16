@@ -8,8 +8,16 @@
 
 import { describe, expect, test } from "vitest";
 
-import type { SearchHitOut } from "../extensions/rbtr/generated/protocol.js";
-import { extractPayload, fileScopeSuffix, formatWatched, renderSearchResult } from "../extensions/rbtr/render.js";
+import type { SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/protocol.js";
+import {
+  extractPayload,
+  fileScopeSuffix,
+  footerLabel,
+  formatWatched,
+  renderSearchResult,
+  renderStatusResult,
+  renderStatusText,
+} from "../extensions/rbtr/render.js";
 
 // Minimal theme: styling is identity so assertions see raw text.
 const plainTheme = {
@@ -108,6 +116,123 @@ describe("formatWatched", () => {
 
   test("empty watch set renders nothing", () => {
     expect(formatWatched([])).toEqual([]);
+  });
+});
+
+describe("renderStatusText", () => {
+  // One response covering every embed state a ref can be in: fully
+  // embedded, partly, not at all, and an empty snapshot.
+  const status: StatusResponse = {
+    kind: "status",
+    db_path: "/db",
+    indexed_refs: [
+      { sha: "a".repeat(40), names: ["HEAD", "main"], total: 1200, embedded: 1200 },
+      { sha: "b".repeat(40), names: [], total: 1200, embedded: 512 },
+      { sha: "c".repeat(40), names: [], total: 1200, embedded: 0 },
+      { sha: "d".repeat(40), names: [], total: 0, embedded: 0 },
+    ],
+    active_build: {
+      repo_path: "/repo",
+      ref: "e".repeat(40),
+      phase: "chunking",
+      current: 3,
+      total: 10,
+      elapsed_seconds: 65,
+    },
+    active_embed: { repo_path: "/repo", ref: "e".repeat(40), current: 5, total: 20, elapsed_seconds: 12 },
+  };
+
+  test("renders one line per ref, in the shape the TUI uses", () => {
+    const lines = renderStatusText(status).split("\n");
+    expect(lines).toContain("Index: 1.2k symbols (/db)");
+    expect(lines).toContain("  aaaaaaaaaaaa (HEAD, main)  1.2k indexed  1.2k embedded ✓");
+    expect(lines).toContain("  bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
+    expect(lines).toContain("  cccccccccccc  1.2k indexed  not embedded");
+    expect(lines).toContain("  dddddddddddd  0 indexed  0 embedded ✓");
+  });
+
+  test("reports the running build and embed pass", () => {
+    const lines = renderStatusText(status).split("\n");
+    expect(lines).toContain("Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
+    expect(lines).toContain("Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
+  });
+
+  test("suppresses the percentage when the job has no total yet", () => {
+    const starting: StatusResponse = {
+      kind: "status",
+      active_build: {
+        repo_path: "/repo",
+        ref: "f".repeat(40),
+        phase: "walking",
+        current: 0,
+        total: 0,
+        elapsed_seconds: 2,
+      },
+    };
+    expect(renderStatusText(starting).split("\n")).toContain("Building: ffffffffffff — walking 0/0 — 2s");
+  });
+
+  test("says the index is missing when no ref is indexed", () => {
+    expect(renderStatusText({ kind: "status" })).toBe("No index found at the configured path.");
+  });
+
+  test("says an indexed repo has nothing running", () => {
+    const idle: StatusResponse = {
+      kind: "status",
+      db_path: "/db",
+      indexed_refs: [{ sha: "a".repeat(40), names: ["HEAD"], total: 10, embedded: 10 }],
+    };
+    expect(renderStatusText(idle).split("\n")).toContain("No active build.");
+  });
+
+  test("pads the seconds on the minute boundary", () => {
+    const justOverAMinute: StatusResponse = {
+      kind: "status",
+      active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
+    };
+    expect(renderStatusText(justOverAMinute).split("\n")).toContain("Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
+  });
+});
+
+describe("renderStatusResult size suffix", () => {
+  function sizeLine(bytes: number | null): string {
+    const response = {
+      kind: "status",
+      indexed_refs: [{ sha: "a".repeat(40), names: [], total: 10, embedded: 10 }],
+      db_size_bytes: bytes,
+    } satisfies StatusResponse;
+    // render() pads each line to the given width.
+    return renderStatusResult(daemonResult(response), { isPartial: false }, plainTheme).render(1000)[0].trimEnd();
+  }
+
+  test("climbs the unit ladder, rounding bytes and fixing one decimal above", () => {
+    expect(sizeLine(512)).toContain(" · 512 B");
+    expect(sizeLine(2048)).toContain(" · 2.0 KB");
+    expect(sizeLine(1_500_000)).toContain(" · 1.4 MB");
+    expect(sizeLine(3 * 1024 ** 3)).toContain(" · 3.0 GB");
+  });
+
+  test("omits the suffix when the daemon sends no size", () => {
+    expect(sizeLine(null)).toBe("✓ 10 symbols");
+  });
+});
+
+describe("footerLabel", () => {
+  test("marks a fully embedded index with a filled glyph and no suffix", () => {
+    expect(footerLabel({ total: 3500, embedded: 3500 }, true)).toBe("rbtr: ● 3.5k symbols");
+  });
+
+  test("reports the percentage while embedding is under way", () => {
+    expect(footerLabel({ total: 3500, embedded: 1470 }, true)).toBe("rbtr: ○ 3.5k symbols · 42% embedded");
+  });
+
+  test("says so when nothing is embedded", () => {
+    expect(footerLabel({ total: 3500, embedded: 0 }, true)).toBe("rbtr: ○ 3.5k symbols · not embedded");
+  });
+
+  test("names a missing daemon before the embed state", () => {
+    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · no daemon");
+    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · no daemon · not embedded");
   });
 });
 

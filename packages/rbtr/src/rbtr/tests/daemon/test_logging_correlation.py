@@ -9,7 +9,6 @@ Asserts on the autouse `log_output` (`LogCapture`), which includes
 from __future__ import annotations
 
 import asyncio
-import threading
 import time
 from pathlib import Path
 
@@ -18,10 +17,9 @@ import structlog
 
 from rbtr.daemon.messages import OkResponse, StatusRequest
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.embeddings import Embedder
 from rbtr.index.store import IndexStore
 
-from ..conftest import StubModel
+from .conftest import serving
 
 
 @pytest.fixture
@@ -40,11 +38,11 @@ def test_dispatch_binds_a_unique_context_per_request(
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
-    def handler(_req: object) -> OkResponse:
+    async def handler(_req: object) -> OkResponse:
         structlog.get_logger("t").info("handler_ran")
         return OkResponse()
 
-    server.register("status", handler)
+    server._handlers["status"] = handler
     _dispatch_status(server, fake_repo)
     _dispatch_status(server, fake_repo)
 
@@ -68,7 +66,7 @@ def test_binding_survives_to_thread(
     async def handler(_req: object) -> OkResponse:
         return await asyncio.to_thread(in_thread)
 
-    server.register("status", handler)
+    server._handlers["status"] = handler
     _dispatch_status(server, fake_repo)
 
     threaded = [e for e in log_output.entries if e["event"] == "in_thread"]
@@ -102,40 +100,24 @@ def test_request_complete_carries_elapsed_ms(
 
 
 def test_embed_job_logs_are_correlated(
-    runtime_dir: Path,
-    seeded_store: IndexStore,
+    running_daemon: DaemonServer,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """End-to-end: a background embed job tags its logs with job context.
 
-    `seeded_store` has indexed-but-unembedded chunks, so the worker
-    picks up an embed job once woken.  The server runs in a thread in
-    this process, so the autouse `LogCapture` sees the worker's events.
+    No bespoke daemon needed: `seeded_store` holds indexed-but-unembedded
+    chunks, so `_recover_pending_embeds` wakes the worker at
+    construction, and the default daemon's embedder is the stub.  The
+    server runs in a thread in this process, so the autouse
+    `LogCapture` sees the worker's events.
     """
-    server = DaemonServer(
-        runtime_dir,
-        store=seeded_store,
-        idle_poll_interval=60.0,
-        busy_poll_interval=60.0,
-    )
-    server._embedder = Embedder(model_loader=lambda: StubModel())  # type: ignore[arg-type,return-value]  # StubModel satisfies the embed interface
-    server._register_index_handlers(seeded_store)
-    server._wake.set()
-
-    thread = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
-    thread.start()
-    assert server.wait_ready(), "daemon did not start within timeout"
-    try:
-        deadline = time.monotonic() + 10.0
-        embedded: list[structlog.typing.EventDict] = []
-        while time.monotonic() < deadline:
-            embedded = [e for e in log_output.entries if e["event"] == "embedded_chunks"]
-            if embedded:
-                break
-            time.sleep(0.05)
-    finally:
-        server.request_shutdown()
-        thread.join(timeout=5)
+    deadline = time.monotonic() + 10.0
+    embedded: list[structlog.typing.EventDict] = []
+    while time.monotonic() < deadline:
+        embedded = [e for e in log_output.entries if e["event"] == "embedded_chunks"]
+        if embedded:
+            break
+        time.sleep(0.05)
 
     assert embedded, "no embedded_chunks log captured"
     entry = embedded[-1]
@@ -158,16 +140,16 @@ def test_watched_ref_build_is_observable(
     build `job_id`/`job_kind`/`ref` — closing the gap where a build left
     no log line naming the SHA it indexed.
     """
+    # Its own server, not `running_daemon`: this test needs a watcher
+    # fast enough to notice the stale ref, and the module's
+    # `running_daemon` is the embed-job one.
     server = DaemonServer(
         runtime_dir,
         store=unindexed_store,
         idle_poll_interval=0.05,
         busy_poll_interval=0.05,
     )
-    thread = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
-    thread.start()
-    assert server.wait_ready(), "daemon did not start within timeout"
-    try:
+    with serving(server):
         deadline = time.monotonic() + 10.0
         built: list[structlog.typing.EventDict] = []
         while time.monotonic() < deadline:
@@ -175,9 +157,6 @@ def test_watched_ref_build_is_observable(
             if built:
                 break
             time.sleep(0.05)
-    finally:
-        server.request_shutdown()
-        thread.join(timeout=5)
 
     stale = [e for e in log_output.entries if e["event"] == "watched_ref_stale"]
     assert stale, "no watched_ref_stale log captured"

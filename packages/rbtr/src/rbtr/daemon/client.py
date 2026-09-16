@@ -7,9 +7,8 @@ validated through pydantic `TypeAdapter`.
 
 The client is synchronous (plain `zmq.Socket`, not async)
 because the CLI is a short-lived process with no event loop.
-Timeouts: 30 s receive (``Config.daemon_recv_timeout_ms``),
-5 s send.  On a recv timeout the client retries with
-reconnect; see `DaemonClient.send`.
+A send has 5 s to leave; a reply is waited for as long as
+`DaemonClient.send` describes.
 
 Usage::
 
@@ -19,6 +18,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -26,7 +26,6 @@ import sys
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import TypeGuard
 
 import structlog
 import zmq
@@ -40,35 +39,26 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     response_adapter,
 )
-from rbtr.daemon.pidfile import is_pid_alive
-from rbtr.daemon.status import DaemonStatus, read_status, remove_status
+from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
 from rbtr.errors import DaemonBusyError, RbtrError
 
 log = structlog.get_logger(__name__)
 
 
-def _status() -> DaemonStatus | None:
-    """Read the daemon status file, or None if missing."""
-    return read_status(config.runtime_dir)
+def live_status(runtime_dir: Path) -> DaemonStatus | None:
+    """The status file of a daemon that is running, if there is one.
 
-
-def is_daemon_running() -> bool:
-    """Check whether a daemon is currently running."""
-    status = _status()
-    if status is None:
-        return False
-    return is_pid_alive(status.pid)
-
-
-def _daemon_ready(status: DaemonStatus | None) -> TypeGuard[DaemonStatus]:
-    """True when *status* describes a live daemon process.
-
-    The readiness test is deliberately "is **any** live daemon
-    up?", not "is the daemon I spawned up?".  Concurrent callers
-    that lose the start race must accept the winner's daemon
-    rather than waiting for their own (doomed) `serve` to bind.
+    `None` covers both "no status file" and "a status file whose
+    process is gone", because a caller can act on neither.  The
+    question is deliberately "is **any** live daemon up?", not "is
+    the daemon I spawned up?": a caller that loses a start race
+    must accept the winner's daemon rather than wait for its own
+    (doomed) `serve` to bind.
     """
-    return status is not None and is_pid_alive(status.pid)
+    status = read_status(runtime_dir)
+    if status is None or not is_pid_alive(status.pid):
+        return None
+    return status
 
 
 def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
@@ -105,7 +95,7 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
 
     # A live daemon already exists (e.g. a concurrent caller won
     # the race): reuse it rather than spawning a second serve.
-    if _daemon_ready(status):
+    if status is not None:
         return status
 
     # Propagate the active dir overrides to the spawned child so
@@ -158,8 +148,8 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     deadline = time.monotonic() + config.daemon_start_timeout
     while time.monotonic() < deadline:
         time.sleep(0.1)
-        status = _status()
-        if _daemon_ready(status):
+        status = live_status(config.runtime_dir)
+        if status is not None:
             if status.pid != proc.pid and proc.poll() is None:
                 proc.terminate()
             return status
@@ -186,7 +176,7 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
     Sends a `ShutdownRequest` first. If the daemon does not exit
     within *timeout* seconds, falls back to SIGTERM.
     """
-    status = _status()
+    status = read_status(config.runtime_dir)
     if status is None:
         return  # already stopped
 
@@ -202,12 +192,9 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
     except Exception:  # best-effort shutdown; anything can fail
         log.debug("graceful_shutdown_failed", exc_info=True)
 
-    # Wait for the process to exit
-    for _ in range(int(timeout / 0.5)):
-        time.sleep(0.5)
-        if not is_pid_alive(pid):
-            remove_status(runtime_dir)
-            return
+    if _exits_within(pid, timeout):
+        remove_status(runtime_dir)
+        return
 
     # Escalate: SIGTERM
     try:
@@ -216,37 +203,44 @@ def stop_daemon(*, timeout: float = 10.0) -> None:
         remove_status(runtime_dir)
         return
 
-    for _ in range(6):  # 3 s at 0.5 s intervals
-        time.sleep(0.5)
-        if not is_pid_alive(pid):
-            remove_status(runtime_dir)
-            return
+    if _exits_within(pid, 3.0):
+        remove_status(runtime_dir)
+        return
 
     msg = f"Daemon (PID {pid}) did not stop cleanly. Check {config.daemon_log} for details."
     raise RbtrError(msg)
 
 
+def _exits_within(pid: int, timeout: float) -> bool:
+    """Whether *pid* stops existing within *timeout* seconds."""
+    for _ in range(int(timeout / 0.5)):
+        time.sleep(0.5)
+        if not is_pid_alive(pid):
+            return True
+    return False
+
+
 class DaemonClient:
-    """Sync ZMQ REQ client with retry on timeout.
+    """Sync ZMQ REQ client that waits for a busy daemon.
 
     Reads the RPC endpoint from the status file on first `send()`.
-    On a recv timeout, destroys the poisoned REQ socket (which is
-    stuck in "waiting for reply" state) and retries with a fresh
-    connection.  See ARCHITECTURE.md § Daemon for rationale.
+    *wait_budget_s* is how long a caller will wait for any one
+    reply; *liveness_interval_s* is how often, while waiting, the
+    daemon's process is checked for still being there.
     """
 
     def __init__(
         self,
         runtime_dir: Path | None = None,
         *,
-        recv_timeout_ms: int | None = None,
-        max_retries: int | None = None,
+        wait_budget_s: float | None = None,
+        liveness_interval_s: float = 5.0,
     ) -> None:
         self._runtime_dir = runtime_dir or config.runtime_dir
-        self._recv_timeout_ms = (
-            recv_timeout_ms if recv_timeout_ms is not None else config.daemon_recv_timeout_ms
+        self._wait_budget_s = (
+            wait_budget_s if wait_budget_s is not None else config.daemon_wait_budget_s
         )
-        self._max_retries = max_retries if max_retries is not None else config.daemon_max_retries
+        self._liveness_interval_s = liveness_interval_s
         self._ctx: zmq.Context[zmq.Socket[bytes]] | None = None
         self._sock: zmq.Socket[bytes] | None = None
 
@@ -270,67 +264,55 @@ class DaemonClient:
         self._ctx = zmq.Context()
         sock = self._ctx.socket(zmq.REQ)
         sock.setsockopt(zmq.LINGER, 0)
-        sock.setsockopt(zmq.RCVTIMEO, self._recv_timeout_ms)
+        sock.setsockopt(zmq.RCVTIMEO, int(self._liveness_interval_s * 1000))
         sock.setsockopt(zmq.SNDTIMEO, 5_000)
         sock.connect(status.rpc)
         self._sock = sock
         return sock
 
-    def _reconnect(self) -> zmq.Socket[bytes]:
-        """Destroy the current socket and connect a fresh one.
-
-        After a recv timeout the REQ socket is stuck in
-        "waiting for reply" state and cannot send again.
-        The only recovery is to destroy it and create a new
-        one.
-        """
-        if self._sock is not None:
-            self._sock.close()
-            self._sock = None
-        if self._ctx is not None:
-            self._ctx.term()
-            self._ctx = None
-        return self._connect()
-
-    def _backoff(self, attempt: int) -> None:
-        """Log a retry warning and sleep for exponential backoff."""
-        delay = float(2 ** (attempt + 1))  # 2, 4, 8 … s
-        log.warning(
-            "daemon_retry",
-            attempt=attempt + 1,
-            max_retries=self._max_retries,
-            delay_s=delay,
-        )
-        time.sleep(delay)
-
     def send(self, request: Request) -> Response:
-        """Send a request, return the typed response.
+        """Send a request and wait for the daemon's reply.
 
-        Retries up to ``daemon_max_retries`` times on recv
-        timeout, reconnecting the socket between attempts
-        with exponential backoff (2, 4, 8 … seconds).  Raises
-        `DaemonBusyError` when all attempts are exhausted.
+        The request is sent once.  A reply that has not arrived
+        within `liveness_interval_s` is waited for again, until
+        `wait_budget_s` is spent or the daemon's process is gone;
+        either raises `DaemonBusyError`.
+
+        Sending again would be wrong on both counts a slow reply
+        allows.  The daemon is serving the request — a second copy
+        makes it do the work twice and lands behind the first — or
+        the daemon has died, and no copy of the request will be
+        answered by a process that is not there.  Over IPC a reply
+        cannot simply be lost, which is the case a re-send exists
+        for.
         """
-        payload = request.model_dump_json().encode()
-        last_exc: zmq.ZMQError | None = None
+        sock = self._sock or self._connect()
+        sock.send(request.model_dump_json().encode())
+        deadline = time.monotonic() + self._wait_budget_s
+        # Half the budget gone is the point worth saying out loud: a
+        # slow reply is ordinary, one this far through the patience of
+        # its caller is not.  Said once per request, not per check.
+        report_at = time.monotonic() + self._wait_budget_s / 2
 
-        for attempt in range(1 + self._max_retries):
-            sock = self._sock or self._connect()
+        while True:
             try:
-                sock.send(payload)
-                raw = sock.recv()
+                return response_adapter.validate_json(sock.recv())
             except zmq.ZMQError as exc:
-                last_exc = exc
-                if attempt < self._max_retries:
-                    self._backoff(attempt)
-                    self._reconnect()
-                    continue
-                raise DaemonBusyError from exc
-            return response_adapter.validate_json(raw)
-
-        # Unreachable: the loop either returns or raises on the
-        # final iteration.  Keeps mypy happy.
-        raise DaemonBusyError from last_exc
+                waited = self._wait_budget_s - (deadline - time.monotonic())
+                if live_status(self._runtime_dir) is None:
+                    msg = f"Daemon stopped while waiting for a reply ({waited:.0f}s)"
+                    raise DaemonBusyError(msg) from exc
+                if time.monotonic() >= deadline:
+                    msg = f"Daemon did not reply within {self._wait_budget_s:g}s"
+                    raise DaemonBusyError(msg) from exc
+                if time.monotonic() >= report_at:
+                    report_at = math.inf
+                    log.warning(
+                        "daemon_slow_reply",
+                        kind=request.kind,
+                        waited_s=round(waited, 1),
+                        budget_s=self._wait_budget_s,
+                    )
 
     def send_or_raise(self, request: Request) -> Response:
         """Like `send`, but raises `RbtrError` on `ErrorResponse`."""
@@ -378,9 +360,9 @@ def try_daemon(request: Request) -> Response | None:
     normally.
     """
     runtime_dir = config.runtime_dir
-    status = read_status(runtime_dir)
-    if status is None or not is_pid_alive(status.pid):
-        remove_status(runtime_dir)
+    status = live_status(runtime_dir)
+    if status is None:
+        remove_status(runtime_dir)  # drops a status file left by a dead daemon
         return None
     try:
         with DaemonClient(runtime_dir) as client:

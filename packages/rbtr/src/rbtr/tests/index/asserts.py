@@ -63,7 +63,7 @@ def assert_changes(
     modified: set[SymbolId],
     removed: set[SymbolId],
 ) -> None:
-    """Assert a `diff_symbols` result holds exactly these symbols.
+    """Assert a `changed_symbols` result holds exactly these symbols.
 
     Compares the full added/modified/removed sets, so an unexpected
     extra symbol (e.g. an unchanged neighbour leaking in) fails just

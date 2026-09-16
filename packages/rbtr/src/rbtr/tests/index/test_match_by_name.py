@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, SnapshotRef
 from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk, seed_store
@@ -19,7 +19,7 @@ COMMIT = "head"
 
 
 @pytest.fixture
-def name_store(store: IndexStore) -> IndexStore:
+def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
     """Store with chunks that create name ambiguity.
 
     - `Chunk` (class) in models.py
@@ -62,7 +62,7 @@ def name_store(store: IndexStore) -> IndexStore:
                 path="src/fuse.py",
             ),
         ],
-        snapshot_sha=COMMIT,
+        head_ref,
     )
     return store
 
@@ -97,5 +97,5 @@ def test_match_by_name_tiering(
     pattern: str,
     expected_names: set[str],
 ) -> None:
-    results = name_store.match_by_name(COMMIT, pattern, repo_id=1)
+    results = name_store.match_by_name(pattern, at=SnapshotRef(repo_id=1, snapshot_sha=COMMIT))
     assert {c.name for c in results} == expected_names

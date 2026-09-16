@@ -39,6 +39,18 @@ class IndexSchemaTooNewError(RbtrError):
         )
 
 
+class IndexLockedError(RbtrError):
+    """Raised when another process holds DuckDB's write lock.
+
+    DuckDB takes a process-level lock on the database file, so a
+    caller that meets this cannot proceed by opening the file
+    itself -- an inline build would contend for the same lock, and
+    one that won it would hold the lock for the length of the
+    build, keeping the daemon from starting.  Callers must report
+    this and stop rather than fall back to inline mode.
+    """
+
+
 class MissingLanguagePluginsError(RbtrError):
     """Raised when the index holds languages the running rbtr can't load.
 

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from rbtr.config import config
+from rbtr.daemon.messages import ActiveJob
 from rbtr.daemon.server import DaemonServer
 
 
@@ -26,14 +27,15 @@ def server(runtime_dir: Path) -> DaemonServer:
     )
 
 
-def test_idle_interval_when_no_active_key(server: DaemonServer) -> None:
+def test_idle_interval_when_no_job_is_active(server: DaemonServer) -> None:
     """With no active job — idle."""
-    assert server._active_key is None
     assert server._next_poll_interval() == 5.0
 
 
-def test_busy_interval_when_active_key_set(server: DaemonServer) -> None:
-    server._active_key = "/repo-a"
+def test_busy_interval_while_a_job_runs(server: DaemonServer) -> None:
+    server._active_build = ActiveJob(
+        repo_path="/repo-a", ref="", phase="starting", current=0, total=0, elapsed_seconds=0.0
+    )
     assert server._next_poll_interval() == 30.0
 
 

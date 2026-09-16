@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pygit2
 
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 
@@ -26,7 +27,7 @@ def test_incremental_incremental(
     assert not result.errors
 
     # New function should be visible at head.
-    chunks = store.get_chunks(head_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
     names = {c.name for c in chunks}
     assert "new_func" in names
     assert "serve" in names
@@ -38,12 +39,14 @@ def test_incremental_marks_head_indexed(
     """Incremental update marks head, leaving base's mark alone."""
     base_sha, head_sha = two_commits
     build_index(git_repo.workdir, base_sha, store)
-    assert store.has_indexed(1, head_sha) is False
+    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha)) is False
 
     build_index(git_repo.workdir, head_sha, store, base_sha=base_sha)
 
-    assert store.has_indexed(1, head_sha) is True
-    assert store.has_indexed(1, base_sha) is True  # still marked
+    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha)) is True
+    assert (
+        store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=base_sha)) is True
+    )  # still marked
 
 
 def test_incremental_preserves_unchanged(
@@ -58,7 +61,7 @@ def test_incremental_preserves_unchanged(
     assert result.stats.skipped_files > 0
 
     # Old symbols should still be visible at head.
-    chunks = store.get_chunks(head_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
     names = {c.name for c in chunks}
     assert "User" in names
     assert "Order" in names
@@ -103,7 +106,7 @@ def legacy_only():
     git_repo.create_commit("HEAD", sig, sig, "Add legacy file", tree_oid, [parent.id])
 
     build_index(git_repo.workdir, "feature", store, base_sha="main")
-    names_v1 = {c.name for c in store.get_chunks("feature", repo_id=1)}
+    names_v1 = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="feature"))}
     assert "legacy_only" in names_v1
 
     # Feature commit 2: remove that file so head tree matches base again.
@@ -117,7 +120,7 @@ def legacy_only():
     git_repo.create_commit("HEAD", sig, sig, "Remove legacy file", tree_oid, [parent.id])
 
     build_index(git_repo.workdir, "feature", store, base_sha="main")
-    names_v2 = {c.name for c in store.get_chunks("feature", repo_id=1)}
+    names_v2 = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="feature"))}
     assert "legacy_only" not in names_v2
 
 
@@ -162,6 +165,6 @@ def new_func():
 
     assert result.stats.total_chunks > 0
     # FileSnapshots stored under "feature-branch", queryable by that name.
-    chunks = store.get_chunks("feature-branch", repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="feature-branch"))
     assert len(chunks) > 0
     assert any(c.name == "new_func" for c in chunks)

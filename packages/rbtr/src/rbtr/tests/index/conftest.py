@@ -58,7 +58,7 @@ def make_chunk(
 
     Chunks are content-addressed and carry no `repo_id`; which repo a
     chunk belongs to is decided by the snapshot that references its
-    blob (see `seed_store`'s `repo_id`).
+    blob (see `seed_store`'s `ref`).
 
     `file_language` defaults to *language*, which is what a file in one
     language yields. Pass it separately for an embedded chunk, whose own
@@ -92,42 +92,46 @@ def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapsho
     return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
 
 
-def seed_store(
-    store: IndexStore,
-    chunks: list[TokenisedChunk],
-    *,
-    snapshot_sha: str = "head",
-    mark_indexed: bool = True,
-    repo_id: int | None = None,
-) -> int:
-    """Insert chunks + snapshots into a store via session; return the repo id.
+def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef) -> None:
+    """Insert chunks, and snapshots referencing their blobs, under *ref*.
 
-    Snapshots reference the chunks' blobs under *repo_id*.  Seed several
-    repos by calling once per repo (registering each first and passing its
-    id); pass the same chunk to two repos to model content shared across
-    worktrees/clones.
+    *ref* is marked indexed, so the seeded snapshot is one a read can
+    find.
 
-    When *repo_id* is omitted a repo is registered here, because per-repo
-    rows must hang off a real `repos` row — the foreign key rejects an id
-    that was never registered.  The path is synthetic: these are
-    store-level tests that never read git, and registration is about
-    identity, not about a directory existing on disk.
+    The repo named by *ref* must already be registered: per-repo rows
+    hang off a real `repos` row, and the foreign key rejects an id that
+    was never registered.  `head_ref` does that registration for the
+    common single-repo case; a test seeding several repos registers each
+    one and builds a ref from the id it gets back, then calls this once
+    per ref.  Passing the same chunk under two refs models content shared
+    across worktrees or clones.
     """
     with store.session() as ws:
-        if repo_id is None:
-            repo_id = ws.register_repo("/repo")
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
             [
-                FileSnapshot(snapshot_sha=snapshot_sha, file_path=c.file_path, blob_sha=c.blob_sha)
+                FileSnapshot(
+                    snapshot_sha=ref.snapshot_sha, file_path=c.file_path, blob_sha=c.blob_sha
+                )
                 for c in chunks
             ],
-            repo_id=repo_id,
+            repo_id=ref.repo_id,
         )
-        if mark_indexed:
-            ws.mark_indexed(repo_id, snapshot_sha)
-    return repo_id
+        ws.mark_indexed(at=ref)
+
+
+@pytest.fixture
+def head_ref(store: IndexStore) -> SnapshotRef:
+    """Repo `/repo` registered in `store`, at snapshot `head`.
+
+    The id comes back from the registration, so the ref names a repo
+    that exists.  The path is synthetic: these are store-level tests
+    that never read git, and registration establishes identity.
+    """
+    with store.session() as ws:
+        repo_id = ws.register_repo("/repo")
+    return SnapshotRef(repo_id=repo_id, snapshot_sha="head")
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -157,8 +161,8 @@ def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> Index
         ws.add_chunk(shared_chunk)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=1)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
-        ws.mark_indexed(1, "head")
-        ws.mark_indexed(2, "head")
+        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        ws.mark_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
     return store
 
 
@@ -217,7 +221,7 @@ def serve():
 
 
 # ═════════════════════════════════════════════════════════════════════
-# Symbol-diff dataset (for test_diff_symbols.py)
+# Symbol-diff dataset (for test_symbol_diff.py)
 # ═════════════════════════════════════════════════════════════════════
 
 
@@ -549,7 +553,7 @@ def ranking_store(
             ],
             repo_id=1,
         )
-        ws.insert_edges(ranking_edges, ranking_commit, repo_id=1)
+        ws.insert_edges(ranking_edges, at=SnapshotRef(repo_id=1, snapshot_sha=ranking_commit))
     yield store
     store.close()
 

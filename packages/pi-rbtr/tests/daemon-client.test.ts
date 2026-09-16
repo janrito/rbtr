@@ -41,6 +41,21 @@ describe("send", () => {
     expect(daemon.received).toHaveLength(3);
   });
 
+  test("a late reply is waited for, and the daemon asked once", async () => {
+    await using daemon = await startFakeDaemon({ reply: { kind: "ok" }, replyAfterMs: 150 });
+
+    const response = await send({ kind: "shutdown" }, { rpcEndpoint: daemon.endpoint, waitBudgetMs: 5_000 });
+
+    expect(response).toEqual({ kind: "ok" });
+    expect(daemon.received).toHaveLength(1);
+  });
+
+  test("waiting stops when the budget is spent", async () => {
+    await using daemon = await startFakeDaemon();
+
+    await expect(send({ kind: "shutdown" }, { rpcEndpoint: daemon.endpoint, waitBudgetMs: 200 })).rejects.toThrow();
+  });
+
   test("reply function can inspect the request", async () => {
     let seen: unknown = null;
     await using daemon = await startFakeDaemon({

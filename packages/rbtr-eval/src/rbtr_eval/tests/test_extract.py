@@ -80,7 +80,7 @@ def test_generated_queries_target_real_chunks(
     )
     chunk_ids = {
         (c.file_path, c.scope, c.name, c.line_start, c.line_end, c.kind.value)
-        for c in store.get_chunks(mixed_kind_ref.snapshot_sha, repo_id=mixed_kind_ref.repo_id)
+        for c in store.get_chunks(at=mixed_kind_ref)
     }
     for row in queries.iter_rows(named=True):
         assert tuple(row[c] for c in IDENTITY_COLUMNS) in chunk_ids

@@ -10,6 +10,7 @@ import pytest
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import changed_files, worktree_tree_sha
 from rbtr.index.build import build_index
+from rbtr.index.search import search
 from rbtr.index.store import IndexStore
 
 
@@ -95,7 +96,7 @@ def test_build_worktree_modified_visible(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store)
 
-    chunks = store.get_chunks(wt_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     helper_chunks = [c for c in chunks if c.name == "helper"]
     assert len(helper_chunks) == 1
     assert "99" in helper_chunks[0].content
@@ -108,7 +109,7 @@ def test_build_worktree_added_file(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store)
 
-    chunks = store.get_chunks(wt_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     service_chunks = [c for c in chunks if c.file_path == "src/service.py"]
     assert len(service_chunks) > 0
 
@@ -120,7 +121,7 @@ def test_build_worktree_deleted_file(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store)
 
-    chunks = store.get_chunks(wt_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     test_chunks = [c for c in chunks if c.file_path == "tests/test_utils.py"]
     assert test_chunks == []
 
@@ -155,7 +156,7 @@ def test_search_returns_worktree_content(
     repo, _ = worktree_repo
     build_index(repo.workdir, wt_sha, store)
 
-    results = store.search([SnapshotRef(repo_id=1, snapshot_sha=wt_sha)], "helper")
+    results = search(store, "helper", within=[SnapshotRef(repo_id=1, snapshot_sha=wt_sha)])
     helpers = [r for r in results if r.name == "helper"]
     assert len(helpers) == 1
     assert "99" in helpers[0].content
@@ -171,7 +172,7 @@ def test_head_still_visible_after_worktree_build(
     build_index(repo.workdir, wt_sha, store)
 
     # HEAD still has the original helper() returning 42.
-    head_chunks = store.get_chunks(head_sha, repo_id=1)
+    head_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
     helpers = [c for c in head_chunks if c.name == "helper"]
     assert len(helpers) == 1
     assert "42" in helpers[0].content
@@ -193,8 +194,8 @@ def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, store: I
     build_index(git_repo.workdir, head_sha, store)
     build_index(git_repo.workdir, head_tree_sha, store)
 
-    head_chunks = store.get_chunks(head_sha, repo_id=1)
-    wt_chunks = store.get_chunks(head_tree_sha, repo_id=1)
+    head_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
+    wt_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_tree_sha))
 
     head_names = sorted(c.name for c in head_chunks)
     wt_names = sorted(c.name for c in wt_chunks)
@@ -213,7 +214,7 @@ def test_rebuild_worktree_reflects_new_edits(
 
     # First build: helper() returns 99.
     build_index(repo.workdir, wt_sha, store)
-    chunks_v1 = store.get_chunks(wt_sha, repo_id=1)
+    chunks_v1 = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     helpers_v1 = [c for c in chunks_v1 if c.name == "helper"]
     assert "99" in helpers_v1[0].content
 
@@ -235,7 +236,7 @@ def format_name(name):
 
     # Rebuild picks up the new content.
     build_index(repo.workdir, tree_sha_v2, store)
-    chunks_v2 = store.get_chunks(tree_sha_v2, repo_id=1)
+    chunks_v2 = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=tree_sha_v2))
     helpers_v2 = [c for c in chunks_v2 if c.name == "helper"]
     assert len(helpers_v2) == 1
     assert "200" in helpers_v2[0].content
@@ -266,7 +267,7 @@ def test_build_worktree_file_unreadable_mid_walk(
 
     # utils.py IS present because its blob was written to the object
     # store by add_all() before we broke the symlink.
-    chunks = store.get_chunks(wt_sha, repo_id=1)
+    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     utils_chunks = [c for c in chunks if c.file_path == "src/utils.py"]
     assert len(utils_chunks) > 0
 

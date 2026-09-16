@@ -45,8 +45,8 @@ export class RbtrDaemonError extends Error {
 export type DaemonStatus = DaemonStatusReport;
 
 export interface SendOptions {
-  /** Milliseconds to wait for the daemon's reply.  Default 10 000. */
-  receiveTimeout?: number;
+  /** Milliseconds to wait for the daemon's reply.  Default 120 000. */
+  waitBudgetMs?: number;
   /** Milliseconds to wait for the outbound send.  Default 5 000. */
   sendTimeout?: number;
 }
@@ -99,6 +99,12 @@ export async function queryDaemonStatus(): Promise<DaemonStatus> {
  *
  * A caller that does not want to shell out to the CLI on every
  * call can pass an explicit *rpcEndpoint* (an ``ipc://`` URI).
+ *
+ * The request is sent once and the reply waited for.  A daemon
+ * that is indexing serves the request late rather than not at
+ * all, and sending a second copy only queues more work behind
+ * the first.  Silence past the budget is reported to the caller,
+ * which falls back to the CLI.
  */
 export async function send<R extends Request>(
   request: R,
@@ -110,7 +116,7 @@ export async function send<R extends Request>(
   }
 
   const sock = new ZmqRequest({
-    receiveTimeout: options.receiveTimeout ?? 10_000,
+    receiveTimeout: options.waitBudgetMs ?? 120_000,
     sendTimeout: options.sendTimeout ?? 5_000,
   });
 

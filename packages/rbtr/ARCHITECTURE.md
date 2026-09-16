@@ -197,10 +197,10 @@ All mutations go through `WriteSession`, obtained via
 Sweep is explicit: `ws.sweep()` removes residue from
 crashed builds.
 
-`IndexStore` owns the connection, reads, and search.
-`WriteSession` owns all data mutations. A store created
-with `writable=False` (the default) rejects `session()`
-calls.
+`IndexStore` owns the connection and the reads; `search`
+takes a store and ranks what it returns. `WriteSession`
+owns all data mutations. A store created with
+`writable=False` (the default) rejects `session()` calls.
 
 The build pipeline opens one session per phase:
 register → extract → edges → finalise → (separate) embed.
@@ -395,6 +395,14 @@ is maintained without a stored dimension:
   uniform length per write batch via the `embedding_dim_is_uniform`
   rule.
 
+The column is also most of the database by size, and a predicate on it
+(`embedding IS NULL`) reads all of it. Three paths depend on that
+predicate, and each issues it once per request: completeness for a whole
+repo comes from one grouped pass (see
+[Completion tracking](#completion-tracking)), the worker's job search
+reads that same result, and the embed loop resolves its work list in one
+pass and then fetches pages by chunk id.
+
 `chunks.embedding_truncated` records whether a chunk's text
 exceeded the model's context window and was truncated before
 embedding (`embeddings.embed` flags it; `update_embeddings.sql`
@@ -427,6 +435,21 @@ The language is part of the join because it is part of a chunk's
 identity: the same bytes extracted as two languages are two chunks, and
 each must pair with the files read as that language.
 
+Because the scope is always a `repo_id` and a `snapshot_sha` together,
+the two travel as one value. `SnapshotRef` carries that pair, and
+`SnapshotRange` carries one `repo_id` with a base and a head SHA for the
+symbol diff — so a query cannot name a snapshot in one repo and a repo
+id from another. Both are internal transport, built where a client path
+is resolved to a `repo_id` and consumed by the store's SQL; neither
+crosses the RPC boundary, because clients name repos by path.
+
+Every read and write on the store takes its scope as a keyword, and the
+keyword says how many snapshots it holds: `at=` one `SnapshotRef`,
+`within=` a list of them, `between=` a `SnapshotRange`. The leading
+positional parameter is what the call asks for — the query, the pattern,
+the chunk ids, the edges to write — so a call site reads as the subject
+first and the scope after it.
+
 ### Registered frames as query inputs
 
 Both reads and writes pass polars frames into DuckDB by
@@ -442,9 +465,11 @@ win (7–32× for 3 vectors).
 
 - **Reads** register a frame and join against it:
   `_snapshot_refs` (the `(repo_id, snapshot_sha)` snapshots a
-  search spans — see [Cross-repo search](#cross-repo-search))
-  and `_qvecs` (query vectors — see
-  [Multi-vector semantic scan](#multi-vector-semantic-scan)).
+  search spans — see [Cross-repo search](#cross-repo-search)),
+  `_qvecs` (query vectors — see
+  [Multi-vector semantic scan](#multi-vector-semantic-scan)),
+  and `_chunk_ids` (one page of the embed work list, which the
+  fetch matches chunks against by id).
 - **Writes** register a staging frame the upsert reads from:
   `_stg` (chunks / snapshots / edges) and `_emb_stg`
   (embeddings), via `WriteSession._bulk_insert`.
@@ -540,12 +565,17 @@ CLI or editor. Single process, asyncio event loop:
 DaemonServer.serve()          — zmq REP poll + dispatch, on the event loop
  ├─ _notification_relay       — zmq inproc PULL → PUB
  ├─ _job_worker               — await Event, to_thread(run_job)
- ├─ _watcher_loop             — sleep, to_thread(poll_watched), wake
+ ├─ _watcher_loop             — sleep, to_thread(pending_builds), wake
  └─ _idle_loop (per GPU model) — sleep, check idle, unload
 ```
 
 Dispatch is not a task of its own: `serve()` *is* the REP loop, and
 the tasks below it are the work it spawns.
+
+Every handler is a coroutine that works in a thread, so the loop
+only receives, dispatches and replies. One shape, one error path:
+`_dispatch` awaits the coroutine and maps an `RbtrError` to its
+protocol code.
 
 - **`DaemonServer`** — ZMQ REQ/REP for request/response
   and PUB for build-progress notifications. Owns one
@@ -555,20 +585,30 @@ the tasks below it are the work it spawns.
   the database for un-indexed watched refs and dirty
   worktrees (builds) and un-embedded chunks (embeds).
   Priority is implicit in query order: builds before
-  embeds. Runs each job via `asyncio.to_thread`.
-- **`_watcher_loop`** — async task that polls each repo's
-  watched refs and dirty worktree against `has_indexed`.
-  Sets `_wake` when a watched ref or worktree is stale.
+  embeds. Runs each job via `asyncio.to_thread`, one at a
+  time. Nothing is run twice because nothing is derived
+  twice: a built snapshot is in `indexed_snapshots`, an
+  embedded chunk has its vector.
+- **`_watcher_loop`** — async task that calls
+  `watcher.pending_builds`, the one place the builds that are
+  due are derived. Sets `_wake` when any is. The embed worker
+  calls the same function between batches to decide whether to
+  stand aside.
 - **`_notification_relay`** — async task that receives
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
 - **`DaemonClient`** — typed client; pydantic models over
-  ZMQ. `send()` retries with reconnect on recv timeout:
-  after a timeout the REQ socket is
-  stuck in “waiting for reply” state and must be destroyed
-  and recreated. Retries up to `max_retries` times
-  (default 3) with exponential backoff. All requests are
-  idempotent, so duplicate delivery is harmless.
+  ZMQ. A request is sent once and the reply waited for, up to
+  `wait_budget_s` (120 s by default; a caller sets its own). A late
+  reply arrives on the same socket — a REQ socket must be recreated
+  to *send* again, not to keep receiving. Silence means the daemon
+  is busy or gone, never that the message was lost in transit, so a
+  second copy of the request would only queue behind the first on a
+  daemon already behind. Every 5 s of waiting the client checks the
+  daemon's pid, which is how it tells the two apart: a daemon that
+  dies fails the request in seconds instead of at the end of the
+  budget. Process knowledge stays here, beside `start_daemon` and
+  `stop_daemon`; other clients wait on the socket alone.
 
 ### Watched refs
 
@@ -597,7 +637,11 @@ single source the watcher derives builds from;
 Requests and responses are pydantic models discriminated on
 a `kind` field (`messages.py`). The daemon writes a status
 file to `runtime_dir` on startup; `DaemonClient` reads it
-to connect.
+to connect. That file is a model too (`DaemonStatus`), read
+through pydantic like any other message: unknown fields are
+ignored, so an older client still finds a newer daemon's
+endpoints, and a missing or malformed file reads as no
+daemon.
 
 `StatusResponse` is the most complex response. Per-ref
 state is grouped in `IndexedRef` (sha, symbolic names,
@@ -615,8 +659,22 @@ whether it is indexed yet).
 ### Concurrency model
 
 **Single-writer guarantee:** DuckDB enforces one writer at
-a time. The `_job_worker` serialises all write tasks
-through `asyncio.Semaphore(1)` + `asyncio.to_thread()`.
+a time. Every write takes `_write_sem`
+(`asyncio.Semaphore(1)`) under `asyncio.to_thread()`: a
+build, each embed batch, the watch-set write behind `index`
+and `forget`, and `gc`. The worker orders builds against
+embeds; the semaphore orders a handler's write against the
+worker's, and empties the field while `gc` compacts — which
+publishes a rewritten file, so a batch committing on the old
+connection is lost. gc pays one batch for that.
+
+Two alternatives do not hold. An `RLock` in `IndexStore`
+repeats what DuckDB already does, in the wrong place.
+DuckDB's optimistic concurrency hands the loser an error
+only a retry clears, and the winner holds its transaction
+for seconds: retry now and lose again, retry later and block
+the REP socket behind it.
+
 Reads use thread-local cursors (via `connection.cursor()`)
 and run concurrently with writes. `store.py` imports pyarrow
 eagerly because duckdb's [Multiple Python Threads
@@ -690,17 +748,42 @@ inside the lock to avoid a TOCTOU race: inference may
 have used the model between the outer check and lock
 acquisition.
 
-The embed worker processes batches individually rather
-than running `embed_index` as one monolithic `to_thread`
-call. This means search waits at most one batch duration
-(not the entire embed job).
+The embed worker runs one batch per `to_thread` call rather
+than the whole job, so a search waits for the batch in
+flight (2.3 s median, 4.2 s p90 on an M3 Pro) and not for
+the job.
 
 **Priority:** The worker queries the DB for un-indexed
 watched refs (HEAD is the default) then dirty worktrees
-(builds), then un-embedded chunks (embeds). When a build
-arrives while an embed is running, the embed worker yields
-between batches (interrupting mid-write is unsafe), then
-the build runs next.
+(builds), then un-embedded chunks (embeds).
+
+### Standing aside
+
+An embed job that finds a build due returns. The next job
+re-derives its work list from `chunks.embedding` — 204 ms
+over a 105k-chunk index, against 1.1–2.3 s for a batch — so
+nothing needs carrying across the interruption.
+
+**A job may stand aside only between transactions.** An
+embed's is one batch. A build's is the whole snapshot:
+chunks and `file_snapshots` commit together, or a co-tenant
+repo's global orphan sweep deletes chunks whose snapshot row
+has not landed. `WriteSession` refuses such a commit, so a
+build runs to completion, which its 4.0 s median affords.
+
+Between batches the job asks `watcher.pending_builds`, and
+checks `_shutdown`. Anything else arriving mid-job is served
+by a lock the job releases each batch — `_gpu_lock` for a
+search, `_write_sem` for a `gc` or a watch-set write — or by
+`_wake`, which the worker reads once the job returns.
+Reading `_wake` in place of the poll would not do: the
+watcher is on `busy_poll_interval` (30 s) during a job, and
+the event carries no content, so a woken job could not tell
+a build from any other cause.
+
+A run ends with `embed_ended`, carrying `finished`,
+`stood_aside` or `stopped` and the snapshot's counts, so a
+subscriber knows whether work on it is still due.
 
 ### Daemon startup
 
@@ -711,6 +794,15 @@ lock. `start_daemon()` tolerates this rather than coordinating it
 — it treats any live daemon as ready, so concurrent callers
 converge on the winner and a losing spawn is terminated. The
 double-spawn is cheap, so no parent-side start lock is needed.
+
+Stopping is asked for from outside the loop — a signal, or
+`request_shutdown` from another thread. The flag is a plain
+bool the RPC loop reads every 100 ms; the worker's wake is
+an `asyncio.Event`, which only its own loop may touch, so
+that is scheduled on the loop `serve()` recorded. Each task
+then finishes the transaction in flight: a build commits its
+snapshot, an embed job ends after its batch, reporting
+`stopped`.
 
 The flip side is deciding a start *failed*. `start_daemon` keys
 that on the spawned child's exit, not on elapsed time: while the
@@ -734,9 +826,14 @@ embed recovery). The watcher itself stays read-only.
 for un-embedded chunks and sets the wake event so the
 DB-polling worker picks up the work. This handles the case
 where the daemon crashed after indexing completed but before
-embedding finished. `embed_index` is incremental
-(`get_unembedded_chunks` returns only `embedding IS NULL`
-rows), so recovery is idempotent.
+embedding finished. Recovery is idempotent because each embed
+job draws up its own work list: `unembedded_chunk_ids` names
+the chunks whose `embedding` is still NULL, so a job that died
+halfway leaves the rest outstanding and the next one resumes
+from there. It is the same mechanism a job uses when it
+stands aside for a build (see [Standing
+aside](#standing-aside)), and it costs 204 ms over a
+105k-chunk index.
 
 **Transactional writes:** `WriteSession` rolls back on
 exception. No partial state persists.
@@ -751,6 +848,12 @@ Two ZMQ sockets, both bound in `runtime_dir`:
 Messages are JSON, discriminated on a `kind` field. Every
 request has a `kind`; every response echoes it or returns
 `kind: "error"`.
+
+Five notification kinds go out on PUB: `progress` during a
+build, `ready` when a snapshot is indexed, `embed_ended`
+with the run's outcome and counts, `auto_rebuild` when the
+watcher starts a build nobody asked for, and `index_error`
+when one fails.
 
 ```mermaid
 sequenceDiagram
@@ -795,8 +898,9 @@ Error responses carry a `code` field:
 
 The two index errors differ by where they're decided: a read
 for an unindexed ref raises a plain `IndexNotBuiltError`, and
-`_dispatch` — the one place that knows a build is running —
-turns it into `index_in_progress`, otherwise it stays
+`_dispatch` asks `_is_building()` — the daemon's one source
+of build-awareness, so handlers need none — and turns it
+into `index_in_progress`, otherwise it stays
 `index_not_built`.
 
 **Schema generation.** `messages.py` is the source of
@@ -1106,8 +1210,8 @@ Both modes run the *same* pipeline — `_retrieve` →
 `fuse_scores` → reranker → `materialise_scored`. The only
 difference is the list of refs fed in. Rather than branch
 into parallel SQL or duplicate the channel methods,
-`_retrieve` takes a `list[SnapshotRef]` (one
-`(repo_id, snapshot_sha)` per repo) and each channel query
+`_retrieve` takes a `list[SnapshotRef]` (see
+[Snapshot resolution](#snapshot-resolution)) and each channel query
 joins against a cursor-registered temporary view,
 `_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
 the view holds one row; for `scope=all` it holds one per
@@ -1464,15 +1568,15 @@ shared content with another repo leaves the shared chunks intact
 until the last referencing snapshot is gone. Consequently the
 chunk count in `GcCounts` is a global figure, not a per-repo one.
 
-This global sweep rests on a **load-bearing atomicity invariant**: a
-build writes a commit's chunks and its `file_snapshots` in one
-transaction, so no committed state ever holds a chunk without its
-snapshot. An unreferenced chunk is therefore genuine garbage, never a
-half-written build. If a build split chunk and snapshot writes across
-transactions, a co-tenant repo's sweep could delete chunks the build
-still needs. `build_index` upholds the invariant and logs
-`orphan_chunks_after_build` if it is ever violated; see the
-`WriteSession` docstring.
+This global sweep rests on **a chunk entering only for a blob somebody
+claims**. `WriteSession._commit` counts the `(blob_sha,
+file_language)` pairs the session stored chunks for, and rolls back
+when any of them has no `file_snapshots` row — in any repo. An
+unreferenced chunk is therefore one whose claims were removed later,
+never a half-written build, so the sweep cannot take chunks a
+co-tenant repo still needs. The check keys on the blob rather than on
+writing a claim in the same session, which is what lets one
+re-extraction re-chunk a blob for every repo sharing it.
 
 **Compaction.** Deleting rows does not shrink the database file — the
 freed space is kept inside it for reuse, so the file only ever grows.
@@ -1668,8 +1772,8 @@ a rebuild where nothing changed skips all files.
 
 ### Staleness detection
 
-`has_indexed(repo_id, tree_sha)` is the staleness check —
-the same mechanism as commits. When the user edits a file,
+`has_indexed`, asked about the worktree's tree SHA, is the
+staleness check — the same mechanism as commits. When the user edits a file,
 `worktree_tree_sha` returns a different SHA,
 `has_indexed` misses, and a rebuild is triggered. When
 the same content is polled again, `has_indexed` hits and
@@ -1682,6 +1786,8 @@ each poll cycle:
 
 - `poll_watched()` resolves each watched ref (HEAD is the
   default) and checks `indexed_snapshots`.
+- `pending_builds()` calls both, in that order, and is what
+  the watcher and the embed worker use.
 - `poll_worktree()` computes `worktree_tree_sha` and
   checks `has_indexed`. It writes no index rows, but computing
   the SHA writes git objects into the repository being polled:
@@ -1770,11 +1876,12 @@ tree_A is cleaned up by:
    SHAs are included in the drop set (not reachable from
    any ref).
 5. **Watched-ref builds have priority over worktree
-   builds.** `_find_next_job` checks `poll_watched()`
+   builds.** `pending_builds()` checks `poll_watched()`
    before `poll_worktree()`.
-6. **Builds preempt embedding.** The embed worker checks
-   `poll_watched()` and `poll_worktree()` between batches
-   and yields if higher-priority work is needed.
+6. **A build makes an embed job stand aside.** The embed
+   worker calls `pending_builds()` between batches and
+   returns if one is due; the remainder is re-derived (see
+   [Standing aside](#standing-aside)).
 7. **A linked worktree is a separate repo.** Its path
    canonicalises to its own directory rather than the main
    checkout's, so it gets its own `repos` row, watch set,
@@ -1834,6 +1941,20 @@ nothing to collect or search. Neither takes a `repo_id`
 argument; both work it out from the path, so a caller cannot
 pair an id with a path it does not belong to. See
 [Repo registration](#repo-registration).
+
+**Embedding completeness is counted.** Whether a snapshot is fully
+embedded is derived, by counting the chunks it reaches and the
+subset of those carrying an `embedding`. The counts are grouped, so
+one pass over the embedding column answers for every snapshot in a
+repo, and the cost follows the size of the column rather than the
+number of snapshots asked about.
+
+A denormalised `embedded` column on `indexed_snapshots` would make
+it a lookup. It loses on correctness, not speed: every write path
+that sets or clears an embedding would have to maintain it, and
+"flag says embedded, column is NULL" becomes a state the schema
+admits. Revisit if one grouped pass grows to dominate a status
+request.
 
 **No foreign keys.** The `repos` mapping would be the natural
 candidate for one, but DuckDB will not delete a row and its
