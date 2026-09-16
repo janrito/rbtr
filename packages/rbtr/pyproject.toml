@@ -9,7 +9,30 @@ source-exclude = ["**/tests"]
 name = "rbtr"
 version = "2026.9.0-dev0"
 description = "rbtr — structural code index"
+readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Alejandro Giacometti", email = "alejandro.giacometti@gmail.com" },
+]
+keywords = [
+  "code-search",
+  "code-index",
+  "tree-sitter",
+  "static-analysis",
+  "semantic-search",
+  "developer-tools",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Text Processing :: Indexing",
+  "Typing :: Typed",
+]
 requires-python = ">=3.13"
 dependencies = [
   "duckdb>=1.0",
@@ -41,6 +64,13 @@ dependencies = [
   # tree-sitter — one grammar per built-in (not-yet-packaged) language
   "tree-sitter>=0.24",
 ]
+
+[project.urls]
+Homepage = "https://github.com/janrito/rbtr"
+Repository = "https://github.com/janrito/rbtr"
+Documentation = "https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme"
+Issues = "https://github.com/janrito/rbtr/issues"
+Changelog = "https://github.com/janrito/rbtr/releases"
 
 [project.scripts]
 rbtr = "rbtr.cli:main"
