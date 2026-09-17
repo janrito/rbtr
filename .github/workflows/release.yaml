@@ -12,6 +12,14 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: sh
+
 jobs:
   release:
     if: >-
@@ -53,8 +61,8 @@ jobs:
         run: |
           VERSION=$(just --evaluate current_version)
           IS_DEV=$(just --evaluate is_dev)
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "IS_DEV=$IS_DEV" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "IS_DEV=$IS_DEV" >> "$GITHUB_OUTPUT"
 
       - name: Check event matches version
         env:
@@ -72,38 +80,98 @@ jobs:
       - name: Build
         run: just build
 
-      - name: Create GitHub release
+      - name: Check for existing GitHub release
+        id: github-release
+        env:
+          TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub prerelease draft
+        if: >-
+          steps.github-release.outputs.exists == 'false'
+          && steps.version.outputs.IS_DEV == 'true'
+        env:
+          TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        run: >-
+          gh release create "$TAG_NAME"
+          --draft
+          --prerelease
+          --generate-notes
+          --target "$TARGET_SHA"
+          dist/*
+
+      - name: Create GitHub stable release draft
+        if: >-
+          steps.github-release.outputs.exists == 'false'
+          && steps.version.outputs.IS_DEV == 'false'
+        env:
+          TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        run: >-
+          gh release create "$TAG_NAME"
+          --draft
+          --generate-notes
+          --target "$TARGET_SHA"
+          dist/*
+
+      - name: Check GitHub release metadata
         env:
           TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
           IS_DEV: ${{ steps.version.outputs.IS_DEV }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
         run: |
-          PRERELEASE_FLAG=""
-          NOTES_START=""
-          if [ "$IS_DEV" = "true" ]; then
-            PRERELEASE_FLAG="--prerelease"
-          else
-            # Anchor stable notes to the previous stable tag so dev
-            # pre-releases between releases do not truncate the changelog.
-            PREV_STABLE=$(git tag --list 'v*' --sort=-version:refname \
-              | grep -v -- '-dev' | head -n1)
-            if [ -n "$PREV_STABLE" ]; then
-              NOTES_START="--notes-start-tag $PREV_STABLE"
-            fi
+          ACTUAL_TARGET=$(gh release view "$TAG_NAME" \
+            --json targetCommitish \
+            --jq '.targetCommitish')
+          if [ "$ACTUAL_TARGET" != "$TARGET_SHA" ]; then
+            echo "::error::Release $TAG_NAME targets $ACTUAL_TARGET; expected $TARGET_SHA"
+            exit 1
           fi
-          gh release create "$TAG_NAME" \
-            $PRERELEASE_FLAG \
-            $NOTES_START \
-            --generate-notes \
-            --target "$TARGET_SHA" \
-            dist/*
+
+          ACTUAL_PRERELEASE=$(gh release view "$TAG_NAME" \
+            --json isPrerelease \
+            --jq '.isPrerelease')
+          if [ "$ACTUAL_PRERELEASE" != "$IS_DEV" ]; then
+            echo "::error::Release $TAG_NAME prerelease state is $ACTUAL_PRERELEASE; expected $IS_DEV"
+            exit 1
+          fi
+
+      - name: Check GitHub release assets
+        env:
+          TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$TAG_NAME" --json assets \
+            --jq '.assets[] | "\(.digest)  dist/\(.name)"' \
+            | sed 's/^sha256://' \
+            | sort > "$RUNNER_TEMP/remote-assets.sha256"
+          sha256sum dist/* \
+            | sort > "$RUNNER_TEMP/local-assets.sha256"
+          diff -u \
+            "$RUNNER_TEMP/remote-assets.sha256" \
+            "$RUNNER_TEMP/local-assets.sha256"
 
       - name: Publish to PyPI
         # Publish core (rbtr-*) and every language plugin (rbtr_lang_*).
         # rbtr-eval is internal (Private :: Do Not Upload) and is excluded by
         # these globs; the classifier is the belt-and-braces guarantee.
-        run: uv publish dist/rbtr-*.whl dist/rbtr_lang_*.whl dist/rbtr-*.tar.gz dist/rbtr_lang_*.tar.gz
+        run: >-
+          uv publish
+          --check-url https://pypi.org/simple
+          dist/rbtr-*.whl
+          dist/rbtr_lang_*.whl
+          dist/rbtr-*.tar.gz
+          dist/rbtr_lang_*.tar.gz
 
       - uses: actions/setup-node@v7
         with:
@@ -113,15 +181,30 @@ jobs:
       - name: Update npm
         run: npm install -g npm@latest
 
-      - name: Publish to npm
+      - name: Publish Pi extension to npm
         env:
-          IS_DEV: ${{ steps.version.outputs.IS_DEV }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          NPM_TAG: ${{ steps.version.outputs.IS_DEV == 'true' && 'next' || 'latest' }}
         run: |
-          TAG="latest"
-          if [ "$IS_DEV" = "true" ]; then
-            TAG="next"
-          fi
-          for tgz in ./dist/*.tgz; do
-            [ -e "$tgz" ] || continue
-            npm publish "$tgz" --provenance --access public --tag "$TAG"
-          done
+          PACKAGE="@janrito/pi-rbtr"
+          TARBALL="./dist/janrito-pi-rbtr-$VERSION.tgz"
+          npm publish "$TARBALL" --access public --tag "$NPM_TAG" \
+            || [ "$(npm view "$PACKAGE@$VERSION" dist.integrity)" = \
+              "$(npm pack "$TARBALL" --dry-run --json | jq -er '.[0].integrity')" ]
+
+      - name: Publish review skill to npm
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          NPM_TAG: ${{ steps.version.outputs.IS_DEV == 'true' && 'next' || 'latest' }}
+        run: |
+          PACKAGE="@janrito/skill-rbtr-review-github-pr"
+          TARBALL="./dist/janrito-skill-rbtr-review-github-pr-$VERSION.tgz"
+          npm publish "$TARBALL" --access public --tag "$NPM_TAG" \
+            || [ "$(npm view "$PACKAGE@$VERSION" dist.integrity)" = \
+              "$(npm pack "$TARBALL" --dry-run --json | jq -er '.[0].integrity')" ]
+
+      - name: Publish GitHub release
+        env:
+          TAG_NAME: "v${{ steps.version.outputs.VERSION }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$TAG_NAME" --draft=false
