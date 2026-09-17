@@ -8,7 +8,7 @@ source-exclude = ["**/tests"]
 
 [project]
 name = "rbtr-eval"
-version = "2026.9.0-dev1"
+version = "2026.9.0-dev2"
 description = "rbtr — search-quality evaluation harness"
 classifiers = ["Private :: Do Not Upload"]
 license = "MIT"

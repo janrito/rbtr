@@ -10,7 +10,7 @@ module-name = "rbtr_lang_sql"
 
 [project]
 name = "rbtr-lang-sql"
-version = "2026.9.0-dev1"
+version = "2026.9.0-dev2"
 description = "rbtr — SQL language plugin"
 readme = "README.md"
 license = "MIT"
@@ -39,7 +39,7 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.9.0-dev1",
+  "rbtr==2026.9.0-dev2",
   "tree-sitter-sql",
 ]
 
