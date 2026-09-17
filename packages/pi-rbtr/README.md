@@ -18,7 +18,7 @@ The extension requires the `rbtr` CLI. Install both:
 uv tool install rbtr
 
 # Install the pi extension
-pi install npm:@rbtr/pi
+pi install npm:@janrito/pi-rbtr
 ```
 
 For development from a local clone (no global install):

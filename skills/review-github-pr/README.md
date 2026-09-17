@@ -11,7 +11,7 @@ threads, and submitting or discarding the review.
 ## Install
 
 ```bash
-pi install npm:@rbtr/skill-review-github-pr
+pi install npm:@janrito/skill-rbtr-review-github-pr
 ```
 
 Requires the [GitHub CLI][gh] (authenticated) and [jq].

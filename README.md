@@ -62,8 +62,8 @@ by calling rbtr tools directly.
 ## Install
 
 ```bash
-uv tool install "rbtr[all]"   # the code index CLI, every language
-pi install npm:@rbtr/pi       # the pi extension
+uv tool install "rbtr[all]"       # the code index CLI, every language
+pi install npm:@janrito/pi-rbtr  # the pi extension
 ```
 
 Plain `uv tool install rbtr` gives you eight languages — the
