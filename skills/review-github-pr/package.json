@@ -11,8 +11,11 @@
   },
   "homepage": "https://github.com/janrito/rbtr/tree/main/skills/review-github-pr#readme",
   "bugs": "https://github.com/janrito/rbtr/issues",
-  "keywords": ["pi-skill"],
+  "keywords": ["pi-package", "pi-skill"],
   "files": ["SKILL.md", "README.md", "queries/", "references/"],
+  "pi": {
+    "skills": ["./SKILL.md"]
+  },
   "publishConfig": {
     "access": "public"
   }

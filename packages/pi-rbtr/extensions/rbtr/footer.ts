@@ -8,7 +8,7 @@
  * so the footer always has visible motion while a build is live.
  */
 
-import type { ExtensionContext, Theme, ThemeColor } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 100;
