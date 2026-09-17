@@ -9,9 +9,10 @@
     "url": "git+https://github.com/janrito/rbtr.git",
     "directory": "skills/review-github-pr"
   },
+  "homepage": "https://github.com/janrito/rbtr/tree/main/skills/review-github-pr#readme",
   "bugs": "https://github.com/janrito/rbtr/issues",
   "keywords": ["pi-skill"],
-  "files": ["SKILL.md", "queries/", "references/"],
+  "files": ["SKILL.md", "README.md", "queries/", "references/"],
   "publishConfig": {
     "access": "public"
   }
