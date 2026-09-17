@@ -10,204 +10,202 @@ ablation in `measure` isolates the effect of each channel.
 | field         | value                                         |
 | ------------- | --------------------------------------------- |
 | model         | `openai-chat:deepseek/deepseek-v4-flash-0731` |
-| total queries | 3623                                          |
-| expanded      | 3623 / 3623 (100%)                            |
+| total queries | 3640                                          |
+| expanded      | 3640 / 3640 (100%)                            |
 
 ## Per-kind breakdown
 
 | query_kind | n    | avg_keywords | avg_variants |
 | ---------- | ---- | ------------ | ------------ |
-| code       | 582  | 5.2          | 1.9          |
-| concept    | 1595 | 5.2          | 1.9          |
-| identifier | 1446 | 5.0          | 1.9          |
+| code       | 580  | 5.1          | 2.0          |
+| concept    | 1623 | 5.1          | 2.0          |
+| identifier | 1437 | 4.9          | 2.0          |
 
 ## Per-repo breakdown
 
 | slug               | total | expanded | rate |
 | ------------------ | ----- | -------- | ---- |
-| anthropics__skills | 735   | 735      | 100% |
-| astral-sh__uv      | 904   | 904      | 100% |
-| badlogic__pi-mono  | 651   | 651      | 100% |
-| django__django     | 746   | 746      | 100% |
-| rbtr__rbtr         | 587   | 587      | 100% |
+| anthropics__skills | 737   | 737      | 100% |
+| astral-sh__uv      | 916   | 916      | 100% |
+| badlogic__pi-mono  | 647   | 647      | 100% |
+| django__django     | 751   | 751      | 100% |
+| rbtr__rbtr         | 589   | 589      | 100% |
 
 ## Per-provenance breakdown
 
 | provenance | total | expanded | rate |
 | ---------- | ----- | -------- | ---- |
 | body       | 967   | 967      | 100% |
-| concept    | 1558  | 1558     | 100% |
+| concept    | 1576  | 1576     | 100% |
 | docstring  | 389   | 389      | 100% |
-| name       | 709   | 709      | 100% |
+| name       | 708   | 708      | 100% |
 
 ## Examples
-
-### concept: `test_invalid_type_end_row_range` (`django__django`)
-
-````python
-test that RowRange window frame rejects a non-integer end argument
-````
-
-- **keywords:** RowRange, window_frame, validate_end, type_error, assertRaises
-- **variants:** test that RowRange window frame throws on a non-integer boundary, verify
-  RowRange frame rejects invalid end value type
-
-### concept: `current_ld` (`astral-sh__uv`)
-
-````bash
-# Make mold the default linker
-````
-
-- **keywords:** LINKER, ld, lld, gold, use_mold, CMAKE_LINKER
-- **variants:** how to switch the compiler to use the mold linker by default, set the
-  default linker to mold in the build toolchain
 
 ### concept: `DirtyWorktree` (`rbtr__rbtr`)
 
 ````python
-represent a repository with uncommitted working tree changes and its current tree hash
+represent a repository with uncommitted working tree changes
 ````
 
-- **keywords:** working_tree, dirty, head_hash, git_status, commit_sha
-- **variants:** get the current commit with uncommitted modifications, determine repo
-  state and hash when files are modified but not staged, serialize repo state including
-  dirty working directory
+- **keywords:** git_status, dirty_worktree, diff, unstaged_changes, working_copy
+- **variants:** list files that have been modified but not yet staged, model a repo
+  state with pending modifications
 
-### concept: `execute` (`badlogic__pi-mono`)
-
-````typescript
-delay processing and record execution order for a specific input value
-````
-
-- **keywords:** sleep, throttle, schedule_task, defer_result, ordered_registry,
-  sequence_tracker
-- **variants:** how to queue a job and log the order it runs for a given key, buffer a
-  task until later and persist its run sequence per value
-
-### concept: `RESY` (`badlogic__pi-mono`)
-
-````bash
-how to set the default render resolution with an environment variable override
-````
-
-- **keywords:** RENDER_RESOLUTION, set_display_size, default_resolution, env_override,
-  configure_graphics
-- **variants:** override the startup video output dimensions, control the initial screen
-  width and height
-
-### identifier: `--default-button-bg` (`django__django`)
-
-````css
-html[data-theme="light"],
-:root::--default-button-bg
-````
-
-- **keywords:** css variable, theme variable, custom property, light-theme-color,
-  button_default_bg
-- **variants:** define a CSS custom property for the default button background color
-  under the light color-scheme, set theme-scoped variable value inside an html
-  data-theme selector
-
-### identifier: `IndexErrorArticle` (`django__django`)
-
-````python
-IndexErrorArticle
-````
-
-- **keywords:** index_out_of_bounds, ArrayIndexOutOfBounds, IndexOutOfBoundsException,
-  list_index_error, invalid_index
-- **variants:** exception thrown when accessing an array or list with an out-of-range
-  index, error raised when an index is outside the valid bounds of a collection
-
-### identifier: `action` (`django__django`)
-
-````python
-"""
-    Conveniently add attributes to an action function::
-````
-
-- **keywords:** action_decorator, decorate_action, attach_metadata,
-  action_attribute_setter
-- **variants:** attach metadata or extra attributes to an action function, wrap a
-  function to set additional fields
-
-### identifier: `.section-header` (`anthropics__skills`)
-
-````css
-.section-header
-````
-
-- **keywords:** section_title, heading_block, header_label, block_heading,
-  section_title_bar
-- **variants:** stylized title or label displayed at the top of a content section,
-  heading element that introduces and labels a page block
-
-### identifier: `getDownloadUri` (`anthropics__skills`)
+### concept: `agentDirEnvName` (`badlogic__pi-mono`)
 
 ````javascript
-// ---- Util ----
+what environment variable sets the agent working directory
 ````
 
-- **keywords:** helper, utility, utils, common_functions, misc
-- **variants:** shared helper functions used across the codebase, generic utility module
-  with common operations
+- **keywords:** PWD, WORKDIR, cwd, AGENT_HOME, chdir
+- **variants:** which env var controls the process current directory, how to configure
+  the base directory for the agent
 
-### code: `run_session` (`anthropics__skills`)
+### concept: `_KEPT_REF_PREFIXES` (`rbtr__rbtr`)
 
 ````python
-def run_session(client, session_id: str):
-    """Stream events and handle custom tool calls."""
-    while True:
-        with client.beta.sessions.stream(
-            session_id=session_id,
-        ) a
+which git reference namespaces are preserved when keeping refs
 ````
 
-- **keywords:** run_session, session_id, beta.sessions.stream, stream_events,
-  custom_tool_calls
-- **variants:** stream session events and process custom tool calls, capture the beta
-  sessions stream for the given session id
+- **keywords:** refs/keep, keep_refs, filter_refs, ref_scope, namespaces
+- **variants:** which ref prefixes are retained when refs are kept during fetch/clone,
+  what ref namespaces survive the keep filters applied to git references
 
-### code: `__dirname` (`anthropics__skills`)
+### concept: `MCP Servers` (`anthropics__skills`)
 
-````typescript
-__dirname = dirname(fileURLToPath(import.meta.url))
+````markdown
+how to connect an agent to external services like GitHub using MCP
 ````
 
-- **keywords:** __dirname, dirname, fileURLToPath, import.meta.url, ESM_path
-- **variants:** get the folder path of the current ES module, convert the module URL to
-  a filesystem directory path
+- **keywords:** mcp_client, MCP_SERVER, tool_connector, add_tool, register_tool
+- **variants:** set up MCP server endpoints for the agent, register external API tools
+  on the agent
 
-### code: `GitUrl` (`astral-sh__uv`)
+### concept: `extra_build_requires_for` (`astral-sh__uv`)
 
 ````rust
-impl std::fmt::Display for GitUrl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.url)
-    }
-}
+look up additional build dependencies needed for a specific package
 ````
 
-- **keywords:** GitUrl, Display, Formatter, fmt, url
-- **variants:** render the GitUrl by writing its underlying url string to the formatter
+- **keywords:** extra_dependencies, build_requires, requires_dist, deps,
+  install_requires
+- **variants:** what additional libraries must be installed to compile this package,
+  find the transitive dependency list of required components
 
-### code: `FakeReply` (`rbtr__rbtr`)
+### identifier: `DECIMAL_SEPARATOR` (`django__django`)
+
+````python
+# The *_INPUT_FORMATS strings use the Python strftime format syntax,
+# see https://docs.python.org/library/datetime.html#strftime-strptime-behavior
+# DATE_INPUT_FORMATS =
+# TIME_INPUT_FORMATS =
+# DATE
+````
+
+- **keywords:** strftime_format, datetime_format, locale_date_formats,
+  parse_date_patterns, input_datetime_formats
+- **variants:** list of strftime patterns used to parse incoming date strings, configure
+  accepted datetime input layouts for form fields
+
+### identifier: `--sidebar-width` (`badlogic__pi-mono`)
+
+````css
+:root::--sidebar-width
+````
+
+- **keywords:** sidebar_width, --aside-width, side-panel-width, --nav-width, rail-width
+- **variants:** CSS custom property defining the horizontal measurement of the side
+  navigation panel, design token controlling the width of the application sidebar layout
+
+### identifier: `hue:` (`astral-sh__uv`)
+
+````rst
+hue:
+````
+
+- **keywords:** color_hue, hue_value, color_wheel_angle, hsv_hue, rotate_hue
+- **variants:** the hue component of a color in HSL or HSV color space, adjust or rotate
+  the hue angle of a color
+
+### identifier: `Style guide` (`astral-sh__uv`)
+
+````markdown
+Style guide
+````
+
+- **keywords:** coding_standards, style_guide, linting_rules, code_conventions,
+  formatting_rules
+- **variants:** rules and conventions for writing consistent code, documented best
+  practices for code formatting and style
+
+### identifier: `Message Flow` (`badlogic__pi-mono`)
+
+````markdown
+@mariozechner/pi-agent-core::Core Concepts::Message Flow
+````
+
+- **keywords:** message_pipeline, message_routing, msg_flow, messaging_lifecycle,
+  conversation_flow
+- **variants:** how messages are routed and processed through the system, end-to-end
+  path a message takes through the agent core
+
+### code: `on_email` (`badlogic__pi-mono`)
+
+````bash
+# Creates event per email — will flood the queue
+on_email() { echo '{"type":"immediate"...}' > /workspace/events/email-$ID.json; }
+````
+
+- **keywords:** on_email, event_queue, immediate_event, email_handler, event_flood
+- **variants:** write an immediate email event to the events directory, emit one event
+  JSON file per incoming email
+
+### code: `__init__` (`anthropics__skills`)
+
+````python
+def __init__(self, command: str, args: list[str] = None, env: dict[str, str] = None):
+        super().__init__()
+        self.command = command
+        self.args = args or []
+        self.env = env
+````
+
+- **keywords:** **init**, command, args, env, process_parameters
+- **variants:** constructor storing command, arguments, and environment variables,
+  initialize process with command line and env dict
+
+### code: `--md-code-hl-special-color` (`astral-sh__uv`)
+
+````css
+--md-code-hl-special-color: var(--electron);
+````
+
+- **keywords:** --md-code-hl-special-color, --electron, css_variable, highlight,
+  markdown_code
+- **variants:** special syntax highlighting color for markdown code blocks set to
+  electron color
+
+### code: `setSortMode` (`badlogic__pi-mono`)
 
 ````typescript
-type FakeReply = Response | ((request: Request) => Response);
+setSortMode(sortMode: SortMode): void {
+		this.sortMode = sortMode;
+	}
 ````
 
-- **keywords:** FakeReply, Response, Request, union_type, reply_middleware
-- **variants:** a response or a function mapping request to response, type alias that is
-  either a Response object or a handler that takes a Request and returns one
+- **keywords:** setSortMode, sortMode, SortMode, setter, update_sort
+- **variants:** setter that assigns the sort mode field, configure the sorting
+  preference
 
-### code: `buildWorstExamples` (`badlogic__pi-mono`)
+### code: `edges` (`rbtr__rbtr`)
 
-````javascript
-function buildWorstExamples(records, top) {
-	const scored = [...records].sort((a, b) => {
-		const aScore = a.inflationRatio === null
+````sql
+SELECT count(*)
+FROM edges
+WHERE repo_id = $repo_id AND commit_sha = $commit_sha
 ````
 
-- **keywords:** buildWorstExamples, inflationRatio, records, sort, topWorst
-- **variants:** sort the worst records by their inflation ratio and return the top ones
+- **keywords:** count, edges, repo_id, commit_sha, WHERE
+- **variants:** count edge rows for a given repository and commit, SQL aggregate count
+  matching repo and commit shas

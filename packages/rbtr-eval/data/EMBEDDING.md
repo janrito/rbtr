@@ -5,7 +5,7 @@
 | chunks     | 161,928          |
 | embedded   | 161,928 (100.0%) |
 | truncated  | 1,350            |
-| index size | 1.2 GB           |
+| index size | 1.3 GB           |
 
 ## Repos
 

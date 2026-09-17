@@ -16,6 +16,7 @@
     "embedding_n_gpu_layers": -1,
     "embedding_verbose": false,
     "embedding_batch_size": 32,
+    "embedding_page_size": 1000,
     "insert_batch_size": 512,
     "reranker_model": "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",
     "reranker_settings": {
@@ -41,8 +42,7 @@
     "embed_idle_timeout": 300,
     "idle_poll_interval": 5.0,
     "busy_poll_interval": 30.0,
-    "daemon_recv_timeout_ms": 30000,
-    "daemon_max_retries": 3,
+    "daemon_wait_budget_s": 120.0,
     "daemon_start_timeout": 60.0,
     "warmup": true,
     "retrieval_multiplier_lexical": 5,
@@ -66,7 +66,8 @@
       }
     },
     "db_path": "data/index/index.duckdb",
-    "daemon_log": "data/logs/daemon.log"
+    "daemon_log": "data/logs/daemon.log",
+    "daemon_stderr": "data/logs/daemon.stderr"
   },
   "plugins": [
     {

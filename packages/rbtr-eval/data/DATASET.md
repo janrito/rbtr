@@ -1,7 +1,7 @@
 # rbtr search-quality dataset
 
 Characterisation of the query set **before** measurement — the input
-to the benchmark, not its results. 3623 queries across
+to the benchmark, not its results. 3641 queries across
 5 repos and 14 languages.
 
 The three axes are independent: `symbol_kind` is the target chunk,
@@ -24,20 +24,20 @@ The indexed commit and sampled sizes per repo.
 
 | language   | n   |
 | ---------- | --- |
-| python     | 885 |
-| typescript | 516 |
-| javascript | 431 |
-| bash       | 389 |
+| python     | 890 |
+| typescript | 517 |
+| javascript | 430 |
+| bash       | 392 |
 | css        | 349 |
-| rust       | 249 |
+| rust       | 252 |
 | markdown   | 199 |
-| json       | 197 |
-| yaml       | 92  |
+| json       | 199 |
+| yaml       | 93  |
 | sql        | 80  |
-| rst        | 69  |
-| toml       | 68  |
+| toml       | 72  |
+| rst        | 70  |
 | plaintext  | 60  |
-| html       | 39  |
+| html       | 38  |
 
 ## Target coverage — `symbol_kind` × `provenance`
 
@@ -46,13 +46,13 @@ generation strategies. A kind absent here is not measured.
 
 | symbol_kind | body | concept | docstring | name | total |
 | ----------- | ---- | ------- | --------- | ---- | ----- |
-| variable    | 182  | 307     | 76        | 186  | 751   |
-| function    | 131  | 257     | 122       | 131  | 641   |
-| class       | 136  | 257     | 110       | 137  | 640   |
-| method      | 100  | 175     | 60        | 100  | 435   |
+| variable    | 182  | 315     | 76        | 186  | 759   |
+| class       | 136  | 260     | 110       | 137  | 643   |
+| function    | 131  | 259     | 122       | 131  | 643   |
+| method      | 100  | 173     | 60        | 100  | 433   |
 | doc_section | 130  | 198     | 0         | 75   | 403   |
 | comment     | 178  | 178     | 0         | 0    | 356   |
-| config_key  | 80   | 156     | 21        | 80   | 337   |
+| config_key  | 80   | 163     | 21        | 80   | 344   |
 | raw_chunk   | 30   | 30      | 0         | 0    | 60    |
 
 ## Target × request shape — `symbol_kind` × `query_kind`
@@ -62,14 +62,14 @@ axes are independent of provenance.
 
 | symbol_kind | concept | identifier | code | total |
 | ----------- | ------- | ---------- | ---- | ----- |
-| variable    | 322     | 313        | 116  | 751   |
-| function    | 257     | 252        | 132  | 641   |
-| class       | 257     | 247        | 136  | 640   |
-| method      | 175     | 171        | 89   | 435   |
-| doc_section | 205     | 146        | 52   | 403   |
-| comment     | 190     | 154        | 12   | 356   |
-| config_key  | 157     | 152        | 28   | 337   |
-| raw_chunk   | 32      | 11         | 17   | 60    |
+| variable    | 333     | 312        | 114  | 759   |
+| class       | 261     | 246        | 136  | 643   |
+| function    | 261     | 250        | 132  | 643   |
+| method      | 174     | 170        | 89   | 433   |
+| doc_section | 208     | 143        | 52   | 403   |
+| comment     | 191     | 153        | 12   | 356   |
+| config_key  | 164     | 152        | 28   | 344   |
+| raw_chunk   | 31      | 12         | 17   | 60    |
 
 ## Not measured
 
@@ -109,7 +109,7 @@ scatter here is that difference made visible.
 | provenance  | concept | identifier | code  | n    |
 | ----------- | ------- | ---------- | ----- | ---- |
 | `body`      | 2.9%    | 40.1%      | 57.0% | 967  |
-| `concept`   | 98.6%   | 1.3%       | 0.1%  | 1558 |
+| `concept`   | 99.2%   | 0.8%       | 0.0%  | 1576 |
 | `docstring` | 5.9%    | 88.7%      | 5.4%  | 389  |
 | `name`      | 1.1%    | 97.7%      | 1.1%  | 709  |
 
@@ -144,22 +144,22 @@ impl Display for MarkerOperator {
             Self::NotEqual => "!=",
 ````
 
-**`concept` → concept** · rust · `class` · IntoIter
+**`concept` → concept** · rust · `class` · ExtraBuildDependencies
 
 ````text
-iterate over flat dependency groups by name
+provide mutable access to the underlying dependency collection
 ````
 
-**`concept` → concept** · css · `variable` · --white
+**`concept` → concept** · css · `class` · [data-md-color-scheme="astral-dark"]
 
 ````text
-what color value does the white CSS variable define
+apply a dark mode color scheme to a documentation site
 ````
 
-**`concept` → concept** · css · `class` · .toclink
+**`concept` → concept** · css · `class` · .md-nav--primary .md-nav__title
 
 ````text
-reset the color of table of contents anchor links
+disable the shadow on the primary navigation title
 ````
 
 **`docstring` → code** · rust · `class` · InstalledVersion
