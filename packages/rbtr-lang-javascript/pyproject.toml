@@ -10,7 +10,7 @@ module-name = "rbtr_lang_javascript"
 
 [project]
 name = "rbtr-lang-javascript"
-version = "2026.9.0-dev0"
+version = "2026.9.0-dev1"
 description = "rbtr — JavaScript / TypeScript / TSX language plugin"
 readme = "README.md"
 license = "MIT"
@@ -40,7 +40,7 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.9.0-dev0",
+  "rbtr==2026.9.0-dev1",
   "tree-sitter-javascript",
   "tree-sitter-typescript",
 ]
