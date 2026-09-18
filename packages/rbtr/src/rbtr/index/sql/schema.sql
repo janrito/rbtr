@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   metadata TEXT NOT NULL DEFAULT '{}',
   -- Variable-length embedding vector; dimension is determined by
   -- the model (see ARCHITECTURE.md "Embedding column").
-  embedding FLOAT [] DEFAULT NULL,
+  embedding FLOAT[] DEFAULT NULL,
   embedding_truncated BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (id),
   -- A span ends on or after the line it starts on.
