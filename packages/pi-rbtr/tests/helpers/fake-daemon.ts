@@ -7,7 +7,7 @@
  *
  * Uses ``await using`` for automatic socket cleanup via the
  * explicit-resource-management proposal (ECMAScript 2026, available
- * in Node 22+ / bun).  Callers write::
+ * in Node 22.19+).  Callers write::
  *
  *     await using daemon = await startFakeDaemon({ reply: ... });
  *     // socket bound at daemon.endpoint

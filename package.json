@@ -1,6 +1,10 @@
 {
+  "name": "rbtr",
   "private": true,
   "workspaces": ["packages/pi-rbtr"],
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@graphql-inspector/cli": "4.0.3",

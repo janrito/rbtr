@@ -156,8 +156,11 @@ searchable, just without structure.
 
 ## Development
 
+Development requires Python 3.13, uv, Node.js 22.19 or later,
+npm, and just.
+
 ```bash
-just setup                  # uv sync + bun install
+just setup                  # uv sync + npm install
 just check                  # lint, typecheck, and every test suite
 just fmt                    # auto-fix (Python, TypeScript, SQL, Markdown)
 ```

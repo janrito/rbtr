@@ -90,7 +90,8 @@ async function main(): Promise<void> {
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, output);
 
-  const fmt = spawnSync("bunx", ["@biomejs/biome", "check", "--write", OUT_PATH], {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const fmt = spawnSync(npm, ["exec", "--", "biome", "check", "--write", OUT_PATH], {
     stdio: ["ignore", "ignore", "inherit"],
   });
   if (fmt.status !== 0) {

@@ -48,13 +48,21 @@ jobs:
         with:
           python-version-file: ".python-version"
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "package-lock.json"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Update npm
+        run: npm install -g npm@11
+
       - name: Install the project
         run: uv sync --frozen
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Install node deps
-        run: bun install --frozen-lockfile
+        run: just setup-ci-js
 
       - name: Resolve version
         id: version
@@ -172,14 +180,6 @@ jobs:
           dist/rbtr_lang_*.whl
           dist/rbtr-*.tar.gz
           dist/rbtr_lang_*.tar.gz
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Update npm
-        run: npm install -g npm@latest
 
       - name: Publish Pi extension to npm
         env:

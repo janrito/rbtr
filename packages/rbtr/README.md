@@ -851,10 +851,13 @@ for the dedup mechanism.
 
 ## Development
 
+Development requires Python 3.13, uv, Node.js 22.19 or later,
+npm, and just.
+
 ```bash
 git clone <repo-url>
 cd rbtr
-just setup    # uv sync + bun install
+just setup    # uv sync + npm install
 just check    # lint, typecheck, and every test suite
 ```
 
