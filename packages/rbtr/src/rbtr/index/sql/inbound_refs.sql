@@ -13,5 +13,5 @@ INNER JOIN _snapshot_refs AS rr
   ON e.repo_id = rr.repo_id AND e.snapshot_sha = rr.snapshot_sha
 INNER JOIN chunks AS c
   ON e.source_id = c.id
-WHERE e.target_id IN (SELECT unnest($target_ids::text []))
+WHERE e.target_id IN (SELECT unnest($target_ids::text[]))
 ORDER BY e.source_path, c.line_start

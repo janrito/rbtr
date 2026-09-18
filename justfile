@@ -5,10 +5,10 @@ setup: setup-py setup-js
 setup-ci: setup-ci-py setup-ci-js
 
 setup-py:
-    uv sync --all-groups --all-packages --all-extras
+    uv sync --all-packages --all-extras --group debug
 
 setup-ci-py:
-    uv sync --frozen --all-packages --all-extras
+    uv sync --frozen --all-packages --all-extras --group llama-cpp-cpu
 
 setup-js:
     bun install
@@ -110,7 +110,7 @@ snapshots:
 build: build-py build-ext
 
 build-py:
-    uv build --package rbtr --out-dir dist
+    uv build --all-packages --out-dir dist
 
 build-ext:
     mkdir -p dist

@@ -1,7 +1,9 @@
 # rbtr-lang-bash
 
-Bash / shell support for [rbtr](../rbtr). **Default** — installed with
+Bash / shell support for [rbtr]. **Default** — installed with
 core `rbtr`, no extra required.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

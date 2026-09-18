@@ -10,15 +10,15 @@
  */
 
 import { createRequire } from "node:module";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   getSettingsListTheme,
   truncateHead,
-} from "@mariozechner/pi-coding-agent";
-import { Container, type SettingItem, SettingsList } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+} from "@earendil-works/pi-coding-agent";
+import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
 import { RbtrDaemonError } from "./daemon-client.js";

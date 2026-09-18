@@ -1,7 +1,9 @@
 # rbtr-lang-less
 
-Less support for [rbtr](../rbtr). Optional plugin — install with
+Less support for [rbtr]. Optional plugin — install with
 `pip install rbtr[less]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

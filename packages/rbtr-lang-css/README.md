@@ -1,7 +1,9 @@
 # rbtr-lang-css
 
-CSS support for [rbtr](../rbtr). Optional plugin — install with
+CSS support for [rbtr]. Optional plugin — install with
 `pip install rbtr[css]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

@@ -62,14 +62,16 @@ by calling rbtr tools directly.
 ## Install
 
 ```bash
-uv tool install "rbtr[all]"   # the code index CLI, every language
-pi install npm:@rbtr/pi       # the pi extension
+uv tool install "rbtr[all]"       # the code index CLI, every language
+pi install npm:@janrito/pi-rbtr  # the pi extension
 ```
 
 Plain `uv tool install rbtr` gives you eight languages — the
 ones that ship as required dependencies. Everything else is an
 extra, so `rbtr[all]` is the one to want unless you are keeping
-the install small. See [Languages](#languages) for the split.
+the install small. See [Languages](#languages) for the split and
+[hardware acceleration](packages/rbtr/README.md#hardware-acceleration)
+for prebuilt CUDA and Vulkan installation examples.
 
 ```bash
 cd /path/to/your/repo

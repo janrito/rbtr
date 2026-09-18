@@ -1,13 +1,16 @@
 # rbtr-lang-vue
 
-Vue support for [rbtr](../rbtr). Optional plugin — install with
+Vue support for [rbtr]. Optional plugin — install with
 `pip install rbtr[vue]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
+[rbtr-lang-svelte]: https://github.com/janrito/rbtr/tree/main/packages/rbtr-lang-svelte#readme
 
 ## What it ingests
 
 `.vue` single-file components. Vue has the same `<script>`/`<style>`/template
 shape as Svelte, so this package reuses the SFC chunker and injection query
-from [rbtr-lang-svelte](../rbtr-lang-svelte): the markup template becomes one
+from [rbtr-lang-svelte]: the markup template becomes one
 host **doc-section** chunk, a comment above that markup is its own chunk, and
 the `<script>`/`<style>` blocks are delegated to their embedded language.
 

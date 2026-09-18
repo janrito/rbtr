@@ -23,7 +23,7 @@ WITH candidates AS (
       AND c.file_language = fs.detected_language
   WHERE
     fs.repo_id = $repo_id
-    AND fs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))
+    AND fs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT[]))
 ),
 
 kept AS (
@@ -35,7 +35,7 @@ kept AS (
       AND cand.file_language = keepfs.detected_language
   WHERE NOT (
     keepfs.repo_id = $repo_id
-    AND keepfs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT []))
+    AND keepfs.snapshot_sha IN (SELECT unnest($drop_shas::TEXT[]))
   )
 )
 

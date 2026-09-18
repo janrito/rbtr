@@ -1,7 +1,9 @@
 # rbtr-lang-tree-sitter-query
 
-tree-sitter query (`.scm`) support for [rbtr](../rbtr). Optional plugin —
+tree-sitter query (`.scm`) support for [rbtr]. Optional plugin —
 install with `pip install rbtr[tree_sitter_query]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

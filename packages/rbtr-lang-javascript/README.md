@@ -1,7 +1,9 @@
 # rbtr-lang-javascript
 
-JavaScript, TypeScript, and TSX support for [rbtr](../rbtr). A **default**
+JavaScript, TypeScript, and TSX support for [rbtr]. A **default**
 plugin — installed with rbtr itself (`pip install rbtr`).
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

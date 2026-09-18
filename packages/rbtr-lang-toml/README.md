@@ -1,7 +1,9 @@
 # rbtr-lang-toml
 
-TOML support for [rbtr](../rbtr). Optional plugin — install with
+TOML support for [rbtr]. Optional plugin — install with
 `pip install rbtr[toml]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

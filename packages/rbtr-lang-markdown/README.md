@@ -1,7 +1,9 @@
 # rbtr-lang-markdown
 
-Markdown support for [rbtr](../rbtr). A **default** plugin — installed with
+Markdown support for [rbtr]. A **default** plugin — installed with
 rbtr itself (`pip install rbtr`).
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

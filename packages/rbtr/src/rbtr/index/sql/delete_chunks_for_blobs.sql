@@ -8,5 +8,5 @@
 -- nothing to find.
 DELETE FROM chunks
 WHERE
-  blob_sha IN (SELECT unnest($blob_shas::TEXT []))
+  blob_sha IN (SELECT unnest($blob_shas::TEXT[]))
   AND file_language = $file_language

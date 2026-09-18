@@ -1,6 +1,6 @@
 {
-  "name": "@rbtr/skill-review-github-pr",
-  "version": "2026.6.1",
+  "name": "@janrito/skill-rbtr-review-github-pr",
+  "version": "2026.9.0-dev1",
   "description": "pi skill — post GitHub PR reviews via gh and GraphQL",
   "license": "MIT",
   "author": "Alejandro Giacometti",
@@ -9,9 +9,13 @@
     "url": "git+https://github.com/janrito/rbtr.git",
     "directory": "skills/review-github-pr"
   },
+  "homepage": "https://github.com/janrito/rbtr/tree/main/skills/review-github-pr#readme",
   "bugs": "https://github.com/janrito/rbtr/issues",
-  "keywords": ["pi-skill"],
-  "files": ["SKILL.md", "queries/", "references/"],
+  "keywords": ["pi-package", "pi-skill"],
+  "files": ["SKILL.md", "README.md", "queries/", "references/"],
+  "pi": {
+    "skills": ["./SKILL.md"]
+  },
   "publishConfig": {
     "access": "public"
   }
