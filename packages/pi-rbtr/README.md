@@ -176,8 +176,11 @@ shows an error with install instructions if it fails.
 
 ## Development
 
+Development requires Node.js 22.19 or later and npm. The full
+repository checks also require Python 3.13, uv, and just.
+
 ```bash
-bun install               # install dependencies
+npm install               # install dependencies
 just check                # full check (Python + TypeScript)
 just lint-ts              # biome lint
 just fmt-ts               # biome format

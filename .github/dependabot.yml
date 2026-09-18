@@ -11,8 +11,8 @@ updates:
           - "minor"
           - "patch"
 
-  # JS/TS (bun workspace: root package.json + packages/pi-rbtr)
-  - package-ecosystem: "bun"
+  # JS/TS (npm workspace: root package.json + packages/pi-rbtr)
+  - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"

@@ -12,6 +12,9 @@
   "homepage": "https://github.com/janrito/rbtr/tree/main/packages/pi-rbtr#readme",
   "bugs": "https://github.com/janrito/rbtr/issues",
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "keywords": ["pi-package"],
   "files": ["extensions", "README.md"],
   "publishConfig": {
