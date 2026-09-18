@@ -162,6 +162,8 @@ rbtr-lang-vue = { workspace = true }
 rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
+llama-cpp-source = ["llama-cpp-python>=0.3.24"]
+llama-cpp-cpu = ["llama-cpp-python>=0.3.24"]
 dev = [
   "pyinstrument>=5.0",
   "pytest-mock",

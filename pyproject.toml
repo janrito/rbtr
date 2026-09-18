@@ -1,8 +1,24 @@
+[tool.uv]
+conflicts = [[
+  { package = "rbtr", group = "llama-cpp-source" },
+  { package = "rbtr", group = "llama-cpp-cpu" },
+]]
+
 [tool.uv.workspace]
 # Glob so new packages/rbtr-lang-* auto-join the workspace. pi-rbtr is a
 # TypeScript package (no pyproject.toml), so it is not a uv/Python member.
 members = ["packages/*"]
 exclude = ["packages/pi-rbtr"]
+
+[tool.uv.sources]
+llama-cpp-python = [
+  { index = "llama-cpp-python-cpu", group = "llama-cpp-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+
+[[tool.uv.index]]
+name = "llama-cpp-python-cpu"
+url = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+explicit = true
 
 # -- ruff --
 

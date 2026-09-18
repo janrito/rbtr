@@ -16,6 +16,35 @@ rbtr index                   # build the index
 rbtr search "retry logic"    # search it
 ```
 
+### Hardware acceleration
+
+The default installation builds `llama-cpp-python` from PyPI for the local
+machine. To use a prebuilt accelerator backend, select one of the upstream
+indexes. Their URLs follow
+`https://abetlen.github.io/llama-cpp-python/whl/<backend>`.
+
+For example, install the CUDA 12.4 wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+  "rbtr[all]"
+```
+
+Or install the Vulkan wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
+  "rbtr[all]"
+```
+
+Choose a backend compatible with the machine's drivers and platform. See the
+[llama-cpp-python installation documentation][llama-install] for the current
+backend names and requirements.
+
+[llama-install]: https://github.com/abetlen/llama-cpp-python#installation
+
 A background daemon starts automatically and keeps every
 watched ref current (`HEAD` by default; add more with
 `rbtr index <ref>`). Subsequent builds are incremental —
