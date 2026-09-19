@@ -43,7 +43,7 @@ Eight tools, registered automatically on session start:
 | `rbtr_list_symbols`    | Structural table of contents for a file                                                                                  |
 | `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                 |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
-| `rbtr_index`           | Index the repository (background, incremental)                                                                           |
+| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                               |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |
 | `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                      |
 

@@ -618,8 +618,8 @@ single source the watcher derives builds from;
 `indexed_snapshots` remains the record of **completion**
 (see [Completion tracking](#completion-tracking)).
 
-- `rbtr index` (no args) watches the default ref, `HEAD`;
-  `rbtr index <refs…>` adds each as an independent watch
+- `rbtr watch` (no args) watches the default ref, `HEAD`;
+  `rbtr watch <refs…>` adds each as an independent watch
   target; `rbtr unwatch <refs…>` removes them. `HEAD` cannot
   be removed — rejected atomically before any delete.
 - Symbolic names are stored and re-resolved each poll, so a
@@ -886,7 +886,7 @@ A progress notification (PUB):
 Error responses carry a `code` field:
 
 - `index_not_built` — no index exists for this repo.
-  Client should trigger `rbtr index`.
+  Client should trigger `rbtr watch`.
 - `index_in_progress` — a build is running; retry after
   the `ready` notification.
 - `repo_not_found` — the repo path isn't registered.

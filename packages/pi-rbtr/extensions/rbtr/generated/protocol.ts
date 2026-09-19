@@ -9,7 +9,7 @@
 
 export type Request =
   | ShutdownRequest
-  | BuildIndexRequest
+  | WatchRequest
   | SearchRequest
   | ReadSymbolRequest
   | ListSymbolsRequest
@@ -34,7 +34,7 @@ export type GcMode = "head_only" | "keep" | "orphans" | "watched" | "watched_onl
 export type Response =
   | ErrorResponse
   | OkResponse
-  | BuildIndexResponse
+  | WatchResponse
   | SearchResponse
   | ReadSymbolResponse
   | ListSymbolsResponse
@@ -99,8 +99,14 @@ export type EmbedOutcome = "finished" | "stood_aside" | "stopped";
 export interface ShutdownRequest {
   kind: "shutdown";
 }
-export interface BuildIndexRequest {
-  kind: "index";
+/**
+ * Watch the given refs and keep them indexed.
+ *
+ * The refs join the repo's watch set; the worker builds them from
+ * there. Dropping refs is `UnwatchRequest`.
+ */
+export interface WatchRequest {
+  kind: "watch";
   repo_path: string;
   refs?: string[];
   embed?: boolean;
@@ -235,8 +241,11 @@ export interface ErrorResponse {
 export interface OkResponse {
   kind: "ok";
 }
-export interface BuildIndexResponse {
-  kind: "index";
+/**
+ * What an inline build produced for the refs now watched.
+ */
+export interface WatchResponse {
+  kind: "watch";
   resolved_refs: string[];
   stats: IndexStats;
   errors: string[];

@@ -17,7 +17,7 @@ class IndexNotBuiltError(RbtrError):
 
     error_code: str = "index_not_built"
 
-    def __init__(self, message: str = "FTS index not built. Run `rbtr index` first.") -> None:
+    def __init__(self, message: str = "FTS index not built. Run `rbtr watch` first.") -> None:
         super().__init__(message)
 
 

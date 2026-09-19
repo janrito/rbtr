@@ -173,9 +173,15 @@ class ShutdownRequest(BaseModel):
     kind: Literal["shutdown"] = "shutdown"
 
 
-class BuildIndexRequest(BaseModel):
+class WatchRequest(BaseModel):
+    """Watch the given refs and keep them indexed.
+
+    The refs join the repo's watch set; the worker builds them from
+    there. Dropping refs is `UnwatchRequest`.
+    """
+
     model_config = _STRICT
-    kind: Literal["index"] = "index"
+    kind: Literal["watch"] = "watch"
     repo_path: str
     refs: RefList = ["HEAD"]
     embed: bool = True
@@ -332,7 +338,7 @@ class ForgetRequest(BaseModel):
 
 Request = Annotated[
     ShutdownRequest
-    | BuildIndexRequest
+    | WatchRequest
     | SearchRequest
     | ReadSymbolRequest
     | ListSymbolsRequest
@@ -364,9 +370,11 @@ class OkResponse(BaseModel):
     kind: Literal["ok"] = "ok"
 
 
-class BuildIndexResponse(BaseModel):
+class WatchResponse(BaseModel):
+    """What an inline build produced for the refs now watched."""
+
     model_config = _STRICT
-    kind: Literal["index"] = "index"
+    kind: Literal["watch"] = "watch"
     resolved_refs: list[str]
     stats: IndexStats
     errors: list[str]
@@ -533,7 +541,7 @@ class ForgetResponse(BaseModel):
 Response = Annotated[
     ErrorResponse
     | OkResponse
-    | BuildIndexResponse
+    | WatchResponse
     | SearchResponse
     | ReadSymbolResponse
     | ListSymbolsResponse

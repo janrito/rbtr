@@ -1,4 +1,4 @@
-"""End-to-end smoke for `rbtr index --remove-stale-refs` via subprocess.
+"""End-to-end smoke for the watch-set commands via subprocess.
 
 Exercises the inline (no-daemon) prune path: watched refs that no
 longer resolve are removed; HEAD and resolvable refs are kept.
@@ -39,7 +39,7 @@ def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db:
     `test_start_concurrency`).
     """
     repo = str(git_repo.workdir)
-    result = run_cli(["index", "--no-daemon", "--no-embed", "--repo-path", repo])
+    result = run_cli(["watch", "--no-daemon", "--no-embed", "--repo-path", repo])
     assert result.returncode == 0, result.stderr
 
     store = IndexStore.from_config(writable=True)

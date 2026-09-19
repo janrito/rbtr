@@ -75,7 +75,7 @@ for prebuilt CUDA and Vulkan installation examples.
 
 ```bash
 cd /path/to/your/repo
-rbtr index                    # build the index
+rbtr watch                    # watch HEAD and index it
 rbtr search "retry logic"     # search it
 ```
 
@@ -179,8 +179,8 @@ data handling, testing, and language-plugin authoring.
 | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rbtr CLI not found` or `daemon start/restart failed` at session start | Run `rbtr daemon status`; if it's down, `rbtr daemon start`. Concurrent sessions converge on one daemon, so this is usually transient — a busy index reports "temporarily unavailable" and retries. |
 | `Index database is locked by another process`                          | The running daemon holds the index lock; route commands through it (`rbtr daemon status`). Only `rbtr daemon stop` a genuinely stale daemon — never kill a healthy one.                             |
-| `No index found` for a repo that should be indexed                     | Run `rbtr index` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                              |
-| The daemon refuses to start, naming languages it cannot load           | The index holds chunks from a plugin this install is missing. Install it, or start with `rbtr index --allow-missing-plugins` to proceed without it.                                                 |
+| `No index found` for a repo that should be indexed                     | Run `rbtr watch` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                              |
+| The daemon refuses to start, naming languages it cannot load           | The index holds chunks from a plugin this install is missing. Install it, or start with `rbtr watch --allow-missing-plugins` to proceed without it.                                                 |
 
 `rbtr config` prints the resolved paths (including the daemon
 log) and the language plugins actually loaded.

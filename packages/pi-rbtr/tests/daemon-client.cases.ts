@@ -47,7 +47,7 @@ export const sendScenarios: readonly SendScenario[] = [
   },
   {
     name: "index submission returns ok",
-    request: { kind: "index", repo_path: "/r", refs: ["HEAD"] },
+    request: { kind: "watch", repo_path: "/r", refs: ["HEAD"] },
     daemonResponse: { kind: "ok" },
     expected: { kind: "success", response: { kind: "ok" } },
   },

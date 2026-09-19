@@ -36,7 +36,7 @@ def test_roundtrip(scenario: MessageScenario) -> None:
 
 def test_index_rejects_whitespace_ref() -> None:
     """A whitespace-joined ref is a mis-shaped call, not one ref."""
-    raw = b'{"kind":"index","repo_path":"/r","refs":["main HEAD"]}'
+    raw = b'{"kind":"watch","repo_path":"/r","refs":["main HEAD"]}'
     with pytest.raises(ValidationError) as excinfo:
         request_adapter.validate_json(raw)
     assert "main HEAD" in str(excinfo.value)

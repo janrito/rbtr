@@ -189,8 +189,8 @@ is an answer it can use.
 ### Triggering a build
 
 `triggerIndex(ctx, ...refs)` requests a build through
-`withFallback`: the daemon path sends `{kind: "index",
-repo_path, refs}`; the CLI fallback spawns `rbtr index
+`withFallback`: the daemon path sends `{kind: "watch",
+repo_path, refs}`; the CLI fallback spawns `rbtr watch
 <refs>`. Refs default to `["HEAD"]`. The footer shows an
 animated "indexing…" spinner while the request is in
 flight; on failure it switches to "indexing failed" and

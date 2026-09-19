@@ -29,7 +29,6 @@ from rich.text import Text
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
-    BuildIndexResponse,
     ChangedSymbol,
     ChangedSymbolsResponse,
     DaemonConfigResponse,
@@ -43,6 +42,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchResponse,
     WatchedRef,
+    WatchResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import ChangeKind
@@ -201,7 +201,7 @@ def _print_rich(model: BaseModel) -> None:
     match model:
         case OkResponse():
             _out.print("[green]ok[/]")
-        case BuildIndexResponse():
+        case WatchResponse():
             _render_build_index_response(model)
         case SearchResponse():
             _render_search_response(model)
@@ -228,7 +228,7 @@ def _print_rich(model: BaseModel) -> None:
             raise TypeError(msg)
 
 
-def _render_build_index_response(response: BuildIndexResponse) -> None:
+def _render_build_index_response(response: WatchResponse) -> None:
     s = response.stats
     t = Text()
     t.append("refs=", style="dim")

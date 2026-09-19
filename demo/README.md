@@ -33,9 +33,9 @@ Output lands in `demo/output/` (checked into git).
 
 ## Before recording
 
-- **Demo 1** — ensure the daemon is running: `rbtr index`.
+- **Demo 1** — ensure the daemon is running: `rbtr watch`.
 - **Demo 2** — watch main so `changed-symbols` works:
-  `rbtr index main`.
+  `rbtr watch main`.
 - **Demo 3** — the pi extension is loaded via `-e` flag
   in the tape itself.
 

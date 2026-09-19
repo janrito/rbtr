@@ -215,7 +215,7 @@ class IndexStore:
             self._con.close()
             msg = (
                 f"Index schema {stored or 'unknown'} predates this rbtr "
-                f"({SCHEMA_VERSION}); run `rbtr index` to rebuild it."
+                f"({SCHEMA_VERSION}); run `rbtr watch` to rebuild it."
             )
             raise RbtrError(msg)
         log.warning("index_schema_changed", stored=stored or "none", current=SCHEMA_VERSION)

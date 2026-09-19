@@ -1,7 +1,7 @@
 """End-to-end smoke tests for query subcommands via subprocess.
 
 Exercises the full CLI → inline-fallback path (no daemon running).
-Seeds an IndexStore directly instead of running `rbtr index` to
+Seeds an IndexStore directly instead of running `rbtr watch` to
 keep the test fast and avoid depending on the GGUF embedding
 model — search is tested through the ZMQ handler path instead.
 """

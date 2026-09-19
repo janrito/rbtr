@@ -15,15 +15,14 @@ import structlog
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.handlers import (
-    handle_build_index,
     handle_daemon_config,
     handle_gc,
     handle_status,
     handle_unwatch,
+    handle_watch,
 )
 from rbtr.daemon.messages import (
     ActiveJob,
-    BuildIndexRequest,
     DaemonConfigRequest,
     ErrorResponse,
     FindRefsRequest,
@@ -39,6 +38,7 @@ from rbtr.daemon.messages import (
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
+    WatchRequest,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, GcMode, QueryKind
@@ -407,7 +407,7 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
 
 # ── Index (the watch set) ───────────────────────────────────────
 #
-# `handle_build_index` writes the watch set and nothing else, so these
+# `handle_watch` writes the watch set and nothing else, so these
 # drive it against the store directly.
 
 
@@ -415,7 +415,7 @@ def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> 
     """A repo first seen via `index <ref>` (not startup backfill) still
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
-    handle_build_index(BuildIndexRequest(repo_path=other, refs=["main"]), seeded_store)
+    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_store)
     watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
     assert "HEAD" in watched
     assert "main" in watched
@@ -424,7 +424,7 @@ def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> 
 def test_index_records_a_ref_in_the_watch_set(seeded_store: IndexStore, fake_repo: str) -> None:
     """`index` records a ref; dropping one is `handle_unwatch`."""
     repo_id = seeded_store.resolve_repo(fake_repo)
-    added = handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     assert isinstance(added, OkResponse)
     assert "main" in seeded_store.list_watched_refs(repo_id)
 
@@ -449,7 +449,7 @@ def test_watch_refs_logs_intent(
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """Add and remove each emit a correlated intent event."""
-    handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events

@@ -1,6 +1,6 @@
 """Regression tests for daemon concurrency.
 
-Drives a real `BuildIndexRequest` through ZMQ, waits for the
+Drives a real `WatchRequest` through ZMQ, waits for the
 build worker to start, then fires `SearchRequest`s against the
 same live daemon.  Exercises the full stack: socket dispatch,
 build queue, worker thread, tree-sitter extraction, DuckDB
@@ -21,13 +21,13 @@ import pytest
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
-    BuildIndexRequest,
     ErrorResponse,
     OkResponse,
     SearchRequest,
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    WatchRequest,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.index.store import IndexStore
@@ -138,7 +138,7 @@ def test_search_returns_promptly_during_live_build(
     large_repo: tuple[Path, str],
     search_budget_s: float,
 ) -> None:
-    """Drive a full BuildIndexRequest; fire SearchRequests during the build.
+    """Drive a full WatchRequest; fire SearchRequests during the build.
 
     The daemon must keep serving read RPCs while the build worker
     parses, inserts, and writes to DuckDB on its own thread.
@@ -149,7 +149,7 @@ def test_search_returns_promptly_during_live_build(
     repo_path, _sha = large_repo
 
     with DaemonClient(running_daemon.runtime_dir) as client:
-        build_resp = client.send(BuildIndexRequest(repo_path=str(repo_path)))
+        build_resp = client.send(WatchRequest(repo_path=str(repo_path)))
         assert isinstance(build_resp, OkResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)
@@ -192,7 +192,7 @@ def test_status_returns_promptly_during_live_build(
     repo_path, _sha = large_repo
 
     with DaemonClient(running_daemon.runtime_dir) as client:
-        build_resp = client.send(BuildIndexRequest(repo_path=str(repo_path)))
+        build_resp = client.send(WatchRequest(repo_path=str(repo_path)))
         assert isinstance(build_resp, OkResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)

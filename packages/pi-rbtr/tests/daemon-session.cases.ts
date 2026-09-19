@@ -34,7 +34,7 @@ export const sessionScenarios: readonly SessionScenario[] = [
   },
   {
     name: "session fires index as fire-and-forget ok",
-    request: { kind: "index", repo_path: "/r", refs: ["HEAD"] },
+    request: { kind: "watch", repo_path: "/r", refs: ["HEAD"] },
     daemonResponse: { kind: "ok" },
     expectedResponse: { kind: "ok" },
   },

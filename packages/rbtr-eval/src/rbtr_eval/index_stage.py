@@ -2,7 +2,7 @@
 
 Sequential indexer: for every repo in the per-repo dir,
 build the index for that repo into the
-shared isolation root.  ``rbtr index --no-daemon`` blocks
+shared isolation root.  ``rbtr watch --no-daemon`` blocks
 until each build is done; no polling, no daemon here.
 
 The sequential loop is what makes it safe to share one data
@@ -250,7 +250,7 @@ class IndexCmd(BaseModel):
             ]
             index_cmd = [
                 *dir_flags,
-                "index",
+                "watch",
                 "--no-daemon",
                 "--repo-path",
                 str(repo_path),

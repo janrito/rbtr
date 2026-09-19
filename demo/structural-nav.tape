@@ -4,7 +4,7 @@
 # dependency graph, structural diffs.
 #
 # Before recording:
-#   rbtr index main
+#   rbtr watch main
 #
 # Record: vhs demo/structural-nav.tape
 

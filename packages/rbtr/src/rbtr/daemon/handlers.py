@@ -27,7 +27,6 @@ from rbtr.config import config
 from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     ActiveJob,
-    BuildIndexRequest,
     ChangedSymbol,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
@@ -54,6 +53,7 @@ from rbtr.daemon.messages import (
     UnwatchRequest,
     UnwatchResponse,
     WatchedRef,
+    WatchRequest,
 )
 from rbtr.domain.models import (
     Chunk,
@@ -236,9 +236,9 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     if store.has_indexed(at=at):
         return
     if requested_ref == WORKTREE_REF:
-        msg = "Working tree is not indexed yet — run rbtr index first"
+        msg = "Working tree is not indexed yet — run rbtr watch first"
     else:
-        msg = f"Ref '{requested_ref}' is not indexed — run rbtr index first"
+        msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
     raise IndexNotBuiltError(msg)
 
 
@@ -521,8 +521,8 @@ def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
     return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
-def handle_build_index(
-    request: BuildIndexRequest,
+def handle_watch(
+    request: WatchRequest,
     store: IndexStore,
 ) -> Response:
     """Record the request's refs in the repo's watch set.

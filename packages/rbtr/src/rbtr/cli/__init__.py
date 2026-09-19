@@ -14,7 +14,7 @@ are the single source of truth. The human format is a richer
 layout of the same fields; it never drops or adds information.
 
 Dual-mode: most commands try the daemon first; if unreachable,
-fall back to direct in-process execution. `rbtr index` auto-starts
+fall back to direct in-process execution. `rbtr watch` auto-starts
 the daemon unless `--no-daemon` is given.
 """
 
@@ -64,8 +64,6 @@ from rbtr.daemon.handlers import (
     handle_unwatch,
 )
 from rbtr.daemon.messages import (
-    BuildIndexRequest,
-    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     DaemonConfigRequest,
@@ -89,6 +87,8 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    WatchRequest,
+    WatchResponse,
     protocol_json_schema,
 )
 from rbtr.daemon.server import DaemonServer
@@ -231,14 +231,14 @@ class Daemon(BaseModel):
         CliApp.run_subcommand(self)
 
 
-# ── Index subcommand ─────────────────────────────────────────────────
+# ── Watch subcommand ─────────────────────────────────────────────────
 
 
-class Index(BaseModel):
-    """Watch refs for continuous indexing.
+class Watch(BaseModel):
+    """Watch refs and keep them indexed.
 
     Each positional ref is an independent watch target the daemon
-    keeps indexed; `rbtr index` with no args watches `HEAD`.
+    keeps indexed; `rbtr watch` with no args watches `HEAD`.
     Stop watching one with `rbtr unwatch`.
     """
 
@@ -259,7 +259,7 @@ class Index(BaseModel):
         for r in self.refs:
             resolve_ref(resolved_repo, r)
 
-        request = BuildIndexRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
+        request = WatchRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
 
         if not self.daemon:
             self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
@@ -295,7 +295,7 @@ class Index(BaseModel):
         """Print the outcome of a daemon watch (add) request."""
         suffix = " (daemon started)" if started else ""
         match resp:
-            case BuildIndexResponse():
+            case WatchResponse():
                 emit(resp)
             case OkResponse():
                 print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
@@ -360,7 +360,7 @@ class Index(BaseModel):
                     result.stats.embedded_chunks += embedded
 
         emit(
-            BuildIndexResponse(
+            WatchResponse(
                 resolved_refs=resolved_refs,
                 stats=result.stats,
                 errors=result.errors,
@@ -934,7 +934,7 @@ class Rbtr(
     """rbtr — structural code index."""
 
     daemon: CliSubCommand[Daemon]
-    index: CliSubCommand[Index]
+    watch: CliSubCommand[Watch]
     unwatch: CliSubCommand[Unwatch]
     forget: CliSubCommand[Forget]
     search: CliSubCommand[Search]

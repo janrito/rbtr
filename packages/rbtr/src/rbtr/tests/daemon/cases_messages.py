@@ -16,8 +16,6 @@ from pytest_cases import case
 
 from rbtr.daemon.messages import (
     AutoRebuildNotification,
-    BuildIndexRequest,
-    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     EmbedEndedNotification,
@@ -48,6 +46,8 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    WatchRequest,
+    WatchResponse,
     notification_adapter,
     request_adapter,
     response_adapter,
@@ -80,9 +80,9 @@ def case_shutdown() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_defaults() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r"}',
+        raw=b'{"kind":"watch","repo_path":"/r"}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["HEAD"], "embed": True},
     )
 
@@ -90,9 +90,9 @@ def case_build_index_defaults() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_two_refs() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r","refs":["main","HEAD"]}',
+        raw=b'{"kind":"watch","repo_path":"/r","refs":["main","HEAD"]}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["main", "HEAD"]},
     )
 
@@ -182,9 +182,9 @@ def case_search_keywords_double_encoded() -> MessageScenario:
 def case_index_refs_double_encoded() -> MessageScenario:
     """`refs` shares the JSON-encoded-string decoding."""
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r","refs":["[\\"main\\", \\"HEAD\\"]"]}',
+        raw=b'{"kind":"watch","repo_path":"/r","refs":["[\\"main\\", \\"HEAD\\"]"]}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["main", "HEAD"]},
     )
 
@@ -333,9 +333,9 @@ def case_error() -> MessageScenario:
 @case(tags=["response"])
 def case_build_index_response() -> MessageScenario:
     return MessageScenario(
-        raw=(b'{"kind":"index","resolved_refs":["HEAD"],"stats":{},"errors":[]}'),
+        raw=(b'{"kind":"watch","resolved_refs":["HEAD"],"stats":{},"errors":[]}'),
         adapter=response_adapter,
-        expected_type=BuildIndexResponse,
+        expected_type=WatchResponse,
         checks={"resolved_refs": ["HEAD"], "errors": []},
     )
 

@@ -28,7 +28,7 @@ Type "# Index the repo"
 Enter
 Sleep 500ms
 
-Type "rbtr index"
+Type "rbtr watch"
 Enter
 Wait
 

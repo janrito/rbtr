@@ -12,7 +12,7 @@ semantic similarity — fused into a single ranked result.
 uv tool install rbtr         # install the CLI
 
 cd /path/to/your/repo
-rbtr index                   # build the index
+rbtr watch                   # watch HEAD and index it
 rbtr search "retry logic"    # search it
 ```
 
@@ -47,7 +47,7 @@ backend names and requirements.
 
 A background daemon starts automatically and keeps every
 watched ref current (`HEAD` by default; add more with
-`rbtr index <ref>`). Subsequent builds are incremental —
+`rbtr watch <ref>`). Subsequent builds are incremental —
 unchanged files (by blob SHA) are skipped.
 
 ## Walkthrough
@@ -57,7 +57,7 @@ come from rbtr's own source; line numbers and scores move as
 the code does.
 
 ```text
-rbtr index
+rbtr watch
 Watching: HEAD
 Indexing in background; run `rbtr status` to track.
 
@@ -116,16 +116,16 @@ explicitly, that ref must be indexed: an unindexed ref you
 named is an error rather than a quiet answer from a different
 one.
 
-### `rbtr index`
+### `rbtr watch`
 
 Watch refs and keep them indexed. Each positional ref is an
 independent watch target the daemon keeps current; with no
 arguments it watches `HEAD`.
 
 ```bash
-rbtr index                    # watch HEAD (the default)
-rbtr index main               # watch main, even from another branch
-rbtr index main release       # watch several refs independently
+rbtr watch                    # watch HEAD (the default)
+rbtr watch main               # watch main, even from another branch
+rbtr watch main release       # watch several refs independently
 ```
 
 A moving ref (branch) tracks its tip; a bare SHA settles after
@@ -310,7 +310,7 @@ rbtr daemon stop      # stop it
 rbtr daemon status    # show state and build progress
 ```
 
-Starts automatically on first `rbtr index` or `rbtr search`.
+Starts automatically on first `rbtr watch` or `rbtr search`.
 
 ### `rbtr gc`
 
@@ -873,7 +873,7 @@ for the dedup mechanism.
 - **No reranker model** → search returns fusion-ranked
   results without cross-encoder reranking.
 - **No FTS index** (first search before any build completes)
-  → error with guidance to run `rbtr index`.
+  → error with guidance to run `rbtr watch`.
 
 ## Development
 

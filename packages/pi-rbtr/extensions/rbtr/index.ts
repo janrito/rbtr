@@ -26,12 +26,12 @@ import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./d
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
-  BuildIndexResponse,
   GcMode,
   GcResponse,
   Response,
   StatusResponse,
   UnwatchResponse,
+  WatchResponse,
 } from "./generated/protocol.js";
 
 const require = createRequire(import.meta.url);
@@ -424,13 +424,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         async () => {
           // The extension always builds the 'full' variant (the default).
           // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
-          await session.send({ kind: "index", repo_path: ctx.cwd, refs: targetRefs });
+          await session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs });
         },
         async () => {
           if (!resolved) throw new Error("rbtr CLI not available");
-          const args = ["index"];
+          const args = ["watch"];
           for (const r of targetRefs) args.push(r);
-          await runRbtrJson<BuildIndexResponse>(pi, resolved, args, { timeout: 600_000 });
+          await runRbtrJson<WatchResponse>(pi, resolved, args, { timeout: 600_000 });
         },
       );
     } catch (err) {
@@ -591,13 +591,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // ── Tools ──────────────────────────────────────────────────
 
   pi.registerTool({
-    name: "rbtr_index",
-    label: "rbtr index",
+    name: "rbtr_watch",
+    label: "rbtr watch",
     description:
       "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
-    promptSnippet: "Watch refs for the rbtr code index (or --remove to stop)",
+    promptSnippet: "Watch refs for the rbtr code index (`remove` / `remove_stale` to stop)",
     promptGuidelines: [
-      "Call rbtr_index when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
+      "Call rbtr_watch when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
       "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
       "When you begin substantive work on a branch, watch its base too (the default branch it forked from), not just HEAD — so you can later review the branch with rbtr_changed_symbols without a cold index.",
       "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data. (Tidying every repo at once is `rbtr unwatch --stale --scope all`, and forgetting deleted checkouts is `rbtr forget --stale`.)",
@@ -718,7 +718,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Call rbtr_status when you need to know whether the index is ready, whether a build you just queued is done, or which refs are indexed (e.g. before rbtr_changed_symbols).",
       "If the reply shows 'Building: ...' with phase/progress, a build is live — don't re-queue it; either wait and re-check, or answer the user without the index for now.",
-      "If 'Indexed commits: none' and no active job, the user has never completed an index; tell them to run rbtr_index (or it will happen automatically at session start unless disabled).",
+      "If 'Indexed commits: none' and no active job, the user has never completed an index; tell them to run rbtr_watch (or it will happen automatically at session start unless disabled).",
       "Leave `scope` as the default 'workspace' (the current repo) unless you specifically need to see other indexed repos. Set `scope: 'all'` only to confirm which other projects are indexed before a deliberate cross-repo rbtr_search — i.e. when the user's task spans sibling checkouts, a split monorepo, or an explicit cross-project question.",
     ],
     parameters: Type.Object({
@@ -806,7 +806,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "For code fragments (e.g. `for item in self._cache`): omit both `keywords` and `variants`.",
       "Leave `scope` as the default 'workspace' for almost every search: the user is working in this repo and wants answers from it. 'workspace' searches only the current project.",
       "Only set `scope: 'all'` (search every indexed repo, merged into one ranked list with each hit labelled by repo) when the task genuinely spans repos: the user is working across sibling checkouts of one system (e.g. a frontend and its backend), a monorepo that was split into separate checkouts, or has explicitly asked how this project integrates with or depends on another indexed one. Cross-repo results pull in code from unrelated projects and dilute relevance, so do not reach for 'all' just because a 'workspace' search came back thin — refine the query first.",
-      "Pass `ref` to search a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, searches the working tree if dirty, HEAD if clean.",
+      "Pass `ref` to search a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, searches the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
@@ -906,7 +906,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Typical chain: rbtr_search → pick a hit → pass its `name` field as the `symbol` parameter to rbtr_read_symbol for the full body. Then rbtr_find_refs on the same name to see callers.",
       "If the tool returns 'Symbol not found', the symbol either doesn't exist at the indexed ref or lives in a file type the parser doesn't cover; fall back to grep + read.",
       "Pass file_paths to disambiguate a name that exists in several files — only symbols defined in the listed files are returned.",
-      "Pass `ref` to read from a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
+      "Pass `ref` to read from a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
@@ -993,7 +993,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Use grep when you need every raw occurrence of an identifier including inside strings / comments / unsupported file types.",
       "Chain after rbtr_search or rbtr_read_symbol: you've identified the symbol, now find who depends on it.",
       "Pass file_paths to disambiguate a name that exists in several files — references are resolved only against symbols defined in the listed files.",
-      "Pass `ref` to query references at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
+      "Pass `ref` to query references at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
@@ -1075,7 +1075,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     promptSnippet: "Symbol-level diff between two refs, for PR review / branch understanding",
     promptGuidelines: [
       "Use rbtr_changed_symbols for code review and branch-understanding questions ('what did this PR change', 'summarise the work on this branch'). It gives you a short list of changed symbols instead of a huge patch to read.",
-      "Both refs must be indexed. When you set out to review or understand a branch, watch both refs up front — call rbtr_index with the working ref and its base (usually the default branch it forked from; check the repo, don't assume a name). HEAD is watched automatically. If the tool still errors 'not indexed', index the missing ref and retry.",
+      "Both refs must be indexed. When you set out to review or understand a branch, watch both refs up front — call rbtr_watch with the working ref and its base (usually the default branch it forked from; check the repo, don't assume a name). HEAD is watched automatically. If the tool still errors 'not indexed', index the missing ref and retry.",
       "Use git diff when you need the exact line-level changes or when you need to see non-code changes (config, data files). Use rbtr_changed_symbols when the question is about code structure.",
       "Chain: rbtr_changed_symbols → rbtr_read_symbol on the most interesting entries for the new body → rbtr_find_refs to see callers that might need updating.",
       "Pass file_paths to scope the diff to specific files — only changes in the listed files are reported.",
@@ -1160,7 +1160,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Use rbtr_list_symbols before reading a large file. A few KB of structure tells you whether the content you need is actually in this file before you pay to load it.",
       "Good starting point when a user asks 'what's in file X' or 'walk me through X.py' — list symbols, then rbtr_read_symbol on the ones that matter.",
       "Don't use it for small files (<200 lines); just read them.",
-      "Pass `ref` to list symbols at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_index to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
+      "Pass `ref` to list symbols at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
     ],
     parameters: Type.Object({
       file: Type.String({ description: "File path relative to the repo root (e.g. 'src/rbtr/index/search.py')." }),
