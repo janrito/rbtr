@@ -298,7 +298,7 @@ its own.
 
 ```bash
 rbtr gc                       # this repo (default: keep branches/tags + watch set)
-rbtr gc --all-repos           # every indexed repo (default reclamation only)
+rbtr gc --scope all           # every indexed repo
 rbtr gc --watched-only        # keep only HEAD and watched refs
 rbtr gc --keep-head-only      # keep only HEAD
 rbtr gc main release          # keep only HEAD plus these refs
@@ -307,12 +307,13 @@ rbtr gc --no-compact          # skip the disk-reclaiming rewrite
 rbtr gc --dry-run             # preview what would be dropped
 ```
 
-`rbtr gc` collects the current repo by default. `--all-repos` reclaims
+`rbtr gc` collects the current repo by default. `--scope all` reclaims
 across **every** indexed repo at once — useful because chunks are shared
-between repos — but only with the safe default reclamation; scope an
-aggressive mode (`--watched-only`, `--keep-head-only`, or a `keep`
-list) to a single repo. (The chunk sweep is global on every gc regardless, so a
-plain `rbtr gc` still frees chunks no other repo references.)
+between repos, with the default reclamation or `--watched-only`.
+`--keep-head-only` and a keep list name one repo's refs, so scope
+those with `--repo-path`. (The chunk sweep is global on every gc
+regardless, so a plain `rbtr gc` still frees chunks no other repo
+references.)
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only
@@ -323,7 +324,8 @@ tags (the way to reclaim refs you no longer index).
 
 The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
 keeps HEAD plus the listed refs; `--orphans` sweeps residue
-from crashed builds.
+from crashed builds. Each keeps a different set of refs, so two
+at once are refused rather than resolved by precedence.
 
 If the daemon is mid-build or mid-embed when you run it, gc waits
 for that work to commit before it starts — usually a second or two,
@@ -339,7 +341,9 @@ the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
 collect on its own, and a healthy index does not need it. Two
 situations call for it: the file has grown past what you want
 to give it, or you have stopped indexing refs and want the
-space back (`--watched-only`).
+space back (`--watched-only`, after `rbtr index
+--remove-stale-refs` has dropped the branches that no longer
+exist).
 
 Growth is driven by embeddings, one vector per chunk, so the
 size tracks how many distinct chunks every indexed repo holds

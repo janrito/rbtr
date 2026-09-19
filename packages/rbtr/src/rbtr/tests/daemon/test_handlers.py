@@ -68,13 +68,26 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
 
 @pytest.mark.parametrize(
     "mode",
-    [GcMode.WATCHED_ONLY, GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
+    [GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
 )
-def test_handle_gc_global_rejects_non_watched_mode(mode: GcMode, store: IndexStore) -> None:
-    """A global request (no repo_path) is restricted to the safe default
-    reclamation; any other mode is rejected before touching the store."""
-    with pytest.raises(RbtrError, match="default"):
+def test_handle_gc_global_rejects_a_repo_scoped_mode(mode: GcMode, store: IndexStore) -> None:
+    """A global request (no repo_path) keeps at least HEAD and the watch
+    set of every repo. The modes that go further than that name refs, or
+    keep one repo's HEAD alone, and are rejected before touching the
+    store."""
+    with pytest.raises(RbtrError, match="one repo"):
         handle_gc(GcRequest(repo_path=None, mode=mode), store)
+
+
+@pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
+def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
+    mode: GcMode, store: IndexStore
+) -> None:
+    """Both retentions are expressed in each repo's own terms — its HEAD,
+    its watch set — so either can be applied to every repo at once."""
+    resp = handle_gc(GcRequest(repo_path=None, mode=mode), store)
+
+    assert resp.repos_collected == 0  # nothing registered, but not refused
 
 
 # ── Search ───────────────────────────────────────────────────────────

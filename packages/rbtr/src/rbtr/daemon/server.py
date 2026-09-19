@@ -69,6 +69,7 @@ from rbtr.daemon.messages import (
     EmbedOutcome,
     ErrorCode,
     ErrorResponse,
+    GcRequest,
     HasRepoPath,
     IndexErrorNotification,
     OkResponse,
@@ -243,7 +244,7 @@ class DaemonServer:
             # lock-free (read-copy-update), so concurrent searches keep
             # reading and rebind to the new file on their next call.
             async with self._write_sem:
-                return await asyncio.to_thread(handle_gc, req, store, allow_compact=True)
+                return await asyncio.to_thread(self._collect, req, store)
 
         async def _async_forget(req: Any) -> Response:
             # Writes, so it takes `_write_sem` and runs in a thread:
@@ -281,6 +282,33 @@ class DaemonServer:
                 "index": _async_index,
             }
         )
+
+    def _collect(self, request: GcRequest, store: IndexStore) -> Response:
+        """Run gc on this worker thread, publishing per-repo progress.
+
+        A ZMQ socket belongs to the thread that made it, so this opens
+        and closes its own PUSH rather than borrowing the loop thread's
+        `_notify_push` — the same rule the build and embed workers follow.
+        """
+        push = self._zmq_shadow.socket(zmq.PUSH)
+        push.connect("inproc://progress")
+        try:
+            return handle_gc(
+                request,
+                store,
+                allow_compact=True,
+                on_progress=lambda repo_path, done, total: _notify(
+                    push,
+                    ProgressNotification(
+                        repo_path=repo_path,
+                        phase="collecting",
+                        current=done,
+                        total=total,
+                    ),
+                ),
+            )
+        finally:
+            push.close()
 
     def _backfill_head_watches(self, store: IndexStore) -> None:
         """Seed a `"HEAD"` watch for every registered repo (idempotent).

@@ -540,3 +540,79 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     assert (
         gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=current_sha)) is True
     )
+
+
+# ── Global GC with the watched-only retention ────────────────────────
+
+
+def test_run_gc_all_watched_only_drops_unwatched_refs_everywhere(
+    global_gc: GlobalGcFixture,
+) -> None:
+    """`WATCHED_ONLY` across every repo keeps HEAD and the watch set, and
+    drops what only an unwatched branch or tag held."""
+    s = global_gc.store
+    # Repo A's `c0` is a branch tip nobody watches; repo B watches its own.
+    with s.session() as ws:
+        ws.add_watched_refs(global_gc.b_id, [global_gc.b0])
+
+    _counts, repos = run_gc_all(s, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+
+    assert repos == 2
+    assert s.has_indexed(at=SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a1)) is True
+    assert s.has_indexed(at=SnapshotRef(repo_id=global_gc.b_id, snapshot_sha=global_gc.b1)) is True
+    assert s.has_indexed(at=SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a0)) is False
+    assert (
+        s.has_indexed(at=SnapshotRef(repo_id=global_gc.b_id, snapshot_sha=global_gc.b0)) is True
+    )  # watched, so kept
+
+
+def test_run_gc_all_watched_only_keeps_head_of_an_unwatched_repo(
+    global_gc: GlobalGcFixture,
+) -> None:
+    """A repo indexed inline watches nothing at all. Keeping only the watch
+    set must still keep its HEAD, or the repo loses everything."""
+    store = global_gc.store
+
+    run_gc_all(store, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+
+    head = SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a1)
+    assert store.has_indexed(at=head) is True
+
+
+def test_run_gc_all_skips_a_repo_with_no_commits(
+    global_gc: GlobalGcFixture, tmp_path: Path
+) -> None:
+    """An unborn HEAD raises from `run_gc`, so a registered empty checkout
+    must be skipped rather than ending the whole pass."""
+    pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
+    with global_gc.store.session() as ws:
+        ws.register_repo(normalise_repo_path(str(tmp_path / "empty")))
+
+    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+
+    assert repos == 2  # the two real repos; the empty one skipped
+    assert (
+        global_gc.store.has_indexed(
+            at=SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a0)
+        )
+        is False
+    )
+
+
+def test_run_gc_all_reports_each_repo_as_it_is_collected(
+    global_gc: GlobalGcFixture,
+) -> None:
+    """Progress names the repo under collection and how far through the
+    pass it is, so a long run is not silent."""
+    seen: list[tuple[str, int, int]] = []
+
+    run_gc_all(
+        global_gc.store,
+        mode=GcMode.WATCHED_ONLY,
+        refs=[],
+        dry_run=False,
+        on_progress=lambda repo_path, done, total: seen.append((repo_path, done, total)),
+    )
+
+    assert [(done, total) for _repo, done, total in seen] == [(1, 2), (2, 2)]
+    assert len({repo for repo, _done, _total in seen}) == 2

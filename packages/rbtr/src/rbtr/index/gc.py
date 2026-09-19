@@ -44,6 +44,7 @@ from rbtr.git import (
     resolve_refs_to_shas,
     worktree_tree_sha,
 )
+from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
@@ -56,34 +57,40 @@ def run_gc_all(
     refs: list[str],
     dry_run: bool,
     compact: bool = False,
+    on_progress: RepoProgressCallback = _noop_repo_progress,
 ) -> tuple[GcCounts, int]:
     """Run `run_gc` over every registered repo; sum counts, count repos.
 
-    Backs `rbtr gc --all-repos`.  The chunk sweep is already global
+    Backs `rbtr gc --scope all`.  The chunk sweep is already global
     (content-addressed), so reclamation is correct regardless of iteration
     order; summing the per-repo `GcCounts` is exact (each chunk is freed in
     exactly the pass that drops its last reference). Returns the summed
     counts and the number of repos actually collected (skipped ones
     excluded).
 
+    `on_progress` is called with each repo as it is collected, so a pass
+    over many repos can be watched rather than waited on.
+
     A repo whose path no longer resolves (a removed worktree/clone) is
     **skipped** with a hint, never purged — forgetting it is a separate,
-    explicit action.
+    explicit action.  A repo whose HEAD is unborn reads the same way and
+    is skipped too: `run_gc` raises on one, and an empty checkout must
+    not end a pass over every other repo.
     """
-    total = GcCounts()
-    collected = 0
+    live = [repo for repo in store.list_repos() if read_head(repo.repo_path) is not None]
     for repo in store.list_repos():
         if read_head(repo.repo_path) is None:
             log.info("gc_skipped_unresolvable_repo", repo=repo.repo_path)
-            continue
+    total = GcCounts()
+    for collected, repo in enumerate(live, start=1):
         # Never compact per repo: a rewrite is expensive, so compact once
         # after every repo's logical deletes have landed.
         total = total + run_gc(store, repo.repo_path, mode=mode, refs=refs, dry_run=dry_run)
-        collected += 1
+        on_progress(repo.repo_path, collected, len(live))
     if compact and not dry_run:
         with store.session() as session:
             session.compact()
-    return total, collected
+    return total, len(live)
 
 
 # Reference namespaces kept by `WATCHED` (the default mode).

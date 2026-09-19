@@ -71,6 +71,7 @@ from rbtr.git import (
     resolve_ref,
 )
 from rbtr.index.gc import run_gc, run_gc_all
+from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.results import changed_to_symbols
 from rbtr.index.search import search
 from rbtr.languages.manager import get_manager
@@ -404,7 +405,13 @@ def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
 # ── Build handler ────────────────────────────────────────────────────
 
 
-def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = False) -> GcResponse:
+def handle_gc(
+    request: GcRequest,
+    store: IndexStore,
+    *,
+    allow_compact: bool = False,
+    on_progress: RepoProgressCallback = _noop_repo_progress,
+) -> GcResponse:
     t0 = time.monotonic()
     # Compaction rewrites and swaps the database file, so it is only safe
     # when the caller owns the connection exclusively -- the inline
@@ -413,18 +420,19 @@ def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = Fa
     compact = request.compact and allow_compact and not request.dry_run
     size_before = store.disk_size_bytes()
     if request.repo_path is None:
-        # Global GC: reclaim across every registered repo. Restricted to
-        # the safe default reclamation — aggressive modes must be scoped to
-        # one repo (a global drop of unwatched/non-HEAD commits is a
-        # footgun, and KEEP refs are repo-specific).
-        if request.mode is not GcMode.WATCHED:
-            msg = (
-                f"global GC supports only the default (watched) reclamation, "
-                f"not {request.mode.value}; scope it with repo_path"
-            )
+        # Global GC: reclaim across every registered repo, in one of the
+        # two retentions stated in a repo's own terms. The rest name one
+        # repo's refs or sweep one repo's residue.
+        if request.mode not in (GcMode.WATCHED, GcMode.WATCHED_ONLY):
+            msg = f"{request.mode.value} reclamation applies to one repo; scope it with repo_path"
             raise RbtrError(msg)
         counts, repos_collected = run_gc_all(
-            store, mode=request.mode, refs=request.refs, dry_run=request.dry_run, compact=compact
+            store,
+            mode=request.mode,
+            refs=request.refs,
+            dry_run=request.dry_run,
+            compact=compact,
+            on_progress=on_progress,
         )
     else:
         counts = run_gc(

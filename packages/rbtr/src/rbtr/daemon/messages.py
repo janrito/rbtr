@@ -486,7 +486,7 @@ class DaemonConfigResponse(BaseModel):
 class GcResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    repos_collected: int = 1  # 1 for a single repo, N for `--all-repos`
+    repos_collected: int = 1  # 1 for a single repo, N for `--scope all`
     snapshots_dropped: int
     file_snapshots_dropped: int
     edges_dropped: int

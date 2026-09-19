@@ -1604,22 +1604,29 @@ never discards anything a branch points at or that you
 asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
 the watch set, dropping unwatched branches/tags — the opt-in
 way to reclaim refs you no longer index. `HEAD_ONLY`,
-`KEEP`, and `ORPHANS` are the other explicit modes. If an
-aggressive mode drops a still-watched snapshot, the watcher
-rebuilds it on the next poll (self-healing).
+`KEEP`, and `ORPHANS` are the other explicit modes. Each
+names a different keep-set, so the CLI refuses two at once
+rather than resolving them by precedence. If a mode drops a
+still-watched snapshot, the watcher rebuilds it on the next
+poll (self-healing); an unwatched ref is rebuilt when
+somebody asks to read it. Collection never edits the watch set
+itself — that is `rbtr index`'s job — so a thorough tidy trims
+first and collects second.
 
-GC is **per-repo by default**; `rbtr gc --all-repos` reclaims across
+GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
 **every** registered repo at once (`GcRequest.repo_path is None` ⇒
 `run_gc_all` loops `run_gc` over `list_repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
-Global GC is **restricted to the default `WATCHED` reclamation** — it
-only drops genuinely-unreferenced snapshots, never aggressively across
-the whole index, and `KEEP` refs are repo-specific anyway; `handle_gc`
-rejects a global request in any other mode. A repo whose path no longer
-resolves (a removed worktree/clone) is **skipped** — never an error, and
-never purged (forgetting it is a separate, explicit action; see below).
-The chunk sweep is global on *every* gc, so even a single-repo `rbtr gc`
-frees chunks no other repo references.
+Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
+stated in a repo's own terms, so every repo keeps at least its HEAD and
+its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
+`ORPHANS` sweeps one repo's residue, so `handle_gc` rejects them
+globally. A repo is **skipped** when git cannot answer for it: a path
+that no longer resolves (never purged — forgetting it is a separate,
+explicit action; see below) or an unborn HEAD, which `run_gc` raises on
+and which must not end a pass over every other repo. Each repo is
+reported through `on_progress` as it is collected — `progress`
+notifications from the daemon, a bar on stderr inline.
 
 **Forgetting a repo** removes it entirely from the index — its
 `watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the

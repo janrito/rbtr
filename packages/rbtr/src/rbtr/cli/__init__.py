@@ -23,10 +23,10 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
-from typing import Annotated
+from typing import Annotated, Self
 
 import structlog
-from pydantic import BaseModel, BeforeValidator, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError, model_validator
 from pydantic_settings import (
     CliApp,
     CliPositionalArg,
@@ -822,20 +822,22 @@ class Gc(BaseModel):
     Destructive and not undoable — permanently deletes indexed
     commits/chunks. Use --dry-run to preview first.
 
-    Operates on the current repo by default; `--all-repos` reclaims
-    across every indexed repo at once, but only with the safe default
-    (watched) reclamation — scope aggressive modes to one repo.
+    Operates on the current repo by default; `--scope all` reclaims
+    across every indexed repo at once, with the default retention or
+    `--watched-only`. Keeping only HEAD, or only named refs, applies
+    to the one repo you name.
 
     By default keeps the watch set — HEAD, all local branches/tags,
     and every watched ref (plus the current worktree) — and sweeps
-    crashed-build residue. Alternate modes let you keep only the
-    watch set, only HEAD, or specific refs, or sweep residue only.
+    crashed-build residue. The alternatives keep only the watch set,
+    only HEAD, or specific refs, or sweep residue only; they cannot be
+    combined with each other.
     """
 
     repo_path: str = Field(".", description="Repository path")
-    all_repos: bool = Field(
-        False,
-        description="GC every indexed repo (default reclamation only; not with aggressive modes)",
+    scope: ScopeField = Field(
+        Scope.WORKSPACE,
+        description="GC scope: workspace (this repo) or all (every indexed repo).",
     )
     watched_only: bool = Field(
         False,
@@ -856,18 +858,37 @@ class Gc(BaseModel):
         description="Rewrite the index to reclaim freed disk space (--no-compact to skip)",
     )
 
+    @model_validator(mode="after")
+    def _check_retention(self) -> Self:
+        """A run keeps one set of refs, chosen in terms every repo has.
+
+        Each option below leaves a different set of refs behind, so two
+        of them answer one question twice; resolving that by precedence
+        drops an answer the caller gave. And what a repo keeps when the
+        run covers them all can only be said in its own terms — its
+        HEAD, its watch set — never as a list of refs one of them has.
+        """
+        asked = {
+            "--orphans": self.orphans,
+            "--keep-head-only": self.keep_head_only,
+            "--watched-only": self.watched_only,
+            "refs to keep": bool(self.keep),
+        }
+        named = [flag for flag, given in asked.items() if given]
+        if len(named) > 1:
+            msg = f"a run keeps one set of refs, and {' and '.join(named)} are two"
+            raise ValueError(msg)
+        if self.scope is Scope.ALL and (self.orphans or self.keep_head_only or self.keep):
+            msg = (
+                f"a run across every repo keeps each repo's HEAD and watch set; "
+                f"{named[0]} decides what a single repo keeps"
+            )
+            raise ValueError(msg)
+        return self
+
     def cli_cmd(self) -> None:
         mode, refs = self._resolve_mode()
-        if self.all_repos:
-            if mode is not GcMode.WATCHED:
-                print_err(
-                    "[red]error:[/] --all-repos supports only the default reclamation; "
-                    "scope an aggressive mode with --repo-path"
-                )
-                sys.exit(2)
-            resolved_repo = None
-        else:
-            resolved_repo = normalise_repo_path(self.repo_path)
+        resolved_repo = None if self.scope is Scope.ALL else normalise_repo_path(self.repo_path)
         request = GcRequest(
             repo_path=resolved_repo,
             mode=mode,
@@ -888,7 +909,7 @@ class Gc(BaseModel):
                 store = IndexStore.from_config(writable=True)
 
                 try:
-                    emit(handle_gc(request, store, allow_compact=True))
+                    self._run_inline(request, store)
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)
@@ -896,8 +917,24 @@ class Gc(BaseModel):
                 print_err(f"[red]error:[/] unexpected response: {resp}")
                 sys.exit(1)
 
+    @staticmethod
+    def _run_inline(request: GcRequest, store: IndexStore) -> None:
+        """Collect in this process, reporting progress on stderr.
+
+        A pass over many repos says nothing until it finishes; the bar
+        goes to stderr, leaving stdout to the response.
+        """
+        with progress_reporter("Collecting repos") as (on_repo,):
+            response = handle_gc(
+                request,
+                store,
+                allow_compact=True,
+                on_progress=lambda _repo_path, done, total: on_repo(done, total),
+            )
+        emit(response)
+
     def _resolve_mode(self) -> tuple[GcMode, list[str]]:
-        """Pick the GC mode from the set of flags."""
+        """Pick the GC mode from the set of flags (at most one is set)."""
         if self.orphans:
             return GcMode.ORPHANS, []
         if self.keep:
