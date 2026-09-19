@@ -126,23 +126,46 @@ arguments it watches `HEAD`.
 rbtr index                    # watch HEAD (the default)
 rbtr index main               # watch main, even from another branch
 rbtr index main release       # watch several refs independently
-rbtr index --remove main      # stop watching main (HEAD can't be removed)
-rbtr index --remove            # forget this repo (only when HEAD is all it watches)
-rbtr index --remove-stale-refs # stop watching this repo's deleted branches
-rbtr index --remove-stale-repos # forget every repo whose checkout is gone
 ```
 
-A moving ref (branch) tracks its tip; a bare SHA settles
-after one build. Removing a ref stops watching it; its index
-is reclaimed by `rbtr gc --watched-only` (a plain `rbtr gc`
-keeps every branch/tag regardless).
+A moving ref (branch) tracks its tip; a bare SHA settles after
+one build.
 
-When you're done with a checkout, `rbtr index --remove` (with no
-refs) forgets the whole repo — its watch set, indexed commits, and
-references. After you've already deleted a worktree or clone, run
-`rbtr index --remove-stale-repos` from anywhere to forget every repo
-whose path no longer exists. Forgetting is metadata-only and reports
-no statistics; run `rbtr gc` to reclaim the freed chunks.
+What you watch and what is stored are separate things, and so are
+the commands that change them: `rbtr unwatch` and `rbtr forget`
+both edit bookkeeping only, and leave the indexed data where it
+is. `rbtr gc` is what reclaims the space.
+
+### `rbtr unwatch`
+
+Stop watching refs — the ones you name, or the ones git has lost.
+
+```bash
+rbtr unwatch main             # stop watching main (HEAD can't be removed)
+rbtr unwatch --stale          # ...and the deleted branches, found for you
+rbtr unwatch --stale --scope all   # ...in every indexed repo
+rbtr unwatch --stale --dry-run     # report, change nothing
+```
+
+The index those refs built is reclaimed by `rbtr gc
+--watched-only`; a plain `rbtr gc` keeps every branch and tag
+regardless. A repo whose path is merely unreachable for now is
+left alone: git cannot answer for it, so every ref it watches
+would look stale.
+
+### `rbtr forget`
+
+Forget a repo's index: its watch set, indexed commits, and
+references.
+
+```bash
+rbtr forget                   # this repo (only when HEAD is all it watches)
+rbtr forget --stale           # every repo whose checkout is gone
+rbtr forget --stale --dry-run # report, change nothing
+```
+
+Run `--stale` from anywhere, including outside a git repo: a
+deleted worktree or clone can no longer be named, only found.
 
 ### `rbtr search <query>`
 
@@ -341,9 +364,8 @@ the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
 collect on its own, and a healthy index does not need it. Two
 situations call for it: the file has grown past what you want
 to give it, or you have stopped indexing refs and want the
-space back (`--watched-only`, after `rbtr index
---remove-stale-refs` has dropped the branches that no longer
-exist).
+space back (`--watched-only`, after `rbtr unwatch --stale
+--scope all` has dropped the branches that no longer exist).
 
 Growth is driven by embeddings, one vector per chunk, so the
 size tracks how many distinct chunks every indexed repo holds

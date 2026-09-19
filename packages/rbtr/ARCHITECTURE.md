@@ -280,7 +280,7 @@ because it was indexed or watched, never because it was declared separately.
 
 That row has to exist, because everything that goes looking for work starts
 from the list of repos — garbage collection (`run_gc_all`), the watcher's
-reconcile loop, `forget --stale` and cross-repo search all walk
+reconcile loop, `rbtr forget --stale` and cross-repo search all walk
 `list_repos()`. Rows carrying a `repo_id` with no matching `repos` row are
 reachable by none of them: never collected, never rebuilt, and impossible to
 forget. They just sit in the database.
@@ -620,9 +620,8 @@ single source the watcher derives builds from;
 
 - `rbtr index` (no args) watches the default ref, `HEAD`;
   `rbtr index <refs…>` adds each as an independent watch
-  target; `rbtr index --remove <refs…>` removes them.
-  `HEAD` cannot be removed — rejected atomically before any
-  delete.
+  target; `rbtr unwatch <refs…>` removes them. `HEAD` cannot
+  be removed — rejected atomically before any delete.
 - Symbolic names are stored and re-resolved each poll, so a
   moving ref (branch) tracks its tip; a bare SHA resolves to
   itself and settles after one build.
@@ -1610,7 +1609,7 @@ rather than resolving them by precedence. If a mode drops a
 still-watched snapshot, the watcher rebuilds it on the next
 poll (self-healing); an unwatched ref is rebuilt when
 somebody asks to read it. Collection never edits the watch set
-itself — that is `rbtr index`'s job — so a thorough tidy trims
+itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
 first and collects second.
 
 GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
@@ -1635,17 +1634,24 @@ what [registration](#repo-registration) set up. It is
 **metadata-only**: it deliberately does not sweep chunks, so it reports
 no statistics; the now-orphaned chunks are reclaimed by the next GC (or
 build cleanup), keeping removal cheap and uniform with ref removal.
-`rbtr index --remove` with no refs forgets the current repo, but only
-when HEAD is its sole watched ref; `--remove-stale-repos` forgets every
-repo whose stored path no longer resolves. The latter is
-**daemon-driven enumeration**, not a per-path request: a removed
-checkout's path cannot be normalised into a request, so the handler
-walks `list_repos()` and forgets the unresolvable ones. Forgetting is
-always **explicit** — `poll_watched` skips a vanished path rather than
-purging it, since the absence may be transient (an unmounted volume).
-The wire surface is a dedicated `ForgetRequest`/`ForgetResponse` (the
-response carries only the forgotten paths), kept separate from the
-reclamation-shaped `GcResponse`.
+`rbtr forget` forgets the current repo, but only when HEAD is its sole
+watched ref; `rbtr forget --stale` forgets every repo whose stored path
+no longer resolves. The latter is **daemon-driven enumeration**, not a
+per-path request: a removed checkout's path cannot be normalised into a
+request, which is why `ForgetRequest.repo_path` is optional and an
+absent one means "the ones that are gone" —
+`rbtr.index.watch.forget_stale_repos` walks `list_repos()` and forgets
+the unresolvable ones. Its sibling `remove_stale_refs` answers the other
+question — which of a *live* repo's watched refs git still resolves, in
+one repo or in all of them — and leaves a vanished repo alone, since git
+cannot answer for it. The two are separate commands over separate state,
+so each runs in its own request and its own sessions.
+Forgetting is always **explicit** — `poll_watched` skips a vanished path
+rather than purging it, since the absence may be transient (an unmounted
+volume). The wire surface is a dedicated
+`ForgetRequest`/`ForgetResponse` (the response carries only the
+forgotten paths), kept separate from the reclamation-shaped
+`GcResponse`.
 
 ## Working-tree indexing
 

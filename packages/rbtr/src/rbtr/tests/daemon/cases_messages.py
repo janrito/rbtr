@@ -46,11 +46,13 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    UnwatchResponse,
     notification_adapter,
     request_adapter,
     response_adapter,
 )
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, Scope
 
 
 @dataclass(frozen=True)
@@ -274,24 +276,35 @@ def case_gc_global() -> MessageScenario:
 
 
 @case(tags=["request"])
+def case_unwatch_stale_everywhere() -> MessageScenario:
+    """Stale refs across every indexed repo."""
+    return MessageScenario(
+        raw=b'{"kind":"unwatch","repo_path":"/r","stale":true,"scope":"all"}',
+        adapter=request_adapter,
+        expected_type=UnwatchRequest,
+        checks={"stale": True, "scope": Scope.ALL, "refs": [], "dry_run": False},
+    )
+
+
+@case(tags=["request"])
+def case_unwatch_named_refs() -> MessageScenario:
+    """Named refs drop from the watch set of the repo given."""
+    return MessageScenario(
+        raw=b'{"kind":"unwatch","repo_path":"/r","refs":["main"],"dry_run":true}',
+        adapter=request_adapter,
+        expected_type=UnwatchRequest,
+        checks={"repo_path": "/r", "refs": ["main"], "stale": False, "dry_run": True},
+    )
+
+
+@case(tags=["request"])
 def case_forget_repo() -> MessageScenario:
     """Forget a single HEAD-only repo by path."""
     return MessageScenario(
         raw=b'{"kind":"forget","repo_path":"/r"}',
         adapter=request_adapter,
         expected_type=ForgetRequest,
-        checks={"repo_path": "/r", "stale": False},
-    )
-
-
-@case(tags=["request"])
-def case_forget_stale() -> MessageScenario:
-    """Forget every repo whose path no longer resolves (no `repo_path`)."""
-    return MessageScenario(
-        raw=b'{"kind":"forget","stale":true}',
-        adapter=request_adapter,
-        expected_type=ForgetRequest,
-        checks={"stale": True, "repo_path": None},
+        checks={"repo_path": "/r", "dry_run": False},
     )
 
 
@@ -423,6 +436,16 @@ def case_gc_response() -> MessageScenario:
         adapter=response_adapter,
         expected_type=GcResponse,
         checks={"snapshots_dropped": 2, "chunks_freed": 10, "repos_collected": 3, "dry_run": False},
+    )
+
+
+@case(tags=["response"])
+def case_unwatch_response() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"unwatch","removed":{"/a":["gone"]},"dry_run":false}',
+        adapter=response_adapter,
+        expected_type=UnwatchResponse,
+        checks={"removed": {"/a": ["gone"]}, "dry_run": False},
     )
 
 

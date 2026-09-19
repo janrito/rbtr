@@ -1,13 +1,12 @@
 """Behaviour of `handle_forget` — the daemon's forget-repo handler.
 
 Forget is metadata-only: it removes a repo's references and the `repos`
-row, leaving chunk reclamation to GC. These tests drive the handler
-directly against a real in-memory store (no daemon, no patches).
+row, leaving chunk reclamation to GC. Repos whose checkout is gone are
+`forget_stale_repos`'s business, tested with it. These tests drive the
+handler directly against a real in-memory store (no daemon, no patches).
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
@@ -45,34 +44,3 @@ def test_forget_refuses_repo_watching_extra_refs(store: IndexStore) -> None:
         handle_forget(ForgetRequest(repo_path="/repo"), store)
 
     assert store.get_repo_id("/repo") == 1  # untouched
-
-
-def test_forget_stale_forgets_only_vanished_repos(
-    store: IndexStore, tmp_path: Path, fake_repo: str
-) -> None:
-    """`stale=True` forgets repos whose path no longer resolves and leaves
-    live repos alone."""
-    live = fake_repo
-    gone = str(tmp_path / "gone")  # never created on disk
-    with store.session() as ws:
-        ws.register_repo(live)
-        ws.register_repo(gone)
-
-    resp = handle_forget(ForgetRequest(stale=True), store)
-
-    assert resp.forgotten == [gone]
-    assert store.get_repo_id(gone) is None
-    assert store.get_repo_id(live) is not None  # live repo kept
-
-
-def test_forget_stale_dry_run_reports_without_deleting(store: IndexStore, tmp_path: Path) -> None:
-    """A dry run names the repos it *would* forget but deletes nothing."""
-    gone = str(tmp_path / "gone")
-    with store.session() as ws:
-        ws.register_repo(gone)
-
-    resp = handle_forget(ForgetRequest(stale=True, dry_run=True), store)
-
-    assert resp.forgotten == [gone]
-    assert resp.dry_run is True
-    assert store.get_repo_id(gone) is not None  # still present

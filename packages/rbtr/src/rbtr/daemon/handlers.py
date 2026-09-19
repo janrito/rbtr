@@ -51,6 +51,8 @@ from rbtr.daemon.messages import (
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    UnwatchResponse,
     WatchedRef,
 )
 from rbtr.domain.models import (
@@ -67,13 +69,13 @@ from rbtr.git import (
     HEAD_REF,
     WORKTREE_REF,
     names_for_commits,
-    normalise_repo_path,
     resolve_ref,
 )
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.results import changed_to_symbols
 from rbtr.index.search import search
+from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
@@ -476,31 +478,35 @@ def handle_gc(
     )
 
 
+def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchResponse:
+    """Drop the refs named, or the ones git can no longer resolve."""
+    removed = (
+        remove_stale_refs(
+            store, repo_path=request.repo_path, scope=request.scope, dry_run=request.dry_run
+        )
+        if request.stale
+        else unwatch_refs(store, repo_path=request.repo_path, refs=request.refs)
+    )
+    log.info(
+        "watched_refs_removed",
+        stale=request.stale,
+        dry_run=request.dry_run,
+        repos=len(removed),
+        refs=sum(len(refs) for refs in removed.values()),
+    )
+    return UnwatchResponse(removed=removed, dry_run=request.dry_run)
+
+
 def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
-    """Forget whole repos (metadata-only; GC reclaims the chunks).
+    """Forget a repo (metadata-only; GC reclaims the chunks).
 
-    `stale=True`: forget every registered repo whose stored path no longer
-    resolves (a removed worktree/clone) — found by enumeration, since a
-    gone path cannot be normalised into a request. Otherwise forget the
-    single `repo_path`, but only when its watch set is exactly `{HEAD}`
-    (trim other refs first). `dry_run` reports without deleting.
+    A named repo goes only when its watch set is exactly `{HEAD}` —
+    trim other refs first. An unnamed request forgets the repos whose
+    checkout is gone. `dry_run` reports without deleting.
     """
-    if request.stale:
-        gone: list[tuple[int, str]] = []
-        for repo in store.list_repos():
-            try:
-                normalise_repo_path(repo.repo_path)
-            except RbtrError:
-                gone.append((repo.repo_id, repo.repo_path))
-        if not request.dry_run and gone:
-            with store.session() as ws:
-                for repo_id, _path in gone:
-                    ws.forget_repo(repo_id)
-        return ForgetResponse(forgotten=[path for _id, path in gone], dry_run=request.dry_run)
-
     if request.repo_path is None:
-        msg = "forget requires a repo_path or stale=True"
-        raise RbtrError(msg)
+        gone = forget_stale_repos(store, dry_run=request.dry_run)
+        return ForgetResponse(forgotten=[repo.repo_path for repo in gone], dry_run=request.dry_run)
     target_id = store.get_repo_id(request.repo_path)
     if target_id is None:
         return ForgetResponse(forgotten=[], dry_run=request.dry_run)
@@ -519,25 +525,13 @@ def handle_build_index(
     request: BuildIndexRequest,
     store: IndexStore,
 ) -> Response:
-    """Record (or remove) the request's refs in the repo's watch set.
+    """Record the request's refs in the repo's watch set.
 
     The worker derives and runs the actual build from `watched_refs`
-    on its next poll.  `remove=True` stops watching the given refs;
-    `HEAD` is rejected **before any delete**, so a request naming it
-    alongside others changes nothing.  Adding always includes `HEAD`,
-    so a repo first seen here watches it as one seen at startup does.
+    on its next poll.  `HEAD` is always included, so a repo first seen
+    here watches it as one seen at startup does.  Dropping refs is
+    `handle_unwatch`.
     """
-    if request.remove:
-        if HEAD_REF in request.refs:
-            msg = "HEAD cannot be removed from the watch set"
-            raise RbtrError(msg)
-        repo_id = store.get_repo_id(request.repo_path)
-        if repo_id is None:
-            return OkResponse()  # nothing watched for an unregistered repo
-        with store.session() as ws:
-            ws.remove_watched_refs(repo_id, request.refs)
-        log.info("watched_refs_removed", repo=request.repo_path, refs=request.refs)
-        return OkResponse()
     with store.session() as ws:
         repo_id = ws.register_repo(request.repo_path)
         ws.add_watched_refs(repo_id, [HEAD_REF, *request.refs])

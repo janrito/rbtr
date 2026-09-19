@@ -25,7 +25,14 @@ import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
-import type { BuildIndexResponse, GcMode, GcResponse, Response, StatusResponse } from "./generated/protocol.js";
+import type {
+  BuildIndexResponse,
+  GcMode,
+  GcResponse,
+  Response,
+  StatusResponse,
+  UnwatchResponse,
+} from "./generated/protocol.js";
 
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
@@ -436,23 +443,29 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   async function triggerUnwatch(ctx: ExtensionContext, refs: string[]): Promise<void> {
     await withFallback(
       async () => {
-        await session.send({ kind: "index", repo_path: ctx.cwd, refs, remove: true });
+        await session.send({ kind: "unwatch", repo_path: ctx.cwd, refs });
       },
       async () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        await runRbtr(pi, resolved, ["index", "--remove", ...refs], { timeout: 60_000 });
+        await runRbtr(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
       },
     );
   }
 
-  // Prune watched refs that no longer resolve (e.g. deleted branches).
-  // Reuses status (unresolvable → sha === null) then unwatches them;
-  // HEAD always resolves, so it is never pruned.
+  // Drop watched refs that no longer resolve (e.g. deleted branches).
+  // Which refs those are is rbtr's to decide, so this asks rather than
+  // working it out here; HEAD is never removed.
   async function triggerRemoveStale(ctx: ExtensionContext): Promise<string[]> {
-    const status = await queryIndexStatus(ctx.cwd);
-    const stale = (status?.watched ?? []).filter((w) => w.sha == null && w.ref !== "HEAD").map((w) => w.ref);
-    if (stale.length > 0) await triggerUnwatch(ctx, stale);
-    return stale;
+    const removed = await withFallback(
+      async () => session.send({ kind: "unwatch", repo_path: ctx.cwd, stale: true }),
+      async () => {
+        if (!resolved) throw new Error("rbtr CLI not available");
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], {
+          timeout: 60_000,
+        });
+      },
+    );
+    return Object.values(removed.removed ?? {}).flat();
   }
 
   async function triggerGc(
@@ -581,14 +594,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_index",
     label: "rbtr index",
     description:
-      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale_refs` drops refs that no longer resolve. Safe to call repeatedly.",
+      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
     promptSnippet: "Watch refs for the rbtr code index (or --remove to stop)",
     promptGuidelines: [
       "Call rbtr_index when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
       "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
       "When you begin substantive work on a branch, watch its base too (the default branch it forked from), not just HEAD — so you can later review the branch with rbtr_changed_symbols without a cold index.",
-      "Use `remove` to stop watching refs, or `remove_stale_refs` to drop refs whose branch was deleted.",
-      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale_refs` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data. (Forgetting a removed checkout entirely is a CLI maintenance action: `rbtr index --remove-stale-repos`.)",
+      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data. (Tidying every repo at once is `rbtr unwatch --stale --scope all`, and forgetting deleted checkouts is `rbtr forget --stale`.)",
       "This is fire-and-forget: the tool returns immediately. Use rbtr_status to see progress and the current watch set.",
     ],
     parameters: Type.Object({
@@ -601,7 +613,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
       remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
-      remove_stale_refs: Type.Optional(
+      remove_stale: Type.Optional(
         Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
       ),
     }),
@@ -618,7 +630,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const decodedRefs = decodeStringList(params.refs);
       const refs = decodedRefs.length > 0 ? decodedRefs : ["HEAD"];
 
-      if (params.remove_stale_refs) {
+      if (params.remove_stale) {
         const pruned = await triggerRemoveStale(ctx);
         return {
           content: [
@@ -627,7 +639,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               text: pruned.length > 0 ? `Stopped watching stale refs: ${pruned.join(", ")}.` : "No stale watched refs.",
             },
           ],
-          details: { status: "remove_stale_refs", pruned },
+          details: { status: "remove_stale", pruned },
         };
       }
       if (params.remove) {

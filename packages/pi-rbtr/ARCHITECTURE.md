@@ -206,7 +206,10 @@ carries the outcome, because a run that stood aside for a
 build leaves work due and must not read as finished. The same
 mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
 and `triggerGc` — each a `withFallback` over a daemon RPC
-with a CLI fallback.
+with a CLI fallback. Both unwatch paths send an `unwatch`,
+naming refs or asking for `stale: true`: which refs are
+stale is rbtr's to decide, and working it out here would put
+a second definition of it in TypeScript.
 
 ### Auto-index
 

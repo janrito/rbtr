@@ -34,7 +34,7 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, SnapshotRef
+from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, Scope, SnapshotRef
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -47,17 +47,6 @@ class ErrorCode(StrEnum):
     INDEX_IN_PROGRESS = "index_in_progress"
     REPO_NOT_FOUND = "repo_not_found"
     INTERNAL = "internal"
-
-
-class Scope(StrEnum):
-    """Breadth of a search or status request.
-
-    `WORKSPACE` is the single repo identified by `repo_path`;
-    `ALL` is every indexed repo in the shared store.
-    """
-
-    WORKSPACE = "workspace"
-    ALL = "all"
 
 
 # ── Base ─────────────────────────────────────────────────────────────
@@ -190,7 +179,6 @@ class BuildIndexRequest(BaseModel):
     repo_path: str
     refs: RefList = ["HEAD"]
     embed: bool = True
-    remove: bool = False
 
 
 class SearchRequest(BaseModel):
@@ -309,19 +297,36 @@ class GcRequest(BaseModel):
     compact: bool = True  # rewrite the index to reclaim freed disk space
 
 
-class ForgetRequest(BaseModel):
-    """Forget a whole repo's index (metadata-only; GC reclaims chunks).
+class UnwatchRequest(BaseModel):
+    """Stop watching refs: the ones named, or the ones git has lost.
 
-    `repo_path` set: forget that single repo (used when its only watched
-    ref is HEAD). `stale=True` with `repo_path` None: forget every
-    registered repo whose path no longer resolves — the only way to reach
-    a removed worktree/clone, since its path cannot be normalised.
+    With `refs`, those refs stop being watched in the repo at
+    `repo_path`. With `stale`, the refs that no longer resolve are
+    found and removed — in that repo, or in every registered repo
+    under `Scope.ALL`. `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch"] = "unwatch"
+    repo_path: str
+    refs: RefList = []
+    stale: bool = False
+    scope: Scope = Scope.WORKSPACE
+    dry_run: bool = False
+
+
+class ForgetRequest(BaseModel):
+    """Forget a repo's index (metadata-only; GC reclaims chunks).
+
+    A named `repo_path` is forgotten only when its sole watched ref is
+    HEAD. `None` forgets every repo whose checkout is gone instead:
+    such a path no longer normalises, so it can only be found by
+    enumeration, never named. `dry_run` reports without deleting.
     """
 
     model_config = _STRICT
     kind: Literal["forget"] = "forget"
     repo_path: str | None = None
-    stale: bool = False
     dry_run: bool = False
 
 
@@ -336,6 +341,7 @@ Request = Annotated[
     | StatusRequest
     | DaemonConfigRequest
     | GcRequest
+    | UnwatchRequest
     | ForgetRequest,
     Field(discriminator="kind"),
 ]
@@ -497,6 +503,19 @@ class GcResponse(BaseModel):
     dry_run: bool = False
 
 
+class UnwatchResponse(BaseModel):
+    """Refs no longer watched, keyed by the repo that watched them.
+
+    Empty when nothing matched. Under `dry_run` it reports what a real
+    run would remove.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch"] = "unwatch"
+    removed: dict[str, list[str]] = {}
+    dry_run: bool = False
+
+
 class ForgetResponse(BaseModel):
     """Repos forgotten by a `ForgetRequest`.
 
@@ -523,6 +542,7 @@ Response = Annotated[
     | StatusResponse
     | DaemonConfigResponse
     | GcResponse
+    | UnwatchResponse
     | ForgetResponse,
     Field(discriminator="kind"),
 ]

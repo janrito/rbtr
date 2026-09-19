@@ -58,6 +58,7 @@ from rbtr.daemon.handlers import (
     handle_read_symbol,
     handle_search,
     handle_status,
+    handle_unwatch,
     resolve_refs,
 )
 from rbtr.daemon.messages import (
@@ -253,6 +254,11 @@ class DaemonServer:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_forget, req, store)
 
+        async def _async_unwatch(req: Any) -> Response:
+            # Writes the watch set: same treatment as forget.
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_unwatch, req, store)
+
         async def _async_index(req: Any) -> Response:
             # Writes the watch set, so same treatment as forget.  `_wake`
             # is set out here because an `asyncio.Event` may only be set
@@ -278,6 +284,7 @@ class DaemonServer:
                     self._snapshot_status,
                 ),
                 "gc": _async_gc,
+                "unwatch": _async_unwatch,
                 "forget": _async_forget,
                 "index": _async_index,
             }

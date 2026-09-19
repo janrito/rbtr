@@ -18,12 +18,13 @@ export type Request =
   | StatusRequest
   | DaemonConfigRequest
   | GcRequest
+  | UnwatchRequest
   | ForgetRequest;
 /**
- * Breadth of a search or status request.
+ * Breadth of an operation over the shared store.
  *
  * `WORKSPACE` is the single repo identified by `repo_path`;
- * `ALL` is every indexed repo in the shared store.
+ * `ALL` is every indexed repo.
  */
 export type Scope = "workspace" | "all";
 /**
@@ -42,6 +43,7 @@ export type Response =
   | StatusResponse
   | DaemonConfigResponse
   | GcResponse
+  | UnwatchResponse
   | ForgetResponse;
 /**
  * Error codes for the daemon protocol.
@@ -102,7 +104,6 @@ export interface BuildIndexRequest {
   repo_path: string;
   refs?: string[];
   embed?: boolean;
-  remove?: boolean;
 }
 /**
  * Search the code index.
@@ -198,17 +199,32 @@ export interface GcRequest {
   compact?: boolean;
 }
 /**
- * Forget a whole repo's index (metadata-only; GC reclaims chunks).
+ * Stop watching refs: the ones named, or the ones git has lost.
  *
- * `repo_path` set: forget that single repo (used when its only watched
- * ref is HEAD). `stale=True` with `repo_path` None: forget every
- * registered repo whose path no longer resolves — the only way to reach
- * a removed worktree/clone, since its path cannot be normalised.
+ * With `refs`, those refs stop being watched in the repo at
+ * `repo_path`. With `stale`, the refs that no longer resolve are
+ * found and removed — in that repo, or in every registered repo
+ * under `Scope.ALL`. `dry_run` reports without writing.
+ */
+export interface UnwatchRequest {
+  kind: "unwatch";
+  repo_path: string;
+  refs?: string[];
+  stale?: boolean;
+  scope?: Scope;
+  dry_run?: boolean;
+}
+/**
+ * Forget a repo's index (metadata-only; GC reclaims chunks).
+ *
+ * A named `repo_path` is forgotten only when its sole watched ref is
+ * HEAD. `None` forgets every repo whose checkout is gone instead:
+ * such a path no longer normalises, so it can only be found by
+ * enumeration, never named. `dry_run` reports without deleting.
  */
 export interface ForgetRequest {
   kind: "forget";
   repo_path?: string | null;
-  stale?: boolean;
   dry_run?: boolean;
 }
 export interface ErrorResponse {
@@ -446,6 +462,19 @@ export interface GcResponse {
   size_before_bytes?: number;
   size_after_bytes?: number;
   elapsed_seconds: number;
+  dry_run?: boolean;
+}
+/**
+ * Refs no longer watched, keyed by the repo that watched them.
+ *
+ * Empty when nothing matched. Under `dry_run` it reports what a real
+ * run would remove.
+ */
+export interface UnwatchResponse {
+  kind: "unwatch";
+  removed?: {
+    [k: string]: string[];
+  };
   dry_run?: boolean;
 }
 /**

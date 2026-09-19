@@ -41,6 +41,7 @@ from rbtr.daemon.messages import (
     ReadSymbolResponse,
     SearchResponse,
     StatusResponse,
+    UnwatchResponse,
     WatchedRef,
 )
 from rbtr.daemon.status import DaemonStatusReport
@@ -220,6 +221,8 @@ def _print_rich(model: BaseModel) -> None:
             _render_daemon_config_response(model)
         case GcResponse():
             _render_gc_response(model)
+        case UnwatchResponse():
+            _render_unwatch_response(model)
         case _:
             msg = f"No rich renderer for {type(model).__name__}"
             raise TypeError(msg)
@@ -554,6 +557,18 @@ def _format_elapsed(seconds: float) -> str:
         return f"{seconds:.0f}s"
     m, s = divmod(int(seconds), 60)
     return f"{m}m{s:02d}s"
+
+
+def _render_unwatch_response(response: UnwatchResponse) -> None:
+    """Refs grouped under the repo they were watched in."""
+    if not response.removed:
+        _out.print("[dim]nothing to unwatch[/]")
+        return
+    stopped = "would stop watching" if response.dry_run else "stopped watching"
+    for repo_path, refs in response.removed.items():
+        # Whole path, as `status` prints it: these are other repos, so a
+        # path relative to the cwd names them worse.
+        _out.print(f"[green]{stopped}[/]  {', '.join(refs)} [dim]in {repo_path}[/]")
 
 
 def _render_gc_response(response: GcResponse) -> None:

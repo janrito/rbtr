@@ -342,6 +342,17 @@ class Repo:
     repo_path: str
 
 
+class Scope(StrEnum):
+    """Breadth of an operation over the shared store.
+
+    `WORKSPACE` is the single repo identified by `repo_path`;
+    `ALL` is every indexed repo.
+    """
+
+    WORKSPACE = "workspace"
+    ALL = "all"
+
+
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
 FileSnapshots = TypeAdapter(list[FileSnapshot])
