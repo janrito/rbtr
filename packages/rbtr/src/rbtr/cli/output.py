@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import to_json
 from rich.console import Console
@@ -92,6 +92,23 @@ def emit(model: BaseModel) -> None:
 def print_err(msg: str) -> None:
     """Print a rich-formatted message to stderr."""
     _err.print(msg)
+
+
+def print_rejected_arguments(exc: ValidationError) -> None:
+    """Report arguments a command model refused, one line each.
+
+    Names the field as the command line spells it, the rule it broke,
+    and the value that broke it, which may have come from a flag, the
+    environment, or the config file.  A rule spanning several fields is
+    given the whole model's arguments as its input, which is the
+    command the user just typed, so that is left unsaid.
+    """
+    for err in exc.errors():
+        where = ".".join(str(part) for part in err["loc"]).replace("_", "-")
+        why = err["msg"].removeprefix("Value error, ")
+        received = err.get("input")
+        value = "" if isinstance(received, Mapping) else f" [dim](received {received!r})[/]"
+        print_err(f"[red]error:[/] {where}: {why}{value}" if where else f"[red]error:[/] {why}")
 
 
 def print_json_schema(schema: JsonSchemaValue) -> None:

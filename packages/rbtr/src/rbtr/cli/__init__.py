@@ -41,6 +41,7 @@ from rbtr.cli.output import (
     print_banner,
     print_err,
     print_json_schema,
+    print_rejected_arguments,
     progress_reporter,
 )
 from rbtr.config import Config, WeightTriple, config
@@ -993,8 +994,8 @@ def main() -> None:
     """Entry point for the rbtr CLI.
 
     Catches `RbtrError` (and its subclasses, e.g. `DaemonBusyError`)
-    at the outer boundary so subcommand bodies don't each have to
-    do the same try/except dance.
+    and `ValidationError` at the outer boundary, so subcommand bodies
+    don't each have to do the same try/except dance.
     """
     configure_logging()
     cli_source: CliSettingsSource[Rbtr] = CliSettingsSource(Rbtr, formatter_class=RichHelpFormatter)
@@ -1002,4 +1003,7 @@ def main() -> None:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
         print_err(f"[red]error:[/] {exc}")
+        sys.exit(2)
+    except ValidationError as exc:
+        print_rejected_arguments(exc)
         sys.exit(2)
