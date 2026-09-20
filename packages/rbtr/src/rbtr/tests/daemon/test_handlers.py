@@ -33,6 +33,7 @@ from rbtr.daemon.messages import (
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    Scope,
     SearchRequest,
     SearchResponse,
     StatusRequest,
@@ -73,12 +74,12 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
     [GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
 )
 def test_handle_gc_global_rejects_a_repo_scoped_mode(mode: GcMode, store: IndexStore) -> None:
-    """A global request (no repo_path) keeps at least HEAD and the watch
-    set of every repo. The modes that go further than that name refs, or
+    """A request covering every repo keeps at least HEAD and the watch
+    set of each. The modes that go further than that name refs, or
     keep one repo's HEAD alone, and are rejected before touching the
     store."""
     with pytest.raises(RbtrError, match="one repo"):
-        handle_gc(GcRequest(repo_path=None, mode=mode), store)
+        handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
 
 
 @pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
@@ -87,7 +88,7 @@ def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
 ) -> None:
     """Both retentions are expressed in each repo's own terms — its HEAD,
     its watch set — so either can be applied to every repo at once."""
-    resp = handle_gc(GcRequest(repo_path=None, mode=mode), store)
+    resp = handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
 
     assert resp.repos_collected == 0  # nothing registered, but not refused
 

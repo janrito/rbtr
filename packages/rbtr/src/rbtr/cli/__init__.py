@@ -858,9 +858,9 @@ class Gc(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        resolved_repo = None if self.scope is Scope.ALL else normalise_repo_path(self.repo_path)
         request = GcRequest(
-            repo_path=resolved_repo,
+            repo_path=normalise_repo_path(self.repo_path),
+            scope=self.scope,
             mode=self.mode,
             refs=self.keep_refs,
             dry_run=self.dry_run,

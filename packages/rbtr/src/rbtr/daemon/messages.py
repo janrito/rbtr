@@ -302,9 +302,17 @@ class DaemonConfigRequest(BaseModel):
 
 
 class GcRequest(BaseModel):
+    """Reclaim index storage, in one repo or across every indexed one.
+
+    `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
+    Under `Scope.ALL` only the retentions each repo can answer in its
+    own terms apply, and `repo_path` is not read.
+    """
+
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    repo_path: str | None = None  # None => global GC across every registered repo
+    repo_path: str
+    scope: Scope = Scope.WORKSPACE
     mode: GcMode
     refs: list[str] = []
     dry_run: bool = False

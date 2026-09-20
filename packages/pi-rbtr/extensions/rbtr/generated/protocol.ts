@@ -198,9 +198,17 @@ export interface StatusRequest {
 export interface DaemonConfigRequest {
   kind: "daemon_config";
 }
+/**
+ * Reclaim index storage, in one repo or across every indexed one.
+ *
+ * `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
+ * Under `Scope.ALL` only the retentions each repo can answer in its
+ * own terms apply, and `repo_path` is not read.
+ */
 export interface GcRequest {
   kind: "gc";
-  repo_path?: string | null;
+  repo_path: string;
+  scope?: Scope;
   mode: GcMode;
   refs?: string[];
   dry_run?: boolean;

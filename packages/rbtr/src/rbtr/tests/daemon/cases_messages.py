@@ -266,13 +266,13 @@ def case_gc() -> MessageScenario:
 
 
 @case(tags=["request"])
-def case_gc_global() -> MessageScenario:
-    """Global GC: no `repo_path` reclaims across every registered repo."""
+def case_gc_every_repo() -> MessageScenario:
+    """`Scope.ALL` reclaims across every registered repo."""
     return MessageScenario(
-        raw=b'{"kind":"gc","mode":"watched"}',
+        raw=b'{"kind":"gc","repo_path":"/r","scope":"all","mode":"watched"}',
         adapter=request_adapter,
         expected_type=GcRequest,
-        checks={"mode": GcMode.WATCHED, "repo_path": None},
+        checks={"mode": GcMode.WATCHED, "scope": Scope.ALL},
     )
 
 

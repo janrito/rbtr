@@ -1628,7 +1628,7 @@ itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
 first and collects second.
 
 GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
-**every** registered repo at once (`GcRequest.repo_path is None` ⇒
+**every** registered repo at once (`GcRequest.scope is Scope.ALL` ⇒
 `run_gc_all` loops `run_gc` over `list_repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
 Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions

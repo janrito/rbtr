@@ -423,12 +423,12 @@ def handle_gc(
     # connection with live searches and leaves it off.
     compact = request.compact and allow_compact and not request.dry_run
     size_before = store.disk_size_bytes()
-    if request.repo_path is None:
-        # Global GC: reclaim across every registered repo, in one of the
-        # two retentions stated in a repo's own terms. The rest name one
+    if request.scope is Scope.ALL:
+        # Reclaim across every registered repo, in one of the two
+        # retentions stated in a repo's own terms. The rest name one
         # repo's refs or sweep one repo's residue.
         if request.mode not in (GcMode.WATCHED, GcMode.WATCHED_ONLY):
-            msg = f"{request.mode.value} reclamation applies to one repo; scope it with repo_path"
+            msg = f"{request.mode.value} reclamation applies to one repo; scope it to one"
             raise RbtrError(msg)
         counts, repos_collected = run_gc_all(
             store,
