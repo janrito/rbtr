@@ -452,6 +452,18 @@ class Forget(BaseModel):
     dry_run: bool = Field(False, description="Report what would be forgotten")
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
 
+    @model_validator(mode="after")
+    def _check_repo_path(self) -> Self:
+        """A repo that is gone cannot also be the repo you name.
+
+        `model_fields_set` tells a path the caller passed from the
+        default that happens to match it.
+        """
+        if self.stale and "repo_path" in self.model_fields_set:
+            msg = "the repos whose checkout is gone are found, not named by path"
+            raise ValueError(msg)
+        return self
+
     def cli_cmd(self) -> None:
         # A vanished checkout cannot be named, so `--stale` carries no repo
         # path and runs from anywhere, including outside a git repo.
