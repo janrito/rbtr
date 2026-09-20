@@ -52,6 +52,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    UnwatchStaleRequest,
     WatchedRef,
     WatchRequest,
 )
@@ -479,19 +480,27 @@ def handle_gc(
 
 
 def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchResponse:
-    """Drop the refs named, or the ones git can no longer resolve."""
-    removed = (
-        remove_stale_refs(
-            store, repo_path=request.repo_path, scope=request.scope, dry_run=request.dry_run
-        )
-        if request.stale
-        else unwatch_refs(
-            store, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
-        )
+    """Drop the refs the request names."""
+    removed = unwatch_refs(
+        store, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
     )
     log.info(
         "watched_refs_removed",
-        stale=request.stale,
+        repo=request.repo_path,
+        refs=request.refs,
+        dry_run=request.dry_run,
+    )
+    return UnwatchResponse(removed=removed, dry_run=request.dry_run)
+
+
+def handle_unwatch_stale(request: UnwatchStaleRequest, store: IndexStore) -> UnwatchResponse:
+    """Drop the refs git can no longer resolve."""
+    removed = remove_stale_refs(
+        store, repo_path=request.repo_path, scope=request.scope, dry_run=request.dry_run
+    )
+    log.info(
+        "stale_refs_removed",
+        scope=request.scope,
         dry_run=request.dry_run,
         repos=len(removed),
         refs=sum(len(refs) for refs in removed.values()),

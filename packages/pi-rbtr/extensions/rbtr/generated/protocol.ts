@@ -19,6 +19,7 @@ export type Request =
   | DaemonConfigRequest
   | GcRequest
   | UnwatchRequest
+  | UnwatchStaleRequest
   | ForgetRequest;
 /**
  * Breadth of an operation over the shared store.
@@ -205,18 +206,31 @@ export interface GcRequest {
   compact?: boolean;
 }
 /**
- * Stop watching refs: the ones named, or the ones git has lost.
+ * Stop watching the named refs in the repo at `repo_path`.
  *
- * With `refs`, those refs stop being watched in the repo at
- * `repo_path`. With `stale`, the refs that no longer resolve are
- * found and removed — in that repo, or in every registered repo
- * under `Scope.ALL`. `dry_run` reports without writing.
+ * At least one ref: a request naming none asks for nothing.
+ * Finding the refs git has lost is `UnwatchStaleRequest`.
+ * `dry_run` reports without writing.
  */
 export interface UnwatchRequest {
   kind: "unwatch";
   repo_path: string;
-  refs?: string[];
-  stale?: boolean;
+  /**
+   * @minItems 1
+   */
+  refs: [string, ...string[]];
+  dry_run?: boolean;
+}
+/**
+ * Stop watching the refs git can no longer resolve.
+ *
+ * Covers the repo at `repo_path`, or every registered repo under
+ * `Scope.ALL`. Which refs those are is found here, never named by
+ * the caller. `dry_run` reports without writing.
+ */
+export interface UnwatchStaleRequest {
+  kind: "unwatch_stale";
+  repo_path: string;
   scope?: Scope;
   dry_run?: boolean;
 }
@@ -476,15 +490,16 @@ export interface GcResponse {
 /**
  * Refs no longer watched, keyed by the repo that watched them.
  *
- * Empty when nothing matched. Under `dry_run` it reports what a real
- * run would remove.
+ * Answers both unwatch requests. Empty when nothing matched. Under
+ * `dry_run` it reports what a real run would remove.
  */
 export interface UnwatchResponse {
   kind: "unwatch";
-  removed?: {
-    [k: string]: string[];
-  };
+  removed?: RefsByRepo;
   dry_run?: boolean;
+}
+export interface RefsByRepo {
+  [k: string]: string[];
 }
 /**
  * Repos forgotten by a `ForgetRequest`.

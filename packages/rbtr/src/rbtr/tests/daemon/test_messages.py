@@ -40,3 +40,12 @@ def test_index_rejects_whitespace_ref() -> None:
     with pytest.raises(ValidationError) as excinfo:
         request_adapter.validate_json(raw)
     assert "main HEAD" in str(excinfo.value)
+
+
+def test_unwatch_rejects_a_request_naming_no_refs() -> None:
+    """Unwatching nothing is a mis-shaped call; finding the stale ones
+    is a different request."""
+    raw = b'{"kind":"unwatch","repo_path":"/r","refs":[]}'
+    with pytest.raises(ValidationError) as excinfo:
+        request_adapter.validate_json(raw)
+    assert "at least 1 item" in str(excinfo.value)

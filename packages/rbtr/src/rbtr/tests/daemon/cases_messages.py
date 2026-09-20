@@ -46,6 +46,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
     notification_adapter,
@@ -279,10 +280,10 @@ def case_gc_global() -> MessageScenario:
 def case_unwatch_stale_everywhere() -> MessageScenario:
     """Stale refs across every indexed repo."""
     return MessageScenario(
-        raw=b'{"kind":"unwatch","repo_path":"/r","stale":true,"scope":"all"}',
+        raw=b'{"kind":"unwatch_stale","repo_path":"/r","scope":"all"}',
         adapter=request_adapter,
-        expected_type=UnwatchRequest,
-        checks={"stale": True, "scope": Scope.ALL, "refs": [], "dry_run": False},
+        expected_type=UnwatchStaleRequest,
+        checks={"scope": Scope.ALL, "repo_path": "/r", "dry_run": False},
     )
 
 
@@ -293,7 +294,7 @@ def case_unwatch_named_refs() -> MessageScenario:
         raw=b'{"kind":"unwatch","repo_path":"/r","refs":["main"],"dry_run":true}',
         adapter=request_adapter,
         expected_type=UnwatchRequest,
-        checks={"repo_path": "/r", "refs": ["main"], "stale": False, "dry_run": True},
+        checks={"repo_path": "/r", "refs": ["main"], "dry_run": True},
     )
 
 

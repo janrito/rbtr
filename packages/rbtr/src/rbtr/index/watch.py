@@ -19,7 +19,7 @@ running it again.
 
 from __future__ import annotations
 
-from rbtr.domain.models import Repo, Scope
+from rbtr.domain.models import RefsByRepo, Repo, Scope
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.store import IndexStore
@@ -27,7 +27,7 @@ from rbtr.index.store import IndexStore
 
 def unwatch_refs(
     store: IndexStore, *, repo_path: str, refs: list[str], dry_run: bool
-) -> dict[str, list[str]]:
+) -> RefsByRepo:
     """Stop watching the named refs in one repo.
 
     `HEAD` is refused **before any delete**, so a call naming it
@@ -50,7 +50,7 @@ def unwatch_refs(
 
 def remove_stale_refs(
     store: IndexStore, *, repo_path: str, scope: Scope, dry_run: bool
-) -> dict[str, list[str]]:
+) -> RefsByRepo:
     """Stop watching refs git can no longer resolve, keyed by repo path.
 
     Covers the repo at *repo_path*, or every registered repo under
@@ -63,7 +63,7 @@ def remove_stale_refs(
     indexed.
     """
     scoped_id = store.resolve_repo(repo_path) if scope is Scope.WORKSPACE else None
-    removed: dict[str, list[str]] = {}
+    removed: RefsByRepo = {}
     for repo in store.list_repos():
         if (scoped_id is not None and repo.repo_id != scoped_id) or not _resolves(repo):
             continue

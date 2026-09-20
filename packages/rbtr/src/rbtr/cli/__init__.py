@@ -62,6 +62,7 @@ from rbtr.daemon.handlers import (
     handle_search,
     handle_status,
     handle_unwatch,
+    handle_unwatch_stale,
 )
 from rbtr.daemon.messages import (
     ChangedSymbolsRequest,
@@ -87,6 +88,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
     protocol_json_schema,
@@ -407,18 +409,21 @@ class Unwatch(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        request = UnwatchRequest(
-            repo_path=normalise_repo_path(self.repo_path),
-            refs=self.refs,
-            stale=self.stale,
-            scope=self.scope,
-            dry_run=self.dry_run,
+        repo_path = normalise_repo_path(self.repo_path)
+        request: UnwatchRequest | UnwatchStaleRequest = (
+            UnwatchStaleRequest(repo_path=repo_path, scope=self.scope, dry_run=self.dry_run)
+            if self.stale
+            else UnwatchRequest(repo_path=repo_path, refs=self.refs, dry_run=self.dry_run)
         )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
             store = IndexStore.from_config(writable=True)
             try:
-                resp = handle_unwatch(request, store)
+                resp = (
+                    handle_unwatch_stale(request, store)
+                    if isinstance(request, UnwatchStaleRequest)
+                    else handle_unwatch(request, store)
+                )
             finally:
                 store.close()
         match resp:

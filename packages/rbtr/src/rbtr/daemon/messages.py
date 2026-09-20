@@ -34,7 +34,15 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, Scope, SnapshotRef
+from rbtr.domain.models import (
+    ChangeKind,
+    GcMode,
+    IndexStats,
+    QueryKind,
+    RefsByRepo,
+    Scope,
+    SnapshotRef,
+)
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -304,19 +312,31 @@ class GcRequest(BaseModel):
 
 
 class UnwatchRequest(BaseModel):
-    """Stop watching refs: the ones named, or the ones git has lost.
+    """Stop watching the named refs in the repo at `repo_path`.
 
-    With `refs`, those refs stop being watched in the repo at
-    `repo_path`. With `stale`, the refs that no longer resolve are
-    found and removed — in that repo, or in every registered repo
-    under `Scope.ALL`. `dry_run` reports without writing.
+    At least one ref: a request naming none asks for nothing.
+    Finding the refs git has lost is `UnwatchStaleRequest`.
+    `dry_run` reports without writing.
     """
 
     model_config = _STRICT
     kind: Literal["unwatch"] = "unwatch"
     repo_path: str
-    refs: RefList = []
-    stale: bool = False
+    refs: Annotated[RefList, Field(min_length=1)]
+    dry_run: bool = False
+
+
+class UnwatchStaleRequest(BaseModel):
+    """Stop watching the refs git can no longer resolve.
+
+    Covers the repo at `repo_path`, or every registered repo under
+    `Scope.ALL`. Which refs those are is found here, never named by
+    the caller. `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch_stale"] = "unwatch_stale"
+    repo_path: str
     scope: Scope = Scope.WORKSPACE
     dry_run: bool = False
 
@@ -348,6 +368,7 @@ Request = Annotated[
     | DaemonConfigRequest
     | GcRequest
     | UnwatchRequest
+    | UnwatchStaleRequest
     | ForgetRequest,
     Field(discriminator="kind"),
 ]
@@ -514,13 +535,13 @@ class GcResponse(BaseModel):
 class UnwatchResponse(BaseModel):
     """Refs no longer watched, keyed by the repo that watched them.
 
-    Empty when nothing matched. Under `dry_run` it reports what a real
-    run would remove.
+    Answers both unwatch requests. Empty when nothing matched. Under
+    `dry_run` it reports what a real run would remove.
     """
 
     model_config = _STRICT
     kind: Literal["unwatch"] = "unwatch"
-    removed: dict[str, list[str]] = {}
+    removed: RefsByRepo = {}
     dry_run: bool = False
 
 

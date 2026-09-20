@@ -342,6 +342,10 @@ class Repo:
     repo_path: str
 
 
+type RefsByRepo = dict[str, list[str]]
+"""Refs attributed to the repo that watched them, keyed by its path."""
+
+
 class Scope(StrEnum):
     """Breadth of an operation over the shared store.
 

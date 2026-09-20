@@ -439,8 +439,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
   }
 
-  // Stop watching the given refs (daemon path, CLI fallback).
-  async function triggerUnwatch(ctx: ExtensionContext, refs: string[]): Promise<void> {
+  // Stop watching the given refs (daemon path, CLI fallback).  The
+  // protocol takes at least one ref: unwatching nothing is a mis-shaped
+  // call, and finding the stale ones is `triggerRemoveStale`.
+  async function triggerUnwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<void> {
     await withFallback(
       async () => {
         await session.send({ kind: "unwatch", repo_path: ctx.cwd, refs });
@@ -457,7 +459,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // working it out here; HEAD is never removed.
   async function triggerRemoveStale(ctx: ExtensionContext): Promise<string[]> {
     const removed = await withFallback(
-      async () => session.send({ kind: "unwatch", repo_path: ctx.cwd, stale: true }),
+      async () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
       async () => {
         if (!resolved) throw new Error("rbtr CLI not available");
         return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], {
@@ -628,7 +630,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       // JSON-encoded string, so the up-to-date check and message below
       // operate on the real refs (the daemon decodes its copy too).
       const decodedRefs = decodeStringList(params.refs);
-      const refs = decodedRefs.length > 0 ? decodedRefs : ["HEAD"];
+      const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
 
       if (params.remove_stale) {
         const pruned = await triggerRemoveStale(ctx);
