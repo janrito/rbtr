@@ -48,16 +48,19 @@ from rbtr import get_version
 from rbtr.config import config
 from rbtr.daemon import watcher
 from rbtr.daemon.handlers import (
-    handle_build_index,
     handle_changed_symbols,
     handle_daemon_config,
     handle_find_refs,
     handle_forget,
+    handle_forget_stale,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
     handle_status,
+    handle_unwatch,
+    handle_unwatch_stale,
+    handle_watch,
     resolve_refs,
 )
 from rbtr.daemon.messages import (
@@ -69,6 +72,7 @@ from rbtr.daemon.messages import (
     EmbedOutcome,
     ErrorCode,
     ErrorResponse,
+    GcRequest,
     HasRepoPath,
     IndexErrorNotification,
     OkResponse,
@@ -243,7 +247,7 @@ class DaemonServer:
             # lock-free (read-copy-update), so concurrent searches keep
             # reading and rebind to the new file on their next call.
             async with self._write_sem:
-                return await asyncio.to_thread(handle_gc, req, store, allow_compact=True)
+                return await asyncio.to_thread(self._collect, req, store)
 
         async def _async_forget(req: Any) -> Response:
             # Writes, so it takes `_write_sem` and runs in a thread:
@@ -252,12 +256,25 @@ class DaemonServer:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_forget, req, store)
 
-        async def _async_index(req: Any) -> Response:
+        async def _async_unwatch(req: Any) -> Response:
+            # Writes the watch set: same treatment as forget.
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_unwatch, req, store)
+
+        async def _async_forget_stale(req: Any) -> Response:
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_forget_stale, req, store)
+
+        async def _async_unwatch_stale(req: Any) -> Response:
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_unwatch_stale, req, store)
+
+        async def _async_watch(req: Any) -> Response:
             # Writes the watch set, so same treatment as forget.  `_wake`
             # is set out here because an `asyncio.Event` may only be set
             # from the loop thread and the write ran in a worker.
             async with self._write_sem:
-                response = await asyncio.to_thread(handle_build_index, req, store)
+                response = await asyncio.to_thread(handle_watch, req, store)
             self._wake.set()
             return response
 
@@ -277,10 +294,40 @@ class DaemonServer:
                     self._snapshot_status,
                 ),
                 "gc": _async_gc,
+                "unwatch": _async_unwatch,
+                "unwatch_stale": _async_unwatch_stale,
                 "forget": _async_forget,
-                "index": _async_index,
+                "forget_stale": _async_forget_stale,
+                "watch": _async_watch,
             }
         )
+
+    def _collect(self, request: GcRequest, store: IndexStore) -> Response:
+        """Run gc on this worker thread, publishing per-repo progress.
+
+        A ZMQ socket belongs to the thread that made it, so this opens
+        and closes its own PUSH rather than borrowing the loop thread's
+        `_notify_push` — the same rule the build and embed workers follow.
+        """
+        push = self._zmq_shadow.socket(zmq.PUSH)
+        push.connect("inproc://progress")
+        try:
+            return handle_gc(
+                request,
+                store,
+                allow_compact=True,
+                on_progress=lambda repo_path, done, total: _notify(
+                    push,
+                    ProgressNotification(
+                        repo_path=repo_path,
+                        phase="collecting",
+                        current=done,
+                        total=total,
+                    ),
+                ),
+            )
+        finally:
+            push.close()
 
     def _backfill_head_watches(self, store: IndexStore) -> None:
         """Seed a `"HEAD"` watch for every registered repo (idempotent).

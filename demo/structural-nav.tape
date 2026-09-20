@@ -1,10 +1,11 @@
 # Demo 2: Structural Navigation
 #
-# Understand a codebase without reading it: file outlines,
-# dependency graph, structural diffs.
+# Understand a module without reading it: outline, source,
+# dependents, and what this branch changed.
 #
 # Before recording:
-#   rbtr index main
+#   rbtr watch main          # changed-symbols needs both refs indexed
+#   git checkout <a branch with commits on top of main>
 #
 # Record: vhs demo/structural-nav.tape
 
@@ -14,7 +15,7 @@ Set Shell "bash"
 Set FontFamily "Iosevka"
 Set FontSize 15
 Set Width 1000
-Set Height 550
+Set Height 750
 Set Padding 20
 Set Theme "Ayu Mirage"
 Set TypingSpeed 40ms
@@ -24,7 +25,7 @@ Set PlaybackSpeed 2.0
 
 Type "cd ~/apps/rbtr"
 Enter
-Wait
+Wait@60s
 
 # ── File outline ─────────────────────────────────────────────
 
@@ -32,54 +33,43 @@ Type "# What's in this file?"
 Enter
 Sleep 500ms
 
-Type "rbtr list-symbols packages/rbtr/src/rbtr/index/search.py"
+Type "rbtr list-symbols packages/rbtr/src/rbtr/index/watch.py"
 Enter
-Wait
-Sleep 1s
-ScrollUp 25
-Sleep 2s
-ScrollDown 25
-Sleep 1s
+Wait@60s
+Sleep 3s
 
 
 # ── Read symbol ──────────────────────────────────────────────
 
-Type "# Read one of them"
+Type "# Read one of them, by name alone"
 Enter
 Sleep 500ms
 
-Type "rbtr read-symbol fuse_scores"
+Type "rbtr read-symbol remove_stale_refs"
 Enter
-Wait
-Sleep 1s
-ScrollUp 25
-Sleep 3s
-ScrollDown 25
-Sleep 1s
+Wait@60s
+Sleep 4s
 
 
 # ── Find references ──────────────────────────────────────────
 
-Type "# Who depends on the core data model?"
+Type "# Who depends on this type?"
 Enter
 Sleep 500ms
 
-Type "rbtr find-refs Chunk"
+Type "rbtr find-refs Scope"
 Enter
-Wait
-Sleep 1s
-ScrollUp 25
+Wait@60s
 Sleep 3s
-ScrollDown 25
-Sleep 1s
+
 
 # ── Structural diff ──────────────────────────────────────────
 
-Type "# What changed on this branch?"
+Type "# And what did this branch change here?"
 Enter
 Sleep 500ms
 
-Type "rbtr changed-symbols v2026.6.0 main --file-path packages/rbtr/src/rbtr/index/search.py"
+Type "rbtr changed-symbols main HEAD --file-path packages/rbtr/src/rbtr/index/watch.py"
 Enter
-Wait
-Sleep 2.5s
+Wait@60s
+Sleep 3s

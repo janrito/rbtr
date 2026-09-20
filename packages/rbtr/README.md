@@ -12,13 +12,42 @@ semantic similarity — fused into a single ranked result.
 uv tool install rbtr         # install the CLI
 
 cd /path/to/your/repo
-rbtr index                   # build the index
+rbtr watch                   # watch HEAD and index it
 rbtr search "retry logic"    # search it
 ```
 
+### Hardware acceleration
+
+The default installation builds `llama-cpp-python` from PyPI for the local
+machine. To use a prebuilt accelerator backend, select one of the upstream
+indexes. Their URLs follow
+`https://abetlen.github.io/llama-cpp-python/whl/<backend>`.
+
+For example, install the CUDA 12.4 wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+  "rbtr[all]"
+```
+
+Or install the Vulkan wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
+  "rbtr[all]"
+```
+
+Choose a backend compatible with the machine's drivers and platform. See the
+[llama-cpp-python installation documentation][llama-install] for the current
+backend names and requirements.
+
+[llama-install]: https://github.com/abetlen/llama-cpp-python#installation
+
 A background daemon starts automatically and keeps every
 watched ref current (`HEAD` by default; add more with
-`rbtr index <ref>`). Subsequent builds are incremental —
+`rbtr watch <ref>`). Subsequent builds are incremental —
 unchanged files (by blob SHA) are skipped.
 
 ## Walkthrough
@@ -28,7 +57,7 @@ come from rbtr's own source; line numbers and scores move as
 the code does.
 
 ```text
-rbtr index
+rbtr watch
 Watching: HEAD
 Indexing in background; run `rbtr status` to track.
 
@@ -87,33 +116,56 @@ explicitly, that ref must be indexed: an unindexed ref you
 named is an error rather than a quiet answer from a different
 one.
 
-### `rbtr index`
+### `rbtr watch`
 
 Watch refs and keep them indexed. Each positional ref is an
 independent watch target the daemon keeps current; with no
 arguments it watches `HEAD`.
 
 ```bash
-rbtr index                    # watch HEAD (the default)
-rbtr index main               # watch main, even from another branch
-rbtr index main release       # watch several refs independently
-rbtr index --remove main      # stop watching main (HEAD can't be removed)
-rbtr index --remove            # forget this repo (only when HEAD is all it watches)
-rbtr index --remove-stale-refs # stop watching this repo's deleted branches
-rbtr index --remove-stale-repos # forget every repo whose checkout is gone
+rbtr watch                    # watch HEAD (the default)
+rbtr watch main               # watch main, even from another branch
+rbtr watch main release       # watch several refs independently
 ```
 
-A moving ref (branch) tracks its tip; a bare SHA settles
-after one build. Removing a ref stops watching it; its index
-is reclaimed by `rbtr gc --watched-only` (a plain `rbtr gc`
-keeps every branch/tag regardless).
+A moving ref (branch) tracks its tip; a bare SHA settles after
+one build.
 
-When you're done with a checkout, `rbtr index --remove` (with no
-refs) forgets the whole repo — its watch set, indexed commits, and
-references. After you've already deleted a worktree or clone, run
-`rbtr index --remove-stale-repos` from anywhere to forget every repo
-whose path no longer exists. Forgetting is metadata-only and reports
-no statistics; run `rbtr gc` to reclaim the freed chunks.
+What you watch and what is stored are separate things, and so are
+the commands that change them: `rbtr unwatch` and `rbtr forget`
+both edit bookkeeping only, and leave the indexed data where it
+is. `rbtr gc` is what reclaims the space.
+
+### `rbtr unwatch`
+
+Stop watching refs — the ones you name, or the ones git has lost.
+
+```bash
+rbtr unwatch main             # stop watching main (HEAD can't be removed)
+rbtr unwatch --stale          # ...and the deleted branches, found for you
+rbtr unwatch --stale --scope all   # ...in every indexed repo
+rbtr unwatch --stale --dry-run     # report, change nothing
+```
+
+The index those refs built is reclaimed by `rbtr gc --keep
+watched-only`; a plain `rbtr gc` keeps every branch and tag
+regardless. A repo whose path is merely unreachable for now is
+left alone: git cannot answer for it, so every ref it watches
+would look stale.
+
+### `rbtr forget`
+
+Forget a repo's index: its watch set, indexed commits, and
+references.
+
+```bash
+rbtr forget                   # this repo (only when HEAD is all it watches)
+rbtr forget --stale           # every repo whose checkout is gone
+rbtr forget --stale --dry-run # report, change nothing
+```
+
+Run `--stale` from anywhere, including outside a git repo: a
+deleted worktree or clone can no longer be named, only found.
 
 ### `rbtr search <query>`
 
@@ -127,8 +179,10 @@ rbtr search "how does auth work"  # semantic search
 
 Combines name, keyword, and semantic search into a
 single ranked result. See
-[ARCHITECTURE.md](ARCHITECTURE.md#search-fusion)
+[ARCHITECTURE.md][arch-search-fusion]
 for the fusion algorithm.
+
+[arch-search-fusion]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#search-fusion
 
 Supply `--keywords` and `--variants` (both repeatable) to
 widen retrieval — keywords extend the lexical query,
@@ -256,7 +310,7 @@ rbtr daemon stop      # stop it
 rbtr daemon status    # show state and build progress
 ```
 
-Starts automatically on first `rbtr index` or `rbtr search`.
+Starts automatically on first `rbtr watch` or `rbtr search`.
 
 ### `rbtr gc`
 
@@ -266,33 +320,35 @@ it permanently deletes indexed commits/chunks. Always preview with
 its own.
 
 ```bash
-rbtr gc                       # this repo (default: keep branches/tags + watch set)
-rbtr gc --all-repos           # every indexed repo (default reclamation only)
-rbtr gc --watched-only        # keep only HEAD and watched refs
-rbtr gc --keep-head-only      # keep only HEAD
-rbtr gc main release          # keep only HEAD plus these refs
-rbtr gc --orphans             # sweep crashed-build residue only
-rbtr gc --no-compact          # skip the disk-reclaiming rewrite
-rbtr gc --dry-run             # preview what would be dropped
+rbtr gc                           # this repo (keeps branches/tags + watch set)
+rbtr gc --scope all               # every indexed repo
+rbtr gc --keep watched-only       # keep only HEAD and watched refs
+rbtr gc --keep head-only          # keep only HEAD
+rbtr gc --keep-refs main,release  # keep only HEAD plus these refs
+rbtr gc --keep everything         # sweep crashed-build residue only
+rbtr gc --no-compact              # skip the disk-reclaiming rewrite
+rbtr gc --dry-run                 # preview what would be dropped
 ```
 
-`rbtr gc` collects the current repo by default. `--all-repos` reclaims
+`rbtr gc` collects the current repo by default. `--scope all` reclaims
 across **every** indexed repo at once — useful because chunks are shared
-between repos — but only with the safe default reclamation; scope an
-aggressive mode (`--watched-only`, `--keep-head-only`, or a `keep`
-list) to a single repo. (The chunk sweep is global on every gc regardless, so a
-plain `rbtr gc` still frees chunks no other repo references.)
+between repos, keeping `watched` or `watched-only`. `head-only`
+and `--keep-refs` name one repo's refs, so scope those with
+`--repo-path`. (The chunk sweep is global on every gc
+regardless, so a plain `rbtr gc` still frees chunks no other repo
+references.)
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only
 genuinely unreferenced commits — so a routine gc never
-discards anything still reachable. `--watched-only` keeps
+discards anything still reachable. `--keep watched-only` keeps
 just HEAD and the watch set, dropping unwatched branches and
 tags (the way to reclaim refs you no longer index).
 
-The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
-keeps HEAD plus the listed refs; `--orphans` sweeps residue
-from crashed builds.
+The rest: `--keep head-only` keeps only HEAD; `--keep-refs`
+keeps HEAD plus the refs you name; `--keep everything` drops no
+commits at all and sweeps residue from crashed builds. A run
+keeps one set, so naming a second is refused.
 
 If the daemon is mid-build or mid-embed when you run it, gc waits
 for that work to commit before it starts — usually a second or two,
@@ -308,7 +364,8 @@ the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
 collect on its own, and a healthy index does not need it. Two
 situations call for it: the file has grown past what you want
 to give it, or you have stopped indexing refs and want the
-space back (`--watched-only`).
+space back (`--keep watched-only`, after `rbtr unwatch --stale
+--scope all` has dropped the branches that no longer exist).
 
 Growth is driven by embeddings, one vector per chunk, so the
 size tracks how many distinct chunks every indexed repo holds
@@ -329,8 +386,10 @@ Example from `rbtr search --json`:
 {"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_path":"src/rbtr/index/search.py","score":0.49,...}]}
 ```
 
-See [Daemon protocol](ARCHITECTURE.md#daemon-protocol)
+See [Daemon protocol][arch-daemon-protocol]
 for the full response models.
+
+[arch-daemon-protocol]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#daemon-protocol
 
 ## Logs
 
@@ -355,8 +414,10 @@ with any JSON-aware tool:
 tail -f <log_dir>/daemon.log
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#observability) for the logging
+See [ARCHITECTURE.md][arch-observability] for the logging
 pipeline and how requests are correlated.
+
+[arch-observability]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#observability
 
 ## Configuration
 
@@ -404,8 +465,10 @@ stays searchable without structure.
 
 Each language is a separate package. `rbtr config` lists the
 ones this install loaded; the [repository
-README](../../README.md#languages) has the full set with the
+README][repo-languages] has the full set with the
 extra to install for each.
+
+[repo-languages]: https://github.com/janrito/rbtr/blob/main/README.md#languages
 
 Comments are indexed too. A comment block above a definition
 becomes part of that definition's chunk; one standing on its
@@ -420,8 +483,10 @@ HTML and single-file components (Svelte, Vue) extract
 inline `<script>` / `<style>` the same way; an SFC's markup
 template is indexed too, named after the component file.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#language-plugins)
+See [ARCHITECTURE.md][arch-language-plugins]
 for how the plugin system works.
+
+[arch-language-plugins]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#language-plugins
 
 ## Writing a language plugin
 
@@ -557,7 +622,9 @@ has one. A block directly above a definition folds into that
 definition's chunk; a block standing on its own becomes a `comment`
 chunk; a comment trailing code stays with that statement. The engine
 does this identically for every language — see
-[ARCHITECTURE](ARCHITECTURE.md) for the rules.
+[ARCHITECTURE][arch] for the rules.
+
+[arch]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md
 
 ### When a query is not enough
 
@@ -791,8 +858,10 @@ at a different serial on the next build; leaving it unchanged keeps the
 existing (now stale) chunks. It is independent of the package version —
 bump it whenever extraction output changes, including during development
 before a release. See
-[ARCHITECTURE.md](ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup)
+[ARCHITECTURE.md][arch-dedup]
 for the dedup mechanism.
+
+[arch-dedup]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#content-addressed-chunks-and-blob-dedup
 
 ## Graceful degradation
 
@@ -804,18 +873,21 @@ for the dedup mechanism.
 - **No reranker model** → search returns fusion-ranked
   results without cross-encoder reranking.
 - **No FTS index** (first search before any build completes)
-  → error with guidance to run `rbtr index`.
+  → error with guidance to run `rbtr watch`.
 
 ## Development
+
+Development requires Python 3.13, uv, Node.js 22.19 or later,
+npm, and just.
 
 ```bash
 git clone <repo-url>
 cd rbtr
-just setup    # uv sync + bun install
+just setup    # uv sync + npm install
 just check    # lint, typecheck, and every test suite
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for internals.
+See [ARCHITECTURE.md][arch] for internals.
 
 ## License
 

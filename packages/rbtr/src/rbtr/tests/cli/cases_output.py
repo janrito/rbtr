@@ -15,10 +15,12 @@ from pytest_cases import case
 
 from rbtr.daemon.dto import SearchHitOut
 from rbtr.daemon.messages import (
+    ForgetResponse,
     GcResponse,
     IndexedRef,
     SearchResponse,
     StatusResponse,
+    UnwatchResponse,
     WatchedRef,
 )
 from rbtr.domain.models import ChunkKind
@@ -248,3 +250,52 @@ def case_status_shows_watch_set() -> RenderScenario:
         ),
         expected=("watching:", "main", "pending", "unresolvable"),
     )
+
+
+@case(tags=["unwatch"])
+def case_unwatch_groups_refs_under_their_repo() -> RenderScenario:
+    """Removed refs are grouped by the repo that watched them."""
+    return RenderScenario(
+        model=UnwatchResponse(
+            removed={"/work/alpha": ["gone-branch", "old-tag"], "/work/beta": ["dead"]},
+            dry_run=False,
+        ),
+        expected=("stopped watching", "gone-branch, old-tag", "alpha", "dead", "beta"),
+        forbidden=("would",),
+    )
+
+
+@case(tags=["unwatch"])
+def case_unwatch_dry_run_speaks_conditionally() -> RenderScenario:
+    """A preview says what it would do, not what it did."""
+    return RenderScenario(
+        model=UnwatchResponse(removed={"/work/alpha": ["gone-branch"]}, dry_run=True),
+        expected=("would stop watching", "gone-branch"),
+        forbidden=("stopped watching",),
+    )
+
+
+@case(tags=["forget"])
+def case_forget_names_each_repo_and_points_at_gc() -> RenderScenario:
+    """A forgotten repo is named in full, with the reclaim hint."""
+    return RenderScenario(
+        model=ForgetResponse(forgotten=["/work/deleted", "/work/gone"], dry_run=False),
+        expected=("forgot", "/work/deleted", "/work/gone", "rbtr gc"),
+        forbidden=("would",),
+    )
+
+
+@case(tags=["forget"])
+def case_forget_dry_run_offers_no_reclaim_hint() -> RenderScenario:
+    """A preview has freed nothing, so there is nothing to reclaim."""
+    return RenderScenario(
+        model=ForgetResponse(forgotten=["/work/deleted"], dry_run=True),
+        expected=("would forget", "/work/deleted"),
+        forbidden=("rbtr gc",),
+    )
+
+
+@case(tags=["unwatch"])
+def case_unwatch_found_nothing() -> RenderScenario:
+    """Finding nothing is said out loud, not printed as blank."""
+    return RenderScenario(model=UnwatchResponse(), expected=("nothing to unwatch",))

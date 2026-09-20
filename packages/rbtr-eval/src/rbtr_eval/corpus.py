@@ -1,7 +1,7 @@
 """Which snapshots this eval run measures.
 
 The corpus is each clone's **HEAD**: `dvc.yaml` indexes the repos
-without naming a ref, so `rbtr index` builds `resolve_ref(path,
+without naming a ref, so `rbtr watch` builds `resolve_ref(path,
 "HEAD")`, and the `index` stage then runs `gc --keep-head-only` per
 repo. One indexed snapshot per repo, and it is HEAD, is therefore an
 invariant this pipeline maintains rather than a hope about the

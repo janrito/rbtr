@@ -27,7 +27,6 @@ from rbtr.config import config
 from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
     ActiveJob,
-    BuildIndexRequest,
     ChangedSymbol,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
@@ -37,6 +36,7 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
+    ForgetStaleRequest,
     GcRequest,
     GcResponse,
     IndexedRef,
@@ -51,7 +51,11 @@ from rbtr.daemon.messages import (
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    UnwatchResponse,
+    UnwatchStaleRequest,
     WatchedRef,
+    WatchRequest,
 )
 from rbtr.domain.models import (
     Chunk,
@@ -67,12 +71,13 @@ from rbtr.git import (
     HEAD_REF,
     WORKTREE_REF,
     names_for_commits,
-    normalise_repo_path,
     resolve_ref,
 )
 from rbtr.index.gc import run_gc, run_gc_all
+from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.results import changed_to_symbols
 from rbtr.index.search import search
+from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
 from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
@@ -233,9 +238,9 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     if store.has_indexed(at=at):
         return
     if requested_ref == WORKTREE_REF:
-        msg = "Working tree is not indexed yet — run rbtr index first"
+        msg = "Working tree is not indexed yet — run rbtr watch first"
     else:
-        msg = f"Ref '{requested_ref}' is not indexed — run rbtr index first"
+        msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
     raise IndexNotBuiltError(msg)
 
 
@@ -404,7 +409,13 @@ def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
 # ── Build handler ────────────────────────────────────────────────────
 
 
-def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = False) -> GcResponse:
+def handle_gc(
+    request: GcRequest,
+    store: IndexStore,
+    *,
+    allow_compact: bool = False,
+    on_progress: RepoProgressCallback = _noop_repo_progress,
+) -> GcResponse:
     t0 = time.monotonic()
     # Compaction rewrites and swaps the database file, so it is only safe
     # when the caller owns the connection exclusively -- the inline
@@ -412,19 +423,20 @@ def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = Fa
     # connection with live searches and leaves it off.
     compact = request.compact and allow_compact and not request.dry_run
     size_before = store.disk_size_bytes()
-    if request.repo_path is None:
-        # Global GC: reclaim across every registered repo. Restricted to
-        # the safe default reclamation — aggressive modes must be scoped to
-        # one repo (a global drop of unwatched/non-HEAD commits is a
-        # footgun, and KEEP refs are repo-specific).
-        if request.mode is not GcMode.WATCHED:
-            msg = (
-                f"global GC supports only the default (watched) reclamation, "
-                f"not {request.mode.value}; scope it with repo_path"
-            )
+    if request.scope is Scope.ALL:
+        # Reclaim across every registered repo, in one of the two
+        # retentions stated in a repo's own terms. The rest name one
+        # repo's refs or sweep one repo's residue.
+        if request.mode not in (GcMode.WATCHED, GcMode.WATCHED_ONLY):
+            msg = f"{request.mode.value} reclamation applies to one repo; scope it to one"
             raise RbtrError(msg)
         counts, repos_collected = run_gc_all(
-            store, mode=request.mode, refs=request.refs, dry_run=request.dry_run, compact=compact
+            store,
+            mode=request.mode,
+            refs=request.refs,
+            dry_run=request.dry_run,
+            compact=compact,
+            on_progress=on_progress,
         )
     else:
         counts = run_gc(
@@ -468,31 +480,47 @@ def handle_gc(request: GcRequest, store: IndexStore, *, allow_compact: bool = Fa
     )
 
 
+def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchResponse:
+    """Drop the refs the request names."""
+    removed = unwatch_refs(
+        store, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
+    )
+    log.info(
+        "watched_refs_removed",
+        repo=request.repo_path,
+        refs=request.refs,
+        dry_run=request.dry_run,
+    )
+    return UnwatchResponse(removed=removed, dry_run=request.dry_run)
+
+
+def handle_unwatch_stale(request: UnwatchStaleRequest, store: IndexStore) -> UnwatchResponse:
+    """Drop the refs git can no longer resolve."""
+    removed = remove_stale_refs(
+        store, repo_path=request.repo_path, scope=request.scope, dry_run=request.dry_run
+    )
+    log.info(
+        "stale_refs_removed",
+        scope=request.scope,
+        dry_run=request.dry_run,
+        repos=len(removed),
+        refs=sum(len(refs) for refs in removed.values()),
+    )
+    return UnwatchResponse(removed=removed, dry_run=request.dry_run)
+
+
+def handle_forget_stale(request: ForgetStaleRequest, store: IndexStore) -> ForgetResponse:
+    """Forget the repos whose checkout is gone."""
+    gone = forget_stale_repos(store, dry_run=request.dry_run)
+    return ForgetResponse(forgotten=[repo.repo_path for repo in gone], dry_run=request.dry_run)
+
+
 def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
-    """Forget whole repos (metadata-only; GC reclaims the chunks).
+    """Forget one repo (metadata-only; GC reclaims the chunks).
 
-    `stale=True`: forget every registered repo whose stored path no longer
-    resolves (a removed worktree/clone) — found by enumeration, since a
-    gone path cannot be normalised into a request. Otherwise forget the
-    single `repo_path`, but only when its watch set is exactly `{HEAD}`
-    (trim other refs first). `dry_run` reports without deleting.
+    Only when its watch set is exactly `{HEAD}` — trim other refs
+    first. `dry_run` reports without deleting.
     """
-    if request.stale:
-        gone: list[tuple[int, str]] = []
-        for repo in store.list_repos():
-            try:
-                normalise_repo_path(repo.repo_path)
-            except RbtrError:
-                gone.append((repo.repo_id, repo.repo_path))
-        if not request.dry_run and gone:
-            with store.session() as ws:
-                for repo_id, _path in gone:
-                    ws.forget_repo(repo_id)
-        return ForgetResponse(forgotten=[path for _id, path in gone], dry_run=request.dry_run)
-
-    if request.repo_path is None:
-        msg = "forget requires a repo_path or stale=True"
-        raise RbtrError(msg)
     target_id = store.get_repo_id(request.repo_path)
     if target_id is None:
         return ForgetResponse(forgotten=[], dry_run=request.dry_run)
@@ -507,29 +535,17 @@ def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
     return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
-def handle_build_index(
-    request: BuildIndexRequest,
+def handle_watch(
+    request: WatchRequest,
     store: IndexStore,
 ) -> Response:
-    """Record (or remove) the request's refs in the repo's watch set.
+    """Record the request's refs in the repo's watch set.
 
     The worker derives and runs the actual build from `watched_refs`
-    on its next poll.  `remove=True` stops watching the given refs;
-    `HEAD` is rejected **before any delete**, so a request naming it
-    alongside others changes nothing.  Adding always includes `HEAD`,
-    so a repo first seen here watches it as one seen at startup does.
+    on its next poll.  `HEAD` is always included, so a repo first seen
+    here watches it as one seen at startup does.  Dropping refs is
+    `handle_unwatch`.
     """
-    if request.remove:
-        if HEAD_REF in request.refs:
-            msg = "HEAD cannot be removed from the watch set"
-            raise RbtrError(msg)
-        repo_id = store.get_repo_id(request.repo_path)
-        if repo_id is None:
-            return OkResponse()  # nothing watched for an unregistered repo
-        with store.session() as ws:
-            ws.remove_watched_refs(repo_id, request.refs)
-        log.info("watched_refs_removed", repo=request.repo_path, refs=request.refs)
-        return OkResponse()
     with store.session() as ws:
         repo_id = ws.register_repo(request.repo_path)
         ws.add_watched_refs(repo_id, [HEAD_REF, *request.refs])

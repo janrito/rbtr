@@ -189,8 +189,8 @@ is an answer it can use.
 ### Triggering a build
 
 `triggerIndex(ctx, ...refs)` requests a build through
-`withFallback`: the daemon path sends `{kind: "index",
-repo_path, refs}`; the CLI fallback spawns `rbtr index
+`withFallback`: the daemon path sends `{kind: "watch",
+repo_path, refs}`; the CLI fallback spawns `rbtr watch
 <refs>`. Refs default to `["HEAD"]`. The footer shows an
 animated "indexing…" spinner while the request is in
 flight; on failure it switches to "indexing failed" and
@@ -206,7 +206,10 @@ carries the outcome, because a run that stood aside for a
 build leaves work due and must not read as finished. The same
 mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
 and `triggerGc` — each a `withFallback` over a daemon RPC
-with a CLI fallback.
+with a CLI fallback. Both unwatch paths send an `unwatch`,
+naming refs or asking for `stale: true`: which refs are
+stale is rbtr's to decide, and working it out here would put
+a second definition of it in TypeScript.
 
 ### Auto-index
 

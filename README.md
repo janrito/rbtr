@@ -62,18 +62,20 @@ by calling rbtr tools directly.
 ## Install
 
 ```bash
-uv tool install "rbtr[all]"   # the code index CLI, every language
-pi install npm:@rbtr/pi       # the pi extension
+uv tool install "rbtr[all]"       # the code index CLI, every language
+pi install npm:@janrito/pi-rbtr  # the pi extension
 ```
 
 Plain `uv tool install rbtr` gives you eight languages — the
 ones that ship as required dependencies. Everything else is an
 extra, so `rbtr[all]` is the one to want unless you are keeping
-the install small. See [Languages](#languages) for the split.
+the install small. See [Languages](#languages) for the split and
+[hardware acceleration](packages/rbtr/README.md#hardware-acceleration)
+for prebuilt CUDA and Vulkan installation examples.
 
 ```bash
 cd /path/to/your/repo
-rbtr index                    # build the index
+rbtr watch                    # watch HEAD and index it
 rbtr search "retry logic"     # search it
 ```
 
@@ -154,8 +156,11 @@ searchable, just without structure.
 
 ## Development
 
+Development requires Python 3.13, uv, Node.js 22.19 or later,
+npm, and just.
+
 ```bash
-just setup                  # uv sync + bun install
+just setup                  # uv sync + npm install
 just check                  # lint, typecheck, and every test suite
 just fmt                    # auto-fix (Python, TypeScript, SQL, Markdown)
 ```
@@ -174,8 +179,8 @@ data handling, testing, and language-plugin authoring.
 | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rbtr CLI not found` or `daemon start/restart failed` at session start | Run `rbtr daemon status`; if it's down, `rbtr daemon start`. Concurrent sessions converge on one daemon, so this is usually transient — a busy index reports "temporarily unavailable" and retries. |
 | `Index database is locked by another process`                          | The running daemon holds the index lock; route commands through it (`rbtr daemon status`). Only `rbtr daemon stop` a genuinely stale daemon — never kill a healthy one.                             |
-| `No index found` for a repo that should be indexed                     | Run `rbtr index` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                              |
-| The daemon refuses to start, naming languages it cannot load           | The index holds chunks from a plugin this install is missing. Install it, or start with `rbtr index --allow-missing-plugins` to proceed without it.                                                 |
+| `No index found` for a repo that should be indexed                     | Run `rbtr watch` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                              |
+| The daemon refuses to start, naming languages it cannot load           | The index holds chunks from a plugin this install is missing. Install it, or start with `rbtr watch --allow-missing-plugins` to proceed without it.                                                 |
 
 `rbtr config` prints the resolved paths (including the daemon
 log) and the language plugins actually loaded.

@@ -14,7 +14,7 @@ are the single source of truth. The human format is a richer
 layout of the same fields; it never drops or adds information.
 
 Dual-mode: most commands try the daemon first; if unreachable,
-fall back to direct in-process execution. `rbtr index` auto-starts
+fall back to direct in-process execution. `rbtr watch` auto-starts
 the daemon unless `--no-daemon` is given.
 """
 
@@ -23,10 +23,11 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
-from typing import Annotated
+from enum import StrEnum
+from typing import Annotated, Self
 
 import structlog
-from pydantic import BaseModel, BeforeValidator, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError, model_validator
 from pydantic_settings import (
     CliApp,
     CliPositionalArg,
@@ -41,6 +42,7 @@ from rbtr.cli.output import (
     print_banner,
     print_err,
     print_json_schema,
+    print_rejected_arguments,
     progress_reporter,
 )
 from rbtr.config import Config, WeightTriple, config
@@ -55,15 +57,16 @@ from rbtr.daemon.handlers import (
     handle_daemon_config,
     handle_find_refs,
     handle_forget,
+    handle_forget_stale,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
     handle_status,
+    handle_unwatch,
+    handle_unwatch_stale,
 )
 from rbtr.daemon.messages import (
-    BuildIndexRequest,
-    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     DaemonConfigRequest,
@@ -73,6 +76,7 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
+    ForgetStaleRequest,
     GcRequest,
     GcResponse,
     ListSymbolsRequest,
@@ -85,6 +89,11 @@ from rbtr.daemon.messages import (
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    UnwatchResponse,
+    UnwatchStaleRequest,
+    WatchRequest,
+    WatchResponse,
     protocol_json_schema,
 )
 from rbtr.daemon.server import DaemonServer
@@ -103,15 +112,33 @@ from rbtr.logging import configure_logging
 log = structlog.get_logger(__name__)
 
 
-def _normalise_scope(value: str | Scope) -> str | Scope:
-    """Lower-case string scope input so the `--scope` flag is case-insensitive."""
-    return value.lower() if isinstance(value, str) else value
+def _normalise_choice(value: str | Scope | GcMode) -> str | Scope | GcMode:
+    """Accept a choice as typed: any case, dashes or underscores."""
+    return value.lower().replace("-", "_") if isinstance(value, str) else value
 
 
-# Case-insensitive `--scope`: a human may type `all`, `ALL`, or
-# `All`.  Normalisation happens here at the CLI boundary; the wire
-# protocol (`SearchRequest`/`StatusRequest`) stays strict.
-ScopeField = Annotated[Scope, BeforeValidator(_normalise_scope)]
+# Case-insensitive choices: a human may type `all`, `ALL`, or `All`,
+# and `watched-only` for `watched_only`.  Normalisation happens here
+# at the CLI boundary; the wire protocol stays strict.
+ScopeField = Annotated[Scope, BeforeValidator(_normalise_choice)]
+
+
+class KeptSet(StrEnum):
+    """The sets `--keep` can name, each a `GcMode` it selects.
+
+    `GcMode.KEEP` has no member here: the refs it keeps are named by
+    `--keep-refs`, which is what selects it.  `EVERYTHING` is
+    `GcMode.ORPHANS` said as what survives it — every commit, since
+    it sweeps crashed-build residue alone.
+    """
+
+    WATCHED = "watched"
+    WATCHED_ONLY = "watched_only"
+    HEAD_ONLY = "head_only"
+    EVERYTHING = "everything"
+
+
+KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
 
 
 # ── Internal server entry point ───────────────────────────────────────
@@ -227,30 +254,19 @@ class Daemon(BaseModel):
         CliApp.run_subcommand(self)
 
 
-# ── Index subcommand ─────────────────────────────────────────────────
+# ── Watch subcommand ─────────────────────────────────────────────────
 
 
-class Index(BaseModel):
-    """Watch refs for continuous indexing (`--remove` to stop).
+class Watch(BaseModel):
+    """Watch refs and keep them indexed.
 
     Each positional ref is an independent watch target the daemon
-    keeps indexed; `rbtr index` with no args watches `HEAD`.
+    keeps indexed; `rbtr watch` with no args watches `HEAD`.
+    Stop watching one with `rbtr unwatch`.
     """
 
     refs: CliPositionalArg[list[str]] = Field([HEAD_REF], description="Refs to watch and index")
     repo_path: str = Field(".", description="Repository path")
-    remove: bool = Field(
-        False,
-        description="Stop watching the given refs; with no refs, forget a HEAD-only repo",
-    )
-    remove_stale_refs: bool = Field(
-        False,
-        description="Stop watching this repo's refs that no longer resolve (deleted branches)",
-    )
-    remove_stale_repos: bool = Field(
-        False,
-        description="Forget every indexed repo whose path no longer exists (removed checkouts)",
-    )
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
     embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
     allow_missing_plugins: bool = Field(
@@ -259,28 +275,14 @@ class Index(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        # Forgetting vanished repos needs no current repo — handle it before
-        # resolving the cwd, which would fail outside a git repo.
-        if self.remove_stale_repos:
-            self._run_remove_stale_repos()
-            return
-
         resolved_repo = normalise_repo_path(self.repo_path)
-
-        if self.remove_stale_refs:
-            self._run_remove_stale_refs(resolved_repo)
-            return
-
-        if self.remove:
-            self._run_remove(resolved_repo)
-            return
 
         # Validate every ref (raises on a bad ref); the daemon stores
         # symbolic names so moving refs track their tip.
         for r in self.refs:
             resolve_ref(resolved_repo, r)
 
-        request = BuildIndexRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
+        request = WatchRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
 
         if not self.daemon:
             self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
@@ -316,7 +318,7 @@ class Index(BaseModel):
         """Print the outcome of a daemon watch (add) request."""
         suffix = " (daemon started)" if started else ""
         match resp:
-            case BuildIndexResponse():
+            case WatchResponse():
                 emit(resp)
             case OkResponse():
                 print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
@@ -327,144 +329,6 @@ class Index(BaseModel):
             case _:
                 print_err("[red]error:[/] daemon did not record the watch")
                 sys.exit(1)
-
-    def _run_remove(self, resolved_repo: str) -> None:
-        """Stop watching the given refs (daemon path, else inline DB edit).
-
-        Removing `HEAD` forgets the whole repo, but only when `HEAD` is the
-        sole watched ref; otherwise it stays rejected (trim the other refs
-        first).
-        """
-        if HEAD_REF in self.refs:
-            if not self._current_watched(resolved_repo) - {HEAD_REF}:
-                self._run_forget(ForgetRequest(repo_path=resolved_repo))
-                return
-            print_err("[red]error:[/] HEAD cannot be removed while other refs are watched")
-            sys.exit(2)
-        request = BuildIndexRequest(
-            repo_path=resolved_repo, refs=self.refs, embed=self.embed, remove=True
-        )
-        resp = try_daemon(request)
-        if resp is not None:
-            match resp:
-                case OkResponse():
-                    print_err(f"[green]Stopped watching:[/] {', '.join(self.refs)}")
-                case ErrorResponse(message=msg):
-                    print_err(f"[red]error:[/] {msg}")
-                    sys.exit(1)
-                case _:
-                    print_err(f"[red]error:[/] unexpected response: {resp}")
-                    sys.exit(1)
-            return
-        # Daemon not running: edit the watch set inline (don't auto-start it).
-        store = IndexStore.from_config(writable=True)
-        try:
-            repo_id = store.get_repo_id(resolved_repo)
-            if repo_id is not None:
-                with store.session() as ws:
-                    ws.remove_watched_refs(repo_id, self.refs)
-        finally:
-            store.close()
-        print_err(f"[green]Stopped watching:[/] {', '.join(self.refs)}")
-
-    def _run_remove_stale_refs(self, resolved_repo: str) -> None:
-        """Remove watched refs that no longer resolve (e.g. deleted branches).
-
-        Reuses `status` (which marks unresolvable refs with `sha=None`) when
-        the daemon is up; otherwise resolves against the store inline. `HEAD`
-        always resolves, so it is never pruned.
-        """
-        status = try_daemon(StatusRequest(repo_path=resolved_repo)) if self.daemon else None
-        if status is not None:
-            if not isinstance(status, StatusResponse):
-                print_err(f"[red]error:[/] unexpected response: {status}")
-                sys.exit(1)
-            stale = [w.ref for w in status.watched if w.sha is None and w.ref != HEAD_REF]
-            if stale:
-                resp = try_daemon(
-                    BuildIndexRequest(repo_path=resolved_repo, refs=stale, remove=True)
-                )
-                if isinstance(resp, ErrorResponse):
-                    print_err(f"[red]error:[/] {resp.message}")
-                    sys.exit(1)
-            self._report_stale(stale)
-            return
-        # No daemon: resolve each watched ref against the store and prune.
-        store = IndexStore.from_config(writable=True)
-        try:
-            repo_id = store.get_repo_id(resolved_repo)
-            stale = []
-            if repo_id is not None:
-                for ref in store.list_watched_refs(repo_id):
-                    if ref == HEAD_REF:
-                        continue
-                    try:
-                        resolve_ref(resolved_repo, ref)
-                    except RbtrError:
-                        stale.append(ref)
-                if stale:
-                    with store.session() as ws:
-                        ws.remove_watched_refs(repo_id, stale)
-        finally:
-            store.close()
-        self._report_stale(stale)
-
-    @staticmethod
-    def _report_stale(stale: list[str]) -> None:
-        if stale:
-            print_err(f"[green]Removed stale:[/] {', '.join(stale)}")
-        else:
-            print_err("[dim]No stale watched refs.[/]")
-
-    def _current_watched(self, resolved_repo: str) -> set[str]:
-        """The repo's current watch set (daemon `status`, else the store)."""
-        status = try_daemon(StatusRequest(repo_path=resolved_repo)) if self.daemon else None
-        if isinstance(status, StatusResponse):
-            return {w.ref for w in status.watched}
-        store = IndexStore.from_config(writable=False)
-        try:
-            repo_id = store.get_repo_id(resolved_repo)
-            return set(store.list_watched_refs(repo_id)) if repo_id is not None else set()
-        finally:
-            store.close()
-
-    def _run_remove_stale_repos(self) -> None:
-        """Forget every indexed repo whose path no longer exists.
-
-        Global and needs no current repo (a vanished path cannot be
-        resolved). Daemon path, else inline via the same handler.
-        """
-        self._run_forget(ForgetRequest(stale=True))
-
-    def _run_forget(self, request: ForgetRequest) -> None:
-        """Send a forget request (daemon path, else inline) and report it."""
-        resp = try_daemon(request) if self.daemon else None
-        if resp is None:
-            store = IndexStore.from_config(writable=True)
-            try:
-                resp = handle_forget(request, store)
-            finally:
-                store.close()
-        match resp:
-            case ForgetResponse():
-                self._report_forgotten(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
-            case _:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
-
-    @staticmethod
-    def _report_forgotten(resp: ForgetResponse) -> None:
-        if not resp.forgotten:
-            print_err("[dim]Nothing to forget.[/]")
-            return
-        verb = "Would forget" if resp.dry_run else "Forgot"
-        for path in resp.forgotten:
-            print_err(f"[green]{verb}:[/] {path}")
-        if not resp.dry_run:
-            print_err("[dim]Run `rbtr gc` to reclaim the freed space.[/]")
 
     def _run_inline(
         self,
@@ -519,7 +383,7 @@ class Index(BaseModel):
                     result.stats.embedded_chunks += embedded
 
         emit(
-            BuildIndexResponse(
+            WatchResponse(
                 resolved_refs=resolved_refs,
                 stats=result.stats,
                 errors=result.errors,
@@ -528,6 +392,127 @@ class Index(BaseModel):
 
 
 # ── Read subcommands (daemon-first, fallback) ───────────────────────
+
+
+class Unwatch(BaseModel):
+    """Stop watching refs.
+
+    Names the refs to drop, or finds the ones git can no longer
+    resolve with `--stale`.  The index they built stays until
+    `rbtr gc --keep watched-only` reclaims it.
+    """
+
+    refs: CliPositionalArg[list[str]] = Field([], description="Refs to stop watching")
+    repo_path: str = Field(".", description="Repository path")
+    stale: bool = Field(
+        False,
+        description="Stop watching refs that no longer resolve (deleted branches)",
+    )
+    scope: ScopeField = Field(
+        Scope.WORKSPACE,
+        description="Unwatch scope: workspace (this repo) or all (every indexed repo).",
+    )
+    dry_run: bool = Field(False, description="Report what would be unwatched")
+    daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
+
+    @model_validator(mode="after")
+    def _check_refs(self) -> Self:
+        """A run drops one set of refs, chosen one way."""
+        if self.stale and self.refs:
+            msg = "--stale finds the refs to drop, so naming refs as well says it twice"
+            raise ValueError(msg)
+        if not self.stale and not self.refs:
+            msg = "name the refs to stop watching, or --stale to drop the ones git has lost"
+            raise ValueError(msg)
+        if self.scope is Scope.ALL and not self.stale:
+            msg = "a named ref is watched in one repo; every repo answers only for --stale"
+            raise ValueError(msg)
+        return self
+
+    def cli_cmd(self) -> None:
+        repo_path = normalise_repo_path(self.repo_path)
+        request: UnwatchRequest | UnwatchStaleRequest = (
+            UnwatchStaleRequest(repo_path=repo_path, scope=self.scope, dry_run=self.dry_run)
+            if self.stale
+            else UnwatchRequest(repo_path=repo_path, refs=self.refs, dry_run=self.dry_run)
+        )
+        resp = try_daemon(request) if self.daemon else None
+        if resp is None:
+            store = IndexStore.from_config(writable=True)
+            try:
+                resp = (
+                    handle_unwatch_stale(request, store)
+                    if isinstance(request, UnwatchStaleRequest)
+                    else handle_unwatch(request, store)
+                )
+            finally:
+                store.close()
+        match resp:
+            case UnwatchResponse():
+                emit(resp)
+            case ErrorResponse(message=msg):
+                print_err(f"[red]error:[/] {msg}")
+                sys.exit(1)
+            case _:
+                print_err(f"[red]error:[/] unexpected response: {resp}")
+                sys.exit(1)
+
+
+class Forget(BaseModel):
+    """Forget a repo's index: this one, or the ones whose checkout is gone.
+
+    Forgetting drops the watch set, indexed commits and references.
+    It is metadata-only — run `rbtr gc` to reclaim the space.
+    """
+
+    repo_path: str = Field(".", description="Repository path")
+    stale: bool = Field(
+        False,
+        description="Forget every indexed repo whose path no longer exists (removed checkouts)",
+    )
+    dry_run: bool = Field(False, description="Report what would be forgotten")
+    daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
+
+    @model_validator(mode="after")
+    def _check_repo_path(self) -> Self:
+        """A repo that is gone cannot also be the repo you name.
+
+        `model_fields_set` tells a path the caller passed from the
+        default that happens to match it.
+        """
+        if self.stale and "repo_path" in self.model_fields_set:
+            msg = "the repos whose checkout is gone are found, not named by path"
+            raise ValueError(msg)
+        return self
+
+    def cli_cmd(self) -> None:
+        # A vanished checkout cannot be named, so the stale request carries
+        # no repo path and runs from anywhere, including outside a git repo.
+        request: ForgetRequest | ForgetStaleRequest = (
+            ForgetStaleRequest(dry_run=self.dry_run)
+            if self.stale
+            else ForgetRequest(repo_path=normalise_repo_path(self.repo_path), dry_run=self.dry_run)
+        )
+        resp = try_daemon(request) if self.daemon else None
+        if resp is None:
+            store = IndexStore.from_config(writable=True)
+            try:
+                resp = (
+                    handle_forget_stale(request, store)
+                    if isinstance(request, ForgetStaleRequest)
+                    else handle_forget(request, store)
+                )
+            finally:
+                store.close()
+        match resp:
+            case ForgetResponse():
+                emit(resp)
+            case ErrorResponse(message=msg):
+                print_err(f"[red]error:[/] {msg}")
+                sys.exit(1)
+            case _:
+                print_err(f"[red]error:[/] unexpected response: {resp}")
+                sys.exit(1)
 
 
 class Search(BaseModel):
@@ -575,23 +560,17 @@ class Search(BaseModel):
         weights = None
         if self.alpha is not None and self.beta is not None and self.gamma is not None:
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
-        try:
-            request = SearchRequest(
-                repo_path=resolved_repo,
-                query=self.query,
-                limit=self.limit,
-                ref=self.ref,
-                weights=weights,
-                query_kind=self.query_kind,
-                keywords=self.keywords,
-                variants=self.variants,
-                scope=self.scope,
-            )
-        except ValidationError as exc:
-            for err in exc.errors():
-                msg = err["msg"].removeprefix("Value error, ")
-                print_err(f"[red]error:[/] {msg}")
-            sys.exit(2)
+        request = SearchRequest(
+            repo_path=resolved_repo,
+            query=self.query,
+            limit=self.limit,
+            ref=self.ref,
+            weights=weights,
+            query_kind=self.query_kind,
+            keywords=self.keywords,
+            variants=self.variants,
+            scope=self.scope,
+        )
 
         match try_daemon(request):
             case SearchResponse() as resp:
@@ -821,33 +800,33 @@ class Gc(BaseModel):
     Destructive and not undoable — permanently deletes indexed
     commits/chunks. Use --dry-run to preview first.
 
-    Operates on the current repo by default; `--all-repos` reclaims
-    across every indexed repo at once, but only with the safe default
-    (watched) reclamation — scope aggressive modes to one repo.
+    `--keep` says what a run keeps: `watched` (the default — HEAD,
+    local branches and tags, the watch set and the current worktree),
+    `watched-only`, `head-only`, or `orphans`, which drops no commits
+    and sweeps crashed-build residue. `--keep-refs <refs>` keeps those
+    refs and HEAD instead. Every run sweeps that residue.
 
-    By default keeps the watch set — HEAD, all local branches/tags,
-    and every watched ref (plus the current worktree) — and sweeps
-    crashed-build residue. Alternate modes let you keep only the
-    watch set, only HEAD, or specific refs, or sweep residue only.
+    Operates on the current repo by default; `--scope all` reclaims
+    across every indexed repo at once, keeping `watched` or
+    `watched-only` — what each repo can answer in its own terms.
     """
 
     repo_path: str = Field(".", description="Repository path")
-    all_repos: bool = Field(
-        False,
-        description="GC every indexed repo (default reclamation only; not with aggressive modes)",
+    scope: ScopeField = Field(
+        Scope.WORKSPACE,
+        description="GC scope: workspace (this repo) or all (every indexed repo).",
     )
-    watched_only: bool = Field(
-        False,
-        description="Keep only HEAD and watched refs (drop unwatched branches/tags)",
+    keep: KeepField = Field(
+        KeptSet.WATCHED,
+        description=(
+            "What a run keeps: watched (HEAD, local branches/tags and the watch "
+            "set), watched-only, head-only, or everything (every commit; sweeps "
+            "crashed-build residue alone)."
+        ),
     )
-    keep_head_only: bool = Field(False, description="Keep only HEAD (drop everything else)")
-    keep: CliPositionalArg[list[str]] = Field(
+    keep_refs: list[str] = Field(
         [],
-        description="Keep only these refs plus HEAD; drop the rest",
-    )
-    orphans: bool = Field(
-        False,
-        description="Sweep crashed-build residue only; no commits dropped",
+        description="Keep these refs and HEAD, dropping the rest (comma-separated)",
     )
     dry_run: bool = Field(False, description="Report what would be removed without writing")
     compact: bool = Field(
@@ -855,22 +834,41 @@ class Gc(BaseModel):
         description="Rewrite the index to reclaim freed disk space (--no-compact to skip)",
     )
 
+    @property
+    def mode(self) -> GcMode:
+        """The retention these flags name; refs to keep are their own."""
+        if self.keep_refs:
+            return GcMode.KEEP
+        if self.keep is KeptSet.EVERYTHING:
+            return GcMode.ORPHANS
+        return GcMode(self.keep.value)
+
+    @model_validator(mode="after")
+    def _check_retention(self) -> Self:
+        """A run keeps one set of refs, chosen in terms every repo has.
+
+        `--keep-refs` names that set outright, so naming it as well as
+        a set to keep says it twice. And what a repo keeps when the run
+        covers them all can only be said in its own terms — its HEAD,
+        its watch set — never as a list of refs one of them has.
+        """
+        if self.keep_refs and "keep" in self.model_fields_set:
+            msg = f"--keep-refs is the set kept, so --keep {self.keep} says it twice"
+            raise ValueError(msg)
+        if self.scope is Scope.ALL and self.mode not in (GcMode.WATCHED, GcMode.WATCHED_ONLY):
+            msg = (
+                f"a run across every repo keeps each repo's HEAD and watch set; "
+                f"{self.mode.value} decides what a single repo keeps"
+            )
+            raise ValueError(msg)
+        return self
+
     def cli_cmd(self) -> None:
-        mode, refs = self._resolve_mode()
-        if self.all_repos:
-            if mode is not GcMode.WATCHED:
-                print_err(
-                    "[red]error:[/] --all-repos supports only the default reclamation; "
-                    "scope an aggressive mode with --repo-path"
-                )
-                sys.exit(2)
-            resolved_repo = None
-        else:
-            resolved_repo = normalise_repo_path(self.repo_path)
         request = GcRequest(
-            repo_path=resolved_repo,
-            mode=mode,
-            refs=refs,
+            repo_path=normalise_repo_path(self.repo_path),
+            scope=self.scope,
+            mode=self.mode,
+            refs=self.keep_refs,
             dry_run=self.dry_run,
             compact=self.compact,
         )
@@ -887,7 +885,7 @@ class Gc(BaseModel):
                 store = IndexStore.from_config(writable=True)
 
                 try:
-                    emit(handle_gc(request, store, allow_compact=True))
+                    self._run_inline(request, store)
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
                     sys.exit(1)
@@ -895,18 +893,21 @@ class Gc(BaseModel):
                 print_err(f"[red]error:[/] unexpected response: {resp}")
                 sys.exit(1)
 
-    def _resolve_mode(self) -> tuple[GcMode, list[str]]:
-        """Pick the GC mode from the set of flags."""
-        if self.orphans:
-            return GcMode.ORPHANS, []
-        if self.keep:
-            return GcMode.KEEP, self.keep
-        if self.watched_only:
-            return GcMode.WATCHED_ONLY, []
-        if self.keep_head_only:
-            return GcMode.HEAD_ONLY, []
-        # Default: HEAD + local branches/tags + the watch set.
-        return GcMode.WATCHED, []
+    @staticmethod
+    def _run_inline(request: GcRequest, store: IndexStore) -> None:
+        """Collect in this process, reporting progress on stderr.
+
+        A pass over many repos says nothing until it finishes; the bar
+        goes to stderr, leaving stdout to the response.
+        """
+        with progress_reporter("Collecting repos") as (on_repo,):
+            response = handle_gc(
+                request,
+                store,
+                allow_compact=True,
+                on_progress=lambda _repo_path, done, total: on_repo(done, total),
+            )
+        emit(response)
 
 
 class SchemaDump(BaseModel):
@@ -955,7 +956,9 @@ class Rbtr(
     """rbtr — structural code index."""
 
     daemon: CliSubCommand[Daemon]
-    index: CliSubCommand[Index]
+    watch: CliSubCommand[Watch]
+    unwatch: CliSubCommand[Unwatch]
+    forget: CliSubCommand[Forget]
     search: CliSubCommand[Search]
     read_symbol: CliSubCommand[ReadSymbol]
     list_symbols: CliSubCommand[ListSymbols]
@@ -993,8 +996,8 @@ def main() -> None:
     """Entry point for the rbtr CLI.
 
     Catches `RbtrError` (and its subclasses, e.g. `DaemonBusyError`)
-    at the outer boundary so subcommand bodies don't each have to
-    do the same try/except dance.
+    and `ValidationError` at the outer boundary, so subcommand bodies
+    don't each have to do the same try/except dance.
     """
     configure_logging()
     cli_source: CliSettingsSource[Rbtr] = CliSettingsSource(Rbtr, formatter_class=RichHelpFormatter)
@@ -1002,4 +1005,7 @@ def main() -> None:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
         print_err(f"[red]error:[/] {exc}")
+        sys.exit(2)
+    except ValidationError as exc:
+        print_rejected_arguments(exc)
         sys.exit(2)

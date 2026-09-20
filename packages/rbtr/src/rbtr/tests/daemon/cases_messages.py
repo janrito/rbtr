@@ -16,8 +16,6 @@ from pytest_cases import case
 
 from rbtr.daemon.messages import (
     AutoRebuildNotification,
-    BuildIndexRequest,
-    BuildIndexResponse,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     EmbedEndedNotification,
@@ -46,11 +44,16 @@ from rbtr.daemon.messages import (
     ShutdownRequest,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    UnwatchResponse,
+    UnwatchStaleRequest,
+    WatchRequest,
+    WatchResponse,
     notification_adapter,
     request_adapter,
     response_adapter,
 )
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, Scope
 
 
 @dataclass(frozen=True)
@@ -78,9 +81,9 @@ def case_shutdown() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_defaults() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r"}',
+        raw=b'{"kind":"watch","repo_path":"/r"}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["HEAD"], "embed": True},
     )
 
@@ -88,9 +91,9 @@ def case_build_index_defaults() -> MessageScenario:
 @case(tags=["request"])
 def case_build_index_two_refs() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r","refs":["main","HEAD"]}',
+        raw=b'{"kind":"watch","repo_path":"/r","refs":["main","HEAD"]}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["main", "HEAD"]},
     )
 
@@ -180,9 +183,9 @@ def case_search_keywords_double_encoded() -> MessageScenario:
 def case_index_refs_double_encoded() -> MessageScenario:
     """`refs` shares the JSON-encoded-string decoding."""
     return MessageScenario(
-        raw=b'{"kind":"index","repo_path":"/r","refs":["[\\"main\\", \\"HEAD\\"]"]}',
+        raw=b'{"kind":"watch","repo_path":"/r","refs":["[\\"main\\", \\"HEAD\\"]"]}',
         adapter=request_adapter,
-        expected_type=BuildIndexRequest,
+        expected_type=WatchRequest,
         checks={"refs": ["main", "HEAD"]},
     )
 
@@ -263,13 +266,35 @@ def case_gc() -> MessageScenario:
 
 
 @case(tags=["request"])
-def case_gc_global() -> MessageScenario:
-    """Global GC: no `repo_path` reclaims across every registered repo."""
+def case_gc_every_repo() -> MessageScenario:
+    """`Scope.ALL` reclaims across every registered repo."""
     return MessageScenario(
-        raw=b'{"kind":"gc","mode":"watched"}',
+        raw=b'{"kind":"gc","repo_path":"/r","scope":"all","mode":"watched"}',
         adapter=request_adapter,
         expected_type=GcRequest,
-        checks={"mode": GcMode.WATCHED, "repo_path": None},
+        checks={"mode": GcMode.WATCHED, "scope": Scope.ALL},
+    )
+
+
+@case(tags=["request"])
+def case_unwatch_stale_everywhere() -> MessageScenario:
+    """Stale refs across every indexed repo."""
+    return MessageScenario(
+        raw=b'{"kind":"unwatch_stale","repo_path":"/r","scope":"all"}',
+        adapter=request_adapter,
+        expected_type=UnwatchStaleRequest,
+        checks={"scope": Scope.ALL, "repo_path": "/r", "dry_run": False},
+    )
+
+
+@case(tags=["request"])
+def case_unwatch_named_refs() -> MessageScenario:
+    """Named refs drop from the watch set of the repo given."""
+    return MessageScenario(
+        raw=b'{"kind":"unwatch","repo_path":"/r","refs":["main"],"dry_run":true}',
+        adapter=request_adapter,
+        expected_type=UnwatchRequest,
+        checks={"repo_path": "/r", "refs": ["main"], "dry_run": True},
     )
 
 
@@ -280,18 +305,7 @@ def case_forget_repo() -> MessageScenario:
         raw=b'{"kind":"forget","repo_path":"/r"}',
         adapter=request_adapter,
         expected_type=ForgetRequest,
-        checks={"repo_path": "/r", "stale": False},
-    )
-
-
-@case(tags=["request"])
-def case_forget_stale() -> MessageScenario:
-    """Forget every repo whose path no longer resolves (no `repo_path`)."""
-    return MessageScenario(
-        raw=b'{"kind":"forget","stale":true}',
-        adapter=request_adapter,
-        expected_type=ForgetRequest,
-        checks={"stale": True, "repo_path": None},
+        checks={"repo_path": "/r", "dry_run": False},
     )
 
 
@@ -320,9 +334,9 @@ def case_error() -> MessageScenario:
 @case(tags=["response"])
 def case_build_index_response() -> MessageScenario:
     return MessageScenario(
-        raw=(b'{"kind":"index","resolved_refs":["HEAD"],"stats":{},"errors":[]}'),
+        raw=(b'{"kind":"watch","resolved_refs":["HEAD"],"stats":{},"errors":[]}'),
         adapter=response_adapter,
-        expected_type=BuildIndexResponse,
+        expected_type=WatchResponse,
         checks={"resolved_refs": ["HEAD"], "errors": []},
     )
 
@@ -423,6 +437,16 @@ def case_gc_response() -> MessageScenario:
         adapter=response_adapter,
         expected_type=GcResponse,
         checks={"snapshots_dropped": 2, "chunks_freed": 10, "repos_collected": 3, "dry_run": False},
+    )
+
+
+@case(tags=["response"])
+def case_unwatch_response() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"unwatch","removed":{"/a":["gone"]},"dry_run":false}',
+        adapter=response_adapter,
+        expected_type=UnwatchResponse,
+        checks={"removed": {"/a": ["gone"]}, "dry_run": False},
     )
 
 

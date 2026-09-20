@@ -4,7 +4,7 @@
 at a time and embeds each page in batches.  Each batch commits in its own
 write session, so a transaction covers the write alone.
 
-All heavy work runs synchronously in the calling thread — `rbtr index`
+All heavy work runs synchronously in the calling thread — `rbtr watch`
 embeds inline, after chunks and edges are committed.
 """
 

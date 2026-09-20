@@ -37,12 +37,19 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Self
 
 import platformdirs
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -199,7 +206,7 @@ class Config(BaseSettings):
     json_output: bool = Field(default=False, alias="json", description="Force JSON output.")
     log_level: str = Field(
         default="INFO",
-        description="Root log level (e.g. DEBUG, INFO, WARNING).  Raised by `-v`.",
+        description="Root log level (e.g. DEBUG, INFO, WARNING).",
     )
     log_format: LogFormat = Field(
         default=LogFormat.AUTO,
@@ -345,6 +352,20 @@ Disable in tests or resource-constrained environments.",
     @classmethod
     def _expand_user_tilde(cls, v: Path) -> Path:
         return v.expanduser()
+
+    @field_validator("log_level", mode="after")
+    @classmethod
+    def _known_log_level(cls, v: str) -> str:
+        """Take any level name `logging` knows, and hand it over as such.
+
+        `Logger.setLevel` accepts the canonical spelling only, so the
+        name is normalised here rather than at every reader.
+        """
+        levels = logging.getLevelNamesMapping()
+        if v.upper() not in levels:
+            msg = f"unknown log level; expected one of {', '.join(sorted(levels))}"
+            raise ValueError(msg)
+        return v.upper()
 
     def reload(self) -> None:
         """Re-read all sources (env vars, TOML file) in place."""

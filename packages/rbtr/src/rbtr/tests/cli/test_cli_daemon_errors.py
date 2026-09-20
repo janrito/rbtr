@@ -20,7 +20,7 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.cli import Index
+from rbtr.cli import Watch
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
@@ -57,12 +57,9 @@ def test_index_falls_back_to_inline_when_start_fails(
     in-memory index holds the repo's symbols.
     """
     repo_path = str(git_repo.workdir)
-    Index(
+    Watch(
         refs=["HEAD"],
         repo_path=repo_path,
-        remove=False,
-        remove_stale_refs=False,
-        remove_stale_repos=False,
         daemon=True,
         embed=False,
         allow_missing_plugins=False,
@@ -80,7 +77,7 @@ def test_index_refuses_inline_build_when_db_is_locked(
     repo_path: str,
     isolated_db: Path,
 ) -> None:
-    """A locked DB makes `rbtr index` fail honestly, not fall back.
+    """A locked DB makes `rbtr watch` fail honestly, not fall back.
 
     DuckDB's write lock is process-level, so holding it here makes both
     the spawned `daemon serve` and any inline build fail to open the
@@ -93,7 +90,7 @@ def test_index_refuses_inline_build_when_db_is_locked(
     """
     store = IndexStore.from_config(writable=True)  # take the exclusive lock
     try:
-        result = run_cli(["index", "--repo-path", repo_path])
+        result = run_cli(["watch", "--repo-path", repo_path])
 
         assert result.returncode == 1, result.stderr
         assert "locked by another process" in result.stderr

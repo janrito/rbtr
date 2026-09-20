@@ -5,16 +5,16 @@ setup: setup-py setup-js
 setup-ci: setup-ci-py setup-ci-js
 
 setup-py:
-    uv sync --all-groups --all-packages --all-extras
+    uv sync --all-packages --all-extras --group debug
 
 setup-ci-py:
-    uv sync --frozen --all-packages --all-extras
+    uv sync --frozen --all-packages --all-extras --group llama-cpp-cpu
 
 setup-js:
-    bun install
+    npm install
 
 setup-ci-js:
-    bun install --frozen-lockfile
+    npm ci
 
 # ── check ──
 
@@ -59,10 +59,10 @@ lint-md *FILES:
     uv run rumdl check {{ if FILES == "" { "." } else { FILES } }}
 
 fmt-ts:
-    bun run biome check --fix packages/pi-rbtr skills/review-github-pr/queries
+    npm exec -- biome check --fix packages/pi-rbtr skills/review-github-pr/queries
 
 lint-ts:
-    bun run biome check packages/pi-rbtr skills/review-github-pr/queries
+    npm exec -- biome check packages/pi-rbtr skills/review-github-pr/queries
 
 typecheck: typecheck-py typecheck-ts
 
@@ -70,7 +70,7 @@ typecheck-py:
     uv run mypy
 
 typecheck-ts:
-    bun run tsc -p packages/pi-rbtr --noEmit
+    npm exec -- tsc -p packages/pi-rbtr --noEmit
 
 # Regenerate the pi-rbtr TypeScript protocol types from the
 # Python models (via `rbtr schema-dump`).  The generated file is
@@ -78,12 +78,12 @@ typecheck-ts:
 
 # `git diff --exit-code` fails on any drift.
 schema-check:
-    cd packages/pi-rbtr && bun run scripts/gen-types.ts
+    cd packages/pi-rbtr && node scripts/gen-types.ts
     git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
 
 validate-graphql:
     curl -sf "https://docs.github.com/public/fpt/schema.docs.graphql" -o /tmp/github-schema.graphql
-    bun run graphql-inspector validate \
+    npm exec -- graphql-inspector validate \
         "skills/review-github-pr/queries/*.graphql" \
         /tmp/github-schema.graphql
 
@@ -93,7 +93,7 @@ test-py:
     uv run pytest
 
 test-ts:
-    cd packages/pi-rbtr && uv run bun run vitest run
+    cd packages/pi-rbtr && uv run npm exec -- vitest run
 
 test-cov:
     uv run pytest --cov --cov-report=term --cov-report=markdown-append:cov-append.md
@@ -110,7 +110,7 @@ snapshots:
 build: build-py build-ext
 
 build-py:
-    uv build --package rbtr --out-dir dist
+    uv build --all-packages --out-dir dist
 
 build-ext:
     mkdir -p dist

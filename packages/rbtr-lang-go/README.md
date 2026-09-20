@@ -1,7 +1,9 @@
 # rbtr-lang-go
 
-Go support for [rbtr](../rbtr). Optional plugin — install with
+Go support for [rbtr]. Optional plugin — install with
 `pip install rbtr[go]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

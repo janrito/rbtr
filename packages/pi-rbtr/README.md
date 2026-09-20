@@ -18,7 +18,7 @@ The extension requires the `rbtr` CLI. Install both:
 uv tool install rbtr
 
 # Install the pi extension
-pi install npm:@rbtr/pi
+pi install npm:@janrito/pi-rbtr
 ```
 
 For development from a local clone (no global install):
@@ -43,7 +43,7 @@ Eight tools, registered automatically on session start:
 | `rbtr_list_symbols`    | Structural table of contents for a file                                                                                  |
 | `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                 |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
-| `rbtr_index`           | Index the repository (background, incremental)                                                                           |
+| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                               |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |
 | `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                      |
 
@@ -176,8 +176,11 @@ shows an error with install instructions if it fails.
 
 ## Development
 
+Development requires Node.js 22.19 or later and npm. The full
+repository checks also require Python 3.13, uv, and just.
+
 ```bash
-bun install               # install dependencies
+npm install               # install dependencies
 just check                # full check (Python + TypeScript)
 just lint-ts              # biome lint
 just fmt-ts               # biome format

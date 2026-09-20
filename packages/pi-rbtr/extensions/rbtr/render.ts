@@ -13,8 +13,8 @@
  *                        fallback path (the same shape, serialised).
  */
 
-import type { AgentToolResult, Theme } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 import { decodeStringList } from "./args.js";
 
@@ -421,7 +421,7 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
 export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
   const refs = decodeStringList(args.refs);
   const label = refs.length > 0 ? refs.join(", ") : "HEAD";
-  return new Text(theme.fg("toolTitle", theme.bold("rbtr_index ")) + theme.fg("accent", label), 0, 0);
+  return new Text(theme.fg("toolTitle", theme.bold("rbtr_watch ")) + theme.fg("accent", label), 0, 0);
 }
 
 export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {

@@ -1,7 +1,9 @@
 # rbtr-lang-java
 
-Java support for [rbtr](../rbtr). Optional plugin — install with
+Java support for [rbtr]. Optional plugin — install with
 `pip install rbtr[java]`.
+
+[rbtr]: https://github.com/janrito/rbtr/tree/main/packages/rbtr#readme
 
 ## What it ingests
 

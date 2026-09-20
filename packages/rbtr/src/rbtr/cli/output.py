@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import to_json
 from rich.console import Console
@@ -29,11 +29,11 @@ from rich.text import Text
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.messages import (
-    BuildIndexResponse,
     ChangedSymbol,
     ChangedSymbolsResponse,
     DaemonConfigResponse,
     FindRefsResponse,
+    ForgetResponse,
     GcResponse,
     IndexedRef,
     ListSymbolsResponse,
@@ -41,7 +41,9 @@ from rbtr.daemon.messages import (
     ReadSymbolResponse,
     SearchResponse,
     StatusResponse,
+    UnwatchResponse,
     WatchedRef,
+    WatchResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import ChangeKind
@@ -92,6 +94,23 @@ def emit(model: BaseModel) -> None:
 def print_err(msg: str) -> None:
     """Print a rich-formatted message to stderr."""
     _err.print(msg)
+
+
+def print_rejected_arguments(exc: ValidationError) -> None:
+    """Report arguments a command model refused, one line each.
+
+    Names the field as the command line spells it, the rule it broke,
+    and the value that broke it, which may have come from a flag, the
+    environment, or the config file.  A rule spanning several fields is
+    given the whole model's arguments as its input, which is the
+    command the user just typed, so that is left unsaid.
+    """
+    for err in exc.errors():
+        where = ".".join(str(part) for part in err["loc"]).replace("_", "-")
+        why = err["msg"].removeprefix("Value error, ")
+        received = err.get("input")
+        value = "" if isinstance(received, Mapping) else f" [dim](received {received!r})[/]"
+        print_err(f"[red]error:[/] {where}: {why}{value}" if where else f"[red]error:[/] {why}")
 
 
 def print_json_schema(schema: JsonSchemaValue) -> None:
@@ -183,7 +202,7 @@ def _print_rich(model: BaseModel) -> None:
     match model:
         case OkResponse():
             _out.print("[green]ok[/]")
-        case BuildIndexResponse():
+        case WatchResponse():
             _render_build_index_response(model)
         case SearchResponse():
             _render_search_response(model)
@@ -203,12 +222,16 @@ def _print_rich(model: BaseModel) -> None:
             _render_daemon_config_response(model)
         case GcResponse():
             _render_gc_response(model)
+        case UnwatchResponse():
+            _render_unwatch_response(model)
+        case ForgetResponse():
+            _render_forget_response(model)
         case _:
             msg = f"No rich renderer for {type(model).__name__}"
             raise TypeError(msg)
 
 
-def _render_build_index_response(response: BuildIndexResponse) -> None:
+def _render_build_index_response(response: WatchResponse) -> None:
     s = response.stats
     t = Text()
     t.append("refs=", style="dim")
@@ -537,6 +560,30 @@ def _format_elapsed(seconds: float) -> str:
         return f"{seconds:.0f}s"
     m, s = divmod(int(seconds), 60)
     return f"{m}m{s:02d}s"
+
+
+def _render_unwatch_response(response: UnwatchResponse) -> None:
+    """Refs grouped under the repo they were watched in."""
+    if not response.removed:
+        _out.print("[dim]nothing to unwatch[/]")
+        return
+    stopped = "would stop watching" if response.dry_run else "stopped watching"
+    for repo_path, refs in response.removed.items():
+        # Whole path, as `status` prints it: these are other repos, so a
+        # path relative to the cwd names them worse.
+        _out.print(f"[green]{stopped}[/]  {', '.join(refs)} [dim]in {repo_path}[/]")
+
+
+def _render_forget_response(response: ForgetResponse) -> None:
+    """One line per repo forgotten, then where the space goes."""
+    if not response.forgotten:
+        _out.print("[dim]nothing to forget[/]")
+        return
+    verb = "would forget" if response.dry_run else "forgot"
+    for repo_path in response.forgotten:
+        _out.print(f"[green]{verb}[/]  {repo_path}")
+    if not response.dry_run:
+        _out.print("[dim]   run `rbtr gc` to reclaim the freed space[/]")
 
 
 def _render_gc_response(response: GcResponse) -> None:

@@ -155,4 +155,4 @@ def configure_logging(*, to_file: bool = False, cache: bool = True) -> None:
         old.close()
     root.handlers.clear()
     root.addHandler(handler)
-    root.setLevel(config.log_level.upper())
+    root.setLevel(config.log_level)

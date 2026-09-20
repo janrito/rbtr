@@ -34,7 +34,15 @@ from pydantic_core import from_json
 from rbtr.config import WeightTriple, config
 from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind, GcMode, IndexStats, QueryKind, SnapshotRef
+from rbtr.domain.models import (
+    ChangeKind,
+    GcMode,
+    IndexStats,
+    QueryKind,
+    RefsByRepo,
+    Scope,
+    SnapshotRef,
+)
 
 # ── Error codes ──────────────────────────────────────────────────────
 
@@ -47,17 +55,6 @@ class ErrorCode(StrEnum):
     INDEX_IN_PROGRESS = "index_in_progress"
     REPO_NOT_FOUND = "repo_not_found"
     INTERNAL = "internal"
-
-
-class Scope(StrEnum):
-    """Breadth of a search or status request.
-
-    `WORKSPACE` is the single repo identified by `repo_path`;
-    `ALL` is every indexed repo in the shared store.
-    """
-
-    WORKSPACE = "workspace"
-    ALL = "all"
 
 
 # ── Base ─────────────────────────────────────────────────────────────
@@ -184,13 +181,18 @@ class ShutdownRequest(BaseModel):
     kind: Literal["shutdown"] = "shutdown"
 
 
-class BuildIndexRequest(BaseModel):
+class WatchRequest(BaseModel):
+    """Watch the given refs and keep them indexed.
+
+    The refs join the repo's watch set; the worker builds them from
+    there. Dropping refs is `UnwatchRequest`.
+    """
+
     model_config = _STRICT
-    kind: Literal["index"] = "index"
+    kind: Literal["watch"] = "watch"
     repo_path: str
     refs: RefList = ["HEAD"]
     embed: bool = True
-    remove: bool = False
 
 
 class SearchRequest(BaseModel):
@@ -300,34 +302,83 @@ class DaemonConfigRequest(BaseModel):
 
 
 class GcRequest(BaseModel):
+    """Reclaim index storage, in one repo or across every indexed one.
+
+    `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
+    Under `Scope.ALL` only the retentions each repo can answer in its
+    own terms apply, and `repo_path` is not read.
+    """
+
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    repo_path: str | None = None  # None => global GC across every registered repo
+    repo_path: str
+    scope: Scope = Scope.WORKSPACE
     mode: GcMode
     refs: list[str] = []
     dry_run: bool = False
     compact: bool = True  # rewrite the index to reclaim freed disk space
 
 
-class ForgetRequest(BaseModel):
-    """Forget a whole repo's index (metadata-only; GC reclaims chunks).
+class UnwatchRequest(BaseModel):
+    """Stop watching the named refs in the repo at `repo_path`.
 
-    `repo_path` set: forget that single repo (used when its only watched
-    ref is HEAD). `stale=True` with `repo_path` None: forget every
-    registered repo whose path no longer resolves — the only way to reach
-    a removed worktree/clone, since its path cannot be normalised.
+    At least one ref: a request naming none asks for nothing.
+    Finding the refs git has lost is `UnwatchStaleRequest`.
+    `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch"] = "unwatch"
+    repo_path: str
+    refs: Annotated[RefList, Field(min_length=1)]
+    dry_run: bool = False
+
+
+class UnwatchStaleRequest(BaseModel):
+    """Stop watching the refs git can no longer resolve.
+
+    Covers the repo at `repo_path`, or every registered repo under
+    `Scope.ALL`. Which refs those are is found here, never named by
+    the caller. `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch_stale"] = "unwatch_stale"
+    repo_path: str
+    scope: Scope = Scope.WORKSPACE
+    dry_run: bool = False
+
+
+class ForgetRequest(BaseModel):
+    """Forget the repo at `repo_path` (metadata-only; GC reclaims chunks).
+
+    Only when its sole watched ref is HEAD — trim the others first.
+    Forgetting the repos that are gone is `ForgetStaleRequest`.
+    `dry_run` reports without deleting.
     """
 
     model_config = _STRICT
     kind: Literal["forget"] = "forget"
-    repo_path: str | None = None
-    stale: bool = False
+    repo_path: str
+    dry_run: bool = False
+
+
+class ForgetStaleRequest(BaseModel):
+    """Forget every repo whose checkout is gone.
+
+    Such a path no longer normalises, so these repos are found by
+    enumeration and never named by the caller. `dry_run` reports
+    without deleting.
+    """
+
+    model_config = _STRICT
+    kind: Literal["forget_stale"] = "forget_stale"
     dry_run: bool = False
 
 
 Request = Annotated[
     ShutdownRequest
-    | BuildIndexRequest
+    | WatchRequest
     | SearchRequest
     | ReadSymbolRequest
     | ListSymbolsRequest
@@ -336,7 +387,10 @@ Request = Annotated[
     | StatusRequest
     | DaemonConfigRequest
     | GcRequest
-    | ForgetRequest,
+    | UnwatchRequest
+    | UnwatchStaleRequest
+    | ForgetRequest
+    | ForgetStaleRequest,
     Field(discriminator="kind"),
 ]
 
@@ -358,9 +412,11 @@ class OkResponse(BaseModel):
     kind: Literal["ok"] = "ok"
 
 
-class BuildIndexResponse(BaseModel):
+class WatchResponse(BaseModel):
+    """What an inline build produced for the refs now watched."""
+
     model_config = _STRICT
-    kind: Literal["index"] = "index"
+    kind: Literal["watch"] = "watch"
     resolved_refs: list[str]
     stats: IndexStats
     errors: list[str]
@@ -486,7 +542,7 @@ class DaemonConfigResponse(BaseModel):
 class GcResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
-    repos_collected: int = 1  # 1 for a single repo, N for `--all-repos`
+    repos_collected: int = 1  # 1 for a single repo, N for `--scope all`
     snapshots_dropped: int
     file_snapshots_dropped: int
     edges_dropped: int
@@ -494,6 +550,19 @@ class GcResponse(BaseModel):
     size_before_bytes: int = 0  # on-disk footprint before the run
     size_after_bytes: int = 0  # on-disk footprint after the run
     elapsed_seconds: float
+    dry_run: bool = False
+
+
+class UnwatchResponse(BaseModel):
+    """Refs no longer watched, keyed by the repo that watched them.
+
+    Answers both unwatch requests. Empty when nothing matched. Under
+    `dry_run` it reports what a real run would remove.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch"] = "unwatch"
+    removed: RefsByRepo = {}
     dry_run: bool = False
 
 
@@ -514,7 +583,7 @@ class ForgetResponse(BaseModel):
 Response = Annotated[
     ErrorResponse
     | OkResponse
-    | BuildIndexResponse
+    | WatchResponse
     | SearchResponse
     | ReadSymbolResponse
     | ListSymbolsResponse
@@ -523,6 +592,7 @@ Response = Annotated[
     | StatusResponse
     | DaemonConfigResponse
     | GcResponse
+    | UnwatchResponse
     | ForgetResponse,
     Field(discriminator="kind"),
 ]

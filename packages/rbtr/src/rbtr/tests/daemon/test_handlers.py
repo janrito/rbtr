@@ -15,14 +15,14 @@ import structlog
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.handlers import (
-    handle_build_index,
     handle_daemon_config,
     handle_gc,
     handle_status,
+    handle_unwatch,
+    handle_watch,
 )
 from rbtr.daemon.messages import (
     ActiveJob,
-    BuildIndexRequest,
     DaemonConfigRequest,
     ErrorResponse,
     FindRefsRequest,
@@ -33,10 +33,13 @@ from rbtr.daemon.messages import (
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    Scope,
     SearchRequest,
     SearchResponse,
     StatusRequest,
     StatusResponse,
+    UnwatchRequest,
+    WatchRequest,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, GcMode, QueryKind
@@ -68,13 +71,26 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
 
 @pytest.mark.parametrize(
     "mode",
-    [GcMode.WATCHED_ONLY, GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
+    [GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
 )
-def test_handle_gc_global_rejects_non_watched_mode(mode: GcMode, store: IndexStore) -> None:
-    """A global request (no repo_path) is restricted to the safe default
-    reclamation; any other mode is rejected before touching the store."""
-    with pytest.raises(RbtrError, match="default"):
-        handle_gc(GcRequest(repo_path=None, mode=mode), store)
+def test_handle_gc_global_rejects_a_repo_scoped_mode(mode: GcMode, store: IndexStore) -> None:
+    """A request covering every repo keeps at least HEAD and the watch
+    set of each. The modes that go further than that name refs, or
+    keep one repo's HEAD alone, and are rejected before touching the
+    store."""
+    with pytest.raises(RbtrError, match="one repo"):
+        handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
+
+
+@pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
+def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
+    mode: GcMode, store: IndexStore
+) -> None:
+    """Both retentions are expressed in each repo's own terms — its HEAD,
+    its watch set — so either can be applied to every repo at once."""
+    resp = handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
+
+    assert resp.repos_collected == 0  # nothing registered, but not refused
 
 
 # ── Search ───────────────────────────────────────────────────────────
@@ -392,7 +408,7 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
 
 # ── Index (the watch set) ───────────────────────────────────────
 #
-# `handle_build_index` writes the watch set and nothing else, so these
+# `handle_watch` writes the watch set and nothing else, so these
 # drive it against the store directly.
 
 
@@ -400,50 +416,18 @@ def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> 
     """A repo first seen via `index <ref>` (not startup backfill) still
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
-    handle_build_index(BuildIndexRequest(repo_path=other, refs=["main"]), seeded_store)
+    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_store)
     watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
     assert "HEAD" in watched
     assert "main" in watched
 
 
-def test_remove_on_unregistered_repo_is_noop(seeded_store: IndexStore, tmp_path: Path) -> None:
-    """Removing from a repo that was never indexed is a no-op — and must not
-    spuriously register the repo."""
-    other = str(tmp_path / "unregistered")
-    resp = handle_build_index(
-        BuildIndexRequest(repo_path=other, refs=["main"], remove=True), seeded_store
-    )
-    assert isinstance(resp, OkResponse)
-    assert seeded_store.get_repo_id(other) is None
-
-
-def test_index_add_then_remove(seeded_store: IndexStore, fake_repo: str) -> None:
-    """`index` records a ref in the watch set; `--remove` drops it."""
+def test_index_records_a_ref_in_the_watch_set(seeded_store: IndexStore, fake_repo: str) -> None:
+    """`index` records a ref; dropping one is `handle_unwatch`."""
     repo_id = seeded_store.resolve_repo(fake_repo)
-    added = handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     assert isinstance(added, OkResponse)
     assert "main" in seeded_store.list_watched_refs(repo_id)
-
-    removed = handle_build_index(
-        BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
-        seeded_store,
-    )
-    assert isinstance(removed, OkResponse)
-    assert "main" not in seeded_store.list_watched_refs(repo_id)
-
-
-def test_index_remove_head_rejected_atomically(seeded_store: IndexStore, fake_repo: str) -> None:
-    """`--remove HEAD` fails wholesale: no co-listed ref is deleted."""
-    repo_id = seeded_store.resolve_repo(fake_repo)
-    handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    with pytest.raises(RbtrError, match="HEAD"):
-        handle_build_index(
-            BuildIndexRequest(repo_path=fake_repo, refs=["main", "HEAD"], remove=True),
-            seeded_store,
-        )
-    watched = seeded_store.list_watched_refs(repo_id)
-    assert "HEAD" in watched
-    assert "main" in watched
 
 
 def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: str) -> None:
@@ -466,11 +450,8 @@ def test_watch_refs_logs_intent(
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """Add and remove each emit a correlated intent event."""
-    handle_build_index(BuildIndexRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    handle_build_index(
-        BuildIndexRequest(repo_path=fake_repo, refs=["main"], remove=True),
-        seeded_store,
-    )
+    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events
     assert "watched_refs_removed" in events

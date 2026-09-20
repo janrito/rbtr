@@ -280,7 +280,7 @@ because it was indexed or watched, never because it was declared separately.
 
 That row has to exist, because everything that goes looking for work starts
 from the list of repos — garbage collection (`run_gc_all`), the watcher's
-reconcile loop, `forget --stale` and cross-repo search all walk
+reconcile loop, `rbtr forget --stale` and cross-repo search all walk
 `list_repos()`. Rows carrying a `repo_id` with no matching `repos` row are
 reachable by none of them: never collected, never rebuilt, and impossible to
 forget. They just sit in the database.
@@ -618,11 +618,10 @@ single source the watcher derives builds from;
 `indexed_snapshots` remains the record of **completion**
 (see [Completion tracking](#completion-tracking)).
 
-- `rbtr index` (no args) watches the default ref, `HEAD`;
-  `rbtr index <refs…>` adds each as an independent watch
-  target; `rbtr index --remove <refs…>` removes them.
-  `HEAD` cannot be removed — rejected atomically before any
-  delete.
+- `rbtr watch` (no args) watches the default ref, `HEAD`;
+  `rbtr watch <refs…>` adds each as an independent watch
+  target; `rbtr unwatch <refs…>` removes them. `HEAD` cannot
+  be removed — rejected atomically before any delete.
 - Symbolic names are stored and re-resolved each poll, so a
   moving ref (branch) tracks its tip; a bare SHA resolves to
   itself and settles after one build.
@@ -633,6 +632,21 @@ single source the watcher derives builds from;
 - On startup, `_backfill_head_watches` seeds a `HEAD` watch
   for every already-registered repo, so HEAD tracking
   survives the upgrade from the previous HEAD-only poll.
+
+`rbtr.index.watch` holds the three edits to that record:
+`unwatch_refs` for refs a caller names, `remove_stale_refs`
+for the ones git can no longer resolve, `forget_stale_repos`
+for repos whose checkout is gone. All three change what the
+index *tracks* and nothing it stores — the chunks they orphan
+are reclaimed by [garbage collection](#garbage-collection),
+which is why forgetting a repo reports no statistics.
+
+A pass covering several repos opens one write session per
+repo rather than one spanning all of them. A repo is the
+consistency boundary: a session per repo keeps an unrelated
+repo's rows out of the transaction, and both operations are
+idempotent, so a pass interrupted part-way is finished by
+running it again.
 
 Requests and responses are pydantic models discriminated on
 a `kind` field (`messages.py`). The daemon writes a status
@@ -887,7 +901,7 @@ A progress notification (PUB):
 Error responses carry a `code` field:
 
 - `index_not_built` — no index exists for this repo.
-  Client should trigger `rbtr index`.
+  Client should trigger `rbtr watch`.
 - `index_in_progress` — a build is running; retry after
   the `ready` notification.
 - `repo_not_found` — the repo path isn't registered.
@@ -1604,22 +1618,29 @@ never discards anything a branch points at or that you
 asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
 the watch set, dropping unwatched branches/tags — the opt-in
 way to reclaim refs you no longer index. `HEAD_ONLY`,
-`KEEP`, and `ORPHANS` are the other explicit modes. If an
-aggressive mode drops a still-watched snapshot, the watcher
-rebuilds it on the next poll (self-healing).
+`KEEP`, and `ORPHANS` are the other explicit modes. Each
+names a different keep-set, so the CLI refuses two at once
+rather than resolving them by precedence. If a mode drops a
+still-watched snapshot, the watcher rebuilds it on the next
+poll (self-healing); an unwatched ref is rebuilt when
+somebody asks to read it. Collection never edits the watch set
+itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
+first and collects second.
 
-GC is **per-repo by default**; `rbtr gc --all-repos` reclaims across
-**every** registered repo at once (`GcRequest.repo_path is None` ⇒
+GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
+**every** registered repo at once (`GcRequest.scope is Scope.ALL` ⇒
 `run_gc_all` loops `run_gc` over `list_repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
-Global GC is **restricted to the default `WATCHED` reclamation** — it
-only drops genuinely-unreferenced snapshots, never aggressively across
-the whole index, and `KEEP` refs are repo-specific anyway; `handle_gc`
-rejects a global request in any other mode. A repo whose path no longer
-resolves (a removed worktree/clone) is **skipped** — never an error, and
-never purged (forgetting it is a separate, explicit action; see below).
-The chunk sweep is global on *every* gc, so even a single-repo `rbtr gc`
-frees chunks no other repo references.
+Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
+stated in a repo's own terms, so every repo keeps at least its HEAD and
+its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
+`ORPHANS` sweeps one repo's residue, so `handle_gc` rejects them
+globally. A repo is **skipped** when git cannot answer for it: a path
+that no longer resolves (never purged — forgetting it is a separate,
+explicit action; see below) or an unborn HEAD, which `run_gc` raises on
+and which must not end a pass over every other repo. Each repo is
+reported through `on_progress` as it is collected — `progress`
+notifications from the daemon, a bar on stderr inline.
 
 **Forgetting a repo** removes it entirely from the index — its
 `watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the
@@ -1628,17 +1649,24 @@ what [registration](#repo-registration) set up. It is
 **metadata-only**: it deliberately does not sweep chunks, so it reports
 no statistics; the now-orphaned chunks are reclaimed by the next GC (or
 build cleanup), keeping removal cheap and uniform with ref removal.
-`rbtr index --remove` with no refs forgets the current repo, but only
-when HEAD is its sole watched ref; `--remove-stale-repos` forgets every
-repo whose stored path no longer resolves. The latter is
-**daemon-driven enumeration**, not a per-path request: a removed
-checkout's path cannot be normalised into a request, so the handler
-walks `list_repos()` and forgets the unresolvable ones. Forgetting is
-always **explicit** — `poll_watched` skips a vanished path rather than
-purging it, since the absence may be transient (an unmounted volume).
-The wire surface is a dedicated `ForgetRequest`/`ForgetResponse` (the
-response carries only the forgotten paths), kept separate from the
-reclamation-shaped `GcResponse`.
+`rbtr forget` forgets the current repo, but only when HEAD is its sole
+watched ref; `rbtr forget --stale` forgets every repo whose stored path
+no longer resolves. The latter is **daemon-driven enumeration**, not a
+per-path request: a removed checkout's path cannot be normalised into a
+request, which is why it is a request of its own —
+`ForgetStaleRequest` carries no path, and
+`rbtr.index.watch.forget_stale_repos` walks `list_repos()` and forgets
+the unresolvable ones. Its sibling `remove_stale_refs` answers the other
+question — which of a *live* repo's watched refs git still resolves, in
+one repo or in all of them — and leaves a vanished repo alone, since git
+cannot answer for it. The two are separate commands over separate state,
+so each runs in its own request and its own sessions.
+Forgetting is always **explicit** — `poll_watched` skips a vanished path
+rather than purging it, since the absence may be transient (an unmounted
+volume). The wire surface is a dedicated
+`ForgetRequest`/`ForgetResponse` (the response carries only the
+forgotten paths), kept separate from the reclamation-shaped
+`GcResponse`.
 
 ## Working-tree indexing
 
@@ -2016,7 +2044,7 @@ lets review run against arbitrary refs, with HEAD as the
 default entry. GC follows suit — `rbtr gc` defaults to
 keeping HEAD, local branches/tags, and the watch set, so it
 never discards anything reachable from a branch
-(`--watched-only` opts into reclaiming unwatched branches).
+(`--keep watched-only` opts into reclaiming unwatched branches).
 See [Watched refs](#watched-refs).
 
 **Exact cosine over approximate NN.** Exact recall

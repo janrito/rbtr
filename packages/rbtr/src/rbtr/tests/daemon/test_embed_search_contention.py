@@ -27,13 +27,13 @@ from rbtr.config import config
 from rbtr.daemon import watcher
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
-    BuildIndexRequest,
     EmbedEndedNotification,
     EmbedOutcome,
     Notification,
     Response,
     SearchRequest,
     SearchResponse,
+    WatchRequest,
     notification_adapter,
 )
 from rbtr.daemon.server import DaemonServer
@@ -460,7 +460,7 @@ def test_no_writer_commits_while_the_write_lock_is_held(
 
     def ask_to_watch() -> None:
         with DaemonClient(running_daemon.runtime_dir) as client:
-            replies.append(client.send(BuildIndexRequest(repo_path=fake_repo, refs=["main"])))
+            replies.append(client.send(WatchRequest(repo_path=fake_repo, refs=["main"])))
 
     caller = threading.Thread(target=ask_to_watch)
     caller.start()

@@ -21,21 +21,22 @@ just demo                              # record all
 just demo-one demo/index-search.tape   # record one
 ```
 
-Output lands in `demo/output/` (checked into git).
+vhs writes each GIF to `demo/output/`.
 
 ## Demos
 
-| Tape                      | Duration | What it shows                              |
-| ------------------------- | -------- | ------------------------------------------ |
-| `index-search.tape`       | ~30s     | Three search modes + symbol retrieval      |
-| `structural-nav.tape`     | ~35s     | File outline, find-refs, structural diff   |
-| `agent-integration.tape`  | ~75s     | pi session — LLM navigating with rbtr      |
+| Tape                     | Duration | What it shows                                 |
+| ------------------------ | -------- | --------------------------------------------- |
+| `index-search.tape`      | ~30s     | Three search modes + symbol retrieval         |
+| `structural-nav.tape`    | ~35s     | File outline, symbol source, dependents, diff |
+| `agent-integration.tape` | ~75s     | pi session — LLM navigating with rbtr         |
 
 ## Before recording
 
-- **Demo 1** — ensure the daemon is running: `rbtr index`.
-- **Demo 2** — watch main so `changed-symbols` works:
-  `rbtr index main`.
+- **Demo 1** — ensure the daemon is running: `rbtr watch`.
+- **Demo 2** — `rbtr watch main`, and record from a branch
+  with commits on top of it, so the closing `changed-symbols`
+  has something to show.
 - **Demo 3** — the pi extension is loaded via `-e` flag
   in the tape itself.
 
